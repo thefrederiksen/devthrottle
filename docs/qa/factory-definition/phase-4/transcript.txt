@@ -1,0 +1,1550 @@
+# Gateway: http://127.0.0.1:7997, built from this tree; its storage root is <rig>\root, made empty for this run. The stand-in Director 'qa-standin-director' is connected on machine QA-RIG.
+
+# SECTION 0 - qa-outreach before any definition: registered with seats boss, writer and scout; a schedule for the boss and one for the scout; a trigger; one run of the scout's schedule and one of the trigger.
+
+$ cc-devthrottle factory register --manifest <rig>\qa-outreach.manifest.json      (as a person: the rig's enrolled browser device)
+registered: qa-outreach
+title: QA Outreach
+computer: QA-RIG
+folder: <rig>\qa-outreach-folder
+boss: boss
+goal: none
+purpose: none
+seats[3]{id,name,role,computer,schedules}:
+  boss,Boss,Boss,QA-RIG,
+  writer,Writer,Writer,QA-RIG,
+  scout,Scout,Scout,QA-RIG,
+help[2]:
+  cc-devthrottle factory list
+  cc-devthrottle factory goal-number show --factory qa-outreach
+[exit 0]
+
+$ cc-devthrottle schedule create --name "QA Outreach boss morning" --machine QA-RIG --repo <rig>\qa-outreach-folder --cron "0 8 * * 1-5" --tz Europe/Copenhagen --seed "Morning round." --factory qa-outreach --seat boss --json      (as a person: the rig's enrolled browser device)
+{
+  "id": "cj_3a110b",
+  "name": "QA Outreach boss morning",
+  "enabled": true,
+  "scheduleKind": "recurring",
+  "cronExpression": "0 8 * * 1-5",
+  "runAt": null,
+  "timeZoneId": "Europe/Copenhagen",
+  "factory": "qa-outreach",
+  "seat": "boss",
+  "target": {
+    "machine": "QA-RIG"
+  },
+  "action": {
+    "repoPath": "<rig>\\qa-outreach-folder",
+    "seed": "Morning round.",
+    "workListName": null,
+    "autoDismiss": true
+  },
+  "preventOverlap": true,
+  "notifyOn": "none",
+  "notifyWebhookUrl": null,
+  "createdUtc": "2026-10-15T14:52:32.4639632Z",
+  "lastFiredUtc": null,
+  "nextRunUtc": "2026-10-16T06:00:00Z",
+  "lastStatus": null,
+  "scheduleText": null,
+  "remainingToday": null,
+  "lifecycle": "active",
+  "stateLabel": "Active",
+  "toggleLabel": "Pause",
+  "runRecord": null,
+  "factoryTitle": null,
+  "factoryHref": null,
+  "shortName": null,
+  "loadWarning": null,
+  "shifts": [
+    "night"
+  ],
+  "shiftText": "Night shift",
+  "shiftWarning": null,
+  "shiftRule": null
+}
+[exit 0]
+
+$ cc-devthrottle schedule create --name "QA Outreach scout at noon" --machine QA-RIG --repo <rig>\qa-outreach-folder --cron "0 12 * * *" --tz Europe/Copenhagen --seed "Scout round." --factory qa-outreach --seat scout --json      (as a person: the rig's enrolled browser device)
+{
+  "id": "cj_3e5047",
+  "name": "QA Outreach scout at noon",
+  "enabled": true,
+  "scheduleKind": "recurring",
+  "cronExpression": "0 12 * * *",
+  "runAt": null,
+  "timeZoneId": "Europe/Copenhagen",
+  "factory": "qa-outreach",
+  "seat": "scout",
+  "target": {
+    "machine": "QA-RIG"
+  },
+  "action": {
+    "repoPath": "<rig>\\qa-outreach-folder",
+    "seed": "Scout round.",
+    "workListName": null,
+    "autoDismiss": true
+  },
+  "preventOverlap": true,
+  "notifyOn": "none",
+  "notifyWebhookUrl": null,
+  "createdUtc": "2026-10-15T14:52:34.3537616Z",
+  "lastFiredUtc": null,
+  "nextRunUtc": "2026-10-16T10:00:00Z",
+  "lastStatus": null,
+  "scheduleText": null,
+  "remainingToday": null,
+  "lifecycle": "active",
+  "stateLabel": "Active",
+  "toggleLabel": "Pause",
+  "runRecord": null,
+  "factoryTitle": null,
+  "factoryHref": null,
+  "shortName": null,
+  "loadWarning": null,
+  "shifts": [
+    "night"
+  ],
+  "shiftText": "Night shift",
+  "shiftWarning": null,
+  "shiftRule": null
+}
+[exit 0]
+
+$ cc-devthrottle trigger add --name qa-outreach-new-mail --factory qa-outreach --agent scout --machine QA-RIG --repo <rig>\qa-outreach-folder --check "python check_mail.py" --every 1h --prompt "Answer the {count} new mails." --json      (as a person: the rig's enrolled browser device)
+{
+  "id": "fc518691-a72b-4185-aff8-8602238977ae",
+  "name": "qa-outreach-new-mail",
+  "factory": "qa-outreach",
+  "factoryAgent": "scout",
+  "machine": "QA-RIG",
+  "repoPath": "<rig>\\qa-outreach-folder",
+  "checkCommand": "python check_mail.py",
+  "intervalSeconds": 3600,
+  "prompt": "Answer the {count} new mails.",
+  "paused": false,
+  "createdBy": "device browser qa-browser",
+  "createdUtc": "2026-10-15T14:52:35.5172741Z",
+  "lastSessionId": null,
+  "lastCheckUtc": null,
+  "lastOutcome": null,
+  "status": "ok",
+  "statusText": "waiting for the first check"
+}
+[exit 0]
+
+$ cc-devthrottle schedule run cj_3e5047      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-15T14:52:36.4048924Z UTC
+  Target:  qa-standin-director
+  Session: ffbd701a-6570-4ced-a272-16bf4f7925ec
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_3e5047
+  cc-devthrottle session buffer ffbd701a-6570-4ced-a272-16bf4f7925ec
+[exit 0]
+
+# the session create the stand-in Director received (create-1.json), exactly as the Gateway sent it
+{
+  "repoPath": "<rig>\\qa-outreach-folder",
+  "pooledWorktree": null,
+  "name": "QA Outreach scout at noon - 2026-10-15 16:52",
+  "purpose": null,
+  "agent": "ClaudeCode",
+  "fleetManagerHome": null,
+  "args": null,
+  "bypassPermissions": null,
+  "command": null,
+  "commandArgs": null,
+  "resumeSessionId": null,
+  "prePrompt": "Scout round.\n\nWhen you have finished, the last thing you do is report how this scheduled run went: run \u0060cc-devthrottle run result ok\u0060, or \u0060cc-devthrottle run result problem \u0022\u003Cone line why\u003E\u0022\u0060 if something went wrong.",
+  "prePromptWaitMs": 30000,
+  "wingmanEnabled": false,
+  "controllerSessionId": null,
+  "restoreClaim": null,
+  "origin": "schedule",
+  "originSurface": "cron",
+  "parentSessionId": null,
+  "factory": "qa-outreach",
+  "role": null,
+  "missionId": null,
+  "missionName": null,
+  "workflowRunId": null,
+  "workflowId": null,
+  "workflowVersion": null,
+  "machine": null,
+  "director": null,
+  "autoDismiss": true
+}
+# its first prompt:
+Scout round.
+
+When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+
+$ cc-devthrottle schedule runs cj_3e5047      (as a person: the rig's enrolled browser device)
++----------------------------------------------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)              | Fired (UTC)                  | Target              | Session                              | Infra   | Task    |
+|------------------------------+------------------------------+---------------------+--------------------------------------+---------+---------|
+| 2026-10-15T14:52:36.1908978Z | 2026-10-15T14:52:36.4048924Z | qa-standin-director | ffbd701a-6570-4ced-a272-16bf4f7925ec | started | unknown |
++----------------------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+$ POST /directors/qa-standin-director/triggers/fc518691-a72b-4185-aff8-8602238977ae/checks      (raw HTTP, as the stand-in Director)
+  body: {"checkedAtUtc": "2026-10-15T14:52:38.703934Z", "exitCode": 0, "timedOut": false, "output": "{\"count\": 0}"}
+  status: 200
+  answer: {"id":"632c625a-c259-48f1-a57d-f21e2751e996","triggerId":"fc518691-a72b-4185-aff8-8602238977ae","checkedUtc":"2026-10-15T14:52:38.703934Z","recordedUtc":"2026-10-15T14:52:38.7325194Z","outcome":"nothing-to-do","count":0,"sessionId":null,"reason":null,"directorId":"qa-standin-director"}
+
+$ cc-devthrottle trigger runs qa-outreach-new-mail      (as a person: the rig's enrolled browser device)
+1 most recent check(s) of qa-outreach-new-mail, newest first:
+  2026-10-15T14:52:38.703934Z  nothing-to-do  count=0
+help[1]:
+  cc-devthrottle trigger show "qa-outreach-new-mail"
+[exit 0]
+
+$ cc-devthrottle schedule list --fields id,name,enabled,cron,machine      (as a person: the rig's enrolled browser device)
+count: 2 (enabled 2)
+schedules[2]{id,name,enabled,cron,machine}:
+  cj_3a110b,QA Outreach boss morning,yes,0 8 * * 1-5,QA-RIG
+  cj_3e5047,QA Outreach scout at noon,yes,0 12 * * *,QA-RIG
+help[4]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+[exit 0]
+
+# SECTION 5 and 8 - the first definition: what a publish would do (the plan names the scout's schedule and the trigger it will delete), the publish, and the runs of both still there after.
+
+# folder 'first-definition': the phase 1 example with factory.yaml: 'machine: SOREN_NORTH' -> 'machine: QA-RIG'; seats/boss.yaml: 'rules: [base]' -> 'rules: [base]\nsecrets: [qa-mail-password]'; seats/writer.yaml: 'files: [files/post-template.md]' -> 'files: [files/post-template.md]\nstarts:\n  - cron: "0 10 * * 2,4"\n    timeZone: Europe/Copenhagen\n    prompt: Write this week\'s post.'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\first-definition --expected-version 0 --note "the first definition"      (as a person: the rig's enrolled browser device)
+Saved: version 1 of the definition of qa-outreach is a draft (6 files, 1075 bytes).
+No version is published yet.
+notices[1]:
+  seats/boss.yaml:11: Whether QA-RIG holds 'qa-mail-password' is not checked yet.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 1
+  cc-devthrottle factory definition publish qa-outreach --version 1
+[exit 0]
+
+$ cc-devthrottle factory definition diff qa-outreach      (as a person: the rig's enrolled browser device)
+qa-outreach: from nothing published to version 1.
+published version: none
+what changes: First publish: 9 factory settings set, 2 seats added, 2 starts created, rules tightened on base and boss, rules loosened on base, 1 grant added, 1 file added.
+  factory qa-outreach
+  title QA Outreach
+  purpose Shows a factory definition held on the Gateway
+  goal text set: 1 line
+      + Two posts a week, every week.
+  goalApprovedOn 2026-10-14
+  bossSeat boss
+  defaults.machine QA-RIG
+  defaults.agent ClaudeCode
+  defaults.model claude-opus-5-5
+  Seat Boss (boss) added.
+    role Boss
+    machine QA-RIG (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    rule set base added
+    secret qa-mail-password added
+    brief: 1 line
+      + Run the factory. Read what the writer made and decide what is next.
+  Seat Writer (writer) added.
+    role Writer
+    machine QA-RIG (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    grant publish-posts added
+    fleet skill dev-throttle added
+    file files/post-template.md added
+    brief: 1 line
+      + Write one post from the template.
+  Boss: start created, Weekdays 08:00 Europe/Copenhagen.
+    prompt "Morning round."
+  Writer: start created, Tuesday and Thursday 10:00 Europe/Copenhagen.
+    prompt "Write this week's post."
+  Rule set base (new) tightened: deny Bash(git push:*) added.
+  Rule set base (new) loosened: allow Bash(git status) added.
+  Seat Boss (boss) tightened: now takes rule set base.
+  Grant publish-posts added.
+    allows Publish a post on the blog
+    limits At most two a week
+    seat writer added
+  File files/post-template.md added: 3 lines.
+      + # Title
+      + 
+      + One paragraph that says what the post is about.
+What publishing version 1 would do to the live factory now:
+  Registry: goal set.
+  Registry: goal approved on set to "2026-10-14".
+  Registry: purpose set to "Shows a factory definition held on the Gateway".
+  Registry: seat boss brief file BOSS.md -> seats/boss.yaml.
+  Registry: seat scout (Scout) removed.
+  Registry: seat writer brief file WRITER.md -> seats/writer.yaml.
+  Schedule cj_3a110b (QA Outreach - Boss) changed: name "QA Outreach boss morning" -> "QA Outreach - Boss".
+  A new schedule (QA Outreach - Writer) for seat writer: Tuesday and Thursday 10:00 Europe/Copenhagen.
+  Schedule cj_3e5047 (QA Outreach scout at noon) deleted: its seat 'scout' is not in the definition; its runs are kept.
+  Trigger qa-outreach-new-mail deleted: checks from a definition run from phase 5b, so until then a defined factory has no triggers; its run history is kept.
+help[2]:
+  cc-devthrottle factory definition publish qa-outreach --version 1 --replaces 0
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-outreach --version 1 --replaces 0      (as a person: the rig's enrolled browser device)
+Published: version 1 of the definition of qa-outreach. Version 1 is now the published definition.
+what changes: First publish: 9 factory settings set, 2 seats added, 2 starts created, rules tightened on base and boss, rules loosened on base, 1 grant added, 1 file added.
+  factory qa-outreach
+  title QA Outreach
+  purpose Shows a factory definition held on the Gateway
+  goal text set: 1 line
+      + Two posts a week, every week.
+  goalApprovedOn 2026-10-14
+  bossSeat boss
+  defaults.machine QA-RIG
+  defaults.agent ClaudeCode
+  defaults.model claude-opus-5-5
+  Seat Boss (boss) added.
+    role Boss
+    machine QA-RIG (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    rule set base added
+    secret qa-mail-password added
+    brief: 1 line
+      + Run the factory. Read what the writer made and decide what is next.
+  Seat Writer (writer) added.
+    role Writer
+    machine QA-RIG (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-opus-5-5 (the factory's default)
+    grant publish-posts added
+    fleet skill dev-throttle added
+    file files/post-template.md added
+    brief: 1 line
+      + Write one post from the template.
+  Boss: start created, Weekdays 08:00 Europe/Copenhagen.
+    prompt "Morning round."
+  Writer: start created, Tuesday and Thursday 10:00 Europe/Copenhagen.
+    prompt "Write this week's post."
+  Rule set base (new) tightened: deny Bash(git push:*) added.
+  Rule set base (new) loosened: allow Bash(git status) added.
+  Seat Boss (boss) tightened: now takes rule set base.
+  Grant publish-posts added.
+    allows Publish a post on the blog
+    limits At most two a week
+    seat writer added
+  File files/post-template.md added: 3 lines.
+      + # Title
+      + 
+      + One paragraph that says what the post is about.
+applied:
+  Definition: version 1 published.
+  Registry: goal set.
+  Registry: goal approved on set to "2026-10-14".
+  Registry: purpose set to "Shows a factory definition held on the Gateway".
+  Registry: seat boss brief file BOSS.md -> seats/boss.yaml.
+  Registry: seat scout (Scout) removed.
+  Registry: seat writer brief file WRITER.md -> seats/writer.yaml.
+  Schedule cj_3a110b (QA Outreach - Boss) changed: name "QA Outreach boss morning" -> "QA Outreach - Boss".
+  Schedule cj_d1d73a (QA Outreach - Writer) created for seat writer: Tuesday and Thursday 10:00 Europe/Copenhagen.
+  Schedule cj_3e5047 (QA Outreach scout at noon) deleted: its seat 'scout' is not in the definition; its runs are kept.
+  Trigger qa-outreach-new-mail deleted: checks from a definition run from phase 5b, so until then a defined factory has no triggers; its run history is kept.
+notices[1]:
+  seats/boss.yaml:11: QA-RIG cannot answer yet whether it holds 'qa-mail-password': the question needs a Director that can be asked it, which comes with phase 5. The seat's start will check it.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle schedule list --fields id,name,enabled,cron,machine      (as a person: the rig's enrolled browser device)
+count: 2 (enabled 2)
+schedules[2]{id,name,enabled,cron,machine}:
+  cj_3a110b,QA Outreach - Boss,yes,0 8 * * 1-5,QA-RIG
+  cj_d1d73a,QA Outreach - Writer,yes,"0 10 * * 2,4",QA-RIG
+help[4]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+[exit 0]
+
+$ cc-devthrottle schedule runs cj_3e5047      (as a person: the rig's enrolled browser device)
++----------------------------------------------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)              | Fired (UTC)                  | Target              | Session                              | Infra   | Task    |
+|------------------------------+------------------------------+---------------------+--------------------------------------+---------+---------|
+| 2026-10-15T14:52:36.1908978Z | 2026-10-15T14:52:36.4048924Z | qa-standin-director | ffbd701a-6570-4ced-a272-16bf4f7925ec | started | unknown |
++----------------------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+$ cc-devthrottle trigger list      (as a person: the rig's enrolled browser device)
+No triggers in this account.
+help[1]:
+  cc-devthrottle trigger add --name <name> --factory <factory> --agent "<factory agent>" --machine <machine> --repo "<path>" --check "<command>" --every 5m --prompt "<prompt with {count}>"
+[exit 0]
+
+$ GET /triggers/fc518691-a72b-4185-aff8-8602238977ae/runs      (raw HTTP, as a person)
+  status: 404
+  answer: {"code":"trigger_not_found","error":"no trigger 'fc518691-a72b-4185-aff8-8602238977ae' in this account"}
+
+# the trigger's runs after the publish deleted the trigger fc518691-a72b-4185-aff8-8602238977ae
+#   read from the rig's gateway.db: SELECT * FROM trigger_runs WHERE TriggerId = ? COLLATE NOCASE ['fc518691-a72b-4185-aff8-8602238977ae']
+  Id, TriggerId, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId, tenant_id
+  632C625A-C259-48F1-A57D-F21E2751E996, FC518691-A72B-4185-AFF8-8602238977AE, 2026-10-15 14:52:38.703934, 2026-10-15 14:52:38.7325194, nothing-to-do, 0, None, None, qa-standin-director, local
+  (1 rows)
+
+# the scout schedule's runs after the publish deleted the schedule
+#   read from the rig's gateway.db: SELECT Id, JobId, Factory, Seat, JobName, InfraStatus, BriefVersion FROM cron_runs WHERE JobId = ? ['cj_3e5047']
+  Id, JobId, Factory, Seat, JobName, InfraStatus, BriefVersion
+  E66AA133-E06D-4A35-B0A8-22442A1E7281, cj_3e5047, qa-outreach, scout, QA Outreach scout at noon, started, None
+  (1 rows)
+
+# SECTION 1 - the writer renamed Author by one edit and one publish: the seat page, the schedule, a run and a talk.
+
+# folder 'writer-renamed': the phase 1 example with factory.yaml: 'machine: SOREN_NORTH' -> 'machine: QA-RIG'; seats/boss.yaml: 'rules: [base]' -> 'rules: [base]\nsecrets: [qa-mail-password]'; seats/writer.yaml: 'files: [files/post-template.md]' -> 'files: [files/post-template.md]\nstarts:\n  - cron: "0 10 * * 2,4"\n    timeZone: Europe/Copenhagen\n    prompt: Write this week\'s post.'; seats/writer.yaml: 'name: Writer' -> 'name: Author'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\writer-renamed --expected-version 1 --note "the writer is Author now"      (as a person: the rig's enrolled browser device)
+Saved: version 2 of the definition of qa-outreach is a draft (6 files, 1075 bytes).
+Version 1 stays the published definition until a person publishes this draft.
+notices[1]:
+  seats/boss.yaml:11: Whether QA-RIG holds 'qa-mail-password' is not checked yet.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 2
+  cc-devthrottle factory definition publish qa-outreach --version 2
+[exit 0]
+
+$ cc-devthrottle factory definition diff qa-outreach      (as a person: the rig's enrolled browser device)
+qa-outreach: from version 1 to version 2.
+published version: 1
+what changes: 1 seat changed.
+  Seat Author (writer) changed.
+    name Writer -> Author
+What publishing version 2 would do to the live factory now:
+  Registry: seat writer renamed Writer -> Author.
+  Schedule cj_3a110b (QA Outreach - Boss) kept as it is.
+  Schedule cj_d1d73a (QA Outreach - Author) changed: name "QA Outreach - Writer" -> "QA Outreach - Author".
+help[2]:
+  cc-devthrottle factory definition publish qa-outreach --version 2 --replaces 1
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-outreach --version 2 --replaces 1      (as a person: the rig's enrolled browser device)
+Published: version 2 of the definition of qa-outreach. Version 2 is now the published definition.
+what changes: 1 seat changed.
+  Seat Author (writer) changed.
+    name Writer -> Author
+applied:
+  Definition: version 2 published.
+  Registry: seat writer renamed Writer -> Author.
+  Schedule cj_3a110b (QA Outreach - Boss) kept as it is.
+  Schedule cj_d1d73a (QA Outreach - Author) changed: name "QA Outreach - Writer" -> "QA Outreach - Author".
+notices[1]:
+  seats/boss.yaml:11: QA-RIG cannot answer yet whether it holds 'qa-mail-password': the question needs a Director that can be asked it, which comes with phase 5. The seat's start will check it.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ GET /gateway/factories/qa-outreach/seats/writer      (raw HTTP, as a person)
+  status: 200
+  answer: {"factoryId":"qa-outreach","factoryTitle":"QA Outreach","seatId":"writer","crumb":"Factories / QA Outreach / Seats / Author","crumbHrefs":["/factories","/factories/qa-outreach","/factories/qa-outreach/seats"],"name":"Author","role":"Writer","computerText":"runs on QA-RIG","startsWord":"Scheduled","startsTone":"ok","talk":{"label":"Talk to Author","busyLabel":"Starting the talk with Author...","factoryId":"qa-outreach","seatId":"writer"},"brief":{"heading":"What this seat does","state":"published","text":"Write one post from the template.\n","versionText":"Definition version 2, published by a person (device browser qa-browser) today 10:52.","draftText":null,"waitingText":null,"pathLabel":null,"pathText":null,"computerLabel":null,"computerText":null,"note":"This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.","editLabel":"Edit","historyLabel":"History"},"starts":{"heading":"How it starts","talkOnlyText":null,"schedules":[{"jobId":"cj_d1d73a","name":"QA Outreach - Author","whenText":"Tuesday and Thursday 10:00 (Europe/Copenhagen)","shiftText":"Night shift","pausedText":null,"missingText":null,"editLabel":"Edit schedule","paused":false,"toggleLabel":"Pause","unlink":{"jobId":"cj_d1d73a","label":"Take off this seat","busyLabel":"Taking it off...","confirmTitle":"Take this schedule off Author?","confirmLines":["'QA Outreach - Author' stops being a schedule of Author. The sessions it starts no longer belong to QA Outreach.","It stays switched on and keeps running at its times, as a plain schedule in no factory. Pause it first if it should stop.","It is kept, not deleted. It is listed on the Schedule page, and cc-devthrottle schedule link puts it back on a seat.","Author will then be talk only."],"confirmLabel":"Take it off"}}],"triggers":[],"triggersPause":null},"goal":{"heading":"Goal","text":"Two posts a week, every week.","note":"Only you change the goal. Approved 14 Oct 2026.","emptyText":null},"goalNumber":{"heading":"Goal number","valueText":null,"asOfText":null,"linkHref":null,"linkLabel":null,"emptyText":"No number posted yet"},"leftBehind":{"heading":"What it has left behind","lastTalkLabel":"Last talk","lastTalkText":"None yet.","lastRunLabel":"Last run","lastRunText":"Not run yet","lastRunTone":"grey","closingText":"no runs recorded yet","closingTone":"grey","numbersTitle":"Last 7 days","numbers":[{"text":"0 runs","tone":"neutral","target":null,"outcome":null,"href":null}],"recentTitle":"Recent activity","recent":[],"recentEmptyText":"Nothing recorded in the last 7 days.","allLabel":"All activity of this seat","allHref":"/factories?tab=activity&factory=qa-outreach&agent=writer","memoryLabel":"Memory","memoryText":"No notes in the factory's memory yet. Memory belongs to the whole factory, not to one seat.","memoryLinkLabel":"Open Memory","memoryHref":"/factories/qa-outreach/memory"},"truncatedText":null}
+
+$ cc-devthrottle schedule list --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "id": "cj_3a110b",
+    "name": "QA Outreach - Boss",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 8 * * 1-5",
+    "runAt": null,
+    "timeZoneId": "Europe/Copenhagen",
+    "factory": "qa-outreach",
+    "seat": "boss",
+    "target": {
+      "machine": "QA-RIG"
+    },
+    "action": {
+      "repoPath": "<rig>\\qa-outreach-folder",
+      "seed": "Morning round.",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-15T14:52:32.4639632Z",
+    "lastFiredUtc": null,
+    "nextRunUtc": "2026-10-16T06:00:00Z",
+    "lastStatus": null,
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "none",
+      "text": "no runs yet",
+      "runs": 0
+    },
+    "factoryTitle": "QA Outreach",
+    "factoryHref": "/factories/qa-outreach/seats",
+    "shortName": "Boss",
+    "loadWarning": null,
+    "shifts": [
+      "night"
+    ],
+    "shiftText": "Night shift",
+    "shiftWarning": null,
+    "shiftRule": null
+  },
+  {
+    "id": "cj_d1d73a",
+    "name": "QA Outreach - Author",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 10 * * 2,4",
+    "runAt": null,
+    "timeZoneId": "Europe/Copenhagen",
+    "factory": "qa-outreach",
+    "seat": "writer",
+    "target": {
+      "machine": "QA-RIG"
+    },
+    "action": {
+      "repoPath": "<rig>\\qa-outreach-folder",
+      "seed": "Write this week's post.",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-15T14:52:44.9832403Z",
+    "lastFiredUtc": null,
+    "nextRunUtc": "2026-10-20T08:00:00Z",
+    "lastStatus": null,
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "none",
+      "text": "no runs yet",
+      "runs": 0
+    },
+    "factoryTitle": "QA Outreach",
+    "factoryHref": "/factories/qa-outreach/seats",
+    "shortName": "Author",
+    "loadWarning": null,
+    "shifts": [
+      "night"
+    ],
+    "shiftText": "Night shift",
+    "shiftWarning": null,
+    "shiftRule": null
+  }
+]
+[exit 0]
+
+$ cc-devthrottle schedule list --fields id,name,enabled,cron,machine      (as a person: the rig's enrolled browser device)
+count: 2 (enabled 2)
+schedules[2]{id,name,enabled,cron,machine}:
+  cj_3a110b,QA Outreach - Boss,yes,0 8 * * 1-5,QA-RIG
+  cj_d1d73a,QA Outreach - Author,yes,"0 10 * * 2,4",QA-RIG
+help[4]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+[exit 0]
+
+$ cc-devthrottle schedule run cj_d1d73a      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-15T14:52:54.4088324Z UTC
+  Target:  qa-standin-director
+  Session: c0947c2a-8115-4962-8b31-d2b6ee230039
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_d1d73a
+  cc-devthrottle session buffer c0947c2a-8115-4962-8b31-d2b6ee230039
+[exit 0]
+
+# the session create the stand-in Director received (create-2.json), exactly as the Gateway sent it
+{
+  "repoPath": "<rig>\\qa-outreach-folder",
+  "pooledWorktree": null,
+  "name": "QA Outreach - Author - 2026-10-15 16:52",
+  "purpose": null,
+  "agent": "ClaudeCode",
+  "fleetManagerHome": null,
+  "args": null,
+  "bypassPermissions": null,
+  "command": null,
+  "commandArgs": null,
+  "resumeSessionId": null,
+  "prePrompt": "You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).\n\nThis is one of your scheduled runs: the schedule \u0022QA Outreach - Author\u0022 (cj_d1d73a). Your brief is given to you here in full, as the Gateway holds it (definition version 2, part of the factory\u0027s definition); it is not a file in the factory\u0027s folder. With it comes what this schedule asks of this run.\n\n--- your brief, definition version 2 ---\nWrite one post from the template.\n--- end of your brief, definition version 2 ---\n\nWrite this week\u0027s post.\n\nWhen you have finished, the last thing you do is report how this scheduled run went: run \u0060cc-devthrottle run result ok\u0060, or \u0060cc-devthrottle run result problem \u0022\u003Cone line why\u003E\u0022\u0060 if something went wrong.",
+  "prePromptWaitMs": 30000,
+  "wingmanEnabled": false,
+  "controllerSessionId": null,
+  "restoreClaim": null,
+  "origin": "schedule",
+  "originSurface": "cron",
+  "parentSessionId": null,
+  "factory": "qa-outreach",
+  "role": null,
+  "missionId": null,
+  "missionName": null,
+  "workflowRunId": null,
+  "workflowId": null,
+  "workflowVersion": null,
+  "machine": null,
+  "director": null,
+  "autoDismiss": true
+}
+# its first prompt:
+You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).
+
+This is one of your scheduled runs: the schedule "QA Outreach - Author" (cj_d1d73a). Your brief is given to you here in full, as the Gateway holds it (definition version 2, part of the factory's definition); it is not a file in the factory's folder. With it comes what this schedule asks of this run.
+
+--- your brief, definition version 2 ---
+Write one post from the template.
+--- end of your brief, definition version 2 ---
+
+Write this week's post.
+
+When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+
+$ cc-devthrottle schedule runs cj_d1d73a      (as a person: the rig's enrolled browser device)
++---------------------------------------------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)             | Fired (UTC)                  | Target              | Session                              | Infra   | Task    |
+|-----------------------------+------------------------------+---------------------+--------------------------------------+---------+---------|
+| 2026-10-15T14:52:54.400752Z | 2026-10-15T14:52:54.4088324Z | qa-standin-director | c0947c2a-8115-4962-8b31-d2b6ee230039 | started | unknown |
++---------------------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+$ POST /gateway/factory-agents/factories/qa-outreach/seats/writer/talk      (raw HTTP, as a person)
+  status: 201
+  answer: {"sessionId":"1cbbe26e-85e9-463e-8532-b706badc8fdc","sessionName":"QA Outreach - Author - talk with the owner","href":"/session/1cbbe26e-85e9-463e-8532-b706badc8fdc","factory":"qa-outreach","seat":"writer","computer":"QA-RIG","directorId":"qa-standin-director","briefVersion":2,"briefVersionKind":"definition"}
+
+# the session create the stand-in Director received (create-3.json), exactly as the Gateway sent it
+{
+  "repoPath": "<rig>\\qa-outreach-folder",
+  "pooledWorktree": null,
+  "name": "QA Outreach - Author - talk with the owner",
+  "purpose": null,
+  "agent": "ClaudeCode",
+  "fleetManagerHome": null,
+  "args": null,
+  "bypassPermissions": null,
+  "command": null,
+  "commandArgs": null,
+  "resumeSessionId": null,
+  "prePrompt": "You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).\r\n\r\nThe owner is here now and is talking with you. This is the owner\u0027s own session, opened from the Factories screen\u0027s Talk button. It is not one of your scheduled runs, and nobody is waiting on a report from it - the owner is reading your answers as you write them.\r\n\r\nBefore you say anything, read:\r\n- your brief: definition version 2, given to you in full below this list. It is part of the factory\u0027s definition, which the Gateway holds; it is not a file in the factory\u0027s folder.\r\n- the factory\u0027s goal: <rig>\\qa-outreach-folder\\GOAL.md\r\n- the factory\u0027s memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get \u003Cname\u003E for each note that matters\r\n- the factory\u0027s recent activity: cc-devthrottle factory activity --factory qa-outreach -n 30\r\n- the factory\u0027s status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory qa-outreach\r\n  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY) and every failing and waiting item with its row id. Say that word to the owner when you open.\r\n\r\n--- your brief, definition version 2 ---\r\nWrite one post from the template.\r\n--- end of your brief, definition version 2 ---\r\n\r\nYou work under the same rules as your scheduled runs.\r\nThese are the rules of your scheduled runs, exactly as your schedule (cj_d1d73a) starts them:\r\n--- the rules of your scheduled runs ---\r\nWrite this week\u0027s post.\r\n--- end of the rules of your scheduled runs ---\r\nThe steps in those rules that exist only because a scheduled run is unattended do NOT apply in a talk: do not rename this session to a dated name, do not send the morning email, and do not run cc-devthrottle session done. The owner closes this session.\r\n\r\nOpen by telling the owner, briefly, what has happened since the owner last talked with you (the newest activity line with the outcome talked, if there is one) and what you need from the owner.\r\n\r\nIn a talk the owner and you may change anything about the factory, the goal included - the owner is here to approve it. If the goal changes:\r\n- write the new goal into <rig>\\qa-outreach-folder\\GOAL.md, with today\u0027s date and this session\u0027s id (cc-devthrottle session whoami) beside it;\r\n- register the factory again so the page shows it: cc-devthrottle factory register --manifest \u003Cthe factory\u0027s manifest\u003E, with goalFile GOAL.md and goalApprovedOn set to today. If you do not have the manifest, write one from cc-devthrottle factory list --json, keeping only the keys the manifest takes (docs/cli-reference.md, Factory registry and goal number).\r\n\r\nBefore the talk ends you MUST do all three of these:\r\n1. Record one activity line: cc-devthrottle factory record --factory qa-outreach --agent writer --version \u0022definition v2\u0022 --outcome talked --what \u0022\u003Cone line of what was decided\u003E\u0022\r\n   Keep --version \u0022definition v2\u0022 exactly as written: it records which version of the factory\u0027s definition your brief came from in this talk.\r\n2. Write what was decided into the factory\u0027s memory: cc-devthrottle factory memory set \u003Cname\u003E \u0022\u003Cwhat was decided\u003E\u0022\r\n3. Run cc-devthrottle factory status --factory qa-outreach again. For every failing or waiting item that is now resolved, mark it handled with its evidence - and only if it is resolved:\r\n   cc-devthrottle factory record --factory qa-outreach --agent \u003Cthe item\u0027s seat\u003E --outcome done --corrects \u003Cthe item\u0027s row id\u003E --what \u0022Handled: \u003Cthe evidence\u003E\u0022\r\n   Then tell the owner the word the factory ends on.\r\n",
+  "prePromptWaitMs": 30000,
+  "wingmanEnabled": false,
+  "controllerSessionId": null,
+  "restoreClaim": null,
+  "origin": "human",
+  "originSurface": "cockpit",
+  "parentSessionId": null,
+  "factory": "qa-outreach",
+  "role": null,
+  "missionId": null,
+  "missionName": null,
+  "workflowRunId": null,
+  "workflowId": null,
+  "workflowVersion": null,
+  "machine": null,
+  "director": null,
+  "autoDismiss": false
+}
+# its first prompt:
+You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).
+
+The owner is here now and is talking with you. This is the owner's own session, opened from the Factories screen's Talk button. It is not one of your scheduled runs, and nobody is waiting on a report from it - the owner is reading your answers as you write them.
+
+Before you say anything, read:
+- your brief: definition version 2, given to you in full below this list. It is part of the factory's definition, which the Gateway holds; it is not a file in the factory's folder.
+- the factory's goal: <rig>\qa-outreach-folder\GOAL.md
+- the factory's memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get <name> for each note that matters
+- the factory's recent activity: cc-devthrottle factory activity --factory qa-outreach -n 30
+- the factory's status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory qa-outreach
+  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY) and every failing and waiting item with its row id. Say that word to the owner when you open.
+
+--- your brief, definition version 2 ---
+Write one post from the template.
+--- end of your brief, definition version 2 ---
+
+You work under the same rules as your scheduled runs.
+These are the rules of your scheduled runs, exactly as your schedule (cj_d1d73a) starts them:
+--- the rules of your scheduled runs ---
+Write this week's post.
+--- end of the rules of your scheduled runs ---
+The steps in those rules that exist only because a scheduled run is unattended do NOT apply in a talk: do not rename this session to a dated name, do not send the morning email, and do not run cc-devthrottle session done. The owner closes this session.
+
+Open by telling the owner, briefly, what has happened since the owner last talked with you (the newest activity line with the outcome talked, if there is one) and what you need from the owner.
+
+In a talk the owner and you may change anything about the factory, the goal included - the owner is here to approve it. If the goal changes:
+- write the new goal into <rig>\qa-outreach-folder\GOAL.md, with today's date and this session's id (cc-devthrottle session whoami) beside it;
+- register the factory again so the page shows it: cc-devthrottle factory register --manifest <the factory's manifest>, with goalFile GOAL.md and goalApprovedOn set to today. If you do not have the manifest, write one from cc-devthrottle factory list --json, keeping only the keys the manifest takes (docs/cli-reference.md, Factory registry and goal number).
+
+Before the talk ends you MUST do all three of these:
+1. Record one activity line: cc-devthrottle factory record --factory qa-outreach --agent writer --version "definition v2" --outcome talked --what "<one line of what was decided>"
+   Keep --version "definition v2" exactly as written: it records which version of the factory's definition your brief came from in this talk.
+2. Write what was decided into the factory's memory: cc-devthrottle factory memory set <name> "<what was decided>"
+3. Run cc-devthrottle factory status --factory qa-outreach again. For every failing or waiting item that is now resolved, mark it handled with its evidence - and only if it is resolved:
+   cc-devthrottle factory record --factory qa-outreach --agent <the item's seat> --outcome done --corrects <the item's row id> --what "Handled: <the evidence>"
+   Then tell the owner the word the factory ends on.
+
+
+# SECTION 3 - qa-outreach is defined: every way to define it another way is refused; enable, disable, run now and goal numbers still work.
+
+$ cc-devthrottle schedule create --name "A second boss start" --machine QA-RIG --repo <rig>\qa-outreach-folder --cron "0 15 * * 1-5" --tz Europe/Copenhagen --seed "Afternoon round." --factory qa-outreach --seat boss      (as a person: the rig's enrolled browser device)
+Error: This factory is defined by its definition; edit the definition.
+help[2]:
+  cc-devthrottle schedule create --help
+  cc-devthrottle schedule endpoint
+[exit 1]
+
+$ PUT /cron/jobs/cj_3a110b      (raw HTTP, as a person)
+  body: {"id": "cj_3a110b", "name": "QA Outreach - Boss", "enabled": true, "scheduleKind": "recurring", "cronExpression": "0 7 * * 1-5", "runAt": null, "timeZoneId": "Europe/Copenhagen", "factory": "qa-outreach", "seat": "boss", "target": {"machine": "QA-RIG"}, "action": {"repoPath": "<rig>\\qa-outreach-folder", "seed": "Morning round.", "workListName": null, "autoDismiss": true}, "preventOverlap": true, "notifyOn": "none", "notifyWebhookUrl": null, "createdUtc": "2026-10-15T14:52:32.4639632Z", "lastFiredUtc": null, "nextRunUtc": "2026-10-16T06:00:00Z", "lastStatus": null, "scheduleText": null, "remainingToday": null, "lifecycle": "active", "stateLabel": "Active", "toggleLabel": "Pause", "runRecord": null, "factoryTitle": null, "factoryHref": null, "shortName": null, "loadWarning": null, "shifts": ["night"], "shiftText": "Night shift", "shiftWarning": null, "shiftRule": null}
+  status: 409
+  answer: {"error":"This factory is defined by its definition; edit the definition.","outcome":"DefinedByDefinition"}
+
+$ cc-devthrottle schedule delete cj_3a110b      (as a person: the rig's enrolled browser device)
+Error: This factory is defined by its definition; edit the definition.
+help[2]:
+  cc-devthrottle schedule list
+  cc-devthrottle schedule endpoint
+[exit 1]
+
+$ cc-devthrottle schedule unlink cj_3a110b      (as a person: the rig's enrolled browser device)
+Error: This factory is defined by its definition; edit the definition.
+help[2]:
+  cc-devthrottle schedule list
+  cc-devthrottle factory list
+[exit 1]
+
+$ cc-devthrottle trigger add --name qa-outreach-another --factory qa-outreach --agent boss --machine QA-RIG --repo <rig>\qa-outreach-folder --check "python check.py" --every 1h --prompt Look.      (as a person: the rig's enrolled browser device)
+Error: This factory is defined by its definition; edit the definition. (HTTP 409)
+help[1]:
+  cc-devthrottle trigger list
+[exit 1]
+
+$ cc-devthrottle factory register --manifest <rig>\qa-outreach.manifest.json      (as a person: the rig's enrolled browser device)
+Error: Not registered: This factory is defined by its definition; edit the definition.
+help[1]:
+  cc-devthrottle setup status
+[exit 1]
+
+$ cc-devthrottle factory purpose qa-outreach "A purpose set by hand"      (as a person: the rig's enrolled browser device)
+Error: Not set: This factory is defined by its definition; edit the definition.
+help[1]:
+  cc-devthrottle factory list
+[exit 1]
+
+$ cc-devthrottle schedule disable cj_3a110b      (as a person: the rig's enrolled browser device)
+Disabled QA Outreach - Boss (cj_3a110b).
+help[2]:
+  cc-devthrottle schedule enable cj_3a110b
+  cc-devthrottle schedule delete cj_3a110b
+[exit 0]
+
+$ cc-devthrottle schedule enable cj_3a110b      (as a person: the rig's enrolled browser device)
+Enabled QA Outreach - Boss (cj_3a110b).
+help[2]:
+  cc-devthrottle schedule get cj_3a110b
+  cc-devthrottle schedule disable cj_3a110b
+[exit 0]
+
+$ cc-devthrottle schedule run cj_3a110b      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-15T14:53:03.2719643Z UTC
+  Target:  qa-standin-director
+  Session: 8460104c-b4b9-4366-b119-309f87981a6f
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_3a110b
+  cc-devthrottle session buffer 8460104c-b4b9-4366-b119-309f87981a6f
+[exit 0]
+
+# the session create the stand-in Director received (create-4.json), exactly as the Gateway sent it
+{
+  "repoPath": "<rig>\\qa-outreach-folder",
+  "pooledWorktree": null,
+  "name": "QA Outreach - Boss - 2026-10-15 16:53",
+  "purpose": null,
+  "agent": "ClaudeCode",
+  "fleetManagerHome": null,
+  "args": null,
+  "bypassPermissions": null,
+  "command": null,
+  "commandArgs": null,
+  "resumeSessionId": null,
+  "prePrompt": "You are the boss of QA Outreach (factory id: qa-outreach; your agent id: boss).\n\nThis is one of your scheduled runs: the schedule \u0022QA Outreach - Boss\u0022 (cj_3a110b). Your brief is given to you here in full, as the Gateway holds it (definition version 2, part of the factory\u0027s definition); it is not a file in the factory\u0027s folder. With it comes what this schedule asks of this run.\n\n--- your brief, definition version 2 ---\nRun the factory. Read what the writer made and decide what is next.\n--- end of your brief, definition version 2 ---\n\nMorning round.\n\nWhen you have finished, the last thing you do is report how this scheduled run went: run \u0060cc-devthrottle run result ok\u0060, or \u0060cc-devthrottle run result problem \u0022\u003Cone line why\u003E\u0022\u0060 if something went wrong.",
+  "prePromptWaitMs": 30000,
+  "wingmanEnabled": false,
+  "controllerSessionId": null,
+  "restoreClaim": null,
+  "origin": "schedule",
+  "originSurface": "cron",
+  "parentSessionId": null,
+  "factory": "qa-outreach",
+  "role": null,
+  "missionId": null,
+  "missionName": null,
+  "workflowRunId": null,
+  "workflowId": null,
+  "workflowVersion": null,
+  "machine": null,
+  "director": null,
+  "autoDismiss": true
+}
+# its first prompt:
+You are the boss of QA Outreach (factory id: qa-outreach; your agent id: boss).
+
+This is one of your scheduled runs: the schedule "QA Outreach - Boss" (cj_3a110b). Your brief is given to you here in full, as the Gateway holds it (definition version 2, part of the factory's definition); it is not a file in the factory's folder. With it comes what this schedule asks of this run.
+
+--- your brief, definition version 2 ---
+Run the factory. Read what the writer made and decide what is next.
+--- end of your brief, definition version 2 ---
+
+Morning round.
+
+When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+
+$ cc-devthrottle factory goal-number post --factory qa-outreach --value 2 --unit "posts this week" --date 2026-10-15 --link https://example.com/qa-outreach/posts --by boss      (as a person: the rig's enrolled browser device)
+posted: 9c91d804-dc6f-47cd-a942-618feb697d61
+factory: qa-outreach
+value: 2
+unit: posts this week
+as of: 2026-10-15
+posted by: boss
+help[1]:
+  cc-devthrottle factory goal-number show --factory qa-outreach
+[exit 0]
+
+$ cc-devthrottle schedule get cj_3a110b      (as a person: the rig's enrolled browser device)
+QA Outreach - Boss  (cj_3a110b)
+  Enabled:    yes
+  Machine:    QA-RIG
+  Runs:       skill Morning round.
+  Schedule:   cron 0 8 * * 1-5  (Europe/Copenhagen)
+  Notify:     off
+  Seat:       boss of qa-outreach
+  Next run:   2026-10-16T06:00:00Z UTC
+  Last fired: 2026-10-15T14:53:03.2719643Z  (started)
+  Created:    2026-10-15T14:52:32.4639632Z UTC
+[exit 0]
+
+# SECTION 4 - qa-undefined has no definition: the same edits are accepted.
+
+$ cc-devthrottle factory register --manifest <rig>\qa-undefined.manifest.json      (as a person: the rig's enrolled browser device)
+registered: qa-undefined
+title: QA Undefined
+computer: QA-RIG
+folder: <rig>\qa-undefined-folder
+boss: boss
+goal: none
+purpose: none
+seats[1]{id,name,role,computer,schedules}:
+  boss,Boss,Boss,QA-RIG,
+help[2]:
+  cc-devthrottle factory list
+  cc-devthrottle factory goal-number show --factory qa-undefined
+[exit 0]
+
+$ cc-devthrottle schedule create --name "QA Undefined boss" --machine QA-RIG --repo <rig>\qa-undefined-folder --cron "0 8 * * 1-5" --tz Europe/Copenhagen --seed "Morning round." --factory qa-undefined --seat boss --json      (as a person: the rig's enrolled browser device)
+{
+  "id": "cj_e2085e",
+  "name": "QA Undefined boss",
+  "enabled": true,
+  "scheduleKind": "recurring",
+  "cronExpression": "0 8 * * 1-5",
+  "runAt": null,
+  "timeZoneId": "Europe/Copenhagen",
+  "factory": "qa-undefined",
+  "seat": "boss",
+  "target": {
+    "machine": "QA-RIG"
+  },
+  "action": {
+    "repoPath": "<rig>\\qa-undefined-folder",
+    "seed": "Morning round.",
+    "workListName": null,
+    "autoDismiss": true
+  },
+  "preventOverlap": true,
+  "notifyOn": "none",
+  "notifyWebhookUrl": null,
+  "createdUtc": "2026-10-15T14:53:07.7935506Z",
+  "lastFiredUtc": null,
+  "nextRunUtc": "2026-10-16T06:00:00Z",
+  "lastStatus": null,
+  "scheduleText": null,
+  "remainingToday": null,
+  "lifecycle": "active",
+  "stateLabel": "Active",
+  "toggleLabel": "Pause",
+  "runRecord": null,
+  "factoryTitle": null,
+  "factoryHref": null,
+  "shortName": null,
+  "loadWarning": null,
+  "shifts": [
+    "night"
+  ],
+  "shiftText": "Night shift",
+  "shiftWarning": null,
+  "shiftRule": null
+}
+[exit 0]
+
+$ PUT /cron/jobs/cj_e2085e      (raw HTTP, as a person)
+  body: {"id": "cj_e2085e", "name": "QA Undefined boss", "enabled": true, "scheduleKind": "recurring", "cronExpression": "0 7 * * 1-5", "runAt": null, "timeZoneId": "Europe/Copenhagen", "factory": "qa-undefined", "seat": "boss", "target": {"machine": "QA-RIG"}, "action": {"repoPath": "<rig>\\qa-undefined-folder", "seed": "Morning round.", "workListName": null, "autoDismiss": true}, "preventOverlap": true, "notifyOn": "none", "notifyWebhookUrl": null, "createdUtc": "2026-10-15T14:53:07.7935506Z", "lastFiredUtc": null, "nextRunUtc": "2026-10-16T06:00:00Z", "lastStatus": null, "scheduleText": null, "remainingToday": null, "lifecycle": "active", "stateLabel": "Active", "toggleLabel": "Pause", "runRecord": null, "factoryTitle": null, "factoryHref": null, "shortName": null, "loadWarning": null, "shifts": ["night"], "shiftText": "Night shift", "shiftWarning": null, "shiftRule": null}
+  status: 200
+  answer: {"id":"cj_e2085e","name":"QA Undefined boss","enabled":true,"scheduleKind":"recurring","cronExpression":"0 7 * * 1-5","runAt":null,"timeZoneId":"Europe/Copenhagen","factory":"qa-undefined","seat":"boss","target":{"machine":"QA-RIG"},"action":{"repoPath":"<rig>\\qa-undefined-folder","seed":"Morning round.","workListName":null,"autoDismiss":true},"preventOverlap":true,"notifyOn":"none","notifyWebhookUrl":null,"createdUtc":"2026-10-15T14:53:07.7935506Z","lastFiredUtc":null,"nextRunUtc":"2026-10-16T05:00:00Z","lastStatus":null,"scheduleText":null,"remainingToday":null,"lifecycle":"active","stateLabel":"Active","toggleLabel":"Pause","runRecord":null,"factoryTitle":null,"factoryHref":null,"shortName":null,"loadWarning":null,"shifts":["night"],"shiftText":"Night shift","shiftWarning":null,"shiftRule":null}
+
+$ cc-devthrottle schedule unlink cj_e2085e      (as a person: the rig's enrolled browser device)
+Taken off the boss of QA Undefined. 'QA Undefined boss' is still switched on and keeps running at its times, as a plain schedule in no factory. (cj_e2085e)
+help[3]:
+  cc-devthrottle schedule disable cj_e2085e
+  cc-devthrottle schedule get cj_e2085e
+  cc-devthrottle schedule link cj_e2085e --factory qa-undefined --seat boss
+[exit 0]
+
+$ cc-devthrottle schedule link cj_e2085e --factory qa-undefined --seat boss      (as a person: the rig's enrolled browser device)
+Linked QA Undefined boss (cj_e2085e) to boss of qa-undefined.
+help[2]:
+  cc-devthrottle schedule get cj_e2085e
+  cc-devthrottle factory list
+[exit 0]
+
+$ cc-devthrottle trigger add --name qa-undefined-new-mail --factory qa-undefined --agent boss --machine QA-RIG --repo <rig>\qa-undefined-folder --check "python check.py" --every 1h --prompt Look.      (as a person: the rig's enrolled browser device)
+Created trigger qa-undefined-new-mail (1d122f3a-401e-4ae2-8dea-26320c78e7a7): checks every 1h on QA-RIG.
+help[2]:
+  cc-devthrottle trigger show "qa-undefined-new-mail"
+  cc-devthrottle trigger runs "qa-undefined-new-mail"
+[exit 0]
+
+$ cc-devthrottle trigger pause qa-undefined-new-mail      (as a person: the rig's enrolled browser device)
+Paused trigger qa-undefined-new-mail. Its checks still run and are recorded; it starts no session until resumed.
+help[2]:
+  cc-devthrottle trigger resume "qa-undefined-new-mail"
+  cc-devthrottle trigger show "qa-undefined-new-mail"
+[exit 0]
+
+$ cc-devthrottle trigger resume qa-undefined-new-mail      (as a person: the rig's enrolled browser device)
+Resumed trigger qa-undefined-new-mail. A check that counts work starts a session again.
+help[2]:
+  cc-devthrottle trigger pause "qa-undefined-new-mail"
+  cc-devthrottle trigger show "qa-undefined-new-mail"
+[exit 0]
+
+$ cc-devthrottle factory register --manifest <rig>\qa-undefined.manifest.json      (as a person: the rig's enrolled browser device)
+registered: qa-undefined
+title: QA Undefined
+computer: QA-RIG
+folder: <rig>\qa-undefined-folder
+boss: boss
+goal: none
+purpose: none
+seats[1]{id,name,role,computer,schedules}:
+  boss,Boss,Boss,QA-RIG,cj_e2085e
+help[2]:
+  cc-devthrottle factory list
+  cc-devthrottle factory goal-number show --factory qa-undefined
+[exit 0]
+
+$ cc-devthrottle factory purpose qa-undefined "A purpose set by hand"      (as a person: the rig's enrolled browser device)
+factory: qa-undefined
+title: QA Undefined
+purpose: A purpose set by hand
+help[1]:
+  cc-devthrottle factory list
+[exit 0]
+
+$ cc-devthrottle schedule delete cj_e2085e      (as a person: the rig's enrolled browser device)
+Deleted schedule cj_e2085e.
+help[2]:
+  cc-devthrottle schedule list
+  cc-devthrottle schedule create --name "<name>" --machine <machine> --repo "<path>" --cron "<expr>" --tz <time-zone> --seed "<prompt>"
+[exit 0]
+
+# SECTION 6 - restore version 1: its seats and schedules come back as a new newest version. Then a publish and a restore whose --replaces is no longer the published version, refused.
+
+$ cc-devthrottle factory definition restore qa-outreach --version 1 --expected-version 2 --replaces 2      (as a person: the rig's enrolled browser device)
+Restored: version 1 of the definition of qa-outreach. Version 3 is now the published definition.
+what changes: 1 seat changed.
+  Seat Writer (writer) changed.
+    name Author -> Writer
+applied:
+  Definition: version 3 written, a copy of version 1, and published.
+  Registry: seat writer renamed Author -> Writer.
+  Schedule cj_3a110b (QA Outreach - Boss) kept as it is.
+  Schedule cj_d1d73a (QA Outreach - Writer) changed: name "QA Outreach - Author" -> "QA Outreach - Writer".
+notices[1]:
+  seats/boss.yaml:11: QA-RIG cannot answer yet whether it holds 'qa-mail-password': the question needs a Director that can be asked it, which comes with phase 5. The seat's start will check it.
+help[2]:
+  cc-devthrottle factory definition get qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+$ cc-devthrottle schedule list --fields id,name,enabled,cron,machine      (as a person: the rig's enrolled browser device)
+count: 2 (enabled 2)
+schedules[2]{id,name,enabled,cron,machine}:
+  cj_3a110b,QA Outreach - Boss,yes,0 8 * * 1-5,QA-RIG
+  cj_d1d73a,QA Outreach - Writer,yes,"0 10 * * 2,4",QA-RIG
+help[4]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+[exit 0]
+
+$ GET /gateway/factories/qa-outreach/seats/writer      (raw HTTP, as a person)
+  status: 200
+  answer: {"factoryId":"qa-outreach","factoryTitle":"QA Outreach","seatId":"writer","crumb":"Factories / QA Outreach / Seats / Writer","crumbHrefs":["/factories","/factories/qa-outreach","/factories/qa-outreach/seats"],"name":"Writer","role":"Writer","computerText":"runs on QA-RIG","startsWord":"Scheduled","startsTone":"ok","talk":{"label":"Talk to Writer","busyLabel":"Starting the talk with Writer...","factoryId":"qa-outreach","seatId":"writer"},"brief":{"heading":"What this seat does","state":"published","text":"Write one post from the template.\n","versionText":"Definition version 3, published by a person (device browser qa-browser) today 10:53.","draftText":null,"waitingText":null,"pathLabel":null,"pathText":null,"computerLabel":null,"computerText":null,"note":"This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.","editLabel":"Edit","historyLabel":"History"},"starts":{"heading":"How it starts","talkOnlyText":null,"schedules":[{"jobId":"cj_d1d73a","name":"QA Outreach - Writer","whenText":"Tuesday and Thursday 10:00 (Europe/Copenhagen)","shiftText":"Night shift","pausedText":null,"missingText":null,"editLabel":"Edit schedule","paused":false,"toggleLabel":"Pause","unlink":{"jobId":"cj_d1d73a","label":"Take off this seat","busyLabel":"Taking it off...","confirmTitle":"Take this schedule off Writer?","confirmLines":["'QA Outreach - Writer' stops being a schedule of Writer. The sessions it starts no longer belong to QA Outreach.","It stays switched on and keeps running at its times, as a plain schedule in no factory. Pause it first if it should stop.","It is kept, not deleted. It is listed on the Schedule page, and cc-devthrottle schedule link puts it back on a seat.","Writer will then be talk only."],"confirmLabel":"Take it off"}}],"triggers":[],"triggersPause":null},"goal":{"heading":"Goal","text":"Two posts a week, every week.","note":"Only you change the goal. Approved 14 Oct 2026.","emptyText":null},"goalNumber":{"heading":"Goal number - posted by Boss, today 10:53","valueText":"Posts this week: 2","asOfText":"As of 15 Oct 2026","linkHref":"https://example.com/qa-outreach/posts","linkLabel":"How it is measured","emptyText":null},"leftBehind":{"heading":"What it has left behind","lastTalkLabel":"Last talk","lastTalkText":"None yet.","lastRunLabel":"Last run","lastRunText":"Today 16:52 (Europe/Copenhagen) - started","lastRunTone":"blue","closingText":"no runs recorded yet","closingTone":"grey","numbersTitle":"Last 7 days","numbers":[{"text":"0 runs","tone":"neutral","target":null,"outcome":null,"href":null}],"recentTitle":"Recent activity","recent":[],"recentEmptyText":"Nothing recorded in the last 7 days.","allLabel":"All activity of this seat","allHref":"/factories?tab=activity&factory=qa-outreach&agent=writer","memoryLabel":"Memory","memoryText":"No notes in the factory's memory yet. Memory belongs to the whole factory, not to one seat.","memoryLinkLabel":"Open Memory","memoryHref":"/factories/qa-outreach/memory"},"truncatedText":null}
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\writer-renamed --expected-version 3 --note "Author again, as a draft"      (as a person: the rig's enrolled browser device)
+Saved: version 4 of the definition of qa-outreach is a draft (6 files, 1075 bytes).
+Version 3 stays the published definition until a person publishes this draft.
+notices[1]:
+  seats/boss.yaml:11: Whether QA-RIG holds 'qa-mail-password' is not checked yet.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach --to 4
+  cc-devthrottle factory definition publish qa-outreach --version 4
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-outreach --version 4 --replaces 2      (as a person: the rig's enrolled browser device)
+Error: Not published: version 3 is the published definition now, not 2. Read what changes again and publish once more.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 1]
+
+$ cc-devthrottle factory definition restore qa-outreach --version 2 --expected-version 4 --replaces 2      (as a person: the rig's enrolled browser device)
+Error: Not restored: version 3 is the published definition now, not 2. Read what changes again and restore once more.
+help[2]:
+  cc-devthrottle factory definition diff qa-outreach
+  cc-devthrottle factory definition history qa-outreach
+[exit 1]
+
+$ cc-devthrottle factory definition history qa-outreach      (as a person: the rig's enrolled browser device)
+count: 4 of 4. Version 3 is the published definition.
+versions[4]{version,state,written,by,files,bytes,note}:
+  v4,draft,2026-10-15T14:53:18.8964308Z,person device browser qa-browser,6,1075,"Author again, as a draft"
+  v3,PUBLISHED NOW,2026-10-15T14:53:16.7649441Z,person device browser qa-browser,6,1075,"restored from version 1."
+  v2,published,2026-10-15T14:52:50.5441322Z,person device browser qa-browser,6,1075,"the writer is Author now"
+  v1,published,2026-10-15T14:52:43.0203613Z,person device browser qa-browser,6,1075,"the first definition"
+help[2]:
+  cc-devthrottle factory definition get qa-outreach --version <version>
+  cc-devthrottle factory definition diff qa-outreach --to <version>
+[exit 0]
+
+# SECTION 7 - the writer's brief through the definition. Published now: definition version 3 (the restore of version 1). Newest: version 4, a draft.
+
+$ cc-devthrottle factory brief get --factory qa-outreach --seat writer      (as a person: the rig's enrolled browser device)
+qa-outreach/writer  version 3  published  written by person device browser qa-browser  2026-10-15T14:53:16.7649441Z
+A newer version, 4, is waiting and is not published. Read it with 'get --draft'.
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+Write one post from the template.
+
+help[2]:
+  cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <path> --expected-version 4
+  cc-devthrottle factory brief history --factory qa-outreach --seat writer
+[exit 0]
+
+$ cc-devthrottle factory brief get --factory qa-outreach --seat writer --draft      (as a person: the rig's enrolled browser device)
+qa-outreach/writer  version 4  draft  written by person device browser qa-browser  2026-10-15T14:53:18.8964308Z
+This is a draft. A talk or a run is given version 3 until a person publishes this one.
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+Write one post from the template.
+
+help[2]:
+  cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <path> --expected-version 4
+  cc-devthrottle factory brief history --factory qa-outreach --seat writer
+[exit 0]
+
+$ cc-devthrottle factory brief history --factory qa-outreach --seat writer      (as a person: the rig's enrolled browser device)
+count: 1 of 1. Definition version 3 is published. Its brief is the one written in definition version 1, the newest version that changed it.
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+v1  PUBLISHED NOW  2026-10-15T14:52:43.0203613Z  person device browser qa-browser  34 bytes
+help[1]:
+  cc-devthrottle factory brief get --factory qa-outreach --seat writer --version <version>
+[exit 0]
+
+$ cc-devthrottle factory brief get --factory qa-outreach --seat writer --json      (as a person: the rig's enrolled browser device)
+{
+  "factory": "qa-outreach",
+  "seat": "writer",
+  "version": 3,
+  "text": "Write one post from the template.\n",
+  "state": "published",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "writtenAtUtc": "2026-10-15T14:53:16.7649441Z",
+  "publishedAtUtc": "2026-10-15T14:53:16.7649441Z",
+  "publishedBy": "device browser qa-browser",
+  "newestVersion": 4,
+  "publishedVersion": 3,
+  "versionKind": "definition",
+  "definition": "This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.",
+  "findings": [],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+# writer-brief.md is the published brief with one line added: 'End every post with one question to the reader.'
+
+$ cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <rig>\writer-brief.md --expected-version 4      (as a person: the rig's enrolled browser device)
+Saved: version 5 of the brief of 'writer' is a draft.
+A talk or a run is given version 3 until a person publishes this draft.
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+notice: seats/boss.yaml:11: Whether QA-RIG holds 'qa-mail-password' is not checked yet.
+help[1]:
+  cc-devthrottle factory brief get --factory qa-outreach --seat writer --draft
+[exit 0]
+
+# the files of definition version 5 that differ from version 4, compared byte for byte from GET /factory-definitions/qa-outreach/versions/N: ['seats/writer.yaml'] (of 6 files)
+
+--- version 4: seats/writer.yaml
++++ version 5: seats/writer.yaml
+@@ -3,6 +3,7 @@
+ role: Writer
+ brief: |
+   Write one post from the template.
++  End every post with one question to the reader.
+ grants: [publish-posts]
+ skills:
+   fleet: [dev-throttle]
+
+$ cc-devthrottle factory definition diff qa-outreach --from 4 --to 5      (as a person: the rig's enrolled browser device)
+qa-outreach: from version 4 to version 5.
+published version: 3
+what changes: 1 seat changed.
+  Seat Author (writer) changed.
+    brief changed: 1 line added, 0 removed
+        Write one post from the template.
+      + End every post with one question to the reader.
+What publishing version 5 would do to the live factory now:
+  Registry: seat writer renamed Writer -> Author.
+  Schedule cj_3a110b (QA Outreach - Boss) kept as it is.
+  Schedule cj_d1d73a (QA Outreach - Author) changed: name "QA Outreach - Writer" -> "QA Outreach - Author".
+help[2]:
+  cc-devthrottle factory definition publish qa-outreach --version 5 --replaces 3
+  cc-devthrottle factory definition history qa-outreach
+[exit 0]
+
+# A second save that read version 4, after version 5 was written: refused as stale.
+
+$ cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <rig>\writer-brief.md --expected-version 4      (as a person: the rig's enrolled browser device)
+Error: Not saved: another writer got there first. The brief is now at version 5 (by person device browser qa-browser); you sent version 4. Read version 5, merge your change into it, and save again with that version.
+help[2]:
+  cc-devthrottle factory brief get --factory qa-outreach --seat writer --draft
+  cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <path> --expected-version 5
+[exit 1]
+
+# A session of the factory saves a draft; it may not publish.
+
+$ cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <rig>\writer-brief-by-session.md --expected-version 5      (as session 3f7f9cca-2441-482a-af2d-f7c7d9fafbe9, of factory qa-outreach)
+Saved: version 6 of the brief of 'writer' is a draft.
+A talk or a run is given version 3 until a person publishes this draft.
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+notice: seats/boss.yaml:11: Whether QA-RIG holds 'qa-mail-password' is not checked yet.
+help[1]:
+  cc-devthrottle factory brief get --factory qa-outreach --seat writer --draft
+[exit 0]
+
+# the files of definition version 6 that differ from version 5, compared byte for byte from GET /factory-definitions/qa-outreach/versions/N: ['seats/writer.yaml'] (of 6 files)
+
+--- version 5: seats/writer.yaml
++++ version 6: seats/writer.yaml
+@@ -4,6 +4,7 @@
+ brief: |
+   Write one post from the template.
+   End every post with one question to the reader.
++  Keep each post under 600 words.
+ grants: [publish-posts]
+ skills:
+   fleet: [dev-throttle]
+
+$ cc-devthrottle factory brief publish --factory qa-outreach --seat writer --version 6 --replaces 3      (as session 3f7f9cca-2441-482a-af2d-f7c7d9fafbe9, of factory qa-outreach)
+Error: Only a person publishes a factory's definition. A session of the factory may save a draft; the owner reads it and publishes it.
+help[2]:
+  cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <path> --expected-version <newest version>
+  cc-devthrottle factory brief history --factory qa-outreach --seat writer
+[exit 1]
+
+# The seat page's brief panel answers from the definition before the publish: the published brief is still version 3's.
+
+$ GET /gateway/factories/qa-outreach/seats/writer/brief/editor      (raw HTTP, as a person)
+  status: 200
+  answer: {"heading":"Edit the brief of Writer","startText":"This starts from version 6, the newest draft, written by session 3f7f9cca-2441-482a-af2d-f7c7d9fafbe9 today 10:53. It is not the published brief: talks and runs of this seat are given version 3. This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.","text":"Write one post from the template.\nEnd every post with one question to the reader.\nKeep each post under 600 words.\n","expectedVersion":6,"textLabel":"The brief of Writer","limitText":"The brief is saved into the seat's file, and a file in a definition takes at most 256.0 KB.","waitingText":null,"saveLabel":"Save draft","saveBusyLabel":"Saving...","savedText":"Saved as a new draft of the definition. Talks and runs of this seat are still given the brief in definition version 3 until a person publishes.","publish":{"version":6,"expectedVersion":6,"label":"Publish","busyLabel":"Publishing...","confirmTitle":"Publish this brief for Writer?","confirmLines":["Every later talk and every later run of Writer will be given this text.","A text you have changed is saved as a new version first, and that version is published.","It replaces version 3, which is kept. History can bring it back.","This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief."],"confirmLabel":"Publish","doneText":"Published. Every later talk and every later run of Writer is given this text."},"cancelLabel":"Close without saving","conflictText":"Nothing was saved. Your text is still in the box, and the newer version is shown beside it. Merge what you need into your text and save it after the newer version, or take the newer version.","yoursLabel":"Your text","theirsLabel":"The newer version","saveOverLabel":"Save my text after the newer version","takeTheirsLabel":"Take the newer version and drop my text"}
+
+# A person publishes version 6 through the brief: the whole definition is published by the one transaction.
+
+$ cc-devthrottle factory brief publish --factory qa-outreach --seat writer --version 6 --replaces 3      (as a person: the rig's enrolled browser device)
+Published: version 6 of the brief of 'writer'. Version 6 is now the brief a talk or a run is given.
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+notice: seats/boss.yaml:11: QA-RIG cannot answer yet whether it holds 'qa-mail-password': the question needs a Director that can be asked it, which comes with phase 5. The seat's start will check it.
+what changes: 1 seat changed.
+  Seat Author (writer) changed.
+    name Writer -> Author
+    brief changed: 2 lines added, 0 removed
+        Write one post from the template.
+      + End every post with one question to the reader.
+      + Keep each post under 600 words.
+applied:
+  Definition: version 6 published.
+  Registry: seat writer renamed Writer -> Author.
+  Schedule cj_3a110b (QA Outreach - Boss) kept as it is.
+  Schedule cj_d1d73a (QA Outreach - Author) changed: name "QA Outreach - Writer" -> "QA Outreach - Author".
+help[1]:
+  cc-devthrottle factory brief get --factory qa-outreach --seat writer
+[exit 0]
+
+$ cc-devthrottle factory brief get --factory qa-outreach --seat writer      (as a person: the rig's enrolled browser device)
+qa-outreach/writer  version 6  published  written by session 3f7f9cca-2441-482a-af2d-f7c7d9fafbe9  2026-10-15T14:53:27.0803656Z
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+Write one post from the template.
+End every post with one question to the reader.
+Keep each post under 600 words.
+
+help[2]:
+  cc-devthrottle factory brief set --factory qa-outreach --seat writer --file <path> --expected-version 6
+  cc-devthrottle factory brief history --factory qa-outreach --seat writer
+[exit 0]
+
+$ cc-devthrottle factory brief history --factory qa-outreach --seat writer      (as a person: the rig's enrolled browser device)
+count: 3 of 3. Definition version 6 is published.
+This brief is part of the definition of qa-outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.
+v6  PUBLISHED NOW  2026-10-15T14:53:27.0803656Z  session 3f7f9cca-2441-482a-af2d-f7c7d9fafbe9  114 bytes
+v5  draft  2026-10-15T14:53:25.2596405Z  person device browser qa-browser  82 bytes
+v1  published  2026-10-15T14:52:43.0203613Z  person device browser qa-browser  34 bytes
+help[1]:
+  cc-devthrottle factory brief get --factory qa-outreach --seat writer --version <version>
+[exit 0]
+
+$ GET /gateway/factories/qa-outreach/seats/writer      (raw HTTP, as a person)
+  status: 200
+  answer: {"factoryId":"qa-outreach","factoryTitle":"QA Outreach","seatId":"writer","crumb":"Factories / QA Outreach / Seats / Author","crumbHrefs":["/factories","/factories/qa-outreach","/factories/qa-outreach/seats"],"name":"Author","role":"Writer","computerText":"runs on QA-RIG","startsWord":"Scheduled","startsTone":"ok","talk":{"label":"Talk to Author","busyLabel":"Starting the talk with Author...","factoryId":"qa-outreach","seatId":"writer"},"brief":{"heading":"What this seat does","state":"published","text":"Write one post from the template.\nEnd every post with one question to the reader.\nKeep each post under 600 words.\n","versionText":"Definition version 6, published by a person (device browser qa-browser) today 10:53.","draftText":null,"waitingText":null,"pathLabel":null,"pathText":null,"computerLabel":null,"computerText":null,"note":"This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.","editLabel":"Edit","historyLabel":"History"},"starts":{"heading":"How it starts","talkOnlyText":null,"schedules":[{"jobId":"cj_d1d73a","name":"QA Outreach - Author","whenText":"Tuesday and Thursday 10:00 (Europe/Copenhagen)","shiftText":"Night shift","pausedText":null,"missingText":null,"editLabel":"Edit schedule","paused":false,"toggleLabel":"Pause","unlink":{"jobId":"cj_d1d73a","label":"Take off this seat","busyLabel":"Taking it off...","confirmTitle":"Take this schedule off Author?","confirmLines":["'QA Outreach - Author' stops being a schedule of Author. The sessions it starts no longer belong to QA Outreach.","It stays switched on and keeps running at its times, as a plain schedule in no factory. Pause it first if it should stop.","It is kept, not deleted. It is listed on the Schedule page, and cc-devthrottle schedule link puts it back on a seat.","Author will then be talk only."],"confirmLabel":"Take it off"}}],"triggers":[],"triggersPause":null},"goal":{"heading":"Goal","text":"Two posts a week, every week.","note":"Only you change the goal. Approved 14 Oct 2026.","emptyText":null},"goalNumber":{"heading":"Goal number - posted by Boss, today 10:53","valueText":"Posts this week: 2","asOfText":"As of 15 Oct 2026","linkHref":"https://example.com/qa-outreach/posts","linkLabel":"How it is measured","emptyText":null},"leftBehind":{"heading":"What it has left behind","lastTalkLabel":"Last talk","lastTalkText":"None yet.","lastRunLabel":"Last run","lastRunText":"Today 16:52 (Europe/Copenhagen) - started","lastRunTone":"blue","closingText":"no runs recorded yet","closingTone":"grey","numbersTitle":"Last 7 days","numbers":[{"text":"0 runs","tone":"neutral","target":null,"outcome":null,"href":null}],"recentTitle":"Recent activity","recent":[],"recentEmptyText":"Nothing recorded in the last 7 days.","allLabel":"All activity of this seat","allHref":"/factories?tab=activity&factory=qa-outreach&agent=writer","memoryLabel":"Memory","memoryText":"No notes in the factory's memory yet. Memory belongs to the whole factory, not to one seat.","memoryLinkLabel":"Open Memory","memoryHref":"/factories/qa-outreach/memory"},"truncatedText":null}
+
+$ GET /gateway/factories/qa-outreach/seats/writer/brief/editor      (raw HTTP, as a person)
+  status: 200
+  answer: {"heading":"Edit the brief of Author","startText":"This starts from version 6, the published brief. This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.","text":"Write one post from the template.\nEnd every post with one question to the reader.\nKeep each post under 600 words.\n","expectedVersion":6,"textLabel":"The brief of Author","limitText":"The brief is saved into the seat's file, and a file in a definition takes at most 256.0 KB.","waitingText":null,"saveLabel":"Save draft","saveBusyLabel":"Saving...","savedText":"Saved as a new draft of the definition. Talks and runs of this seat are still given the brief in definition version 6 until a person publishes.","publish":{"version":6,"expectedVersion":6,"label":"Publish","busyLabel":"Publishing...","confirmTitle":"Publish this brief for Author?","confirmLines":["Every later talk and every later run of Author will be given this text.","A text you have changed is saved as a new version first, and that version is published.","It replaces version 6, which is kept. History can bring it back.","This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief."],"confirmLabel":"Publish","doneText":"Published. Every later talk and every later run of Author is given this text."},"cancelLabel":"Close without saving","conflictText":"Nothing was saved. Your text is still in the box, and the newer version is shown beside it. Merge what you need into your text and save it after the newer version, or take the newer version.","yoursLabel":"Your text","theirsLabel":"The newer version","saveOverLabel":"Save my text after the newer version","takeTheirsLabel":"Take the newer version and drop my text"}
+
+$ GET /gateway/factories/qa-outreach/seats/writer/brief/history      (raw HTTP, as a person)
+  status: 200
+  answer: {"heading":"History of the brief of Author","summaryText":"3 versions of the definition changed this brief. Definition version 6 is published. This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.","pageText":"Versions 6 to 1 of 3.","waitingText":null,"columns":["Version","State","Written by","When","Size"],"rows":[{"version":6,"title":"Definition version 6","stateWord":"Published","stateTone":"ok","whoText":"session 3f7f9cca-2441-482a-af2d-f7c7d9fafbe9","whenText":"today 10:53","sizeText":"114 bytes","openLabel":"Open","publish":null,"bringBack":null},{"version":5,"title":"Definition version 5","stateWord":"Draft, passed over","stateTone":"grey","whoText":"a person (device browser qa-browser)","whenText":"today 10:53","sizeText":"82 bytes","openLabel":"Open","publish":null,"bringBack":{"version":5,"expectedVersion":6,"label":"Bring back","busyLabel":"Bringing it back...","confirmTitle":"Bring version 5 of the brief of Author back?","confirmLines":["A copy of version 5 becomes version 7, and it is published. Every later talk and every later run of Author will be given that text.","Nothing is removed. Version 6, which is published now, and every other version are kept.","This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief."],"confirmLabel":"Bring it back","doneText":"Version 5 was brought back as the newest version, and it is published. Every later talk and every later run of Author is given it."}},{"version":1,"title":"Definition version 1","stateWord":"Published earlier","stateTone":"grey","whoText":"a person (device browser qa-browser)","whenText":"today 10:52","sizeText":"34 bytes","openLabel":"Open","publish":null,"bringBack":{"version":1,"expectedVersion":6,"label":"Bring back","busyLabel":"Bringing it back...","confirmTitle":"Bring version 1 of the brief of Author back?","confirmLines":["A copy of version 1 becomes version 7, and it is published. Every later talk and every later run of Author will be given that text.","Nothing is removed. Version 6, which is published now, and every other version are kept.","This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief."],"confirmLabel":"Bring it back","doneText":"Version 1 was brought back as the newest version, and it is published. Every later talk and every later run of Author is given it."}}],"emptyText":null,"nextBefore":null,"olderLabel":null,"newestLabel":null,"closeLabel":"Back to the brief"}
+
+$ GET /gateway/factories/qa-outreach/seats/writer/brief/versions/6      (raw HTTP, as a person)
+  status: 200
+  answer: {"version":6,"title":"Definition version 6","lineText":"Published. Written by session 3f7f9cca-2441-482a-af2d-f7c7d9fafbe9 today 10:53. Published by a person (device browser qa-browser) today 10:53. 114 bytes. This brief is part of the definition of QA Outreach. Its versions are the definition's versions, and a publish publishes the whole definition - every seat, start and file in it - not only this brief.","text":"Write one post from the template.\nEnd every post with one question to the reader.\nKeep each post under 600 words.\n","closeLabel":"Close"}
+
+# A talk and a run of the writer now: each is given the brief of definition version 6, marked as a definition version.
+
+$ POST /gateway/factory-agents/factories/qa-outreach/seats/writer/talk      (raw HTTP, as a person)
+  status: 201
+  answer: {"sessionId":"0c7730af-cee9-4b6f-a53d-3b9b9c94e964","sessionName":"QA Outreach - Author - talk with the owner","href":"/session/0c7730af-cee9-4b6f-a53d-3b9b9c94e964","factory":"qa-outreach","seat":"writer","computer":"QA-RIG","directorId":"qa-standin-director","briefVersion":6,"briefVersionKind":"definition"}
+
+# the session create the stand-in Director received (create-5.json), exactly as the Gateway sent it
+{
+  "repoPath": "<rig>\\qa-outreach-folder",
+  "pooledWorktree": null,
+  "name": "QA Outreach - Author - talk with the owner",
+  "purpose": null,
+  "agent": "ClaudeCode",
+  "fleetManagerHome": null,
+  "args": null,
+  "bypassPermissions": null,
+  "command": null,
+  "commandArgs": null,
+  "resumeSessionId": null,
+  "prePrompt": "You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).\r\n\r\nThe owner is here now and is talking with you. This is the owner\u0027s own session, opened from the Factories screen\u0027s Talk button. It is not one of your scheduled runs, and nobody is waiting on a report from it - the owner is reading your answers as you write them.\r\n\r\nBefore you say anything, read:\r\n- your brief: definition version 6, given to you in full below this list. It is part of the factory\u0027s definition, which the Gateway holds; it is not a file in the factory\u0027s folder.\r\n- the factory\u0027s goal: <rig>\\qa-outreach-folder\\GOAL.md\r\n- the factory\u0027s memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get \u003Cname\u003E for each note that matters\r\n- the factory\u0027s recent activity: cc-devthrottle factory activity --factory qa-outreach -n 30\r\n- the factory\u0027s status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory qa-outreach\r\n  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY) and every failing and waiting item with its row id. Say that word to the owner when you open.\r\n\r\n--- your brief, definition version 6 ---\r\nWrite one post from the template.\nEnd every post with one question to the reader.\nKeep each post under 600 words.\r\n--- end of your brief, definition version 6 ---\r\n\r\nYou work under the same rules as your scheduled runs.\r\nThese are the rules of your scheduled runs, exactly as your schedule (cj_d1d73a) starts them:\r\n--- the rules of your scheduled runs ---\r\nWrite this week\u0027s post.\r\n--- end of the rules of your scheduled runs ---\r\nThe steps in those rules that exist only because a scheduled run is unattended do NOT apply in a talk: do not rename this session to a dated name, do not send the morning email, and do not run cc-devthrottle session done. The owner closes this session.\r\n\r\nOpen by telling the owner, briefly, what has happened since the owner last talked with you (the newest activity line with the outcome talked, if there is one) and what you need from the owner.\r\n\r\nIn a talk the owner and you may change anything about the factory, the goal included - the owner is here to approve it. If the goal changes:\r\n- write the new goal into <rig>\\qa-outreach-folder\\GOAL.md, with today\u0027s date and this session\u0027s id (cc-devthrottle session whoami) beside it;\r\n- register the factory again so the page shows it: cc-devthrottle factory register --manifest \u003Cthe factory\u0027s manifest\u003E, with goalFile GOAL.md and goalApprovedOn set to today. If you do not have the manifest, write one from cc-devthrottle factory list --json, keeping only the keys the manifest takes (docs/cli-reference.md, Factory registry and goal number).\r\n\r\nBefore the talk ends you MUST do all three of these:\r\n1. Record one activity line: cc-devthrottle factory record --factory qa-outreach --agent writer --version \u0022definition v6\u0022 --outcome talked --what \u0022\u003Cone line of what was decided\u003E\u0022\r\n   Keep --version \u0022definition v6\u0022 exactly as written: it records which version of the factory\u0027s definition your brief came from in this talk.\r\n2. Write what was decided into the factory\u0027s memory: cc-devthrottle factory memory set \u003Cname\u003E \u0022\u003Cwhat was decided\u003E\u0022\r\n3. Run cc-devthrottle factory status --factory qa-outreach again. For every failing or waiting item that is now resolved, mark it handled with its evidence - and only if it is resolved:\r\n   cc-devthrottle factory record --factory qa-outreach --agent \u003Cthe item\u0027s seat\u003E --outcome done --corrects \u003Cthe item\u0027s row id\u003E --what \u0022Handled: \u003Cthe evidence\u003E\u0022\r\n   Then tell the owner the word the factory ends on.\r\n",
+  "prePromptWaitMs": 30000,
+  "wingmanEnabled": false,
+  "controllerSessionId": null,
+  "restoreClaim": null,
+  "origin": "human",
+  "originSurface": "cockpit",
+  "parentSessionId": null,
+  "factory": "qa-outreach",
+  "role": null,
+  "missionId": null,
+  "missionName": null,
+  "workflowRunId": null,
+  "workflowId": null,
+  "workflowVersion": null,
+  "machine": null,
+  "director": null,
+  "autoDismiss": false
+}
+# its first prompt:
+You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).
+
+The owner is here now and is talking with you. This is the owner's own session, opened from the Factories screen's Talk button. It is not one of your scheduled runs, and nobody is waiting on a report from it - the owner is reading your answers as you write them.
+
+Before you say anything, read:
+- your brief: definition version 6, given to you in full below this list. It is part of the factory's definition, which the Gateway holds; it is not a file in the factory's folder.
+- the factory's goal: <rig>\qa-outreach-folder\GOAL.md
+- the factory's memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get <name> for each note that matters
+- the factory's recent activity: cc-devthrottle factory activity --factory qa-outreach -n 30
+- the factory's status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory qa-outreach
+  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED, RUNNING or TALK ONLY) and every failing and waiting item with its row id. Say that word to the owner when you open.
+
+--- your brief, definition version 6 ---
+Write one post from the template.
+End every post with one question to the reader.
+Keep each post under 600 words.
+--- end of your brief, definition version 6 ---
+
+You work under the same rules as your scheduled runs.
+These are the rules of your scheduled runs, exactly as your schedule (cj_d1d73a) starts them:
+--- the rules of your scheduled runs ---
+Write this week's post.
+--- end of the rules of your scheduled runs ---
+The steps in those rules that exist only because a scheduled run is unattended do NOT apply in a talk: do not rename this session to a dated name, do not send the morning email, and do not run cc-devthrottle session done. The owner closes this session.
+
+Open by telling the owner, briefly, what has happened since the owner last talked with you (the newest activity line with the outcome talked, if there is one) and what you need from the owner.
+
+In a talk the owner and you may change anything about the factory, the goal included - the owner is here to approve it. If the goal changes:
+- write the new goal into <rig>\qa-outreach-folder\GOAL.md, with today's date and this session's id (cc-devthrottle session whoami) beside it;
+- register the factory again so the page shows it: cc-devthrottle factory register --manifest <the factory's manifest>, with goalFile GOAL.md and goalApprovedOn set to today. If you do not have the manifest, write one from cc-devthrottle factory list --json, keeping only the keys the manifest takes (docs/cli-reference.md, Factory registry and goal number).
+
+Before the talk ends you MUST do all three of these:
+1. Record one activity line: cc-devthrottle factory record --factory qa-outreach --agent writer --version "definition v6" --outcome talked --what "<one line of what was decided>"
+   Keep --version "definition v6" exactly as written: it records which version of the factory's definition your brief came from in this talk.
+2. Write what was decided into the factory's memory: cc-devthrottle factory memory set <name> "<what was decided>"
+3. Run cc-devthrottle factory status --factory qa-outreach again. For every failing or waiting item that is now resolved, mark it handled with its evidence - and only if it is resolved:
+   cc-devthrottle factory record --factory qa-outreach --agent <the item's seat> --outcome done --corrects <the item's row id> --what "Handled: <the evidence>"
+   Then tell the owner the word the factory ends on.
+
+
+$ cc-devthrottle schedule list --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "id": "cj_3a110b",
+    "name": "QA Outreach - Boss",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 8 * * 1-5",
+    "runAt": null,
+    "timeZoneId": "Europe/Copenhagen",
+    "factory": "qa-outreach",
+    "seat": "boss",
+    "target": {
+      "machine": "QA-RIG"
+    },
+    "action": {
+      "repoPath": "<rig>\\qa-outreach-folder",
+      "seed": "Morning round.",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-15T14:52:32.4639632Z",
+    "lastFiredUtc": "2026-10-15T14:53:03.2719643Z",
+    "nextRunUtc": "2026-10-16T06:00:00Z",
+    "lastStatus": "started",
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "none",
+      "text": "nothing recorded yet",
+      "runs": 1
+    },
+    "factoryTitle": "QA Outreach",
+    "factoryHref": "/factories/qa-outreach/seats",
+    "shortName": "Boss",
+    "loadWarning": null,
+    "shifts": [
+      "night"
+    ],
+    "shiftText": "Night shift",
+    "shiftWarning": null,
+    "shiftRule": null
+  },
+  {
+    "id": "cj_d1d73a",
+    "name": "QA Outreach - Author",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 10 * * 2,4",
+    "runAt": null,
+    "timeZoneId": "Europe/Copenhagen",
+    "factory": "qa-outreach",
+    "seat": "writer",
+    "target": {
+      "machine": "QA-RIG"
+    },
+    "action": {
+      "repoPath": "<rig>\\qa-outreach-folder",
+      "seed": "Write this week's post.",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-15T14:52:44.9832403Z",
+    "lastFiredUtc": "2026-10-15T14:52:54.4088324Z",
+    "nextRunUtc": "2026-10-20T08:00:00Z",
+    "lastStatus": "started",
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "none",
+      "text": "nothing recorded yet",
+      "runs": 1
+    },
+    "factoryTitle": "QA Outreach",
+    "factoryHref": "/factories/qa-outreach/seats",
+    "shortName": "Author",
+    "loadWarning": null,
+    "shifts": [
+      "night"
+    ],
+    "shiftText": "Night shift",
+    "shiftWarning": null,
+    "shiftRule": null
+  }
+]
+[exit 0]
+
+$ cc-devthrottle schedule run cj_d1d73a      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-15T14:53:31.4320344Z UTC
+  Target:  qa-standin-director
+  Session: a989a008-9a64-4aef-9109-632f1491940e
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_d1d73a
+  cc-devthrottle session buffer a989a008-9a64-4aef-9109-632f1491940e
+[exit 0]
+
+# the session create the stand-in Director received (create-6.json), exactly as the Gateway sent it
+{
+  "repoPath": "<rig>\\qa-outreach-folder",
+  "pooledWorktree": null,
+  "name": "QA Outreach - Author - 2026-10-15 16:53",
+  "purpose": null,
+  "agent": "ClaudeCode",
+  "fleetManagerHome": null,
+  "args": null,
+  "bypassPermissions": null,
+  "command": null,
+  "commandArgs": null,
+  "resumeSessionId": null,
+  "prePrompt": "You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).\n\nThis is one of your scheduled runs: the schedule \u0022QA Outreach - Author\u0022 (cj_d1d73a). Your brief is given to you here in full, as the Gateway holds it (definition version 6, part of the factory\u0027s definition); it is not a file in the factory\u0027s folder. With it comes what this schedule asks of this run.\n\n--- your brief, definition version 6 ---\nWrite one post from the template.\nEnd every post with one question to the reader.\nKeep each post under 600 words.\n--- end of your brief, definition version 6 ---\n\nWrite this week\u0027s post.\n\nWhen you have finished, the last thing you do is report how this scheduled run went: run \u0060cc-devthrottle run result ok\u0060, or \u0060cc-devthrottle run result problem \u0022\u003Cone line why\u003E\u0022\u0060 if something went wrong.",
+  "prePromptWaitMs": 30000,
+  "wingmanEnabled": false,
+  "controllerSessionId": null,
+  "restoreClaim": null,
+  "origin": "schedule",
+  "originSurface": "cron",
+  "parentSessionId": null,
+  "factory": "qa-outreach",
+  "role": null,
+  "missionId": null,
+  "missionName": null,
+  "workflowRunId": null,
+  "workflowId": null,
+  "workflowVersion": null,
+  "machine": null,
+  "director": null,
+  "autoDismiss": true
+}
+# its first prompt:
+You are Author, Writer of QA Outreach (factory id: qa-outreach; your agent id: writer).
+
+This is one of your scheduled runs: the schedule "QA Outreach - Author" (cj_d1d73a). Your brief is given to you here in full, as the Gateway holds it (definition version 6, part of the factory's definition); it is not a file in the factory's folder. With it comes what this schedule asks of this run.
+
+--- your brief, definition version 6 ---
+Write one post from the template.
+End every post with one question to the reader.
+Keep each post under 600 words.
+--- end of your brief, definition version 6 ---
+
+Write this week's post.
+
+When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+
+$ cc-devthrottle schedule runs cj_d1d73a --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "scheduledUtc": "2026-10-15T14:53:31.4261741Z",
+    "firedUtc": "2026-10-15T14:53:31.4320344Z",
+    "machine": "QA-RIG",
+    "targetDirectorId": "qa-standin-director",
+    "sessionId": "a989a008-9a64-4aef-9109-632f1491940e",
+    "infraStatus": "started",
+    "taskStatus": "unknown",
+    "ending": "still-open",
+    "endingText": "running - 1 min so far",
+    "shiftText": "morning shift, Thu 15 Oct, 08:00-16:00",
+    "runId": "3b52c118-1538-4a35-8db9-1629813ff931",
+    "result": "pending",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": null,
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-outreach",
+    "seat": "writer",
+    "jobName": "QA Outreach - Author",
+    "missedNotListed": 0,
+    "briefVersion": 6,
+    "briefVersionKind": "definition"
+  },
+  {
+    "scheduledUtc": "2026-10-15T14:52:54.400752Z",
+    "firedUtc": "2026-10-15T14:52:54.4088324Z",
+    "machine": "QA-RIG",
+    "targetDirectorId": "qa-standin-director",
+    "sessionId": "c0947c2a-8115-4962-8b31-d2b6ee230039",
+    "infraStatus": "started",
+    "taskStatus": "unknown",
+    "ending": "still-open",
+    "endingText": "running - 1 min so far",
+    "shiftText": "morning shift, Thu 15 Oct, 08:00-16:00",
+    "runId": "2f89ceb5-b26a-4408-ba8c-a46d8f2bac56",
+    "result": "pending",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": null,
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-outreach",
+    "seat": "writer",
+    "jobName": "QA Outreach - Author",
+    "missedNotListed": 0,
+    "briefVersion": 2,
+    "briefVersionKind": "definition"
+  }
+]
+[exit 0]
+
+# the writer schedule's runs, with the brief version and its kind
+#   read from the rig's gateway.db: SELECT Id, JobName, Seat, BriefVersion, BriefVersionKind FROM cron_runs WHERE JobId = ? ['cj_d1d73a']
+  Id, JobName, Seat, BriefVersion, BriefVersionKind
+  2F89CEB5-B26A-4408-BA8C-A46D8F2BAC56, QA Outreach - Author, writer, 2, definition
+  3B52C118-1538-4A35-8DB9-1629813FF931, QA Outreach - Author, writer, 6, definition
+  (2 rows)

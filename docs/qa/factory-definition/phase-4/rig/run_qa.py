@@ -23,6 +23,7 @@ Usage (from the repository root, after building the Gateway and the stand-in Dir
 --briefs adds section 7, brief through the definition (pull request 4008).
 """
 
+import difflib
 import hashlib
 import json
 import os
@@ -417,7 +418,7 @@ def main():
         cli(person, [*d, "history", FACTORY], 0)
 
         if briefs:
-            brief_section(person, session, db)
+            seen = brief_section(person, session, db, seen)
     finally:
         if standin is not None:
             standin.stdin.close()
@@ -435,9 +436,78 @@ def main():
         print(f"wrote {out / 'transcript.txt'}")
 
 
-def brief_section(person, session, db):
-    """Section 7, brief through the definition (pull request 4008). Written once 4008 has merged."""
-    raise SystemExit("section 7 is written once pull request 4008 has merged")
+def changed_files(older, newer):
+    """Which files differ between two stored definition versions, read through the definition's own version route."""
+    a = get(f"/factory-definitions/{FACTORY}/versions/{older}")["files"]
+    b = get(f"/factory-definitions/{FACTORY}/versions/{newer}")["files"]
+    differ = sorted(p for p in set(a) | set(b) if a.get(p) != b.get(p))
+    TRANSCRIPT.append(f"# the files of definition version {newer} that differ from version {older}, compared byte for byte "
+                      f"from GET /factory-definitions/{FACTORY}/versions/N: {differ} (of {len(b)} files)\n")
+    for path in differ:
+        diff = difflib.unified_diff(a.get(path, "").splitlines(), b.get(path, "").splitlines(),
+                                    f"version {older}: {path}", f"version {newer}: {path}", lineterm="")
+        TRANSCRIPT.append("\n".join(diff) + "\n")
+    return differ
+
+
+def brief_section(person, session, db, seen):
+    """Section 7, brief through the definition (pull request 4008)."""
+    note("SECTION 7 - the writer's brief through the definition. Published now: definition version 3 (the restore of "
+         "version 1). Newest: version 4, a draft.")
+    where = ["--factory", FACTORY, "--seat", "writer"]
+    b = ["factory", "brief"]
+    cli(person, [*b, "get", *where], 0)
+    cli(person, [*b, "get", *where, "--draft"], 0)
+    cli(person, [*b, "history", *where], 0)
+    published = cli_json(person, [*b, "get", *where])["text"]
+
+    edited = RIG / "writer-brief.md"
+    edited.write_text(published.rstrip("\n") + "\nEnd every post with one question to the reader.\n", encoding="utf-8",
+                      newline="\n")
+    note("writer-brief.md is the published brief with one line added: 'End every post with one question to the reader.'")
+    cli(person, [*b, "set", *where, "--file", str(edited), "--expected-version", "4"], 0)
+    if changed_files(4, 5) != ["seats/writer.yaml"]:
+        raise SystemExit("the brief save changed more than seats/writer.yaml")
+    cli(person, ["factory", "definition", "diff", FACTORY, "--from", "4", "--to", "5"], 0)
+    note("A second save that read version 4, after version 5 was written: refused as stale.")
+    cli(person, [*b, "set", *where, "--file", str(edited), "--expected-version", "4"], 1)
+
+    note("A session of the factory saves a draft; it may not publish.")
+    by_session = RIG / "writer-brief-by-session.md"
+    by_session.write_text(edited.read_text(encoding="utf-8") + "Keep each post under 600 words.\n", encoding="utf-8",
+                          newline="\n")
+    cli(session, [*b, "set", *where, "--file", str(by_session), "--expected-version", "5"], 0)
+    if changed_files(5, 6) != ["seats/writer.yaml"]:
+        raise SystemExit("the session's brief save changed more than seats/writer.yaml")
+    cli(session, [*b, "publish", *where, "--version", "6", "--replaces", "3"], 1)
+
+    note("The seat page's brief panel answers from the definition before the publish: the published brief is still "
+         "version 3's.")
+    raw("GET", f"/gateway/factories/{FACTORY}/seats/writer/brief/editor", None, 200)
+
+    note("A person publishes version 6 through the brief: the whole definition is published by the one transaction.")
+    cli(person, [*b, "publish", *where, "--version", "6", "--replaces", "3"], 0)
+    cli(person, [*b, "get", *where], 0)
+    cli(person, [*b, "history", *where], 0)
+    raw("GET", f"/gateway/factories/{FACTORY}/seats/writer", None, 200)
+    raw("GET", f"/gateway/factories/{FACTORY}/seats/writer/brief/editor", None, 200)
+    raw("GET", f"/gateway/factories/{FACTORY}/seats/writer/brief/history", None, 200)
+    raw("GET", f"/gateway/factories/{FACTORY}/seats/writer/brief/versions/6", None, 200)
+
+    note("A talk and a run of the writer now: each is given the brief of definition version 6, marked as a definition "
+         "version.")
+    raw("POST", f"/gateway/factory-agents/factories/{FACTORY}/seats/writer/talk", None, 201)
+    wait_for_creates(seen + 1)
+    seen = creates_since(seen)
+    jobs = cli_json(person, ["schedule", "list"])
+    writer_job = next(j["id"] for j in jobs if j.get("factory") == FACTORY and j.get("seat") == "writer")
+    cli(person, ["schedule", "run", writer_job], 0)
+    wait_for_creates(seen + 1)
+    seen = creates_since(seen)
+    cli(person, ["schedule", "runs", writer_job, "--json"], 0)
+    rows(db, "the writer schedule's runs, with the brief version and its kind",
+         "SELECT Id, JobName, Seat, BriefVersion, BriefVersionKind FROM cron_runs WHERE JobId = ?", (writer_job,))
+    return seen
 
 
 if __name__ == "__main__":
