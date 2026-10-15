@@ -182,7 +182,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
         // collect the counters and again to collect the names and kinds. The captures are the same
         // either way, so they are taken once and handed to both.
         var diskCaptures = MacOsPlatformReader.ReadDisks();
-        var disks = ReadDiskCounters(diskCaptures);
+        var disks = ReadDiskCounters(diskCaptures, out var disksWhyNot);
         var interfaces = ReadInterfaceCounters();
         var processes = ReadProcessSnapshots(_timebase);
 
@@ -191,11 +191,11 @@ public sealed class MacOsResourceProbe : IResourceProbe
             Cpu: FoldCpu(cores, coresReason, previous, since),
             Memory: _memory.Read(),
             Swap: FoldSwap(),
-            Disks: FoldDisks(diskCaptures, disks, previous, since),
+            Disks: FoldDisks(diskCaptures, disks, disksWhyNot, previous, since),
             Volumes: FoldVolumes(diskCaptures),
             Network: FoldNetwork(interfaces, previous, since),
             Stall: FoldStall(),
-            Processes: FoldProcesses(processes, previous, since));
+            Processes: FoldProcesses(processes, previous, since, cores.Count, now));
 
         _previous = new Previous(now, cores, disks, interfaces, processes);
         return sample;
@@ -292,9 +292,15 @@ public sealed class MacOsResourceProbe : IResourceProbe
     // =============================================================================================
 
     private static Dictionary<string, MacOsResourceParsing.DiskCounters> ReadDiskCounters(
-        IReadOnlyList<MacOsRawReadings.DiskCapture> captures)
+        IReadOnlyList<MacOsRawReadings.DiskCapture> captures,
+        out Dictionary<string, string> whyNot)
     {
         var counters = new Dictionary<string, MacOsResourceParsing.DiskCounters>(StringComparer.Ordinal);
+
+        // WHY A DISK HAD NO COUNTERS IS WORTH KEEPING. The parser works out which statistics key was
+        // missing and this used to throw that away, so a disk with one absent key was reported with
+        // the generic "could not be read" and whoever read the log had nothing to go on.
+        whyNot = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var disk in captures)
         {
@@ -302,8 +308,10 @@ public sealed class MacOsResourceProbe : IResourceProbe
             if (string.IsNullOrEmpty(name)) continue;
 
             var statistics = MacOsResourceParsing.ReadPropertyListDictionary(disk.StatisticsPropertyList ?? "");
-            if (MacOsResourceParsing.TryReadDiskCounters(statistics, out var read, out _))
+            if (MacOsResourceParsing.TryReadDiskCounters(statistics, out var read, out var why))
                 counters[name] = read;
+            else if (why is not null)
+                whyNot[name] = why;
         }
 
         return counters;
@@ -312,6 +320,7 @@ public sealed class MacOsResourceProbe : IResourceProbe
     private static DiskSetReading FoldDisks(
         IReadOnlyList<MacOsRawReadings.DiskCapture> disks,
         Dictionary<string, MacOsResourceParsing.DiskCounters> counters,
+        Dictionary<string, string> whyNot,
         Previous? previous,
         TimeSpan since)
     {
@@ -335,7 +344,11 @@ public sealed class MacOsResourceProbe : IResourceProbe
             if (!counters.TryGetValue(name, out var after))
             {
                 readings.Add(PhysicalDiskReading.Unreadable(
-                    name, kind, "the IOKit statistics for this disk could not be read"));
+                    name,
+                    kind,
+                    whyNot.TryGetValue(name, out var why)
+                        ? why
+                        : "the IOKit statistics for this disk could not be read"));
                 continue;
             }
 
@@ -425,7 +438,16 @@ public sealed class MacOsResourceProbe : IResourceProbe
     {
         var captured = MacOsPlatformReader.ReadVolumes();
         if (captured is null)
-            return new[] { VolumeReading.Unreadable("(all volumes)", "getfsstat could not be read") };
+        {
+            // NO INVENTED VOLUME. This used to return one unreadable volume whose mount point was the
+            // made-up string "(all volumes)", because the shared sample carries volumes as a bare list
+            // with nowhere to put a reason for the whole set. A screen listing volumes would then show
+            // one called "(all volumes)" - a name no machine has. An empty list and a logged reason
+            // tell the truth about what happened; that an empty list cannot be told apart from a
+            // machine with nothing mounted is a gap in the shared type, recorded in the review answer.
+            Report("volumes", couldRead: false, reason: "the list of mounted file systems could not be read");
+            return Array.Empty<VolumeReading>();
+        }
 
         var volumes = MacOsResourceParsing.ReadVolumes(captured.Value.Buffer, captured.Value.Count);
         var map = VolumeDisksFor(volumes, diskCaptures);
@@ -433,9 +455,10 @@ public sealed class MacOsResourceProbe : IResourceProbe
 
         foreach (var volume in volumes)
         {
-            // A volume with no total size at all is one of the synthetic file systems macOS mounts -
-            // /dev and the automounter map. They are real mounts, so they are reported, but a
-            // percentage-free warning on a volume that has no blocks would be noise.
+            // A volume whose device the walk could not reach names no disk. That is not the same as
+            // having no disk behind it - the shared type has no way to tell those apart, which is
+            // recorded in the review answer - and the synthetic mounts macOS makes, /dev and the
+            // automounter map, genuinely have none.
             var names = volume.DeviceName is null
                 ? Array.Empty<string>()
                 : map.GetValueOrDefault(volume.DeviceName, Array.Empty<string>());
@@ -502,20 +525,18 @@ public sealed class MacOsResourceProbe : IResourceProbe
     // Network
     // =============================================================================================
 
-    /// <summary>
-    /// The loopback, which is skipped. Traffic a machine sends to itself is not traffic on the
-    /// network, and on a machine running many sessions it is the busiest interface by far - counting
-    /// it would make every machine look saturated.
-    /// </summary>
-    private const string Loopback = "lo0";
-
     private static Dictionary<string, MacOsResourceParsing.InterfaceCounters> ReadInterfaceCounters()
     {
         var counters = new Dictionary<string, MacOsResourceParsing.InterfaceCounters>(StringComparer.Ordinal);
 
-        foreach (var (name, data) in MacOsPlatformReader.ReadInterfaces())
+        foreach (var (name, flags, data) in MacOsPlatformReader.ReadInterfaces())
         {
-            if (string.Equals(name, Loopback, StringComparison.Ordinal)) continue;
+            // ONLY THE REAL HARDWARE COUNTS. A tunnel or a bridge carries bytes that the interface
+            // underneath it has already counted, so adding them reports traffic the machine never saw.
+            // The interface type is the first byte of the counters the operating system just handed us.
+            if (data.Length == 0) continue;
+            if (!MacOsResourceParsing.IsPhysicalNetworkInterface(name, flags, data[0])) continue;
+
             if (MacOsResourceParsing.TryReadInterfaceCounters(name, data, out var read, out _))
                 counters[name] = read;
         }
@@ -608,26 +629,40 @@ public sealed class MacOsResourceProbe : IResourceProbe
     {
         var snapshots = new Dictionary<int, ProcessSnapshot>();
 
-        // WITHOUT A USABLE TIMEBASE THERE ARE NO PROCESS FIGURES, rather than wrong ones. The
+        // THE LIST COMES FROM THE KERNEL'S PROCESS TABLE, NOT FROM THE PER-PROCESS CALLS. An ordinary
+        // user is refused the per-process call for another user's process, so building the list from
+        // it dropped roughly three hundred of this machine's seven hundred processes - absent, not
+        // null, out of a set reporting itself as read without trouble. The two busiest processes on
+        // the machine were among them. The table below is readable for every process.
+        var tableBytes = MacOsPlatformReader.ReadKernelProcessTable();
+        if (tableBytes is null) return snapshots;
+
+        var entries = MacOsResourceParsing.ReadKernelProcessTable(tableBytes);
+        if (entries.Count == 0) return snapshots;
+
+        // WITHOUT A USABLE TIMEBASE THERE ARE NO PROCESSOR FIGURES, rather than wrong ones. The
         // processor times are Mach absolute time units and the timebase is the only thing that turns
         // them into time; a zero numerator would turn every one of them into nothing and report a
-        // flat-out machine as completely idle.
-        if (!timebase.IsUsable) return snapshots;
+        // flat-out machine as completely idle. The processes are still listed and named - only their
+        // processor figures are withheld.
+        var canReadProcessorTime = timebase.IsUsable;
 
-        var pids = MacOsPlatformReader.ReadProcessIds();
-        if (pids is null) return snapshots;
-
-        foreach (var pid in pids)
+        foreach (var entry in entries)
         {
-            var (taskInfoBytes, bsdInfoBytes, rusageBytes) = MacOsPlatformReader.ReadProcess(pid);
+            var (taskInfoBytes, bsdInfoBytes, rusageBytes) = MacOsPlatformReader.ReadProcess(entry.Pid);
 
-            // A PROCESS WE MAY NOT READ IS SKIPPED, AND THE SET STILL SUCCEEDS. The Director runs as an
-            // ordinary user and a good share of a Mac's processes belong to root - measured here, 424
-            // of 723 were readable. A reader that gave up on the first refusal would report no
-            // processes at all on every machine.
-            if (taskInfoBytes is null || bsdInfoBytes is null) continue;
-            if (!MacOsResourceParsing.TryReadProcessTaskInfo(taskInfoBytes, out var task)) continue;
-            if (!MacOsResourceParsing.TryReadProcessBsdInfo(bsdInfoBytes, out var bsd)) continue;
+            ulong? cpuNanoseconds = null;
+            ulong? residentBytes = null;
+            var figuresRefused = true;
+
+            if (taskInfoBytes is not null &&
+                MacOsResourceParsing.TryReadProcessTaskInfo(taskInfoBytes, out var task))
+            {
+                figuresRefused = false;
+                residentBytes = task.ResidentBytes;
+                if (canReadProcessorTime)
+                    cpuNanoseconds = MacOsResourceParsing.MachAbsoluteToNanoseconds(task.TotalMachTime, timebase);
+            }
 
             ulong? diskRead = null;
             ulong? diskWritten = null;
@@ -638,14 +673,31 @@ public sealed class MacOsResourceProbe : IResourceProbe
                 diskWritten = usage.BytesWritten;
             }
 
-            snapshots[pid] = new ProcessSnapshot(
-                ParentPid: bsd.ParentPid,
-                Name: bsd.Name,
-                StartedAtUtc: bsd.StartedAtUtc,
-                CpuNanoseconds: MacOsResourceParsing.MachAbsoluteToNanoseconds(task.TotalMachTime, timebase),
-                ResidentBytes: task.ResidentBytes,
+            // THE LONGER NAME WHEN IT IS OFFERED, THE TABLE'S SHORT NAME OTHERWISE. The per-process
+            // call carries a thirty-two character name and the table only sixteen, and a truncated
+            // name is a worse culprit than a full one - but it is a far better culprit than no entry
+            // at all, which is what a refused process used to get.
+            var name = entry.Name;
+            if (bsdInfoBytes is not null &&
+                MacOsResourceParsing.TryReadProcessBsdInfo(bsdInfoBytes, out var bsd) &&
+                bsd.Name.Length > 0)
+            {
+                name = bsd.Name;
+            }
+
+            snapshots[entry.Pid] = new ProcessSnapshot(
+                ParentPid: entry.ParentPid,
+                Name: name,
+                // ALWAYS THE TABLE'S START TIME, even when the per-process call also offers one. It is
+                // the key that tells a reused process identifier from the same process one tick later,
+                // so it has to come from one source or two samples could disagree about the same
+                // process and every rate for it would be thrown away.
+                StartedAtUtc: entry.StartedAtUtc,
+                CpuNanoseconds: cpuNanoseconds,
+                ResidentBytes: residentBytes,
                 DiskBytesRead: diskRead,
-                DiskBytesWritten: diskWritten);
+                DiskBytesWritten: diskWritten,
+                FiguresRefused: figuresRefused);
         }
 
         return snapshots;
@@ -654,16 +706,17 @@ public sealed class MacOsResourceProbe : IResourceProbe
     private static ProcessSetReading FoldProcesses(
         Dictionary<int, ProcessSnapshot> snapshots,
         Previous? previous,
-        TimeSpan since)
+        TimeSpan since,
+        int logicalCoreCount,
+        DateTime now)
     {
         if (snapshots.Count == 0)
             return ProcessSetReading.Unreadable(
-                "not one process on the machine could be read, or the machine reported a processor " +
-                "timebase that cannot be used");
+                "the kernel's process table could not be read, so no process on the machine could be listed");
 
         var readings = new List<ProcessReading>(snapshots.Count);
 
-        foreach (var (pid, now) in snapshots)
+        foreach (var (pid, nowProcess) in snapshots)
         {
             ProcessSnapshot? before = null;
             if (previous is not null &&
@@ -673,30 +726,52 @@ public sealed class MacOsResourceProbe : IResourceProbe
                 // and on a machine starting and stopping sessions all day it reuses them often. Without
                 // this, a new process inherits the processor time of the dead one that held its number
                 // and is reported as having used years of processor time in five seconds.
-                found.StartedAtUtc == now.StartedAtUtc)
+                found.StartedAtUtc == nowProcess.StartedAtUtc)
             {
                 before = found;
             }
 
-            var cpuPercent = before is { } previousProcess
-                ? MacOsResourceParsing.ProcessCorePercent(previousProcess.CpuNanoseconds, now.CpuNanoseconds, since)
-                : null;
-
             readings.Add(new ProcessReading(
                 Pid: pid,
-                ParentPid: now.ParentPid == 0 ? null : now.ParentPid,
-                Name: now.Name,
-                StartTimeUtc: now.StartedAtUtc,
-                // Zero is the right answer for a process that used no processor time in the interval;
-                // for a process with no previous reading there is no rate at all, and the set as a
-                // whole says so through the first-sample reason on the other readings.
-                CpuPercent: cpuPercent ?? 0,
-                MemoryBytes: now.ResidentBytes,
-                DiskReadBytesPerSecond: RatePerSecond(before?.DiskBytesRead, now.DiskBytesRead, since),
-                DiskWriteBytesPerSecond: RatePerSecond(before?.DiskBytesWritten, now.DiskBytesWritten, since)));
+                ParentPid: nowProcess.ParentPid == 0 ? null : nowProcess.ParentPid,
+                Name: nowProcess.Name,
+                StartTimeUtc: nowProcess.StartedAtUtc,
+                CpuPercent: ProcessPercent(before, nowProcess, since, logicalCoreCount, now),
+                MemoryBytes: nowProcess.ResidentBytes,
+                DiskReadBytesPerSecond: RatePerSecond(before?.DiskBytesRead, nowProcess.DiskBytesRead, since),
+                DiskWriteBytesPerSecond: RatePerSecond(before?.DiskBytesWritten, nowProcess.DiskBytesWritten, since)));
         }
 
         return ProcessSetReading.Read(readings);
+    }
+
+    /// <summary>
+    /// One process's share of the whole machine, or null when there is honestly no figure.
+    ///
+    /// NOTHING HERE IS ALLOWED TO BECOME A ZERO. There used to be a <c>?? 0</c> at the end of this,
+    /// and it reported two different things as nought percent: a process the platform refused, and a
+    /// process that started during the interval and so had nothing to subtract from. Measured: a child
+    /// spawned after the first sample, doing nothing but spinning, had used sixty-five milliseconds of
+    /// processor time by the second sample and was written down as completely idle, inside a set that
+    /// said it had read fine. For five whole seconds a freshly started agent burning a core looked
+    /// asleep. Now a refused process is null, and a brand new one is measured over its own life.
+    /// </summary>
+    private static double? ProcessPercent(
+        ProcessSnapshot? before,
+        ProcessSnapshot now,
+        TimeSpan since,
+        int logicalCoreCount,
+        DateTime takenAtUtc)
+    {
+        // The platform refused this process, or the machine gave no usable timebase.
+        if (now.CpuNanoseconds is not { } used) return null;
+
+        if (before is { CpuNanoseconds: { } usedBefore })
+            return MacOsResourceParsing.ProcessMachinePercent(usedBefore, used, since, logicalCoreCount);
+
+        // No earlier reading for this process: its whole life IS its interval.
+        return MacOsResourceParsing.ProcessLifetimeMachinePercent(
+            used, takenAtUtc - now.StartedAtUtc, logicalCoreCount);
     }
 
     /// <summary>
@@ -721,7 +796,9 @@ public sealed class MacOsResourceProbe : IResourceProbe
             Memory: MachineMemoryReading.Unreadable(reason, now),
             Swap: SwapReading.Unreadable(reason),
             Disks: DiskSetReading.Unreadable(reason),
-            Volumes: new[] { VolumeReading.Unreadable("(all volumes)", reason) },
+            // Empty rather than one invented volume, for the reason in FoldVolumes. The sample as a
+            // whole is already unreadable here, so the reason is never lost.
+            Volumes: Array.Empty<VolumeReading>(),
             Network: NetworkReading.Unreadable(reason),
             Stall: StallReading.Unreadable(reason),
             Processes: ProcessSetReading.Unreadable(reason));
@@ -781,15 +858,23 @@ public sealed class MacOsResourceProbe : IResourceProbe
         IReadOnlyDictionary<string, MacOsResourceParsing.InterfaceCounters> Interfaces,
         IReadOnlyDictionary<int, ProcessSnapshot> Processes);
 
-    /// <summary>One process as the operating system reported it, with no rate worked out yet.</summary>
+    /// <summary>
+    /// One process as the operating system reported it, with no rate worked out yet.
+    ///
+    /// The processor time and the resident memory are nullable because an ordinary user is REFUSED
+    /// them for a process belonging to another user, while the process itself is still named from the
+    /// kernel's process table. That is the difference between a list that says "this process is here
+    /// and I may not see what it costs" and one that silently leaves out a third of the machine.
+    /// </summary>
     private readonly record struct ProcessSnapshot(
         int ParentPid,
         string Name,
         DateTime StartedAtUtc,
-        ulong CpuNanoseconds,
-        ulong ResidentBytes,
+        ulong? CpuNanoseconds,
+        ulong? ResidentBytes,
         ulong? DiskBytesRead,
-        ulong? DiskBytesWritten);
+        ulong? DiskBytesWritten,
+        bool FiguresRefused);
 
     /// <summary>
     /// The volume-to-disk map, with the set of devices it was built for so it can be thrown away the

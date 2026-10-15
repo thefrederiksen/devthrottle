@@ -33,7 +33,13 @@ public class MacOsPlatformReaderLiveTests
 
         Assert.NotEmpty(disks);
 
-        var named = 0;
+        // AT LEAST ONE DISK OF A KNOWN KIND, NOT EVERY DISK. This asked every block storage driver for
+        // a medium type, and a disk image has none: its device characteristics carry a product name
+        // and a revision and nothing else, as do many external enclosures. So mounting an installer
+        // image - or plugging in a drive - turned this test red on a machine where the probe was
+        // behaving perfectly, reporting that disk's kind as Unknown, which is the correct answer. A
+        // test that fails for what the developer has plugged in is not reporting a defect in the code.
+        var knownKinds = 0;
         foreach (var disk in disks)
         {
             Assert.NotNull(disk.StatisticsPropertyList);
@@ -44,20 +50,23 @@ public class MacOsPlatformReaderLiveTests
 
             var characteristics = MacOsResourceParsing.ReadPropertyListDictionary(
                 disk.DeviceCharacteristicsPropertyList ?? "");
-            Assert.True(
-                characteristics.TryGetValue(MacOsResourceParsing.DeviceCharacteristicsMediumType, out var medium),
-                $"disk {name} reported no medium type, so it cannot be called spinning or solid-state");
+            if (!characteristics.TryGetValue(MacOsResourceParsing.DeviceCharacteristicsMediumType, out var medium))
+                continue;
 
-            // The kind decides what the slowness diagnosis is allowed to say, so an unrecognised
-            // medium type must be visible here rather than quietly folded into one of the two.
+            // The kind decides what the slowness diagnosis is allowed to say, so when a disk DOES
+            // report a medium type it must be one of the two this code understands - an unrecognised
+            // one must be visible here rather than quietly folded into one of them.
             Assert.True(
                 medium is MacOsResourceParsing.MediumTypeSolidState or MacOsResourceParsing.MediumTypeRotational,
                 $"disk {name} reported an unrecognised medium type \"{medium}\"");
 
-            named++;
+            knownKinds++;
         }
 
-        Assert.True(named > 0);
+        Assert.True(
+            knownKinds > 0,
+            "not one disk on this machine reported a medium type, so none of them can be called " +
+            "spinning or solid-state");
     }
 
     [MacOsOnlyFact("IOKit exists only on macOS")]
@@ -342,13 +351,26 @@ public class MacOsPlatformReaderLiveTests
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
 
         var carrying = 0;
-        foreach (var (name, data) in interfaces)
+        var physical = new List<string>();
+        foreach (var (name, flags, data) in interfaces)
         {
             Assert.True(MacOsResourceParsing.TryReadInterfaceCounters(name, data, out var counters, out var why), why);
             if (counters.BytesReceived > 0 || counters.BytesSent > 0) carrying++;
+
+            // The interface type is the first byte of the counters the operating system handed us.
+            if (MacOsResourceParsing.IsPhysicalNetworkInterface(name, flags, data[0])) physical.Add(name);
         }
 
         Assert.True(carrying > 0, "not one network interface reported a single byte in or out");
+
+        // WHAT COUNTS AS THE NETWORK, on the real machine. The loopback and every tunnel must be out,
+        // or the fleet's own tunnel traffic is counted twice: once on the tunnel and once on the
+        // hardware underneath it.
+        Assert.DoesNotContain("lo0", physical);
+        Assert.DoesNotContain(physical, name => name.StartsWith("utun", StringComparison.Ordinal));
+        Assert.DoesNotContain(physical, name => name.StartsWith("bridge", StringComparison.Ordinal));
+        Assert.DoesNotContain(physical, name => name.StartsWith("awdl", StringComparison.Ordinal));
+        Assert.True(physical.Count > 0, "every interface on this machine was ruled out as not physical");
     }
 
     // =============================================================================================

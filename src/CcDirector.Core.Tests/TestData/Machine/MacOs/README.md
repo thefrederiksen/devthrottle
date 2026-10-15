@@ -23,6 +23,7 @@ same `MacOsPlatformReader` the Director calls and writes what came back without 
 | `proc-taskinfo.base64` | `struct proc_taskinfo` for the capture harness itself | `proc_pidinfo` with PROC_PIDTASKINFO |
 | `proc-bsdinfo.base64` | `struct proc_bsdinfo` for the capture harness itself | `proc_pidinfo` with PROC_PIDTBSDINFO |
 | `rusage-v2.base64` | `struct rusage_info_v2` for the capture harness itself | `proc_pid_rusage` with RUSAGE_INFO_V2 |
+| `kern-proc-all.base64` | the first three rows of the kernel's whole process table, `struct kinfo_proc` | `sysctl` with CTL_KERN, KERN_PROC, KERN_PROC_ALL |
 
 A `.base64` file is the raw bytes the kernel wrote, base64 encoded, with `#` comment lines at the top
 saying what it is. The bytes are kept rather than the figures read out of them BECAUSE THE FIELD

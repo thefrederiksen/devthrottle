@@ -809,6 +809,189 @@ public class MacOsResourceParsingTests
     }
 
     // =============================================================================================
+    // The kernel's process table
+    // =============================================================================================
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ReadKernelProcessTable_OnACapture_ReadsEveryRowTheOperatingSystemPrinted()
+    {
+        var entries = MacOsResourceParsing.ReadKernelProcessTable(Fixture.Bytes("kern-proc-all.base64"));
+
+        Assert.Equal(3, entries.Count);
+
+        // Every figure below is what the operating system itself printed for these exact bytes,
+        // through its own headers, at the moment of capture - see the fixture's own header.
+        Assert.Equal(37254, entries[0].Pid);
+        Assert.Equal(37240, entries[0].ParentPid);
+        Assert.Equal("dumptable", entries[0].Name);
+        Assert.Equal(501u, entries[0].UserId);
+
+        Assert.Equal(37240, entries[1].Pid);
+        Assert.Equal(62661, entries[1].ParentPid);
+        Assert.Equal("zsh", entries[1].Name);
+
+        // The kernel's own child: a parent of one is launchd, which is what tells a top-level process
+        // from a session's child when the slowness diagnosis walks a process tree.
+        Assert.Equal(37232, entries[2].Pid);
+        Assert.Equal(1, entries[2].ParentPid);
+        Assert.Equal("mdworker_shared", entries[2].Name);
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ReadKernelProcessTable_OnACapture_ReadsTheStartTimeToTheMicrosecond()
+    {
+        var entries = MacOsResourceParsing.ReadKernelProcessTable(Fixture.Bytes("kern-proc-all.base64"));
+
+        // THE START TIME IS THE KEY THAT TELLS A REUSED PROCESS IDENTIFIER FROM THE SAME PROCESS, so
+        // it has to be exact. 1792091094.675943 seconds after the epoch is what the operating system
+        // printed for the first row.
+        Assert.Equal(
+            DateTime.UnixEpoch.AddSeconds(1792091094).AddMicroseconds(675943),
+            entries[0].StartedAtUtc);
+        Assert.Equal(DateTimeKind.Utc, entries[0].StartedAtUtc.Kind);
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ReadKernelProcessTable_OnATrailingPartialRow_StopsRatherThanReadingPastIt()
+    {
+        var whole = Fixture.Bytes("kern-proc-all.base64");
+
+        // The kernel can answer with fewer bytes than it promised, and a buffer cut mid-row must not
+        // be read as a row: that is how a field lands at the wrong offset and nothing throws.
+        var cut = whole.AsSpan(0, MacOsResourceParsing.KernelProcessEntrySize * 2 + 100).ToArray();
+
+        var entries = MacOsResourceParsing.ReadKernelProcessTable(cut);
+
+        Assert.Equal(2, entries.Count);
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ReadKernelProcessTable_OnNoBytesAtAll_ReadsNothingAndDoesNotThrow()
+    {
+        Assert.Empty(MacOsResourceParsing.ReadKernelProcessTable(Array.Empty<byte>()));
+    }
+
+    // =============================================================================================
+    // Which interfaces count as the network
+    // =============================================================================================
+
+    // The flags and types below were measured on devthrottle-mac-mini on 2026-10-15 by compiling a
+    // program against the operating system's own headers and printing what getifaddrs reported for
+    // every interface on the machine. They are not invented examples.
+    [Theory]
+    [Trait("Category", "Resources")]
+    // The real Ethernet port and the real wireless, both of which must count.
+    [InlineData("en0", 0x8863u, (byte)0x06, true)]
+    [InlineData("en1", 0x8863u, (byte)0x06, true)]
+    // The loopback: the machine talking to itself.
+    [InlineData("lo0", 0x8049u, (byte)0x18, false)]
+    // The tunnels this fleet runs on. Counting these reported a download twice.
+    [InlineData("utun0", 0x8051u, (byte)0x01, false)]
+    [InlineData("utun5", 0x8051u, (byte)0x01, false)]
+    // A software bridge, which carries its members' bytes a second time.
+    [InlineData("bridge0", 0x8863u, (byte)0xd1, false)]
+    // Interfaces macOS gives the SAME type and flags as the real port, so only the name tells them
+    // apart: Apple Wireless Direct Link, low latency wireless, the access point, and the internal
+    // network processor interfaces.
+    [InlineData("awdl0", 0x8863u, (byte)0x06, false)]
+    [InlineData("llw0", 0x8863u, (byte)0x06, false)]
+    [InlineData("ap1", 0x8863u, (byte)0x06, false)]
+    [InlineData("anpi0", 0x8863u, (byte)0x06, false)]
+    // Down, and never brought up.
+    [InlineData("gif0", 0x8010u, (byte)0x37, false)]
+    [InlineData("stf0", 0x0u, (byte)0x39, false)]
+    public void IsPhysicalNetworkInterface_OnThisMachinesRealInterfaces_CountsOnlyTheHardware(
+        string name, uint flags, byte interfaceType, bool expected)
+    {
+        Assert.Equal(expected, MacOsResourceParsing.IsPhysicalNetworkInterface(name, flags, interfaceType));
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void IsPhysicalNetworkInterface_OnAnInterfaceThatIsUpButNotRunning_DoesNotCountIt()
+    {
+        // Up without running means configured but carrying nothing.
+        Assert.False(MacOsResourceParsing.IsPhysicalNetworkInterface("en9", 0x1u, 0x06));
+    }
+
+    // =============================================================================================
+    // A process's share of the machine
+    // =============================================================================================
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ProcessMachinePercent_ForOneCoreHeldFlatOut_IsOneCoresShareOfTheMachine()
+    {
+        // One second of processor time in one second of wall time, on a ten core machine, is ten
+        // percent of the machine - NOT a hundred. The shared contract asks for a share of the whole
+        // machine, and getting this wrong made a session appear to use ten times the machine's load.
+        var percent = MacOsResourceParsing.ProcessMachinePercent(
+            beforeNanoseconds: 0,
+            afterNanoseconds: 1_000_000_000,
+            between: TimeSpan.FromSeconds(1),
+            logicalCoreCount: 10);
+
+        Assert.NotNull(percent);
+        Assert.Equal(10.0, percent.Value, 6);
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ProcessMachinePercent_ForEveryCoreHeldFlatOut_IsTheWholeMachine()
+    {
+        var percent = MacOsResourceParsing.ProcessMachinePercent(
+            beforeNanoseconds: 0,
+            afterNanoseconds: 10_000_000_000,
+            between: TimeSpan.FromSeconds(1),
+            logicalCoreCount: 10);
+
+        Assert.NotNull(percent);
+        Assert.Equal(100.0, percent.Value, 6);
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ProcessMachinePercent_WithNoCoreCount_IsNullRatherThanDividingByNothing()
+    {
+        Assert.Null(MacOsResourceParsing.ProcessMachinePercent(0, 1_000, TimeSpan.FromSeconds(1), 0));
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ProcessMachinePercent_WhenTheCounterWentBackwards_IsNullRatherThanNegative()
+    {
+        Assert.Null(MacOsResourceParsing.ProcessMachinePercent(2_000, 1_000, TimeSpan.FromSeconds(1), 10));
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ProcessLifetimeMachinePercent_ForABrandNewProcessBurningACore_IsNotZero()
+    {
+        // THE DEFECT THIS EXISTS FOR. A process that started during the interval has nothing to
+        // subtract from, and it used to be written down as nought percent - indistinguishable from a
+        // measured idle. Measured: a child spawned mid-interval had used sixty-five milliseconds of
+        // processor time and was reported as completely idle. Over its own life it is a real figure.
+        var percent = MacOsResourceParsing.ProcessLifetimeMachinePercent(
+            usedNanoseconds: 65_000_000,
+            age: TimeSpan.FromMilliseconds(65),
+            logicalCoreCount: 10);
+
+        Assert.NotNull(percent);
+        Assert.Equal(10.0, percent.Value, 6);
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void ProcessLifetimeMachinePercent_ForAProcessWithNoAgeYet_IsNullRatherThanInfinite()
+    {
+        Assert.Null(MacOsResourceParsing.ProcessLifetimeMachinePercent(1_000, TimeSpan.Zero, 10));
+    }
+
+    // =============================================================================================
     // Loading the captures
     // =============================================================================================
 

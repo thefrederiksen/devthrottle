@@ -173,13 +173,15 @@ public class MacOsResourceProbeLiveTests
         {
             Assert.False(string.IsNullOrWhiteSpace(disk.Name));
             Assert.StartsWith("disk", disk.Name, StringComparison.Ordinal);
-
-            // This machine's disk is solid state. The point of asserting it is not known rather than
-            // merely "some value" is that the slowness diagnosis puts the words "spinning hard drive"
-            // in front of the owner, and saying that about a disk nobody identified is worse than
-            // saying nothing.
-            Assert.NotEqual(DiskKind.Unknown, disk.Kind);
         });
+
+        // AT LEAST ONE DISK OF A KNOWN KIND, NOT EVERY DISK. The slowness diagnosis puts the words
+        // "spinning hard drive" in front of the owner, so a kind must never be guessed - but Unknown
+        // IS the honest answer for a disk image or an external enclosure that publishes no medium
+        // type, and this used to go red whenever one was attached. The internal disk always reports
+        // one, so requiring one such disk keeps the guarantee the mission asked for without failing
+        // for what somebody has plugged in.
+        Assert.Contains(sample.Disks.Disks, disk => disk.Kind != DiskKind.Unknown);
     }
 
     [MacOsOnlyFact("the probe reads macOS system calls")]
@@ -337,11 +339,49 @@ public class MacOsResourceProbeLiveTests
 
         Assert.All(sample.Processes.Processes, process =>
         {
+            // EVERY process is named, including the ones whose figures this user may not see. That is
+            // the whole point: a process that cannot be measured is still the process that has to be
+            // named when the machine is slow.
             Assert.False(string.IsNullOrWhiteSpace(process.Name));
-            Assert.True(process.CpuPercent >= 0);
+
+            // No figure is ever negative, and an absent figure is null rather than zero.
+            if (process.CpuPercent is { } percent) Assert.True(percent >= 0);
             if (process.DiskReadBytesPerSecond is { } read) Assert.True(read >= 0);
             if (process.DiskWriteBytesPerSecond is { } written) Assert.True(written >= 0);
         });
+    }
+
+    [MacOsOnlyFact("the probe reads macOS system calls")]
+    [Trait("Category", "Resources")]
+    public void Read_Processes_IncludesTheOnesThisUserMayNotMeasure()
+    {
+        var sample = SecondSample();
+
+        // THE DEFECT THIS EXISTS FOR. The probe used to build its list from the per-process call,
+        // which an ordinary user is refused for another user's process, so roughly three hundred of
+        // this machine's processes were left out entirely - and the two busiest processes on it, the
+        // Spotlight indexer running as root, were among them. A probe whose job is to name the culprit
+        // could not see the culprit. The list now comes from the kernel's process table, which names
+        // every process, and only the FIGURES come from the call that can be refused.
+        var refused = sample.Processes.Processes.Where(process => process.CpuPercent is null).ToList();
+
+        Assert.True(
+            refused.Count > 0,
+            "not one process had unreadable figures, which on a Mac running as an ordinary user means " +
+            "the refused processes are being dropped again rather than listed");
+
+        // A refused process is a REAL entry: named, with a parent and a start time, and with figures
+        // that say "not known" rather than nought.
+        Assert.All(refused, process =>
+        {
+            Assert.False(string.IsNullOrWhiteSpace(process.Name));
+            Assert.NotNull(process.StartTimeUtc);
+            Assert.Null(process.CpuPercent);
+        });
+
+        // And the ones we CAN measure are still measured.
+        Assert.Contains(sample.Processes.Processes, process => process.CpuPercent is not null);
+        Assert.True(sample.Processes.CouldRead, sample.Processes.UnreadableReason);
     }
 
     [MacOsOnlyFact("the probe reads macOS system calls")]
@@ -367,7 +407,11 @@ public class MacOsResourceProbeLiveTests
         now = now.Add(Interval);
         var sample = probe.Read();
 
-        var expectedPercent = usedByTheRuntime.TotalSeconds / Interval.TotalSeconds * 100.0;
+        // A SHARE OF THE WHOLE MACHINE, which is what the shared contract asks for - so the runtime's
+        // own processor time is divided by the core count too, or the two sides would be comparing
+        // different quantities and the test would demand the probe be wrong by the core count.
+        var expectedPercent =
+            usedByTheRuntime.TotalSeconds / Interval.TotalSeconds * 100.0 / sample.Cpu.LogicalCoreCount;
         var us = sample.Processes.Processes.Single(process => process.Pid == Environment.ProcessId);
 
         // A FLOOR ON THE WORK DONE, NOT ON THE MACHINE'S SPEED. Eight units of arithmetic across two
@@ -383,7 +427,8 @@ public class MacOsResourceProbeLiveTests
         // two, because the two read the counter at slightly different moments and neither is a
         // reference clock. The bug this exists for was out by a factor of FORTY-TWO, so a factor of
         // two catches it twenty times over while never failing for timing.
-        Assert.InRange(us.CpuPercent, expectedPercent * 0.5, expectedPercent * 2.0);
+        Assert.NotNull(us.CpuPercent);
+        Assert.InRange(us.CpuPercent.Value, expectedPercent * 0.5, expectedPercent * 2.0);
 
         // The machine's own figure is a ratio of tick counters, so no interval enters it at all.
         Assert.True(sample.Cpu.CouldRead, sample.Cpu.UnreadableReason);

@@ -312,6 +312,7 @@ internal static class MacOsPlatformReader
 
     private const int IfAddrsNextOffset = 0;
     private const int IfAddrsNameOffset = 8;
+    private const int IfAddrsFlagsOffset = 16;
     private const int IfAddrsAddressOffset = 24;
     private const int IfAddrsDataOffset = 48;
 
@@ -326,9 +327,9 @@ internal static class MacOsPlatformReader
     /// link-level address - and only the last of those has the byte and packet counters. Adding up all
     /// the entries for an interface would count its traffic once per address it holds.
     /// </summary>
-    internal static List<(string Name, byte[] Data)> ReadInterfaces()
+    internal static List<(string Name, uint Flags, byte[] Data)> ReadInterfaces()
     {
-        var interfaces = new List<(string Name, byte[] Data)>();
+        var interfaces = new List<(string Name, uint Flags, byte[] Data)>();
 
         if (MacOsNative.getifaddrs(out var head) != 0 || head == IntPtr.Zero) return interfaces;
 
@@ -350,7 +351,11 @@ internal static class MacOsPlatformReader
 
                 var bytes = new byte[MacOsResourceParsing.InterfaceDataReadLength];
                 Marshal.Copy(data, bytes, 0, bytes.Length);
-                interfaces.Add((name, bytes));
+
+                // The flags live on the entry itself, not in the counters, and they are what say
+                // whether this is the loopback or one end of a tunnel.
+                var flags = unchecked((uint)Marshal.ReadInt32(entry, IfAddrsFlagsOffset));
+                interfaces.Add((name, flags, bytes));
             }
         }
         finally
@@ -389,6 +394,47 @@ internal static class MacOsPlatformReader
     /// it is a plausible one, and it would have quietly left the busiest process out of the list the
     /// detail screen names the culprit from.
     /// </summary>
+    /// <summary>
+    /// The kernel's whole process table as raw bytes, or null when it could not be read.
+    ///
+    /// Asked twice on purpose: once for the size, then again for the contents, with room to spare
+    /// because processes start and stop between the two calls. The kernel can also answer the second
+    /// call with less than it promised, which is normal and not a failure, so the caller is handed
+    /// only the bytes actually written.
+    /// </summary>
+    internal static byte[]? ReadKernelProcessTable()
+    {
+        var name = MacOsNative.KernelProcessTableName;
+        var length = IntPtr.Zero;
+        if (MacOsNative.sysctl(name, (uint)name.Length, IntPtr.Zero, ref length, IntPtr.Zero, IntPtr.Zero) != 0)
+            return null;
+
+        var wanted = (int)length;
+        if (wanted <= 0) return null;
+
+        // Room for processes that start between the two calls.
+        wanted += 64 * MacOsResourceParsing.KernelProcessEntrySize;
+
+        var buffer = Marshal.AllocHGlobal(wanted);
+        try
+        {
+            var size = (IntPtr)wanted;
+            if (MacOsNative.sysctl(name, (uint)name.Length, buffer, ref size, IntPtr.Zero, IntPtr.Zero) != 0)
+                return null;
+
+            var written = (int)size;
+            if (written <= 0 || written > wanted) return null;
+
+            var bytes = new byte[written];
+            Marshal.Copy(buffer, bytes, 0, written);
+            return bytes;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
     internal static int[]? ReadProcessIds()
     {
         var count = MacOsNative.proc_listallpids(IntPtr.Zero, 0);
@@ -415,7 +461,8 @@ internal static class MacOsPlatformReader
 
     /// <summary>
     /// Captures one process's three raw structures. Any of them can be null, which means the process
-    /// has gone or this user may not read it - a reading of null figures for that one process, never a
+    /// has gone or this user may not read it. That is an answer about ONE process - its figures are
+    /// null and it is still listed under the name the kernel's process table gave it - and never a
     /// failure of the whole set.
     /// </summary>
     internal static (byte[]? TaskInfo, byte[]? BsdInfo, byte[]? Rusage) ReadProcess(int pid) =>

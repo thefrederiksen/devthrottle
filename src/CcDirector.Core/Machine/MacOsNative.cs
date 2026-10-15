@@ -39,6 +39,17 @@ internal static class MacOsNative
     [DllImport(LibC, SetLastError = true)]
     internal static extern int sysctlbyname(string name, IntPtr oldp, ref IntPtr oldlenp, IntPtr newp, IntPtr newlen);
 
+    /// <summary>
+    /// Reads a sysctl value by its numbered name. The kernel's process table has no text name, so it
+    /// can only be asked for this way. Returns 0 on success, -1 on failure.
+    /// </summary>
+    [DllImport(LibC, SetLastError = true)]
+    internal static extern int sysctl(
+        int[] name, uint nameLength, IntPtr oldp, ref IntPtr oldlenp, IntPtr newp, IntPtr newlen);
+
+    /// <summary>The numbered name of the whole process table: CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0.</summary>
+    internal static readonly int[] KernelProcessTableName = { 1, 14, 0, 0 };
+
     // ---------------------------------------------------------------------------------------------
     // Mach: processor load and the host port
     // ---------------------------------------------------------------------------------------------
@@ -122,8 +133,18 @@ internal static class MacOsNative
     /// <summary>
     /// Lists the mounted file systems. Called once with a null buffer to learn the count, then again
     /// with a buffer of that size. Returns the number of structures written, or -1.
+    ///
+    /// THE ENTRY POINT IS NAMED, AND THE NAME MATTERS. The structure this code reads is Apple's
+    /// 64-bit-inode layout, 2168 bytes on this architecture. On Apple Silicon that is the only layout
+    /// and the plain symbol writes it, but on Intel Apple kept the older, smaller layout under the
+    /// plain symbol and put the new one under a decorated name. A C program never notices, because the
+    /// header quietly renames the call; a direct binding by plain name does not go through the header,
+    /// so on an Intel Mac it would get the old layout, stride across the records at the wrong width,
+    /// and read names out of where the old layout keeps counters. Nothing would throw and every volume
+    /// figure would be wrong. Both architectures export this name for the 64-bit-inode layout, so
+    /// naming it here is correct on each and cannot drift.
     /// </summary>
-    [DllImport(LibC, SetLastError = true)]
+    [DllImport(LibC, EntryPoint = "getfsstat64", SetLastError = true)]
     internal static extern int getfsstat(IntPtr buf, int bufsize, int flags);
 
     /// <summary>Builds the linked list of network interface addresses. Freed with <see cref="freeifaddrs"/>.</summary>
@@ -148,8 +169,11 @@ internal static class MacOsNative
     internal const int RusageInfoV2 = 2;
 
     /// <summary>
-    /// Every process identifier on the machine. Called once with a null buffer to learn the size
-    /// needed, then again with a buffer. Returns the number of BYTES written, not the count.
+    /// Every process identifier on the machine. Called once with a null buffer, then again with a
+    /// buffer. RETURNS A COUNT OF PROCESSES, NOT A COUNT OF BYTES, whatever the usual documentation
+    /// says - measured on this machine, and the reader relies on it. Kept only as a cross-check on the
+    /// count; the list itself now comes from the kernel's process table, which also names the
+    /// processes this user may not read.
     /// </summary>
     [DllImport(LibC, SetLastError = true)]
     internal static extern int proc_listallpids(IntPtr buffer, int buffersize);
@@ -201,9 +225,6 @@ internal static class MacOsNative
     [DllImport(IoKit)]
     internal static extern int IOObjectRelease(uint @object);
 
-    /// <summary>The whole property dictionary of one registry entry. The caller owns the dictionary.</summary>
-    [DllImport(IoKit)]
-    internal static extern int IORegistryEntryCreateCFProperties(uint entry, out IntPtr properties, IntPtr allocator, uint options);
 
     /// <summary>
     /// One property, found by walking the registry from this entry. With

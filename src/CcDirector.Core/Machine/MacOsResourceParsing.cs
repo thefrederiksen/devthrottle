@@ -735,6 +735,147 @@ internal static class MacOsResourceParsing
         return true;
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Which interfaces count as the network
+    // ---------------------------------------------------------------------------------------------
+
+    private const uint InterfaceUp = 0x1;
+    private const uint InterfaceLoopback = 0x8;
+    private const uint InterfacePointToPoint = 0x10;
+    private const uint InterfaceRunning = 0x40;
+
+    /// <summary>IFT_ETHER. Wired and wireless hardware both report it on this platform.</summary>
+    private const byte InterfaceTypeEthernet = 0x06;
+
+    /// <summary>
+    /// The virtual interfaces macOS gives the SAME type and flags as real hardware, so there is
+    /// nothing to tell them apart by except their names: the Apple network processor interfaces, the
+    /// wireless access point, Apple Wireless Direct Link, low latency WLAN, and a software bridge.
+    /// Measured on this machine, every one of these reports Ethernet, up and running, exactly as the
+    /// real Ethernet port does.
+    /// </summary>
+    private static readonly string[] VirtualInterfacePrefixes =
+        { "anpi", "ap", "awdl", "llw", "bridge", "utun", "gif", "stf", "vmenet", "XHC" };
+
+    /// <summary>
+    /// Whether an interface's traffic is the machine's real network traffic.
+    ///
+    /// WHY THIS IS MORE THAN SKIPPING THE LOOPBACK. The shared contract says the network reading is
+    /// summed over the physical interfaces that are up, excluding the loopback AND the virtual ones,
+    /// and it says why: a virtual layer carries the same bytes a second time. Skipping only the
+    /// loopback counted this fleet's own tunnels, and this machine has six of them: a hundred
+    /// megabytes downloaded over the tunnel is counted once on the tunnel and once on the Ethernet
+    /// port underneath it, and the probe reported two hundred.
+    ///
+    /// Three of the four tests here come from the operating system itself - the flags and the
+    /// interface type, both measured against its headers. Only the last is a list of names, and it is
+    /// there because macOS genuinely does not mark those interfaces as virtual in any field: they
+    /// report Ethernet, up and running, just as the real port does.
+    /// </summary>
+    internal static bool IsPhysicalNetworkInterface(string name, uint flags, byte interfaceType)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+
+        // Not carrying traffic at all.
+        if ((flags & InterfaceUp) == 0) return false;
+        if ((flags & InterfaceRunning) == 0) return false;
+
+        // The loopback is the machine talking to itself, and on a machine running many sessions it is
+        // the busiest interface by far.
+        if ((flags & InterfaceLoopback) != 0) return false;
+
+        // One end of a tunnel. The bytes are already counted on whatever carries it.
+        if ((flags & InterfacePointToPoint) != 0) return false;
+
+        // Anything that is not hardware-shaped: tunnels that are not marked point to point, bridges,
+        // and the placeholder interfaces.
+        if (interfaceType != InterfaceTypeEthernet) return false;
+
+        foreach (var prefix in VirtualInterfacePrefixes)
+            if (name.StartsWith(prefix, StringComparison.Ordinal))
+                return false;
+
+        return true;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // The kernel's process table
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// One row of the kernel's process table: enough to NAME a process, even one whose figures this
+    /// user may not read.
+    /// </summary>
+    /// <param name="Pid">The process id.</param>
+    /// <param name="ParentPid">The parent's process id. Zero for the kernel itself.</param>
+    /// <param name="Name">
+    /// The short name, sixteen characters at most. The longer thirty-two character name is only
+    /// available through the per-process call, which is refused for another user's process, so for a
+    /// refused process this truncated name is the only name there is - and a truncated name still
+    /// names the culprit, where leaving the process out does not.
+    /// </param>
+    /// <param name="StartedAtUtc">When the process started.</param>
+    /// <param name="UserId">Which user owns it. Used only to explain, in plain English, WHY a process's figures could not be read.</param>
+    internal readonly record struct KernelProcessEntry(
+        int Pid, int ParentPid, string Name, DateTime StartedAtUtc, uint UserId);
+
+    /// <summary>
+    /// The size of one row of the kernel's process table, <c>struct kinfo_proc</c>, measured on this
+    /// machine rather than added up from the field list. Every offset below was measured the same
+    /// way, by compiling the operating system's own headers: this probe has already been wrong three
+    /// times by trusting a field list, once by four characters and once by a factor of forty-two.
+    /// </summary>
+    internal const int KernelProcessEntrySize = 648;
+
+    private const int KernelProcessStartSecondsOffset = 0;
+    private const int KernelProcessStartMicrosecondsOffset = 8;
+    private const int KernelProcessPidOffset = 40;
+    private const int KernelProcessNameOffset = 243;
+    private const int KernelProcessNameLength = 17;
+    private const int KernelProcessUserIdOffset = 420;
+    private const int KernelProcessParentPidOffset = 560;
+
+    /// <summary>
+    /// Reads the kernel's whole process table.
+    ///
+    /// WHY THIS EXISTS AT ALL, when there is already a call that lists process identifiers: the
+    /// per-process call that gives a name, a parent and a start time is REFUSED for a process
+    /// belonging to another user, and roughly three hundred of this machine's seven hundred processes
+    /// belong to root. Building the list from that call therefore dropped them entirely - not with
+    /// null figures, but absent, from a set that reported itself as read without trouble. Measured on
+    /// this machine, the two busiest processes on it were among the missing, and they were the
+    /// Spotlight indexer: exactly the culprit a slowness diagnosis exists to name. This table is
+    /// readable by an ordinary user for every process, so the LIST comes from here and only the
+    /// FIGURES come from the per-process calls.
+    /// </summary>
+    internal static List<KernelProcessEntry> ReadKernelProcessTable(ReadOnlySpan<byte> buffer)
+    {
+        var entries = new List<KernelProcessEntry>(buffer.Length / KernelProcessEntrySize);
+
+        for (var offset = 0; offset + KernelProcessEntrySize <= buffer.Length; offset += KernelProcessEntrySize)
+        {
+            var row = buffer.Slice(offset, KernelProcessEntrySize);
+
+            var pid = BitConverter.ToInt32(row.Slice(KernelProcessPidOffset, 4));
+
+            // The kernel itself is process zero and is not something a session can be blamed on, but a
+            // negative identifier would mean the row is not a row at all, so it stops the walk.
+            if (pid < 0) break;
+
+            var seconds = BitConverter.ToInt64(row.Slice(KernelProcessStartSecondsOffset, 8));
+            var microseconds = BitConverter.ToInt32(row.Slice(KernelProcessStartMicrosecondsOffset, 4));
+
+            entries.Add(new KernelProcessEntry(
+                Pid: pid,
+                ParentPid: BitConverter.ToInt32(row.Slice(KernelProcessParentPidOffset, 4)),
+                Name: ReadFixedString(row, KernelProcessNameOffset, KernelProcessNameLength),
+                StartedAtUtc: DateTime.UnixEpoch.AddSeconds(seconds).AddMicroseconds(microseconds),
+                UserId: BitConverter.ToUInt32(row.Slice(KernelProcessUserIdOffset, 4))));
+        }
+
+        return entries;
+    }
+
     /// <summary>What one process has read from and written to disk, cumulatively, in bytes.</summary>
     internal readonly record struct ProcessDiskUsage(ulong BytesRead, ulong BytesWritten);
 
@@ -765,6 +906,49 @@ internal static class MacOsResourceParsing
 
         var used = afterNanoseconds - beforeNanoseconds;
         return used / (between.TotalSeconds * 1_000_000_000.0) * 100.0;
+    }
+
+    /// <summary>
+    /// What share of the WHOLE MACHINE a process used between two readings, as a percentage, or null
+    /// when the two readings cannot be compared.
+    ///
+    /// THIS IS THE FIGURE THE SHARED CONTRACT ASKS FOR, and it is not the one this platform's own
+    /// monitors show. <c>ProcessReading.CpuPercent</c> is defined as a share of the whole machine from
+    /// nought to a hundred, and the per-session total is a sum of those shares. Reporting one core's
+    /// worth as a hundred instead would make two processes on a ten core machine add up to two
+    /// hundred while the machine's own reading for the same moment said twenty - a session apparently
+    /// using ten times the load of the machine it runs on. Every platform probe has to answer the same
+    /// question the same way, so the division happens here.
+    /// </summary>
+    internal static double? ProcessMachinePercent(
+        ulong beforeNanoseconds, ulong afterNanoseconds, TimeSpan between, int logicalCoreCount)
+    {
+        if (logicalCoreCount <= 0) return null;
+
+        var ofOneCore = ProcessCorePercent(beforeNanoseconds, afterNanoseconds, between);
+        return ofOneCore is { } percent ? percent / logicalCoreCount : null;
+    }
+
+    /// <summary>
+    /// What share of the whole machine a process has used over its WHOLE LIFE, as a percentage, or
+    /// null when that cannot be worked out.
+    ///
+    /// This is the honest answer for a process with no earlier reading to subtract - one that started
+    /// during the interval, or whose identifier was reused. The alternative that was here before was
+    /// to write such a process down as nought percent, which is a figure the rules forbid because it
+    /// is indistinguishable from a measured idle: an agent session spawned mid-interval and already
+    /// burning a core read as completely idle for a whole five second tick, which is precisely the
+    /// machine state the owner asks about. An average over a short life is not the same quantity as a
+    /// rate over the interval, and it is close to it for a process that has only just started, which
+    /// is the only case it is used in.
+    /// </summary>
+    internal static double? ProcessLifetimeMachinePercent(
+        ulong usedNanoseconds, TimeSpan age, int logicalCoreCount)
+    {
+        if (logicalCoreCount <= 0) return null;
+        if (age <= TimeSpan.Zero) return null;
+
+        return usedNanoseconds / (age.TotalSeconds * 1_000_000_000.0) * 100.0 / logicalCoreCount;
     }
 
     // ---------------------------------------------------------------------------------------------
