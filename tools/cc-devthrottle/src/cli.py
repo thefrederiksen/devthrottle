@@ -4725,7 +4725,7 @@ def factory_export(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output what was written as JSON."),
 ) -> None:
-    """Write a factory's definition to a folder, every file exactly as the Gateway holds it.
+    """Write a factory's definition to a folder, byte for byte as the Gateway holds it.
 
     Two exports of one version are the same bytes. A factory with no definition is written from its registry
     entry, published briefs, schedules and triggers; what a definition cannot hold is listed, not dropped.
