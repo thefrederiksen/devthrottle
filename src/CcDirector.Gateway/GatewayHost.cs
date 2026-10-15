@@ -5980,7 +5980,9 @@ public sealed class GatewayHost : IAsyncDisposable
             liveOf: FactoryLivePartsOf,
             apply: FactoryDefinitionPublish,
             nowUtc: () => DateTime.UtcNow,
-            askMachines: AskFactoryMachinesAsync);
+            askMachines: AskFactoryMachinesAsync,
+            // Phase 5b: the state each definition check keeps, listed per checked start and reset by a person.
+            checkStates: new Api.FactoryDefinitionEndpoints.CheckStateParts(Triggers.Store.CheckStates, Triggers.Store.List));
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
         // held here beside its memory so that no factory depends on one machine's disk (the owner's decision F2).

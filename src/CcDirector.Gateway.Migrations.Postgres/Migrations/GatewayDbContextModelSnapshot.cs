@@ -196,11 +196,22 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text");
 
+                    b.Property<string>("CheckPath")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("CheckSecretsJson")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("CronExpression")
                         .HasColumnType("text");
+
+                    b.Property<int?>("DefinitionVersion")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
@@ -1188,6 +1199,51 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("factory_seat_briefs", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryCheckStateEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("OwnerKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .UseCollation("C");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("Reset")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RunRef")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("WrittenBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("WrittenUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "Factory", "OwnerKey", "Sequence");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("factory_check_state", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryDefinitionVersionEntity", b =>
@@ -4573,6 +4629,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
+                    b.Property<string>("CheckPath")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("ClaimedByDirectorId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -4588,6 +4648,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DefinitionVersion")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Factory")
                         .IsRequired()
@@ -4648,6 +4711,14 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasMaxLength(1024)
                         .HasColumnType("character varying(1024)");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SecretsJson")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()

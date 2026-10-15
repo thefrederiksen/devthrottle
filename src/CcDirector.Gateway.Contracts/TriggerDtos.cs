@@ -86,6 +86,18 @@ public sealed class TriggerDto
     public string CreatedBy { get; set; } = "";
     public DateTime CreatedUtc { get; set; }
 
+    /// <summary>The seat of the factory's definition this trigger runs, or null on a command trigger.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Seat { get; set; }
+
+    /// <summary>The published definition version this trigger was written from, or null on a command trigger.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? DefinitionVersion { get; set; }
+
+    /// <summary>The check's path in the definition, or null on a command trigger.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CheckPath { get; set; }
+
     /// <summary>The session this trigger last started, or null when it has never started one.</summary>
     public string? LastSessionId { get; set; }
 

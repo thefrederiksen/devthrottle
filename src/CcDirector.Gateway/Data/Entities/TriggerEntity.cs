@@ -44,6 +44,25 @@ public sealed class TriggerEntity : GatewayMintedKeyEntity
     /// <summary>Why the last recorded check failed, on a <c>failed</c> outcome; otherwise null.</summary>
     public string? LastReason { get; set; }
 
+    // ---- Factory Definition, phase 5b: a DEFINITION TRIGGER, written by a publish from an interval start. All four
+    // are null on every command trigger, which is how the two kinds are told apart. ----
+
+    /// <summary>The seat of the factory's definition this trigger's start belongs to, or null on a command trigger.</summary>
+    public string? Seat { get; set; }
+
+    /// <summary>The published definition version this trigger was written from, or null on a command trigger.</summary>
+    public int? DefinitionVersion { get; set; }
+
+    /// <summary>The check's path in the definition (<c>checks/&lt;name&gt;.py</c>). When set, the trigger has no
+    /// <see cref="CheckCommand"/>: its check is downloaded from the published version and run outside any checkout.</summary>
+    public string? CheckPath { get; set; }
+
+    /// <summary>The cc-secrets entry names the check declares, as a JSON array in declared order, or null.</summary>
+    public string? SecretsJson { get; set; }
+
+    /// <summary>True when this trigger is a check from a definition rather than a command a person wrote.</summary>
+    public bool IsDefinitionCheck => !string.IsNullOrEmpty(CheckPath);
+
     /// <summary>The Director that runs this trigger's check now, or empty when none has claimed it.</summary>
     public string ClaimedByDirectorId { get; set; } = "";
 

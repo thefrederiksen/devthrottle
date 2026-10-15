@@ -5,6 +5,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Definition;
+using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
@@ -55,6 +56,11 @@ namespace CcDirector.Gateway.Api;
 /// publish got there first. The answer carries what changes against the version it really replaced, and
 /// <c>applied</c>: one sentence per step the transaction took. <c>/diff</c> answers what changes between any two
 /// versions, and <c>plan</c>: what a publish of the version compared to WOULD do to the live factory now.
+///
+/// THE STATE A FACTORY'S CHECKS KEEP (phase 5b, design 1.4): <c>/check-state</c> lists every checked start of the
+/// published definition, by seat and start number, with the newest state its check left; <c>/check-state/reset</c>
+/// appends an empty state for one start - the way out of a stuck state. ONLY A PERSON RESETS, for the reason only a
+/// person publishes; a session's reset reaches the route and is refused in words.
 /// </summary>
 internal static class FactoryDefinitionEndpoints
 {
@@ -78,8 +84,12 @@ internal static class FactoryDefinitionEndpoints
         Func<TenantId, string, FactoryLiveParts?> liveOf,
         FactoryPublishApply apply,
         Func<DateTime> nowUtc,
-        AskMachinesAsync askMachines)
+        AskMachinesAsync askMachines,
+        // Phase 5b: the state each check keeps, and the account's triggers the checked starts are run by. REQUIRED:
+        // a wiring line that forgot it must not compile.
+        CheckStateParts checkStates)
     {
+        ArgumentNullException.ThrowIfNull(checkStates);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(apply);
@@ -113,8 +123,93 @@ internal static class FactoryDefinitionEndpoints
         app.MapPost(ImportRoute, (HttpContext ctx, ImportFactoryDefinitionRequest? body) =>
             Import(ctx, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
         app.MapGet(SchemasRoute, (HttpContext ctx) => Schemas(ctx, resolveTenant));
+        app.MapGet(factoryRoute + "/check-state", (HttpContext ctx, string factory) =>
+            ListCheckState(ctx, factory, store, checkStates, resolveTenant, sessionFactoryOf));
+        app.MapPost(factoryRoute + "/check-state/reset", (HttpContext ctx, string factory, ResetFactoryCheckStateRequest? body) =>
+            ResetCheckState(ctx, factory, body, store, checkStates, resolveTenant, sessionFactoryOf, nowUtc));
 
-        FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, diff, publish, restore and export routes, {ImportRoute} and {SchemasRoute}");
+        FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, diff, publish, restore, export and check-state routes, {ImportRoute} and {SchemasRoute}");
+    }
+
+    /// <summary>What the check-state routes read and write: the state store, and the account's triggers.</summary>
+    internal sealed record CheckStateParts(FactoryCheckStateStore Store, Func<TenantId, IReadOnlyList<TriggerEntity>> TriggersOf);
+
+    /// <summary>The refusal a session's reset gets: only a person resets a check's state, and what the session can do.</summary>
+    public const string OnlyAPersonResets =
+        "Only a person resets a check's state. A session of the factory may read it with " +
+        "'cc-devthrottle factory check-state show'; ask the owner to reset it.";
+
+    /// <summary>GET every checked start of the published definition, with the newest state its check left.</summary>
+    internal static IResult ListCheckState(HttpContext ctx, string factory, FactoryDefinitionStore store,
+        CheckStateParts checkStates, Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/check-state", out _, out var error)) return error!;
+        if (!TryFold(factory, out var folded, out error)) return error!;
+
+        var states = CheckStatesOf(tenant, folded, store, checkStates);
+        FileLog.Write($"[FactoryDefinitionEndpoints] GET {folded}/check-state: {states.Count} checked start(s)");
+        return Results.Json(new FactoryCheckStateListResponse { Factory = folded, Count = states.Count, States = states });
+    }
+
+    /// <summary>
+    /// POST a person's reset of one start's state: an empty state row marked as a reset, so the check's next run is a
+    /// first run. The start must be a checked start of this factory's published definition; anything else is 404 in
+    /// words, never a row written for a start that does not exist.
+    /// </summary>
+    internal static IResult ResetCheckState(HttpContext ctx, string factory, ResetFactoryCheckStateRequest? body,
+        FactoryDefinitionStore store, CheckStateParts checkStates, Func<HttpContext, TenantId?> resolveTenant,
+        Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        var route = $"POST {Prefix}/{factory}/check-state/reset";
+        if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
+        if (caller.Kind != FactoryMemoryAuthorKinds.Person)
+        {
+            FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - a {caller.Kind} may not reset a check's state");
+            return Results.Json(new { error = OnlyAPersonResets, outcome = FactoryDefinitionOutcome.OnlyAPersonPublishes.ToString() },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (body is null || string.IsNullOrWhiteSpace(body.OwnerKey)) return Results.BadRequest(new { error = "ownerKey is required" });
+        if (!TryFold(factory, out var folded, out error)) return error!;
+
+        var ownerKey = body.OwnerKey.Trim();
+        if (!FactoryCheckStateStore.IsOwnerKey(ownerKey))
+            return Results.BadRequest(new
+            {
+                error = $"'{ownerKey}' is not an owner key: it is trigger:<trigger id> or cron:<schedule id>",
+                detail = $"'cc-devthrottle factory check-state show {folded}' lists the checked starts and their owner keys.",
+            });
+        var start = CheckStatesOf(tenant, folded, store, checkStates)
+            .FirstOrDefault(s => string.Equals(s.OwnerKey, ownerKey, StringComparison.Ordinal));
+        if (start is null)
+        {
+            FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED (404) - {ownerKey} is not a checked start of {folded}");
+            return Results.Json(new
+            {
+                error = $"{ownerKey} is not a checked start of {folded}'s published definition, so it has no state to reset",
+                detail = $"'cc-devthrottle factory check-state show {folded}' lists the checked starts and their owner keys.",
+            }, statusCode: StatusCodes.Status404NotFound);
+        }
+
+        var row = checkStates.Store.Reset(tenant, folded, ownerKey, caller.Id, nowUtc());
+        FileLog.Write($"[FactoryDefinitionEndpoints] {route}: {folded} {ownerKey} reset by {row.WrittenBy}, sequence={row.Sequence}");
+        start.Content = "";
+        start.WrittenUtc = DateTime.SpecifyKind(row.WrittenUtc, DateTimeKind.Utc);
+        start.WrittenBy = row.WrittenBy;
+        start.RunRef = null;
+        start.Reset = true;
+        return Results.Json(start);
+    }
+
+    private static List<FactoryCheckStateDto> CheckStatesOf(TenantId tenant, string folded, FactoryDefinitionStore store,
+        CheckStateParts checkStates)
+    {
+        var published = store.Standing(tenant, folded).Published;
+        var definition = published is null ? null
+            : FactoryDefinitionCheck.Read(store.Find(tenant, folded, published.Version)!.Files).Definition;
+        return FactoryCheckStateFold.List(definition, checkStates.TriggersOf(tenant),
+            ownerKey => checkStates.Store.Newest(tenant, folded, ownerKey));
     }
 
     /// <summary>Asks each machine its question and answers one reply per machine (Factory Definition, phase 5).</summary>

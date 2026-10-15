@@ -221,6 +221,11 @@ public sealed class PostgresProviderProofTests
             ("factory_attachments", "Factory"),
             ("factory_attachments", "ImportKey"),
             ("factory_attachments", "Seat"),
+            // The state a factory's checks keep (Factory Definition mission, phase 5b). The factory and the owner key
+            // are two parts of the primary key that keeps two reports from adding the same row, so the two providers
+            // must agree on what counts as the same start.
+            ("factory_check_state", "Factory"),
+            ("factory_check_state", "OwnerKey"),
             // A factory's definition held on the Gateway (Factory Definition mission, phase 1). The factory is part
             // of the primary key that keeps two writers from minting the same version, so the two providers must
             // agree on what counts as the same factory; the state is the closed word the published read selects on.

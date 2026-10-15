@@ -36,7 +36,12 @@ public sealed class TriggerStore
     public TriggerStore(GatewayDatabase db)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
+        CheckStates = new FactoryCheckStateStore(db);
     }
+
+    /// <summary>The state each definition check keeps between runs (Factory Definition, phase 5b), over the same
+    /// database.</summary>
+    public FactoryCheckStateStore CheckStates { get; }
 
     /// <summary>Every trigger of the account, by name.</summary>
     public IReadOnlyList<TriggerEntity> List(TenantId tenant)

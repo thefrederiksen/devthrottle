@@ -44,11 +44,13 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     private readonly GatewayDbTestHarness _h = new();
     private readonly ServiceProvider _services;
     private readonly GatewayDatabase _db;
+    private readonly CcDirector.Gateway.Factory.Triggers.TriggerStore _triggers;
     private Routes _routes;
 
     public FactoryDefinitionRoutesThroughThePipelineTests()
     {
         _db = _h.Open();
+        _triggers = new CcDirector.Gateway.Factory.Triggers.TriggerStore(_db);
         _services = new ServiceCollection().AddRouting().AddLogging().BuildServiceProvider();
         _routes = MapThrough(new FactoryPublishApply(_db));
         new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(_db).Register(A, DefinitionFixture.Registration(), "test", Now);
@@ -68,7 +70,8 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             liveOf: (_, _) => null,
             apply: apply,
             nowUtc: () => Now,
-            askMachines: askMachines ?? DefinitionFixture.AskNobody);
+            askMachines: askMachines ?? DefinitionFixture.AskNobody,
+            checkStates: new FactoryDefinitionEndpoints.CheckStateParts(_triggers.CheckStates, _triggers.List));
         return routes;
     }
 
@@ -400,7 +403,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task THE_DIFF_PLAN_SAYS_WHY_A_PUBLISH_WOULD_BE_REFUSED()
     {
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.TimedChecked(), 0));
 
         var diff = await Send("GET", FactoryPath + "/diff", AsAPerson);
 
@@ -409,7 +412,138 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.StartsWith("The live factory cannot take this definition", plan.GetProperty("refused").GetString());
         var finding = plan.GetProperty("findings")[0];
         Assert.Equal("seats/outreach.yaml", finding.GetProperty("file").GetString());
-        Assert.Equal(FactoryDefinitionCheck.CheckStartNotYet, finding.GetProperty("message").GetString());
+        Assert.Equal(FactoryDefinitionCheck.TimedCheckStartNotYet, finding.GetProperty("message").GetString());
+    }
+
+    // ---------- phase 5b: an interval check publishes, and the state its check keeps ----------
+
+    /// <summary>Publish the valid definition, whose outreach seat checks mail every 10 minutes, and return its trigger.</summary>
+    private async Task<CcDirector.Gateway.Data.Entities.TriggerEntity> PublishTheIntervalCheck()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+        var published = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        Assert.Equal(200, published.Status);
+        return Assert.Single(_triggers.List(A), t => t.Factory == TheFactory);
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_WITH_AN_INTERVAL_CHECK_WRITES_ITS_TRIGGER_AND_SAYS_SO()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+
+        var published = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+
+        Assert.Equal(200, published.Status);
+        Assert.Contains("Trigger devthrottle-outreach created for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
+            published.Body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()));
+        var t = Assert.Single(_triggers.List(A), t => t.Factory == TheFactory);
+        Assert.Equal(("checks/new_mail.py", 1), (t.CheckPath, t.DefinitionVersion));
+    }
+
+    [Fact]
+    public async Task THE_CHECK_STATE_LISTS_EACH_CHECKED_START_BY_SEAT_AND_NUMBER_WITH_ITS_NEWEST_STATE()
+    {
+        var t = await PublishTheIntervalCheck();
+        _triggers.CheckStates.RecordIfChanged(A, TheFactory, CcDirector.Gateway.Factory.Triggers.FactoryCheckStateStore.TriggerOwner(t.Id),
+            """{"last":"m-41"}""", "dir-1", "run-1", Now);
+
+        var listed = await Send("GET", FactoryPath + "/check-state", AsASessionOfTheFactory);
+
+        Assert.Equal(200, listed.Status);
+        Assert.Equal(1, listed.Body.GetProperty("count").GetInt32());
+        var s = listed.Body.GetProperty("states")[0];
+        Assert.Equal($"trigger:{t.Id:D}", s.GetProperty("ownerKey").GetString());
+        Assert.Equal(("outreach", 1, "devthrottle-outreach"), (s.GetProperty("seat").GetString(), s.GetProperty("start").GetInt32(), s.GetProperty("name").GetString()));
+        Assert.Equal("""{"last":"m-41"}""", s.GetProperty("content").GetString());
+        Assert.Equal("dir-1", s.GetProperty("writtenBy").GetString());
+    }
+
+    [Fact]
+    public async Task THE_CHECK_STATE_OF_A_FACTORY_WITH_NO_PUBLISHED_DEFINITION_IS_COUNT_ZERO()
+    {
+        var listed = await Send("GET", FactoryPath + "/check-state", AsAPerson);
+
+        Assert.Equal(200, listed.Status);
+        Assert.Equal(0, listed.Body.GetProperty("count").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_PERSONS_RESET_APPENDS_AN_EMPTY_STATE_AND_THE_CHECK_IS_HANDED_IT()
+    {
+        var t = await PublishTheIntervalCheck();
+        var owner = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateStore.TriggerOwner(t.Id);
+        _triggers.CheckStates.RecordIfChanged(A, TheFactory, owner, "stuck", "dir-1", "run-1", Now);
+
+        var reset = await Send("POST", FactoryPath + "/check-state/reset", AsAPerson, $$"""{"ownerKey":"{{owner}}"}""");
+
+        Assert.Equal(200, reset.Status);
+        Assert.True(reset.Body.GetProperty("reset").GetBoolean());
+        Assert.Equal("", reset.Body.GetProperty("content").GetString());
+        Assert.Equal("", _triggers.CheckStates.StateFor(A, TheFactory, owner));
+        var newest = _triggers.CheckStates.Newest(A, TheFactory, owner)!;
+        Assert.Equal((2, true), (newest.Sequence, newest.Reset));
+        Assert.StartsWith("person", newest.WrittenBy);
+    }
+
+    [Fact]
+    public async Task A_SESSIONS_RESET_IS_403_IN_WORDS_AND_THE_STATE_IS_UNTOUCHED()
+    {
+        var t = await PublishTheIntervalCheck();
+        var owner = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateStore.TriggerOwner(t.Id);
+        _triggers.CheckStates.RecordIfChanged(A, TheFactory, owner, "stuck", "dir-1", "run-1", Now);
+
+        var refused = await Send("POST", FactoryPath + "/check-state/reset", AsASessionOfTheFactory, $$"""{"ownerKey":"{{owner}}"}""");
+
+        Assert.Equal(403, refused.Status);
+        Assert.Equal(FactoryDefinitionEndpoints.OnlyAPersonResets, refused.Body.GetProperty("error").GetString());
+        Assert.Equal("stuck", _triggers.CheckStates.StateFor(A, TheFactory, owner));
+    }
+
+    [Fact]
+    public async Task A_RESET_OF_A_START_THE_DEFINITION_DOES_NOT_HAVE_IS_404_AND_WRITES_NOTHING()
+    {
+        await PublishTheIntervalCheck();
+        const string stranger = "trigger:99999999-9999-9999-9999-999999999999";
+
+        var refused = await Send("POST", FactoryPath + "/check-state/reset", AsAPerson, $$"""{"ownerKey":"{{stranger}}"}""");
+        var malformed = await Send("POST", FactoryPath + "/check-state/reset", AsAPerson, """{"ownerKey":"session:1"}""");
+
+        Assert.Equal(404, refused.Status);
+        Assert.StartsWith($"{stranger} is not a checked start of devthrottle", refused.Body.GetProperty("error").GetString());
+        Assert.Equal(400, malformed.Status);
+        Assert.Null(_triggers.CheckStates.Newest(A, TheFactory, stranger));
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_WITH_PREVENT_OVERLAP_OFF_ON_A_CHECKED_START_IS_REFUSED_ON_ITS_LINE()
+    {
+        // The check refuses it at every save, the publish included; the save is where a person meets it first.
+        var off = new Dictionary<string, string>(DefinitionFixture.Valid())
+            .Also("seats/outreach.yaml", "    secrets: [outreach-imap-password]\n", "    preventOverlap: false\n");
+
+        var refused = await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(off, 0));
+
+        Assert.Equal(422, refused.Status);
+        var error = refused.Body.GetProperty("findings").EnumerateArray().Single(f => f.GetProperty("severity").GetString() == "error");
+        Assert.Equal(("seats/outreach.yaml", 14), (error.GetProperty("file").GetString(), error.GetProperty("line").GetInt32()));
+        Assert.Equal("A start with a check always prevents overlap, so preventOverlap cannot be false here. Remove it.",
+            error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_WITH_A_CHECK_THAT_IS_NOT_IN_CHECKS_IS_REFUSED_ON_ITS_LINE()
+    {
+        var elsewhere = new Dictionary<string, string>(DefinitionFixture.Valid())
+            .Also("seats/outreach.yaml", "check: checks/new_mail.py", "check: files/outreach_send.py");
+
+        var refused = await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(elsewhere, 0));
+
+        Assert.Equal(422, refused.Status);
+        var errors = refused.Body.GetProperty("findings").EnumerateArray()
+            .Where(f => f.GetProperty("severity").GetString() == "error").ToList();
+        var error = Assert.Single(errors);
+        Assert.Equal(("seats/outreach.yaml", 13), (error.GetProperty("file").GetString(), error.GetProperty("line").GetInt32()));
+        Assert.StartsWith("'check' is 'files/outreach_send.py', which is not right.", error.GetProperty("message").GetString());
     }
 
     [Fact]
@@ -429,9 +563,9 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task A_PUBLISH_WITH_A_START_THAT_HAS_A_CHECK_IS_422_ON_THE_CHECK_LINE()
+    public async Task A_PUBLISH_WITH_A_TIMED_START_THAT_HAS_A_CHECK_IS_422_ON_THE_CHECK_LINE()
     {
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.TimedChecked(), 0));
 
         var refused = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
 
@@ -440,7 +574,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         var error = refused.Body.GetProperty("findings").EnumerateArray().Single(f => f.GetProperty("severity").GetString() == "error");
         Assert.Equal("seats/outreach.yaml", error.GetProperty("file").GetString());
         Assert.Equal(13, error.GetProperty("line").GetInt32());
-        Assert.Equal(FactoryDefinitionCheck.CheckStartNotYet, error.GetProperty("message").GetString());
+        Assert.Equal(FactoryDefinitionCheck.TimedCheckStartNotYet, error.GetProperty("message").GetString());
     }
 
     [Fact]

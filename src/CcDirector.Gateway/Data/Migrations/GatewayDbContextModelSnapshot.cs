@@ -188,11 +188,22 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CheckPath")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CheckSecretsJson")
+                        .HasMaxLength(4096)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CronExpression")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("DefinitionVersion")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
@@ -1159,6 +1170,49 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("factory_seat_briefs", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryCheckStateEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Sequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Reset")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RunRef")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WrittenBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("WrittenUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "Factory", "OwnerKey", "Sequence");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("factory_check_state", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryDefinitionVersionEntity", b =>
@@ -4475,6 +4529,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CheckPath")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ClaimedByDirectorId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -4490,6 +4548,9 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("DefinitionVersion")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Factory")
                         .IsRequired()
@@ -4547,6 +4608,14 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("RepoPath")
                         .IsRequired()
                         .HasMaxLength(1024)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SecretsJson")
+                        .HasMaxLength(4096)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TenantId")

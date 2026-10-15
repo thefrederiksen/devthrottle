@@ -208,14 +208,37 @@ public sealed class FactoryPublishApply
                     }
                 }
 
-                // 5. The triggers. Their run history is kept (TriggerStore.Delete's rule: the runs are not removed).
+                // 5. The triggers (phase 5b): deletes first, so a name a deleted trigger held is free for a new one, then
+                // each kept, changed and created definition trigger. A deleted trigger's run history is kept
+                // (TriggerStore.Delete's rule: the runs are not removed).
                 var triggerById = triggers.ToDictionary(t => t.Id);
-                foreach (var t in plan.Triggers)
+                foreach (var t in plan.Triggers.Where(t => t.Action == PlannedTriggerAction.Delete))
                 {
                     step = $"deleting trigger {t.Name}";
-                    ctx.Triggers.Remove(triggerById[t.Id]);
+                    ctx.Triggers.Remove(triggerById[t.Id!.Value]);
                     ctx.SaveChanges();
-                    applied.Add(t.Sentence());
+                    applied.Add(t.Sentence(publishedVersion));
+                }
+                // A kept trigger renamed because its start moved in the list may take a name another kept trigger
+                // holds until its own write: every rename goes through a name no trigger has first, so the account's
+                // one-name-per-trigger key never sees two at once.
+                foreach (var t in plan.Triggers.Where(t => t.Action == PlannedTriggerAction.Update && t.Live!.Name != t.Row!.Name))
+                {
+                    step = $"renaming trigger {t.Live!.Name} ({t.Id}) out of the way";
+                    triggerById[t.Id!.Value].Name = $"renaming-{t.Id:N}";
+                    ctx.SaveChanges();
+                }
+                foreach (var t in plan.Triggers.Where(t => t.Action != PlannedTriggerAction.Delete))
+                {
+                    step = t.Action == PlannedTriggerAction.Create
+                        ? $"writing trigger {t.Name} for seat '{t.Seat}'"
+                        : $"writing trigger {t.Name} ({t.Id}) for seat '{t.Seat}'";
+                    var entity = t.Action == PlannedTriggerAction.Create
+                        ? NewDefinitionTrigger(ctx, factory, authorId, nowUtc)
+                        : triggerById[t.Id!.Value];
+                    WriteDefinitionTrigger(entity, t, publishedVersion);
+                    ctx.SaveChanges();
+                    applied.Add(t.Sentence(publishedVersion));
                 }
 
                 step = Committing;
@@ -250,6 +273,50 @@ public sealed class FactoryPublishApply
         }
     }
 
+    /// <summary>A new definition trigger row, added to the context, its fields written next. Running, as a create
+    /// through the trigger routes is by default; who created it says it came from the definition.</summary>
+    private static TriggerEntity NewDefinitionTrigger(GatewayDbContext ctx, string factory, string? authorId, DateTime nowUtc)
+    {
+        var row = new TriggerEntity
+        {
+            Factory = factory,
+            Paused = false,
+            CreatedBy = $"definition of {factory}, published by {authorId ?? "a person"}" is var by && by.Length <= 256 ? by : by[..256],
+            CreatedUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
+        };
+        row.TenantId = ctx.ActiveTenant!;
+        ctx.Triggers.Add(row);
+        return row;
+    }
+
+    /// <summary>
+    /// Write what the definition says onto a definition trigger: every field the start owns, and the version its check
+    /// is now read from - on a kept trigger too, because a check's file can change while its path does not. What is the
+    /// person's - the pause switch - and what the runs keep - the lock, the last check, the run history - are left
+    /// alone. A trigger moved to another machine is no longer the business of the Director that held it
+    /// (<see cref="Triggers.TriggerStore.Update"/>'s rule).
+    /// </summary>
+    private static void WriteDefinitionTrigger(TriggerEntity entity, PlannedTrigger t, int version)
+    {
+        var row = t.Row!;
+        if (!string.IsNullOrEmpty(entity.Machine) && !string.Equals(entity.Machine, row.Machine, StringComparison.OrdinalIgnoreCase))
+        {
+            entity.ClaimedByDirectorId = "";
+            entity.ClaimedUtc = null;
+        }
+        entity.Name = row.Name;
+        entity.FactoryAgent = row.FactoryAgent;
+        entity.Machine = row.Machine;
+        entity.RepoPath = row.RepoPath;
+        entity.CheckCommand = "";
+        entity.IntervalSeconds = row.IntervalSeconds;
+        entity.Prompt = row.Prompt;
+        entity.Seat = t.Seat;
+        entity.CheckPath = row.CheckPath;
+        entity.SecretsJson = row.SecretsJson;
+        entity.DefinitionVersion = version;
+    }
+
     /// <summary>The 409 when the caller states a published version that is no longer the one (design section 5).</summary>
     private static string NotReplacing(bool restore, int? current, int stated)
         => (restore ? "Not restored: " : "Not published: ")
@@ -272,7 +339,8 @@ public sealed class FactoryPublishApply
         return new FactoryPublishResult(refused, findings ?? Array.Empty<DefinitionFinding>(), null, null, Array.Empty<string>());
     }
 
-    /// <summary>The live factory: its registry row, the schedules and the triggers that name it.</summary>
+    /// <summary>The live factory: its registry row, the schedules that name it, and EVERY trigger of the account - the
+    /// plan narrows them to this factory, and needs the rest only for the names a new trigger may not take.</summary>
     private static (FactoryRegistryEntity? Registry, List<CronJobEntity> Schedules, List<TriggerEntity> Triggers) ReadLive(
         GatewayDbContext ctx, string factory, bool tracked)
     {
@@ -287,7 +355,7 @@ public sealed class FactoryPublishApply
         }
         return (registry.FirstOrDefault(f => f.Factory == factory),
             schedules.Where(j => j.Factory == factory).ToList(),
-            triggers.Where(t => t.Factory == factory).ToList());
+            triggers.ToList());
     }
 
     /// <summary>
