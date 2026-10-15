@@ -5,6 +5,7 @@ using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Factory.Briefs;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.Factory.Talk;
 using CcDirector.Gateway.Running;
@@ -36,6 +37,10 @@ public sealed class ScheduledRunOpeningTests : IDisposable
     private FactoryRegistryStore Registry => _registry ??= new FactoryRegistryStore(Db);
     private FactoryBriefStore? _briefs;
     private FactoryBriefStore Briefs => _briefs ??= new FactoryBriefStore(Db, Registry);
+    private FactoryDefinitionStore? _definitions;
+    private FactoryDefinitionStore Definitions => _definitions ??= new FactoryDefinitionStore(Db);
+    /// <summary>What a run is given, as the host reads it: from the definition for a defined factory, else the brief store.</summary>
+    private FactoryDefinitionBriefs SeatBriefs => new(Definitions, Briefs);
     private readonly List<NewSessionRequest> _handedToTheDirector = new();
     /// <summary>When set, reading a seat's brief throws with these words, as a database that cannot be read would.</summary>
     private string? _briefReadFails;
@@ -314,6 +319,88 @@ public sealed class ScheduledRunOpeningTests : IDisposable
         Assert.Equal(2, history.List(created.Id).Count);
     }
 
+    // ---- a defined factory: the brief comes from the published definition (Factory Definition, phase 4) ----------
+
+    /// <summary>A definition of WarmForward whose seat files hold these briefs; published unless told otherwise. The
+    /// store holds what it is given - the whole-definition check is the routes' - so only the seat files matter here.</summary>
+    private void Define(string bossBrief, bool publish = true, bool withScout = true)
+    {
+        var content = new Dictionary<string, string>
+        {
+            ["factory.yaml"] = "factory: warmforward\ntitle: WarmForward\nbossSeat: boss\ndefaults:\n  machine: workstation-A\n  agent: ClaudeCode\n",
+            ["seats/boss.yaml"] = $"seat: boss\nname: Boss\nrole: Boss\nbrief: |\n  {bossBrief}\n",
+        };
+        if (withScout) content["seats/scout.yaml"] = "seat: scout\nname: Scout\nrole: Scout\nbrief: Scout the market.\n";
+        Assert.True(Definitions.SaveDraft(Account, TheFactory, content, 0, FactoryMemoryAuthorKinds.Person, Owner, null, Day).Ok);
+        if (publish) Assert.True(Definitions.Publish(Account, TheFactory, 1, FactoryMemoryAuthorKinds.Person, Owner, Day.AddMinutes(1)).Ok);
+    }
+
+    [Fact]
+    public async Task ADefinedFactory_ItsRunIsGivenTheBriefInThePublishedDefinition_AndRecordsADefinitionVersion()
+    {
+        Register();
+        SaveDraft("BRIEF STORE: the brief store is not read for a defined factory.", expect: 0);
+        Publish(1);
+        Define("DEFINED: be careful with money.");
+        var (store, history) = Stores();
+        var created = store.Create(Job(seat: "boss"));
+
+        var fired = await Engine(store, history, created.NextRunUtc!.Value).EvaluateDueAsync(CancellationToken.None);
+
+        var given = Assert.Single(_handedToTheDirector).PrePrompt;
+        Assert.Contains("(definition version 1, part of the factory's definition)", given);
+        Assert.Contains("--- your brief, definition version 1 ---\nDEFINED: be careful with money.\n--- end of your brief, definition version 1 ---", given);
+        Assert.DoesNotContain("BRIEF STORE", given);
+        var run = Assert.Single(fired);
+        Assert.Equal(1, run.BriefVersion);
+        Assert.Equal(FactoryBriefVersionKinds.Definition, run.BriefVersionKind);
+
+        // Read back from the database by another store, and onto the activity row as a definition version.
+        var reopened = new CronRunHistoryStore(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
+        var stored = Assert.Single(reopened.List(created.Id));
+        Assert.Equal(FactoryBriefVersionKinds.Definition, stored.BriefVersionKind);
+        stored.Result = CronRunResults.Ok;
+        Assert.Equal("definition v1", CronRunResultService.ActivityFor(created.Id, stored)!.FactoryAgentVersion);
+    }
+
+    [Fact]
+    public async Task ADraftOnlyDefinition_UNDEFINED_FACTORY_ItsRunIsGivenTheBriefStoresBrief_AsABriefVersion()
+    {
+        Register();
+        SaveDraft("BRIEF STORE: what this seat is told.", expect: 0);
+        Publish(1);
+        Define("DEFINED BUT NEVER PUBLISHED.", publish: false);
+        var (store, history) = Stores();
+        var created = store.Create(Job(seat: "boss"));
+
+        var fired = await Engine(store, history, created.NextRunUtc!.Value).EvaluateDueAsync(CancellationToken.None);
+
+        var given = Assert.Single(_handedToTheDirector).PrePrompt;
+        Assert.Contains("--- your brief, version 1 ---\nBRIEF STORE: what this seat is told.\n--- end of your brief, version 1 ---", given);
+        Assert.DoesNotContain("DEFINED", given);
+        var run = Assert.Single(fired);
+        Assert.Equal(FactoryBriefVersionKinds.Brief, run.BriefVersionKind);
+        run.Result = CronRunResults.Ok;
+        Assert.Equal("1", CronRunResultService.ActivityFor(created.Id, run)!.FactoryAgentVersion);
+    }
+
+    [Fact]
+    public async Task ADefinedFactoryWithNoFileForTheSeat_ItsRunIsNotStarted_AndSaysWhy_NeverToldAFilePath()
+    {
+        Register();
+        Define("DEFINED: be careful with money.", withScout: false);
+        var (store, history) = Stores();
+        var created = store.Create(Job(seat: "scout"));
+
+        var fired = await Engine(store, history, created.NextRunUtc!.Value).EvaluateDueAsync(CancellationToken.None);
+
+        Assert.Empty(_handedToTheDirector);
+        var run = Assert.Single(fired);
+        Assert.Null(run.SessionId);
+        Assert.Null(run.BriefVersion);
+        Assert.Null(run.BriefVersionKind);
+    }
+
     // ---- the rig ------------------------------------------------------------------------------------------------
 
     private void Register(string scoutName = "Scout") => Registry.Register(Account, new RegisterFactoryRequest
@@ -356,7 +443,7 @@ public sealed class ScheduledRunOpeningTests : IDisposable
             seatWithABrief: job => ScheduledRunOpening.SeatFor(job, id => Registry.Find(Account, id),
                 (factory, seat) => _briefReadFails is { } why
                     ? throw new InvalidOperationException(why)
-                    : Briefs.GivenTo(Account, factory, seat)));
+                    : SeatBriefs.GivenTo(Account, factory, seat)));
         return new CronEngine(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock);
     }
 

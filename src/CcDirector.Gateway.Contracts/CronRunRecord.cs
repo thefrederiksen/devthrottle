@@ -104,6 +104,14 @@ public sealed class CronRunRecord
     /// the Gateway. Fixed when the run is recorded. Read-only: ignored on a write.
     /// </summary>
     public int? BriefVersion { get; set; }
+
+    /// <summary>
+    /// Which kind of version <see cref="BriefVersion"/> is (<see cref="FactoryBriefVersionKinds"/>): "brief", the
+    /// seat's own brief version, or "definition", the version of a defined factory's definition whose seat file held
+    /// the brief (Factory Definition, phase 4). Null when <see cref="BriefVersion"/> is, and on every row recorded
+    /// before definitions gave briefs - each of which was a brief version. Read-only: ignored on a write.
+    /// </summary>
+    public string? BriefVersionKind { get; set; }
 }
 
 /// <summary>

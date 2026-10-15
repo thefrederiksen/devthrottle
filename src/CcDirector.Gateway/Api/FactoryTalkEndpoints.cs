@@ -93,7 +93,7 @@ internal static class FactoryTalkEndpoints
 
             var (scheduleId, scheduleSeed) = RulesOf(tenant, seated, schedule);
             // Read once: the version the talk is given is the version it is told to record and the answer carries.
-            var brief = publishedBrief(tenant, registered.Factory, seated.Id);
+            if (!TryBrief(publishedBrief, tenant, registered, seated, out var brief, out var noBrief)) return noBrief!;
             return await StartAsync(ctx, tenant, registered, seated, listDirectors, startOnDirector,
                 FactoryTalkSeed.SessionName(registered, seated),
                 FactoryTalkSeed.Compose(registered, seated, scheduleId, scheduleSeed, brief), brief);
@@ -126,7 +126,7 @@ internal static class FactoryTalkEndpoints
 
             var seated = handoff.Seat!;
             var (scheduleId, scheduleSeed) = RulesOf(tenant, seated, schedule);
-            var brief = publishedBrief(tenant, registered.Factory, seated.Id);
+            if (!TryBrief(publishedBrief, tenant, registered, seated, out var brief, out var noBrief)) return noBrief!;
             return await StartAsync(ctx, tenant, registered, seated, listDirectors, startOnDirector,
                 FactoryTalkSeed.ProblemSessionName(registered, seated, problem),
                 FactoryTalkSeed.ComposeForProblem(registered, seated, scheduleId, scheduleSeed, problem, timeZone(tenant), brief), brief);
@@ -210,7 +210,7 @@ internal static class FactoryTalkEndpoints
         }
 
         FileLog.Write($"[FactoryTalkEndpoints] started talk sid={started.SessionId} for {registered.Factory}/{seated.Id} on {director.DirectorId} ({seated.Computer}), "
-                      + (brief is null ? "brief=none given (told the path of its file)" : $"given brief version {brief.Version}"));
+                      + (brief is null ? "brief=none given (told the path of its file)" : $"given brief {brief.VersionWords}"));
         return Results.Json(new FactoryTalkStartedDto
         {
             SessionId = started.SessionId,
@@ -221,7 +221,31 @@ internal static class FactoryTalkEndpoints
             Computer = seated.Computer,
             DirectorId = director.DirectorId,
             BriefVersion = brief?.Version,
+            BriefVersionKind = brief?.Kind,
         }, statusCode: StatusCodes.Status201Created);
+    }
+
+    /// <summary>
+    /// The brief the talk is given, read once. A DEFINED factory whose published definition holds no file for the seat
+    /// cannot give it one, and its talk is never told the path of a file instead (Factory Definition, phase 4): the
+    /// read refuses in words, and the talk is not started.
+    /// </summary>
+    private static bool TryBrief(Func<TenantId, string, string, FactoryGivenBrief?> publishedBrief, TenantId tenant,
+        RegisteredFactoryDto registered, RegisteredFactorySeatDto seated, out FactoryGivenBrief? brief, out IResult? refused)
+    {
+        refused = null;
+        try
+        {
+            brief = publishedBrief(tenant, registered.Factory, seated.Id);
+            return true;
+        }
+        catch (InvalidOperationException ex)
+        {
+            FileLog.Write($"[FactoryTalkEndpoints] REFUSED: the brief of {registered.Factory}/{seated.Id} could not be given: {ex.Message}");
+            brief = null;
+            refused = Refused(StatusCodes.Status409Conflict, $"The talk was not started: {ex.Message}");
+            return false;
+        }
     }
 
     private static IResult Refused(int status, string error) => Results.Json(new { error }, statusCode: status);

@@ -266,6 +266,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<int?>("BriefVersion")
                         .HasColumnType("integer");
 
+                    b.Property<string>("BriefVersionKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<string>("Factory")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");

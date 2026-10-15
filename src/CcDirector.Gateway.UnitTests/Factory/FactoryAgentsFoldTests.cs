@@ -212,6 +212,17 @@ public sealed class FactoryAgentsFoldTests
     }
 
     [Fact]
+    public void Activity_ARowGivenADefinitionVersion_SaysItIsADefinitionVersion()
+    {
+        // A run or talk of a defined factory records "definition v3" (Factory Definition, phase 4), never a bare 3.
+        var row = Row("scout", "done", "Ran the morning scan", Now.AddHours(-1), "abcdef1234567890", version: "definition v3");
+
+        var view = FactoryAgentsFold.Activity(Inputs(new[] { row }), FactoryFilter.None, "/csv");
+
+        Assert.Equal("Scout, definition v3", Assert.Single(view.Rows).Who);
+    }
+
+    [Fact]
     public void Factories_BlockedRow_IsCountedOnTheCard()
     {
         var view = FactoryAgentsFold.Factories(Inputs(new[] { Row("scout", "blocked", "Blocked", Now.AddHours(-1)) }));

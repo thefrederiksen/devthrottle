@@ -576,3 +576,133 @@ def test_anUnknownFlag_Fails_AndCallsNothing(gateway, verb):
 
     assert result.exit_code != 0
     assert gw.calls == []
+
+
+# ---------------------------------------------------------------------------------------------------
+# a defined factory: the brief is part of its definition (Factory Definition, phase 4). The Gateway says so in one
+# sentence, printed exactly as it is sent; the command line decides nothing itself.
+# ---------------------------------------------------------------------------------------------------
+
+DEFINITION_LINE = ("This brief is part of the definition of warmforward. Its versions are the definition's versions, "
+                   "and a publish publishes the whole definition - every seat, start and file in it - not only this brief.")
+
+
+def defined(version, text, **kwargs):
+    answer = brief(version, text, **kwargs)
+    answer["versionKind"] = "definition"
+    answer["definition"] = DEFINITION_LINE
+    return answer
+
+
+def test_get_DefinedFactory_PrintsTheGatewaysDefinitionLineVerbatim(gateway):
+    gateway((200, defined(3, "You are the boss.", state="published", published=3)))
+
+    result = runner.invoke(app, ["factory", "brief", "get", *WHERE])
+
+    assert result.exit_code == 0, result.output
+    assert DEFINITION_LINE in result.stdout.splitlines()
+
+
+def test_history_DefinedFactory_PrintsTheGatewaysDefinitionLineVerbatim(gateway):
+    gateway((200, {"factory": FACTORY, "seat": SEAT, "publishedVersion": 1, "newestVersion": 3, "total": 2,
+                   "versions": [{"version": 3, "state": "draft", "authorKind": "person", "authorId": None,
+                                 "writtenAtUtc": "2026-10-15T12:00:00Z", "textBytes": 12},
+                                {"version": 1, "state": "published", "authorKind": "person", "authorId": None,
+                                 "writtenAtUtc": "2026-10-14T12:00:00Z", "textBytes": 10}],
+                   "nextBefore": None, "versionKind": "definition", "definition": DEFINITION_LINE}))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE])
+
+    assert result.exit_code == 0, result.output
+    assert DEFINITION_LINE in result.stdout.splitlines()
+
+
+def test_history_DefinedFactory_PublishedAfterAnotherFilesEdit_MarksTheLiveRowTheGatewayNames(gateway):
+    # Review of 4008, finding 1: definition v3 is published and changed only factory.yaml, so it is not a row; v2 holds
+    # the brief talks and runs are given, and the Gateway names it in liveVersion.
+    gateway((200, {"factory": FACTORY, "seat": SEAT, "publishedVersion": 3, "newestVersion": 3, "total": 2,
+                   "liveVersion": 2,
+                   "versions": [{"version": 2, "state": "draft", "authorKind": "session", "authorId": "s1",
+                                 "writtenAtUtc": "2026-10-15T12:00:00Z", "textBytes": 9},
+                                {"version": 1, "state": "published", "authorKind": "person", "authorId": None,
+                                 "writtenAtUtc": "2026-10-14T12:00:00Z", "textBytes": 10}],
+                   "nextBefore": None, "versionKind": "definition", "definition": DEFINITION_LINE}))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE])
+
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert lines[0] == ("count: 2 of 2. Definition version 3 is published. Its brief is the one written in definition "
+                        "version 2, the newest version that changed it.")
+    assert lines[2].startswith("v2  PUBLISHED NOW  ")
+    assert lines[3].startswith("v1  published  ")
+
+
+def test_set_DefinedFactory_PrintsTheDefinitionLine_AndEachNoticeOfTheCheck(gateway, brief_file):
+    answer = defined(2, "Run it.\n", published=1, author_kind="session")
+    answer["findings"] = [{"severity": "notice", "file": "seats/outreach.yaml", "line": 5,
+                           "message": "No Director on SOREN_SOUTH is connected now, so it could not be confirmed."}]
+    gw = gateway((200, answer))
+
+    result = runner.invoke(app, ["factory", "brief", "set", *WHERE, "--file", brief_file("Run it.\n"), "--expected-version", "1"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"text": "Run it.\n", "expectedVersion": 1}
+    lines = result.stdout.splitlines()
+    assert DEFINITION_LINE in lines
+    assert "notice: seats/outreach.yaml:5: No Director on SOREN_SOUTH is connected now, so it could not be confirmed." in lines
+
+
+def published_definition(version):
+    answer = defined(version, "Run it.\n", state="published", published=version)
+    answer["changes"] = {"summary": "1 seat changed.",
+                         "seats": [{"sentence": "The brief of 'boss' changed.", "details": []}]}
+    answer["applied"] = [f"Definition: version {version} published.", "Registry: the row of warmforward written."]
+    return answer
+
+
+def test_publish_DefinedFactory_SendsReplaces_AndPrintsTheLineWhatChangesAndApplied(gateway):
+    gw = gateway((200, published_definition(4)))
+
+    result = runner.invoke(app, ["factory", "brief", "publish", *WHERE, "--version", "4", "--replaces", "3"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 4, "replaces": 3}
+    lines = result.stdout.splitlines()
+    assert DEFINITION_LINE in lines
+    assert "what changes: 1 seat changed." in lines
+    assert "  The brief of 'boss' changed." in lines
+    assert lines[lines.index("applied:") + 1:lines.index("applied:") + 3] == [
+        "  Definition: version 4 published.", "  Registry: the row of warmforward written."]
+
+
+def test_publish_WithoutReplaces_SendsNoReplaces(gateway):
+    gw = gateway((200, brief(2, "text", state="published", published=2)))
+
+    result = runner.invoke(app, ["factory", "brief", "publish", *WHERE, "--version", "2"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 2}
+    assert "applied:" not in result.stdout
+
+
+def test_restore_DefinedFactory_SendsReplaces_AndPrintsApplied(gateway):
+    gw = gateway((200, published_definition(5)))
+
+    result = runner.invoke(app, ["factory", "brief", "restore", *WHERE, "--version", "1", "--expected-version", "4",
+                                 "--replaces", "4"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 1, "expectedVersion": 4, "replaces": 4}
+    assert "  Definition: version 5 published." in result.stdout.splitlines()
+
+
+def test_publish_DefinedFactory_AStaleReplaces_PrintsTheGatewaysSentence(gateway):
+    sentence = "Not published: version 4 is the published definition now, not 3. Read what changes again and publish once more."
+    gateway((409, {"error": sentence, "outcome": "Stale"}))
+
+    result = runner.invoke(app, ["factory", "brief", "publish", *WHERE, "--version", "5", "--replaces", "3"])
+
+    assert result.exit_code == 1
+    assert sentence in result.stderr
+    assert "Published" not in result.stdout

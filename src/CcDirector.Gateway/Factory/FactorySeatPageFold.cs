@@ -34,8 +34,11 @@ public static class FactorySeatPageFold
     /// <param name="memoryNotes">How many notes the factory's memory holds now.</param>
     /// <param name="brief">How the seat's brief stands on the Gateway: its newest version and its published one.
     /// <see cref="FactoryBriefStanding.None"/> for a seat whose brief is still a file.</param>
+    /// <param name="briefDefinition">For a DEFINED factory, the line that says the brief is part of its definition
+    /// (<see cref="FactoryBriefPanelFold.DefinitionLine"/>), and <paramref name="brief"/> is then the brief as the
+    /// definition holds it. Null for every other factory.</param>
     public static FactorySeatPageViewDto Page(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
-        FactoriesScreenInputs input, int memoryNotes, FactoryBriefStanding brief)
+        FactoriesScreenInputs input, int memoryNotes, FactoryBriefStanding brief, string? briefDefinition = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
@@ -78,7 +81,7 @@ public static class FactorySeatPageFold
                 FactoryId = factory.Factory,
                 SeatId = seat.Id,
             },
-            Brief = FactoryBriefPanelFold.Panel(factory, seat, brief, a.Zone, a.NowUtc),
+            Brief = FactoryBriefPanelFold.Panel(factory, seat, brief, a.Zone, a.NowUtc, briefDefinition),
             Starts = Starts(factory, seat, name, named, schedules, triggers, input),
             Goal = FactoriesScreenFold.GoalCard(factory),
             GoalNumber = FactoriesScreenFold.GoalNumberCard(number, factory, a.Zone, a.NowUtc),

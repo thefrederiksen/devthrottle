@@ -139,13 +139,20 @@ internal static class FactoriesScreenEndpoints
     /// forgot it fails to compile rather than showing every factory an empty memory.</param>
     /// <param name="briefs">The store holding every seat's brief. REQUIRED for the same reason: a page wired without
     /// it would show every seat's brief as a file.</param>
+    /// <param name="definedBriefs">A DEFINED factory's briefs, as its definition holds them (Factory Definition, phase
+    /// 4). For a factory with a published definition the panel, the editor, the history and one version are read from
+    /// the definition, each with the Gateway's line that the brief is part of it; every other factory reads the brief
+    /// store exactly as before. REQUIRED, so a page wired without it fails to compile rather than showing a defined
+    /// factory's brief from a store that no longer holds it.</param>
     public static void MapSeatPage(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
-        FactoriesScreenSources sources, Func<TenantId, string, int> memoryNoteCount, FactoryBriefStore briefs)
+        FactoriesScreenSources sources, Func<TenantId, string, int> memoryNoteCount, FactoryBriefStore briefs,
+        FactoryDefinitionBriefs definedBriefs)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sources);
         ArgumentNullException.ThrowIfNull(memoryNoteCount);
         ArgumentNullException.ThrowIfNull(briefs);
+        ArgumentNullException.ThrowIfNull(definedBriefs);
 
         const string seatRoute = Prefix + "/{factory}/seats/{seat}";
 
@@ -157,8 +164,9 @@ internal static class FactoriesScreenEndpoints
                 // The page's last talk is this seat's own, whatever its age - not the factory's newest.
                 var talks = sources.Activity.Query(tenant,
                     new FactoryRecordQuery(registered.Factory, found.Id, FactoryActivityOutcome.Talked, null, null, false, 0, 1)).Rows;
+                var brief = BriefOf(briefs, definedBriefs, tenant, registered, found);
                 var dto = FactorySeatPageFold.Page(registered, found, input with { Talks = talks },
-                    memoryNoteCount(tenant, registered.Factory), briefs.Standing(tenant, registered.Factory, found.Id));
+                    memoryNoteCount(tenant, registered.Factory), brief.Standing, brief.Definition);
                 FileLog.Write($"[FactoriesScreenEndpoints] GET seat: {registered.Factory}/{found.Id} starts={dto.StartsWord}, schedules={dto.Starts.Schedules.Count}, triggers={dto.Starts.Triggers.Count}, brief={dto.Brief.State}");
                 return Results.Json(dto);
             }));
@@ -167,9 +175,9 @@ internal static class FactoriesScreenEndpoints
             FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory seat brief editor {factory}/{seat}", tenant =>
             {
                 if (FindSeat(sources, tenant, factory, seat, out var registered, out var found) is { } refusal) return refusal;
-                var standing = briefs.Standing(tenant, registered.Factory, found.Id);
-                var dto = FactoryBriefPanelFold.Editor(registered, found, standing,
-                    sources.Activity.TimeZone(tenant), sources.Activity.NowUtc());
+                var brief = BriefOf(briefs, definedBriefs, tenant, registered, found);
+                var dto = FactoryBriefPanelFold.Editor(registered, found, brief.Standing,
+                    sources.Activity.TimeZone(tenant), sources.Activity.NowUtc(), brief.Definition);
                 FileLog.Write($"[FactoriesScreenEndpoints] GET brief editor: {registered.Factory}/{found.Id} startsFrom={dto.ExpectedVersion}");
                 return Results.Json(dto);
             }));
@@ -190,10 +198,12 @@ internal static class FactoriesScreenEndpoints
                         });
                     before = b;
                 }
-                var standing = briefs.Standing(tenant, registered.Factory, found.Id);
-                var page = briefs.History(tenant, registered.Factory, found.Id, before, FactoryBriefPanelFold.HistoryPage);
-                var dto = FactoryBriefPanelFold.History(registered, found, standing, page, firstPage: before is null,
-                    sources.Activity.TimeZone(tenant), sources.Activity.NowUtc());
+                var brief = BriefOf(briefs, definedBriefs, tenant, registered, found);
+                var page = brief.Definition is null
+                    ? briefs.History(tenant, registered.Factory, found.Id, before, FactoryBriefPanelFold.HistoryPage)
+                    : definedBriefs.History(tenant, registered.Factory, found.Id, before, FactoryBriefPanelFold.HistoryPage);
+                var dto = FactoryBriefPanelFold.History(registered, found, brief.Standing, page, firstPage: before is null,
+                    sources.Activity.TimeZone(tenant), sources.Activity.NowUtc(), brief.Definition, brief.PublishedDefinition);
                 FileLog.Write($"[FactoriesScreenEndpoints] GET brief history: {registered.Factory}/{found.Id} before={before?.ToString() ?? "(newest)"}, rows={dto.Rows.Count}, total={page.Total}, next={dto.NextBefore?.ToString() ?? "(none)"}");
                 return Results.Json(dto);
             }));
@@ -204,7 +214,25 @@ internal static class FactoriesScreenEndpoints
                 if (FindSeat(sources, tenant, factory, seat, out var registered, out var found) is { } refusal) return refusal;
                 if (!int.TryParse(version, out var wanted) || wanted < 1)
                     return Results.BadRequest(new { error = $"a version is a whole number from 1, not '{version}'" });
-                var standing = briefs.Standing(tenant, registered.Factory, found.Id);
+                var brief = BriefOf(briefs, definedBriefs, tenant, registered, found);
+                var standing = brief.Standing;
+                if (brief.Definition is not null)
+                {
+                    // A DEFINED FACTORY: the seat's brief in definition version N, or what is missing.
+                    if (definedBriefs.InVersion(tenant, registered.Factory, found.Id, wanted) is not { } inVersion)
+                    {
+                        FileLog.Write($"[FactoriesScreenEndpoints] GET brief version: {registered.Factory}/{found.Id} has no brief in definition version {wanted}");
+                        return Results.Json(new
+                        {
+                            error = definedBriefs.Definitions.Find(tenant, registered.Factory, wanted) is null
+                                ? $"version {wanted} of the definition of {registered.Factory} does not exist; its newest version is {brief.NewestDefinition}"
+                                : FactoryDefinitionBriefs.NotInVersion(registered.Factory, found.Id, wanted, "named"),
+                        }, statusCode: StatusCodes.Status404NotFound);
+                    }
+                    FileLog.Write($"[FactoriesScreenEndpoints] GET brief version: {registered.Factory}/{found.Id} definition version={wanted}");
+                    return Results.Json(FactoryBriefPanelFold.Version(inVersion.AsBriefVersion(), standing,
+                        sources.Activity.TimeZone(tenant), sources.Activity.NowUtc(), brief.Definition));
+                }
                 if (briefs.Find(tenant, registered.Factory, found.Id, wanted) is not { } one)
                 {
                     FileLog.Write($"[FactoriesScreenEndpoints] GET brief version: {registered.Factory}/{found.Id} has no version {wanted}");
@@ -220,6 +248,24 @@ internal static class FactoriesScreenEndpoints
             }));
 
         FileLog.Write($"[FactoriesScreenEndpoints] mapped {seatRoute} and its brief editor, history and versions");
+    }
+
+    /// <summary>How a seat's brief stands for the panel, and for a DEFINED factory the line that says it is part of the
+    /// definition, with the definition's published and newest versions.</summary>
+    private sealed record SeatBrief(FactoryBriefStanding Standing, string? Definition, int? PublishedDefinition, int? NewestDefinition);
+
+    /// <summary>
+    /// The seat's brief as its panel reads it: from the definition for a DEFINED factory, from the brief store for
+    /// every other factory, exactly as before (goal 14). The one place the seat page decides which.
+    /// </summary>
+    private static SeatBrief BriefOf(FactoryBriefStore briefs, FactoryDefinitionBriefs definedBriefs, TenantId tenant,
+        RegisteredFactoryDto registered, RegisteredFactorySeatDto seat)
+    {
+        if (!definedBriefs.IsDefined(tenant, registered.Factory))
+            return new SeatBrief(briefs.Standing(tenant, registered.Factory, seat.Id), null, null, null);
+        var definition = definedBriefs.Definitions.Standing(tenant, registered.Factory);
+        return new SeatBrief(definedBriefs.Standing(tenant, registered.Factory, seat.Id),
+            FactoryBriefPanelFold.DefinitionLine(registered.Title), definition.Published?.Version, definition.Newest?.Version);
     }
 
     /// <summary>

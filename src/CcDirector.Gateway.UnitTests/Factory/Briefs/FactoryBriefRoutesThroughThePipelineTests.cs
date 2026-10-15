@@ -4,6 +4,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Factory.Briefs;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
@@ -58,11 +59,14 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
 
         _services = new ServiceCollection().AddRouting().AddLogging().BuildServiceProvider();
         _routes = new Routes(_services);
+        var briefs = new FactoryBriefStore(db, registry);
         FactoryBriefEndpoints.Map(_routes,
             resolveTenant: _ => A,
-            store: new FactoryBriefStore(db, registry),
+            store: briefs,
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
-            nowUtc: () => Now);
+            nowUtc: () => Now,
+            defined: new FactoryBriefEndpoints.Defined(new FactoryDefinitionBriefs(new FactoryDefinitionStore(db), briefs),
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()), new FactoryPublishApply(db)));
     }
 
     public void Dispose()

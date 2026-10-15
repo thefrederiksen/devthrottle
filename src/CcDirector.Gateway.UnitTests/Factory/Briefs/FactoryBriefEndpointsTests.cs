@@ -3,6 +3,7 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory.Briefs;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
@@ -39,6 +40,7 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
 
     private readonly GatewayDbTestHarness _h = new();
     private readonly FactoryBriefStore _store;
+    private readonly FactoryBriefEndpoints.Defined _defined;
 
     public FactoryBriefEndpointsTests()
     {
@@ -47,6 +49,9 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
         registry.Register(A, Manifest(), "the owner of A (test)", Now);
         registry.Register(B, Manifest(), "the owner of B (test)", Now);
         _store = new FactoryBriefStore(db, registry);
+        // No factory here has a definition, so every route takes the brief store's paths, exactly as before phase 4.
+        _defined = new FactoryBriefEndpoints.Defined(new FactoryDefinitionBriefs(new FactoryDefinitionStore(db), _store),
+            new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()), new FactoryPublishApply(db));
     }
 
     public void Dispose() => _h.Dispose();
@@ -101,33 +106,33 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
 
     private IResult Save(HttpContext ctx, string text, int expect, Func<HttpContext, TenantId?>? tenant = null, string seat = Boss) =>
         FactoryBriefEndpoints.SaveDraft(ctx, TheFactory, seat, new SaveFactoryBriefDraftRequest { Text = text, ExpectedVersion = expect },
-            _store, tenant ?? InA, FactoryOf, () => Now);
+            _store, tenant ?? InA, FactoryOf, () => Now, _defined);
 
     private IResult Publish(HttpContext ctx, int version) =>
         FactoryBriefEndpoints.Publish(ctx, TheFactory, Boss, new PublishFactoryBriefRequest { Version = version },
-            _store, InA, FactoryOf, () => Now.AddMinutes(5));
+            _store, InA, FactoryOf, () => Now.AddMinutes(5), _defined);
 
     private IResult BringBack(HttpContext ctx, int version, int expect = 0) =>
         FactoryBriefEndpoints.BringBack(ctx, TheFactory, Boss, new BringBackFactoryBriefRequest { Version = version, ExpectedVersion = expect },
-            _store, InA, FactoryOf, () => Now.AddMinutes(10));
+            _store, InA, FactoryOf, () => Now.AddMinutes(10), _defined);
 
     private IResult Published(HttpContext ctx, Func<HttpContext, TenantId?>? tenant = null, string seat = Boss) =>
-        FactoryBriefEndpoints.ReadPublished(ctx, TheFactory, seat, _store, tenant ?? InA, FactoryOf);
+        FactoryBriefEndpoints.ReadPublished(ctx, TheFactory, seat, _store, tenant ?? InA, FactoryOf, _defined);
 
     private IResult Newest(HttpContext ctx, Func<HttpContext, TenantId?>? tenant = null) =>
-        FactoryBriefEndpoints.ReadNewest(ctx, TheFactory, Boss, _store, tenant ?? InA, FactoryOf);
+        FactoryBriefEndpoints.ReadNewest(ctx, TheFactory, Boss, _store, tenant ?? InA, FactoryOf, _defined);
 
     private IResult History(HttpContext ctx, Func<HttpContext, TenantId?>? tenant = null, string? query = null)
     {
         if (query is not null) ctx.Request.QueryString = new QueryString("?" + query);
-        return FactoryBriefEndpoints.History(ctx, TheFactory, Boss, _store, tenant ?? InA, FactoryOf);
+        return FactoryBriefEndpoints.History(ctx, TheFactory, Boss, _store, tenant ?? InA, FactoryOf, _defined);
     }
 
     private static FactoryBriefHistoryResponse Page(IResult result) =>
         Assert.IsType<JsonHttpResult<FactoryBriefHistoryResponse>>(result).Value!;
 
     private IResult OneVersion(HttpContext ctx, string version, Func<HttpContext, TenantId?>? tenant = null) =>
-        FactoryBriefEndpoints.ReadVersion(ctx, TheFactory, Boss, version, _store, tenant ?? InA, FactoryOf);
+        FactoryBriefEndpoints.ReadVersion(ctx, TheFactory, Boss, version, _store, tenant ?? InA, FactoryOf, _defined);
 
     // ---------- reading an answer ----------
 
@@ -390,7 +395,7 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
     [Fact]
     public void A_write_with_no_body_is_a_BAD_REQUEST()
     {
-        var refused = FactoryBriefEndpoints.SaveDraft(Person(), TheFactory, Boss, null, _store, InA, FactoryOf, () => Now);
+        var refused = FactoryBriefEndpoints.SaveDraft(Person(), TheFactory, Boss, null, _store, InA, FactoryOf, () => Now, _defined);
 
         Assert.Equal(400, Status(refused));
         Assert.Equal(0, VersionsKept());
@@ -422,7 +427,7 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
     [Fact]
     public void A_request_with_no_account_is_refused()
     {
-        var refused = FactoryBriefEndpoints.ReadPublished(Person(), TheFactory, Boss, _store, _ => null, FactoryOf);
+        var refused = FactoryBriefEndpoints.ReadPublished(Person(), TheFactory, Boss, _store, _ => null, FactoryOf, _defined);
 
         Assert.Equal(403, Status(refused));
         Assert.Equal("no account is bound to this request", ErrorOf(refused));

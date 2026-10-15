@@ -600,6 +600,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Factory).HasMaxLength(128);
             b.Property(e => e.Seat).HasMaxLength(128);
             b.Property(e => e.JobName).HasMaxLength(256);
+            b.Property(e => e.BriefVersionKind).HasMaxLength(16);
             // The sweep reads the runs still waiting on a report; the session lookup finds a session's own run.
             b.HasIndex(e => e.Result);
             b.HasIndex(e => e.SessionId);

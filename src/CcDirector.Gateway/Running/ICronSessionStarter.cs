@@ -37,4 +37,8 @@ public interface ICronSessionStarter
 /// <param name="Error">Why no session started, or null when one did.</param>
 /// <param name="BriefVersion">The version of the seat's published brief the run was given by the Gateway, or null when
 /// it was given none: a schedule in no factory, a seat with no published brief, or a run that did not start.</param>
-public sealed record CronRunStart(string? SessionId, string? DirectorId, string? Error, int? BriefVersion);
+/// <param name="BriefVersionKind">Which kind of version <paramref name="BriefVersion"/> is
+/// (<see cref="Contracts.FactoryBriefVersionKinds"/>): the seat's own brief version, or the definition version of a
+/// defined factory (Factory Definition, phase 4). Null exactly when <paramref name="BriefVersion"/> is.</param>
+public sealed record CronRunStart(string? SessionId, string? DirectorId, string? Error, int? BriefVersion,
+    string? BriefVersionKind = null);

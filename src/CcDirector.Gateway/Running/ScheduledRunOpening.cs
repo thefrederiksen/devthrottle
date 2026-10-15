@@ -80,8 +80,9 @@ public static class ScheduledRunOpening
         ArgumentNullException.ThrowIfNull(seat);
         return FactorySeatOpening.WhoYouAre(seat.Factory, seat.Seat) + "\n\n"
                + $"This is one of your scheduled runs: the schedule \"{scheduleName}\" ({scheduleId}). Your brief is given "
-               + $"to you here in full, as the Gateway holds it (version {seat.Brief.Version}); it is not a file in the "
-               + "factory's folder. With it comes what this schedule asks of this run.\n\n"
+               + $"to you here in full, as the Gateway holds it ({seat.Brief.VersionWords}"
+               + (seat.Brief.FromDefinition ? ", part of the factory's definition" : "")
+               + "); it is not a file in the factory's folder. With it comes what this schedule asks of this run.\n\n"
                + FactorySeatOpening.BriefBlock(seat.Brief, "\n");
     }
 }

@@ -4571,14 +4571,20 @@ def factory_brief_publish(
     factory: str = typer.Option(..., "--factory", help=_BRIEF_FACTORY_HELP),
     seat: str = typer.Option(..., "--seat", help=_BRIEF_SEAT_HELP),
     version: int = typer.Option(..., "--version", min=1, help="The version to publish."),
+    replaces: Optional[int] = typer.Option(
+        None, "--replaces", min=0,
+        help="A defined factory only: the published definition version you read (0 when none). Refused if another "
+             "publish got there first.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
 ) -> None:
     """Publish one version of a seat's brief. Only a person publishes.
 
     A session that runs this is refused by the Gateway with the sentence that says so, and exits non-zero: a
-    session saves a draft and the owner publishes it.
+    session saves a draft and the owner publishes it. For a factory with a published definition this publishes the
+    whole definition and prints what changes and what it applied, as the Gateway sends them.
     """
-    factory_brief_ops.publish(factory, seat, version, json_output)
+    factory_brief_ops.publish(factory, seat, version, json_output, replaces)
 
 
 @factory_brief_app.command("restore")
@@ -4590,14 +4596,20 @@ def factory_brief_restore(
         0, "--expected-version", min=0,
         help="The newest version you read. 0, the default, means you did not check.",
     ),
+    replaces: Optional[int] = typer.Option(
+        None, "--replaces", min=0,
+        help="A defined factory only: the published definition version you read (0 when none). Refused if another "
+             "publish got there first.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the new version as JSON."),
 ) -> None:
     """Bring an older version back as the newest, published. Only a person does.
 
     It publishes a copy of the older version; the versions in between stay in the history. A session that runs
-    this is refused by the Gateway with the sentence that says so.
+    this is refused by the Gateway with the sentence that says so. For a factory with a published definition this
+    restores the whole definition version, as `publish` does.
     """
-    factory_brief_ops.restore(factory, seat, version, expected_version, json_output)
+    factory_brief_ops.restore(factory, seat, version, expected_version, json_output, replaces)
 
 
 _DEFINITION_FACTORY_HELP = "The factory's id, for example warmforward. It need not be registered yet."

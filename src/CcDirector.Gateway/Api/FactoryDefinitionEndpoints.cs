@@ -552,21 +552,34 @@ internal static class FactoryDefinitionEndpoints
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
             return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
 
+        return PublishAsPerson(tenant, folded, body.Version, body.Replaces, caller.Id, store, apply, account, nowUtc());
+    }
+
+    /// <summary>
+    /// A PERSON'S PUBLISH of one definition version, which drives the factory. The one path for it, shared with a
+    /// defined factory's brief publish (<see cref="FactoryBriefEndpoints"/>, design section 9), which publishes the whole
+    /// definition the same way. <paramref name="published"/> composes the answer to a publish that went through; every
+    /// refusal is answered here, the same for both routes. Null answers as this route does.
+    /// </summary>
+    internal static IResult PublishAsPerson(TenantId tenant, string folded, int version, int? replaces, string? personId,
+        FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
+        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null)
+    {
         // THE STORE'S OWN RULINGS COME FIRST (review of 4004, finding 3): no such version, already published, older
         // than the published one. They say which version is live, and the check's "was not published" must never be
         // said of the version that IS published. They are asked WITHOUT writing (review of 4006, finding 1): a person's
         // publish writes only through the transaction below, which rules again on what it reads.
-        if (store.RuleOnPublish(tenant, folded, body.Version, out var wanted) is { } refused)
+        if (store.RuleOnPublish(tenant, folded, version, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
 
         var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
-            return CheckRefused(folded, check, $"Version {body.Version} was not published");
+            return CheckRefused(folded, check, $"Version {version} was not published");
 
         // THE PUBLISH DRIVES THE FACTORY, in one transaction; what changes is worked out inside it, against the
         // version it really replaces.
-        var result = apply.Publish(tenant, folded, body.Version, check.Definition!, wanted.Files, body.Replaces, caller.Id, nowUtc());
-        return Answer(result, store, tenant, folded, check);
+        var result = apply.Publish(tenant, folded, version, check.Definition!, wanted.Files, replaces, personId, nowUtc);
+        return result.Write.Ok && published is not null ? published(result, check) : Answer(result, store, tenant, folded, check);
     }
 
     private static string Where(DefinitionFinding f) => FactoryPublishApply.Where(f);
@@ -591,19 +604,31 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
                 store, tenant, folded, null);
 
+        return RestoreAsPerson(tenant, folded, body.Version, body.ExpectedVersion, body.Replaces, caller.Id, store, apply,
+            account, nowUtc());
+    }
+
+    /// <summary>
+    /// A PERSON'S RESTORE of one older definition version, which drives the factory. Shared with a defined factory's
+    /// brief restore exactly as <see cref="PublishAsPerson"/> is shared with its publish.
+    /// </summary>
+    internal static IResult RestoreAsPerson(TenantId tenant, string folded, int version, int expectedVersion, int? replaces,
+        string? personId, FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
+        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null)
+    {
         // The store's own rulings first, as for a publish and asked without writing: no such version, already the
         // published one, a stale view.
-        if (store.RuleOnRestore(tenant, folded, body.Version, body.ExpectedVersion, out var wanted) is { } refused)
+        if (store.RuleOnRestore(tenant, folded, version, expectedVersion, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
 
         var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
-            return CheckRefused(folded, check, $"Version {body.Version} was not restored");
+            return CheckRefused(folded, check, $"Version {version} was not restored");
 
         // The copy records the version it came from (restoredFrom), so it carries no change note of its own.
-        var result = apply.Restore(tenant, folded, body.Version, check.Definition!, wanted.Files, body.Replaces,
-            body.ExpectedVersion, caller.Id, nowUtc());
-        return Answer(result, store, tenant, folded, check);
+        var result = apply.Restore(tenant, folded, version, check.Definition!, wanted.Files, replaces,
+            expectedVersion, personId, nowUtc);
+        return result.Write.Ok && published is not null ? published(result, check) : Answer(result, store, tenant, folded, check);
     }
 
     /// <summary>422 for a diff naming a version the format check now refuses: which version, where, and what to do.</summary>
@@ -629,7 +654,7 @@ internal static class FactoryDefinitionEndpoints
     /// THE CHECK'S REFUSAL: 422, one sentence, and every finding with its file and line, so a writer can fix each one
     /// where it is. Nothing was stored.
     /// </summary>
-    private static IResult CheckRefused(string factory, FactoryDefinitionCheckResult check, string what)
+    internal static IResult CheckRefused(string factory, FactoryDefinitionCheckResult check, string what)
     {
         var errors = check.Findings.Count(f => f.IsError);
         var sentence = $"{what}: the check found {errors} {(errors == 1 ? "error" : "errors")} in the definition of {factory}. " +
@@ -739,19 +764,7 @@ internal static class FactoryDefinitionEndpoints
             dto.Applied = applied?.ToList();
             return Results.Json(dto);
         }
-        var status = write.Outcome switch
-        {
-            FactoryDefinitionOutcome.OnlyAPersonPublishes => StatusCodes.Status403Forbidden,
-            FactoryDefinitionOutcome.NoSuchVersion => StatusCodes.Status404NotFound,
-            FactoryDefinitionOutcome.BadFactory or FactoryDefinitionOutcome.Empty or FactoryDefinitionOutcome.TooManyFiles
-                or FactoryDefinitionOutcome.BadPath or FactoryDefinitionOutcome.NotText or FactoryDefinitionOutcome.FileTooLarge
-                or FactoryDefinitionOutcome.VersionTooLarge or FactoryDefinitionOutcome.ChangeNoteTooLong
-                => StatusCodes.Status400BadRequest,
-            FactoryDefinitionOutcome.WriteFailed => StatusCodes.Status500InternalServerError,
-            FactoryDefinitionOutcome.PlanRefused => StatusCodes.Status422UnprocessableEntity,
-            // Stale, too many drafts waiting, already published, older than the published one: "not as things stand".
-            _ => StatusCodes.Status409Conflict,
-        };
+        var status = StatusOf(write.Outcome);
         FileLog.Write($"[FactoryDefinitionEndpoints] {factory}: REFUSED ({status}, {write.Outcome}) - {write.Refusal}");
         return Results.Json(new
         {
@@ -764,6 +777,22 @@ internal static class FactoryDefinitionEndpoints
             findings = refusalFindings is { Count: > 0 } ? refusalFindings.Select(ToDto).ToList() : null,
         }, statusCode: status);
     }
+
+    /// <summary>The status a refused definition write answers with. Shared with a brief saved into a definition
+    /// (<see cref="FactoryBriefEndpoints"/>), so the same refusal never carries two statuses.</summary>
+    internal static int StatusOf(FactoryDefinitionOutcome outcome) => outcome switch
+    {
+        FactoryDefinitionOutcome.OnlyAPersonPublishes => StatusCodes.Status403Forbidden,
+        FactoryDefinitionOutcome.NoSuchVersion => StatusCodes.Status404NotFound,
+        FactoryDefinitionOutcome.BadFactory or FactoryDefinitionOutcome.Empty or FactoryDefinitionOutcome.TooManyFiles
+            or FactoryDefinitionOutcome.BadPath or FactoryDefinitionOutcome.NotText or FactoryDefinitionOutcome.FileTooLarge
+            or FactoryDefinitionOutcome.VersionTooLarge or FactoryDefinitionOutcome.ChangeNoteTooLong
+            => StatusCodes.Status400BadRequest,
+        FactoryDefinitionOutcome.WriteFailed => StatusCodes.Status500InternalServerError,
+        FactoryDefinitionOutcome.PlanRefused => StatusCodes.Status422UnprocessableEntity,
+        // Stale, too many drafts waiting, already published, older than the published one: "not as things stand".
+        _ => StatusCodes.Status409Conflict,
+    };
 
     private static IResult NoSuchVersion(string factory, int version, FactoryDefinitionStanding standing) =>
         Results.Json(new
@@ -799,7 +828,7 @@ internal static class FactoryDefinitionEndpoints
         PublishedVersion = standing.Published?.Version,
     };
 
-    private static FactoryDefinitionFindingDto ToDto(DefinitionFinding f) => new()
+    internal static FactoryDefinitionFindingDto ToDto(DefinitionFinding f) => new()
     {
         Severity = f.Severity,
         File = f.File,

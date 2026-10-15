@@ -85,4 +85,9 @@ public sealed class CronRunEntity : GatewayMintedKeyEntity
     /// <summary>The version of the seat's published brief the Gateway gave this run, or null when it gave none
     /// (<see cref="Contracts.CronRunRecord.BriefVersion"/>). Rows recorded before this column existed read null.</summary>
     public int? BriefVersion { get; set; }
+
+    /// <summary>Which kind of version <see cref="BriefVersion"/> is, "brief" or "definition"
+    /// (<see cref="Contracts.CronRunRecord.BriefVersionKind"/>). Rows recorded before this column existed read null,
+    /// and every one of them was a brief version.</summary>
+    public string? BriefVersionKind { get; set; }
 }
