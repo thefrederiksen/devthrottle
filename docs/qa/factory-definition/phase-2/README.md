@@ -1,6 +1,6 @@
 # Factory Definition, phase 2 - factory records on the Gateway: QA report
 
-Machine SOREN_NORTH, 14 October 2026. Branch `factory-definition/p2-records`, rebased onto origin/main `b4f079a0c`.
+Machine SOREN_NORTH, 14 October 2026. Branch `factory-definition/p2-records`, rebased onto origin/main `de6b5e8be`.
 
 ## What this phase adds
 
@@ -114,6 +114,7 @@ A refused write never hands the machine credential the record in the way: every 
 | `.\scripts\test-local.ps1 -Parked` | GREEN at `7dbde7ad9` (the change rebased onto `e587b06c0`), 22,121 tests (Gateway.UnitTests 11,946; Gateway.Tests in 4 shards; Core.Tests 4,516) |
 | After rebasing onto `b4f079a0c` (phase 1, which adds no migration) | Default gate GREEN at `f95de8daf`; every Gateway unit test under `Factory` (1,191) passing |
 | After the review fix | Default gate GREEN at `43ce3514e`; the 90 factory record tests passing |
+| After rebasing onto `de6b5e8be` (phase 1's definition store and its migrations; the two `AddFactoryRecords` migrations regenerated to order after them, bodies identical) | Default gate GREEN at `882fd2191`; Gateway unit tests under `Factory` and `Data` (1,439) passing; `has-pending-model-changes` clean on both providers; `test-database.ps1` GREEN, 74 of 74 in one run |
 | New Gateway tests (stores, routes, the whole pipeline) | 90, all passing (89, plus one added for the review finding) |
 | New command line tests (`test_factory_record_ops.py`, a fake Gateway) | 17, all passing |
 | `tools/cc_shared` gateway tests (the new `headers` argument) | 68 passing |
