@@ -1,0 +1,17 @@
+$ .\scripts\test-database.ps1 -Filter "FullyQualifiedName~FactoryPublishPostgresTests"
+  (run on 2026-10-15 at b2920036e; the temporary folder is written <temp>)
+
+Starting a throwaway PostgreSQL for this run (instance dbcddcf97f, port 59850)...
+PostgreSQL ready. It is destroyed when this run ends.
+
+Building CcDirector.Gateway.DatabaseTests (Debug)...
+Running CcDirector.Gateway.DatabaseTests...
+
+Result file: <temp>\cc-test-database-8063fbfe\CcDirector.Gateway.DatabaseTests.trx
+Verdict: outcome=Completed total=1 executed=1 passed=1 failed=0 skipped=0
+
+RESULT: GREEN - 1 test(s) executed against the throwaway PostgreSQL, none failed, none skipped.
+
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 12 s - CcDirector.Gateway.DatabaseTests.dll (net10.0)
+
+The one test: CcDirector.Gateway.Tests.Data.FactoryPublishPostgresTests.Publish_WhoseScheduleWriteFails_ChangesNothing_OnPostgres
