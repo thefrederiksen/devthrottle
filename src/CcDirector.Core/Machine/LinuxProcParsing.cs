@@ -390,4 +390,38 @@ internal static class LinuxProcParsing
         && !device.Name.StartsWith("md", StringComparison.Ordinal)
         && !device.Name.StartsWith("sr", StringComparison.Ordinal)
         && !device.Name.StartsWith("fd", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Read <c>/sys/block</c> (or a captured copy of it under <paramref name="sysBlockRoot"/>): each
+    /// whole block device, its rotational flag, its slaves, and its partitions. A partition is a
+    /// sub-directory carrying a <c>dev</c> file and named after the device ("sdc" holds "sdc1";
+    /// "nvme0n1" holds "nvme0n1p1"). A device whose rotational file is missing or unreadable gets null,
+    /// which the probe reports as an unknown disk kind rather than guessing one.
+    /// </summary>
+    public static IReadOnlyDictionary<string, LinuxBlockDevice> ReadBlockDevices(string sysBlockRoot)
+    {
+        var result = new Dictionary<string, LinuxBlockDevice>(StringComparer.Ordinal);
+        foreach (var path in Directory.EnumerateDirectories(sysBlockRoot))
+        {
+            var name = Path.GetFileName(path);
+            int? rotational = null;
+            var rotationalFile = Path.Combine(path, "queue", "rotational");
+            if (File.Exists(rotationalFile)
+                && int.TryParse(File.ReadAllText(rotationalFile).Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var flag))
+                rotational = flag;
+
+            var slavesDirectory = Path.Combine(path, "slaves");
+            var slaves = Directory.Exists(slavesDirectory)
+                ? Directory.EnumerateFileSystemEntries(slavesDirectory).Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal).ToList()
+                : [];
+
+            var partitions = Directory.EnumerateDirectories(path)
+                .Where(d => Path.GetFileName(d).StartsWith(name, StringComparison.Ordinal) && File.Exists(Path.Combine(d, "dev")))
+                .Select(Path.GetFileName).OfType<string>().Order(StringComparer.Ordinal).ToList();
+
+            result[name] = new LinuxBlockDevice(name, rotational, slaves, partitions);
+        }
+
+        return result;
+    }
 }

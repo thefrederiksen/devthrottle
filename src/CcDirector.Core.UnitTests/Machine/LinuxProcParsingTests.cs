@@ -353,4 +353,18 @@ public class LinuxProcParsingTests
     {
         Assert.Equal(expected, LinuxProcParsing.IsPhysicalDisk(new LinuxBlockDevice(name, 0, [], [])));
     }
+
+    [Fact]
+    public void ReadBlockDevices_CapturedSysBlock_FindsTheSpinningDriveInsideTheRootVolume()
+    {
+        var devices = LinuxProcParsing.ReadBlockDevices(Fixture("sys", "block"));
+
+        Assert.Equal(1, devices["sdc"].Rotational);
+        Assert.Equal(0, devices["sda"].Rotational);
+        Assert.Equal(0, devices["sdb"].Rotational);
+        Assert.Equal(["sdc1", "sdc2", "sdc3"], devices["sdc"].Partitions);
+        Assert.Equal(["sda1", "sdb1", "sdc3"], devices["dm-0"].Slaves);
+        Assert.Equal(["sda", "sdb", "sdc"], LinuxProcParsing.ResolvePhysicalDisks("dm-0", devices));
+        Assert.Equal(["sda", "sdb", "sdc"], devices.Values.Where(LinuxProcParsing.IsPhysicalDisk).Select(d => d.Name).Order().ToArray());
+    }
 }
