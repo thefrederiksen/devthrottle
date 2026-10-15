@@ -146,7 +146,7 @@ public class ResourceReadingTests
     {
         var reading = PhysicalDiskReading.Read("sdc", DiskKind.Spinning, busyPercent: 75,
             readBytesPerSecond: 1000, writeBytesPerSecond: 2000,
-            millisecondsPerRead: null, millisecondsPerWrite: 26, queueLength: null);
+            millisecondsPerRead: null, millisecondsPerWrite: 26, averageQueueDepth: 3.5);
 
         Assert.True(reading.CouldRead);
         Assert.Equal("sdc", reading.Name);
@@ -156,9 +156,26 @@ public class ResourceReadingTests
         Assert.Equal(2000, reading.WriteBytesPerSecond);
         Assert.Null(reading.MillisecondsPerRead);
         Assert.Equal(26, reading.MillisecondsPerWrite);
-        Assert.Null(reading.QueueLength);
+        Assert.Equal(3.5, reading.AverageQueueDepth);
         Assert.Contains("spinning hard drive", reading.ToString());
+        Assert.Contains("75% busy", reading.ToString());
+        Assert.Contains("3.5 operations in flight", reading.ToString());
         Assert.Contains("26 ms per write", reading.ToString());
+    }
+
+    [Fact]
+    public void PhysicalDiskRead_NoTrueUtilisation_BusyIsNull_AndIsNotPrintedAsBusy()
+    {
+        // macOS: the IOKit disk-time counter is a queue depth, not a utilisation, so busy is not offered.
+        var reading = PhysicalDiskReading.Read("disk0", DiskKind.SolidState, busyPercent: null,
+            readBytesPerSecond: 1000, writeBytesPerSecond: 2000,
+            millisecondsPerRead: 0.4, millisecondsPerWrite: 0.6, averageQueueDepth: 2.6);
+
+        Assert.True(reading.CouldRead);
+        Assert.Null(reading.BusyPercent);
+        Assert.Equal(2.6, reading.AverageQueueDepth);
+        Assert.DoesNotContain("busy", reading.ToString());
+        Assert.Contains("2.6 operations in flight", reading.ToString());
     }
 
     [Fact]
@@ -170,12 +187,12 @@ public class ResourceReadingTests
         Assert.Equal("sdc", reading.Name);
         Assert.Equal(DiskKind.Spinning, reading.Kind);
         Assert.Equal("statistics locked away", reading.UnreadableReason);
-        Assert.Equal(0, reading.BusyPercent);
+        Assert.Null(reading.BusyPercent);
         Assert.Equal(0, reading.ReadBytesPerSecond);
         Assert.Equal(0, reading.WriteBytesPerSecond);
         Assert.Null(reading.MillisecondsPerRead);
         Assert.Null(reading.MillisecondsPerWrite);
-        Assert.Null(reading.QueueLength);
+        Assert.Null(reading.AverageQueueDepth);
     }
 
     [Fact]

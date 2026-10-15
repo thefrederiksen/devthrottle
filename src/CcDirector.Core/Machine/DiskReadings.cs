@@ -30,55 +30,73 @@ public enum DiskKind
 /// they survive <see cref="Unreadable"/>: the detail screen can still list the disk and say why it
 /// cannot show its figures.
 ///
-/// The three nullable figures are null when the platform does not offer them, which is not the same as
-/// a failed read - a failed read is <see cref="CouldRead"/> false for the whole disk.
+/// The nullable figures are null when the platform does not offer them, which is not the same as a
+/// failed read - a failed read is <see cref="CouldRead"/> false for the whole disk.
+///
+/// BUSY AND QUEUE DEPTH ARE DIFFERENT THINGS, AND macOS OFFERS ONLY ONE OF THEM. The IOKit disk-time
+/// counter is concurrency-weighted service time: the average number of operations in flight, not a share
+/// of time the disk was working. Read as a busy figure it said 260% for one healthy reader and 25% for a
+/// contended one. So <see cref="BusyPercent"/> is null on macOS, and that counter is reported as
+/// <see cref="AverageQueueDepth"/>, which is what it measures.
 /// </summary>
 /// <param name="Name">The operating system's own name for the disk: <c>sdc</c>, <c>PhysicalDrive2</c>, <c>disk0</c>.</param>
 /// <param name="Kind">Spinning or solid-state, or Unknown when it could not be told.</param>
 /// <param name="CouldRead">False when this disk's statistics could not be read; the figures are then zero and null.</param>
 /// <param name="UnreadableReason">Why the read failed, in plain English. Null when it succeeded.</param>
-/// <param name="BusyPercent">Share of the last interval the disk was doing any work, 0 to 100.</param>
+/// <param name="BusyPercent">
+/// Share of the last interval the disk was doing any work, 0 to 100. Null where the platform offers no
+/// true utilisation (macOS) - never estimated from a queue depth.
+/// </param>
 /// <param name="ReadBytesPerSecond">Bytes read per second over the last interval.</param>
 /// <param name="WriteBytesPerSecond">Bytes written per second over the last interval.</param>
 /// <param name="MillisecondsPerRead">Average time one read took. Null when not offered on this platform.</param>
 /// <param name="MillisecondsPerWrite">Average time one write took. Null when not offered on this platform.</param>
-/// <param name="QueueLength">Average requests waiting for the disk. Null when not offered on this platform.</param>
+/// <param name="AverageQueueDepth">
+/// The time-averaged number of operations in flight over the last interval: Linux weighted input/output
+/// ticks over the interval, Windows "Avg. Disk Queue Length", macOS total disk time over the interval.
+/// Null when not offered on this platform.
+/// </param>
 public readonly record struct PhysicalDiskReading(
     string Name,
     DiskKind Kind,
     bool CouldRead,
     string? UnreadableReason,
-    double BusyPercent,
+    double? BusyPercent,
     double ReadBytesPerSecond,
     double WriteBytesPerSecond,
     double? MillisecondsPerRead,
     double? MillisecondsPerWrite,
-    double? QueueLength)
+    double? AverageQueueDepth)
 {
     /// <summary>A reading that succeeded. Pass null for any figure the platform does not offer.</summary>
     public static PhysicalDiskReading Read(
         string name,
         DiskKind kind,
-        double busyPercent,
+        double? busyPercent,
         double readBytesPerSecond,
         double writeBytesPerSecond,
         double? millisecondsPerRead,
         double? millisecondsPerWrite,
-        double? queueLength) =>
+        double? averageQueueDepth) =>
         new(name, kind, CouldRead: true, UnreadableReason: null, busyPercent, readBytesPerSecond,
-            writeBytesPerSecond, millisecondsPerRead, millisecondsPerWrite, queueLength);
+            writeBytesPerSecond, millisecondsPerRead, millisecondsPerWrite, averageQueueDepth);
 
-    /// <summary>A disk whose statistics could not be read, carrying why. The figures are zero or null and mean nothing.</summary>
+    /// <summary>A disk whose statistics could not be read, carrying why. The rates are zero, the rest null, and none mean anything.</summary>
     public static PhysicalDiskReading Unreadable(string name, DiskKind kind, string reason) =>
-        new(name, kind, CouldRead: false, ResourceReadingGuard.Reason(reason), 0, 0, 0, null, null, null);
+        new(name, kind, CouldRead: false, ResourceReadingGuard.Reason(reason), null, 0, 0, null, null, null);
 
     /// <summary>Short, log-safe description. Prints no figure when the reading failed.</summary>
     public override string ToString()
     {
         if (!CouldRead) return $"disk {Name} ({KindText}) unreadable ({UnreadableReason})";
 
-        var text = string.Create(CultureInfo.InvariantCulture,
-            $"disk {Name} ({KindText}) {BusyPercent:F0}% busy, {ReadBytesPerSecond / (1024.0 * 1024):F1} MB/s read, {WriteBytesPerSecond / (1024.0 * 1024):F1} MB/s written");
+        var text = $"disk {Name} ({KindText})";
+        if (BusyPercent is { } busy)
+            text += string.Create(CultureInfo.InvariantCulture, $" {busy:F0}% busy,");
+        text += string.Create(CultureInfo.InvariantCulture,
+            $" {ReadBytesPerSecond / (1024.0 * 1024):F1} MB/s read, {WriteBytesPerSecond / (1024.0 * 1024):F1} MB/s written");
+        if (AverageQueueDepth is { } depth)
+            text += string.Create(CultureInfo.InvariantCulture, $", {depth:F1} operations in flight");
         if (MillisecondsPerWrite is { } perWrite)
             text += string.Create(CultureInfo.InvariantCulture, $", {perWrite:F0} ms per write");
         return text;
