@@ -120,7 +120,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             return new CronRunStart(null, null, $"not started: {ex.Message}", BriefVersion: null);
         }
         if (published is not null)
-            return await StartDefinedAsync(job, published, seat, ct);
+            return await StartDefinedAsync(job, published, seat, seed, director, ct);
 
         var req = new NewSessionRequest
         {
@@ -182,7 +182,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     /// settings are the schedule's, as for every run. A seat the published version does not hold does not start.
     /// </summary>
     private async Task<CronRunStart> StartDefinedAsync(CronJobDto job, PublishedFactoryDefinition published,
-        ScheduledRunSeat? registered, CancellationToken ct)
+        ScheduledRunSeat? registered, string seed, string? director, CancellationToken ct)
     {
         if (published.Seat(job.Seat) is not { } seat)
         {
@@ -202,13 +202,15 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         var opened = registered with { Brief = published.BriefOf(seat) };
         var built = FactorySeatStart.Build(published, seat,
             name: $"{job.Name} - {CronSchedule.LocalRunLabel(job, _clock.UtcNow)}",
-            prePrompt: ScheduledRunOpening.PromptFor(job.Action.Seed, job.Name, job.Id, opened));
+            prePrompt: ScheduledRunOpening.PromptFor(seed, job.Name, job.Id, opened));
         var req = built.Request;
         req.AutoDismiss = job.Action.AutoDismiss;
         req.Origin = SessionOriginKinds.Schedule;
         req.OriginSurface = SessionOriginSurfaces.Cron;
+        // A checked run (phase 5b) starts on the Director that ran its check, with the prompt its count was put into.
+        req.Director = director;
 
-        FileLog.Write($"[DirectorCronSessionStarter] start (defined): job={job.Id}, machine={built.Machine}, seat={seat.Seat}, definition v{published.Version}, seed={job.Action.Seed}");
+        FileLog.Write($"[DirectorCronSessionStarter] start (defined): job={job.Id}, machine={built.Machine}, director={director ?? "the machine's"}, seat={seat.Seat}, definition v{published.Version}, seed={seed}");
         var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(built.Machine, req, ct);
         if (!ok || dto is null || string.IsNullOrEmpty(dto.SessionId))
         {

@@ -15,7 +15,10 @@ internal static class DueCheckTestParts
     public static DueCheckService NoDueChecks(GatewayDatabase db, string legacyRunsPath)
         => new(new CronRunHistoryStore(db, legacyRunsPath), jobOf: (_, _) => null, new FactoryCheckStateStore(db),
             new NeverStarter(), directorRunsDefinitionChecks: (_, _) => true, resultRecorded: (_, _) => { },
-            nowUtc: () => DateTime.UtcNow, startLifetime: CancellationToken.None);
+            nowUtc: () => NoClock, startLifetime: CancellationToken.None);
+
+    // A fixed time: nothing these tests ask of the service reads it, and a gate test never reads the real clock.
+    private static readonly DateTime NoClock = new(2026, 10, 15, 0, 0, 0, DateTimeKind.Utc);
 
     private sealed class NeverStarter : ICronSessionStarter
     {

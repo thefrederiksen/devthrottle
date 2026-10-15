@@ -22,9 +22,11 @@ public sealed class FactorySeatStartOnTheCronStarterTests
     private sealed class StubResolver : IDirectorTargetResolver
     {
         public readonly List<string> Machines = new();
+        public readonly List<string?> Directors = new();
         public Task<DirectorTargetResult> ResolveAsync(string machine, string? director, CancellationToken ct)
         {
             Machines.Add(machine);
+            Directors.Add(director);
             return Task.FromResult(new DirectorTargetResult("d-1", null));
         }
     }
@@ -112,6 +114,22 @@ public sealed class FactorySeatStartOnTheCronStarterTests
         Assert.DoesNotContain("Read from the brief reader.", req.PrePrompt);
         Assert.Equal(3, start.BriefVersion);
         Assert.Equal(FactoryBriefVersionKinds.Definition, start.BriefVersionKind);
+    }
+
+    [Fact]
+    public async Task StartCheckedRun_ADefinedFactorysTimedStart_GoesToTheDirectorThatRanTheCheck_WithItsCountedPrompt()
+    {
+        // Phase 5b: a timed start with a check is always a defined factory's, so its session is built from the
+        // definition - and still pinned to the Director that ran the check, given the prompt its count was put into.
+        var start = await Starter(_ => Published()).StartCheckedRunAsync(Job("boss"), "dir-north", "Morning round: 3 new.", CancellationToken.None);
+
+        Assert.Null(start.Error);
+        var req = Assert.Single(_sent);
+        Assert.Equal("dir-north", req.Director);
+        Assert.Equal(new string?[] { "dir-north" }, _resolver.Directors);
+        Assert.Contains("Morning round: 3 new.", req.PrePrompt);
+        Assert.DoesNotContain("Morning round.", req.PrePrompt);
+        Assert.True(req.FactoryHome);
     }
 
     [Fact]
