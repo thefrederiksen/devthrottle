@@ -95,6 +95,56 @@ public sealed class FactoryJournalStore
         }
     }
 
+    /// <summary>
+    /// ONE PAGE OF ONE JOURNAL, WITH TEXT (Factory Definition, phase 6; review of #4032, finding 1): a seat's journal, or
+    /// with <paramref name="seat"/> null the factory's own, newest day first. <paramref name="before"/> is the id of the
+    /// oldest entry the page before showed, and the page starts just after it.
+    ///
+    /// THE CURSOR IS AN ENTRY, NOT A DAY. A day holds any number of entries, and the one-time upload writes many at one
+    /// instant, so a day or a time would split a page or skip entries. The order is day, then time written, then id, and
+    /// the entries that share the cursor's day and time are placed by id - so every entry is on exactly one page.
+    /// </summary>
+    /// <returns>The page, or null when <paramref name="before"/> is not an entry of this journal.</returns>
+    public FactoryJournalPage? Page(TenantId tenant, string factory, string? seat, Guid? before, int limit)
+    {
+        if (limit is < 1 or > MaxListPage)
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, $"a page holds 1 to {MaxListPage} entries");
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return FactoryJournalPage.Empty;
+        if (!FactoryRecordNames.TryOptionalSeat(seat, out var foldedSeat, out _)) return FactoryJournalPage.Empty;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.FactoryJournalEntries.AsNoTracking().Where(e => e.Factory == factory);
+            rows = foldedSeat is null ? rows.Where(e => e.Seat == null) : rows.Where(e => e.Seat == foldedSeat);
+            var total = rows.Count();
+            var ordered = rows.OrderByDescending(e => e.EntryDate).ThenByDescending(e => e.WrittenAtUtc).ThenByDescending(e => e.Id);
+            if (before is not { } cursorId)
+            {
+                var first = ordered.Take(limit).ToList();
+                return new FactoryJournalPage(first, total, 0, first.Count < total ? first[^1].Id : null);
+            }
+
+            if (rows.FirstOrDefault(e => e.Id == cursorId) is not { } cursor) return null;
+            var (day, at) = (cursor.EntryDate, cursor.WrittenAtUtc);
+            // The entries that share the cursor's day and time, in the page order; those after the cursor come first.
+            var tied = rows.Where(e => e.EntryDate == day && e.WrittenAtUtc == at).OrderByDescending(e => e.Id).Select(e => e.Id).ToList();
+            var tiedAfter = tied.Skip(tied.IndexOf(cursorId) + 1).ToList();
+            var older = ordered.Where(e => string.Compare(e.EntryDate, day) < 0 || (e.EntryDate == day && e.WrittenAtUtc < at));
+            var left = tiedAfter.Count + older.Count();
+
+            var page = new List<FactoryJournalEntryEntity>();
+            if (tiedAfter.Count > 0)
+            {
+                var take = tiedAfter.Take(limit).ToList();
+                var byId = rows.Where(e => take.Contains(e.Id)).ToDictionary(e => e.Id);
+                page.AddRange(take.Select(id => byId[id]));
+            }
+            if (page.Count < limit) page.AddRange(older.Take(limit - page.Count).ToList());
+            var newer = total - left;
+            return new FactoryJournalPage(page, total, newer, newer + page.Count < total ? page[^1].Id : null);
+        }
+    }
+
     /// <summary>One entry, with its text, or null when the factory has no such entry.</summary>
     public FactoryJournalEntryEntity? Get(TenantId tenant, string factory, Guid id)
     {
@@ -227,6 +277,13 @@ public sealed record FactoryJournalGroup(string? Seat, int Entries, string Newes
 public sealed record FactoryJournalList(IReadOnlyList<FactoryJournalSummary> Entries, int Total)
 {
     public static readonly FactoryJournalList Empty = new(Array.Empty<FactoryJournalSummary>(), 0);
+}
+
+/// <summary>One page of one journal, with text: the entries, how many the journal holds, how many newer ones the pages
+/// before held, and the cursor of the next page (the oldest entry shown), null when this is the last.</summary>
+public sealed record FactoryJournalPage(IReadOnlyList<FactoryJournalEntryEntity> Entries, int Total, int Newer, Guid? NextBefore)
+{
+    public static readonly FactoryJournalPage Empty = new(Array.Empty<FactoryJournalEntryEntity>(), 0, 0, null);
 }
 
 /// <summary>What adding an entry did, or why it was refused.</summary>

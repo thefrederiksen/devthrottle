@@ -14,6 +14,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 const client = vi.hoisted(() => ({
   getFactoryRecordsTab: vi.fn(),
   getFactoryRecordsJournal: vi.fn(),
+  getFactoryRecordsAttachments: vi.fn(),
   getFactoryRecordsDocument: vi.fn(),
   getFactoryRecordsDocumentHistory: vi.fn(),
   downloadFactoryAttachment: vi.fn(),
@@ -70,6 +71,8 @@ const TAB = {
   attachments: { heading: "Attachments", summaryText: "1 attachment.", emptyText: null },
   attachmentColumns: ["File", "Seat", "Type", "Size", "Kept by", "When"],
   attachmentRows: [ATTACHMENT],
+  attachmentsNextBefore: null,
+  attachmentsOlderLabel: null,
 };
 
 const EMPTY_TAB = {
@@ -147,6 +150,9 @@ describe("The factory page's Records tab (Factory Definition mission, phase 6)",
       summaryText: "12 entries. (fixture)",
       entries: [{ id: "e1", dateText: "2026-10-14", lineText: "Written by a session.", text: "Wrote the post.", attachments: [ATTACHMENT] }],
       emptyText: null,
+      nextBefore: null,
+      olderLabel: null,
+      newestLabel: null,
       closeLabel: "Back to the records",
     });
     renderRecords();
@@ -154,13 +160,13 @@ describe("The factory page's Records tab (Factory Definition mission, phase 6)",
     const writer = await screen.findByTestId("fa-rec-journal-writer");
     fireEvent.click(within(writer).getByRole("button", { name: "Read" }));
     expect(await screen.findByText("Wrote the post.")).toBeTruthy();
-    expect(client.getFactoryRecordsJournal).toHaveBeenCalledWith("qa-outreach", "writer", expect.anything());
+    expect(client.getFactoryRecordsJournal).toHaveBeenCalledWith("qa-outreach", "writer", null, expect.anything());
     expect(within(screen.getByTestId("fa-rec-entry-e1")).getByText("shots/home.png")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to the records" }));
     fireEvent.click(within(await screen.findByTestId("fa-rec-journal-factory")).getByRole("button", { name: "Read" }));
     await screen.findByText("Wrote the post.");
-    expect(client.getFactoryRecordsJournal).toHaveBeenLastCalledWith("qa-outreach", null, expect.anything());
+    expect(client.getFactoryRecordsJournal).toHaveBeenLastCalledWith("qa-outreach", null, null, expect.anything());
   });
 
   it("opens a document at its newest version, lists its versions, and reads the one picked", async () => {
@@ -205,5 +211,57 @@ describe("The factory page's Records tab (Factory Definition mission, phase 6)",
     fireEvent.click(within(row).getByRole("button", { name: "Download" }));
     expect(await within(row).findByRole("alert")).toBeTruthy();
     expect(client.downloadFactoryAttachment).toHaveBeenCalledWith(ATTACHMENT.downloadHref);
+  });
+
+  it("steps a journal to its older entries with the Gateway's cursor, and back to the newest", async () => {
+    const page = (n: number, nextBefore: string | null, newestLabel: string | null) => ({
+      heading: "The journal of Writer (writer)",
+      summaryText: `Page ${n}. (fixture)`,
+      entries: [{ id: `e${n}`, dateText: "2026-10-14", lineText: "Written.", text: `Entry on page ${n}.`, attachments: [] }],
+      emptyText: null,
+      nextBefore,
+      olderLabel: nextBefore === null ? null : "Older entries",
+      newestLabel,
+      closeLabel: "Back to the records",
+    });
+    client.getFactoryRecordsJournal.mockImplementation(async (_f: string, _s: string | null, before: string | null) =>
+      before === null ? page(1, "e1", null) : page(2, null, "Newest entries"),
+    );
+    renderRecords();
+
+    fireEvent.click(within(await screen.findByTestId("fa-rec-journal-writer")).getByRole("button", { name: "Read" }));
+    await screen.findByText("Entry on page 1.");
+    expect(screen.queryByRole("button", { name: "Newest entries" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Older entries" }));
+    await screen.findByText("Entry on page 2.");
+    expect(client.getFactoryRecordsJournal).toHaveBeenLastCalledWith("qa-outreach", "writer", "e1", expect.anything());
+    expect(screen.queryByRole("button", { name: "Older entries" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Newest entries" }));
+    await screen.findByText("Entry on page 1.");
+    expect(client.getFactoryRecordsJournal).toHaveBeenLastCalledWith("qa-outreach", "writer", null, expect.anything());
+  });
+
+  it("lists older files from the Gateway's cursor in the same table, and goes back to the newest", async () => {
+    client.getFactoryRecordsTab.mockResolvedValue({ ...TAB, attachmentsNextBefore: ATTACHMENT.id, attachmentsOlderLabel: "Older files" });
+    client.getFactoryRecordsAttachments.mockResolvedValue({
+      summaryText: "101 files. File 101 is listed. (fixture)",
+      rows: [{ ...ATTACHMENT, id: "f-old", name: "shots/oldest.png" }],
+      nextBefore: null,
+      olderLabel: null,
+      newestLabel: "Newest files",
+    });
+    renderRecords();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Older files" }));
+    await screen.findByTestId("fa-rec-attachment-shots/oldest.png");
+    expect(client.getFactoryRecordsAttachments).toHaveBeenCalledWith("qa-outreach", ATTACHMENT.id);
+    expect(screen.getByText("101 files. File 101 is listed. (fixture)")).toBeTruthy();
+    expect(screen.queryByTestId("fa-rec-attachment-shots/home.png")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Older files" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Newest files" }));
+    await screen.findByTestId("fa-rec-attachment-shots/home.png");
   });
 });

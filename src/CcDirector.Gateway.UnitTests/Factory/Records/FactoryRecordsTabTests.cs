@@ -108,7 +108,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
     public void Tab_NothingYet_SaysSoInEachSection_InTheGatewaysWords()
     {
         var view = FactoryRecordsTabFold.Tab(Outreach(), Array.Empty<FactoryJournalGroup>(), Array.Empty<FactoryDocumentSummary>(),
-            FactoryAttachmentList.Empty, TimeZoneInfo.Utc, Now);
+            FactoryAttachmentPage.Empty, TimeZoneInfo.Utc, Now);
 
         Assert.Equal("The records of QA Outreach", view.Heading);
         Assert.Equal("No journal entry yet. A seat of QA Outreach adds one with cc-devthrottle factory journal add.", view.Journals.EmptyText);
@@ -126,7 +126,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
                 new FactoryJournalGroup("writer", 12, "2026-10-14"),
                 new FactoryJournalGroup(null, 1, "2026-10-13"),
                 new FactoryJournalGroup("boss", 3, "2026-10-15"),
-            }, Array.Empty<FactoryDocumentSummary>(), FactoryAttachmentList.Empty, TimeZoneInfo.Utc, Now);
+            }, Array.Empty<FactoryDocumentSummary>(), FactoryAttachmentPage.Empty, TimeZoneInfo.Utc, Now);
 
         Assert.Equal(new[] { "The factory as a whole", "Boss (boss)", "Writer (writer)", "scout (no longer a seat of this factory)" },
             view.JournalGroups.Select(g => g.Title));
@@ -144,6 +144,159 @@ public sealed class FactoryRecordsTabTests : IDisposable
     }
 
     // ---------- through the routes ----------
+
+    // ---------- paging (review of #4032, finding 1) ----------
+
+    /// <summary>45 entries in the writer's journal: 25 written at ONE instant on one day, as an upload writes them,
+    /// and 20 more over other days. The pages must hold each of them exactly once, in the page order.</summary>
+    private List<Guid> SeedJournal()
+    {
+        var ids = new List<Guid>();
+        for (var i = 0; i < 25; i++)
+            ids.Add(_journal.Append(T, F, "writer", "2026-10-10", $"uploaded {i}", null, "upload", "SOREN_NORTH", Now.AddDays(-3), $"up:{i}").Entry!.Id);
+        for (var i = 0; i < 20; i++)
+            ids.Add(_journal.Append(T, F, "writer", $"2026-09-{10 + i:00}", $"day {i}", null, "session", Session, Now.AddDays(-30 + i)).Entry!.Id);
+        return ids;
+    }
+
+    [Fact]
+    public void JournalPage_WalkedToTheEnd_HoldsEveryEntryOnce_EvenTwentyFiveWrittenAtOneInstant()
+    {
+        var all = SeedJournal();
+
+        var seen = new List<Guid>();
+        Guid? before = null;
+        var pages = 0;
+        do
+        {
+            var page = _journal.Page(T, F, "writer", before, 20)!;
+            Assert.Equal(45, page.Total);
+            Assert.Equal(seen.Count, page.Newer);
+            seen.AddRange(page.Entries.Select(e => e.Id));
+            before = page.NextBefore;
+            pages++;
+        } while (before is not null);
+
+        Assert.Equal(3, pages);
+        Assert.Equal(45, seen.Distinct().Count());
+        Assert.Equal(all.OrderBy(x => x), seen.OrderBy(x => x));
+        // Newest day first: the 25 uploaded on 2026-10-10 come before every September day.
+        var days = seen.Select(id => _journal.Get(T, F, id)!.EntryDate).ToList();
+        Assert.Equal(days.OrderByDescending(d => d, StringComparer.Ordinal), days);
+    }
+
+    [Fact]
+    public void AttachmentPage_WalkedToTheEnd_HoldsEveryFileOnce_EvenFilesKeptAtOneInstant()
+    {
+        var all = new List<Guid>();
+        for (var i = 0; i < 7; i++)
+            all.Add(_attachments.Add(T, F, null, $"same/f{i}.txt", "text/plain", new byte[] { 1 }, "upload", "SOREN_NORTH", Now, $"a:{i}").Attachment!.Id);
+        for (var i = 0; i < 5; i++)
+            all.Add(_attachments.Add(T, F, "writer", $"later/g{i}.txt", "text/plain", new byte[] { 2 }, "session", Session, Now.AddMinutes(i)).Attachment!.Id);
+
+        var seen = new List<Guid>();
+        Guid? before = null;
+        do
+        {
+            var page = _attachments.Page(T, F, before, 4)!;
+            Assert.Equal(seen.Count, page.Newer);
+            seen.AddRange(page.Attachments.Select(a => a.Id));
+            before = page.NextBefore;
+        } while (before is not null);
+
+        Assert.Equal(12, seen.Distinct().Count());
+        Assert.Equal(all.OrderBy(x => x), seen.OrderBy(x => x));
+    }
+
+    [Fact]
+    public async Task THE_JOURNAL_ROUTE_pages_with_before_and_says_which_entries_it_shows()
+    {
+        SeedJournal();
+
+        var first = await Get($"/gateway/factories/{F}/records/journal?seat=writer");
+        Assert.Equal("45 entries. Entries 1 to 20 are shown, newest first.", first.Body.GetProperty("summaryText").GetString());
+        Assert.Equal("Older entries", first.Body.GetProperty("olderLabel").GetString());
+        Assert.Equal(JsonValueKind.Null, first.Body.GetProperty("newestLabel").ValueKind);
+
+        var second = await Get($"/gateway/factories/{F}/records/journal?seat=writer&before={first.Body.GetProperty("nextBefore").GetGuid()}");
+        Assert.Equal("45 entries. Entries 21 to 40 are shown, newest first.", second.Body.GetProperty("summaryText").GetString());
+        Assert.Equal("Newest entries", second.Body.GetProperty("newestLabel").GetString());
+
+        var last = await Get($"/gateway/factories/{F}/records/journal?seat=writer&before={second.Body.GetProperty("nextBefore").GetGuid()}");
+        Assert.Equal("45 entries. Entries 41 to 45 are shown, newest first.", last.Body.GetProperty("summaryText").GetString());
+        Assert.Equal(JsonValueKind.Null, last.Body.GetProperty("nextBefore").ValueKind);
+        Assert.Equal(JsonValueKind.Null, last.Body.GetProperty("olderLabel").ValueKind);
+    }
+
+    [Fact]
+    public async Task THE_TAB_lists_the_first_page_of_files_and_the_attachments_route_the_next()
+    {
+        for (var i = 0; i < FactoryRecordsTabFold.AttachmentPage + 3; i++)
+            _attachments.Add(T, F, null, $"shots/s{i:000}.png", "image/png", new byte[] { 1 }, "session", Session, Now.AddSeconds(i));
+
+        var tab = await Get($"/gateway/factories/{F}/records");
+        Assert.EndsWith(" Files 1 to 100 are listed, newest first.", tab.Body.GetProperty("attachments").GetProperty("summaryText").GetString());
+        Assert.Equal("Older files", tab.Body.GetProperty("attachmentsOlderLabel").GetString());
+
+        var next = await Get($"/gateway/factories/{F}/records/attachments?before={tab.Body.GetProperty("attachmentsNextBefore").GetGuid()}");
+        Assert.Equal(200, next.Status);
+        Assert.EndsWith(" Files 101 to 103 are listed, newest first.", next.Body.GetProperty("summaryText").GetString());
+        Assert.Equal(new[] { "shots/s002.png", "shots/s001.png", "shots/s000.png" },
+            next.Body.GetProperty("rows").EnumerateArray().Select(r => r.GetProperty("name").GetString()));
+        Assert.Equal(JsonValueKind.Null, next.Body.GetProperty("olderLabel").ValueKind);
+        Assert.Equal("Newest files", next.Body.GetProperty("newestLabel").GetString());
+    }
+
+    [Fact]
+    public async Task A_LAST_PAGE_OF_ONE_ROW_is_said_in_the_singular()
+    {
+        // Review of #4040, finding 1: "Entries 21 are shown" and "Files 101 are listed".
+        for (var i = 0; i < FactoryRecordsTabFold.JournalPage + 1; i++)
+            _journal.Append(T, F, "writer", "2026-10-10", $"entry {i}", null, "session", Session, Now.AddMinutes(i));
+        for (var i = 0; i < FactoryRecordsTabFold.AttachmentPage + 1; i++)
+            _attachments.Add(T, F, null, $"shots/s{i:000}.png", "image/png", new byte[] { 1 }, "session", Session, Now.AddSeconds(i));
+
+        var first = await Get($"/gateway/factories/{F}/records/journal?seat=writer");
+        var journal = await Get($"/gateway/factories/{F}/records/journal?seat=writer&before={first.Body.GetProperty("nextBefore").GetGuid()}");
+        var tab = await Get($"/gateway/factories/{F}/records");
+        var files = await Get($"/gateway/factories/{F}/records/attachments?before={tab.Body.GetProperty("attachmentsNextBefore").GetGuid()}");
+
+        Assert.Equal("21 entries. Entry 21 is shown.", journal.Body.GetProperty("summaryText").GetString());
+        Assert.EndsWith(" File 101 is listed.", files.Body.GetProperty("summaryText").GetString());
+    }
+
+    [Fact]
+    public async Task A_CURSOR_AT_THE_LAST_ROW_is_refused_in_words_never_answered_with_an_empty_page()
+    {
+        // Review of #4040, finding 2: the page after the last row read "26 entries. Entries 27 to 26 are shown".
+        var oldestEntry = _journal.Append(T, F, "writer", "2026-09-01", "the oldest", null, "session", Session, Now.AddDays(-9)).Entry!.Id;
+        _journal.Append(T, F, "writer", "2026-10-10", "the newest", null, "session", Session, Now);
+        var oldestFile = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now.AddDays(-9)).Attachment!.Id;
+        _attachments.Add(T, F, null, "b.txt", "text/plain", new byte[] { 2 }, "session", Session, Now);
+
+        var journal = await Get($"/gateway/factories/{F}/records/journal?seat=writer&before={oldestEntry}");
+        var files = await Get($"/gateway/factories/{F}/records/attachments?before={oldestFile}");
+
+        Assert.Equal(404, journal.Status);
+        Assert.Equal($"{oldestEntry} is the last entry this journal lists, so no page starts after it", journal.Body.GetProperty("error").GetString());
+        Assert.Equal(404, files.Status);
+        Assert.Equal($"{oldestFile} is the last attachment qa-outreach lists, so no page starts after it", files.Body.GetProperty("error").GetString());
+    }
+
+    [Theory]
+    [InlineData("/records/journal?seat=writer&before=x", 400, "before is the id of the last row the page before showed, not 'x'")]
+    [InlineData("/records/attachments?before=x", 400, "before is the id of the last row the page before showed, not 'x'")]
+    [InlineData("/records/journal?seat=writer&before=00000000-0000-0000-0000-000000000009", 404,
+        "00000000-0000-0000-0000-000000000009 is not an entry of this journal, so no page starts after it")]
+    [InlineData("/records/attachments?before=00000000-0000-0000-0000-000000000009", 404,
+        "00000000-0000-0000-0000-000000000009 is not an attachment of qa-outreach, so no page starts after it")]
+    public async Task A_CURSOR_THAT_IS_NOT_AN_ID_OR_NOT_A_ROW_is_refused_in_words(string rest, int status, string sentence)
+    {
+        var answer = await Get($"/gateway/factories/{F}" + rest);
+
+        Assert.Equal(status, answer.Status);
+        Assert.Equal(sentence, answer.Body.GetProperty("error").GetString());
+    }
 
     [Fact]
     public async Task THE_TAB_lists_journals_by_seat_documents_as_they_stand_and_attachments_and_opens_each()
@@ -220,6 +373,8 @@ public sealed class FactoryRecordsTabTests : IDisposable
     [InlineData("/records/documents/read?name=focus.md")]
     [InlineData("/records/documents/history?name=focus.md")]
     [InlineData("/records/attachments/ATTACHMENT")]
+    [InlineData("/records/attachments")]
+    [InlineData("/records/attachments?before=ATTACHMENT")]
     public async Task A_CALLING_SESSION_is_refused_403_by_every_route_of_the_tab_itself(string rest)
     {
         var file = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now).Attachment!;
@@ -235,6 +390,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
     [InlineData("/records/journal")]
     [InlineData("/records/documents/read?name=focus.md")]
     [InlineData("/records/attachments/ATTACHMENT")]
+    [InlineData("/records/attachments?before=ATTACHMENT")]
     public async Task ANOTHER_ACCOUNT_finds_no_such_factory_and_none_of_its_records(string rest)
     {
         var file = _attachments.Add(T, F, null, "a.txt", "text/plain", new byte[] { 1 }, "session", Session, Now).Attachment!;
@@ -259,6 +415,7 @@ public sealed class FactoryRecordsTabTests : IDisposable
         Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records").Allowed);
         Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records/journal").Allowed);
         Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records/attachments/{Guid.NewGuid()}").Allowed);
+        Assert.False(SessionKeyGuard.Check("GET", $"/gateway/factories/{F}/records/attachments").Allowed);
     }
 
     // ---------- the in-memory pipeline ----------

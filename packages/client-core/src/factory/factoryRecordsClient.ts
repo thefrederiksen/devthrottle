@@ -58,6 +58,18 @@ export interface FactoryRecordsTabView {
   attachments: FactoryRecordsSection;
   attachmentColumns: string[];
   attachmentRows: FactoryRecordsAttachmentRow[];
+  /** The cursor of the next page of attachments; null when every one is listed. */
+  attachmentsNextBefore: string | null;
+  attachmentsOlderLabel: string | null;
+}
+
+/** A later page of the attachments, drawn in the tab's attachment table. */
+export interface FactoryRecordsAttachmentPageView {
+  summaryText: string;
+  rows: FactoryRecordsAttachmentRow[];
+  nextBefore: string | null;
+  olderLabel: string | null;
+  newestLabel: string;
 }
 
 export interface FactoryRecordsJournalEntry {
@@ -73,6 +85,10 @@ export interface FactoryRecordsJournalView {
   summaryText: string;
   entries: FactoryRecordsJournalEntry[];
   emptyText: string | null;
+  /** The cursor of the next, older page; null on the last page. */
+  nextBefore: string | null;
+  olderLabel: string | null;
+  newestLabel: string | null;
   closeLabel: string;
 }
 
@@ -146,14 +162,29 @@ export function getFactoryRecordsTab(factory: string, signal?: AbortSignal): Pro
   return read<FactoryRecordsTabView>(recordsPath(factory, ""), signal);
 }
 
-/** One journal, newest day first: a seat's, or with `seat` null the factory's own. */
+/** One page of one journal, newest day first: a seat's, or with `seat` null the factory's own. `before` is the
+ *  `nextBefore` of the page before it; null for the newest page. */
 export function getFactoryRecordsJournal(
   factory: string,
   seat: string | null,
+  before: string | null,
   signal?: AbortSignal,
 ): Promise<FactoryRecordsJournalView> {
+  const query = [
+    ...(seat === null ? [] : [`seat=${encodeURIComponent(seat)}`]),
+    ...(before === null ? [] : [`before=${encodeURIComponent(before)}`]),
+  ];
   const path = recordsPath(factory, "journal");
-  return read<FactoryRecordsJournalView>(seat === null ? path : `${path}?seat=${encodeURIComponent(seat)}`, signal);
+  return read<FactoryRecordsJournalView>(query.length === 0 ? path : `${path}?${query.join("&")}`, signal);
+}
+
+/** A later page of the attachments; `before` is the `nextBefore` of the page before it. */
+export function getFactoryRecordsAttachments(
+  factory: string,
+  before: string,
+  signal?: AbortSignal,
+): Promise<FactoryRecordsAttachmentPageView> {
+  return read<FactoryRecordsAttachmentPageView>(`${recordsPath(factory, "attachments")}?before=${encodeURIComponent(before)}`, signal);
 }
 
 /** One version of a working document with its text; `version` null is the newest. */

@@ -72,6 +72,52 @@ public sealed class FactoryAttachmentStore
         }
     }
 
+    /// <summary>
+    /// ONE PAGE OF THE FACTORY'S ATTACHMENTS, without bytes, newest first (Factory Definition, phase 6; review of #4032,
+    /// finding 1). <paramref name="before"/> is the id of the last attachment the page before showed. The cursor is an
+    /// attachment, not a time: the one-time upload keeps many at one instant. The order is time kept, then name, then
+    /// id, and the attachments that share the cursor's time are placed by name and id, so each is on exactly one page.
+    /// </summary>
+    /// <returns>The page, or null when <paramref name="before"/> is not an attachment of this factory.</returns>
+    public FactoryAttachmentPage? Page(TenantId tenant, string factory, Guid? before, int limit)
+    {
+        if (limit is < 1 or > MaxListPage)
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, $"a page holds 1 to {MaxListPage} attachments");
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return FactoryAttachmentPage.Empty;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var factoryBytes = FactoryBytes(ctx, factory);
+            var rows = ctx.FactoryAttachments.AsNoTracking().Where(a => a.Factory == factory);
+            var total = rows.Count();
+            var ordered = rows.OrderByDescending(a => a.WrittenAtUtc).ThenBy(a => a.Name).ThenBy(a => a.Id);
+            if (before is not { } cursorId)
+            {
+                var first = ordered.Take(limit).ToList();
+                return new FactoryAttachmentPage(first, total, 0, first.Count < total ? first[^1].Id : null, factoryBytes);
+            }
+
+            if (rows.FirstOrDefault(a => a.Id == cursorId) is not { } cursor) return null;
+            var at = cursor.WrittenAtUtc;
+            // The attachments kept at the cursor's instant, in the page order; those after the cursor come first.
+            var tied = rows.Where(a => a.WrittenAtUtc == at).OrderBy(a => a.Name).ThenBy(a => a.Id).Select(a => a.Id).ToList();
+            var tiedAfter = tied.Skip(tied.IndexOf(cursorId) + 1).ToList();
+            var older = ordered.Where(a => a.WrittenAtUtc < at);
+            var left = tiedAfter.Count + older.Count();
+
+            var page = new List<FactoryAttachmentEntity>();
+            if (tiedAfter.Count > 0)
+            {
+                var take = tiedAfter.Take(limit).ToList();
+                var byId = rows.Where(a => take.Contains(a.Id)).ToDictionary(a => a.Id);
+                page.AddRange(take.Select(id => byId[id]));
+            }
+            if (page.Count < limit) page.AddRange(older.Take(limit - page.Count).ToList());
+            var newer = total - left;
+            return new FactoryAttachmentPage(page, total, newer, newer + page.Count < total ? page[^1].Id : null, factoryBytes);
+        }
+    }
+
     /// <summary>What one attachment is, without its bytes, or null when the factory holds no such attachment.</summary>
     public FactoryAttachmentEntity? Get(TenantId tenant, string factory, Guid id)
     {
@@ -264,6 +310,14 @@ public sealed class FactoryAttachmentStore
 public sealed record FactoryAttachmentList(IReadOnlyList<FactoryAttachmentEntity> Attachments, int Total, long FactoryBytes)
 {
     public static readonly FactoryAttachmentList Empty = new(Array.Empty<FactoryAttachmentEntity>(), 0, 0);
+}
+
+/// <summary>One page of a factory's attachments: the page, how many the factory holds, how many newer ones the pages
+/// before held, the cursor of the next page (null when this is the last), and the bytes the factory holds in all.</summary>
+public sealed record FactoryAttachmentPage(IReadOnlyList<FactoryAttachmentEntity> Attachments, int Total, int Newer,
+    Guid? NextBefore, long FactoryBytes)
+{
+    public static readonly FactoryAttachmentPage Empty = new(Array.Empty<FactoryAttachmentEntity>(), 0, 0, null, 0);
 }
 
 /// <summary>What keeping a file did. A refusal carries no attachment; an upload's answer about a file it stored before

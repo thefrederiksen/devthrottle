@@ -157,6 +157,10 @@ same pictures; the browser is a headless one the script starts and stops.
 | 26 | `26-document-history.png` | **Every version** of it: Newest and Earlier, who wrote each (the first by the upload), when, and its size. |
 | 27 | `27-document-earlier-version.png` | **An earlier version** opened: "An earlier version; the newest is version 3." and its text. |
 | 28 | `28-attachment-downloaded.png` | The **image downloaded** through the tab, saved as `shots-home-page.png` (its folder kept, a hyphen for the slash). The saved file is byte for byte the image that was kept (`records-answers.json`, `same_bytes_as_kept`). |
+| 33 | `33-journal-first-page.png` | A **journal longer than a page** (the writer's, 26 entries written for it): "26 entries. Entries 1 to 20 are shown, newest first." and **Older entries** under the twentieth. |
+| 34 | `34-journal-older-entries.png` | **Older entries** pressed: "26 entries. Entries 21 to 26 are shown, newest first.", no Older entries, and **Newest entries** to go back. Across both pages every entry appears exactly once (`records-answers.json`, `34-journal-pages`). |
+| 35 | `35-attachments-first-page.png` | **More attachments than a page** (103): "Files 1 to 100 are listed, newest first." and **Older files** under the table. |
+| 36 | `36-attachments-older-files.png` | **Older files** pressed: "Files 101 to 103 are listed, newest first." in the same table, and **Newest files** to go back. Every file appears exactly once across the two pages (`36-attachment-pages`). |
 
 ### What was built
 
@@ -169,24 +173,33 @@ same pictures; the browser is a headless one the script starts and stops.
   Cockpit's origin carries the owner's cookie; the answer is `Content-Disposition: attachment` with
   `X-Content-Type-Options: nosniff`, so a kept page can never render in that origin. Both are asserted.
 - A journal page reads every attachment its entries name in one query.
+- **Paging.** A journal shows 20 entries and the attachment list 100 files at a time. The next page starts after the last
+  row the page before showed (`?before=<id>`), not at a count, so a record written while someone reads never shifts a
+  row onto two pages or off both; rows written in the same instant are ordered by id. A cursor that is not a row of that
+  journal or factory, or that is the last row it lists, is answered 404 in words, and a cursor that is not an id 400.
+  A page of one row is said in the singular ("Entry 21 is shown.").
 - **Cockpit**: `FactoryRecordsTab.tsx` and `factoryRecordsClient.ts`.
 
 ### The check, as run
 
 From this worktree on origin/main plus this change; the commands and their results are in the pull request.
 
-New tests: `FactoryRecordsTabTests` (17: the empty tab's sentences, the journals' order, who wrote a record and that
+New tests at #4032: `FactoryRecordsTabTests` (17: the empty tab's sentences, the journals' order, who wrote a record and that
 an unknown author kind is a broken row, the whole tab through the mapped routes over real stores in memory, a missing
 document or version answered in words, an HTML attachment answered as a download with nosniff, a calling session
 refused 403 by each of the five routes, another account finding no such factory on four of them, and the session key
-guard), `FactoryRecordsTab.test.tsx` (6) and `factoryRecordsClient.test.ts` (5).
+guard), `FactoryRecordsTab.test.tsx` (6) and `factoryRecordsClient.test.ts` (5). Paging adds store tests that walk
+25 entries written in one instant and attachments with equal times page by page, route tests for both summaries,
+a last page of one row said in the singular, the cursor refusals (not an id, not a row, the last row), the attachments
+page route added to the session 403, other-account and session key guard tests, two Cockpit tests (older and back to
+newest, for a journal and for files) and one client test.
 
 ### What this does NOT prove
 
 - **No session wrote a record here**: no Director is connected to the scratch Gateway, so no session key exists. How a
   session's records read ("session" and its id, whole) is proven in `FactoryRecordsTabTests`, not in a picture.
-- **Paging**: the pictures hold fewer rows than a page (20 journal entries, 100 attachments, 20 document versions). The
-  page sizes and the "older versions" step are in the fold and its tests, not in a picture.
+- **A document with more than a page of versions** (20). Its "older versions" step is in the fold and its tests, not in a
+  picture.
 - **The phone.** Desktop only, as the mission says.
 
 ## Part 3: the seat page on a defined factory
@@ -286,6 +299,4 @@ longer says "Nothing is removed"), and `FactoriesScreen.test.tsx` (1 new, and th
 
 - **The history row's Publish confirm in a picture.** It is proven word for word through the routes, not photographed;
   its Bring back confirm is picture 39.
-- **The Definition tab's own Restore confirm** still says "Nothing is removed" and does not list what a restore changes
-  in the live definition. It is outside this pull request and is reported to the Delivery Lead as open.
 - **The phone.** Desktop only, as the mission says.

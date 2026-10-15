@@ -3,8 +3,10 @@ import {
   downloadFactoryAttachment,
   getFactoryRecordsDocument,
   getFactoryRecordsDocumentHistory,
+  getFactoryRecordsAttachments,
   getFactoryRecordsJournal,
   getFactoryRecordsTab,
+  type FactoryRecordsAttachmentPageView,
   type FactoryRecordsAttachmentRow,
   type FactoryRecordsDocumentHistoryView,
   type FactoryRecordsDocumentView,
@@ -28,7 +30,7 @@ const SURFACE = "cockpit-factory-records";
 /** What the tab is showing: the three sections, or one journal, one document version, or one document's history. */
 type Open =
   | { kind: "tab" }
-  | { kind: "journal"; seat: string | null }
+  | { kind: "journal"; seat: string | null; before: string | null }
   | { kind: "document"; name: string; version: number | null }
   | { kind: "history"; name: string; before: number | null };
 
@@ -43,7 +45,9 @@ export function FactoryRecordsTab({ factory }: FactoryRecordsTabProps) {
   return (
     <section className="fa-panel fa-rec" data-testid="fa-records">
       {open.kind === "tab" && <RecordsSections factory={factory} onOpen={setOpen} />}
-      {open.kind === "journal" && <JournalPanel factory={factory} seat={open.seat} onBack={back} />}
+      {open.kind === "journal" && (
+        <JournalPanel factory={factory} seat={open.seat} before={open.before} onOpen={setOpen} onBack={back} />
+      )}
       {open.kind === "document" && (
         <DocumentPanel factory={factory} name={open.name} version={open.version} onOpen={setOpen} onBack={back} />
       )}
@@ -108,7 +112,7 @@ function RecordsSections({ factory, onOpen }: { factory: string; onOpen: (open: 
               <div key={g.seat ?? ""} className="fa-rec-card" data-testid={`fa-rec-journal-${g.seat ?? "factory"}`}>
                 <strong>{g.title}</strong>
                 <p className="fa-dim">{g.summaryText}</p>
-                <Button onClick={() => onOpen({ kind: "journal", seat: g.seat })}>{g.openLabel}</Button>
+                <Button onClick={() => onOpen({ kind: "journal", seat: g.seat, before: null })}>{g.openLabel}</Button>
               </div>
             ))}
           </div>
@@ -150,11 +154,40 @@ function RecordsSections({ factory, onOpen }: { factory: string; onOpen: (open: 
         )}
       </div>
 
-      <div className="fa-rec-section" data-testid="fa-rec-attachments">
-        <SectionHead section={view.attachments} />
-        {view.attachments.emptyText !== null ? (
-          <p className="fa-rec-empty">{view.attachments.emptyText}</p>
-        ) : (
+      <AttachmentsSection factory={factory} view={view} />
+    </>
+  );
+}
+
+/** The attachments: the tab's first page, and the later pages the Gateway's cursor reaches. */
+function AttachmentsSection({ factory, view }: { factory: string; view: FactoryRecordsTabView }) {
+  // A later page, or null for the tab's own first page.
+  const [page, setPage] = useState<FactoryRecordsAttachmentPageView | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const older = async (before: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      setPage(await getFactoryRecordsAttachments(factory, before));
+    } catch (err) {
+      setError(describeAndReport(SURFACE, "read the older files", err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rows = page === null ? view.attachmentRows : page.rows;
+  const nextBefore = page === null ? view.attachmentsNextBefore : page.nextBefore;
+  const olderLabel = page === null ? view.attachmentsOlderLabel : page.olderLabel;
+  return (
+    <div className="fa-rec-section" data-testid="fa-rec-attachments">
+      <SectionHead section={page === null ? view.attachments : { ...view.attachments, summaryText: page.summaryText }} />
+      {view.attachments.emptyText !== null ? (
+        <p className="fa-rec-empty">{view.attachments.emptyText}</p>
+      ) : (
+        <>
           <table className="fa-table fa-rec-table">
             <thead>
               <tr>
@@ -165,7 +198,7 @@ function RecordsSections({ factory, onOpen }: { factory: string; onOpen: (open: 
               </tr>
             </thead>
             <tbody>
-              {view.attachmentRows.map((a) => (
+              {rows.map((a) => (
                 <tr key={a.id} data-testid={`fa-rec-attachment-${a.name}`}>
                   <td className="mono">{a.name}</td>
                   <td>{a.seatText}</td>
@@ -180,9 +213,22 @@ function RecordsSections({ factory, onOpen }: { factory: string; onOpen: (open: 
               ))}
             </tbody>
           </table>
-        )}
-      </div>
-    </>
+          {error !== null && <ErrorBanner message={error} />}
+          <div className="fa-rec-actions">
+            {page !== null && (
+              <Button disabled={loading} onClick={() => setPage(null)}>
+                {page.newestLabel}
+              </Button>
+            )}
+            {olderLabel !== null && nextBefore !== null && (
+              <Button disabled={loading} onClick={() => void older(nextBefore)}>
+                {olderLabel}
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -216,11 +262,23 @@ function DownloadButton({ attachment }: { attachment: FactoryRecordsAttachmentRo
   );
 }
 
-function JournalPanel({ factory, seat, onBack }: { factory: string; seat: string | null; onBack: () => void }) {
+function JournalPanel({
+  factory,
+  seat,
+  before,
+  onOpen,
+  onBack,
+}: {
+  factory: string;
+  seat: string | null;
+  before: string | null;
+  onOpen: (open: Open) => void;
+  onBack: () => void;
+}) {
   const { data: view, error, retry } = useRead<FactoryRecordsJournalView>(
-    (signal) => getFactoryRecordsJournal(factory, seat, signal),
+    (signal) => getFactoryRecordsJournal(factory, seat, before, signal),
     "read this journal",
-    `${factory}|${seat ?? ""}`,
+    `${factory}|${seat ?? ""}|${before ?? ""}`,
   );
   if (error !== null) return <ErrorBanner message={error} onRetry={retry} />;
   if (view === null) return <LoadingState />;
@@ -256,6 +314,14 @@ function JournalPanel({ factory, seat, onBack }: { factory: string; seat: string
           ))}
         </ol>
       )}
+      <div className="fa-rec-actions">
+        {view.newestLabel !== null && (
+          <Button onClick={() => onOpen({ kind: "journal", seat, before: null })}>{view.newestLabel}</Button>
+        )}
+        {view.olderLabel !== null && view.nextBefore !== null && (
+          <Button onClick={() => onOpen({ kind: "journal", seat, before: view.nextBefore })}>{view.olderLabel}</Button>
+        )}
+      </div>
     </div>
   );
 }
