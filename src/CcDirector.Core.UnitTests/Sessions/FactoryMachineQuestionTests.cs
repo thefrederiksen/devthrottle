@@ -40,8 +40,8 @@ public sealed class FactoryMachineQuestionTests
 
         public FakeList(Func<CancellationToken, Task<ProcessRunner.Result>> answer) => _answer = answer;
 
-        public static FakeList Printing(string stdout, int exitCode = 0)
-            => new(_ => Task.FromResult(new ProcessRunner.Result(exitCode, stdout, "", Started: true)));
+        public static FakeList Printing(string stdout, int exitCode = 0, string stderr = "")
+            => new(_ => Task.FromResult(new ProcessRunner.Result(exitCode, stdout, stderr, Started: true)));
 
         public Task<ProcessRunner.Result> RunAsync(CancellationToken ct)
         {
@@ -117,11 +117,25 @@ public sealed class FactoryMachineQuestionTests
     }
 
     [Fact]
-    public async Task AnswerAsync_CcSecretsFails_SaysWhichExitCode()
+    public async Task AnswerAsync_CcSecretsFailsWithoutItsOwnSentence_SaysWhichExitCodeAndHowToSeeWhy()
     {
-        var answer = await Ask(FakeList.Printing("Traceback (most recent call last):", exitCode: 1), new[] { "smtp-password" });
+        var answer = await Ask(FakeList.Printing("", exitCode: 1, stderr: "Traceback (most recent call last):\n  File \"x\", line 1"),
+            new[] { "smtp-password" });
 
-        Assert.Equal("cc-secrets list failed on SOREN_SOUTH (exit 1).", answer.SecretsUnavailable);
+        Assert.Equal("cc-secrets list failed on SOREN_SOUTH (exit 1). Run 'cc-secrets list' there to see why.", answer.SecretsUnavailable);
+        Assert.Empty(answer.Secrets);
+    }
+
+    [Fact]
+    public async Task AnswerAsync_CcSecretsFailsWithItsOwnSentence_CarriesThatSentence()
+    {
+        // The one line cc-secrets writes when list fails (tools/cc-secrets/src/cli.py: "list failed: <reason>").
+        var stderr = "list failed: The store is in format version 2, which this cc-secrets does not read. Update cc-secrets.\r\n";
+
+        var answer = await Ask(FakeList.Printing("", exitCode: 1, stderr: stderr), new[] { "smtp-password" });
+
+        Assert.Equal("cc-secrets list failed on SOREN_SOUTH (exit 1): The store is in format version 2, which this cc-secrets does not read. Update cc-secrets.",
+            answer.SecretsUnavailable);
         Assert.Empty(answer.Secrets);
     }
 

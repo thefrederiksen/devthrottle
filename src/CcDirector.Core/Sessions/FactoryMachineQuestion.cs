@@ -135,7 +135,9 @@ public sealed class FactoryMachineQuestion
         if (result.ExitCode != 0)
         {
             FileLog.Write($"[FactoryMachineQuestion] ListAsync FAILED: cc-secrets list exit={result.ExitCode}");
-            return new Listed(null, $"cc-secrets list failed on {machine} (exit {result.ExitCode}).");
+            return new Listed(null, ToolsOwnFailure(result.StandardError) is { } why
+                ? $"cc-secrets list failed on {machine} (exit {result.ExitCode}): {why}"
+                : $"cc-secrets list failed on {machine} (exit {result.ExitCode}). Run 'cc-secrets list' there to see why.");
         }
 
         var uses = ReadUses(result.StandardOutput);
@@ -146,6 +148,22 @@ public sealed class FactoryMachineQuestion
         }
         FileLog.Write($"[FactoryMachineQuestion] ListAsync: entries={uses.Count}");
         return new Listed(uses, null);
+    }
+
+    /// <summary>
+    /// cc-secrets' own sentence for a failed list, when standard error carries it: the one line it writes,
+    /// <c>list failed: &lt;reason&gt;</c> (tools/cc-secrets/src/cli.py), such as a store in a format this cc-secrets does
+    /// not read. ONLY that line is carried, and only when it has that form, so a traceback or anything else the process
+    /// printed never reaches an answer. Null otherwise. It is never logged.
+    /// </summary>
+    internal static string? ToolsOwnFailure(string? standardError)
+    {
+        const string Prefix = "list failed: ";
+        if (string.IsNullOrWhiteSpace(standardError)) return null;
+        var line = standardError.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith(Prefix, StringComparison.Ordinal));
+        if (line is null || line.Length == Prefix.Length) return null;
+        var reason = line[Prefix.Length..].TrimEnd('.');
+        return char.ToUpperInvariant(reason[0]) + reason[1..] + ".";
     }
 
     /// <summary>
