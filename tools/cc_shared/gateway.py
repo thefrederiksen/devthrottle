@@ -274,10 +274,13 @@ def _request(
     *,
     bearer: Optional[str] = None,
     base_url: Optional[str] = None,
+    headers: Optional[Dict[str, str]] = None,
 ) -> Any:
     """One request to the Gateway. `bearer` and `base_url` replace this session's key and CC_GATEWAY_URL
-    for the one request - used only by a read that must present a DIFFERENT credential, the administrator
-    service token (`errors list --all-accounts`). Everything else about the request is unchanged."""
+    for the one request - used only by a call that must present a DIFFERENT credential: the administrator
+    service token (`errors list --all-accounts`), or the account's machine credential the one-time factory
+    records upload writes with. `headers` adds request headers that call needs (the upload names its machine).
+    Everything else about the request is unchanged."""
     base = base_url.rstrip("/") if base_url else gateway_base_url()
     url = f"{base}/{path.lstrip('/')}"
     data = json.dumps(body).encode("utf-8") if body is not None else None
@@ -291,6 +294,8 @@ def _request(
         if data is not None:
             req.add_header("Content-Type", "application/json")
         req.add_header("Authorization", f"Bearer {bearer if bearer is not None else session_key()}")
+        for name, value in (headers or {}).items():
+            req.add_header(name, value)
 
         with _OPENER.open(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8")
@@ -368,20 +373,22 @@ def get_json(path: str, timeout: float = 30, *, bearer: Optional[str] = None, ba
 
 
 def post_json(path: str, body: Optional[dict] = None, timeout: float = 30, *, bearer: Optional[str] = None,
-              base_url: Optional[str] = None) -> Any:
-    """`bearer` and `base_url` exist for the one POST that presents the administrator service token instead of
-    this session's key (`errors website-token`); every other caller leaves them unset."""
-    return _request("POST", path, body if body is not None else {}, timeout=timeout, bearer=bearer, base_url=base_url)
+              base_url: Optional[str] = None, headers: Optional[Dict[str, str]] = None) -> Any:
+    """`bearer`, `base_url` and `headers` exist for the POSTs that present a credential other than this session's
+    key (`errors website-token`, the factory records upload); every other caller leaves them unset."""
+    return _request("POST", path, body if body is not None else {}, timeout=timeout, bearer=bearer, base_url=base_url,
+                    headers=headers)
 
 
 def patch_json(path: str, body: dict, timeout: float = 30) -> Any:
     return _request("PATCH", path, body, timeout=timeout)
 
 
-def put_json(path: str, body: dict, timeout: float = 30, *, bearer: Optional[str] = None, base_url: Optional[str] = None) -> Any:
-    """`bearer` and `base_url` exist for the one write that presents the administrator service token instead of
-    this session's key (`errors link`); every other caller leaves them unset."""
-    return _request("PUT", path, body, timeout=timeout, bearer=bearer, base_url=base_url)
+def put_json(path: str, body: dict, timeout: float = 30, *, bearer: Optional[str] = None, base_url: Optional[str] = None,
+             headers: Optional[Dict[str, str]] = None) -> Any:
+    """`bearer`, `base_url` and `headers` exist for the writes that present a credential other than this session's
+    key (`errors link`, the factory records upload); every other caller leaves them unset."""
+    return _request("PUT", path, body, timeout=timeout, bearer=bearer, base_url=base_url, headers=headers)
 
 
 def delete(path: str, timeout: float = 30, body: Optional[dict] = None) -> Any:
