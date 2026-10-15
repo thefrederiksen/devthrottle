@@ -120,7 +120,7 @@ A refused write never hands the machine credential the record in the way: every 
 | `tools/cc_shared` gateway tests (the new `headers` argument) | 68 passing |
 | `npm run typecheck`, `npm test --workspace @devthrottle/client-core` | Passing (2,068 tests) |
 | Entity Framework `has-pending-model-changes`, SQLite and PostgreSQL | Clean |
-| `.\scripts\test-database.ps1` (PostgreSQL in Docker) | 50 of 74 passed; see below |
+| `.\scripts\test-database.ps1` (PostgreSQL in Docker) | GREEN, 74 of 74 in one full run at `882fd2191`. Before that: 50 of 74 in the first run, then the 24 that could not reach the database passed on their own; see below |
 
 **PostgreSQL.** The two tests that prove this phase's migration on a real PostgreSQL passed in the full run: `Migrate_CreatesGatewaySchemaAndTables_OnRealPostgres` (every migration from nothing, including both new ones) and `Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres` (the census of C-collated key columns, extended with the new tables). In that run, 24 tests in suites this change does not touch could not reach the database ("cannot connect to invalid database", read timeouts, a "could not be opened or migrated" on open), while other sessions' builds saturated the machine's disk. Three re-runs could not start at all: under that load PostgreSQL took longer than the rig's fixed 90-second wait to accept a connection (one shutdown checkpoint took 48 seconds to sync). Once the disk was quieter, those 24 were re-run on their own, at commit `331425437`: `Verdict: outcome=Completed total=24 executed=24 passed=24 failed=0 skipped=0`, `RESULT: GREEN - 24 test(s) executed against the throwaway PostgreSQL, none failed, none skipped.`
 
