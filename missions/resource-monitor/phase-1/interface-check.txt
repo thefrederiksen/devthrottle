@@ -1,0 +1,16 @@
+Resource Monitor - phase 1 - the shared probe interface - check run 2026-10-15 on devlinux (Linux)
+Base: origin/main at b805b14f0. .NET software development kit 10.0.301.
+
+$ dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:06:28.74
+
+Note: on Linux, the plain "dotnet build cc-director.sln -c Release" stops before compiling anything,
+with NETSDK1100 on the two Windows-only projects (src/CcDirector.Terminal, src/CcClick). That is the
+operating system, not this change. EnableWindowsTargeting=true lets those two projects build here; the
+command is otherwise the mission's own.
+
+$ dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+Passed!  - Failed:     0, Passed:    35, Skipped:     0, Total:    35, Duration: 54 ms - CcDirector.Core.UnitTests.dll (net10.0)
