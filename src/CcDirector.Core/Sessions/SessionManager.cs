@@ -1379,6 +1379,13 @@ public sealed class SessionManager : IDisposable
         string dir;
         try
         {
+            // WHAT A CHECK FOUND (phase 5b, design 3.4) goes in with the kit, never after it: check.json is in the folder
+            // and listed in kit.json before the agent starts. A restored seat started by a check keeps the one it had,
+            // exactly as it is on disk, and kit.json, rewritten from the Gateway, names it again.
+            if (request.Check is { } check)
+                kit = FactoryRunKit.WithCheck(kit, check);
+            else if (request.ReturningDirectory is { } back && FactoryRunKit.HoldsCheck(back))
+                kit = FactoryRunKit.ListingKeptCheck(kit);
             dir = request.ReturningDirectory is { } kept
                 ? FactoryRunKit.Refresh(kept, kit, root: FactoryRunRoot)
                 : FactoryRunKit.Write(id, kit, root: FactoryRunRoot);

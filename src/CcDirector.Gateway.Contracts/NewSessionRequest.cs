@@ -277,6 +277,16 @@ public sealed class NewSessionRequest
     /// </summary>
     public string? FactoryStartOverride { get; set; }
 
+    /// <summary>
+    /// WHAT THE CHECK FOUND when a check started this seat (Factory Definition mission, phase 5b, design 3.4), or null
+    /// for every other start - a scheduled run with no check, a talk, any session that is not a seat. The Director
+    /// writes it as <c>check.json</c> in the seat's kit before the agent starts; a create that carries it but builds no
+    /// kit is refused, never started without it. Left out of the JSON when null, so a create without one is
+    /// byte-for-byte what it was.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public FactoryCheckDto? FactoryCheck { get; set; }
+
     /// <summary>True when the create carries any of the six seat-start fields (<see cref="FactorySeat"/>,
     /// <see cref="FactoryDefinitionVersion"/>, <see cref="FactoryKit"/>, <see cref="FactoryWorktree"/>,
     /// <see cref="FactoryHome"/>, <see cref="Model"/>): such a create goes only to a Director that said

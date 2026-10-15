@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -22,8 +24,9 @@ namespace CcDirector.Core.Sessions;
 /// by its folder - so <see cref="Refresh"/> rewrites the kit files in place from the same version and keeps
 /// <c>work/</c> exactly as the seat left it.
 ///
-/// THE CALLER MAY ADD FILES (<c>extraFiles</c>): phase 5b writes <c>check.json</c> through this writer. An extra file
-/// may not take a path the kit already uses, or the work folder.
+/// THE CALLER MAY ADD FILES (<c>extraFiles</c>). An extra file may not take a path the kit already uses, or the work
+/// folder. What a check found (phase 5b) is added by <see cref="WithCheck"/> instead, because <c>kit.json</c> must list
+/// it: <c>check.json</c> beside the kit, named in <c>kit.json</c>, both written before the agent starts.
 /// </summary>
 public static class FactoryRunKit
 {
@@ -48,6 +51,90 @@ public static class FactoryRunKit
 
     /// <summary>The folder of a Claude Code seat's factory skills, a plugin passed with <c>--plugin-dir</c>.</summary>
     public const string PluginFolderName = "claude-plugin";
+
+    /// <summary>The <c>source</c> kit.json gives <see cref="CheckFileName"/>: the check that started the seat wrote it.</summary>
+    public const string CheckSource = "check";
+
+    // One line ending on every machine, so check.json and the rewritten kit.json are the same bytes wherever they are
+    // written (the default follows the machine).
+    private static readonly JsonSerializerOptions CheckJson = new(JsonSerializerDefaults.Web) { WriteIndented = true, NewLine = "\n" };
+
+    private static readonly JsonSerializerOptions KitJson = new() { WriteIndented = true, NewLine = "\n" };
+
+    /// <summary>
+    /// The kit with what a check found added (phase 5b, design 3.4): <see cref="CheckFileName"/> holding
+    /// <paramref name="check"/> whole, and <c>kit.json</c> listing it with the check's path as where it came from. Every
+    /// other file is as the Gateway composed it. Throws when the check names no check or found nothing to do, when the
+    /// kit has no <c>kit.json</c> with a <c>files</c> list to name it in, or already holds a <see cref="CheckFileName"/>.
+    /// </summary>
+    public static FactoryKitResponse WithCheck(FactoryKitResponse kit, FactoryCheckDto check)
+    {
+        ArgumentNullException.ThrowIfNull(kit);
+        ArgumentNullException.ThrowIfNull(check);
+        FileLog.Write($"[FactoryRunKit] WithCheck: factory={kit.Factory}, seat={kit.Seat}, version={kit.Version}, check={check.CheckPath}, count={check.Count}, start={check.Start}");
+        if (string.IsNullOrWhiteSpace(check.CheckPath))
+            throw new InvalidOperationException($"What the check found names no check path, so {CheckFileName} was not written.");
+        if (check.Count <= 0)
+            throw new InvalidOperationException($"The check {check.CheckPath} found {check.Count} things to do, and a check starts a seat only when it finds work, so {CheckFileName} was not written.");
+        var files = Listing(kit, new JsonArray(check.CheckPath)).ToList();
+        files.Add(new FactoryKitFileDto { Path = CheckFileName, Text = CheckText(check) });
+        return new FactoryKitResponse { Factory = kit.Factory, Seat = kit.Seat, Version = kit.Version, Kind = kit.Kind, Files = files };
+    }
+
+    /// <summary>
+    /// The kit for a restored seat whose folder still holds the <see cref="CheckFileName"/> a check wrote when it
+    /// started: <c>kit.json</c> lists it again, and the file itself is left exactly as it is on disk - neither read nor
+    /// rewritten (<see cref="Refresh"/> keeps it). Its <c>from</c> is empty: the check's path is inside the file.
+    /// </summary>
+    public static FactoryKitResponse ListingKeptCheck(FactoryKitResponse kit)
+    {
+        ArgumentNullException.ThrowIfNull(kit);
+        FileLog.Write($"[FactoryRunKit] ListingKeptCheck: factory={kit.Factory}, seat={kit.Seat}, version={kit.Version}");
+        return new FactoryKitResponse
+        {
+            Factory = kit.Factory, Seat = kit.Seat, Version = kit.Version, Kind = kit.Kind, Files = Listing(kit, new JsonArray()).ToList(),
+        };
+    }
+
+    /// <summary>True when a kit folder holds a <see cref="CheckFileName"/>. The file is not read.</summary>
+    public static bool HoldsCheck(string kitDirectory) => File.Exists(Path.Combine(kitDirectory, CheckFileName));
+
+    /// <summary><see cref="CheckFileName"/>'s exact text for <paramref name="check"/>.</summary>
+    public static string CheckText(FactoryCheckDto check) => JsonSerializer.Serialize(check, CheckJson) + "\n";
+
+    /// <summary>The kit's files with <c>kit.json</c> rewritten to list <see cref="CheckFileName"/>, in path order.</summary>
+    private static IEnumerable<FactoryKitFileDto> Listing(FactoryKitResponse kit, JsonArray from)
+    {
+        if (kit.Files.Any(f => string.Equals(f.Path, CheckFileName, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"The kit already holds a {CheckFileName}, so what the check found could not be written beside it.");
+        var kitJson = kit.Files.SingleOrDefault(f => f.Path == KitFileName)
+            ?? throw new InvalidOperationException($"The kit has no {KitFileName} to list {CheckFileName} in, so it was not written.");
+        JsonNode? parsed;
+        try
+        {
+            parsed = JsonNode.Parse(kitJson.Text);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"The kit's {KitFileName} as downloaded could not be read as JSON, so {CheckFileName} was not listed in it: {ex.Message}", ex);
+        }
+        if (parsed is not JsonObject doc || doc["files"] is not JsonArray listed)
+            throw new InvalidOperationException($"The kit's {KitFileName} has no list of files to name {CheckFileName} in, so it was not written.");
+
+        var entries = listed.Select(n => n!.DeepClone()).ToList();
+        entries.Add(new JsonObject
+        {
+            ["path"] = CheckFileName,
+            ["source"] = CheckSource,
+            ["from"] = from,
+        });
+        doc["files"] = new JsonArray(entries
+            .OrderBy(n => n!["path"]?.GetValue<string>(), StringComparer.Ordinal)
+            .ToArray());
+
+        var rewritten = doc.ToJsonString(KitJson) + "\n";
+        return kit.Files.Select(f => f.Path == KitFileName ? new FactoryKitFileDto { Path = KitFileName, Text = rewritten } : f);
+    }
 
     /// <summary>A session's kit folder under the real storage root, or under <paramref name="root"/> in a test.</summary>
     public static string DirectoryFor(Guid sessionId, string? root = null)

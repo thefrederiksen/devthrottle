@@ -195,4 +195,128 @@ public sealed class FactoryRunKitTests : IDisposable
             Directory.Delete(outside, recursive: true);
         }
     }
+
+    // WHAT A CHECK FOUND (phase 5b, design 3.4): check.json beside the kit, listed in kit.json.
+
+    /// <summary>A kit.json shaped as the Gateway composes it: indented, files in ordinal order of their paths.</summary>
+    private const string ComposedKitJson =
+        "{\n  \"factory\": \"devthrottle\",\n  \"seat\": \"outreach\",\n  \"version\": 3,\n  \"kind\": \"seat\",\n" +
+        "  \"files\": [\n" +
+        "    {\n      \"path\": \"brief.md\",\n      \"source\": \"definition\",\n      \"from\": [\n        \"seats/outreach/brief.md\"\n      ]\n    },\n" +
+        "    {\n      \"path\": \"rules.json\",\n      \"source\": \"definition\",\n      \"from\": []\n    }\n" +
+        "  ]\n}\n";
+
+    private static FactoryKitResponse ComposedKit() => Kit(
+        ("kit.json", ComposedKitJson), ("rules.json", "{\"permissions\":{}}\n"), ("brief.md", "Find prospects.\n"));
+
+    private static FactoryCheckDto TheCheck() => new()
+    {
+        CheckPath = "checks/new_mail.py",
+        Count = 3,
+        Context = "three unread mails from customers",
+        CheckedUtc = new DateTime(2026, 10, 15, 8, 0, 0, DateTimeKind.Utc),
+        DefinitionVersion = 3,
+        Seat = "outreach",
+        Start = 2,
+    };
+
+    private const string TheCheckJson =
+        "{\n  \"checkPath\": \"checks/new_mail.py\",\n  \"count\": 3,\n  \"context\": \"three unread mails from customers\",\n" +
+        "  \"checkedUtc\": \"2026-10-15T08:00:00Z\",\n  \"definitionVersion\": 3,\n  \"seat\": \"outreach\",\n  \"start\": 2\n}\n";
+
+    [Fact]
+    public void WithCheck_AKit_WritesCheckJsonWithExactlyWhatTheCheckFound()
+    {
+        var dir = FactoryRunKit.Write(Guid.NewGuid(), FactoryRunKit.WithCheck(ComposedKit(), TheCheck()), root: _root);
+
+        Assert.Equal(TheCheckJson, File.ReadAllText(Path.Combine(dir, FactoryRunKit.CheckFileName)));
+        Assert.Equal("Find prospects.\n", File.ReadAllText(Path.Combine(dir, "brief.md")));
+    }
+
+    [Fact]
+    public void WithCheck_AKit_ListsCheckJsonInKitJsonInPathOrderWithTheCheckItCameFrom()
+    {
+        var kit = FactoryRunKit.WithCheck(ComposedKit(), TheCheck());
+
+        var kitJson = kit.Files.Single(f => f.Path == "kit.json").Text;
+        Assert.Equal(
+            "{\n  \"factory\": \"devthrottle\",\n  \"seat\": \"outreach\",\n  \"version\": 3,\n  \"kind\": \"seat\",\n" +
+            "  \"files\": [\n" +
+            "    {\n      \"path\": \"brief.md\",\n      \"source\": \"definition\",\n      \"from\": [\n        \"seats/outreach/brief.md\"\n      ]\n    },\n" +
+            "    {\n      \"path\": \"check.json\",\n      \"source\": \"check\",\n      \"from\": [\n        \"checks/new_mail.py\"\n      ]\n    },\n" +
+            "    {\n      \"path\": \"rules.json\",\n      \"source\": \"definition\",\n      \"from\": []\n    }\n" +
+            "  ]\n}\n", kitJson);
+    }
+
+    [Fact]
+    public void WithCheck_ANullContext_IsWrittenAsNull()
+    {
+        var check = TheCheck();
+        check.Context = null;
+
+        var text = FactoryRunKit.WithCheck(ComposedKit(), check).Files.Single(f => f.Path == FactoryRunKit.CheckFileName).Text;
+
+        Assert.Contains("\"context\": null,", text);
+    }
+
+    [Fact]
+    public void WithCheck_AKitWithNoListOfFiles_IsRefusedAndNothingIsWritten()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoryRunKit.WithCheck(TheKit(), TheCheck()));
+
+        Assert.Equal("The kit's kit.json has no list of files to name check.json in, so it was not written.", ex.Message);
+    }
+
+    [Fact]
+    public void WithCheck_AnEmptyCheckPath_IsRefused()
+    {
+        var check = TheCheck();
+        check.CheckPath = " ";
+
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoryRunKit.WithCheck(ComposedKit(), check));
+
+        Assert.Equal("What the check found names no check path, so check.json was not written.", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void WithCheck_ACountOfNothingToDo_IsRefused(int count)
+    {
+        var check = TheCheck();
+        check.Count = count;
+
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoryRunKit.WithCheck(ComposedKit(), check));
+
+        Assert.Equal($"The check checks/new_mail.py found {count} things to do, and a check starts a seat only when it " +
+                     "finds work, so check.json was not written.", ex.Message);
+    }
+
+    [Fact]
+    public void WithCheck_AKitJsonThatIsNotJson_SaysWhatWasRead()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoryRunKit.WithCheck(Kit(("kit.json", "{ not json")), TheCheck()));
+
+        Assert.StartsWith("The kit's kit.json as downloaded could not be read as JSON, so check.json was not listed in it: ", ex.Message);
+    }
+
+    [Fact]
+    public void ListingKeptCheck_ARestoredFolder_ListsCheckJsonAndLeavesItsBytesAsTheyAre()
+    {
+        var dir = FactoryRunKit.Write(Guid.NewGuid(), FactoryRunKit.WithCheck(ComposedKit(), TheCheck()), root: _root);
+        // What the seat's own agent may have done to the file: the restore neither reads nor rewrites it.
+        var kept = new byte[] { 0x7B, 0x20, 0x6E, 0x6F, 0x74, 0x20, 0x6A, 0x73, 0x6F, 0x6E, 0x0D, 0x0A };
+        File.WriteAllBytes(Path.Combine(dir, FactoryRunKit.CheckFileName), kept);
+
+        Assert.True(FactoryRunKit.HoldsCheck(dir));
+        FactoryRunKit.Refresh(dir, FactoryRunKit.ListingKeptCheck(ComposedKit()), root: _root);
+
+        Assert.Equal(kept, File.ReadAllBytes(Path.Combine(dir, FactoryRunKit.CheckFileName)));
+        Assert.Contains("    {\n      \"path\": \"check.json\",\n      \"source\": \"check\",\n      \"from\": []\n    },\n",
+            File.ReadAllText(Path.Combine(dir, "kit.json")));
+    }
+
+    [Fact]
+    public void HoldsCheck_AFolderWithNoCheckJson_IsFalse()
+        => Assert.False(FactoryRunKit.HoldsCheck(FactoryRunKit.Write(Guid.NewGuid(), ComposedKit(), root: _root)));
 }

@@ -1390,7 +1390,14 @@ internal static class SessionCommandExecutor
         var namesASeat = seat is not null || kitDirectory is not null || worktree is not null || home
                          || !string.IsNullOrWhiteSpace(req.FactoryKit) || req.FactoryDefinitionVersion is not null;
         if (!namesASeat)
+        {
+            // What a check found only ever travels in a seat's kit. A create that carries it but builds no kit would
+            // start an agent that never sees it, so it is refused rather than started without it.
+            if (req.FactoryCheck is not null)
+                return $"The create carries what the check {req.FactoryCheck.CheckPath} found but names no seat whose kit " +
+                       "could hold it, so no session was started.";
             return null;
+        }
 
         if (kitDirectory is not null && seat is null)
             return "The create hands back a kit folder but names no seat it belongs to, so no session was started; " +
@@ -1426,9 +1433,10 @@ internal static class SessionCommandExecutor
                           $"work folder (ignored repoPath=\"{req.RepoPath}\")");
         }
 
-        factoryKit = new FactoryKitRequest(req.Factory.Trim(), version, seat, req.FactoryKit, home, kitDirectory);
+        factoryKit = new FactoryKitRequest(req.Factory.Trim(), version, seat, req.FactoryKit, home, kitDirectory, req.FactoryCheck);
         FileLog.Write($"[SessionCommandExecutor] create: seat start settled: factory={factoryKit.Factory}, seat={seat}, " +
-                      $"version={version}, kit={factoryKit.Kind}, home={home}, returning={kitDirectory ?? "(none)"}");
+                      $"version={version}, kit={factoryKit.Kind}, home={home}, returning={kitDirectory ?? "(none)"}, " +
+                      $"check={req.FactoryCheck?.CheckPath ?? "(none)"}");
         return null;
     }
 
