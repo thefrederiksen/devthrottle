@@ -289,6 +289,19 @@ public sealed class FactoryMachineQuestionAskerTests
     }
 
     [Fact]
+    public void QuestionsFor_AStartWhoseCheckNamesAFileOutsideChecks_AsksForNeither()
+    {
+        // files/outreach_send.py is in the definition, but not as a check: the definition check refuses the start, and
+        // no run will ever look for a program for it.
+        var content = DefinitionFixture.Edit("seats/outreach.yaml", "check: checks/new_mail.py", "check: files/outreach_send.py");
+
+        var question = Assert.Single(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
+
+        Assert.False(question.AskPython);
+        Assert.False(question.AskUv);
+    }
+
+    [Fact]
     public void QuestionsFor_AFactoryWithNoChecks_AsksForNeither()
     {
         var content = DefinitionFixture.Publishable();

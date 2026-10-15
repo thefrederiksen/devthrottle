@@ -135,13 +135,17 @@ internal sealed class FactoryMachineQuestionAsker
     /// <summary>
     /// What a start's check runs under, read from its script header with the Director's own reader
     /// (<see cref="CheckScriptHeader"/>), so the question asked is the program the run will look for: uv when it
-    /// declares packages, else Python. <see cref="CheckProgram.None"/> for a start with no check, a check that is not in
-    /// the definition (its own error) or a header that cannot be read (the run fails on the header, not on a program).
+    /// declares packages, else Python. <see cref="CheckProgram.None"/> for a start with no check, a path the definition
+    /// does not place as a check (any other file, or none: its own error), or a header that cannot be read (the run
+    /// fails on the header, not on a program). The path is classified the way the definition check classifies it, so
+    /// what is asked and what is worded read the same set of checks.
     /// </summary>
     public static CheckProgram ProgramFor(string? checkPath, IReadOnlyDictionary<string, string> content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        if (checkPath is null || !content.TryGetValue(checkPath, out var text)) return CheckProgram.None;
+        if (checkPath is null || DefinitionPaths.Classify(checkPath).Info?.Place != DefinitionPlace.Check
+            || !content.TryGetValue(checkPath, out var text))
+            return CheckProgram.None;
         var header = CheckScriptHeader.Read(text);
         if (header.Error is not null) return CheckProgram.None;
         return header.DeclaresPackages ? CheckProgram.Uv : CheckProgram.Python;
