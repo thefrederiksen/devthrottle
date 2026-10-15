@@ -362,6 +362,20 @@ internal static class MacOsPlatformReader
     }
 
     // ---------------------------------------------------------------------------------------------
+    // The Mach timebase
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The conversion between Mach absolute time units and nanoseconds. Fixed for the life of the
+    /// machine, so it is read once and kept.
+    /// </summary>
+    internal static MacOsResourceParsing.MachTimebase ReadMachTimebase()
+    {
+        if (MacOsNative.mach_timebase_info(out var info) != 0) return default;
+        return new MacOsResourceParsing.MachTimebase(info.numer, info.denom);
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // Processes
     // ---------------------------------------------------------------------------------------------
 

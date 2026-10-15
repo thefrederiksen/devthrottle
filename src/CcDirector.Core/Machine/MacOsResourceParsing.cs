@@ -646,16 +646,50 @@ internal static class MacOsResourceParsing
     private const int RusageDiskBytesWrittenOffset = 152;
 
     /// <summary>
-    /// What one process has used. The processor times are cumulative NANOSECONDS since the process
-    /// started, so a percentage needs two readings; the memory is a figure for right now.
+    /// The conversion between Mach absolute time units and nanoseconds, as the kernel's own fraction.
+    /// </summary>
+    internal readonly record struct MachTimebase(uint Numerator, uint Denominator)
+    {
+        /// <summary>
+        /// True when the fraction can actually be used. A zero denominator cannot be divided by and a
+        /// zero numerator would turn every processor time into nothing, so neither is accepted and the
+        /// caller reports the processes as unreadable instead of reporting an idle machine.
+        /// </summary>
+        internal bool IsUsable => Numerator > 0 && Denominator > 0;
+    }
+
+    /// <summary>
+    /// Turns Mach absolute time units into nanoseconds.
+    ///
+    /// THIS IS NOT A FORMALITY, AND SKIPPING IT IS A BUG THAT SHIPS. The processor times in
+    /// <c>struct proc_taskinfo</c> are Mach absolute time units, which are widely described as
+    /// nanoseconds because on Intel Macs the conversion is 1 to 1 - so code that treats them as
+    /// nanoseconds is CORRECT on Intel and wrong by a factor of about forty-two on Apple Silicon.
+    /// Measured on the M4 Mac mini the timebase is 125/3, so one unit is 41.67 nanoseconds: two
+    /// threads spinning flat out reported 4.79 percent of a core instead of 200.
+    ///
+    /// The multiplication is done in a wider type because a long-lived process accumulates enough
+    /// units that multiplying by the numerator first would be close to the top of a 64-bit number.
+    /// </summary>
+    internal static ulong MachAbsoluteToNanoseconds(ulong machTime, MachTimebase timebase) =>
+        (ulong)((UInt128)machTime * timebase.Numerator / timebase.Denominator);
+
+    /// <summary>
+    /// What one process has used. The processor times are cumulative MACH ABSOLUTE TIME UNITS since
+    /// the process started - NOT nanoseconds, see <see cref="MachAbsoluteToNanoseconds"/> - so a
+    /// percentage needs two readings and the machine's timebase. The memory is a figure for right now.
     /// </summary>
     internal readonly record struct ProcessTaskInfo(
-        ulong UserNanoseconds,
-        ulong SystemNanoseconds,
+        ulong UserMachTime,
+        ulong SystemMachTime,
         ulong ResidentBytes)
     {
-        /// <summary>Every nanosecond of processor time this process has had, in user code and in the kernel.</summary>
-        internal ulong TotalNanoseconds => UserNanoseconds + SystemNanoseconds;
+        /// <summary>
+        /// Every unit of processor time this process has had, in user code and in the kernel. Still
+        /// Mach absolute time units, deliberately: the name says so, because the previous name said
+        /// nanoseconds and it was believed.
+        /// </summary>
+        internal ulong TotalMachTime => UserMachTime + SystemMachTime;
     }
 
     /// <summary>Reads <c>struct proc_taskinfo</c>.</summary>
@@ -665,8 +699,8 @@ internal static class MacOsResourceParsing
         if (buffer.Length < ProcessTaskInfoSize) return false;
 
         info = new ProcessTaskInfo(
-            UserNanoseconds: BitConverter.ToUInt64(buffer.Slice(TaskInfoTotalUserOffset, 8)),
-            SystemNanoseconds: BitConverter.ToUInt64(buffer.Slice(TaskInfoTotalSystemOffset, 8)),
+            UserMachTime: BitConverter.ToUInt64(buffer.Slice(TaskInfoTotalUserOffset, 8)),
+            SystemMachTime: BitConverter.ToUInt64(buffer.Slice(TaskInfoTotalSystemOffset, 8)),
             ResidentBytes: BitConverter.ToUInt64(buffer.Slice(TaskInfoResidentSizeOffset, 8)));
         return true;
     }

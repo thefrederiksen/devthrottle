@@ -643,10 +643,65 @@ public class MacOsResourceParsingTests
         Assert.True(MacOsResourceParsing.TryReadProcessTaskInfo(
             Fixture.Bytes("proc-taskinfo.base64"), out var task));
 
-        Assert.Equal(1043930UL, task.UserNanoseconds);
-        Assert.Equal(478649UL, task.SystemNanoseconds);
-        Assert.Equal(1043930UL + 478649UL, task.TotalNanoseconds);
+        Assert.Equal(1043930UL, task.UserMachTime);
+        Assert.Equal(478649UL, task.SystemMachTime);
+        Assert.Equal(1043930UL + 478649UL, task.TotalMachTime);
         Assert.Equal(56098816UL, task.ResidentBytes);
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void MachAbsoluteToNanoseconds_AppleSiliconTimebase_ScalesByFortyOneAndTwoThirds()
+    {
+        // The timebase this Mac reports, read from the kernel with mach_timebase_info: 125/3, so one
+        // unit is 41.666... nanoseconds.
+        var appleSilicon = new MacOsResourceParsing.MachTimebase(125, 3);
+
+        Assert.True(appleSilicon.IsUsable);
+        Assert.Equal(41_666UL, MacOsResourceParsing.MachAbsoluteToNanoseconds(1000, appleSilicon));
+        Assert.Equal(1_250_000_000UL, MacOsResourceParsing.MachAbsoluteToNanoseconds(30_000_000, appleSilicon));
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void MachAbsoluteToNanoseconds_IntelTimebase_LeavesTheFigureAlone()
+    {
+        // WHY THE CONVERSION IS EASY TO MISS ENTIRELY. On Intel Macs the timebase is 1 to 1, so Mach
+        // absolute time units ARE nanoseconds and code that skips the conversion is correct. The same
+        // code is wrong by a factor of about forty-two on Apple Silicon - two threads spinning flat
+        // out reported 4.79 percent of a core instead of 200.
+        var intel = new MacOsResourceParsing.MachTimebase(1, 1);
+
+        Assert.True(intel.IsUsable);
+        Assert.Equal(1_000_000_000UL, MacOsResourceParsing.MachAbsoluteToNanoseconds(1_000_000_000, intel));
+    }
+
+    [Fact]
+    [Trait("Category", "Resources")]
+    public void MachAbsoluteToNanoseconds_ALongLivedProcess_DoesNotOverflow()
+    {
+        // A process up for a hundred days has accumulated about 2.07e14 units, and multiplying that by
+        // the numerator before dividing comes within reach of the top of a 64-bit number. The
+        // multiplication is done in a wider type for exactly this reason.
+        var appleSilicon = new MacOsResourceParsing.MachTimebase(125, 3);
+        var hundredDays = (ulong)(100.0 * 86400 * 1e9 / (125.0 / 3));
+
+        var nanoseconds = MacOsResourceParsing.MachAbsoluteToNanoseconds(hundredDays, appleSilicon);
+
+        Assert.Equal(100.0 * 86400, nanoseconds / 1e9, precision: 0);
+    }
+
+    [Theory]
+    [InlineData(0u, 1u)]
+    [InlineData(125u, 0u)]
+    [InlineData(0u, 0u)]
+    [Trait("Category", "Resources")]
+    public void MachTimebase_AFractionThatCannotBeUsed_SaysSo(uint numerator, uint denominator)
+    {
+        // A zero denominator cannot be divided by, and a zero numerator would turn every process's
+        // processor time into nothing - which would report a flat-out machine as completely idle. The
+        // caller reports the processes as unreadable rather than using either.
+        Assert.False(new MacOsResourceParsing.MachTimebase(numerator, denominator).IsUsable);
     }
 
     [Fact]

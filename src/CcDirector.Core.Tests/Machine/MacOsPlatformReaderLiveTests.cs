@@ -386,7 +386,7 @@ public class MacOsPlatformReaderLiveTests
         Assert.True(MacOsResourceParsing.TryReadProcessDiskUsage(rusage, out _));
 
         // This process is running these assertions, so it has used processor time and holds memory.
-        Assert.True(task.TotalNanoseconds > 0);
+        Assert.True(task.TotalMachTime > 0);
         Assert.True(task.ResidentBytes > 1024 * 1024);
 
         // Its parent, its name and its start time, checked against what the runtime says rather than
@@ -418,6 +418,30 @@ public class MacOsPlatformReaderLiveTests
 
         Assert.True(readable > 10, $"only {readable} of {pids.Length} processes could be read");
         Assert.Equal(pids.Length, readable + refused);
+    }
+
+    [MacOsOnlyFact("mach_timebase_info is a Mach call")]
+    [Trait("Category", "Resources")]
+    public void ReadMachTimebase_OnThisMachine_IsUsableAndConvertsProcessorTimeSensibly()
+    {
+        // WITHOUT THIS CONVERSION EVERY PROCESS'S PROCESSOR USE IS WRONG BY THE TIMEBASE. The
+        // processor times in struct proc_taskinfo are Mach absolute time units, not nanoseconds,
+        // although they are widely described as nanoseconds - because on Intel Macs the timebase is
+        // 1 to 1 and the two are the same thing. On this Apple Silicon machine it is 125/3, and
+        // skipping the conversion reported two threads spinning flat out as 4.79 percent of a core.
+        var timebase = MacOsPlatformReader.ReadMachTimebase();
+
+        Assert.True(timebase.IsUsable, "the machine reported a timebase that cannot be used as a fraction");
+
+        // This process has run for at least a few milliseconds of processor time and cannot possibly
+        // have run for a year, so the converted figure has to land inside a very wide window. Getting
+        // the conversion the wrong way round puts it outside.
+        var (taskInfo, _, _) = MacOsPlatformReader.ReadProcess(Environment.ProcessId);
+        Assert.NotNull(taskInfo);
+        Assert.True(MacOsResourceParsing.TryReadProcessTaskInfo(taskInfo, out var task));
+
+        var seconds = MacOsResourceParsing.MachAbsoluteToNanoseconds(task.TotalMachTime, timebase) / 1e9;
+        Assert.InRange(seconds, 0.001, 86_400.0);
     }
 
     [MacOsOnlyFact("proc_pidinfo is a libproc call")]

@@ -89,6 +89,23 @@ internal static class MacOsNative
         out IntPtr outProcessorInfo,
         out uint outProcessorInfoCount);
 
+    /// <summary>
+    /// The conversion between Mach absolute time units and nanoseconds, as a fraction. On Intel Macs
+    /// it is 1/1, which is exactly why reading Mach absolute time as nanoseconds is a mistake that
+    /// ships: it is CORRECT on Intel and wrong by a factor of about forty-two on Apple Silicon, where
+    /// this machine reports 125/3.
+    /// </summary>
+    [DllImport(LibC)]
+    internal static extern int mach_timebase_info(out MachTimebaseInfo info);
+
+    /// <summary>mach_timebase_info_data_t.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MachTimebaseInfo
+    {
+        public uint numer;
+        public uint denom;
+    }
+
     /// <summary>Returns memory the kernel allocated into this task on our behalf.</summary>
     [DllImport(LibC)]
     internal static extern int vm_deallocate(IntPtr targetTask, IntPtr address, IntPtr size);
