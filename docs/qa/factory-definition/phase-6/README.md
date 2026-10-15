@@ -299,6 +299,4 @@ longer says "Nothing is removed"), and `FactoriesScreen.test.tsx` (1 new, and th
 
 - **The history row's Publish confirm in a picture.** It is proven word for word through the routes, not photographed;
   its Bring back confirm is picture 39.
-- **The Definition tab's own Restore confirm** still says "Nothing is removed" and does not list what a restore changes
-  in the live definition. It is outside this pull request and is reported to the Delivery Lead as open.
 - **The phone.** Desktop only, as the mission says.
