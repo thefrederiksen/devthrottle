@@ -1,0 +1,110 @@
+LINUX LIVE READING - devlinux, 2026-10-15
+=========================================
+
+What this is: one full ResourceSample read by LinuxResourceProbe on devlinux, printed by the live
+test Read_ThisMachine_PrintsOneFullSample (src/CcDirector.Core.Tests/Machine/LinuxResourceProbeLiveTests.cs),
+run with RESOURCE_PROBE_LIVE_READING set. The probe took two reads 1.5 seconds apart, the second at
+13:38:21.74 UTC (09:38:21 local), so its rates cover 13:38:20.24 to 13:38:21.74 UTC.
+
+At the same moment the operating system's own tools were running once a second: mpstat, iostat -dx,
+/proc/pressure/* read by cat, then free and df straight after. Their figures are below the sample. The
+tools are started by this proof only; the probe itself starts no subprocess.
+
+The machine was busy: a compiler (VBCSCompiler) was using most of the processor, and the spinning hard
+drive sdc inside the root volume was the bottleneck again, with programs stalled on the disk 78% of the time.
+
+----- THE PROBE'S SAMPLE --------------------------------------------------------------------------
+taken at 2026-10-15T13:38:21.7383055Z on devlinux
+processor 87% busy, busiest core 91%, 32 cores
+14.6 GB available of 39.1 GB
+swap 4.3 GB used of 8.0 GB
+disk sda (solid-state) 0% busy, 0.0 MB/s read, 0.0 MB/s written; no reads ms per read; queue 0.00
+disk sdb (solid-state) 0% busy, 0.0 MB/s read, 0.0 MB/s written; no reads ms per read; queue 0.00
+disk sdc (spinning hard drive) 78% busy, 9.2 MB/s read, 4.1 MB/s written, 260 ms per write; 101.4 ms per read; queue 35.84
+volume / 2934.4 GB free of 3205.5 GB on sda, sdb, sdc
+volume /boot 1.6 GB free of 1.9 GB on sdc
+volume /boot/efi 1.0 GB free of 1.0 GB on sdc
+network 0.0 MB/s in, 0.0 MB/s out
+stalls (LinuxPressureStall): processor 10.8%, memory 3.1%, disk 78.2%, run queue 13.0, 8 processes waiting on disk
+872 processes
+  VBCSCompiler (process 4005731) 61.9% processor, 2416 MB, parent 2293, disk 47992 B/s read, 0 B/s written
+  dotnet (process 4115919) 1.3% processor, 86 MB, parent 4115864, disk 0 B/s read, 0 B/s written
+  cc-director (process 2916256) 0.7% processor, 695 MB, parent 2293, disk 89724 B/s read, 0 B/s written
+  dotnet (process 3970828) 0.3% processor, 2406 MB, parent 3970814, disk 104330 B/s read, 41732 B/s written
+  dotnet (process 4115943) 0.2% processor, 126 MB, parent 4115919, disk 0 B/s read, 0 B/s written
+  claude (process 4070943) 0.2% processor, 400 MB, parent 2916256, disk 0 B/s read, 4173 B/s written
+  pi (process 4113261) 0.2% processor, 147 MB, parent 2916256, disk 0 B/s read, 0 B/s written
+  claude (process 4038510) 0.2% processor, 341 MB, parent 2916256, disk 0 B/s read, 0 B/s written
+  claude (process 4042472) 0.2% processor, 378 MB, parent 2916256, disk 0 B/s read, 0 B/s written
+  claude (process 3766989) 0.2% processor, 412 MB, parent 2916256, disk 0 B/s read, 0 B/s written
+
+----- THE OPERATING SYSTEM'S OWN FIGURES FOR THE SAME MOMENT ----------------------------------------
+
+mpstat 1 (local time; busy = 100 - %idle - %iowait):
+09:38:15     CPU    %usr   %nice    %sys %iowait    %irq   %soft  %steal  %guest  %gnice   %idle
+09:38:20     all   91.14    0.00    2.64    3.74    0.00    0.09    0.00    0.00    0.00    2.39
+09:38:21     all   74.89    0.00    2.77   16.32    0.00    0.06    0.00    0.00    0.00    5.95
+
+iostat -dxyt 1 (kB is kibibytes):
+2026-10-15T09:38:20-0400
+Device            r/s     rkB/s   rrqm/s  %rrqm r_await rareq-sz     w/s     wkB/s   wrqm/s  %wrqm w_await wareq-sz     d/s     dkB/s   drqm/s  %drqm d_await dareq-sz     f/s f_await  aqu-sz  %util
+sda              0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00    0.00    0.00   0.00
+sdb              0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00    0.00    0.00   0.00
+sdc            272.28   9441.58   148.51  35.29  106.56    34.68   33.66   3651.49   124.75  78.75  195.88   108.47    0.00      0.00     0.00   0.00    0.00     0.00    0.99  195.00   35.80  80.99
+2026-10-15T09:38:21-0400
+Device            r/s     rkB/s   rrqm/s  %rrqm r_await rareq-sz     w/s     wkB/s   wrqm/s  %wrqm w_await wareq-sz     d/s     dkB/s   drqm/s  %drqm d_await dareq-sz     f/s f_await  aqu-sz  %util
+sda              0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00    0.00    0.00   0.00
+sdb              0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00      0.00     0.00   0.00    0.00     0.00    0.00    0.00    0.00   0.00
+sdc            294.00   9488.00   153.00  34.23   98.86    32.27   22.00   4468.00     2.00   8.33  359.50   203.09    0.00      0.00     0.00   0.00    0.00     0.00    0.00    0.00   36.97  81.80
+
+/proc/pressure at 13:38:21.676 UTC (cpu, memory, io), then /proc/loadavg:
+some avg10=10.78 avg60=2.99 avg300=2.58 total=1278099735
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+some avg10=3.08 avg60=3.12 avg300=3.09 total=73354817
+full avg10=2.68 avg60=2.82 avg300=2.75 total=66043201
+some avg10=78.16 avg60=79.88 avg300=66.22 total=7649433438
+full avg10=55.22 avg60=69.41 avg300=58.61 total=7339550266
+40.46 34.70 29.27 31/5424 4116071
+
+free -b, read a few seconds after:
+               total        used        free      shared  buff/cache   available
+Mem:     42021269504 26308476928  1326268416  2681962496 17562972160 15712792576
+Swap:     8589930496  4666134528  3923795968
+
+df -B1, read a few seconds after:
+Filesystem                            1B-blocks         Used     Available Use% Mounted on
+/dev/mapper/ubuntu--vg-ubuntu--lv 3441928929280 150122987520 3150800494592   5% /
+/dev/sdc2                            2040373248    224477184    1691746304  12% /boot
+/dev/sdc1                            1124995072      6438912    1118556160   1% /boot/efi
+
+lsblk -d -o NAME,ROTA (1 = spinning):
+NAME   ROTA
+sda       0
+sdb       0
+sdc       1
+
+----- SIDE BY SIDE --------------------------------------------------------------------------------
+
+Figure                       Probe                          Operating system                         Agrees
+Processor busy               87%                            mpstat 93.9% (09:38:20), 77.7% (:21)      yes, between the two seconds it spans
+Logical cores                32                             mpstat "(32 CPU)"                         yes
+Memory available             14.6 GB of 39.1 GB             free: 15712792576 bytes = 14.6 GiB        yes
+Swap used                    4.3 GB of 8.0 GB               free: 4666134528 bytes = 4.35 GiB of 8.0  yes
+sda, sdb kind / busy         solid-state, 0%                ROTA 0; iostat %util 0.00                 yes
+sdc kind                     spinning hard drive            ROTA 1                                    yes
+sdc busy                     78%                            iostat %util 81.0, 81.8                   yes, within 5 points
+sdc read                     9.2 MB/s, 101.4 ms per read    9442-9488 kB/s = 9.2 MiB/s, r_await 99-107 yes
+sdc write                    4.1 MB/s, 260 ms per write     3651-4468 kB/s, w_await 196-360           yes
+sdc queue                    35.84                          aqu-sz 35.80, 36.97                       yes
+Root volume                  2934.4 GB free of 3205.5 GB    df: 3150800494592 avail = 2934.4 GiB      yes
+                             on sda, sdb, sdc               lsblk: the logical volume spans sda1, sdb1, sdc3
+/boot, /boot/efi             on sdc                         df: /dev/sdc2, /dev/sdc1                  yes
+Disk stalled                 78.2%                          io "some avg10=78.16"                     yes
+Memory stalled               3.1%                           memory "some avg10=3.08"                  yes
+Processor stalled            10.8%                          cpu "some avg10=10.78"                    yes
+Processes                    872                            ls /proc | grep -c digits: 865, seconds later  yes
+Network                      0.0 MB/s                       (not compared; the machine was idle on the network)
+
+The run queue (13 running tasks) is a single instant and moves by the millisecond; loadavg's running
+count read by cat at 13:38:20.66 and 13:38:21.68 was 40 and 31. It is not a figure that can agree to
+the moment, and the mission's check does not ask it to.
