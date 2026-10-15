@@ -14,6 +14,7 @@ namespace CcDirector.Gateway.UnitTests;
 public sealed class DirectorRegistryOsTests : IDisposable
 {
     private static readonly TenantId Tenant = new("tenant-os");
+    private static readonly DateTime StartedAt = new(2026, 10, 14, 9, 0, 0, DateTimeKind.Utc);
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-dros-" + Guid.NewGuid().ToString("N"));
     private readonly DirectorRegistry _registry;
 
@@ -31,7 +32,7 @@ public sealed class DirectorRegistryOsTests : IDisposable
     }
 
     private void Register(string? os)
-        => _registry.RegisterFromStream("dir-1", "devlinux", "soren", "2.21.0", 42, DateTime.UtcNow, Tenant, os: os);
+        => _registry.RegisterFromStream("dir-1", "devlinux", "soren", "2.21.0", 42, StartedAt, Tenant, os: os);
 
     [Fact]
     public void RegisterFromStream_ReportedSystem_IsStoredInItsOneSpelling()
