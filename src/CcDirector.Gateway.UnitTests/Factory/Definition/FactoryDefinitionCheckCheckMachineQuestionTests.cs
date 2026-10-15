@@ -157,15 +157,39 @@ public sealed class FactoryDefinitionCheckCheckMachineQuestionTests
             $"Whether SOREN_SOUTH holds 'outreach-smtp-password' could not be asked: {why} The seat's start will check it.");
     }
 
+    // The header opens on line 2 of the check and line 4 is code, so it never closes.
+    private const string UnclosedHeader = "import json\n# /// script\n# dependencies = [\"requests\"]\nprint('{}')\n";
+
+    private const string UnclosedHeaderError =
+        "This check can never run: the check's script header opened with '# /// script' on line 2 and line 4 is not a comment, " +
+        "so the header never closes with '# ///'. Close the header with a line '# ///', or remove it.";
+
     [Fact]
-    public void Check_AtAPublish_ACheckWhoseHeaderNeverCloses_IsNoProgramNotice()
+    public void Check_AtAPublish_ACheckWhoseHeaderNeverCloses_IsAnErrorOnTheHeadersFirstLine_AndNoProgramNotice()
     {
-        // The run refuses such a check on its header, whatever programs the machine has, so no program was asked.
-        var content = DefinitionFixture.With("checks/new_mail.py", "# /// script\n# dependencies = [\"requests\"]\nprint('{}')\n");
+        var content = DefinitionFixture.With("checks/new_mail.py", UnclosedHeader);
 
         var result = Publish(Answered(), content);
 
+        DefinitionFixture.AssertOneError(result, "checks/new_mail.py", 2, UnclosedHeaderError);
+        Assert.Equal(UnclosedHeaderError, result.Findings.Single(f => f.IsError).Message);
+        // The run refuses such a check on its header, whatever programs the machine has, so no program was asked.
         Assert.Empty(AtLine(result, CheckLine));
+    }
+
+    [Fact]
+    public void Check_AtASave_ACheckWhoseHeaderNeverCloses_IsTheSameError()
+    {
+        var result = DefinitionFixture.Check(DefinitionFixture.With("checks/new_mail.py", UnclosedHeader));
+
+        DefinitionFixture.AssertOneError(result, "checks/new_mail.py", 2, UnclosedHeaderError);
+    }
+
+    [Fact]
+    public void Check_ACheckWithAClosedHeaderOrNone_IsNoError()
+    {
+        Assert.False(DefinitionFixture.Check(DefinitionFixture.With("checks/new_mail.py", FactoryMachineQuestionAskerTests.WithPackages)).HasErrors);
+        Assert.False(DefinitionFixture.Check(DefinitionFixture.Valid()).HasErrors);
     }
 
     [Fact]

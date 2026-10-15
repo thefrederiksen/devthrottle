@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Factory;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Factory.Triggers;
 
@@ -441,6 +442,7 @@ public static class FactoryDefinitionCheck
             foreach (var (seatId, seat) in _p.Seats) CheckSeat(seatId, seat, named);
             CheckGrants();
             AllowLists();
+            CheckHeaders();
             Unused(named);
         }
 
@@ -450,6 +452,20 @@ public static class FactoryDefinitionCheck
             foreach (var (_, file) in _p.RuleSets)
                 if (file.Map.Find("permissions")?.Value is DefinitionMap permissions && permissions.Find("allow") is { } allow)
                     Notice(_findings, file.Path, allow.KeyLine, AllowNotApplied);
+        }
+
+        // A CHECK WHOSE HEADER NEVER CLOSES CAN NEVER RUN (phase 5b): the Director's runner refuses it on the header
+        // before it looks for any program, so it is refused here, on save and publish, on the line that opens the
+        // header - read with the runner's own reader, so the two can never disagree about what closes it.
+        private void CheckHeaders()
+        {
+            foreach (var (path, text) in _p.CheckTexts)
+            {
+                var header = CheckScriptHeader.Read(text);
+                if (header.Error is not null)
+                    Error(_findings, path, header.HeaderLine,
+                        $"This check can never run: {header.Error}. Close the header with a line '# ///', or remove it.");
+            }
         }
 
         /// <summary>What the seats name, for the "unused" notices.</summary>

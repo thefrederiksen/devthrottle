@@ -18,7 +18,8 @@ public static partial class CheckScriptHeader
 {
     /// <summary>What the header says.</summary>
     /// <param name="Error">Why the header cannot be read, or null.</param>
-    public sealed record Reading(bool DeclaresPackages, string? Error);
+    /// <param name="HeaderLine">The line, counted from 1, that opens the header (<c># /// script</c>); 0 when there is none.</param>
+    public sealed record Reading(bool DeclaresPackages, string? Error, int HeaderLine = 0);
 
     [GeneratedRegex(@"^\s*dependencies\s*=\s*\[", RegexOptions.CultureInvariant)]
     private static partial Regex DependenciesKey();
@@ -37,16 +38,16 @@ public static partial class CheckScriptHeader
         for (var i = start + 1; i < lines.Length; i++)
         {
             var line = lines[i].TrimEnd();
-            if (line == "# ///") return new Reading(DeclaresPackagesIn(toml), null);
+            if (line == "# ///") return new Reading(DeclaresPackagesIn(toml), null, start + 1);
             if (line == "#") toml.Add("");
             else if (line.StartsWith("# ", StringComparison.Ordinal)) toml.Add(line[2..]);
             else
                 return new Reading(false,
                     $"the check's script header opened with '# /// script' on line {start + 1} and line {i + 1} is not " +
-                    "a comment, so the header never closes with '# ///'");
+                    "a comment, so the header never closes with '# ///'", start + 1);
         }
         return new Reading(false,
-            $"the check's script header opened with '# /// script' on line {start + 1} and never closes with '# ///'");
+            $"the check's script header opened with '# /// script' on line {start + 1} and never closes with '# ///'", start + 1);
     }
 
     private static bool DeclaresPackagesIn(List<string> toml)
