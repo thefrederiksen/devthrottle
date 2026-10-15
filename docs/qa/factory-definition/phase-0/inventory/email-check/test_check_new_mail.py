@@ -219,10 +219,56 @@ def test_main_SecretsMissing_ExitsNonZeroAndPrintsNothingOnStandardOutput(tmp_pa
     state.write_text("", encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k != "CC_CHECK_SECRET_VARS"}
     env["CC_CHECK_STATE_FILE"] = str(state)
-    p = subprocess.run([sys.executable, os.path.join(HERE, "check_new_mail.py")], capture_output=True, text=True, env=env)
+    p = subprocess.run([sys.executable, os.path.join(HERE, "check_new_mail.py"), "--rules", os.path.join(HERE, "mail-rules.json")],
+                       capture_output=True, text=True, env=env)
     assert p.returncode == 1
     assert p.stdout == ""
     assert "CC_CHECK_SECRET_VARS is not set" in p.stderr
+
+
+def version_folder(tmp_path):
+    """A folder laid out as the Director writes a downloaded version: checks/ and files/."""
+    folder = tmp_path / "factory-checks" / "devthrottle" / "3"
+    (folder / "checks").mkdir(parents=True)
+    (folder / "files").mkdir()
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(json.dumps({"people": [{"address": "cto@firm-b.example", "sent": "2026-10-08"}]}), encoding="utf-8")
+    rules = {"mailbox": "outreach@example.com", "folders": ["inbox"], "ledger": str(ledger),
+             "bounceSubjectMarkers": ["Undeliverable"], "firstRunLookbackHours": 24, "secrets": SECRETS}
+    (folder / "files" / "mail-rules.json").write_text(json.dumps(rules), encoding="utf-8")
+    return folder
+
+
+def test_main_RunFromAVersionFolderWithNoArguments_ReadsFilesMailRules(tmp_path, monkeypatch, capsys):
+    folder = version_folder(tmp_path)
+    state = tmp_path / "state"
+    state.write_text("", encoding="utf-8")
+    monkeypatch.chdir(folder)
+    monkeypatch.setattr(sys, "argv", [str(folder / "checks" / "new_mail.py")])
+    for name, value in dict(ENV, CC_CHECK_STATE_FILE=str(state)).items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(cnm, "http_json", FakeGraph({"inbox": [msg("1", "2026-10-14T09:00:00Z", "cto@firm-b.example", "Re: hi")]}))
+    monkeypatch.setattr(cnm, "datetime", type("FixedClock", (), {"now": staticmethod(lambda tz=None: NOW)}))
+
+    code = cnm.main()
+
+    out = capsys.readouterr()
+    assert code == 0, out.err
+    assert json.loads(out.out)["count"] == 1
+
+
+def test_main_NoRulesFileInTheWorkingFolder_FailsWithASentence(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "state"
+    state.write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["new_mail.py"])
+    monkeypatch.setenv("CC_CHECK_STATE_FILE", str(state))
+
+    code = cnm.main()
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "mail-rules.json does not exist; the definition keeps it at" in err
 
 
 def test_redact_SenderAndSubject_KeepsOnlyTheDomainAndABounceMarker():

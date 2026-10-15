@@ -22,14 +22,17 @@ namespace CcDirector.ControlApi.Triggers;
 ///      not allowed for <c>run</c>, is a start error naming it and the check never runs. Each secret arrives in its own
 ///      cc-secrets variable, and <c>CC_CHECK_SECRET_VARS</c> tells the check which.
 ///   4. Gives the check the Director's environment minus what a session is never handed
-///      (<see cref="InheritedSessionEnvironment"/>), plus <c>CC_CHECK_STATE_FILE</c>, <c>CC_CHECK_SECRET_VARS</c>,
+///      (<see cref="InheritedSessionEnvironment"/>) and minus EVERY variable whose name begins <c>CC_</c> - a Director
+///      started from inside a session carries that session's Gateway key, id and address, which a session is stamped
+///      over and a check is not - plus its own <c>CC_CHECK_STATE_FILE</c>, <c>CC_CHECK_SECRET_VARS</c>,
 ///      <c>CC_CHECK_FACTORY</c> and <c>CC_CHECK_SEAT</c>.
 ///   5. ALWAYS creates the state file before the run, holding the stored state (empty on a first run), in a per-run
 ///      folder under the Director's storage; reads it back after the run, at most 64 KB, and deletes the folder.
 ///
 /// It decides NOTHING from the result, exactly like a command trigger: the Gateway reads the report under the check
-/// contract. Anything that stops the check from running is a <see cref="TriggerCheckReport.StartError"/>, never a
-/// skip, so the start turns red on the Gateway with the reason.
+/// contract. Anything that stops the check from running - a refusal, a missing program, or this machine's disk
+/// failing under the runner - is a <see cref="TriggerCheckReport.StartError"/>, never a skip, so the start turns red
+/// on the Gateway with the reason.
 /// </summary>
 public sealed class DefinitionCheckRunner
 {
@@ -37,6 +40,10 @@ public sealed class DefinitionCheckRunner
     public const string SecretVarsVariable = "CC_CHECK_SECRET_VARS";
     public const string FactoryVariable = "CC_CHECK_FACTORY";
     public const string SeatVariable = "CC_CHECK_SEAT";
+
+    /// <summary>No variable of the Director's or of a session's whose name begins with this reaches a check: a check
+    /// needs none of them, and a rule that names the prefix cannot miss the next one someone adds.</summary>
+    public const string DirectorVariablePrefix = "CC_";
 
     /// <summary>How long <c>cc-secrets list --json</c> may take.</summary>
     public const int SecretsListTimeoutSeconds = 30;
@@ -101,7 +108,21 @@ public sealed class DefinitionCheckRunner
     {
         ArgumentNullException.ThrowIfNull(trigger);
         FileLog.Write($"[DefinitionCheckRunner] RunAsync: trigger={trigger.Name}, factory={trigger.Factory}, version={trigger.DefinitionVersion}, check={trigger.CheckPath}, secrets={trigger.Secrets?.Count ?? 0}, due={trigger.DueRunId ?? "-"}");
+        try
+        {
+            return await RunCheckedAsync(trigger, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // This runner is the check's entry point: a disk that fails under it is a reason on the Gateway, not a
+            // report that never arrives.
+            FileLog.Write($"[DefinitionCheckRunner] RunAsync FAILED: trigger={trigger.Name}, {ex.Message}");
+            return Failed($"the Director could not use its storage for the check: {ex.Message}");
+        }
+    }
 
+    private async Task<TriggerCheckReport> RunCheckedAsync(TriggerAssignmentDto trigger, CancellationToken ct)
+    {
         if (WhyNotRunnable(trigger) is { } bad) return Failed(bad);
         var factory = trigger.Factory!;
         var version = trigger.DefinitionVersion!.Value;
@@ -135,7 +156,7 @@ public sealed class DefinitionCheckRunner
             var stateFile = Path.Combine(runFolder, "state");
             await File.WriteAllTextAsync(stateFile, trigger.State ?? "", new UTF8Encoding(false), ct).ConfigureAwait(false);
 
-            var environment = _baseEnvironment();
+            var environment = CheckEnvironment();
             environment[StateFileVariable] = stateFile;
             environment[SecretVarsVariable] = JsonSerializer.Serialize(secretVars);
             environment[FactoryVariable] = factory;
@@ -177,6 +198,19 @@ public sealed class DefinitionCheckRunner
     public void Prune(IReadOnlyList<TriggerAssignmentDto> assigned)
     {
         ArgumentNullException.ThrowIfNull(assigned);
+        try
+        {
+            PruneFolders(assigned);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A folder that cannot be listed now is pruned on a later fetch; the checks of this fetch still run.
+            FileLog.Write($"[DefinitionCheckRunner] Prune FAILED: {ex.Message}");
+        }
+    }
+
+    private void PruneFolders(IReadOnlyList<TriggerAssignmentDto> assigned)
+    {
         var keep = new HashSet<string>(
             assigned.Where(t => t.IsDefinitionCheck && WhyNotRunnable(t) is null)
                 .Select(t => Path.GetFullPath(VersionFolder(t.Factory!, t.DefinitionVersion!.Value))),
@@ -367,6 +401,16 @@ public sealed class DefinitionCheckRunner
     }
 
     // ---------- helpers ----------
+
+    /// <summary>The base environment with every <see cref="DirectorVariablePrefix"/> variable removed.</summary>
+    private Dictionary<string, string> CheckEnvironment()
+    {
+        var environment = _baseEnvironment();
+        var comparison = _isWindows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        foreach (var name in environment.Keys.Where(k => k.StartsWith(DirectorVariablePrefix, comparison)).ToList())
+            environment.Remove(name);
+        return environment;
+    }
 
     private string? WhyNotRunnable(TriggerAssignmentDto trigger)
     {

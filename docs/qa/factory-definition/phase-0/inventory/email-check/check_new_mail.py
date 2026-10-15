@@ -26,11 +26,13 @@ is in mail-rules.json ("secrets"), not in this code:
                          mailbox by an application access policy
   clientSecret  secret   that app's client secret
 
-Rules (who counts, which entries) are in mail-rules.json beside this file, or the file named by --rules.
+Rules (who counts, which entries) are in files/mail-rules.json under the working folder - where the definition
+puts them, and the Director runs a check with the downloaded version's folder as its working folder - or in the file
+named by --rules.
 
 Usage:  run by the Director as a factory's check. By hand:
           cc-secrets run outreach-mail-client-secret --with outreach-mail-client-id --with outreach-mail-tenant-id
-            -- python check_new_mail.py [--rules mail-rules.json]
+            -- python check_new_mail.py --rules mail-rules.json
         with CC_CHECK_STATE_FILE and CC_CHECK_SECRET_VARS set as the Director sets them.
 """
 
@@ -50,6 +52,7 @@ MAX_PAGES_PER_FOLDER = 10
 GRAPH = "https://graph.microsoft.com/v1.0"
 SECRET_PARTS = ("tenantId", "clientId", "clientSecret")
 SECRET_VARS = "CC_CHECK_SECRET_VARS"
+DEFAULT_RULES = os.path.join("files", "mail-rules.json")
 
 
 class CheckFailed(Exception):
@@ -112,6 +115,9 @@ def read_token(credentials):
 
 
 def load_rules(path):
+    if not os.path.isfile(path):
+        raise CheckFailed(f"the rules file {os.path.abspath(path)} does not exist; the definition keeps it at "
+                          f"{DEFAULT_RULES} beside checks/, or name one with --rules")
     with open(path, encoding="utf-8") as fh:
         rules = json.load(fh)
     for key in ("mailbox", "folders", "ledger", "bounceSubjectMarkers", "firstRunLookbackHours", "secrets"):
@@ -227,7 +233,8 @@ def run(rules, env, state_path, now):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--rules", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "mail-rules.json"))
+    ap.add_argument("--rules", default=DEFAULT_RULES,
+                    help=f"the rules file (default: {DEFAULT_RULES} under the working folder, the definition's layout)")
     args = ap.parse_args()
     try:
         state_path = os.environ.get("CC_CHECK_STATE_FILE")

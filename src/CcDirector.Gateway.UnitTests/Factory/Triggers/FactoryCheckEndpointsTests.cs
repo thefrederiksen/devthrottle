@@ -190,8 +190,11 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
         Assert.True(bytes <= TriggerCheckLimits.ReportBodyLimitBytes, $"{bytes} bytes is over the {TriggerCheckLimits.ReportBodyLimitBytes} limit");
     }
 
+    /// <summary>The body READER takes a full-size report. It does not prove the body limit: an in-memory request has
+    /// no size feature to set. <see cref="ReportBodyLimit_FitsTwoFullOutputsAndAFullStateAtTheWorstEscaping"/> ties the
+    /// limit to a full report.</summary>
     [Fact]
-    public async Task Report_AFullSizeReport_IsReadAndRecorded()
+    public async Task Report_AFullSizeReport_IsReadByTheBodyReaderAndRecorded()
     {
         var (created, error) = _triggers.Create(T, new TriggerDefinitionRequest
         {

@@ -34,6 +34,7 @@ public sealed class DirectorTriggerRunnerTests
     private sealed class FakeGateway : ITriggerGateway
     {
         public TriggerFetch Next { get; set; } = TriggerFetch.Off("factory agents are off");
+        public string? Refusal { get; set; }
         public List<(string director, string trigger, TriggerCheckReport report)> Reports { get; } = new();
 
         public Task<TriggerFetch> FetchTriggersAsync(string directorId, CancellationToken ct) => Task.FromResult(Next);
@@ -41,7 +42,7 @@ public sealed class DirectorTriggerRunnerTests
         public Task<string?> ReportTriggerCheckAsync(string directorId, string triggerId, TriggerCheckReport report, CancellationToken ct)
         {
             lock (Reports) Reports.Add((directorId, triggerId, report));
-            return Task.FromResult<string?>(null);
+            return Task.FromResult(Refusal);
         }
     }
 
@@ -151,6 +152,41 @@ public sealed class DirectorTriggerRunnerTests
         Assert.Equal(new[] { "cj_outreach" }, _checked);
         Assert.Equal("run-41", Assert.Single(_gateway.Reports).trigger);
     }
+
+    [Fact]
+    public async Task ADueCheckWhoseReportWasNotRecorded_RunsAgainWhenItIsHandedOutAgain()
+    {
+        _gateway.Next = Assigned(DueCheck("run-41"));
+        _gateway.Refusal = "No connection could be made because the target machine actively refused it.";
+        var runner = Runner();
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+
+        _gateway.Refusal = null;
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+        Assert.Empty(await runner.TickAsync(CancellationToken.None));
+
+        Assert.Equal(new[] { "run-41", "run-41" }, _gateway.Reports.Select(r => r.trigger));
+    }
+
+    [Fact]
+    public async Task ADueCheckTheGatewayAlreadyRecorded_IsNotRunAgain()
+    {
+        _gateway.Next = Assigned(DueCheck("run-41"));
+        _gateway.Refusal = "HTTP 409: {\"code\":\"already_recorded\",\"error\":\"run run-41 is already recorded\"}";
+        var runner = Runner();
+        await Task.WhenAll(await runner.TickAsync(CancellationToken.None));
+
+        Assert.Empty(await runner.TickAsync(CancellationToken.None));
+        Assert.Single(_gateway.Reports);
+    }
+
+    [Theory]
+    [InlineData("HTTP 409: {\"error\":\"run 7 is already recorded\"}", true)]
+    [InlineData("HTTP 409: {\"code\":\"held_by_another_director\"}", false)]
+    [InlineData("HTTP 500: already recorded", false)]
+    [InlineData("A task was canceled.", false)]
+    public void IsAlreadyRecorded_OnlyTheGatewaysTerminal409(string refusal, bool expected)
+        => Assert.Equal(expected, DirectorTriggerRunner.IsAlreadyRecorded(refusal));
 
     [Fact]
     public async Task TheNextDueRunOfTheSameSchedule_IsRunToo()

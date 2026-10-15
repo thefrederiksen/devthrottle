@@ -48,8 +48,9 @@ public sealed class DirectorTriggerRunner
     // The triggers whose check is running now. Marked BEFORE the check starts and cleared when it ends, so a check
     // that finishes at once cannot clear the mark before it is set and leave its trigger marked forever.
     private readonly ConcurrentDictionary<string, byte> _running = new(StringComparer.OrdinalIgnoreCase);
-    // The due checks already run. A due check is one-shot: the Gateway stops handing it out once the report is
-    // recorded, and until then this keeps a slow Gateway from having it run twice.
+    // The due checks already REPORTED. A due check is one-shot: the Gateway stops handing it out once the report is
+    // recorded, and until then this keeps a slow Gateway from having it run twice. A due check whose report did not
+    // arrive is not in here, so it runs again at the next poll.
     private readonly ConcurrentDictionary<string, byte> _dueDone = new(StringComparer.OrdinalIgnoreCase);
     private readonly Action<IReadOnlyList<TriggerAssignmentDto>>? _assigned;
     private TriggerFetchKind? _lastFetchKind;
@@ -168,6 +169,8 @@ public sealed class DirectorTriggerRunner
             FileLog.Write(refused is null
                 ? $"[DirectorTriggerRunner] reported: trigger={trigger.Name}, exit={report.ExitCode?.ToString() ?? "none"}, timedOut={report.TimedOut}"
                 : $"[DirectorTriggerRunner] report NOT recorded: trigger={trigger.Name}, {refused}");
+            if (!string.IsNullOrEmpty(trigger.DueRunId) && (refused is null || IsAlreadyRecorded(refused)))
+                _dueDone[trigger.DueRunId] = 0;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -177,11 +180,15 @@ public sealed class DirectorTriggerRunner
         {
             if (string.IsNullOrEmpty(trigger.DueRunId))
                 _nextDueUtc[trigger.Id] = _nowUtc() + TimeSpan.FromSeconds(trigger.IntervalSeconds);
-            else
-                _dueDone[trigger.DueRunId] = 0;
             _running.TryRemove(trigger.ReportId, out _);
         }
     }
+
+    /// <summary>The Gateway's terminal answer to a due check's report: 409, the run was already recorded. Any other
+    /// refusal - the Gateway unreachable, a server error - leaves the due check to run again.</summary>
+    public static bool IsAlreadyRecorded(string refusal)
+        => refusal.StartsWith("HTTP 409", StringComparison.Ordinal)
+           && refusal.Contains("already recorded", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Run one check the way the Engine runs a job (<see cref="ProcessJob"/>: the shell, the timeout, the exit code,

@@ -25,10 +25,11 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHECK = os.path.join(HERE, "check_new_mail.py")
+RULES = os.path.join(HERE, "mail-rules.json")
 SECRETS = shutil.which("cc-secrets")
 if SECRETS is None:
     sys.exit("ERROR: cc-secrets is not on the PATH; it is installed with DevThrottle's tools.")
-with open(os.path.join(HERE, "mail-rules.json"), encoding="utf-8") as fh:
+with open(RULES, encoding="utf-8") as fh:
     _RULES = json.load(fh)
 MARKERS = _RULES["bounceSubjectMarkers"]
 # Each entry the rules name, to the variable it arrives in here: the client secret through cc-secrets in its own
@@ -64,7 +65,7 @@ def one_run(title, args, extra_env):
         open(state, "w").close()
         # As the Director sets it (mission 5.5a): which variable each entry the check reads arrived in.
         env = dict(os.environ, CC_CHECK_STATE_FILE=state, CC_CHECK_SECRET_VARS=json.dumps(SECRET_VARS), **extra_env)
-        p = subprocess.run([SECRETS, "run", *args, "--", sys.executable, CHECK], capture_output=True, text=True,
+        p = subprocess.run([SECRETS, "run", *args, "--", sys.executable, CHECK, "--rules", RULES], capture_output=True, text=True,
                            env=env, stdin=subprocess.DEVNULL)
         lines = [ln.rstrip() for ln in p.stdout.splitlines() if ln.strip() and not ln.startswith("[cc-secrets]")]
         print(f"    exit {p.returncode}")

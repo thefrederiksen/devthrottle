@@ -1,7 +1,6 @@
 using System.Text;
 using System.Text.Json;
 using CcDirector.ControlApi.Triggers;
-using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -31,9 +30,10 @@ public sealed class DefinitionCheckRunnerTests : IDisposable
         if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
     }
 
-    private DefinitionCheckRunner Runner(bool isWindows = true) => new(Director, _root, () => _source, _processes,
-        () => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["PATH"] = "the-path", ["HOME"] = "home" },
-        () => Now, isWindows);
+    private Dictionary<string, string> _base = new(StringComparer.OrdinalIgnoreCase) { ["PATH"] = "the-path", ["HOME"] = "home" };
+
+    private DefinitionCheckRunner Runner(bool isWindows = true, string? root = null) => new(Director, root ?? _root,
+        () => _source, _processes, () => new Dictionary<string, string>(_base, _base.Comparer), () => Now, isWindows);
 
     private static TriggerAssignmentDto Check(int version = 3, string? state = "", params string[] secrets) => new()
     {
@@ -399,9 +399,55 @@ public sealed class DefinitionCheckRunnerTests : IDisposable
         Assert.Equal("{}", env["CC_CHECK_SECRET_VARS"]);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_ADirectorStartedFromASession_HandsTheCheckNoneOfThatSessionsVariables(bool isWindows)
+    {
+        // What a Director started from inside a session carries: the session's own stamps, which the strip list leaves
+        // because a session is stamped over them, and a check is not. Fake values.
+        _base = new Dictionary<string, string>(isWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+        {
+            ["PATH"] = "the-path",
+            ["CC_GATEWAY_SESSION_KEY"] = "fake-session-key",
+            ["CC_SESSION_ID"] = "11111111-2222-3333-4444-555555555555",
+            ["CC_GATEWAY_URL"] = "https://gateway.example",
+            ["CC_FACTORY_KIT_DIR"] = "D:/kit",
+            ["CC_CHECK_STATE_FILE"] = "D:/someone-elses-state",
+        };
+        if (isWindows) _base["cc_director_id"] = "dir-parent";
+
+        await Runner(isWindows).RunAsync(Check(), CancellationToken.None);
+
+        var env = _processes.TheCheck.Environment!;
+        Assert.Equal("the-path", env["PATH"]);
+        Assert.Equal(new[] { "CC_CHECK_FACTORY", "CC_CHECK_SEAT", "CC_CHECK_SECRET_VARS", "CC_CHECK_STATE_FILE", "PATH" },
+            env.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.NotEqual("D:/someone-elses-state", env["CC_CHECK_STATE_FILE"]);
+    }
+
     [Fact]
-    public void SessionInheritedEnvironment_HoldsNothingASessionIsNeverHanded()
-        => Assert.DoesNotContain(DefinitionCheckRunner.SessionInheritedEnvironment().Keys, InheritedSessionEnvironment.IsStripped);
+    public async Task RunAsync_TheStorageFolderCannotBeWritten_IsAReportedStartError()
+    {
+        var notAFolder = Path.Combine(_root, "storage-is-a-file");
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(notAFolder, "");
+
+        var report = await Runner(root: notAFolder).RunAsync(Check(), CancellationToken.None);
+
+        Assert.StartsWith("the Director could not use its storage for the check: ", report.StartError);
+        Assert.Empty(_processes.Runs);
+    }
+
+    [Fact]
+    public void Prune_TheStorageFolderCannotBeListed_DoesNotThrow()
+    {
+        var notAFolder = Path.Combine(_root, "storage-is-a-file");
+        Directory.CreateDirectory(Path.Combine(_root));
+        File.WriteAllText(notAFolder, "");
+
+        Runner(root: notAFolder).Prune(Array.Empty<TriggerAssignmentDto>());
+    }
 
     [Fact]
     public async Task RunAsync_FirstRun_TheStateFileExistsAndIsEmpty_AndIsNotInTheCheckFolder()
