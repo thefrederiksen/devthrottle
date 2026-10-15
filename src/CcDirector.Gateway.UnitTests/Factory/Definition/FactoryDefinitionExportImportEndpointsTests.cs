@@ -31,6 +31,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
 
     private readonly GatewayDbTestHarness _h = new();
     private readonly FactoryDefinitionStore _store;
+    private readonly FactoryPublishApply _apply;
     private readonly FactoryDefinitionEndpoints.Account _account;
 
     /// <summary>What the live source answers for a factory with no definition; null means "not registered".</summary>
@@ -38,7 +39,12 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
 
     public FactoryDefinitionExportImportEndpointsTests()
     {
-        _store = new FactoryDefinitionStore(_h.Open());
+        var db = _h.Open();
+        _store = new FactoryDefinitionStore(db);
+        // A PUBLISH DRIVES THE FACTORY (phase 4), so the factory is registered and the definition published is the
+        // fixture without the start that has a check.
+        _apply = new FactoryPublishApply(db);
+        new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Register(A, DefinitionFixture.Registration(), "test", Now);
         _account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines);
     }
 
@@ -92,7 +98,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
 
     private IResult Publish(int version) =>
         FactoryDefinitionEndpoints.Publish(Person(), TheFactory, new PublishFactoryDefinitionRequest { Version = version },
-            _store, InA, FactoryOf, _account, () => Now.AddMinutes(1));
+            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(1));
 
     private static int Status(IResult result) => Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode ?? 200;
 
@@ -111,7 +117,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
     private static List<FactoryDefinitionFindingDto> Findings(IResult result) =>
         Assert.IsAssignableFrom<IEnumerable<FactoryDefinitionFindingDto>>(Field(result, "findings")).ToList();
 
-    private static Dictionary<string, string?> Valid() => DefinitionFixture.Valid().ToDictionary(p => p.Key, p => (string?)p.Value);
+    private static Dictionary<string, string?> Valid() => DefinitionFixture.Publishable().ToDictionary(p => p.Key, p => (string?)p.Value);
 
     // ---------- export ----------
 
@@ -147,7 +153,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
 
         Assert.Equal(1, published.Version);
         Assert.Equal("published", published.State);
-        Assert.Equal(DefinitionFixture.Valid(), published.Files);
+        Assert.Equal(DefinitionFixture.Publishable(), published.Files);
         Assert.Contains("A newer draft, version 2, is not exported", published.Summary);
         Assert.Equal(2, draft.Version);
         Assert.Equal(second, draft.Files);
@@ -226,7 +232,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
         Assert.Equal("from the folder", v.ChangeNote);
         Assert.Equal("person", v.AuthorKind);
         Assert.Null(_store.Standing(A, TheFactory).Published);
-        Assert.Equal(DefinitionFixture.Valid(), _store.Find(A, TheFactory, 1)!.Files);
+        Assert.Equal(DefinitionFixture.Publishable(), _store.Find(A, TheFactory, 1)!.Files);
     }
 
     [Fact]
