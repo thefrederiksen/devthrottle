@@ -196,9 +196,20 @@ internal static class MacOsNative
     [DllImport(IoKit)]
     internal static extern IntPtr IORegistryEntrySearchCFProperty(uint entry, string plane, IntPtr key, IntPtr allocator, uint options);
 
-    /// <summary>The parent of an entry in the named plane. The caller owns what it returns.</summary>
+    /// <summary>
+    /// An iterator over ALL of an entry's parents in the named plane, not just the first one. A
+    /// storage stack can genuinely fan out - an Apple file system container may be built on more than
+    /// one physical store - and taking only the first parent would quietly drop the others.
+    /// </summary>
     [DllImport(IoKit)]
-    internal static extern int IORegistryEntryGetParentEntry(uint entry, string plane, out uint parent);
+    internal static extern int IORegistryEntryGetParentIterator(uint entry, string plane, out uint iterator);
+
+    /// <summary>
+    /// An entry's identifier, stable for as long as the entry exists. Used to avoid walking the same
+    /// branch twice, because the registry's parent links converge rather than forming a tree.
+    /// </summary>
+    [DllImport(IoKit)]
+    internal static extern int IORegistryEntryGetRegistryEntryID(uint entry, out ulong entryId);
 
     // ---------------------------------------------------------------------------------------------
     // Core Foundation: just enough to turn a dictionary into text and to make a key

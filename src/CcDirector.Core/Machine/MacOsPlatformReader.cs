@@ -445,4 +445,124 @@ internal static class MacOsPlatformReader
         }
     }
 
+
+    // ---------------------------------------------------------------------------------------------
+    // Which physical disk a volume actually sits on
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>How far up the registry to walk before giving up. The real depth on this platform is
+    /// about six; the cap exists so a registry that loops cannot hang the sampler.</summary>
+    private const int AncestorWalkLimit = 64;
+
+    /// <summary>
+    /// Every device name found above a volume's own device in the storage stack.
+    ///
+    /// WHY THIS IS NEEDED AT ALL. A volume's own device name is not the disk it is stored on. On a
+    /// modern Mac the boot volume reports <c>/dev/disk3s5</c>, and <c>disk3</c> does not exist as
+    /// hardware - it is an Apple file system container SYNTHESIZED on top of a partition of the real
+    /// disk. Measured on the M4 Mac mini, the real chain is disk0, the hardware, then its partition
+    /// disk0s2, then the synthesized container disk3, then the volume disk3s5. Reporting a volume as
+    /// living on "disk3" would attribute its activity to a disk that has no statistics and no medium
+    /// type, and the slowness diagnosis would never be able to name the hardware that was busy.
+    ///
+    /// SO THE WALK GOES UPWARDS AND RETURNS EVERYTHING IT FINDS, and the caller keeps the names that
+    /// match a disk it has statistics for. That way this function never has to decide what counts as a
+    /// physical disk, and a volume whose chain cannot be followed returns the names it did find rather
+    /// than a guess.
+    ///
+    /// ALL PARENTS ARE WALKED, NOT THE FIRST. A container can be built on more than one physical
+    /// store, and following only the first parent would report one of two disks with no sign that the
+    /// other was missed.
+    /// </summary>
+    internal static List<string> ReadAncestorDeviceNames(string volumeDeviceName)
+    {
+        var found = new List<string>();
+        if (string.IsNullOrWhiteSpace(volumeDeviceName)) return found;
+
+        var matching = MacOsNative.IOBSDNameMatching(MainPortDefault, 0, volumeDeviceName);
+        if (matching == IntPtr.Zero) return found;
+
+        if (MacOsNative.IOServiceGetMatchingServices(MainPortDefault, matching, out var iterator) != 0)
+            return found;
+
+        uint start;
+        try
+        {
+            start = MacOsNative.IOIteratorNext(iterator);
+        }
+        finally
+        {
+            MacOsNative.IOObjectRelease(iterator);
+        }
+
+        if (start == 0) return found;
+
+        // Breadth-first over the parents, because the registry's parent links converge rather than
+        // forming a tree: without the seen set the same branch is walked repeatedly and the same disk
+        // name comes back several times.
+        var seen = new HashSet<ulong>();
+        var queue = new Queue<uint>();
+        queue.Enqueue(start);
+        var visited = 0;
+
+        try
+        {
+            while (queue.Count > 0 && visited < AncestorWalkLimit)
+            {
+                var entry = queue.Dequeue();
+                visited++;
+
+                try
+                {
+                    if (MacOsNative.IORegistryEntryGetParentIterator(
+                            entry, MacOsNative.IoServicePlane, out var parents) != 0)
+                        continue;
+
+                    try
+                    {
+                        uint parent;
+                        while ((parent = MacOsNative.IOIteratorNext(parents)) != 0)
+                        {
+                            var keep = false;
+                            try
+                            {
+                                if (MacOsNative.IORegistryEntryGetRegistryEntryID(parent, out var id) != 0) continue;
+                                if (!seen.Add(id)) continue;
+
+                                var nameText = CopyPropertyAsText(parent, BsdNameProperty, options: 0);
+                                var name = nameText is null
+                                    ? null
+                                    : MacOsResourceParsing.ReadPropertyListString(nameText);
+                                if (!string.IsNullOrEmpty(name)) found.Add(name);
+
+                                queue.Enqueue(parent);
+                                keep = true;
+                            }
+                            finally
+                            {
+                                // Kept alive only while it is still queued; released now otherwise.
+                                if (!keep) MacOsNative.IOObjectRelease(parent);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        MacOsNative.IOObjectRelease(parents);
+                    }
+                }
+                finally
+                {
+                    if (entry != start) MacOsNative.IOObjectRelease(entry);
+                }
+            }
+        }
+        finally
+        {
+            MacOsNative.IOObjectRelease(start);
+            while (queue.Count > 0) MacOsNative.IOObjectRelease(queue.Dequeue());
+        }
+
+        return found;
+    }
+
 }
