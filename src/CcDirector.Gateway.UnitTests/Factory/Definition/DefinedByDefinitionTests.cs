@@ -230,6 +230,7 @@ public sealed class DefinedByDefinitionTests : IDisposable
         nameof(CronJobDto.ToggleLabel), nameof(CronJobDto.RunRecord), nameof(CronJobDto.FactoryTitle),
         nameof(CronJobDto.FactoryHref), nameof(CronJobDto.ShortName), nameof(CronJobDto.LoadWarning),
         nameof(CronJobDto.Shifts), nameof(CronJobDto.ShiftText), nameof(CronJobDto.ShiftWarning), nameof(CronJobDto.ShiftRule),
+        nameof(CronJobDto.DefinedByDefinition),
     };
 
     /// <summary>Every definition field of a schedule, READ FROM <see cref="CronJobDto"/> itself: its properties minus

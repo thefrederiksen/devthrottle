@@ -520,6 +520,39 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         Assert.True(Job("cj_dt").Enabled);
     }
 
+    // ---------- what the answer tells a client it may offer (phase 5b, carried from phase 4's Finding 4) ----------
+
+    [Fact]
+    public async Task Disable_ASchedulesOfADefinedFactory_AnswerSaysTheDefinitionWritesIt()
+    {
+        Seed(Standing.Published);
+        var off = await ScheduleJson("cj_dt");
+        off["enabled"] = false;
+
+        var disabled = await Send("PUT", "/cron/jobs/cj_dt", off.ToJsonString());
+
+        AssertNotRefusedByTheDefinition(disabled, 200);
+        // `schedule disable` offers its next steps from this: the switch back on, never the delete that is refused.
+        Assert.True(disabled.Body.GetProperty("definedByDefinition").GetBoolean());
+        Assert.True((await Send("GET", "/cron/jobs/cj_dt")).Body.GetProperty("definedByDefinition").GetBoolean());
+        AssertRefused(await Send("DELETE", "/cron/jobs/cj_dt"));
+    }
+
+    [Fact]
+    public async Task ListSchedules_ADefinedFactoryBesideOthers_OnlyItsScheduleSaysTheDefinitionWritesIt()
+    {
+        Seed(Standing.Published);
+
+        var list = await Send("GET", "/cron/jobs");
+
+        Assert.Equal(200, list.Status);
+        var defined = list.Body.GetProperty("jobs").EnumerateArray()
+            .ToDictionary(j => j.GetProperty("id").GetString()!, j => j.GetProperty("definedByDefinition").GetBoolean());
+        Assert.True(defined["cj_dt"]);
+        Assert.False(defined["cj_wf"]);
+        Assert.False(defined["cj_plain"]);
+    }
+
     [Fact]
     public async Task Disable_ASchedulesOfADefinedFactory_WithTheFactoryAndSeatLeftBlank_Works()
     {
@@ -706,6 +739,23 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
 
         AssertNotRefusedByTheDefinition(answer, 200);
         Assert.False(Job("cj_dt").Enabled);
+    }
+
+    [Theory]
+    [InlineData(Standing.NoDefinition)]
+    [InlineData(Standing.DraftOnly)]
+    public async Task DisableSchedule_UNDEFINED_FACTORY_AnswerDoesNotSayTheDefinitionWritesIt(Standing standing)
+    {
+        Seed(standing);
+        var body = await ScheduleJson("cj_dt");
+        body["enabled"] = false;
+
+        var answer = await Send("PUT", "/cron/jobs/cj_dt", body.ToJsonString());
+
+        AssertNotRefusedByTheDefinition(answer, 200);
+        // So `schedule disable` keeps offering the delete, which is allowed here, as on main.
+        Assert.False(answer.Body.GetProperty("definedByDefinition").GetBoolean());
+        Assert.False((await Send("GET", "/cron/jobs/cj_plain")).Body.GetProperty("definedByDefinition").GetBoolean());
     }
 
     [Theory]

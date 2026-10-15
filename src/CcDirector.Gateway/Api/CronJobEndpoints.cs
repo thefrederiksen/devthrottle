@@ -106,6 +106,7 @@ internal static class CronJobEndpoints
             var stamped = Describe(CronSchedule.StampDisplay(created, DateTime.UtcNow));
             stamped.LoadWarning = LoadWarningFor(stamped);
             StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
+            StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped, statusCode: StatusCodes.Status201Created);
         });
 
@@ -142,6 +143,7 @@ internal static class CronJobEndpoints
                 job.ShortName = CronDisplayName.ShortName(job.Name, job.Factory, job.FactoryTitle);
             }
             StampShifts(ctx, jobs, now);
+            StampDefined(ctx, jobs);
             return Results.Json(new { jobs });
         });
 
@@ -265,6 +267,21 @@ internal static class CronJobEndpoints
             FileLog.Write($"[CronJobEndpoints] shifts: schedules={jobs.Count}, zone={zone.Id}, warned={jobs.Count(j => j.ShiftWarning is not null)}");
         }
 
+        // WHETHER A DEFINITION WRITES EACH SCHEDULE (Factory Definition, phase 5b): stamped on every answer, so a client
+        // that offers next steps (schedule disable's) offers only the switch on a defined factory's schedule and never
+        // a delete the routes above refuse. One definition read per factory named, not per schedule.
+        void StampDefined(HttpContext ctx, IReadOnlyList<CronJobDto> jobs)
+        {
+            var defined = jobs.Select(j => j.Factory).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!)
+                .Distinct(StringComparer.Ordinal)
+                .Where(f => isDefined(ctx, f))
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var job in jobs)
+                job.DefinedByDefinition = !string.IsNullOrWhiteSpace(job.Factory) && defined.Contains(job.Factory);
+            if (defined.Count > 0)
+                FileLog.Write($"[CronJobEndpoints] defined: schedules={jobs.Count}, of a defined factory={jobs.Count(j => j.DefinedByDefinition)}");
+        }
+
         static string? JoinWarnings(string? first, string? second) =>
             first is null ? second : second is null ? first : $"{first} {second}";
 
@@ -285,6 +302,7 @@ internal static class CronJobEndpoints
             var now = DateTime.UtcNow;
             var stamped = Describe(CronSchedule.StampDisplay(job, now));
             StampShifts(ctx, new[] { stamped }, now);
+            StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped);
         });
 
@@ -392,6 +410,7 @@ internal static class CronJobEndpoints
             var stamped = Describe(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
             stamped.LoadWarning = JoinWarnings(LoadWarningFor(stamped), followers);
             StampShifts(ctx, new[] { stamped }, DateTime.UtcNow);
+            StampDefined(ctx, new[] { stamped });
             return Results.Json(stamped);
         });
 
@@ -463,6 +482,7 @@ internal static class CronJobEndpoints
             var now = DateTime.UtcNow;
             var stamped = Describe(CronSchedule.StampDisplay(updated, now));
             StampShifts(ctx, new[] { stamped }, now);
+            StampDefined(ctx, new[] { stamped });
             var result = new CronUnlinkResultDto
             {
                 Text = Factory.FactorySeatPageFold.UnlinkedText(job, factory),

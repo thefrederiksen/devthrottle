@@ -896,10 +896,12 @@ def disable_job(job_id: str) -> None:
         return
     axi_cli.write_lines(f"Disabled {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
     job_ref = axi_cli.bare(job.get("id"), "<schedule-id>")
-    axi_cli.print_next([
-        f"cc-devthrottle schedule enable {job_ref}",
-        f"cc-devthrottle schedule delete {job_ref}",
-    ])
+    next_commands = [f"cc-devthrottle schedule enable {job_ref}"]
+    # The Gateway says whether the factory's published definition writes this schedule. When it does, a delete is
+    # refused, so only the switch back on is offered; this decides nothing itself.
+    if job.get("definedByDefinition") is not True:
+        next_commands.append(f"cc-devthrottle schedule delete {job_ref}")
+    axi_cli.print_next(next_commands)
 
 
 def delete_job(job_id: str) -> None:

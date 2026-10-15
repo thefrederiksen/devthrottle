@@ -173,3 +173,38 @@ def test_unlink_answer_that_does_not_say_what_happened_is_never_reported_as_take
 def test_unlink_needs_the_schedule_id_and_refuses_an_unknown_flag():
     assert runner.invoke(app, ["schedule", "unlink"]).exit_code == 2
     assert runner.invoke(app, ["schedule", "unlink", "cj_abc123", "--factory", "devthrottle"]).exit_code == 2
+
+
+# ---- schedule disable: the next steps offer only what the Gateway allows (Factory Definition, phase 5b) -------------
+
+def _run_disable(answer):
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
+        client_cls.return_value.set_enabled.return_value = answer
+        result = runner.invoke(app, ["schedule", "disable", "cj_abc123"])
+        called_with = client_cls.return_value.set_enabled.call_args.args
+    return result, called_with
+
+
+def test_disable_of_a_defined_factorys_schedule_offers_enable_and_never_the_refused_delete():
+    result, called_with = _run_disable({"id": "cj_abc123", "name": "Outreach - Boss", "enabled": False,
+                                        "factory": "qa-outreach", "seat": "boss", "definedByDefinition": True})
+    assert result.exit_code == 0, result.output
+    assert called_with == ("cj_abc123", False)
+    assert "Disabled Outreach - Boss (cj_abc123)." in result.output
+    assert "cc-devthrottle schedule enable cj_abc123" in result.output
+    assert "schedule delete" not in result.output
+
+
+def test_disable_of_a_schedule_of_an_undefined_factory_keeps_both_suggestions():
+    result, _ = _run_disable({"id": "cj_abc123", "name": "Scout", "enabled": False,
+                              "factory": "website-factory", "seat": "scout", "definedByDefinition": False})
+    assert result.exit_code == 0, result.output
+    assert "cc-devthrottle schedule enable cj_abc123" in result.output
+    assert "cc-devthrottle schedule delete cj_abc123" in result.output
+
+
+def test_disable_of_a_schedule_of_no_factory_from_a_gateway_that_does_not_stamp_keeps_both_suggestions():
+    result, _ = _run_disable({"id": "cj_abc123", "name": "Nightly", "enabled": False})
+    assert result.exit_code == 0, result.output
+    assert "cc-devthrottle schedule enable cj_abc123" in result.output
+    assert "cc-devthrottle schedule delete cj_abc123" in result.output
