@@ -164,6 +164,8 @@ internal sealed class FactoryPublishScenario
             triggers = ctx.Triggers.AsNoTracking().ToList().OrderBy(t => t.Name, StringComparer.Ordinal).ToList(),
             definitions = ctx.FactoryDefinitions.AsNoTracking().ToList().OrderBy(v => v.Factory, StringComparer.Ordinal)
                 .ThenBy(v => v.Version).Select(v => new { v.Factory, v.Version, v.State, v.PublishedAtUtc, v.PublishedBy, v.RestoredFrom }).ToList(),
+            checkState = ctx.FactoryCheckStates.AsNoTracking().ToList().OrderBy(r => r.OwnerKey, StringComparer.Ordinal)
+                .ThenBy(r => r.Sequence).ToList(),
         };
         return JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
     }
@@ -213,6 +215,35 @@ internal sealed class FactoryPublishScenario
         builder.AddInterceptors(new FailTheScheduleWrite());
         var options = builder.Options;
         return new FactoryPublishApply(t => new GatewayDbContext(options) { ActiveTenant = t.Value });
+    }
+
+    /// <summary>As <see cref="Failing"/>, with <see cref="FailTheTriggerWrite"/> installed instead: the publish fails
+    /// INSIDE a trigger write, after its schedule writes went through in the same transaction.</summary>
+    public static FactoryPublishApply FailingTriggers(Action<DbContextOptionsBuilder<GatewayDbContext>> provider)
+    {
+        var builder = new DbContextOptionsBuilder<GatewayDbContext>();
+        builder.WithGatewayInterceptors();
+        provider(builder);
+        builder.AddInterceptors(new FailTheTriggerWrite());
+        var options = builder.Options;
+        return new FactoryPublishApply(t => new GatewayDbContext(options) { ActiveTenant = t.Value });
+    }
+}
+
+/// <summary>
+/// THE INJECTED FAILURE, for a trigger: throws when a save would write a trigger row - an insert, an update or a
+/// delete. Test-only; production never installs it.
+/// </summary>
+internal sealed class FailTheTriggerWrite : SaveChangesInterceptor
+{
+    public const string Message = "the database refused the triggers write (injected by the test)";
+
+    public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
+    {
+        if (eventData.Context!.ChangeTracker.Entries<TriggerEntity>()
+            .Any(e => e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted))
+            throw new InvalidOperationException(Message);
+        return result;
     }
 }
 

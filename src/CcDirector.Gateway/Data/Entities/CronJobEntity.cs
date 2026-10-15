@@ -44,6 +44,18 @@ public sealed class CronJobEntity : TenantScopedEntity
     public string NotifyOn { get; set; } = CronNotify.None;
     public string? NotifyWebhookUrl { get; set; }
 
+    // ---- Factory Definition, phase 5b: a timed start WITH A CHECK. Null on every schedule without one. ----
+
+    /// <summary>The check's path in the factory's definition, or null. When set the schedule starts nothing by itself:
+    /// its check runs first, and <see cref="PreventOverlap"/> is always true.</summary>
+    public string? CheckPath { get; set; }
+
+    /// <summary>The cc-secrets entry names the check declares, as a JSON array in declared order, or null.</summary>
+    public string? CheckSecretsJson { get; set; }
+
+    /// <summary>The published definition version the check was written from, or null.</summary>
+    public int? DefinitionVersion { get; set; }
+
     public DateTime CreatedUtc { get; set; }
     public DateTime? LastFiredUtc { get; set; }
     public DateTime? NextRunUtc { get; set; }

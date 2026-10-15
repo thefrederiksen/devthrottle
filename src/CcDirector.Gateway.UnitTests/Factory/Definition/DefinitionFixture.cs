@@ -223,10 +223,30 @@ internal static class DefinitionFixture
             prompt: "New mail: {count}. {context}"
         """;
 
+    /// <summary>The same start as a time WITH its check, in as many lines: what a publish refuses until the due check
+    /// lands (phase 5b), on the check line, 13.</summary>
+    public const string OutreachTimedCheckedStart = """
+          - cron: "0 9 * * 1-5"
+            check: checks/new_mail.py
+            timeZone: Europe/Copenhagen
+            prompt: "New mail: {count}. {context}"
+        """;
+
+    /// <summary><see cref="Valid"/> with the outreach seat's checked start made a time, check kept.</summary>
+    public static Dictionary<string, string> TimedChecked()
+    {
+        var content = Valid();
+        var start = OutreachCheckedStart.ReplaceLineEndings("\n");
+        Assert.Contains(start, content["seats/outreach.yaml"]);
+        content["seats/outreach.yaml"] = content["seats/outreach.yaml"].Replace(start,
+            OutreachTimedCheckedStart.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        return content;
+    }
+
     /// <summary>
-    /// The valid definition as a publish takes it (Factory Definition, phase 4): a start with a check cannot be
-    /// published before phase 5b, so the outreach seat's interval start is a time with no check here. Every file keeps
-    /// its line numbers.
+    /// The valid definition with no checked start (Factory Definition, phase 4): the outreach seat's interval start is a
+    /// time with no check here, so a publish makes schedules only. Every file keeps its line numbers. The valid
+    /// definition itself, with its interval check, publishes from phase 5b and makes a definition trigger.
     /// </summary>
     public static Dictionary<string, string> Publishable()
     {

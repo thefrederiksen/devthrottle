@@ -287,6 +287,10 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Every version of every factory's definition (Factory Definition mission, phase 1).</summary>
     public DbSet<FactoryDefinitionVersionEntity> FactoryDefinitions => Set<FactoryDefinitionVersionEntity>();
 
+    /// <summary>The state each check from a factory definition left between runs, append-only (Factory Definition,
+    /// phase 5b).</summary>
+    public DbSet<FactoryCheckStateEntity> FactoryCheckStates => Set<FactoryCheckStateEntity>();
+
     /// <summary>Every journal entry of every factory seat, append-only (Factory Definition mission, phase 2).</summary>
     public DbSet<FactoryJournalEntryEntity> FactoryJournalEntries => Set<FactoryJournalEntryEntity>();
 
@@ -581,6 +585,9 @@ public sealed class GatewayDbContext : DbContext
             // JSON column rather than its own table (the reusable "sub-doc -> JSON in a column" pattern).
             b.OwnsOne(e => e.Target, o => o.ToJson());
             b.OwnsOne(e => e.Action, o => o.ToJson());
+            // Factory Definition, phase 5b: a timed start's check and the version it was written from.
+            b.Property(e => e.CheckPath).HasMaxLength(256);
+            b.Property(e => e.CheckSecretsJson).HasMaxLength(4096);
         });
 
         modelBuilder.Entity<CronRunEntity>(b =>
@@ -1116,6 +1123,10 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.ClaimedByDirectorId).HasMaxLength(64);
             b.Property(e => e.LastOutcome).HasMaxLength(32);
             b.Property(e => e.LastReason).HasMaxLength(1024);
+            // Factory Definition, phase 5b: a definition trigger's seat, version, check and declared secrets.
+            b.Property(e => e.Seat).HasMaxLength(64);
+            b.Property(e => e.CheckPath).HasMaxLength(256);
+            b.Property(e => e.SecretsJson).HasMaxLength(4096);
             // One trigger per name per account. The store also refuses a name that differs only in case.
             b.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         });
@@ -1392,6 +1403,19 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorId).HasMaxLength(200);
             b.Property(e => e.ChangeNote).HasMaxLength(500);
             b.Property(e => e.PublishedBy).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<FactoryCheckStateEntity>(b =>
+        {
+            b.ToTable("factory_check_state");
+            // THE KEY IS THE CONCURRENCY CONTROL, as for a definition version just above: two reports of one start
+            // arriving on two replicas both compute the same next sequence, and with this key the second insert cannot
+            // exist. It is also the only index the reads need - a start's newest state is its highest sequence.
+            b.HasKey(e => new { e.TenantId, e.Factory, e.OwnerKey, e.Sequence });
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.OwnerKey).HasMaxLength(80);
+            b.Property(e => e.WrittenBy).HasMaxLength(256);
+            b.Property(e => e.RunRef).HasMaxLength(64);
         });
 
         modelBuilder.Entity<FactoryJournalEntryEntity>(b =>
@@ -2165,6 +2189,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FactoryMemoryNoteEntity>(modelBuilder);
         ApplyTenantScope<FactoryBriefVersionEntity>(modelBuilder);
         ApplyTenantScope<FactoryDefinitionVersionEntity>(modelBuilder);
+        ApplyTenantScope<FactoryCheckStateEntity>(modelBuilder);
         ApplyTenantScope<FactoryJournalEntryEntity>(modelBuilder);
         ApplyTenantScope<FactoryDocumentVersionEntity>(modelBuilder);
         ApplyTenantScope<FactoryAttachmentEntity>(modelBuilder);
@@ -2358,6 +2383,8 @@ public sealed class GatewayDbContext : DbContext
             // same version, and the state is a closed word the published read selects on.
             modelBuilder.Entity<FactoryDefinitionVersionEntity>().Property(e => e.Factory).UseCollation("C");
             modelBuilder.Entity<FactoryDefinitionVersionEntity>().Property(e => e.State).UseCollation("C");
+            modelBuilder.Entity<FactoryCheckStateEntity>().Property(e => e.Factory).UseCollation("C");
+            modelBuilder.Entity<FactoryCheckStateEntity>().Property(e => e.OwnerKey).UseCollation("C");
             // factory records (Factory Definition, phase 2): the factory, the seat, the document's name and the
             // upload's names are exact keys - the document's name is part of the key that keeps two writers from
             // minting the same version, and the upload's name is what makes running it twice store nothing twice.

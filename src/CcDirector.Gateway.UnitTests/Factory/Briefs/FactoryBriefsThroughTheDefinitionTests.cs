@@ -536,10 +536,11 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
     public async Task Publish_DefinedFactory_AVersionTheCheckRefuses_Is422_AndNothingIsPublished()
     {
         Define();
-        // The draft brings back the start with a check, which a publish cannot take yet.
+        // The draft makes the outreach start a timed start with a check, which a publish cannot take yet.
         var content = new Dictionary<string, string>(_definitions.Find(A, TheFactory, 1)!.Files)
         {
-            ["seats/outreach.yaml"] = DefinitionFixture.Valid()["seats/outreach.yaml"],
+            ["seats/outreach.yaml"] = DefinitionFixture.TimedChecked()["seats/outreach.yaml"],
+            ["checks/new_mail.py"] = DefinitionFixture.Valid()["checks/new_mail.py"],
         };
         Assert.True(_definitions.SaveDraft(A, TheFactory, content, 1, FactoryMemoryAuthorKinds.Person, "owner", null, Now.AddHours(-1)).Ok);
 

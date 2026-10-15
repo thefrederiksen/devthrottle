@@ -17,6 +17,8 @@ public enum TriggerReportRefusal
     NoSuchTrigger,
     /// <summary>Another Director on the machine holds this trigger's check.</summary>
     HeldByAnotherDirector,
+    /// <summary>A check from a definition, reported by a Director that never said on Hello that it runs them.</summary>
+    CannotRunDefinitionChecks,
 }
 
 /// <summary>The answer to one check report: the run row it wrote, or why it wrote none.</summary>
@@ -104,6 +106,8 @@ public sealed class TriggerService
     private readonly Func<TenantId, TimeZoneInfo> _timeZone;
     private readonly Func<DateTime> _nowUtc;
     private readonly CancellationToken _startLifetime;
+    private readonly Func<TenantId, string, bool> _directorRunsDefinitionChecks;
+    private readonly Func<TenantId, string, bool> _machineRunsDefinitionChecks;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
     // The triggers whose start is running right now on this Gateway. A lock with no session that is NOT in here is a
     // start that ended with its outcome unknown (or one a stopped Gateway left behind): the check looks for its session.
@@ -116,11 +120,19 @@ public sealed class TriggerService
     /// <param name="timeZone">The account's time zone, for the time in a started session's name.</param>
     /// <param name="startLifetime">The Gateway's own lifetime, which every session start runs on - cancelled only when
     /// the Gateway stops, never by the request that asked for the start.</param>
+    /// <param name="directorRunsDefinitionChecks">Whether this account's Director (by id) said on Hello that it runs
+    /// checks from a factory's definition. A definition trigger is handed to, claimed by and reported from such a
+    /// Director only (Factory Definition, phase 5b, design 2.6).</param>
+    /// <param name="machineRunsDefinitionChecks">Whether any connected Director of this account on the machine (by
+    /// name) said so - when none has, a definition trigger's status says so instead of going silent.</param>
     public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
-        Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime)
+        Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
+        Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks)
     {
         _startLifetime = startLifetime;
+        _directorRunsDefinitionChecks = directorRunsDefinitionChecks ?? throw new ArgumentNullException(nameof(directorRunsDefinitionChecks));
+        _machineRunsDefinitionChecks = machineRunsDefinitionChecks ?? throw new ArgumentNullException(nameof(machineRunsDefinitionChecks));
         _findSessionByName = findSessionByName ?? throw new ArgumentNullException(nameof(findSessionByName));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _activity = activity ?? throw new ArgumentNullException(nameof(activity));
@@ -137,7 +149,10 @@ public sealed class TriggerService
     {
         var status = TriggerStatusFold.For(t.CreatedUtc, t.IntervalSeconds, t.LastCheckUtc, t.LastOutcome, t.LastReason,
             t.LastSessionId, t.LastStartedUtc is { } s ? DateTime.SpecifyKind(s, DateTimeKind.Utc) : null, _nowUtc(),
-            startOutcomeUnknown: IsHeldByUnknownStart(t));
+            startOutcomeUnknown: IsHeldByUnknownStart(t),
+            noDefinitionDirectorOn: t.IsDefinitionCheck && !_machineRunsDefinitionChecks(new TenantId(t.TenantId), t.Machine)
+                ? t.Machine
+                : null);
         return new TriggerDto
         {
             Id = t.Id.ToString("D"),
@@ -152,6 +167,9 @@ public sealed class TriggerService
             Paused = t.Paused,
             CreatedBy = t.CreatedBy,
             CreatedUtc = DateTime.SpecifyKind(t.CreatedUtc, DateTimeKind.Utc),
+            Seat = t.Seat,
+            DefinitionVersion = t.DefinitionVersion,
+            CheckPath = t.CheckPath,
             LastSessionId = t.LastSessionId,
             LastCheckUtc = t.LastCheckUtc is { } c ? DateTime.SpecifyKind(c, DateTimeKind.Utc) : null,
             LastOutcome = t.LastOutcome,
@@ -173,12 +191,20 @@ public sealed class TriggerService
         DirectorId = r.DirectorId,
     };
 
-    /// <summary>The checks this Director must run: the triggers on its machine it holds, or takes over.</summary>
+    /// <summary>
+    /// The checks this Director must run: the triggers on its machine it holds, or takes over. A COMMAND trigger is
+    /// handed exactly as it always was. A DEFINITION trigger (Factory Definition, phase 5b, design 2.1) is handed with
+    /// its kind, factory, version, check path and declared secrets, and the newest state its check left - and with no
+    /// command and no folder, because its check is downloaded from the published version and never runs in a checkout.
+    /// A definition trigger is handed ONLY to a Director that said on Hello that it runs them (design 2.6): an older
+    /// Director is handed none and claims none, so it never runs one and never writes a run row for one.
+    /// </summary>
     public IReadOnlyList<TriggerAssignmentDto> AssignmentsFor(TenantId tenant, string directorId, string machine)
     {
         FileLog.Write($"[TriggerService] AssignmentsFor: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}");
-        return _store.ClaimForDirector(tenant, directorId, machine, _nowUtc())
-            .Select(t => new TriggerAssignmentDto
+        var runsDefinitionChecks = _directorRunsDefinitionChecks(tenant, directorId);
+        return _store.ClaimForDirector(tenant, directorId, machine, _nowUtc(), runsDefinitionChecks)
+            .Select(t => t.IsDefinitionCheck ? DefinitionAssignment(tenant, t) : new TriggerAssignmentDto
             {
                 Id = t.Id.ToString("D"),
                 Name = t.Name,
@@ -189,6 +215,31 @@ public sealed class TriggerService
             })
             .ToList();
     }
+
+    private TriggerAssignmentDto DefinitionAssignment(TenantId tenant, TriggerEntity t) => new()
+    {
+        Id = t.Id.ToString("D"),
+        Name = t.Name,
+        CheckCommand = "",
+        RepoPath = "",
+        IntervalSeconds = t.IntervalSeconds,
+        TimeoutSeconds = TriggerDefinition.TimeoutSecondsFor(t.IntervalSeconds),
+        Kind = TriggerKinds.Definition,
+        Seat = t.Seat,
+        Factory = t.Factory,
+        DefinitionVersion = t.DefinitionVersion,
+        CheckPath = t.CheckPath,
+        Secrets = SecretsOf(t),
+        DueRunId = null,
+        State = _store.CheckStates.StateFor(tenant, t.Factory, FactoryCheckStateStore.TriggerOwner(t.Id)),
+    };
+
+    /// <summary>The cc-secrets entry names a definition trigger's check declares, in declared order.</summary>
+    internal static List<string> SecretsOf(TriggerEntity t)
+        => string.IsNullOrEmpty(t.SecretsJson)
+            ? new List<string>()
+            : System.Text.Json.JsonSerializer.Deserialize<List<string>>(t.SecretsJson)
+              ?? throw new InvalidOperationException($"trigger {t.Name} holds secrets that are not a JSON array: {t.SecretsJson}");
 
     /// <summary>
     /// Resume a trigger on the owner's word. When it was paused, this also releases the one-at-a-time lock (see
@@ -261,6 +312,9 @@ public sealed class TriggerService
         if (found is null)
             return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                 $"no trigger '{triggerIdOrName}' in this account");
+        if (found.IsDefinitionCheck && !_directorRunsDefinitionChecks(tenant, directorId))
+            return TriggerReportResult.Refused(TriggerReportRefusal.CannotRunDefinitionChecks,
+                $"trigger '{found.Name}' runs a check from the definition of {found.Factory}, and Director {directorId} has not said it runs those; this report was not recorded");
 
         var gate = GateFor(tenant, found.Id);
         await gate.WaitAsync(ct).ConfigureAwait(false);
@@ -295,6 +349,10 @@ public sealed class TriggerService
                         $"trigger '{trigger.Name}' was deleted while its check was being recorded");
 
                 _activity.Append(tenant, ActivityFor(trigger, recorded.Run), callingActor: null);
+                // Of the outcomes that start nothing, only nothing-to-do keeps the state: paused and skipped-running
+                // counted work that no session took, so the next check must see that work again.
+                if (decision.Outcome == TriggerRunOutcome.NothingToDo)
+                    KeepState(tenant, trigger, directorId, report.State, recorded.Run.Id.ToString("D"));
                 FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={trigger.Name}, outcome={decision.Outcome}, count={decision.Count?.ToString(CultureInfo.InvariantCulture) ?? "none"}, session={decision.SessionId ?? "none"}, reason={decision.Reason ?? "none"}");
                 return new TriggerReportResult(TriggerReportRefusal.None, recorded.Run, null);
             }
@@ -303,7 +361,10 @@ public sealed class TriggerService
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"trigger '{trigger.Name}' was deleted while its check was being recorded");
             _inFlight[trigger.Id] = 0;
-            pending = new PendingStart(tenant, trigger, directorId, report.CheckedAtUtc, decision.Count!.Value, decision.Start);
+            // The run row of a check that begins a start is written when the start returns, and its state is kept
+            // then, only when a session started (see FinishStartAsync) - so it travels with the start.
+            pending = new PendingStart(tenant, trigger, directorId, report.CheckedAtUtc, decision.Count!.Value, decision.Start,
+                report.State);
             FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={trigger.Name}, count={pending.Count.ToString(CultureInfo.InvariantCulture)}, lock taken, starting session '{pending.Request.Name}' off the request");
         }
         catch (Exception ex)
@@ -326,6 +387,11 @@ public sealed class TriggerService
         => _locks.GetOrAdd(KeyFor(tenant, triggerId), _ => new SemaphoreSlim(1, 1));
 
     private static string KeyFor(TenantId tenant, Guid triggerId) => $"{tenant.Value}/{triggerId:D}";
+
+    /// <summary>True when nothing on this Gateway holds the trigger: its decision lock is free and no start of it is
+    /// running. What a test reads to prove a failure inside a decision or a start left no lock behind.</summary>
+    internal bool HoldsNoLock(TenantId tenant, Guid triggerId)
+        => GateFor(tenant, triggerId).CurrentCount == 1 && !_inFlight.ContainsKey(triggerId);
 
     /// <summary>True while the lock is held by a start whose outcome is not known: a start time with no session, and
     /// no start of this trigger running on this Gateway.</summary>
@@ -377,10 +443,24 @@ public sealed class TriggerService
     }
 
     private sealed record PendingStart(TenantId Tenant, TriggerEntity Trigger, string DirectorId, DateTime CheckedUtc,
-        int Count, NewSessionRequest Request);
+        int Count, NewSessionRequest Request, string? State);
 
     /// <summary>What a check came to: an outcome recorded now, or a session to start.</summary>
     private sealed record Decision(string? Outcome, int? Count, string? SessionId, string? Reason, NewSessionRequest? Start);
+
+    /// <summary>
+    /// A DEFINITION CHECK'S STATE IS KEPT ONLY WHEN THE WORK IT SAW WAS DEALT WITH (design 1.4): on nothing-to-do, and
+    /// on a session that started. Never on a failed check - half-written state must never become the truth - and never
+    /// on paused, skipped-running, or a start that failed or whose outcome is unknown: the work the check counted was
+    /// not taken, so its next run must see it again. Called under the trigger's lock, so a later check's state can
+    /// never be overwritten by an earlier one's. A command trigger has none; an absent state file writes nothing.
+    /// </summary>
+    private void KeepState(TenantId tenant, TriggerEntity trigger, string directorId, string? state, string runRef)
+    {
+        if (!trigger.IsDefinitionCheck || state is null) return;
+        _store.CheckStates.RecordIfChanged(tenant, trigger.Factory, FactoryCheckStateStore.TriggerOwner(trigger.Id),
+            state, directorId, runRef, _nowUtc());
+    }
 
     /// <summary>
     /// Run one start begun by <see cref="ReportCheckAsync"/> and write the check's one run row. Nothing awaits this in
@@ -428,6 +508,8 @@ public sealed class TriggerService
                 }
 
                 _activity.Append(p.Tenant, ActivityFor(p.Trigger, recorded.Run), callingActor: null);
+                if (started)
+                    KeepState(p.Tenant, p.Trigger, p.DirectorId, p.State, recorded.Run.Id.ToString("D"));
                 FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name}, outcome={outcome}, outcomeUnknown={attempt.OutcomeUnknown}, count={p.Count.ToString(CultureInfo.InvariantCulture)}, session={attempt.SessionId ?? "none"}, reason={reason ?? "none"}");
                 return recorded.Run;
             }
@@ -447,7 +529,7 @@ public sealed class TriggerService
 
     private Decision Decide(TenantId tenant, TriggerEntity trigger, string directorId, TriggerCheckReport report, DateTime now)
     {
-        var reading = TriggerCheckContract.Read(report);
+        var reading = TriggerCheckContract.Read(report, trigger.IsDefinitionCheck);
         if (reading.Failed)
             return new Decision(TriggerRunOutcome.Failed, null, null, reading.FailureReason, null);
 
@@ -466,7 +548,11 @@ public sealed class TriggerService
             RepoPath = trigger.RepoPath,
             Agent = "ClaudeCode",
             Name = SessionName(trigger, _timeZone(tenant), now),
-            PrePrompt = TriggerDefinition.PromptFor(trigger.Prompt, count),
+            // A definition trigger's prompt also carries what its check found (design 3.2); a command trigger's
+            // prompt is replaced exactly as it always was.
+            PrePrompt = trigger.IsDefinitionCheck
+                ? TriggerDefinition.PromptFor(trigger.Prompt, count, reading.Context)
+                : TriggerDefinition.PromptFor(trigger.Prompt, count),
             // The Director that ran the check is on the trigger's machine and was alive a moment ago; starting the
             // session there names ONE Director instead of leaving it to whichever the machine resolves to first.
             Director = directorId,

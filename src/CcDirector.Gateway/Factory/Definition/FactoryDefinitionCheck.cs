@@ -49,13 +49,15 @@ public static class FactoryDefinitionCheck
     public const string SeatsPlace = "seats/";
 
     /// <summary>
-    /// The error a start with a check gets at publish and restore (Factory Definition, phase 4, design section 3): a
-    /// check from a definition cannot run before phase 5b, so a version holding one cannot drive the factory yet. A
-    /// draft may hold it.
+    /// The error a TIMED start with a check gets at publish and restore (Factory Definition, phase 5b): an interval
+    /// start's check runs from this phase, but a timed start's check is due when its time comes, and the due check is
+    /// the next pull request of phase 5b. Until it lands such a start would start its session without its check, so a
+    /// version holding one cannot drive the factory yet. A draft may hold it.
     /// </summary>
-    public const string CheckStartNotYet =
-        "This start has a check. Checks from a definition run from phase 5b of the factory definition work, so this " +
-        "version cannot be published yet; publish it without the start, or wait.";
+    public const string TimedCheckStartNotYet =
+        "This start has a cron time and a check. A timed start's check runs when its time is due, which comes in the " +
+        "next part of phase 5b of the factory definition work, so this version cannot be published yet; give the start " +
+        "an interval (every) instead, publish it without the check, or wait.";
 
     /// <summary>
     /// Check a whole definition. <paramref name="factoryId"/> is the factory the save names;
@@ -638,8 +640,8 @@ public static class FactoryDefinitionCheck
             {
                 var checkPath = Text(check);
                 named.Checks.Add(checkPath);
-                if (_purpose == DefinitionCheckPurpose.Publish)
-                    Error(_findings, path, check.KeyLine, CheckStartNotYet);
+                if (_purpose == DefinitionCheckPurpose.Publish && cron is not null)
+                    Error(_findings, path, check.KeyLine, TimedCheckStartNotYet);
                 if (!_p.Checks.Contains(checkPath))
                     Error(_findings, path, check.KeyLine, $"The start names the check '{checkPath}', which is not in this definition.");
                 if (preventOverlap?.Value is DefinitionScalar { Value: "false" })

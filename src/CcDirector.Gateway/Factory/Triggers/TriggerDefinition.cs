@@ -70,15 +70,43 @@ public static partial class TriggerDefinition
         return null;
     }
 
+    /// <summary>The placeholder in a definition trigger's prompt that is replaced with what its check said
+    /// (Factory Definition, phase 5b). A command trigger's prompt keeps it as written.</summary>
+    public const string ContextPlaceholder = "{context}";
+
     /// <summary>The prompt a started session gets: the definition's prompt with every <c>{count}</c> replaced.</summary>
     public static string PromptFor(string prompt, int count)
         => (prompt ?? "").Replace(CountPlaceholder, count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             StringComparison.Ordinal);
 
+    /// <summary>A DEFINITION trigger's prompt: every <c>{count}</c> and every <c>{context}</c> replaced - the context
+    /// with the empty string when the check said none.</summary>
+    public static string PromptFor(string prompt, int count, string? context)
+        => PromptFor(prompt, count).Replace(ContextPlaceholder, context ?? "", StringComparison.Ordinal);
+
     /// <summary>How long a check may run before the Director kills it: half the interval, at most five minutes,
     /// so a hung check is reported long before the next one is due.</summary>
     public static int TimeoutSecondsFor(int intervalSeconds)
         => Math.Min(300, Math.Max(30, intervalSeconds / 2));
+
+    /// <summary>
+    /// Why a DEFINITION trigger a publish would write cannot be one, or null (Factory Definition, phase 5b). It has no
+    /// command and no folder of its own to check; its name, its seat, its machine, its prompt and its interval are held
+    /// to the rules every trigger keeps.
+    /// </summary>
+    public static string? ValidateDefinitionTrigger(string name, string factoryAgent, string machine, string prompt,
+        int intervalSeconds)
+    {
+        if (Check(name, "name", MaxNameLength, true) is { } nameError) return nameError;
+        if (!NamePattern().IsMatch(name.Trim()))
+            return "name may hold only letters, digits, spaces, dots, dashes and underscores, and must start with a letter or digit";
+        if (Check(factoryAgent, "factoryAgent", MaxLabelLength, true) is { } agentError) return agentError;
+        if (Check(machine, "machine", MaxMachineLength, true) is { } machineError) return machineError;
+        if (Check(prompt, "prompt", MaxPromptLength, true) is { } promptError) return promptError;
+        if (intervalSeconds < MinimumIntervalSeconds || intervalSeconds > MaximumIntervalSeconds)
+            return $"intervalSeconds must be between {MinimumIntervalSeconds} and {MaximumIntervalSeconds}";
+        return null;
+    }
 
     private static string? Check(string? value, string field, int maxLength, bool required)
     {

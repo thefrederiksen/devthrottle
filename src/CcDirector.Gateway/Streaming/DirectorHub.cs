@@ -90,10 +90,12 @@ public sealed class DirectorHub : Hub
         Licenses.LicenseGatewayClock? licenseClock = null,
         Licenses.LicenseApprovalRelay? licenseApprovals = null,
         FactoryMachineQuestionCapabilityRegistry? factoryMachineQuestionCapabilities = null,
-        FactoryKitCapabilityRegistry? factoryKitCapabilities = null)
+        FactoryKitCapabilityRegistry? factoryKitCapabilities = null,
+        DefinitionCheckCapabilityRegistry? definitionChecks = null)
     {
         _factoryMachineQuestionCapabilities = factoryMachineQuestionCapabilities;
         _factoryKitCapabilities = factoryKitCapabilities;
+        _definitionChecks = definitionChecks;
         _secretMachines = secretMachines;
         _licenseUsage = licenseUsage;
         _licenseApprovals = licenseApprovals;
@@ -180,6 +182,8 @@ public sealed class DirectorHub : Hub
     /// <summary>Which connected Directors build a seat's kit (Factory Definition mission, phase 5) - learned here, from
     /// Hello.</summary>
     private readonly FactoryKitCapabilityRegistry? _factoryKitCapabilities;
+    /// <summary>Which connected Directors run checks from a factory's definition - learned here, from Hello.</summary>
+    private readonly DefinitionCheckCapabilityRegistry? _definitionChecks;
     /// <summary>The machines that can receive a secret (the Secret Handoff mission) - learned here, from Hello.</summary>
     private readonly Secrets.SecretMachineRegistry? _secretMachines;
     /// <summary>License Switching: takes each usage report and owns which connection may send it. Null (older callers, tests
@@ -490,6 +494,7 @@ public sealed class DirectorHub : Hub
         _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwnerIfExpected);
         _factoryMachineQuestionCapabilities?.Record(tenant, directorId, hello.AnswersFactoryMachineQuestion);
         _factoryKitCapabilities?.Record(tenant, directorId, hello.BuildsFactoryKit);
+        _definitionChecks?.Record(tenant, directorId, hello.DefinitionChecks);
         _secretMachines?.Record(tenant, directorId, hello.MachineName, hello.SecretTransferPublicKey, DateTime.UtcNow,
             registeringCredential);
         // Kept against the CONNECTION, from every Hello: an approval for this Director's sign-in is sealed to the key

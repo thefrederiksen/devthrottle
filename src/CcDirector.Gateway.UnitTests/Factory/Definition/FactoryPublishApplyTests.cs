@@ -115,8 +115,120 @@ public sealed class FactoryPublishApplyTests : IDisposable
         Assert.Contains(@"Schedule cj_boss (DevThrottle - Boss) changed: name ""devthrottle - boss"" -> ""DevThrottle - Boss""; folder D:\somewhere -> D:\ReposFred\devthrottle.", result.Applied);
         Assert.Contains($"Schedule {outreach.Id} (DevThrottle - Outreach) created for seat outreach: Weekdays 09:00 Europe/Copenhagen.", result.Applied);
         Assert.Contains("Schedule cj_old (devthrottle - writer) deleted: no start in the definition names it; its runs are kept.", result.Applied);
-        Assert.Equal("Trigger inbox-watch deleted: checks from a definition run from phase 5b, so until then a defined factory has no triggers; its run history is kept.",
+        Assert.Equal("Trigger inbox-watch deleted: its check is a command, and a defined factory's triggers come from its definition; its run history is kept.",
             result.Applied[^1]);
+    }
+
+    // ---------- definition triggers (phase 5b) ----------
+
+    [Fact]
+    public void Publish_AnIntervalStartWithACheck_WritesADefinitionTrigger_AndLeavesTheUndefinedFactorysTriggerAlone()
+    {
+        var invoiceBefore = System.Text.Json.JsonSerializer.Serialize(_s.Triggers(FactoryPublishScenario.Undefined));
+
+        var result = _s.SaveAndPublish(DefinitionFixture.Valid());
+
+        var t = Assert.Single(_s.Triggers(TheFactory));
+        Assert.Equal(("devthrottle-outreach-start-1", "outreach", "outreach", "SOREN_SOUTH"), (t.Name, t.Seat, t.FactoryAgent, t.Machine));
+        Assert.Equal(("", @"D:\ReposFred\devthrottle", 600), (t.CheckCommand, t.RepoPath, t.IntervalSeconds));
+        Assert.Equal(("checks/new_mail.py", """["outreach-imap-password"]""", 1), (t.CheckPath, t.SecretsJson, t.DefinitionVersion));
+        Assert.Equal("New mail: {count}. {context}", t.Prompt);
+        Assert.False(t.Paused);
+        Assert.Equal("definition of devthrottle, published by the owner (device dev-1)", t.CreatedBy);
+        Assert.Contains("Trigger devthrottle-outreach-start-1 created for seat outreach: every 10 minutes, check checks/new_mail.py with secret outreach-imap-password, on SOREN_SOUTH.",
+            result.Applied);
+        Assert.Equal(invoiceBefore, System.Text.Json.JsonSerializer.Serialize(_s.Triggers(FactoryPublishScenario.Undefined)));
+    }
+
+    [Fact]
+    public void Publish_AnEditedIntervalStart_ChangesTheTriggerInPlace_KeepingItsIdPauseAndCheckState()
+    {
+        // Arrange: version 1 publishes the trigger; the owner pauses it and its check has stored a state.
+        _s.SaveAndPublish(DefinitionFixture.Valid());
+        var before = _s.Triggers(TheFactory).Single();
+        var triggers = new CcDirector.Gateway.Factory.Triggers.TriggerStore(_s.Db);
+        triggers.SetPaused(_s.Tenant, before.Id.ToString("D"), true);
+        var owner = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateStore.TriggerOwner(before.Id);
+        triggers.CheckStates.RecordIfChanged(_s.Tenant, TheFactory, owner, "seen m-41", "dir-1", null, FactoryPublishScenario.Now);
+
+        // Act: version 2 checks every 5 minutes.
+        var result = _s.SaveAndPublish(new Dictionary<string, string>(DefinitionFixture.Valid())
+            .Also("seats/outreach.yaml", "every: 10m", "every: 5m"));
+
+        // Assert
+        var after = _s.Triggers(TheFactory).Single();
+        Assert.Equal(before.Id, after.Id);
+        Assert.Equal((300, 2, true), (after.IntervalSeconds, after.DefinitionVersion, after.Paused));
+        Assert.Equal("seen m-41", triggers.CheckStates.StateFor(_s.Tenant, TheFactory, owner));
+        Assert.Contains("Trigger devthrottle-outreach-start-1 changed: every 10 minutes -> every 5 minutes; its check is read from version 2.", result.Applied);
+    }
+
+    [Fact]
+    public void Publish_WithNothingChangedForTheStart_KeepsTheTrigger_AndMovesTheVersionItsCheckIsReadFrom()
+    {
+        _s.SaveAndPublish(DefinitionFixture.Valid());
+        var id = _s.Triggers(TheFactory).Single().Id;
+
+        var result = _s.SaveAndPublish(new Dictionary<string, string>(DefinitionFixture.Valid())
+            .Also("checks/new_mail.py", "print('{\"count\": 0}')", "print('{\"count\": 1}')"));
+
+        var t = _s.Triggers(TheFactory).Single();
+        Assert.Equal((id, 2), (t.Id, t.DefinitionVersion));
+        Assert.Contains("Trigger devthrottle-outreach-start-1 kept as it is; its check is read from version 2.", result.Applied);
+    }
+
+    [Fact]
+    public void Publish_TwoIntervalStartsSwappedInTheList_SwapTheirTriggersNames_InOneTransaction()
+    {
+        // Arrange: the outreach seat checks mail every 10 minutes and its calendar every hour.
+        const string two = """
+              - every: 10m
+                check: checks/new_mail.py
+                secrets: [outreach-imap-password]
+                prompt: "New mail: {count}. {context}"
+              - every: 1h
+                check: checks/new_mail.py
+                prompt: "Hourly: {count}."
+            """;
+        const string swapped = """
+              - every: 1h
+                check: checks/new_mail.py
+                prompt: "Hourly: {count}."
+              - every: 10m
+                check: checks/new_mail.py
+                secrets: [outreach-imap-password]
+                prompt: "New mail: {count}. {context}"
+            """;
+        var start = DefinitionFixture.OutreachCheckedStart.ReplaceLineEndings("\n");
+        _s.SaveAndPublish(new Dictionary<string, string>(DefinitionFixture.Valid()).Also("seats/outreach.yaml", start, two.ReplaceLineEndings("\n")));
+        var before = _s.Triggers(TheFactory).ToDictionary(t => t.IntervalSeconds, t => (t.Id, t.Name));
+        Assert.Equal("devthrottle-outreach-start-1", before[600].Name);
+        Assert.Equal("devthrottle-outreach-start-2", before[3600].Name);
+
+        // Act: the same two starts, the hourly one written first.
+        var result = _s.SaveAndPublish(new Dictionary<string, string>(DefinitionFixture.Valid()).Also("seats/outreach.yaml", start, swapped.ReplaceLineEndings("\n")));
+
+        // Assert: each trigger kept its id and took the name of its new place, though each name was the other's.
+        var after = _s.Triggers(TheFactory).ToDictionary(t => t.IntervalSeconds, t => (t.Id, t.Name));
+        Assert.Equal((before[3600].Id, "devthrottle-outreach-start-1"), after[3600]);
+        Assert.Equal((before[600].Id, "devthrottle-outreach-start-2"), after[600]);
+        Assert.Contains("Trigger devthrottle-outreach-start-1 changed: renamed devthrottle-outreach-start-2 -> devthrottle-outreach-start-1; its check is read from version 2.", result.Applied);
+    }
+
+    [Fact]
+    public void Publish_WithoutTheIntervalStart_DeletesItsTrigger_AndKeepsItsRunHistory()
+    {
+        _s.SaveAndPublish(DefinitionFixture.Valid());
+        var id = _s.Triggers(TheFactory).Single().Id;
+        var triggers = new CcDirector.Gateway.Factory.Triggers.TriggerStore(_s.Db);
+        triggers.RecordCheck(_s.Tenant, id, "dir-1", FactoryPublishScenario.Now, CcDirector.Gateway.Contracts.TriggerRunOutcome.NothingToDo, 0, null, null,
+            FactoryPublishScenario.Now);
+
+        var result = _s.SaveAndPublish(DefinitionFixture.Publishable());
+
+        Assert.Empty(_s.Triggers(TheFactory));
+        Assert.Single(triggers.ListRuns(_s.Tenant, id, 10));
+        Assert.Contains("Trigger devthrottle-outreach-start-1 deleted: no start in the definition names it; its run history is kept.", result.Applied);
     }
 
     // ---------- the failure: nothing changes ----------
@@ -131,6 +243,38 @@ public sealed class FactoryPublishApplyTests : IDisposable
         }.ToString()));
 
         FactoryPublishScenario.PublishWhoseScheduleWriteFails_ChangesNothing(_s, failing);
+    }
+
+    [Fact]
+    public void Publish_WhoseTriggerWriteFails_ChangesNothing_RegistrySchedulesTriggersCheckStateAndThePublishMark()
+    {
+        // Arrange: version 1 publishes the trigger and its check has kept a state; version 2 moves the boss's schedule
+        // AND changes the trigger, so the schedule write goes through before the trigger write throws.
+        var failing = FactoryPublishScenario.FailingTriggers(b => b.UseSqlite(new SqliteConnectionStringBuilder
+        {
+            DataSource = _h.DbPath,
+            ForeignKeys = true,
+        }.ToString()));
+        _s.SaveAndPublish(DefinitionFixture.Valid());
+        var trigger = _s.Triggers(TheFactory).Single();
+        var owner = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateStore.TriggerOwner(trigger.Id);
+        new CcDirector.Gateway.Factory.Triggers.TriggerStore(_s.Db).CheckStates
+            .RecordIfChanged(_s.Tenant, TheFactory, owner, "seen m-41", "dir-1", null, FactoryPublishScenario.Now);
+        var v2 = _s.Save(new Dictionary<string, string>(DefinitionFixture.Valid())
+            .Also("seats/outreach.yaml", "every: 10m", "every: 5m")
+            .Also("seats/boss.yaml", "\"0 8 * * 1-5\"", "\"0 7 * * 1-5\""));
+        var before = _s.Snapshot();
+
+        // Act
+        var result = _s.Publish(v2, replaces: 1, through: failing);
+
+        // Assert: the 500 sentence names the trigger step, and nothing at all changed.
+        Assert.Equal(FactoryDefinitionOutcome.WriteFailed, result.Write.Outcome);
+        Assert.Equal($"The publish changed nothing: writing trigger devthrottle-outreach-start-1 ({trigger.Id}) for seat 'outreach' failed: {FailTheTriggerWrite.Message}",
+            result.Write.Refusal);
+        Assert.Empty(result.Applied);
+        Assert.Equal(before, _s.Snapshot());
+        Assert.Equal(1, _s.Store.Standing(_s.Tenant, TheFactory).Published!.Version);
     }
 
     [Fact]

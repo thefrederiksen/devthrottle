@@ -2130,6 +2130,32 @@ A save or an import whose content maps a path to no text at all (JSON `null`) is
 file's shape without saving. A schema says no more than the check enforces; the check also covers paths, caps,
 a factory skill's frontmatter and every reference.
 
+### Factory check state
+
+The state a factory's checks keep between runs (Factory Definition mission, phase 5b). A start with `every:` in a
+published definition is run as a trigger whose check is the definition's Python file, and that check may keep a
+small state file - the last message it saw, the last row it counted. The Gateway holds it, every version kept, and
+the newest is the state.
+
+```
+USAGE: cc-devthrottle factory check-state show FACTORY [SEAT] [--start N] [--json]
+       cc-devthrottle factory check-state reset FACTORY SEAT [--start N] [--json]
+```
+
+A start is named by its seat and its number: its place in that seat's `starts:` list, counting every start from 1
+- the number in its trigger's name, `<factory>-<seat>-start-<N>`. A seat whose first start is timed and whose
+second is a checked interval start has one checked start, and its number is 2.
+**Show** lists every checked start of the published definition with the newest state its check left (cut to one
+line; `--json` gives it whole). A factory with no published definition has none and says `count: 0`.
+
+**Reset** adds an empty state on top of the history, so the check's next run is a first run - the way out of a
+state that keeps a check failing. A seat with more than one checked start needs `--start`. Only a person resets:
+a session is refused by the Gateway with `Only a person resets a check's state. A session of the factory may read
+it with 'cc-devthrottle factory check-state show'; ask the owner to reset it.` and the command exits 1.
+
+The routes are `GET /factory-definitions/{factory}/check-state` and
+`POST /factory-definitions/{factory}/check-state/reset` with `{"ownerKey": "trigger:<id>"}`.
+
 ### Run
 
 How each scheduled run went (Factory Control, step 1). Every run says how it went - ok, or a problem with

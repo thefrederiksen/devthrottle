@@ -1269,12 +1269,17 @@ public static class SessionKeyGuard
             if (s[2] is "history" or "diff") return verb is "GET" or "HEAD";
             // /export - the definition as a folder of files (phase 3); a read.
             if (s[2] == "export") return verb is "GET" or "HEAD";
+            // /check-state - the state each checked start's check keeps (phase 5b); a read.
+            if (s[2] == "check-state") return verb is "GET" or "HEAD";
             // /publish and /restore - refused by the store for a session, in words.
             if (s[2] is "publish" or "restore") return verb == "POST";
         }
 
         // /versions/{version} - one version, with its content.
         if (s.Length == 4 && s[2] == "versions") return verb is "GET" or "HEAD";
+
+        // /check-state/reset - refused by the route for a session, in words (only a person resets a check's state).
+        if (s.Length == 4 && s[2] == "check-state" && s[3] == "reset") return verb == "POST";
 
         return false;
     }

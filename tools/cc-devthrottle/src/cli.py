@@ -16,6 +16,7 @@ from . import email_ops
 from . import factory_email_ops
 from . import factory_ops
 from . import factory_brief_ops
+from . import factory_check_state_ops
 from . import factory_definition_ops
 from . import factory_memory_ops
 from . import factory_record_ops
@@ -173,6 +174,13 @@ factory_definition_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_definition_app, name="definition")
+factory_check_state_app = typer.Typer(
+    cls=AxiGroup,
+    help="The state a factory's checks keep between runs: show it, or reset one start's.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_check_state_app, name="check-state")
 factory_journal_app = typer.Typer(
     cls=AxiGroup,
     help="A factory's journals on the Gateway: what each seat wrote about a day.",
@@ -4737,6 +4745,41 @@ def factory_definition_schemas(
     shape; a save or an import also checks paths, caps and that every reference resolves.
     """
     factory_definition_ops.schemas(out, json_output)
+
+
+@factory_check_state_app.command("show")
+def factory_check_state_show(
+    factory: str = typer.Argument(..., help="The factory's id, for example warmforward."),
+    seat: Optional[str] = typer.Argument(None, help="Show only this seat's checked starts."),
+    start: Optional[int] = typer.Option(None, "--start", min=1, help="Show only the start with this number: its place in the seat's starts list, from 1."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the starts as JSON, each state whole."),
+) -> None:
+    """Every checked start of the published definition, with the newest state its check left.
+
+    A start is named by its seat and its number: its place in the seat's starts: list, counting every start from 1
+    (the number in its trigger's name, <factory>-<seat>-start-<N>).
+    A state longer than one line is cut short here; --json gives it whole.
+    """
+    factory_check_state_ops.show(factory, seat, start, json_output)
+
+
+@factory_check_state_app.command("reset")
+def factory_check_state_reset(
+    factory: str = typer.Argument(..., help="The factory's id, for example warmforward."),
+    seat: str = typer.Argument(..., help="The seat whose checked start to reset."),
+    start: Optional[int] = typer.Option(
+        None, "--start", min=1,
+        help="The start's number: its place in the seat's starts list, from 1 (show prints it). Not needed when the "
+             "seat has one checked start.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the reset start as JSON."),
+) -> None:
+    """Empty one checked start's state, so its check's next run is a first run. Only a person resets.
+
+    The old state is kept in the history; the reset adds an empty state on top. A session that runs this is refused
+    by the Gateway with the sentence that says so, and exits non-zero.
+    """
+    factory_check_state_ops.reset(factory, seat, start, json_output)
 
 
 @factory_app.command("export")

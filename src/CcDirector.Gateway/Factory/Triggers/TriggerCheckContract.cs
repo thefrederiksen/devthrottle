@@ -6,7 +6,9 @@ namespace CcDirector.Gateway.Factory.Triggers;
 /// <summary>What one check report came to under the check contract: a count, or the reason it has none.</summary>
 /// <param name="Count">The integer the check printed, or null when the check failed.</param>
 /// <param name="FailureReason">Why the check failed, in words, or null when it kept the contract.</param>
-public readonly record struct TriggerCheckReading(int? Count, string? FailureReason)
+/// <param name="Context">What a definition check said about the work, for the prompt's <c>{context}</c>; null when it
+/// said nothing, and always null on a command trigger.</param>
+public readonly record struct TriggerCheckReading(int? Count, string? FailureReason, string? Context = null)
 {
     public bool Failed => FailureReason is not null;
 }
@@ -28,7 +30,21 @@ public static class TriggerCheckContract
     /// <summary>How much of a check's own output a failure reason quotes, so a reason stays one line.</summary>
     public const int QuotedOutputLimit = 200;
 
-    public static TriggerCheckReading Read(TriggerCheckReport report)
+    /// <summary>The most a definition check's <c>context</c> may hold: 8 KB of UTF-8.</summary>
+    public const int MaxContextBytes = 8 * 1024;
+
+    /// <summary>The failure of a definition check whose state file outgrew what the Gateway keeps.</summary>
+    public const string StateOversizeReason = "the state file is larger than 64 KB";
+
+    /// <summary>Read a COMMAND trigger's report: the contract exactly as it has always been.</summary>
+    public static TriggerCheckReading Read(TriggerCheckReport report) => Read(report, definitionCheck: false);
+
+    /// <summary>
+    /// Read one report. A DEFINITION check (Factory Definition, phase 5b, design 3.1) is held to two more rules: its
+    /// optional <c>context</c> must be a string of at most 8 KB, and its state file must not have outgrown 64 KB. A
+    /// command trigger's <c>context</c> is ignored and it has no state - its reading is unchanged.
+    /// </summary>
+    public static TriggerCheckReading Read(TriggerCheckReport report, bool definitionCheck)
     {
         ArgumentNullException.ThrowIfNull(report);
 
@@ -76,7 +92,26 @@ public static class TriggerCheckContract
             if (count < 0)
                 return Fail($"the count is negative: {count}");
 
-            return new TriggerCheckReading(count, null);
+            if (!definitionCheck)
+                return new TriggerCheckReading(count, null);
+
+            string? context = null;
+            if (doc.RootElement.TryGetProperty("context", out var contextElement))
+            {
+                if (contextElement.ValueKind != JsonValueKind.String)
+                    return Fail($"the context is not a string: {OneLine(contextElement.GetRawText())}");
+                context = contextElement.GetString()!;
+                var bytes = System.Text.Encoding.UTF8.GetByteCount(context);
+                if (bytes > MaxContextBytes)
+                    return Fail($"the context is {bytes} bytes; it may be at most {MaxContextBytes} bytes (8 KB)");
+            }
+
+            // The Director measures the file and says so; a state it sent anyway that is too large is the same failure.
+            if (report.StateOversize
+                || (report.State is not null && System.Text.Encoding.UTF8.GetByteCount(report.State) > FactoryCheckStateStore.MaxContentBytes))
+                return Fail(StateOversizeReason);
+
+            return new TriggerCheckReading(count, null, context);
         }
     }
 

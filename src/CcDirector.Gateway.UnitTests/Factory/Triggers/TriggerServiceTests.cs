@@ -62,7 +62,8 @@ public sealed class TriggerServiceTests : IDisposable
             findSessionByName: (_, name) => _sessions.Values.FirstOrDefault(s => s.Name == name),
             timeZone: _ => TimeZoneInfo.Utc,
             nowUtc: () => _now,
-            startLifetime: _lifetime.Token);
+            startLifetime: _lifetime.Token,
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
     }
 
     private static TriggerEntityRef Add(TriggerService service, bool paused = false, TenantId? tenant = null)
