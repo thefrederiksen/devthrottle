@@ -92,7 +92,7 @@ From this worktree rebased onto origin/main `5c068319f`, with the review's rulin
 
 | Command | Result |
 |---|---|
-| `.\scripts	est-local.ps1` | GREEN, ten suites, every TRX `outcome=Completed` |
+| `.\scripts\test-local.ps1` | GREEN, ten suites, every TRX `outcome=Completed` |
 | `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Trigger"` | Passed 2,215, failed 0 |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Factory"` | Passed 28, failed 0 |
 | `npm run typecheck` | Exit 0 |
