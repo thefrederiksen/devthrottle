@@ -47,7 +47,8 @@ namespace CcDirector.Gateway.Factory.Definition;
 /// while fewer than <see cref="MaxWaitingDrafts"/> drafts wait above the published version, a person is not bound,
 /// and the history is read one page at a time without any version's content.
 ///
-/// NOTHING READS THIS STORE YET. Until phase 4 a factory runs exactly as it did before.
+/// WHAT READS IT (phase 4): <see cref="IsDefined"/>, which every route that would define a factory another way asks
+/// before it writes (<see cref="DefinedByDefinition"/>).
 /// </summary>
 public sealed class FactoryDefinitionStore
 {
@@ -105,6 +106,23 @@ public sealed class FactoryDefinitionStore
         {
             using var ctx = _db.CreateContext(tenant);
             return StandingInside(ctx, factory);
+        }
+    }
+
+    /// <summary>
+    /// IS THIS FACTORY DEFINED (Factory Definition mission, phase 4): true when at least one version of its definition
+    /// is PUBLISHED. A factory with only drafts, or with no definition at all, is not defined and keeps every path it
+    /// had before (goal 14). This is the ONE answer every route that would define a factory another way asks
+    /// (<see cref="DefinedByDefinition"/>), so it reads one indexed row and no content - cheap enough for every write.
+    /// A blank or misspelt factory id is never defined: such a route names no factory a definition could hold.
+    /// </summary>
+    public bool IsDefined(TenantId tenant, string? factory)
+    {
+        if (string.IsNullOrWhiteSpace(factory) || !FactoryNames.TryFactory(factory, out var folded, out _)) return false;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return Versions(ctx, folded).Any(v => v.State == FactoryDefinitionStates.Published);
         }
     }
 

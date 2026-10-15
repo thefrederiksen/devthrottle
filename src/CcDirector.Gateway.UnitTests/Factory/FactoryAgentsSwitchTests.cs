@@ -161,7 +161,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         FactoryActivityEndpoints.Map(gate, record);
         FactoryMapEndpoints.Map(gate, new FactoryMapStore(new TenantSettingsStore(Db)), resolve);
         FactoryRegistryEndpoints.Map(gate, resolve, new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(Db),
-            sessionStart: (_, _) => null, nowUtc: () => _now);
+            sessionStart: (_, _) => null, nowUtc: () => _now,
+            isDefined: (_, _) => false);
         FactoryAgentsViewEndpoints.Map(gate, resolve, sources);
         FactoriesScreenEndpoints.Map(gate, resolve, new FactoriesScreenSources(sources,
             new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(Db), _ => Array.Empty<CronJobDto>(),
@@ -169,7 +170,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
             (_, f) => new CronRunProblemsDto { Factory = f },
             (_, f) => new FactoryEmailsDto { Factory = f }));
         TriggerEndpoints.Map(FactoryAgentsGate.Group(app, sw, resolve), resolve, triggers,
-            directorMachine: (_, _) => "NORTH", nowUtc: () => _now, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+            directorMachine: (_, _) => "NORTH", nowUtc: () => _now, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
+            isDefined: (_, _) => false);
         return (app, sw);
     }
 

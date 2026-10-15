@@ -23,6 +23,10 @@ namespace CcDirector.Gateway.Api;
 ///   PUT    /cron/jobs/{id}       body CronJobDto    -> 200 CronJobDto | 400 | 404
 ///   DELETE /cron/jobs/{id}       -> { id, deleted } | 404
 ///   POST   /cron/jobs/{id}/unlink -> CronUnlinkResultDto | 403 | 404 | 409   (take it off its factory seat)
+///
+/// A factory with a PUBLISHED definition (Factory Definition, phase 4) has its schedules written by a publish, so
+/// the create, the edit, the delete and the unlink of one of its schedules answer 409
+/// { error, outcome: "DefinedByDefinition" }. Switching one on or off (a PUT that changes only Enabled) still works.
 /// </summary>
 internal static class CronJobEndpoints
 {
@@ -45,12 +49,18 @@ internal static class CronJobEndpoints
         // Factory Control, step 3: the calling account's display time zone, which a schedule's shifts are counted in.
         // Null when the request has no account to read it from; the schedules are then answered without shifts.
         // REQUIRED for the same reason as the three above.
-        Func<HttpContext, TimeZoneInfo?> accountZoneOf)
+        Func<HttpContext, TimeZoneInfo?> accountZoneOf,
+        // Factory Definition, phase 4: whether the calling account's factory of this id has a published definition
+        // (FactoryDefinitionStore.IsDefined). A defined factory's schedules are written by a publish, so every route
+        // here that would define one another way is refused (DefinedByDefinition). REQUIRED for the same reason as
+        // the four above: a wiring line that forgot it would let a schedule edit undo a publish and fail nothing.
+        Func<HttpContext, string?, bool> isDefined)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findFactory);
         ArgumentNullException.ThrowIfNull(runRecords);
         ArgumentNullException.ThrowIfNull(accountZoneOf);
+        ArgumentNullException.ThrowIfNull(isDefined);
         app.MapPost("/cron/jobs", async (HttpContext ctx) =>
         {
             CronJobDto? job;
@@ -79,6 +89,10 @@ internal static class CronJobEndpoints
                     "POST /cron/jobs", out var factoryError, out var settledFactory))
                 return factoryError!;
             job.Factory = settledFactory;
+
+            // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a defined factory's schedules come from its definition.
+            if (isDefined(ctx, job.Factory))
+                return Factory.Definition.DefinedByDefinition.Refusal("POST /cron/jobs", job.Factory!);
 
             // THE SEAT, checked against the registry (issue #3650): factory work exists only as a registered seat.
             if (!TrySettleSeat(ctx, findFactory, job, storedFactory: null, storedSeat: null, "POST /cron/jobs", out var seatError))
@@ -346,6 +360,17 @@ internal static class CronJobEndpoints
                 return factoryError!;
             incoming.Factory = settledFactory;
 
+            // ONE SOURCE OF TRUTH (Factory Definition, phase 4). A schedule of a defined factory, or a body that would
+            // put one on a defined factory (linking), is the definition's to write - except a switch on or off, which
+            // re-sends the stored job with only Enabled changed and is operating the factory, not defining it.
+            var stored = store.Get(id);
+            var definedFactory = isDefined(ctx, stored?.Factory) ? stored!.Factory
+                : isDefined(ctx, incoming.Factory) ? incoming.Factory
+                : null;
+            if (definedFactory is not null
+                && !(stored is not null && Factory.Definition.DefinedByDefinition.DiffersOnlyInEnabled(stored, incoming)))
+                return Factory.Definition.DefinedByDefinition.Refusal($"PUT /cron/jobs/{id}", definedFactory);
+
             // The seat follows the factory's rule: a body that says nothing about it keeps the stored seat, and the
             // pair that results is checked against the registry like a create (issue #3650).
             if (!TrySettleSeat(ctx, findFactory, incoming, storedFactory, store.Get(id)?.Seat, $"PUT /cron/jobs/{id}", out var seatError))
@@ -377,6 +402,9 @@ internal static class CronJobEndpoints
             if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Get(id)?.Factory, "schedule",
                     $"DELETE /cron/jobs/{id}", out var actError))
                 return actError!;
+            // A defined factory's schedule is deleted by publishing a definition without its start (phase 4).
+            if (store.Get(id)?.Factory is { } storedFactory && isDefined(ctx, storedFactory))
+                return Factory.Definition.DefinedByDefinition.Refusal($"DELETE /cron/jobs/{id}", storedFactory);
             // A window schedule that runs after this one keeps the minute it has and keeps running; it cannot be
             // placed again until its after= names a schedule that exists, and the answer says which ones.
             var orphans = store.ListAll()
@@ -407,6 +435,9 @@ internal static class CronJobEndpoints
                 return Results.NotFound(new { error = "no such cron job", id });
             if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, job.Factory, "schedule", route, out var actError))
                 return actError!;
+            // Taking a schedule off a seat of a defined factory is the definition's to do (phase 4).
+            if (isDefined(ctx, job.Factory))
+                return Factory.Definition.DefinedByDefinition.Refusal(route, job.Factory!);
             if (string.IsNullOrWhiteSpace(job.Factory))
             {
                 FileLog.Write($"[CronJobEndpoints] {route}: REFUSED - the schedule is in no factory");

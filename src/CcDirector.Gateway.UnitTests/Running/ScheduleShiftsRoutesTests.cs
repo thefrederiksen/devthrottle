@@ -41,7 +41,8 @@ public sealed class ScheduleShiftsRoutesTests : IAsyncLifetime
         _app.Urls.Add("http://127.0.0.1:0");
         var runRecords = new CronRunRecordReader(history, new CcDirector.Gateway.History.SessionHistoryStore(db).EndingsOf);
         CronJobEndpoints.Map(_app, _store, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
-            findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => _zone);
+            findFactory: (_, _) => null, runRecords: runRecords, accountZoneOf: _ => _zone,
+            isDefined: (_, _) => false);
         var engine = new CronEngine(_store, history, new RecordingStarter(), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FakeClock(EngineNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,

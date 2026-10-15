@@ -5236,7 +5236,9 @@ public sealed class GatewayHost : IAsyncDisposable
             store: FactoryRegistry,
             sessionStart: (tenant, sessionId) =>
                 Factory.FactorySessionStarts.Read(FactoryActivity, tenant, new[] { sessionId }).TryGetValue(sessionId, out var row) ? row : null,
-            nowUtc: () => DateTime.UtcNow);
+            nowUtc: () => DateTime.UtcNow,
+            // Factory Definition, phase 4: a defined factory is registered by its publish, never by this route.
+            isDefined: FactoryDefinitions.IsDefined);
         Api.FactoryAgentsViewEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: FactoryAgentsViewSources());
@@ -5829,7 +5831,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 ? FactoryRegistry.Find(tenant, factory)
                 : null,
             runRecords: cronRunRecords,
-            accountZoneOf: AccountZoneOf);
+            accountZoneOf: AccountZoneOf,
+            // Factory Definition, phase 4: a defined factory's schedules are written by its publish, never by these
+            // routes. An account this request has no tenant for holds no definition.
+            isDefined: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+                && FactoryDefinitions.IsDefined(tenant, factory));
         // The schedule editor's factory and seat picker (the owner, 2026-10-10): the same registry the write checks.
         Api.CronSeatChoicesEndpoint.Map(_app, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
             ? FactoryRegistry.List(tenant)
@@ -5919,7 +5925,9 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow,
             // Factory Memory mission (phase 1): only a person or a session already in that factory may name a
             // trigger's factory - the sessions it starts are born into it.
-            sessionFactoryOf: _sessionHistory.FactoryOf);
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            // Factory Definition, phase 4: a defined factory's triggers are its definition's to write.
+            isDefined: FactoryDefinitions.IsDefined);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,
