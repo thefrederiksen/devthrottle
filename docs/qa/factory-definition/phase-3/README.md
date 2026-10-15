@@ -229,4 +229,34 @@ schemas[4]{name,applies}:
 
 ## The check, as run
 
-See the table added below when the check was run on this branch rebased onto origin/main.
+Run on Windows on 2026-10-15, from this worktree, on the branch based on `origin/main` at `21a049971` (main had not
+moved when it was fetched again after the last line). Every command ran in the foreground, one after another. The
+first six lines ran at `67c2f7cb3`; the command line then failed two of its own help tests (below), fixed in
+`97eefeaf7`, which touches only the command line and its tests, and the Python lines are the run at `97eefeaf7`.
+
+| Command | Result |
+|---|---|
+| `.\scripts\test-local.ps1` | GREEN at `67c2f7cb3`, tree clean: ten suites, 4,495 tests, every TRX `outcome=Completed`. It names the three parked suites as a coverage gap; the three lines below are those suites' factory tests |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Trigger"` | Passed: 1,944, failed: 0, skipped: 0 |
+| `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Factory"` | Passed: 28, failed: 0, skipped: 0 |
+| `dotnet test src/CcDirector.Core.Tests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~InheritedSessionEnvironment"` | Passed: 16, failed: 0, skipped: 0 |
+| `npm run typecheck` | Exit 0 |
+| `npm test --workspace @devthrottle/client-core` | 167 files, 2,068 tests passed. See the note below |
+| `uv run --no-project --with "typer>=0.16.1" --with "click>=8.2.1" --with "rich>=13.0.0" --with "requests>=2.31.0" --with pytest python -m pytest tools/cc-devthrottle/tests -q -k "factory or schedule or trigger"` | 1,162 passed, 3,425 deselected (at `67c2f7cb3`); the whole suite below covers them at `97eefeaf7` |
+
+Also run, beyond the check:
+
+| Command | Result | Why |
+|---|---|---|
+| the same `uv run ... python -m pytest tools/cc-devthrottle/tests -q` (the whole command line suite) | At `67c2f7cb3`: 2 failed, 4,582 passed. At `97eefeaf7`: 4,584 passed, 3 skipped, 0 failed | The help of every command and the pinned actions list are checked there, outside the `-k` filter. The two failures were this branch's: the `factory export` summary was 85 characters (the limit is 80), and the three new actions were not in the test's list of actions added since the pin |
+
+**The client-core note.** The first `npm test --workspace @devthrottle/client-core` run reported one file failing,
+51 of its tests; its name was not captured. The two runs after it, with nothing changed, passed all 167 files and
+2,068 tests. This branch changes no TypeScript and nothing the client reads.
+
+**The Python line** is run through `uv` because the machine's own Python has click 8.1.8, below the tool's floor of
+8.2.1, as phase 1's report says.
+
+**Not run, and why.** `scripts/test-database.ps1` and `-Parked`: this branch adds no migration and no table. Of the
+Gateway unit tests, 162 are this branch's own and run in the filtered line above: 151 in the three new classes and 11
+added to the pipeline tests (three facts, eight route rows).
