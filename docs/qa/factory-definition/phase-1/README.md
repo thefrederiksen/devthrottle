@@ -156,7 +156,9 @@ version 1 held it (both in the transcript).
 | An unknown key (`colour: red` added to the writer) | `Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.` then `errors[1]:` `seats/writer.yaml:4: 'colour' is not a key of a seat file. The keys are: seat, name, role, line, machine, agent, model, repository, brief, starts, grants, rules, secrets, skills, files.` | 1 |
 | A dangling reference (the writer names `files/missing.md`) | `errors[1]:` `seats/writer.yaml:9: The seat names the file 'files/missing.md', which is not in this definition.` | 1 |
 | A factory skill and a fleet skill with the same name (`skills/dev-throttle/SKILL.md` added; the writer names the fleet skill `dev-throttle`) | `errors[1]:` `seats/writer.yaml:8: 'dev-throttle' is both a factory skill (skills/dev-throttle/SKILL.md) and a fleet skill, so a seat would not know which one it got. Rename the factory skill.` | 1 |
-| A factory skill on an agent that cannot load one (the writer on Codex names the factory skill `house-style`) | `errors[1]:` `seats/writer.yaml:10: Phase 0 has not shown that Codex can load a factory skill, so a seat on Codex cannot name one yet.` | 1 |
+| A factory skill on an agent that cannot load one (the writer on Codex names the factory skill `house-style`) | `errors[1]:` `seats/writer.yaml:10: Codex reads skills only from the start folder and its parents, the user's home folder and an administrator folder; none of them is for one session alone, so a Codex seat cannot be given a factory skill.` | 1 |
+| A rule set on an agent that cannot enforce one (the boss, which carries `rules: [base]`, moved to Codex) | `errors[1]:` `seats/boss.yaml:11: Codex enforces a rule given at launch only while its hook runs; when the hook is missing, fails or times out the command runs anyway, so a Codex seat cannot carry rules.` | 1 |
+| A rule path that begins with exactly one slash (`Read(/secrets/**)` added to the deny list of `rules/base.json`) | `errors[1]:` `rules/base.json:4: 'Read(/secrets/**)' starts with one slash, which Claude Code reads from the folder the rules are launched from, not the seat's repository, so it would match nothing there. Write ./secrets/** for the start folder, or //secrets/** for an absolute path.` | 1 |
 
 After the refusals, `history --count 2` shows four versions in all - nothing refused was stored - and the session's
 draft as version 4, written by `session <its id>`.
@@ -165,12 +167,16 @@ The caps are proven in the route tests, not on the rig: `A_FILE_OVER_ITS_CAP_IS_
 (422, an error on the oversized file). So is a publish that the check refuses because the account changed after the
 save: `A_PUBLISH_CHECKS_AGAIN_with_the_accounts_skills_as_they_are_NOW_and_publishes_nothing_on_an_error`.
 
-### Waiting on the phase 0 follow-up
+### The phase 0 follow-up, run after it merged
 
-Pull request 4003 (the check refuses what phase 0 showed an agent cannot take) had not merged when this was
-written. Until it does, every agent reads "not shown yet" for factory skills, which is what the last row above shows,
-and no agent is refused rules. Once it merges, `rig/run_qa.py --phase0` adds a Codex seat carrying a rule set, and
-the factory-skill row then carries Codex's own reason; both are to be added here, quoted.
+Pull request 4003 (the check refuses what phase 0 showed an agent cannot take) merged as `1d3149902`. This branch
+took it in, the Gateway was rebuilt, and the rig ran again with `rig/run_qa.py --phase0`, which adds two cases to
+the one that was already there: a Codex seat carrying a rule set, and a rule path with one leading slash. The last
+three rows of the table above are quoted from that run's `transcript.txt`. The factory-skill row, which read "Phase 0
+has not shown that Codex can load a factory skill" before 4003, now carries Codex's own reason. The two Codex
+refusals still print the notice that no Director on the rig's machine is connected; the one-slash refusal does not,
+because it is found in the format stage, before the machines are looked at. `history --count 2` after them still
+shows four versions: none of the three was stored.
 
 ## Decisions made inside the brief, for the Tech Lead to keep or replace
 

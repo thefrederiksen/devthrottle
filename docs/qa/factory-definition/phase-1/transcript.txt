@@ -128,16 +128,16 @@ help[2]:
 $ cc-devthrottle factory definition history qa-outreach      (as a person: the rig's enrolled browser device)
 count: 3 of 3. Version 3 is the published definition.
 versions[3]{version,state,written,by,files,bytes,note}:
-  v3,PUBLISHED NOW,2026-10-14T23:54:27.3820593Z,person device browser qa-browser,6,936,"restored from version 1."
-  v2,published,2026-10-14T23:54:25.6214006Z,person device browser qa-browser,6,959,"the second definition"
-  v1,published,2026-10-14T23:54:24.3038678Z,person device browser qa-browser,6,936,"the first definition"
+  v3,PUBLISHED NOW,2026-10-15T00:44:39.3199826Z,person device browser qa-browser,6,936,"restored from version 1."
+  v2,published,2026-10-15T00:44:37.7953946Z,person device browser qa-browser,6,959,"the second definition"
+  v1,published,2026-10-15T00:44:36.6990304Z,person device browser qa-browser,6,936,"the first definition"
 help[2]:
   cc-devthrottle factory definition get qa-outreach --version <version>
   cc-devthrottle factory definition diff qa-outreach --to <version>
 [exit 0]
 
 $ cc-devthrottle factory definition get qa-outreach      (as a person: the rig's enrolled browser device)
-qa-outreach  version 3  published  written by person device browser qa-browser  2026-10-14T23:54:27.3820593Z  6 files  936 bytes
+qa-outreach  version 3  published  written by person device browser qa-browser  2026-10-15T00:44:39.3199826Z  6 files  936 bytes
 A copy of version 1, restored.
 files[6]{path,bytes}:
   factory.yaml,260
@@ -185,7 +185,7 @@ help[2]:
   cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 3
 [exit 1]
 
-$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\second-version --expected-version 3 --note "proposed by a session"      (as session 89c50be0-e0bd-4c4d-8a95-d1197d36b234, of factory qa-outreach)
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\second-version --expected-version 3 --note "proposed by a session"      (as session b44451dc-2929-4d60-947a-7ad07dac889e, of factory qa-outreach)
 Saved: version 4 of the definition of qa-outreach is a draft (6 files, 959 bytes).
 Version 3 stays the published definition until a person publishes this draft.
 notices[1]:
@@ -195,27 +195,27 @@ help[2]:
   cc-devthrottle factory definition publish qa-outreach --version 4
 [exit 0]
 
-$ cc-devthrottle factory definition publish qa-outreach --version 4      (as session 89c50be0-e0bd-4c4d-8a95-d1197d36b234, of factory qa-outreach)
+$ cc-devthrottle factory definition publish qa-outreach --version 4      (as session b44451dc-2929-4d60-947a-7ad07dac889e, of factory qa-outreach)
 Error: Only a person publishes a factory's definition. A session of the factory may save a draft; the owner reads it and publishes it.
 help[2]:
   cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version <newest version>
   cc-devthrottle factory definition history qa-outreach
 [exit 1]
 
-$ cc-devthrottle factory definition restore qa-outreach --version 2 --expected-version 4      (as session 89c50be0-e0bd-4c4d-8a95-d1197d36b234, of factory qa-outreach)
+$ cc-devthrottle factory definition restore qa-outreach --version 2 --expected-version 4      (as session b44451dc-2929-4d60-947a-7ad07dac889e, of factory qa-outreach)
 Error: Only a person publishes a factory's definition, and restoring an older version publishes a copy of it. A session of the factory may save the content it wants as a new draft; the owner publishes it.
 help[2]:
   cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version <newest version>
   cc-devthrottle factory definition history qa-outreach
 [exit 1]
 
-$ cc-devthrottle factory definition get qa-outreach --draft      (as session de71efa5-417f-45f8-9346-ee8f6e926429, of factory invoice-factory)
+$ cc-devthrottle factory definition get qa-outreach --draft      (as session 4ff07799-53f3-4db9-a572-44cc43d33f85, of factory invoice-factory)
 Error: this definition belongs to factory 'qa-outreach', so only a person or a session of 'qa-outreach' may change or run it
 help[1]:
   cc-devthrottle setup status
 [exit 1]
 
-$ cc-devthrottle factory definition save qa-outreach --dir <repo>\docs\qa\factory-definition\phase-1\example --expected-version 4      (as session de71efa5-417f-45f8-9346-ee8f6e926429, of factory invoice-factory)
+$ cc-devthrottle factory definition save qa-outreach --dir <repo>\docs\qa\factory-definition\phase-1\example --expected-version 4      (as session 4ff07799-53f3-4db9-a572-44cc43d33f85, of factory invoice-factory)
 Error: this definition belongs to factory 'qa-outreach', so only a person or a session of 'qa-outreach' may change or run it
 help[1]:
   cc-devthrottle setup status
@@ -261,9 +261,31 @@ help[1]:
 $ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\factory-skill-on-codex --expected-version 4      (as a person: the rig's enrolled browser device)
 Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
 errors[1]:
-  seats/writer.yaml:10: Phase 0 has not shown that Codex can load a factory skill, so a seat on Codex cannot name one yet.
+  seats/writer.yaml:10: Codex reads skills only from the start folder and its parents, the user's home folder and an administrator folder; none of them is for one session alone, so a Codex seat cannot be given a factory skill.
 notices[1]:
   factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[1]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 4
+[exit 1]
+
+# variant 'rules-on-codex': the example with seats/boss.yaml: 'role: Boss\n' -> 'role: Boss\nagent: Codex\n'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\rules-on-codex --expected-version 4      (as a person: the rig's enrolled browser device)
+Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
+errors[1]:
+  seats/boss.yaml:11: Codex enforces a rule given at launch only while its hook runs; when the hook is missing, fails or times out the command runs anyway, so a Codex seat cannot carry rules.
+notices[1]:
+  factory.yaml:9: No Director on SOREN_NORTH is connected now, so it could not be confirmed.
+help[1]:
+  cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 4
+[exit 1]
+
+# variant 'rule-path-one-slash': the example with rules/base.json: '"deny": ["Bash(git push:*)"]' -> '"deny": ["Bash(git push:*)", "Read(/secrets/**)"]'
+
+$ cc-devthrottle factory definition save qa-outreach --dir <rig>\variants\rule-path-one-slash --expected-version 4      (as a person: the rig's enrolled browser device)
+Error: The definition was not saved: the check found 1 error in the definition of qa-outreach. Fix each one where it is and try again.
+errors[1]:
+  rules/base.json:4: 'Read(/secrets/**)' starts with one slash, which Claude Code reads from the folder the rules are launched from, not the seat's repository, so it would match nothing there. Write ./secrets/** for the start folder, or //secrets/** for an absolute path.
 help[1]:
   cc-devthrottle factory definition save qa-outreach --dir <folder> --expected-version 4
 [exit 1]
@@ -271,8 +293,8 @@ help[1]:
 $ cc-devthrottle factory definition history qa-outreach --count 2      (as a person: the rig's enrolled browser device)
 count: 2 of 4. Version 3 is the published definition.
 versions[2]{version,state,written,by,files,bytes,note}:
-  v4,draft,2026-10-14T23:54:31.3086401Z,session 89c50be0-e0bd-4c4d-8a95-d1197d36b234,6,959,"proposed by a session"
-  v3,PUBLISHED NOW,2026-10-14T23:54:27.3820593Z,person device browser qa-browser,6,936,"restored from version 1."
+  v4,draft,2026-10-15T00:44:42.5711336Z,session b44451dc-2929-4d60-947a-7ad07dac889e,6,959,"proposed by a session"
+  v3,PUBLISHED NOW,2026-10-15T00:44:39.3199826Z,person device browser qa-browser,6,936,"restored from version 1."
 Older versions follow, below version 3.
 help[3]:
   cc-devthrottle factory definition history qa-outreach --before 3

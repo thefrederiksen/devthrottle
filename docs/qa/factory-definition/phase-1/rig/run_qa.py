@@ -20,8 +20,8 @@ transcript.txt beside this script's output folder, exactly as printed.
 Usage (from the repository root, after `dotnet build src/CcDirector.Gateway/CcDirector.Gateway.csproj`):
     uv run --no-project --with "typer>=0.16.1" --with "click>=8.2.1" --with "rich>=13.0.0" --with "requests>=2.31.0" \
         python docs/qa/factory-definition/phase-1/rig/run_qa.py <out dir> [--phase0]
---phase0 adds the two refusals the phase 0 follow-up (pull request 4003) brings: a Codex seat naming a factory skill,
-and a Codex seat carrying a rule set.
+--phase0 adds the refusals the phase 0 follow-up (pull request 4003) brings: a Codex seat naming a factory skill,
+a Codex seat carrying a rule set, and a rule path that begins with exactly one slash.
 """
 
 import hashlib
@@ -245,6 +245,9 @@ def main():
         if phase0:
             cli(person, [*d.split(), "save", FACTORY, "--dir", variant("rules-on-codex", [
                 ("seats/boss.yaml", "role: Boss\n", "role: Boss\nagent: Codex\n")]), "--expected-version", "4"], 1)
+            cli(person, [*d.split(), "save", FACTORY, "--dir", variant("rule-path-one-slash", [
+                ("rules/base.json", '"deny": ["Bash(git push:*)"]', '"deny": ["Bash(git push:*)", "Read(/secrets/**)"]')]),
+                "--expected-version", "4"], 1)
         cli(person, [*d.split(), "history", FACTORY, "--count", "2"], 0)
     finally:
         gw.terminate()
