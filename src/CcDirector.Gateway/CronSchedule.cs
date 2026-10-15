@@ -159,7 +159,7 @@ public static class CronSchedule
         return local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
     }
 
-    private static bool IsRecurring(string? kind) =>
+    internal static bool IsRecurring(string? kind) =>
         string.Equals(kind?.Trim(), KindRecurring, StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsOneOff(string? kind) =>

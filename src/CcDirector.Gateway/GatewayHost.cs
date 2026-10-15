@@ -280,9 +280,12 @@ public sealed class GatewayHost : IAsyncDisposable
     internal Factory.Registry.FactoryRegistryStore FactoryRegistry { get; }
 
     /// <summary>Every factory's definition held on the Gateway, every version kept (Factory Definition mission,
-    /// phase 1). Nothing reads it yet: the routes are a later step of phase 1, and how a factory runs does not change
-    /// until phase 4.</summary>
+    /// phase 1).</summary>
     internal Factory.Definition.FactoryDefinitionStore FactoryDefinitions { get; }
+
+    /// <summary>A person's publish or restore of a definition, driving the factory - registry row, schedules and
+    /// triggers - in one transaction (Factory Definition mission, phase 4).</summary>
+    internal Factory.Definition.FactoryPublishApply FactoryDefinitionPublish { get; }
 
     /// <summary>The factory triggers (Website Business Factory, product track): the definitions, their run
     /// history, and the decision to start a session when a check counts work. Constructed whatever the switch
@@ -2563,6 +2566,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // A factory's whole definition, every version kept (Factory Definition mission, phase 1). It needs only the
         // database: a definition does not require the factory to be registered.
         FactoryDefinitions = new Factory.Definition.FactoryDefinitionStore(_gatewayDb);
+        FactoryDefinitionPublish = new Factory.Definition.FactoryPublishApply(_gatewayDb);
         var cronClock = new Running.SystemClock();
         // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
         // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run
@@ -5902,6 +5906,7 @@ public sealed class GatewayHost : IAsyncDisposable
             fleetSkillsOf: FleetSkillIdsOf,
             connectedMachinesOf: ConnectedMachinesOf,
             liveOf: FactoryLivePartsOf,
+            apply: FactoryDefinitionPublish,
             nowUtc: () => DateTime.UtcNow);
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,

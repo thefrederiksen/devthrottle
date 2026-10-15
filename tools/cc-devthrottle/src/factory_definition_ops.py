@@ -24,6 +24,12 @@ THE GATEWAY RULES, THIS MODULE PRINTS (rule 7). Every refusal and every finding 
 printed as the Gateway wrote it - `file:line: message` - and "what changes" is printed sentence by sentence and line
 by line as the Gateway composed it. Nothing here decides what a finding or a change means. A refusal exits non-zero.
 
+A PUBLISH DRIVES THE FACTORY (phase 4). `publish` and `restore` print what changes and then `applied`: one sentence
+per step the Gateway's transaction took - the registry row, each schedule, each trigger - verbatim. `diff` prints the
+published version it compared against and `plan`: what a publish WOULD do to the live factory now. Pass that
+published version as `--replaces` and a publish that another one overtook is refused instead of shown against the
+wrong version.
+
 TWO WRITERS ON ONE DEFINITION. `save` sends the version the caller last READ (`--expected-version`, 0 when the
 factory has no definition on the Gateway yet). It is required and never looked up here just before writing: a
 version nobody was shown is not a version anybody read. A stale save is refused with the newest version attached;
@@ -332,21 +338,28 @@ def save(factory: str, folder: str, expected_version: int, note: Optional[str], 
                         f"{_TOOL} publish {_f(factory)} --version {saved['version']}"])
 
 
-def publish(factory: str, version: int, json_output: bool) -> None:
+def _with_replaces(body: Dict[str, Any], replaces: Optional[int]) -> Dict[str, Any]:
+    """The body, with the published version the person saw when they give one (0 = none was published)."""
+    if replaces is not None:
+        body["replaces"] = replaces
+    return body
+
+
+def publish(factory: str, version: int, json_output: bool, replaces: Optional[int] = None) -> None:
     """Publish one version. A person's act: with a session's key the Gateway refuses it and says so."""
     try:
-        answer = gateway.post_json(_route(factory) + "/publish", {"version": version})
+        answer = gateway.post_json(_route(factory) + "/publish", _with_replaces({"version": version}, replaces))
     except gateway.GatewayError as exc:
         _fail_gateway(exc, _after_refusal(exc, factory))
         return
     _published(answer, factory, json_output, f"Published: version {version}")
 
 
-def restore(factory: str, version: int, expected_version: int, json_output: bool) -> None:
+def restore(factory: str, version: int, expected_version: int, json_output: bool, replaces: Optional[int] = None) -> None:
     """Publish a copy of an older version as the newest. A person's act, refused for a session's key."""
     try:
         answer = gateway.post_json(_route(factory) + "/restore",
-                                   {"version": version, "expectedVersion": expected_version})
+                                   _with_replaces({"version": version, "expectedVersion": expected_version}, replaces))
     except gateway.GatewayError as exc:
         _fail_gateway(exc, _after_refusal(exc, factory))
         return
@@ -359,6 +372,8 @@ def _after_refusal(exc: gateway.GatewayError, factory: str) -> List[str]:
     if _outcome(exc) == "OnlyAPersonPublishes":
         return [f"{_TOOL} save {_f(factory)} --dir <folder> --expected-version <newest version>",
                 f"{_TOOL} history {_f(factory)}"]
+    if _outcome(exc) == "Stale":
+        return [f"{_TOOL} diff {_f(factory)}", f"{_TOOL} history {_f(factory)}"]
     if exc.status in (400, 404, 409, 422):
         return [f"{_TOOL} history {_f(factory)}"]
     return [axi_cli.CHECK_GATEWAY]
@@ -375,8 +390,29 @@ def _published(answer: Any, factory: str, json_output: bool, what: str) -> None:
     axi_cli.write_lines(f"{what} of the definition of {answer.get('factory')}. Version {answer['version']} is now "
                         "the published definition.",
                         *_changes_lines(answer.get("changes")),
+                        *_applied_lines(answer.get("applied")),
                         *_findings_lines(answer.get("findings")))
     axi_cli.print_next([f"{_TOOL} get {_f(factory)}", f"{_TOOL} history {_f(factory)}"])
+
+
+def _applied_lines(applied: Any) -> List[str]:
+    """What the publish's transaction did to the live factory, one sentence per step, as the Gateway wrote them."""
+    if not isinstance(applied, list):
+        return []
+    return ["applied:", *(f"  {step}" for step in applied)]
+
+
+def _plan_lines(plan: Any) -> List[str]:
+    """What a publish WOULD do to the live factory now, as the Gateway composed it: its heading and its steps, or why
+    a publish would be refused and where."""
+    if not isinstance(plan, dict):
+        return []
+    lines = [str(plan.get("heading", ""))]
+    if plan.get("refused"):
+        lines.append(f"  Refused: {plan['refused']}")
+        lines.extend(f"  {line}" for line in _findings_lines(plan.get("findings")))
+    lines.extend(f"  {step}" for step in plan.get("steps") or [])
+    return lines
 
 
 def diff(factory: str, from_version: Optional[int], to_version: Optional[int], json_output: bool) -> None:
@@ -397,11 +433,18 @@ def diff(factory: str, from_version: Optional[int], to_version: Optional[int], j
         print(json.dumps(answer, indent=2))
         return
     start = answer.get("from")
+    published = answer.get("publishedVersion")
     axi_cli.write_lines(
         f"{answer.get('factory')}: from " + (f"version {start}" if isinstance(start, int) else "nothing published")
         + f" to version {answer['to']}.",
-        *_changes_lines(changes))
-    axi_cli.print_next([f"{_TOOL} publish {_f(factory)} --version {answer['to']}", f"{_TOOL} history {_f(factory)}"])
+        f"published version: {published}" if isinstance(published, int) else "published version: none",
+        *_changes_lines(changes),
+        *_plan_lines(answer.get("plan")))
+    replaces = published if isinstance(published, int) else 0
+    plan = answer.get("plan")
+    act = "restore" if isinstance(plan, dict) and plan.get("act") == "restore" else "publish"
+    axi_cli.print_next([f"{_TOOL} {act} {_f(factory)} --version {answer['to']} --replaces {replaces}",
+                        f"{_TOOL} history {_f(factory)}"])
 
 
 # ---------------------------------------------------------------------------------------------------

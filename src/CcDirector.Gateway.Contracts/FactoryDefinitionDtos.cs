@@ -72,6 +72,42 @@ public sealed class FactoryDefinitionDto
     /// first publish), so the person sees what they just did. Null on a save and on a read.
     /// </summary>
     public FactoryDefinitionChangesDto? Changes { get; set; }
+
+    /// <summary>
+    /// On a publish or a restore (phase 4): what the transaction did to the live factory, one sentence per step in the
+    /// order it took them - the publish mark, the registry row, each schedule, each trigger. Composed on the Gateway and
+    /// shown verbatim. Null on a save and on a read.
+    /// </summary>
+    public List<string>? Applied { get; set; }
+}
+
+/// <summary>
+/// What a publish WOULD do to the live factory now (phase 4), as <c>GET .../diff</c> carries it: the same sentences a
+/// publish answers in <c>applied</c>, composed against the factory as it runs at the moment of the read. A schedule a
+/// publish would create has no id yet, so it is named by what it runs.
+/// </summary>
+public sealed class FactoryDefinitionPlanDto
+{
+    /// <summary>The version whose publish is planned (the diff's <c>to</c>).</summary>
+    public int Version { get; set; }
+
+    /// <summary>
+    /// The act that would apply the plan: <c>publish</c>, or <c>restore</c> when the version is older than the published
+    /// one, because publishing does not go backwards and a restore publishes a copy of it as the newest version.
+    /// </summary>
+    public string Act { get; set; } = "publish";
+
+    /// <summary>The line that says what the steps are, composed on the Gateway.</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>The steps, in the order a publish would take them. Empty when a publish would be refused.</summary>
+    public List<string> Steps { get; set; } = new();
+
+    /// <summary>Why a publish of this version would be refused as the factory stands now, or null.</summary>
+    public string? Refused { get; set; }
+
+    /// <summary>The rows the publish would refuse, file and line, when <see cref="Refused"/> is a row rule.</summary>
+    public List<FactoryDefinitionFindingDto> Findings { get; set; } = new();
 }
 
 /// <summary>
@@ -161,6 +197,15 @@ public sealed class FactoryDefinitionDiffResponse
 
     /// <summary>What changes, every sentence composed on the Gateway.</summary>
     public FactoryDefinitionChangesDto Changes { get; set; } = new();
+
+    /// <summary>
+    /// The published version as the Gateway read it for this answer, or null when none is published: the version a
+    /// person passes as <c>replaces</c> to publish what they have just read (phase 4).
+    /// </summary>
+    public int? PublishedVersion { get; set; }
+
+    /// <summary>What a publish of <see cref="To"/> would do to the live factory now (phase 4).</summary>
+    public FactoryDefinitionPlanDto? Plan { get; set; }
 }
 
 /// <summary>
@@ -181,6 +226,13 @@ public sealed class SaveFactoryDefinitionDraftRequest
 public sealed class PublishFactoryDefinitionRequest
 {
     public int Version { get; set; }
+
+    /// <summary>
+    /// The published version the person saw when they read what changes (0 = none was published), so a publish that
+    /// another one overtook is refused rather than shown against the wrong version (phase 4). Null (absent): no such
+    /// check, as before.
+    /// </summary>
+    public int? Replaces { get; set; }
 }
 
 /// <summary>Body of a person's restore: which older version to publish a copy of as the newest version.</summary>
@@ -194,6 +246,9 @@ public sealed class RestoreFactoryDefinitionRequest
     /// means "I did not check", and the copy is then added after whatever is newest.
     /// </summary>
     public int ExpectedVersion { get; set; }
+
+    /// <summary>The published version the person saw, as for a publish (phase 4). Null (absent): no such check.</summary>
+    public int? Replaces { get; set; }
 }
 
 /// <summary>

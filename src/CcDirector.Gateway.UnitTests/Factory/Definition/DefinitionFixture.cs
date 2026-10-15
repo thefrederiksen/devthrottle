@@ -192,6 +192,72 @@ internal static class DefinitionFixture
         ["skills/mail-voice/examples.md"] = "Dear Ada, thank you for writing.\n",
     }.ToDictionary(kv => kv.Key, kv => kv.Value.ReplaceLineEndings("\n"), StringComparer.Ordinal);
 
+    /// <summary>The outreach seat's interval start, which has a check (lines 12 to 15 of its file).</summary>
+    public const string OutreachCheckedStart = """
+          - every: 10m
+            check: checks/new_mail.py
+            secrets: [outreach-imap-password]
+            prompt: "New mail: {count}. {context}"
+        """;
+
+    /// <summary>The same start as a time with no check, in as many lines, so every later line keeps its number.</summary>
+    public const string OutreachTimedStart = """
+          - cron: "0 9 * * 1-5"
+            timeZone: Europe/Copenhagen
+            preventOverlap: true
+            prompt: "New mail: {count}. {context}"
+        """;
+
+    /// <summary>
+    /// The valid definition as a publish takes it (Factory Definition, phase 4): a start with a check cannot be
+    /// published before phase 5b, so the outreach seat's interval start is a time with no check here. Every file keeps
+    /// its line numbers.
+    /// </summary>
+    public static Dictionary<string, string> Publishable()
+    {
+        var content = Valid();
+        var start = OutreachCheckedStart.ReplaceLineEndings("\n");
+        Assert.Contains(start, content["seats/outreach.yaml"]);
+        content["seats/outreach.yaml"] = content["seats/outreach.yaml"].Replace(start, OutreachTimedStart.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        return content;
+    }
+
+    /// <summary><see cref="Publishable"/> with one exact piece of one file's text replaced (it must occur).</summary>
+    public static Dictionary<string, string> PublishableEdit(string path, string oldText, string newText)
+    {
+        var content = Publishable();
+        Assert.Contains(oldText, content[path]);
+        content[path] = content[path].Replace(oldText, newText, StringComparison.Ordinal);
+        return content;
+    }
+
+    /// <summary><see cref="Publishable"/> with one file's text replaced.</summary>
+    public static Dictionary<string, string> PublishableWith(string path, string text)
+    {
+        var content = Publishable();
+        content[path] = text.ReplaceLineEndings("\n");
+        return content;
+    }
+
+    /// <summary>
+    /// The registration that matches the fixture: the factory registered in its folder with its three seats, as
+    /// <c>cc-devthrottle factory register</c> would send it - so a publish (phase 4) has the registry row it requires.
+    /// </summary>
+    public static Contracts.RegisterFactoryRequest Registration() => new()
+    {
+        Factory = FactoryId,
+        Title = "DevThrottle",
+        Folder = @"D:\ReposFred\devthrottle",
+        Computer = "SOREN_NORTH",
+        BossSeat = "boss",
+        Seats = new List<Contracts.FactorySeatManifest>
+        {
+            new() { Id = "boss", Name = "Boss", Role = "Boss", BriefFile = "briefs/boss.md" },
+            new() { Id = "outreach", Name = "Outreach", Role = "Sales", BriefFile = "briefs/outreach.md" },
+            new() { Id = "writer", Name = "Writer", Role = "Writer", BriefFile = "briefs/writer.md" },
+        },
+    };
+
     /// <summary>The valid definition with one file's text replaced.</summary>
     public static Dictionary<string, string> With(string path, string text)
     {

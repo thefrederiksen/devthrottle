@@ -4664,13 +4664,19 @@ def factory_definition_save(
 def factory_definition_publish(
     factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
     version: int = typer.Option(..., "--version", min=1, help="The version to publish."),
+    replaces: Optional[int] = typer.Option(
+        None, "--replaces", min=0,
+        help="The published version you read (diff prints it; 0 when none). Refused if another publish got there first.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
 ) -> None:
-    """Publish one version and print what changes. Only a person publishes.
+    """Publish one version and print what changes and what it applied to the factory. Only a person publishes.
 
-    A session that runs this is refused by the Gateway with the sentence that says so, and exits non-zero.
+    The publish drives the factory - its registry row, schedules and triggers - in one transaction, and prints
+    each step it took. A session that runs this is refused by the Gateway with the sentence that says so, and exits
+    non-zero.
     """
-    factory_definition_ops.publish(factory, version, json_output)
+    factory_definition_ops.publish(factory, version, json_output, replaces)
 
 
 @factory_definition_app.command("restore")
@@ -4681,13 +4687,17 @@ def factory_definition_restore(
         0, "--expected-version", min=0,
         help="The newest version you read. 0, the default, means you did not check.",
     ),
+    replaces: Optional[int] = typer.Option(
+        None, "--replaces", min=0,
+        help="The published version you read (0 when none). Refused if another publish got there first.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the new version as JSON."),
 ) -> None:
-    """Publish a copy of an older version as the newest version. Only a person does.
+    """Publish a copy of an older version as the newest version, and drive the factory to it. Only a person does.
 
     The versions in between stay in the history. A session that runs this is refused by the Gateway.
     """
-    factory_definition_ops.restore(factory, version, expected_version, json_output)
+    factory_definition_ops.restore(factory, version, expected_version, json_output, replaces)
 
 
 @factory_definition_app.command("diff")
@@ -4697,7 +4707,10 @@ def factory_definition_diff(
     to_version: Optional[int] = typer.Option(None, "--to", min=1, help="Compare to this version. Default: the newest."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the difference as JSON."),
 ) -> None:
-    """What changes from one version to another, as the Gateway words it."""
+    """What changes from one version to another, as the Gateway words it, and what a publish would do now.
+
+    Prints the published version it compared against: pass it to publish as --replaces.
+    """
     factory_definition_ops.diff(factory, from_version, to_version, json_output)
 
 

@@ -6,6 +6,16 @@ using CcDirector.Gateway.Factory.Triggers;
 
 namespace CcDirector.Gateway.Factory.Definition;
 
+/// <summary>What a whole-definition check is for.</summary>
+public enum DefinitionCheckPurpose
+{
+    /// <summary>A draft is saved: nothing runs from it.</summary>
+    Save,
+
+    /// <summary>A version is published or restored: it drives the factory (phase 4).</summary>
+    Publish,
+}
+
 /// <summary>
 /// THE WHOLE-DEFINITION CHECK (Factory Definition, phase 1; design section 7). One pure function: given a version's
 /// content (path to text), the factory id the caller names, the account's fleet skill ids and the machines the
@@ -39,29 +49,40 @@ public static class FactoryDefinitionCheck
     public const string SeatsPlace = "seats/";
 
     /// <summary>
+    /// The error a start with a check gets at publish and restore (Factory Definition, phase 4, design section 3): a
+    /// check from a definition cannot run before phase 5b, so a version holding one cannot drive the factory yet. A
+    /// draft may hold it.
+    /// </summary>
+    public const string CheckStartNotYet =
+        "This start has a check. Checks from a definition run from phase 5b of the factory definition work, so this " +
+        "version cannot be published yet; publish it without the start, or wait.";
+
+    /// <summary>
     /// Check a whole definition. <paramref name="factoryId"/> is the factory the save names;
     /// <paramref name="fleetSkillIds"/> the skill ids in the account's skill store; <paramref name="connectedMachines"/>
     /// the machine names the account's Directors report now. The result carries the parsed definition when there is no
-    /// error.
+    /// error. <paramref name="purpose"/> says what the check is for: a publish or a restore drives the factory (phase
+    /// 4), so it also refuses a start with a check and words the secret question as the publish asks it.
     /// </summary>
     public static FactoryDefinitionCheckResult Check(
         IReadOnlyDictionary<string, string> content,
         string factoryId,
         IReadOnlyCollection<string> fleetSkillIds,
-        IReadOnlyCollection<string> connectedMachines)
+        IReadOnlyCollection<string> connectedMachines,
+        DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(factoryId);
         ArgumentNullException.ThrowIfNull(fleetSkillIds);
         ArgumentNullException.ThrowIfNull(connectedMachines);
-        FileLog.Write($"[FactoryDefinitionCheck] Check: factory={factoryId}, files={content.Count}, fleetSkills={fleetSkillIds.Count}, machines={connectedMachines.Count}");
+        FileLog.Write($"[FactoryDefinitionCheck] Check: factory={factoryId}, purpose={purpose}, files={content.Count}, fleetSkills={fleetSkillIds.Count}, machines={connectedMachines.Count}");
 
         var findings = new List<DefinitionFinding>();
         var parsed = ReadFormat(content, findings);
         FactoryDefinition? definition = null;
         if (parsed is not null)
         {
-            new ReferenceCheck(parsed, factoryId, fleetSkillIds, connectedMachines, findings).Run();
+            new ReferenceCheck(parsed, factoryId, fleetSkillIds, connectedMachines, purpose, findings).Run();
             if (!findings.Any(f => f.IsError)) definition = Build(parsed);
         }
 
@@ -374,14 +395,16 @@ public static class FactoryDefinitionCheck
         private readonly HashSet<string> _fleetSkills;
         private readonly HashSet<string> _machines;
         private readonly List<DefinitionFinding> _findings;
+        private readonly DefinitionCheckPurpose _purpose;
         private readonly HashSet<string> _repositories = new(StringComparer.Ordinal);
         private string _defaultMachine = "";
         private string _defaultAgent = "";
 
         public ReferenceCheck(Parsed parsed, string factoryId, IReadOnlyCollection<string> fleetSkills,
-            IReadOnlyCollection<string> machines, List<DefinitionFinding> findings)
+            IReadOnlyCollection<string> machines, DefinitionCheckPurpose purpose, List<DefinitionFinding> findings)
         {
             _p = parsed;
+            _purpose = purpose;
             _factoryId = factoryId;
             _fleetSkills = new HashSet<string>(fleetSkills, StringComparer.Ordinal);
             _machines = new HashSet<string>(machines, StringComparer.OrdinalIgnoreCase);
@@ -431,8 +454,18 @@ public static class FactoryDefinitionCheck
                 var bossId = Text(boss);
                 if (!_p.Seats.TryGetValue(bossId, out var bossSeat))
                     Error(_findings, path, boss.KeyLine, $"The boss seat '{bossId}' does not exist: there is no seats/{bossId}.yaml.");
-                else if (Text(bossSeat.Map.Find("role")!) is var role && role != BossRole)
-                    Error(_findings, path, boss.KeyLine, $"The boss seat '{bossId}' has the role '{role}'; a boss seat's role must be {BossRole}.");
+                else
+                {
+                    if (Text(bossSeat.Map.Find("role")!) is var role && role != BossRole)
+                        Error(_findings, path, boss.KeyLine, $"The boss seat '{bossId}' has the role '{role}'; a boss seat's role must be {BossRole}.");
+                    // THE BOSS HAS NO NAME OF ITS OWN (decision D4, the owner's ruling of 8 October 2026): the registry
+                    // refuses any other, so a publish would fail on it. Said here, on the seat's own name line, so a
+                    // save is refused early rather than only a publish (phase 4).
+                    var nameEntry = bossSeat.Map.Find("name")!;
+                    if (Text(nameEntry) is var name && name != BossRole)
+                        Error(_findings, bossSeat.Path, nameEntry.KeyLine,
+                            $"The boss seat '{bossId}' is named '{name}'. The boss has no name of its own: set its name to \"{BossRole}\".");
+                }
             }
 
             var defaults = (DefinitionMap)map.Find("defaults")!.Value;
@@ -596,6 +629,8 @@ public static class FactoryDefinitionCheck
             {
                 var checkPath = Text(check);
                 named.Checks.Add(checkPath);
+                if (_purpose == DefinitionCheckPurpose.Publish)
+                    Error(_findings, path, check.KeyLine, CheckStartNotYet);
                 if (!_p.Checks.Contains(checkPath))
                     Error(_findings, path, check.KeyLine, $"The start names the check '{checkPath}', which is not in this definition.");
                 if (preventOverlap?.Value is DefinitionScalar { Value: "false" })
@@ -671,8 +706,12 @@ public static class FactoryDefinitionCheck
                 Notice(_findings, path, line, $"No Director on {machine} is connected now, so it could not be confirmed.");
         }
 
+        // THE SECRET QUESTION (mission 5.5 step 5). A publish would ask the seat's machine; until phase 5 ships the
+        // Director's half, the publish says the machine cannot answer yet. A save keeps the phase 1 wording.
         private void SecretNotice(string path, int line, string machine, string secret)
-            => Notice(_findings, path, line, $"Whether {machine} holds '{secret}' is not checked yet.");
+            => Notice(_findings, path, line, _purpose == DefinitionCheckPurpose.Publish
+                ? $"{machine} cannot answer yet whether it holds '{secret}': the question needs a Director that can be asked it, which comes with phase 5. The seat's start will check it."
+                : $"Whether {machine} holds '{secret}' is not checked yet.");
     }
 
     /// <summary>An interval's length in seconds: <c>10m</c> is 600. The schema has already checked its form.</summary>

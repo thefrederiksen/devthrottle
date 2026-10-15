@@ -161,8 +161,57 @@ public sealed class FactoryDefinitionStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var row = Versions(ctx, factory).FirstOrDefault(v => v.Version == version);
-            return row is null ? null : new FactoryDefinitionVersion(Summary(row), ReadContent(row.Content));
+            return FindInside(ctx, factory, version);
+        }
+    }
+
+    /// <summary>
+    /// THE STORE'S RULINGS ON A PERSON'S PUBLISH, WITHOUT WRITING: the refusal (no such version, already published,
+    /// older than the published one), or null with the version to check. A publish that drives the factory asks this
+    /// first, for the sentence, and never calls <see cref="Publish"/>: if the answer changes before its transaction,
+    /// the transaction rules again on what it reads there (review of 4006, finding 1).
+    /// </summary>
+    public FactoryDefinitionWrite? RuleOnPublish(TenantId tenant, string factory, int version, out FactoryDefinitionVersion? wanted)
+    {
+        wanted = null;
+        if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadFactory, factoryRefusal!, null);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            if (WhyNotPublish(ctx, factory, version) is { } refused) return refused;
+            wanted = FindInside(ctx, factory, version);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// THE STORE'S RULINGS ON A PERSON'S RESTORE, WITHOUT WRITING: no such version, already the published one, and a
+    /// stale <paramref name="expectedVersion"/> - or null with the version to check. As <see cref="RuleOnPublish"/>,
+    /// for a restore that drives the factory.
+    /// </summary>
+    public FactoryDefinitionWrite? RuleOnRestore(TenantId tenant, string factory, int version, int? expectedVersion,
+        out FactoryDefinitionVersion? wanted)
+    {
+        wanted = null;
+        if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadFactory, factoryRefusal!, null);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            if (WhyNotRestore(ctx, factory, version, out wanted) is { } refused)
+            {
+                wanted = null;
+                return refused;
+            }
+            var head = Newest(ctx, factory);
+            var expected = ExpectedForRestore(ctx, factory, expectedVersion);
+            if (expected != (head?.Version ?? 0))
+            {
+                wanted = null;
+                return StaleWrite(factory, expected, head);
+            }
+            return null;
         }
     }
 
@@ -207,38 +256,77 @@ public sealed class FactoryDefinitionStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var standing = StandingInside(ctx, factory);
-            var wanted = SummaryOf(ctx, factory, version);
-            if (wanted is null)
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.NoSuchVersion,
-                    NoSuchVersion(factory, version, standing, "publish"), standing.Newest);
-
-            if (wanted.State == FactoryDefinitionStates.Published)
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.AlreadyPublished,
-                    standing.Published?.Version == version
-                        ? $"version {version} is already the published definition of {factory}"
-                        : $"version {version} was published before, and version {standing.Published?.Version} has replaced it. " +
-                          $"To use it again, restore version {version}: that publishes a copy of it as the newest version",
-                    standing.Published);
-
-            if (standing.Published is { } published && published.Version > version)
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.OlderThanPublished,
-                    $"version {version} is older than the published version {published.Version}. Publishing does not go " +
-                    $"backwards: restore version {version}, which publishes a copy of it as the newest version",
-                    published);
+            if (WhyNotPublish(ctx, factory, version) is { } refused) return refused;
 
             var changed = MarkPublished(ctx, factory, version, authorId, nowUtc);
             var now = SummaryOf(ctx, factory, version);
-            if (changed == 0)
-            {
-                FileLog.Write($"[FactoryDefinitionStore] {factory}: version {version} was published by somebody else first");
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.AlreadyPublished,
-                    $"version {version} of the definition of {factory} was published by somebody else a moment ago", now);
-            }
+            if (changed == 0) return PublishedFirstBySomebodyElse(factory, version, now);
             FileLog.Write($"[FactoryDefinitionStore] {factory}: published version {version} by person {authorId ?? "(unknown)"}");
             return FactoryDefinitionWrite.Published(now!);
         }
     }
+
+    /// <summary>
+    /// THE STORE'S RULINGS ON A PUBLISH, read through <paramref name="ctx"/>: no such version, already published,
+    /// older than the published one. Null when the version may be published. Shared by <see cref="Publish"/> and a
+    /// definition's publish that drives the factory (phase 4), which asks inside its own transaction.
+    /// </summary>
+    internal static FactoryDefinitionWrite? WhyNotPublish(GatewayDbContext ctx, string factory, int version)
+    {
+        var standing = StandingInside(ctx, factory);
+        var wanted = SummaryOf(ctx, factory, version);
+        if (wanted is null)
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.NoSuchVersion,
+                NoSuchVersion(factory, version, standing, "publish"), standing.Newest);
+
+        if (wanted.State == FactoryDefinitionStates.Published)
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.AlreadyPublished,
+                standing.Published?.Version == version
+                    ? $"version {version} is already the published definition of {factory}"
+                    : $"version {version} was published before, and version {standing.Published?.Version} has replaced it. " +
+                      $"To use it again, restore version {version}: that publishes a copy of it as the newest version",
+                standing.Published);
+
+        if (standing.Published is { } published && published.Version > version)
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.OlderThanPublished,
+                $"version {version} is older than the published version {published.Version}. Publishing does not go " +
+                $"backwards: restore version {version}, which publishes a copy of it as the newest version",
+                published);
+        return null;
+    }
+
+    /// <summary>The refusal when <see cref="MarkPublished"/> marked nothing: another publish got there first.</summary>
+    internal static FactoryDefinitionWrite PublishedFirstBySomebodyElse(string factory, int version, FactoryDefinitionVersionSummary? now)
+    {
+        FileLog.Write($"[FactoryDefinitionStore] {factory}: version {version} was published by somebody else first");
+        return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.AlreadyPublished,
+            $"version {version} of the definition of {factory} was published by somebody else a moment ago", now);
+    }
+
+    /// <summary>
+    /// THE STORE'S RULINGS ON A RESTORE, read through <paramref name="ctx"/>: no such version, already the published
+    /// one. Returns the refusal, or null with the version to copy. Shared by <see cref="Restore"/> and a definition's
+    /// restore that drives the factory (phase 4).
+    /// </summary>
+    internal static FactoryDefinitionWrite? WhyNotRestore(GatewayDbContext ctx, string factory, int version,
+        out FactoryDefinitionVersion? wanted)
+    {
+        var standing = StandingInside(ctx, factory);
+        wanted = FindInside(ctx, factory, version);
+        if (wanted is null)
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.NoSuchVersion,
+                NoSuchVersion(factory, version, standing, "restore"), standing.Newest);
+        if (standing.Published?.Version == version)
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.AlreadyPublished,
+                $"version {version} is the published definition of {factory} already, so there is nothing to restore",
+                standing.Published);
+        return null;
+    }
+
+    /// <summary>The newest version a restore's copy must follow: the one the person was looking at, or - when they
+    /// state none - whatever is newest now.</summary>
+    internal static int ExpectedForRestore(GatewayDbContext ctx, string factory, int? expectedVersion)
+        => expectedVersion is > 0 ? expectedVersion.Value : Newest(ctx, factory)!.Version;
 
     /// <summary>
     /// Restore an older version: add a copy of its content as the NEWEST version, already published, authored by the
@@ -261,19 +349,10 @@ public sealed class FactoryDefinitionStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var standing = StandingInside(ctx, factory);
-            var wanted = Versions(ctx, factory).FirstOrDefault(v => v.Version == version);
-            if (wanted is null)
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.NoSuchVersion,
-                    NoSuchVersion(factory, version, standing, "restore"), standing.Newest);
-            if (standing.Published?.Version == version)
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.AlreadyPublished,
-                    $"version {version} is the published definition of {factory} already, so there is nothing to restore",
-                    standing.Published);
+            if (WhyNotRestore(ctx, factory, version, out var wanted) is { } refused) return refused;
 
-            var expected = expectedVersion is > 0 ? expectedVersion.Value : standing.Newest!.Version;
-            return Append(ctx, tenant, factory, ReadContent(wanted.Content), expected, published: true,
-                restoredFrom: version, authorKind, authorId, changeNote, nowUtc);
+            return Append(ctx, tenant, factory, wanted!.Files, ExpectedForRestore(ctx, factory, expectedVersion),
+                published: true, restoredFrom: version, authorKind, authorId, changeNote, nowUtc);
         }
     }
 
@@ -349,23 +428,86 @@ public sealed class FactoryDefinitionStore
         return null;
     }
 
-    private FactoryDefinitionWrite Append(GatewayDbContext ctx, TenantId tenant, string factory,
+    private static FactoryDefinitionWrite Append(GatewayDbContext ctx, TenantId tenant, string factory,
         IReadOnlyDictionary<string, string>? files, int expectedVersion, bool published, int? restoredFrom,
         string authorKind, string? authorId, string? changeNote, DateTime nowUtc)
     {
+        if (PrepareAppend(ctx, tenant, factory, files, expectedVersion, published, restoredFrom, authorKind, authorId,
+                changeNote, nowUtc, out var written) is { } refused)
+            return refused;
+
+        // THE KEY DOES THE ARBITRATION. A concurrent writer that got here first owns version current+1, and this
+        // insert then violates the primary key - which is reported as the same stale refusal a slow reader gets,
+        // because that is what happened.
+        ctx.FactoryDefinitions.Add(written!);
+        try
+        {
+            ctx.SaveChanges();
+        }
+        catch (DbUpdateException ex)
+        {
+            ctx.ChangeTracker.Clear();
+            return AfterAFailedAppend(ctx, factory, written!.Version, ex);
+        }
+
+        FileLog.Write($"[FactoryDefinitionStore] {factory}: wrote version {written!.Version} ({written.State}, {written.FileCount} files, {written.ContentBytes} bytes" +
+                      $"{(restoredFrom is { } from ? $", restored from {from}" : "")}) by {authorKind} {authorId ?? "(unknown)"}");
+        var summary = Summary(written);
+        return published ? FactoryDefinitionWrite.Published(summary) : FactoryDefinitionWrite.Saved(summary);
+    }
+
+    /// <summary>
+    /// WHY AN APPEND FAILED, read from a context that can still read: another writer took the version (the stale
+    /// refusal), or the write failed for its own reason. ONLY A SECOND WRITER IS REPORTED AS ONE, as for briefs: a key
+    /// violation is one cause of this exception and not the only one. Telling a caller that another writer won when
+    /// none did tells it to merge and try again for ever. So the head decides.
+    /// </summary>
+    internal static FactoryDefinitionWrite AfterAFailedAppend(GatewayDbContext ctx, string factory, int attemptedVersion, Exception ex)
+    {
+        var headNow = Newest(ctx, factory);
+        if (WasTakenByAnotherWriter(headNow, attemptedVersion))
+        {
+            FileLog.Write($"[FactoryDefinitionStore] {factory}: version {attemptedVersion} was taken by another writer");
+            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
+                $"another writer took version {attemptedVersion} of the definition of {factory} first; read it again, merge, and save once more",
+                headNow);
+        }
+
+        FileLog.Write($"[FactoryDefinitionStore] {factory}: the write FAILED and no other writer holds version {attemptedVersion}: {ex.Message}");
+        return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.WriteFailed,
+            $"the definition of {factory} could not be stored: {Innermost(ex).Message}", headNow);
+    }
+
+    /// <summary>
+    /// THE TWO-WRITER REFUSAL: the writer expected another newest version. The newest version rides the refusal so the
+    /// caller can merge rather than read again and race again.
+    /// </summary>
+    private static FactoryDefinitionWrite StaleWrite(string factory, int expectedVersion, FactoryDefinitionVersionSummary? head)
+    {
+        var current = head?.Version ?? 0;
+        FileLog.Write($"[FactoryDefinitionStore] {factory}: REFUSED a stale write (expected {expectedVersion}, newest {current})");
+        return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
+            current == 0
+                ? $"{factory} has no definition on the Gateway yet, so save it expecting version 0"
+                : $"the definition of {factory} is at version {current}, not {expectedVersion}; read it again, merge, and save once more",
+            head);
+    }
+
+    /// <summary>
+    /// Every rule an appended version is held to - the writer's version is the newest, a session's waiting drafts,
+    /// the content, the change note - and the row it would be. Returns the refusal, or null with
+    /// <paramref name="written"/> ready to add. Adds nothing to <paramref name="ctx"/>: the store's own append and a
+    /// definition's restore (phase 4, inside its own transaction) both add and save it.
+    /// </summary>
+    internal static FactoryDefinitionWrite? PrepareAppend(GatewayDbContext ctx, TenantId tenant, string factory,
+        IReadOnlyDictionary<string, string>? files, int expectedVersion, bool published, int? restoredFrom,
+        string authorKind, string? authorId, string? changeNote, DateTime nowUtc, out FactoryDefinitionVersionEntity? written)
+    {
+        written = null;
         var head = Newest(ctx, factory);
         var current = head?.Version ?? 0;
         if (expectedVersion != current)
-        {
-            // THE TWO-WRITER REFUSAL. The newest version rides the refusal so the caller can merge rather than read
-            // again and race again.
-            FileLog.Write($"[FactoryDefinitionStore] {factory}: REFUSED a stale write (expected {expectedVersion}, newest {current})");
-            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
-                current == 0
-                    ? $"{factory} has no definition on the Gateway yet, so save it expecting version 0"
-                    : $"the definition of {factory} is at version {current}, not {expectedVersion}; read it again, merge, and save once more",
-                head);
-        }
+            return StaleWrite(factory, expectedVersion, head);
 
         if (!published && authorKind == FactoryMemoryAuthorKinds.Session
             && TooManyWaitingDrafts(ctx, factory, head, authorId) is { } tooMany)
@@ -382,7 +524,7 @@ public sealed class FactoryDefinitionStore
             return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.ChangeNoteTooLong,
                 $"the change note is {note.Length} characters long; a change note is at most {MaxChangeNoteLength}", head);
 
-        var written = new FactoryDefinitionVersionEntity
+        written = new FactoryDefinitionVersionEntity
         {
             TenantId = tenant.Value,
             Factory = factory,
@@ -402,39 +544,7 @@ public sealed class FactoryDefinitionStore
             PublishedBy = published ? authorId : null,
         };
 
-        // THE KEY DOES THE ARBITRATION. A concurrent writer that got here first owns version current+1, and this
-        // insert then violates the primary key - which is reported as the same stale refusal a slow reader gets,
-        // because that is what happened.
-        ctx.FactoryDefinitions.Add(written);
-        try
-        {
-            ctx.SaveChanges();
-        }
-        catch (DbUpdateException ex)
-        {
-            ctx.ChangeTracker.Clear();
-            var headNow = Newest(ctx, factory);
-
-            // ONLY A SECOND WRITER IS REPORTED AS ONE, as for briefs: a key violation is one cause of this exception
-            // and not the only one. Telling a caller that another writer won when none did tells it to merge and try
-            // again for ever. So the head decides.
-            if (WasTakenByAnotherWriter(headNow, written.Version))
-            {
-                FileLog.Write($"[FactoryDefinitionStore] {factory}: version {written.Version} was taken by another writer");
-                return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.Stale,
-                    $"another writer took version {written.Version} of the definition of {factory} first; read it again, merge, and save once more",
-                    headNow);
-            }
-
-            FileLog.Write($"[FactoryDefinitionStore] {factory}: the write FAILED and no other writer holds version {written.Version}: {ex.Message}");
-            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.WriteFailed,
-                $"the definition of {factory} could not be stored: {Innermost(ex).Message}", headNow);
-        }
-
-        FileLog.Write($"[FactoryDefinitionStore] {factory}: wrote version {written.Version} ({written.State}, {written.FileCount} files, {bytes} bytes" +
-                      $"{(restoredFrom is { } from ? $", restored from {from}" : "")}) by {authorKind} {authorId ?? "(unknown)"}");
-        var summary = Summary(written);
-        return published ? FactoryDefinitionWrite.Published(summary) : FactoryDefinitionWrite.Saved(summary);
+        return null;
     }
 
     /// <summary>
@@ -496,6 +606,14 @@ public sealed class FactoryDefinitionStore
 
     /// <summary>The content map as it was stored. A row this store wrote always reads back; one that does not is a
     /// damaged row, and saying so is the only honest answer.</summary>
+    /// <summary>One version with its content, read through <paramref name="ctx"/>, or null when there is no such
+    /// version. The factory id is already folded.</summary>
+    internal static FactoryDefinitionVersion? FindInside(GatewayDbContext ctx, string factory, int version)
+    {
+        var row = Versions(ctx, factory).FirstOrDefault(v => v.Version == version);
+        return row is null ? null : new FactoryDefinitionVersion(Summary(row), ReadContent(row.Content));
+    }
+
     private static SortedDictionary<string, string> ReadContent(string content)
     {
         var map = JsonSerializer.Deserialize<Dictionary<string, string>>(content)
@@ -515,14 +633,16 @@ public sealed class FactoryDefinitionStore
         => new(v.Factory, v.Version, v.State, v.AuthorKind, v.AuthorId, v.ChangeNote, v.RestoredFrom, v.WrittenAtUtc,
             v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount);
 
-    private static FactoryDefinitionVersionSummary? SummaryOf(GatewayDbContext ctx, string factory, int version)
+    internal static FactoryDefinitionVersionSummary? SummaryOf(GatewayDbContext ctx, string factory, int version)
         => Summaries(Versions(ctx, factory).Where(v => v.Version == version)).FirstOrDefault();
 
     /// <summary>The highest version of one factory's definition, or null when it has none.</summary>
     private static FactoryDefinitionVersionSummary? Newest(GatewayDbContext ctx, string factory)
         => Summaries(Versions(ctx, factory).OrderByDescending(v => v.Version)).FirstOrDefault();
 
-    private static FactoryDefinitionStanding StandingInside(GatewayDbContext ctx, string factory)
+    /// <summary>How a factory's definition stands, read through <paramref name="ctx"/> (inside a caller's transaction,
+    /// when it has one). The factory id is already folded.</summary>
+    internal static FactoryDefinitionStanding StandingInside(GatewayDbContext ctx, string factory)
         => new(Newest(ctx, factory),
             // THE PUBLISHED DEFINITION IS THE HIGHEST VERSION THAT IS PUBLISHED. Publishing only ever moves forward,
             // so this is one rule every reader shares instead of a pointer two replicas could disagree about.
@@ -592,8 +712,16 @@ public enum FactoryDefinitionOutcome
     OlderThanPublished,
     /// <summary>A session asked to publish or to restore.</summary>
     OnlyAPersonPublishes,
-    /// <summary>The write failed for its own reason, and no second writer holds the version it wanted.</summary>
+    /// <summary>The write failed for its own reason, and no second writer holds the version it wanted. For a publish
+    /// or a restore that drives the factory (phase 4): the transaction failed and changed nothing.</summary>
     WriteFailed,
+    /// <summary>A publish or a restore for a factory the registry does not hold (phase 4: until phase 5 a defined
+    /// factory runs in its registered folder).</summary>
+    NotRegistered,
+    /// <summary>A publish or a restore for an archived factory (phase 4).</summary>
+    Archived,
+    /// <summary>A publish or a restore whose plan would make a row its own rules refuse (phase 4).</summary>
+    PlanRefused,
 }
 
 /// <summary>
