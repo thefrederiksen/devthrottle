@@ -117,7 +117,7 @@ real-clock | src/CcDirector.Core.Tests/Wingman/WingmanServiceTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/WorkflowStoreTests.cs | 3
 fixed-port | src/CcDirector.Core.UnitTests/ErrorReports/ErrorReporterTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Licenses/FakeLicenseCommandLine.cs | 1
-real-clock | src/CcDirector.Core.UnitTests/Licenses/LicenseSwitchingSettingTests.cs | 4
+real-clock | src/CcDirector.Core.UnitTests/Licenses/LicenseSwitchingSettingTests.cs | 3
 real-clock | src/CcDirector.Core.UnitTests/Machine/SubmitTestsPinTheMachineTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/MissionStoreHeldReadsTests.cs | 1
 real-clock | src/CcDirector.Core.UnitTests/Sessions/BackgroundAgentPointerTests.cs | 1

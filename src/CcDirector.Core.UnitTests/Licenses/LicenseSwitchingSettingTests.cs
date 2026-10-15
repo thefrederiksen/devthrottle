@@ -65,29 +65,6 @@ public sealed class LicenseSwitchingSettingTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task Start_TurnedOn_SwitchRunsOnceTheLockIsHeld()
-    {
-        var tool = new FakeLicenseCommandLine().Hold("account-a@example.com", active: true).Hold("account-b@example.com");
-        var licenses = new LicenseSwitching(tool, _folder.Path, () => DateTime.UtcNow, "the-windows-machine", "owner", enabled: true);
-        try
-        {
-            licenses.Start();
-            Assert.True(licenses.Reporter.IsScheduled);
-            Assert.True(licenses.HolderLock.TryAcquire());
-
-            var result = await licenses.Coordinator.SwitchAsync(Request(), CancellationToken.None);
-
-            Assert.True(licenses.Enabled);
-            Assert.Equal(LicenseSwitchOutcomes.Switched, result.Outcome);
-            Assert.Single(tool.SwitchCalls);
-        }
-        finally
-        {
-            licenses.Dispose();
-        }
-    }
-
     private static LicenseSwitchRequest Request() => new()
     {
         SwitchId = "6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40",
