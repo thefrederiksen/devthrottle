@@ -557,6 +557,14 @@ public static class CcStorage
     /// </summary>
     public static string FactoryMemory() => Path.Combine(Base(), "factory-memory");
 
+    /// <summary>
+    /// Factory Definition mission, phase 5: the kit a seat of a defined factory starts with, one folder per session:
+    /// base/factory-run/&lt;session id&gt;/. The Gateway composes it and the Director writes it before the agent starts.
+    /// Never inside the checkout or a pooled worktree, for the same reasons as <see cref="FactoryMemory"/>; a seat with
+    /// no repository works in its <c>work/</c> folder.
+    /// </summary>
+    public static string FactoryRun() => Path.Combine(Base(), "factory-run");
+
     /// <summary>Recorded terminal sessions: base/session-recordings/.</summary>
     public static string SessionRecordings() => Path.Combine(Base(), "session-recordings");
 

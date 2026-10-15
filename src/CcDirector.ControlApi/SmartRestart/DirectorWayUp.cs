@@ -1040,6 +1040,9 @@ public sealed class DirectorWayUp : IDirectorWayUp
             FactoryKit = seat.FactoryKit,
             // And the model it was started on, so the restored seat relaunches on it rather than on the default.
             Model = seat.LaunchModel,
+            // The seat's kit folder, handed back for the reason DirectorRestore.BuildRequest gives (phase 5). A reopen
+            // RESUMES the conversation, and Claude Code finds it by the folder, so the folder must be the same one.
+            FactoryKitDirectory = string.IsNullOrWhiteSpace(seat.FactoryKitDirectory) ? null : seat.FactoryKitDirectory,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) request.MissionId = missionId;
         return request;

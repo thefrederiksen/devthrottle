@@ -60,6 +60,14 @@ public static class FactoryDefinitionCheck
         "an interval (every) instead, publish it without the check, or wait.";
 
     /// <summary>
+    /// The notice on every <c>allow</c> list of a rule set (Factory Definition, phase 5, design section 4). A seat's kit
+    /// carries only <c>deny</c> and <c>ask</c>: an <c>allow</c> rule could approve what the repository itself would ask
+    /// about, and a definition only ever adds limits (R13). The list stays valid; it is said out loud that it does nothing.
+    /// </summary>
+    public const string AllowNotApplied =
+        "allow rules are not applied when the seat starts: a definition only adds limits.";
+
+    /// <summary>
     /// Check a whole definition. <paramref name="factoryId"/> is the factory the save names;
     /// <paramref name="fleetSkillIds"/> the skill ids in the account's skill store; <paramref name="connectedMachines"/>
     /// the machine names the account's Directors report now. The result carries the parsed definition when there is no
@@ -429,7 +437,16 @@ public static class FactoryDefinitionCheck
             var named = new Named();
             foreach (var (seatId, seat) in _p.Seats) CheckSeat(seatId, seat, named);
             CheckGrants();
+            AllowLists();
             Unused(named);
+        }
+
+        /// <summary>A notice on each rule set's <c>allow</c> list: the kit leaves it out (<see cref="AllowNotApplied"/>).</summary>
+        private void AllowLists()
+        {
+            foreach (var (_, file) in _p.RuleSets)
+                if (file.Map.Find("permissions")?.Value is DefinitionMap permissions && permissions.Find("allow") is { } allow)
+                    Notice(_findings, file.Path, allow.KeyLine, AllowNotApplied);
         }
 
         /// <summary>What the seats name, for the "unused" notices.</summary>

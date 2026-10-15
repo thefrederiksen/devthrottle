@@ -57,7 +57,7 @@ public sealed class FactorySeatOnTheDirectorTests
             FactoryKit = FactoryKits.RulesOnly,
             FactoryStartOverride = "agent Codex, chosen by the person",
             Model = "claude-sonnet-5-5",
-            // Instructions to the create, not birth facts: the Director does nothing with these yet.
+            // Instructions to the create, not birth facts: SettleSeatStart acts on them, nothing stamps them.
             FactoryWorktree = "devthrottle",
             FactoryHome = true,
         });

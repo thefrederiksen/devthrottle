@@ -257,6 +257,9 @@ internal static class ControlEndpoints
                     Lease = pooledWorktree.Lease,
                 }
                 : null,
+            // The seat's kit folder (Factory Definition, phase 5), so a capture keeps it and a restore resumes the seat
+            // in the folder it ran in. Null for every session that is not a seat of a defined factory or a child of one.
+            FactoryKitDirectory = s.FactoryKitDirectory,
             // The repository this session's folder is a linked worktree OF, resolved on this machine
             // when the session was created (the one-repository-list mission, "a worktree is not a
             // repository"). Only this machine can read it, so it has to travel: without it the Gateway's

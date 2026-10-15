@@ -324,6 +324,14 @@ public sealed class Session : IDisposable
     public string? FactoryMemoryDirectory { get; internal set; }
 
     /// <summary>
+    /// Where this seat's kit was put before its agent started (Factory Definition mission, phase 5), or null for a
+    /// session that is not a seat of a defined factory or a child of one. Set by <see cref="SessionManager"/> only after
+    /// the kit was written. It is NOT always the folder named by this session's own id: a restored seat is handed back
+    /// the folder it ran in, because its agent finds its conversation by that folder.
+    /// </summary>
+    public string? FactoryKitDirectory { get; internal set; }
+
+    /// <summary>
     /// Stamp the factory once, before launch. A birth fact does not move: a second stamp naming a DIFFERENT
     /// factory is refused and logged rather than applied, because the only ways that could happen are a bug
     /// and an attempt, and both should be visible instead of silently changing who may write a factory's

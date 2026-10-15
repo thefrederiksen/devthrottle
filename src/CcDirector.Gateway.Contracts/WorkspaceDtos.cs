@@ -301,6 +301,13 @@ public sealed class WorkspaceSeat
     /// </summary>
     public PooledWorktreeRef? PooledWorktree { get; set; }
 
+    /// <summary>
+    /// The kit folder this seat was running with when it was captured (Factory Definition mission, phase 5), or null for
+    /// a seat that is not a seat of a defined factory. A restore hands it back so the seat resumes in the same folder,
+    /// with its <c>work/</c> kept.
+    /// </summary>
+    public string? FactoryKitDirectory { get; set; }
+
     /// <summary>The mission this seat is attached to, if any.</summary>
     public WorkspaceMissionRef? Mission { get; set; }
 

@@ -30,6 +30,13 @@ public sealed class StudioBackend : ISessionBackend
     private Process? _currentProcess;
     private bool _disposed;
     private bool _initialized;
+
+    /// <summary>The environment the session was started with - what its agent would see. Read by tests, which start a
+    /// session on this backend precisely because starting it runs no process.</summary>
+    internal IReadOnlyDictionary<string, string>? StartedEnvironment => _environmentVars;
+
+    /// <summary>The folder the session was started in. Read by tests, as <see cref="StartedEnvironment"/> is.</summary>
+    internal string StartedWorkingDirectory => _workingDir;
     private string _status = "Not Started";
 
     private readonly List<StreamMessage> _messages = new();

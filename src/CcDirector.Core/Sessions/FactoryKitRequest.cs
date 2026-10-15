@@ -1,0 +1,36 @@
+namespace CcDirector.Core.Sessions;
+
+/// <summary>
+/// The kit a create must put in place before its agent starts (Factory Definition mission, phase 5): which factory,
+/// published version, seat and kind; whether the seat works in the kit's own <c>work/</c> folder because it has no
+/// repository (<see cref="Home"/>); and, on a restore, the kit folder the seat already had
+/// (<see cref="ReturningDirectory"/>), which is refreshed in place rather than replaced by a new one.
+/// </summary>
+public sealed record FactoryKitRequest(string Factory, int Version, string Seat, string Kind, bool Home = false,
+    string? ReturningDirectory = null)
+{
+    /// <summary>One line for the log.</summary>
+    public override string ToString() =>
+        $"factory={Factory}, version={Version}, seat={Seat}, kind={Kind}, home={Home}, returning={ReturningDirectory ?? "(none)"}";
+}
+
+/// <summary>
+/// A seat's kit could not be put in place, so the create is stopped (Factory Definition mission, phase 5). The message
+/// is one sentence a person can act on, carrying the Gateway's own words when it refused.
+/// </summary>
+public sealed class FactoryKitUnavailableException : InvalidOperationException
+{
+    public FactoryKitUnavailableException(FactoryKitRequest kit, string reason, Exception? inner = null)
+        : base($"No session was opened. It is the seat '{kit.Seat}' of the factory '{kit.Factory}', and a seat never " +
+               $"starts without its kit; the kit of version {kit.Version} could not be put in place: {reason}", inner)
+    {
+        Kit = kit;
+        Reason = reason;
+    }
+
+    /// <summary>The kit that could not be had.</summary>
+    public FactoryKitRequest Kit { get; }
+
+    /// <summary>Why, on its own - the message says it in full.</summary>
+    public string Reason { get; }
+}

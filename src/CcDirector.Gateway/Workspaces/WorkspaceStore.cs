@@ -321,6 +321,9 @@ public sealed class WorkspaceStore
             // the stored copy like every other observation, so writing to a workspace cannot point a
             // restore at somebody else's worktree.
             seat.PooledWorktree = from.PooledWorktree;
+            // The kit folder is an observation on the same terms (Factory Definition, phase 5): restored from the stored
+            // copy, so writing to a workspace cannot point a restore at a folder the capture never saw.
+            seat.FactoryKitDirectory = from.FactoryKitDirectory;
             seat.Mission = from.Mission;
             seat.Role = from.Role;
             seat.ReportsTo = from.ReportsTo;

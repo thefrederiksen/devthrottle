@@ -640,6 +640,9 @@ public sealed class ControlApiHost : IAsyncDisposable
         // place, so this blocks - on a pool thread, so no caller's synchronisation context can deadlock it - and
         // only for a session that is in a factory; every other session never reaches it.
         _sessionManager.FactoryMemoryDownload = FactoryMemoryDownloadThrough(() => _gatewayClient);
+        // Factory Definition mission, phase 5: a seat's kit, on exactly the same terms - this Director's own
+        // credential, the current client, blocking on a pool thread, and only for a seat.
+        _sessionManager.FactoryKitDownload = FactoryKitDownloadThrough(() => _gatewayClient);
         _ = Task.Run(async () =>
         {
             try { await signedInUserProvider.ResolveAsync(CancellationToken.None); }
@@ -1095,6 +1098,24 @@ public sealed class ControlApiHost : IAsyncDisposable
             var client = currentClient()
                 ?? throw new InvalidOperationException("this Director is not connected to a Gateway");
             return Task.Run(() => client.DownloadFactoryMemoryAsync(factory, sessionId)).GetAwaiter().GetResult();
+        };
+    }
+
+    /// <summary>
+    /// The Director's download of a seat's kit (Factory Definition mission, phase 5), as the session manager calls it:
+    /// synchronous, through whichever Gateway client is current at the moment of the call. Internal so a test can drive
+    /// the very function the host installs.
+    /// </summary>
+    internal static Func<Core.Sessions.FactoryKitRequest, Guid, Gateway.Contracts.FactoryKitResponse> FactoryKitDownloadThrough(
+        Func<GatewayClient?> currentClient)
+    {
+        ArgumentNullException.ThrowIfNull(currentClient);
+        return (kit, sessionId) =>
+        {
+            var client = currentClient()
+                ?? throw new InvalidOperationException("this Director is not connected to a Gateway");
+            return Task.Run(() => client.DownloadFactoryKitAsync(kit.Factory, kit.Version, kit.Seat, kit.Kind, sessionId))
+                .GetAwaiter().GetResult();
         };
     }
 
