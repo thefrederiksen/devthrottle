@@ -312,6 +312,9 @@ public sealed class PostgresProviderProofTests
             // Postgres considered raised and SQLite did not would be a permission that depends on the provider.
             ("raised_sessions", "SessionId"),
             ("raised_sessions", "Source"),
+            // A saved session filter (issue #4009): its identifier and its lower-cased name are exact keys.
+            ("saved_session_filters", "Id"),
+            ("saved_session_filters", "NameKey"),
             // The secret transfers (the Secret Handoff mission): the minted transfer id and the closed state word.
             // Declared "C" when the table was added and missed here.
             ("secret_transfers", "State"),

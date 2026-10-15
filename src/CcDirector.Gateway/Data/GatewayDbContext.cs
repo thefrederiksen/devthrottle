@@ -419,6 +419,10 @@ public sealed class GatewayDbContext : DbContext
     /// default, never another tenant's value.</summary>
     public DbSet<TenantSettingEntity> TenantSettings => Set<TenantSettingEntity>();
 
+    /// <summary>The saved session filters on each account (<c>saved_session_filters</c>, issue #4009): a name, a colour
+    /// and the repos and machines it shows. Tenant-scoped.</summary>
+    public DbSet<SavedSessionFilterEntity> SavedSessionFilters => Set<SavedSessionFilterEntity>();
+
     /// <summary>Per-tenant on/off choices for BUILT-IN workflows (<c>workflow_tenant_overrides</c>, the Shared
     /// Workflow Library phase 2). The built-ins live once in the shared library partition and are read-only to
     /// tenants, so a tenant's switch flip lands here and the read paths fold it over the library value. An
@@ -1664,6 +1668,19 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.EventType, e.OccurredUtc });
         });
 
+        modelBuilder.Entity<SavedSessionFilterEntity>(b =>
+        {
+            b.ToTable("saved_session_filters");
+            // The key is a generated identifier, so a rename keeps the row. The unique index on the lower-cased name is
+            // what stops two filters on one account answering to the same name in the address bar (issue #4009).
+            b.HasKey(e => new { e.TenantId, e.Id });
+            b.Property(e => e.Id).HasMaxLength(32);
+            b.Property(e => e.Name).HasMaxLength(40);
+            b.Property(e => e.NameKey).HasMaxLength(40);
+            b.Property(e => e.Colour).HasMaxLength(16);
+            b.HasIndex(e => new { e.TenantId, e.NameKey }).IsUnique();
+        });
+
         modelBuilder.Entity<TenantSettingEntity>(b =>
         {
             b.ToTable("tenant_settings");
@@ -2134,6 +2151,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<GovernanceAuditEventEntity>(modelBuilder);
         ApplyTenantScope<FactoryActivityEntity>(modelBuilder);
         ApplyTenantScope<TenantSettingEntity>(modelBuilder);
+        ApplyTenantScope<SavedSessionFilterEntity>(modelBuilder);
         ApplyTenantScope<DictationTranscriptEntity>(modelBuilder);
         ApplyTenantScope<WorkflowTenantOverrideEntity>(modelBuilder);
         ApplyTenantScope<DictationSuggestionDismissalEntity>(modelBuilder);
@@ -2226,6 +2244,10 @@ public sealed class GatewayDbContext : DbContext
             // tenant_settings.Key is a fixed ordinally-compared identifier (issue #2017), same byte-ordinal
             // equality requirement as mission_notes.Key - pin it to "C" so both providers agree exactly.
             modelBuilder.Entity<TenantSettingEntity>().Property(e => e.Key).UseCollation("C");
+            // saved_session_filters (issue #4009): the identifier and the lower-cased name are exact keys - the name is the
+            // unique index the address bar resolves a filter by - so both providers must agree on their equality.
+            modelBuilder.Entity<SavedSessionFilterEntity>().Property(e => e.Id).UseCollation("C");
+            modelBuilder.Entity<SavedSessionFilterEntity>().Property(e => e.NameKey).UseCollation("C");
             // workflow_tenant_overrides.WorkflowId is a workflow slug compared ordinally everywhere else
             // (the stores normalize to lower-case and compare Ordinal), so pin it to "C" the same way.
             modelBuilder.Entity<WorkflowTenantOverrideEntity>().Property(e => e.WorkflowId).UseCollation("C");

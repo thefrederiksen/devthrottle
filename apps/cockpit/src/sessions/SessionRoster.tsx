@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { type SessionDto } from "@devthrottle/client-core/api/client";
 import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
 import { writeVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
@@ -53,6 +53,18 @@ import { showsSupervision, showsTags, useDensity } from "@devthrottle/client-cor
 import { SessionMenu } from "./SessionMenu";
 import { CrewLine } from "./CrewLine";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
+import {
+  applyFilter,
+  emptyFilterMessage,
+  filterSearchOf,
+  filterSummary,
+  outsideNeedingYou,
+  selectedValueCount,
+  type SessionFilter,
+} from "@devthrottle/client-core/sessions/filter";
+import type { SavedSessionFilter } from "@devthrottle/client-core/sessions/savedFilters";
+import { RosterFilterPanel } from "./RosterFilterPanel";
+import type { RosterFilter } from "./useRosterFilter";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-roster";
@@ -100,10 +112,26 @@ export interface SessionRosterProps {
   error: string | null;
   /** Open the "New session" dialog (issue #1023). */
   onNewSession: () => void;
+  /** This tab's filter (issue #4009), read from and written to the tab's own address. A mount without one (a test of
+   *  some other part of the roster) shows the whole roster with no filter controls. */
+  rosterFilter?: RosterFilter;
 }
 
-export function SessionRoster({ sessions, directors, portByDirector, selectedId, view, onView, error, onNewSession }: SessionRosterProps) {
+export function SessionRoster({ sessions, directors, portByDirector, selectedId, view, onView, error, onNewSession, rosterFilter }: SessionRosterProps) {
   const total = sessions?.length ?? 0;
+  const [showFilter, setShowFilter] = useState(false);
+
+  // THE FILTER (issue #4009). An active filter narrows the list; Mine and Attention then order what is left, exactly
+  // as they order the whole roster. A saved filter that is still loading, or that no longer exists, shows NO sessions
+  // and says why - never every session, which would read as "the filter is on" while showing everything.
+  const resolved: RosterFilter["resolved"] = rosterFilter?.resolved ?? { status: "none" };
+  const activeFilter: SessionFilter | null = resolved.status === "active" ? resolved.filter : null;
+  const activeSaved: SavedSessionFilter | null = resolved.status === "active" ? resolved.saved : null;
+  const withheld = resolved.status === "loading" || resolved.status === "missing";
+  const shown: SessionDto[] | null =
+    sessions === null ? null : activeFilter !== null ? applyFilter(sessions, activeFilter) : withheld ? [] : sessions;
+  const shownCount = shown?.length ?? 0;
+  const outside = sessions !== null && activeFilter !== null ? outsideNeedingYou(sessions, activeFilter) : [];
 
   return (
     <div className="roster-rail">
@@ -114,7 +142,9 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           rail; the ordering toggle stayed, because it IS about reading the list. */}
       <div className="roster-head">
         <span className="roster-title">Sessions</span>
-        <span className="roster-count">{total}</span>
+        <span className="roster-count" data-testid="roster-count">
+          {activeFilter !== null || withheld ? `${shownCount} of ${total}` : total}
+        </span>
         <span className="roster-head-spacer" />
         <span className="roster-view" role="group" aria-label="Roster ordering">
           <button
@@ -136,6 +166,7 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
             Attention
           </button>
         </span>
+        {rosterFilter && <FilterButton resolved={resolved} onOpen={() => setShowFilter(true)} />}
         {/* The only way to start a session from the desktop Cockpit (issue #1023). Opens the
             dedicated machine/repo picker dialog. */}
         <button
@@ -148,6 +179,17 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           +
         </button>
       </div>
+
+      {rosterFilter && (
+        <FilterLines
+          rosterFilter={rosterFilter}
+          activeFilter={activeFilter}
+          activeSaved={activeSaved}
+          shownCount={shownCount}
+          total={total}
+          outside={outside}
+        />
+      )}
 
       {/* A Director restart a session has asked for (issue #2725): the owner's one accept, above the
           roster where "Needs you" lives. The same shared component the phone mounts; this shell only
@@ -171,8 +213,14 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
         <div className="roster-empty">No sessions. The Gateway returned an empty roster.</div>
       )}
 
-      {sessions !== null && total > 0 && (
-        <PinnedAndRest sessions={sessions} directors={directors} portByDirector={portByDirector} selectedId={selectedId}>
+      {sessions !== null && total > 0 && activeFilter !== null && shownCount === 0 && (
+        <div className="roster-empty" data-testid="roster-filter-empty">
+          {emptyFilterMessage(activeFilter)}
+        </div>
+      )}
+
+      {shown !== null && shownCount > 0 && (
+        <PinnedAndRest sessions={shown} directors={directors} portByDirector={portByDirector} selectedId={selectedId}>
           {(tree, rest) =>
             view === "my-order" ? (
               <MyOrderGroups tree={tree} roots={rest} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
@@ -189,8 +237,139 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
         <ColourLegendButton className="roster-legend-btn" />
         {sessions !== null && total > 0 && <VoiceAllButton sessions={sessions} />}
       </div>
+
+      {showFilter && sessions !== null && rosterFilter && (
+        <RosterFilterPanel
+          sessions={sessions}
+          current={activeFilter ?? { repos: [], machines: [] }}
+          saved={rosterFilter.saved}
+          onApplyQuick={rosterFilter.applyQuick}
+          onApplySaved={rosterFilter.applySaved}
+          onDeleted={(f) => {
+            if (activeSaved?.id === f.id) rosterFilter.clear();
+          }}
+          onEdited={() => {
+            /* the panel applies the edited filter by its new name, which is what this tab then shows */
+          }}
+          onClear={rosterFilter.clear}
+          onClose={() => setShowFilter(false)}
+        />
+      )}
     </div>
   );
+}
+
+// The Filter button on the header (issue #4009). With no filter it reads "Filter"; with a saved filter it wears that
+// filter's name and colour; with a quick filter it reads "Filter (n)", n being the values ticked.
+function FilterButton({ resolved, onOpen }: { resolved: RosterFilter["resolved"]; onOpen: () => void }) {
+  const on = resolved.status !== "none";
+  let label = "Filter";
+  let colour: string | null = null;
+  if (resolved.status === "active" && resolved.saved !== null) {
+    label = resolved.saved.name;
+    colour = resolved.saved.colourHex;
+  } else if (resolved.status === "active") {
+    label = `Filter (${selectedValueCount(resolved.filter)})`;
+  } else if (resolved.status === "loading" || resolved.status === "missing") {
+    label = resolved.name;
+  }
+  return (
+    <button
+      type="button"
+      className={`roster-filter-btn${on ? " on" : ""}`}
+      style={colour ? { borderColor: colour, boxShadow: `inset 0 0 0 1px ${colour}` } : undefined}
+      onClick={onOpen}
+      title={on ? "Change or clear the filter on this tab" : "Show only some repos or machines on this tab"}
+      aria-label={on ? `Filter: ${label}. Change the filter` : "Filter sessions"}
+      data-testid="roster-filter-btn"
+    >
+      {colour && <span className="roster-filter-dot" style={{ backgroundColor: colour }} aria-hidden="true" />}
+      <span className="roster-filter-btn-label">{label}</span>
+    </button>
+  );
+}
+
+// The lines under the header while a filter is on (issue #4009): what is shown and Clear; a red line naming any
+// session OUTSIDE the filter that is waiting on you (a filter must never hide a stuck session - clicking it clears the
+// filter); and, for a saved filter the address names but that cannot be shown, why.
+function FilterLines({
+  rosterFilter,
+  activeFilter,
+  activeSaved,
+  shownCount,
+  total,
+  outside,
+}: {
+  rosterFilter: RosterFilter;
+  activeFilter: SessionFilter | null;
+  activeSaved: SavedSessionFilter | null;
+  shownCount: number;
+  total: number;
+  outside: SessionDto[];
+}) {
+  const { resolved, saved, clear } = rosterFilter;
+  if (resolved.status === "loading") {
+    return (
+      <div className="roster-filter-problem" role="status" data-testid="roster-filter-problem">
+        {saved.error !== null
+          ? // error-reported-by: useSavedFilters
+            `Could not load the saved filter "${resolved.name}": ${saved.error}`
+          : `Loading the saved filter "${resolved.name}"...`}
+        <button type="button" className="roster-filter-link" onClick={clear}>
+          Show all sessions
+        </button>
+      </div>
+    );
+  }
+  if (resolved.status === "missing") {
+    return (
+      // A status, not a failure: the address names a filter the account no longer has (renamed or deleted elsewhere).
+      <div className="roster-filter-problem" role="status" data-testid="roster-filter-problem">
+        There is no saved filter named "{resolved.name}" any more. It may have been renamed or deleted.
+        <button type="button" className="roster-filter-link" onClick={clear}>
+          Show all sessions
+        </button>
+      </div>
+    );
+  }
+  if (activeFilter === null) return null;
+  const n = outside.length;
+  return (
+    <>
+      <div
+        className="roster-filter-strip"
+        style={activeSaved ? { borderLeftColor: activeSaved.colourHex } : undefined}
+        data-testid="roster-filter-strip"
+      >
+        <span className="roster-filter-strip-text">
+          {activeSaved && <strong>{activeSaved.name}: </strong>}
+          Showing {filterSummary({ machines: activeFilter.machines, repos: activeFilter.repos })} ({shownCount} of {total})
+        </span>
+        <button type="button" className="roster-filter-link" onClick={clear}>
+          Clear
+        </button>
+      </div>
+      {n > 0 && (
+        <button
+          type="button"
+          className="roster-filter-outside"
+          onClick={clear}
+          title="Clear the filter to see every session"
+          data-testid="roster-filter-outside"
+        >
+          {n === 1 ? "1 session outside this filter needs you: " : `${n} sessions outside this filter need you: `}
+          {outside.map(sessionLabel).join(", ")}
+        </button>
+      )}
+    </>
+  );
+}
+
+function sessionLabel(s: SessionDto): string {
+  const num = s.number;
+  const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
+  const name = s.name && s.name.trim().length > 0 ? s.name.trim() : s.repoPath || "(unnamed session)";
+  return hasNum ? `${num} ${name}` : name;
 }
 
 // ONE tree over the whole roster. The pinned rows (the Fleet Manager, step 8) come first, each with its team under it;
@@ -441,6 +620,8 @@ function RosterRow({
   const sid = session.sessionId ?? "";
   const selected = sid === selectedId;
   const { legend } = useSessionColourLegend();
+  // The tab's filter rides along on the link, so opening a session keeps the list it was picked from (issue #4009).
+  const filterSearch = filterSearchOf(useLocation().search);
   // How much of this card is drawn - the one switch that also sets the conversation's detail. A card is
   // three lines at "clean" (who, what, and the one live fact) and grows a section at each position.
   // WHAT IS NEVER GATED: the alarm tags. A prompt that did not reach the agent, a snooze that ended and
@@ -527,7 +708,7 @@ function RosterRow({
       <Link
         className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}${session.pin ? " roster-row-pinned" : ""}`}
         style={{ borderLeftColor: dotHex(session) }}
-        to={`/session/${encodeURIComponent(sid)}`}
+        to={`/session/${encodeURIComponent(sid)}${filterSearch}`}
         title={dotTitle(session, legend)}
       >
         <span className="roster-dot" style={{ backgroundColor: dotHex(session) }} aria-hidden="true" />

@@ -846,6 +846,19 @@ a.banner-btn {
   overflow-wrap: anywhere;
 }
 
+/* A saved filter's colour, as the Gateway gives it (issue #4009). */
+.filter-saved-dot {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.filter-facet-note {
+  font-size: 13px;
+  opacity: 0.75;
+}
+
 .filter-opt-count {
   flex: 0 0 auto;
   color: var(--text-dim);

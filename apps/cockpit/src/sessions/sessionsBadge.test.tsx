@@ -53,6 +53,22 @@ vi.mock("react-router-dom", () => ({
   Outlet: () => null,
   useMatch: () => null,
   useNavigate: () => vi.fn(),
+  // The Sessions filter (issue #4009) reads and writes this tab's address; the badge test runs with no filter.
+  useLocation: () => ({ pathname: "/", search: "", hash: "", state: null, key: "default" }),
+  useSearchParams: () => [new URLSearchParams(), vi.fn()],
+}));
+
+// The saved filters are not what this test is about; the account has none.
+vi.mock("@devthrottle/client-core/sessions/savedFilters", () => ({
+  useSavedFilters: () => ({
+    filters: [],
+    colours: [],
+    error: null,
+    reload: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+  }),
 }));
 
 import { SessionsView } from "./SessionsView";

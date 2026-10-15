@@ -1,0 +1,380 @@
+/* The Sessions filter (issue #4009): the Filter button on the roster header, the panel it opens, and the lines under
+   the header while a filter is on. The panel is the phone's filter panel on a desktop. */
+
+.roster-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 150px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.roster-filter-btn:hover {
+  color: var(--text);
+}
+
+.roster-filter-btn.on {
+  color: var(--text);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.roster-filter-btn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.roster-filter-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+/* The one line under the header while a filter is on: what is shown, and Clear. */
+.roster-filter-strip {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: -4px 4px 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--panel-deep);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+}
+
+.roster-filter-strip-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.roster-filter-strip-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.roster-filter-link {
+  padding: 0;
+  font-size: 12px;
+  color: var(--accent-text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.roster-filter-link:hover {
+  text-decoration: underline;
+}
+
+/* A session OUTSIDE the filter is waiting on you: one small red line, so a filter never hides a stuck session. */
+.roster-filter-outside {
+  margin: 0 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--danger-text);
+  background: transparent;
+  border: 1px solid var(--attention);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.roster-filter-outside:hover {
+  background: var(--needsyou-bg);
+}
+
+/* A saved filter name in the address that no longer exists, or that cannot be read yet. */
+.roster-filter-problem {
+  margin: 0 4px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--needsyou-fyi-bg);
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+}
+
+.roster-filter-problem .roster-filter-link {
+  margin-left: 6px;
+}
+
+/* ---- the panel ---- */
+
+.rf-panel {
+  width: 460px;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.rf-head {
+  padding: 14px 16px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rf-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.rf-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rf-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.rf-foot-spacer {
+  flex: 1;
+}
+
+.rf-save-link {
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--accent-text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.rf-save-link:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.rf-save-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.rf-facet-heading {
+  margin: 4px 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+.rf-facet,
+.rf-saved {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rf-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rf-opt:hover {
+  background: var(--panel-deep);
+}
+
+.rf-opt-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rf-opt-count,
+.rf-saved-count {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.rf-check,
+.rf-radio {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  line-height: 1;
+  color: #fff;
+  border: 1px solid var(--text-dim);
+}
+
+.rf-check {
+  border-radius: 3px;
+}
+
+.rf-radio {
+  border-radius: 50%;
+}
+
+.rf-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.rf-radio.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--surface);
+  background: var(--accent);
+}
+
+.rf-saved-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rf-saved-apply {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rf-saved-apply:hover {
+  background: var(--panel-deep);
+}
+
+.rf-saved-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.rf-saved-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rf-saved-action {
+  padding: 3px 7px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.rf-saved-action:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.rf-saved-confirm {
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--needsyou-bg);
+  border-radius: 6px;
+}
+
+.rf-name-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--panel-deep);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.rf-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.rf-name-input {
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.rf-name-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.rf-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.rf-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.rf-swatch.on {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface) inset;
+}
+
+.rf-hint,
+.rf-dim {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.rf-error {
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--danger-text);
+  background: var(--needsyou-bg);
+  border-radius: 6px;
+}
