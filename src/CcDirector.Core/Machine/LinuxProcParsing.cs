@@ -112,6 +112,24 @@ internal static class LinuxProcParsing
         return new LinuxCpuTicks(total - idle, total);
     }
 
+    /// <summary>
+    /// Swap total and used, in bytes, from the lines of <c>/proc/meminfo</c> (SwapTotal minus SwapFree),
+    /// read with the memory probe's own kilobyte parsing. A machine with no swap gives a total of zero,
+    /// which is a fact about the machine. Null when either line is missing.
+    /// </summary>
+    public static (ulong TotalBytes, ulong UsedBytes)? ParseSwap(IEnumerable<string> memInfoLines)
+    {
+        ulong? total = null, free = null;
+        foreach (var line in memInfoLines)
+        {
+            if (MachineMemoryProbe.TryReadKilobytes(line, "SwapTotal:", out var t)) total = t;
+            else if (MachineMemoryProbe.TryReadKilobytes(line, "SwapFree:", out var f)) free = f;
+        }
+
+        if (total is not { } totalBytes || free is not { } freeBytes) return null;
+        return (totalBytes, freeBytes >= totalBytes ? 0 : totalBytes - freeBytes);
+    }
+
     /// <summary>Parse <c>/proc/diskstats</c>. Lines with fewer than the fourteen classic fields are skipped.</summary>
     public static IReadOnlyList<LinuxDiskCounters> ParseDiskStats(IEnumerable<string> lines)
     {

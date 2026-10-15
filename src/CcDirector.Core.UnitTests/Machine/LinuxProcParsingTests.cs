@@ -18,6 +18,9 @@ public class LinuxProcParsingTests
     private static string[] Lines(params string[] parts) => File.ReadAllLines(Fixture(parts));
     private static string Text(params string[] parts) => File.ReadAllText(Fixture(parts));
 
+    private const ulong SwapTotalKilobytes = 8388604;
+    private const ulong SwapFreeKilobytes = 6259236;
+
     // ----- /proc/stat -------------------------------------------------------------------------------
 
     [Fact]
@@ -57,6 +60,26 @@ public class LinuxProcParsingTests
         Assert.NotNull(times);
         Assert.Null(times.BootTimeUnixSeconds);
         Assert.Empty(times.Cores);
+    }
+
+    [Fact]
+    public void ParseSwap_RealFile_ReadsTotalAndUsed()
+    {
+        var swap = LinuxProcParsing.ParseSwap(Lines("snapshot-1", "proc", "meminfo"));
+
+        Assert.Equal((SwapTotalKilobytes * 1024, (SwapTotalKilobytes - SwapFreeKilobytes) * 1024), swap);
+    }
+
+    [Fact]
+    public void ParseSwap_NoSwapConfigured_IsZeroNotMissing()
+    {
+        Assert.Equal((0UL, 0UL), LinuxProcParsing.ParseSwap(["SwapTotal:             0 kB", "SwapFree:              0 kB"]));
+    }
+
+    [Fact]
+    public void ParseSwap_MissingLine_ReturnsNull()
+    {
+        Assert.Null(LinuxProcParsing.ParseSwap(["MemTotal:       16316576 kB", "SwapTotal:      1 kB"]));
     }
 
     // ----- /proc/diskstats --------------------------------------------------------------------------
@@ -137,7 +160,7 @@ public class LinuxProcParsingTests
     [Fact]
     public void ParseMountInfo_RealFile_ReadsRootOnTheLogicalVolume()
     {
-        var mounts = LinuxProcParsing.ParseMountInfo(Lines("snapshot-1", "proc", "mountinfo"));
+        var mounts = LinuxProcParsing.ParseMountInfo(Lines("snapshot-1", "proc", "self", "mountinfo"));
 
         var root = Assert.Single(mounts, m => m.MountPoint == "/");
         Assert.Equal(252, root.Major);
@@ -169,7 +192,7 @@ public class LinuxProcParsingTests
     [Fact]
     public void SelectVolumes_RealFiles_GivesRootBootAndEfiButNoSnapOrVirtualFileSystem()
     {
-        var mounts = LinuxProcParsing.ParseMountInfo(Lines("snapshot-1", "proc", "mountinfo"));
+        var mounts = LinuxProcParsing.ParseMountInfo(Lines("snapshot-1", "proc", "self", "mountinfo"));
         var disks = LinuxProcParsing.ParseDiskStats(Lines("snapshot-1", "proc", "diskstats"));
 
         var volumes = LinuxProcParsing.SelectVolumes(mounts, disks);
