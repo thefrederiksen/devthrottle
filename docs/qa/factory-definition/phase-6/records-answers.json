@@ -15,6 +15,8 @@
         "heading": "Attachments",
         "summaryText": ""
       },
+      "attachmentsNextBefore": null,
+      "attachmentsOlderLabel": null,
       "documentColumns": [
         "Document",
         "Version",
@@ -53,35 +55,35 @@
       "attachmentRows": [
         {
           "contentType": "text/plain",
-          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/ba5bf79b-e3bd-4e2f-8562-69c8524fc387",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/6fc2f026-0ee4-4f3f-9b65-f7f7c8e89d19",
           "downloadLabel": "Download",
-          "id": "ba5bf79b-e3bd-4e2f-8562-69c8524fc387",
+          "id": "6fc2f026-0ee4-4f3f-9b65-f7f7c8e89d19",
           "name": "notes/kickoff.txt",
           "seatText": "The factory as a whole",
           "sizeText": "30 bytes",
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "a person (device browser qa-cockpit-browser)"
         },
         {
           "contentType": "text/csv",
-          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/188d3374-bf9e-4c32-a20f-f3b8aabab286",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/d3496cc9-ea52-48d2-b546-b8c583108f2e",
           "downloadLabel": "Download",
-          "id": "188d3374-bf9e-4c32-a20f-f3b8aabab286",
+          "id": "d3496cc9-ea52-48d2-b546-b8c583108f2e",
           "name": "exports/leads-2026-10-13.csv",
           "seatText": "Boss (boss)",
           "sizeText": "39 bytes",
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "the one-time upload from RIG_MACHINE"
         },
         {
           "contentType": "image/png",
-          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/96527a22-045a-4fd4-9394-c30733926be8",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/51ba3bfb-d52e-4aa5-a0ea-70b6670bf82d",
           "downloadLabel": "Download",
-          "id": "96527a22-045a-4fd4-9394-c30733926be8",
+          "id": "51ba3bfb-d52e-4aa5-a0ea-70b6670bf82d",
           "name": "shots/home-page.png",
           "seatText": "Writer (writer)",
           "sizeText": "146 bytes",
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "a person (device browser qa-cockpit-browser)"
         }
       ],
@@ -90,6 +92,8 @@
         "heading": "Attachments",
         "summaryText": "3 files, 215 bytes in all."
       },
+      "attachmentsNextBefore": null,
+      "attachmentsOlderLabel": null,
       "documentColumns": [
         "Document",
         "Version",
@@ -104,7 +108,7 @@
           "openLabel": "Open",
           "sizeText": "54 bytes",
           "versionText": "Version 1",
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -113,7 +117,7 @@
           "openLabel": "Open",
           "sizeText": "175 bytes",
           "versionText": "Version 3",
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         }
       ],
@@ -162,30 +166,33 @@
           "attachments": [
             {
               "contentType": "image/png",
-              "downloadHref": "/gateway/factories/qa-outreach/records/attachments/96527a22-045a-4fd4-9394-c30733926be8",
+              "downloadHref": "/gateway/factories/qa-outreach/records/attachments/51ba3bfb-d52e-4aa5-a0ea-70b6670bf82d",
               "downloadLabel": "Download",
-              "id": "96527a22-045a-4fd4-9394-c30733926be8",
+              "id": "51ba3bfb-d52e-4aa5-a0ea-70b6670bf82d",
               "name": "shots/home-page.png",
               "seatText": "Writer (writer)",
               "sizeText": "146 bytes",
-              "whenText": "today 14:48",
+              "whenText": "today 15:35",
               "whoText": "a person (device browser qa-cockpit-browser)"
             }
           ],
           "dateText": "2026-10-14",
-          "id": "3009d19c-9df9-4184-9024-08f83c47a176",
-          "lineText": "Written by a person (device browser qa-cockpit-browser) today 14:48.",
+          "id": "da70e086-f468-4f67-b9b4-bd841a2d704d",
+          "lineText": "Written by a person (device browser qa-cockpit-browser) today 15:35.",
           "text": "Published the first post. Screenshot of the home page attached."
         },
         {
           "attachments": [],
           "dateText": "2026-10-13",
-          "id": "9d5c742e-55f6-418c-bc49-feb67242f260",
-          "lineText": "Written by the one-time upload from RIG_MACHINE today 14:48.",
+          "id": "f8f03240-e15c-4035-8d2c-af860f1d21ef",
+          "lineText": "Written by the one-time upload from RIG_MACHINE today 15:35.",
           "text": "Drafted the first post from the template."
         }
       ],
       "heading": "The journal of Writer (writer)",
+      "newestLabel": null,
+      "nextBefore": null,
+      "olderLabel": null,
       "summaryText": "2 entries."
     },
     "request": "GET /gateway/factories/qa-outreach/records/journal?seat=writer"
@@ -213,7 +220,7 @@
           "stateWord": "Newest",
           "title": "Version 3",
           "version": 3,
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -223,7 +230,7 @@
           "stateWord": "Earlier",
           "title": "Version 2",
           "version": 2,
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "Written by a person (device browser qa-cockpit-browser)"
         },
         {
@@ -233,7 +240,7 @@
           "stateWord": "Earlier",
           "title": "Version 1",
           "version": 1,
-          "whenText": "today 14:48",
+          "whenText": "today 15:35",
           "whoText": "Written by the one-time upload from RIG_MACHINE"
         }
       ],
@@ -243,8 +250,18 @@
   },
   "28-attachment-downloaded": {
     "file": "shots-home-page.png",
-    "id": "96527a22-045a-4fd4-9394-c30733926be8",
+    "id": "51ba3bfb-d52e-4aa5-a0ea-70b6670bf82d",
     "same_bytes_as_kept": true,
     "sha256": "7b36187ded79a3dc2bbcda5f0d4e916a47b6a0f54c2f409a8e521751f4a2a928"
+  },
+  "34-journal-pages": {
+    "entries_once_each": 26,
+    "first": "26 entries. Entries 1 to 20 are shown, newest first.",
+    "older": "26 entries. Entries 21 to 26 are shown, newest first."
+  },
+  "36-attachment-pages": {
+    "files_once_each": 103,
+    "first": "103 files, 7.3 KB in all. Files 1 to 100 are listed, newest first.",
+    "older": "103 files, 7.3 KB in all. Files 101 to 103 are listed, newest first."
   }
 }
