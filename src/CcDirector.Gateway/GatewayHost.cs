@@ -1128,6 +1128,12 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly History.SessionHistoryStore _sessionHistory;
     private readonly Factory.Memory.FactoryMemoryStore _factoryMemory;
 
+    /// <summary>A factory's records - journals, working documents and attachments - held on the Gateway (Factory
+    /// Definition mission, phase 2). Nothing reads them yet but their own routes.</summary>
+    private readonly Factory.Records.FactoryJournalStore _factoryJournal;
+    private readonly Factory.Records.FactoryDocumentStore _factoryDocuments;
+    private readonly Factory.Records.FactoryAttachmentStore _factoryAttachments;
+
     /// <summary>Every seat's brief held on the Gateway, every version kept (Factory Seats mission, phase 2a).</summary>
     private readonly Factory.Briefs.FactoryBriefStore _factoryBriefs;
     private readonly History.KnownRepositoryStore _knownRepositories;
@@ -2647,6 +2653,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 TeamMentorWriter, _tenantSettingsResolver.TimeZone);
         }
         _factoryMemory = new Factory.Memory.FactoryMemoryStore(_gatewayDb);
+        _factoryAttachments = new Factory.Records.FactoryAttachmentStore(_gatewayDb);
+        _factoryJournal = new Factory.Records.FactoryJournalStore(_gatewayDb, _factoryAttachments);
+        _factoryDocuments = new Factory.Records.FactoryDocumentStore(_gatewayDb);
         _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
             route: (tenant, directorId) =>
             {
@@ -5828,6 +5837,16 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoryBriefEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryBriefs,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            nowUtc: () => DateTime.UtcNow);
+
+        // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
+        // held here beside its memory so that no factory depends on one machine's disk (the owner's decision F2).
+        Api.FactoryRecordEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            journal: _factoryJournal,
+            documents: _factoryDocuments,
+            attachments: _factoryAttachments,
             sessionFactoryOf: _sessionHistory.FactoryOf,
             nowUtc: () => DateTime.UtcNow);
 

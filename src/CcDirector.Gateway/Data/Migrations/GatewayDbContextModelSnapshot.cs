@@ -1017,6 +1017,91 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("factory_activity", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryAttachmentContentEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("AttachmentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("Content")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.HasKey("TenantId", "AttachmentId");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("factory_attachment_contents", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryAttachmentEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Bytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImportKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime>("WrittenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory", "ImportKey")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "Factory", "Seat");
+
+                    b.ToTable("factory_attachments", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryBriefVersionEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -1131,6 +1216,56 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("factory_definition_versions", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryDocumentVersionEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuthorId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImportKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TextBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("WrittenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "Factory", "Name", "Version");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory", "ImportKey")
+                        .IsUnique();
+
+                    b.ToTable("factory_document_versions", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryEmailReportEntity", b =>
@@ -1264,6 +1399,69 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "Factory", "PostedAtUtc");
 
                     b.ToTable("factory_goal_numbers", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryJournalEntryEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AttachmentIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EntryDate")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImportKey")
+                        .HasMaxLength(400)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Seat")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TextBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("WrittenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory", "ImportKey")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "Factory", "Seat", "EntryDate");
+
+                    b.ToTable("factory_journal_entries", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryMemoryNoteEntity", b =>

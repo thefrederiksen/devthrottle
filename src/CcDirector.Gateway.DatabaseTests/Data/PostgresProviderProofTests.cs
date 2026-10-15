@@ -214,17 +214,32 @@ public sealed class PostgresProviderProofTests
             ("device_import_markers", "SourcePath"),
             ("dictation_suggestion_dismissals", "Term"),
             ("dictation_suggestion_verdicts", "Term"),
+            // A factory's records (Factory Definition mission, phase 2). The factory and the seat are what every read
+            // cuts by; the document's name is part of the primary key that keeps two writers from minting the same
+            // version of a working document; the day is compared as text; and the upload's name is the unique key that
+            // makes running the one-time upload twice store nothing twice. Each must mean the same on both providers.
+            ("factory_attachments", "Factory"),
+            ("factory_attachments", "ImportKey"),
+            ("factory_attachments", "Seat"),
             // A factory's definition held on the Gateway (Factory Definition mission, phase 1). The factory is part
             // of the primary key that keeps two writers from minting the same version, so the two providers must
             // agree on what counts as the same factory; the state is the closed word the published read selects on.
             ("factory_definition_versions", "Factory"),
             ("factory_definition_versions", "State"),
+            // The factory records again (phase 2), in sorted order: the working documents.
+            ("factory_document_versions", "Factory"),
+            ("factory_document_versions", "ImportKey"),
+            ("factory_document_versions", "Name"),
             // The kept factory emails (Factory Control, step 4). The slot key is half of the unique index that makes a
             // slot handled exactly once, so the two providers must agree on its equality or one of them sends a slot
             // twice; the kind and the state are closed words the sweep and the read routes compare exactly.
             ("factory_email_reports", "Kind"),
             ("factory_email_reports", "SlotKey"),
             ("factory_email_reports", "State"),
+            ("factory_journal_entries", "EntryDate"),
+            ("factory_journal_entries", "Factory"),
+            ("factory_journal_entries", "ImportKey"),
+            ("factory_journal_entries", "Seat"),
             // A seat's brief held on the Gateway (Factory Seats mission, phase 2a). The factory and the seat are two
             // parts of the primary key that keeps two writers from minting the same version, so the two providers
             // must agree on what counts as the same seat; the state is the closed word the published read selects on.

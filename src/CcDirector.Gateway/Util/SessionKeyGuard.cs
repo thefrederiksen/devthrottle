@@ -432,6 +432,7 @@ public static class SessionKeyGuard
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
             if (IsFactoryBriefRoute(verb, s)) return true;
+            if (IsFactoryRecordRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -626,6 +627,7 @@ public static class SessionKeyGuard
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
             if (IsFactoryBriefRoute(verb, s)) return true;
+            if (IsFactoryRecordRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -653,6 +655,7 @@ public static class SessionKeyGuard
             if (IsTriggerRoute(verb, s)) return true;
             if (IsFactoryMemoryRoute(verb, s)) return true;
             if (IsFactoryBriefRoute(verb, s)) return true;
+            if (IsFactoryRecordRoute(verb, s)) return true;
 
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
@@ -1163,6 +1166,38 @@ public static class SessionKeyGuard
         {
             if (s[3] == "history") return verb is "GET" or "HEAD";
             if (s[3] == "restore") return verb == "POST";
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// A FACTORY'S RECORDS - journals, working documents, attachments (Factory Definition mission, phase 2). Allowed to
+    /// every session key, and safe to be: the route itself lets through only a session of the factory named in the
+    /// path (<c>FactoryNaming.TryAct</c>, the gate a factory's briefs, schedules and triggers already pass), so a
+    /// session key cannot reach another factory's records here. Nothing here deletes: a journal is append-only, a
+    /// document is written as a new version, an attachment is kept once.
+    ///
+    /// Verb by verb, because this guard is split by verb: the reads fall in the GET arm, adding an entry or a file in
+    /// POST, and writing a document in PUT.
+    /// </summary>
+    private static bool IsFactoryRecordRoute(string verb, string[] s)
+    {
+        if (s.Length < 3 || s[0] != "factory-records") return false;
+
+        // /factory-records/{factory}/journal - list, add. /documents - list, write. /attachments - list, add.
+        if (s.Length == 3)
+        {
+            if (s[2] == "journal" || s[2] == "attachments") return verb is "GET" or "HEAD" or "POST";
+            if (s[2] == "documents") return verb is "GET" or "HEAD" or "PUT";
+            return false;
+        }
+
+        // /journal/{id} and /attachments/{id} - one record. /documents/read and /documents/history - one document.
+        if (s.Length == 4)
+        {
+            if (s[2] is "journal" or "attachments") return verb is "GET" or "HEAD";
+            if (s[2] == "documents" && s[3] is "read" or "history") return verb is "GET" or "HEAD";
         }
 
         return false;

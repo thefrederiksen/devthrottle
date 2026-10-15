@@ -1,0 +1,113 @@
+Factory Definition phase 2 - upload proof on SOREN_NORTH, 2026-10-14 19:43:04 -0400
+Worktree: fd-p2-records, commit f0452a640 with the review fix applied in the working tree (committed next, unchanged)
+Publishing the desktop Gateway from this worktree ...
+
+== 1. Fingerprint the records folders before ==
+1481 files, 440767674 bytes
+
+== 2. Start a test Gateway on port 7996 with its own storage root ==
+Ready (process 69736). Its machine credential is read from its own token file and never printed.
+
+== 3. The upload, first run ==
+Factory records under C:\Users\soren\AppData\Local, uploaded to http://127.0.0.1:7996 as SOREN_NORTH.
+  cc-factory/devthrottle  [devthrottle]  read 225 (143 attachment, 38 journal, 44 working document)
+      stored 225 (new 225, already stored 0), not uploaded 0, refused 0
+  cc-factory/cfo  [cc-factory]  read 9 (4 journal, 5 working document)
+      stored 9 (new 9, already stored 0), not uploaded 0, refused 0
+  cc-factory-factory  [cc-factory]  read 1 (1 working document)
+      stored 1 (new 1, already stored 0), not uploaded 0, refused 0
+  cc-factory/vercel-release  [no factory]  read 2 (1 journal, 1 working document)
+      stored 0 (new 0, already stored 0), not uploaded 2, refused 0
+  business-research-factory  [business-research]  read 82 (1 database, 7 journal, 74 working document)
+      stored 81 (new 81, already stored 0), not uploaded 1, refused 0
+  clickfunnels-factory  [clickfunnels]  read 869 (318 attachment, 1 database, 22 journal, 363 scratch, 165 working document)
+      stored 505 (new 505, already stored 0), not uploaded 364, refused 0
+  mindzie-web-factory  [mindzie-web]  read 52 (52 working document)
+      stored 52 (new 52, already stored 0), not uploaded 0, refused 0
+  warmforward-factory  [warmforward]  read 10 (6 journal, 4 working document)
+      stored 10 (new 10, already stored 0), not uploaded 0, refused 0
+  website-factory  [website-business]  read 231 (23 attachment, 2 database, 8 journal, 198 working document)
+      stored 229 (new 229, already stored 0), not uploaded 2, refused 0
+  cc-director/factories  [money-saver]  read 0 (no files)
+      stored 0 (new 0, already stored 0), not uploaded 0, refused 0
+Read 1481 = stored 1112 + not uploaded 369 + refused 0. The counts reconcile.
+Nothing on this machine was deleted or changed.
+exit code 0
+Not uploaded, listed by name on screen (369); shown here with names removed:
+     1 x business-research-factory/*.db - a database: the records stores hold journals, documents and files, not databases
+     1 x cc-factory/vercel-release/*.json - its folder belongs to no factory
+     1 x cc-factory/vercel-release/*.log - its folder belongs to no factory
+     1 x clickfunnels-factory/*.sqlite - a database: the records stores hold journals, documents and files, not databases
+    19 x clickfunnels-factory/scratch/.../*.css - scratch: a working file the factory makes and throws away, not a record
+     1 x clickfunnels-factory/scratch/.../*.html - scratch: a working file the factory makes and throws away, not a record
+   227 x clickfunnels-factory/scratch/.../*.json - scratch: a working file the factory makes and throws away, not a record
+    49 x clickfunnels-factory/scratch/.../*.md - scratch: a working file the factory makes and throws away, not a record
+    26 x clickfunnels-factory/scratch/.../*.pml - scratch: a working file the factory makes and throws away, not a record
+    12 x clickfunnels-factory/scratch/.../*.py - scratch: a working file the factory makes and throws away, not a record
+     1 x clickfunnels-factory/scratch/.../*.sh - scratch: a working file the factory makes and throws away, not a record
+     6 x clickfunnels-factory/scratch/.../*.txt - scratch: a working file the factory makes and throws away, not a record
+     1 x clickfunnels-factory/transcribe/.../*.cut - scratch: a working file the factory makes and throws away, not a record
+     1 x clickfunnels-factory/transcribe/.../*.json - scratch: a working file the factory makes and throws away, not a record
+     1 x clickfunnels-factory/transcribe/.../*.txt - scratch: a working file the factory makes and throws away, not a record
+    19 x clickfunnels-factory/transcribe/.../*.wav - scratch: a working file the factory makes and throws away, not a record
+     2 x website-factory/*.db - a database: the records stores hold journals, documents and files, not databases
+
+== 4. The upload, second run: nothing new is stored and the counts still reconcile ==
+Factory records under C:\Users\soren\AppData\Local, uploaded to http://127.0.0.1:7996 as SOREN_NORTH.
+  cc-factory/devthrottle  [devthrottle]  read 225 (143 attachment, 38 journal, 44 working document)
+      stored 225 (new 0, already stored 225), not uploaded 0, refused 0
+  cc-factory/cfo  [cc-factory]  read 9 (4 journal, 5 working document)
+      stored 9 (new 0, already stored 9), not uploaded 0, refused 0
+  cc-factory-factory  [cc-factory]  read 1 (1 working document)
+      stored 1 (new 0, already stored 1), not uploaded 0, refused 0
+  cc-factory/vercel-release  [no factory]  read 2 (1 journal, 1 working document)
+      stored 0 (new 0, already stored 0), not uploaded 2, refused 0
+  business-research-factory  [business-research]  read 82 (1 database, 7 journal, 74 working document)
+      stored 81 (new 0, already stored 81), not uploaded 1, refused 0
+  clickfunnels-factory  [clickfunnels]  read 869 (318 attachment, 1 database, 22 journal, 363 scratch, 165 working document)
+      stored 505 (new 0, already stored 505), not uploaded 364, refused 0
+  mindzie-web-factory  [mindzie-web]  read 52 (52 working document)
+      stored 52 (new 0, already stored 52), not uploaded 0, refused 0
+  warmforward-factory  [warmforward]  read 10 (6 journal, 4 working document)
+      stored 10 (new 0, already stored 10), not uploaded 0, refused 0
+  website-factory  [website-business]  read 231 (23 attachment, 2 database, 8 journal, 198 working document)
+      stored 229 (new 0, already stored 229), not uploaded 2, refused 0
+  cc-director/factories  [money-saver]  read 0 (no files)
+      stored 0 (new 0, already stored 0), not uploaded 0, refused 0
+Read 1481 = stored 1112 + not uploaded 369 + refused 0. The counts reconcile.
+Nothing on this machine was deleted or changed.
+exit code 0
+
+== 5. Rows in the test Gateway's own database ==
+  factory_journal_entries: 85
+  factory_document_versions: 543
+  factory_attachments: 484
+  factory_attachment_contents: 484
+  upload rows naming this machine: 1112
+  attachment bytes held: 247830740
+  attachment bytes the rows state: 247830740
+
+== 6. The refusals, over HTTP on the same Gateway, each answer quoted ==
+Version 1 of the ledger, written by the upload: 200 Written
+The upload writes it again, still expecting version 0 (a second machine's file of the same name):
+  409 outcome Stale
+    error: "'outreach/ledger.json' is at version 1, not 0; read it again, merge, and write once more"
+    current: null - the machine credential is never handed a record's text
+  (and it cannot read the history to see it either: 403)
+An attachment of 4194305 bytes: 413 outcome TooLarge
+    error: "'walk/big.png' holds 4194305 bytes; one attachment holds at most 4194304 (4 MB). Nothing was stored. Make the file smaller - a screenshot at a lower resolution, or as a JPEG - and add it again"
+The machine credential writing without an import key: 403
+    error: "a factory's records are written by a person, by a session of the factory, or by the one-time upload"
+The machine credential writing an upload row without naming its machine: 400
+    error: "the one-time upload names the machine it runs on in the X-DevThrottle-Upload-Machine header, and this request did not"
+The machine credential reading the documents: 403
+    error: "a factory's records are read by a person, or by a session of the factory"
+A wrong credential: 401
+
+== 7. Stop the test Gateway this run started (process 69736) ==
+POST /shutdown -> 200
+Stopped (exit code 0).
+
+== 8. Fingerprint the records folders after ==
+1481 files, 440767674 bytes. Changed: 0. Gone: 0.
+Nothing on this machine was deleted or changed.
