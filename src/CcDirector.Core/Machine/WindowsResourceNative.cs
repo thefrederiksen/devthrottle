@@ -28,11 +28,9 @@ internal static class WindowsResourceNative
     private const int StatusBufferTooSmall = unchecked((int)0xC0000023);
 
     private const uint IoctlDiskPerformance = 0x00070020;
-    private const uint IoctlDiskGetDriveGeometryEx = 0x000700A0;
     private const uint IoctlStorageQueryProperty = 0x002D1400;
     private const uint IoctlVolumeGetVolumeDiskExtents = 0x00560000;
 
-    private const int StorageDeviceProperty = 0;
     private const int StorageDeviceSeekPenaltyProperty = 7;
 
     private const uint FileShareReadWrite = 0x1 | 0x2;
@@ -51,24 +49,38 @@ internal static class WindowsResourceNative
         return new CpuTimes(idle, kernel, user);
     }
 
-    internal static byte[] ReadProcessorPerformance() =>
-        QuerySystemInformation(SystemProcessorPerformanceInformation, Environment.ProcessorCount * WindowsResourceParsing.ProcessorPerformanceSize, out _);
+    internal static byte[] ReadProcessorPerformance()
+    {
+        var size = Environment.ProcessorCount * WindowsResourceParsing.ProcessorPerformanceSize;
+        return QuerySystemInformation(SystemProcessorPerformanceInformation, ref size, out _);
+    }
 
-    /// <summary>The process chain, and the address its buffer was at, because image names point into it.</summary>
-    internal static byte[] ReadProcessInformation(out long bufferAddress) =>
-        QuerySystemInformation(SystemProcessInformation, 1 << 20, out bufferAddress);
+    /// <summary>
+    /// The process chain, and the address its buffer was at, because image names point into it.
+    ///
+    /// <paramref name="sizeHint"/> is the size the list needed last time, kept by the caller and updated
+    /// here. On a machine with 800 processes and 12,000 threads the list is about 1.4 MB, and the kernel
+    /// spends around 10 milliseconds filling it; guessing too small doubles that with a call that fails.
+    /// </summary>
+    internal static byte[] ReadProcessInformation(ref int sizeHint, out long bufferAddress) =>
+        QuerySystemInformation(SystemProcessInformation, ref sizeHint, out bufferAddress);
 
-    internal static byte[] ReadPageFileInformation() =>
-        QuerySystemInformation(SystemPageFileInformation, 4096, out _);
+    internal static byte[] ReadPageFileInformation()
+    {
+        var size = 4096;
+        return QuerySystemInformation(SystemPageFileInformation, ref size, out _);
+    }
 
     /// <summary>
     /// Calls NtQuerySystemInformation, growing the buffer until the structure fits. The process list
     /// can grow between the size query and the read, which is why this loops rather than asking once.
+    /// <paramref name="size"/> comes back as the size that fitted plus a quarter, so the next call for a
+    /// list that has grown a little still fits first time.
     /// The copy out of unmanaged memory is what lets the parser, and a captured fixture, see plain bytes.
     /// </summary>
-    private static byte[] QuerySystemInformation(int informationClass, int initialSize, out long bufferAddress)
+    private static byte[] QuerySystemInformation(int informationClass, ref int size, out long bufferAddress)
     {
-        var size = Math.Max(initialSize, 64);
+        size = Math.Max(size, 64);
         for (var attempt = 0; attempt < 8; attempt++)
         {
             var buffer = Marshal.AllocHGlobal(size);
@@ -86,6 +98,7 @@ internal static class WindowsResourceNative
                 var bytes = new byte[returned];
                 Marshal.Copy(buffer, bytes, 0, returned);
                 bufferAddress = buffer.ToInt64();
+                size = returned + returned / 4;
                 return bytes;
             }
             finally
@@ -97,8 +110,8 @@ internal static class WindowsResourceNative
     }
 
     /// <summary>
-    /// Opens \\.\PhysicalDriveN with NO access rights - enough for the performance, geometry and
-    /// property queries, all of which are FILE_ANY_ACCESS, and so no administrator is needed. Null when
+    /// Opens \\.\PhysicalDriveN with NO access rights - enough for the performance and seek-penalty
+    /// queries, all of which are FILE_ANY_ACCESS, and so no administrator is needed. Null when
     /// that disk number does not exist.
     /// </summary>
     internal static SafeFileHandle? OpenPhysicalDisk(int number)
@@ -125,12 +138,6 @@ internal static class WindowsResourceNative
 
     internal static byte[] ReadDiskPerformance(SafeFileHandle disk) =>
         DeviceIoControlBytes(disk, IoctlDiskPerformance, null, WindowsResourceParsing.DiskPerformanceSize);
-
-    internal static byte[] ReadDiskGeometry(SafeFileHandle disk) =>
-        DeviceIoControlBytes(disk, IoctlDiskGetDriveGeometryEx, null, 256);
-
-    internal static byte[] ReadStorageDescriptor(SafeFileHandle disk) =>
-        DeviceIoControlBytes(disk, IoctlStorageQueryProperty, StoragePropertyQuery(StorageDeviceProperty), 1024);
 
     internal static byte[] ReadSeekPenalty(SafeFileHandle disk) =>
         DeviceIoControlBytes(disk, IoctlStorageQueryProperty, StoragePropertyQuery(StorageDeviceSeekPenaltyProperty), 12);

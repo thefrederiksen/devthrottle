@@ -36,13 +36,10 @@ foreach (var (n, h) in handles)
     var perf2 = WindowsResourceNative.ReadDiskPerformance(h);
     File.WriteAllBytes(Path.Combine(outDir, $"disk{n}-performance-1.bin"), disks1[n]);
     File.WriteAllBytes(Path.Combine(outDir, $"disk{n}-performance-2.bin"), perf2);
-    File.WriteAllBytes(Path.Combine(outDir, $"disk{n}-descriptor.bin"), ScrubSerial(WindowsResourceNative.ReadStorageDescriptor(h)));
     File.WriteAllBytes(Path.Combine(outDir, $"disk{n}-seek-penalty.bin"), WindowsResourceNative.ReadSeekPenalty(h));
-    File.WriteAllBytes(Path.Combine(outDir, $"disk{n}-geometry.bin"), WindowsResourceNative.ReadDiskGeometry(h));
-    var d = WindowsResourceParsing.ParseStorageDeviceDescriptor(WindowsResourceNative.ReadStorageDescriptor(h));
     var rates = WindowsResourceParsing.DiskRatesBetween(WindowsResourceParsing.ParseDiskPerformance(disks1[n]), WindowsResourceParsing.ParseDiskPerformance(perf2));
-    notes.AppendLine($"PhysicalDrive{n}: model={d.Model} bus={d.BusType} seekPenalty={WindowsResourceParsing.ParseIncursSeekPenalty(WindowsResourceNative.ReadSeekPenalty(h))} " +
-                     $"size={WindowsResourceParsing.ParseDiskSize(WindowsResourceNative.ReadDiskGeometry(h))} busy={rates.BusyFraction:P1} read/s={rates.ReadBytesPerSecond:F0} write/s={rates.WriteBytesPerSecond:F0} sec/read={rates.SecondsPerRead} sec/write={rates.SecondsPerWrite} queue={rates.QueueDepth}");
+    notes.AppendLine($"PhysicalDrive{n}: seekPenalty={WindowsResourceParsing.ParseIncursSeekPenalty(WindowsResourceNative.ReadSeekPenalty(h))} " +
+                     $"busy={rates.BusyFraction:P1} read/s={rates.ReadBytesPerSecond:F0} write/s={rates.WriteBytesPerSecond:F0} sec/read={rates.SecondsPerRead} sec/write={rates.SecondsPerWrite} averageQueue={rates.AverageQueueLength}");
     h.Dispose();
 }
 
@@ -72,7 +69,8 @@ var stopBurn = false;
 var burners = Enumerable.Range(0, Environment.ProcessorCount * 2).Select(_ => new Thread(() => { while (!Volatile.Read(ref stopBurn)) { } }) { IsBackground = true }).ToList();
 burners.ForEach(t => t.Start());
 Thread.Sleep(500);
-var procBuf = WindowsResourceNative.ReadProcessInformation(out var address);
+var procSize = 1 << 20;
+var procBuf = WindowsResourceNative.ReadProcessInformation(ref procSize, out var address);
 Volatile.Write(ref stopBurn, true);
 var procs = WindowsResourceParsing.ParseProcessInformation(procBuf, address);
 notes.AppendLine($"Processes: {procs.Count}, threads waiting on a processor: {procs.Sum(p => p.ThreadsWaitingOnCpu)}, self present: {procs.Any(p => p.ProcessId == Environment.ProcessId)}");
@@ -86,15 +84,6 @@ foreach (var p in trimmedParsed)
 
 File.WriteAllText(Path.Combine(outDir, "capture-notes.txt"), notes.ToString());
 Console.WriteLine(notes);
-
-// The serial number identifies the hardware: blanked in the fixture (same length, spaces), never read.
-static byte[] ScrubSerial(byte[] d)
-{
-    var serialOffset = (int)BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(24));
-    if (serialOffset > 0 && serialOffset < d.Length)
-        for (var i = serialOffset; i < d.Length && d[i] != 0; i++) d[i] = (byte)' ';
-    return d;
-}
 
 // Page file names can carry a user's path; the parser does not read them. Name lengths zeroed.
 static byte[] ScrubPageFileNames(byte[] b)

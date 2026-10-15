@@ -241,7 +241,9 @@ public class WindowsResourceParsingTests
         // One read taking 3.5 milliseconds; 2,662 writes taking 0.1438397 seconds between them.
         Assert.Equal(0.0035207, rates.SecondsPerRead!.Value, 9);
         Assert.Equal(0.1438397 / 2662, rates.SecondsPerWrite!.Value, 12);
-        Assert.Equal(0U, rates.QueueDepth);
+        // Every request's time at the disk added up - 35,207 reading and 1,438,397 writing - over the
+        // interval: on average 0.146 requests in flight, though the instantaneous depth read zero.
+        Assert.Equal((35207.0 + 1438397.0) / 10113157.0, rates.AverageQueueLength!.Value, 9);
     }
 
     [Fact]
@@ -268,6 +270,7 @@ public class WindowsResourceParsingTests
         Assert.Null(rates.ReadBytesPerSecond);
         Assert.Null(rates.WriteBytesPerSecond);
         Assert.Null(rates.SecondsPerRead);
+        Assert.Null(rates.AverageQueueLength);
     }
 
     [Fact]
@@ -293,18 +296,6 @@ public class WindowsResourceParsingTests
     }
 
     [Theory]
-    [InlineData("disk0-descriptor.bin", "Fanxiang S101 4TB", 11)] // STORAGE_BUS_TYPE BusTypeSata
-    [InlineData("disk1-descriptor.bin", "WD_BLACK SN770 1TB", 17)] // STORAGE_BUS_TYPE BusTypeNvme
-    public void ParseStorageDeviceDescriptor_RealCapture_ReadsModelAndBus(string fixture, string model, int busType)
-    {
-        var descriptor = WindowsResourceParsing.ParseStorageDeviceDescriptor(Fixture(fixture));
-
-        Assert.Equal(model, descriptor.Model);
-        Assert.Equal(busType, descriptor.BusType);
-        Assert.False(descriptor.Removable);
-    }
-
-    [Theory]
     [InlineData("disk0-seek-penalty.bin")]
     [InlineData("disk1-seek-penalty.bin")]
     public void ParseIncursSeekPenalty_RealSolidStateCapture_IsFalse(string fixture)
@@ -321,14 +312,6 @@ public class WindowsResourceParsingTests
         bytes[8] = 1;
 
         Assert.True(WindowsResourceParsing.ParseIncursSeekPenalty(bytes));
-    }
-
-    [Theory]
-    [InlineData("disk0-geometry.bin", 4096805658624UL)]
-    [InlineData("disk1-geometry.bin", 1000204886016UL)]
-    public void ParseDiskSize_RealCapture_ReadsBytes(string fixture, ulong size)
-    {
-        Assert.Equal(size, WindowsResourceParsing.ParseDiskSize(Fixture(fixture)));
     }
 
     // ---------------------------------------------------------------------------------------------

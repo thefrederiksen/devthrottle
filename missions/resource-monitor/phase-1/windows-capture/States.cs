@@ -10,7 +10,8 @@ static class States
         Thread.Sleep(500);
         for (var round = 0; round < 3; round++)
         {
-            var buf = WindowsResourceNative.ReadProcessInformation(out _);
+            var size = 1 << 20;
+            var buf = WindowsResourceNative.ReadProcessInformation(ref size, out _);
             var hist = new SortedDictionary<uint, int>();
             var offset = 0; var total = 0;
             while (true)

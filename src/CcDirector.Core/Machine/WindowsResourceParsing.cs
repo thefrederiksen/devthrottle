@@ -214,13 +214,16 @@ internal static class WindowsResourceParsing
 
     /// <summary>
     /// One disk's activity between two cumulative readings: how busy it was, how fast it moved bytes,
-    /// and how long a read and a write took on average. A field is null when the interval cannot
+    /// how long a read and a write took on average, and how many requests were in flight on average.
+    /// The last is the time every request spent at the disk, added up, over the interval - the same
+    /// arithmetic as the "Avg. Disk Queue Length" performance counter, rather than the instantaneous
+    /// depth, which on a 5-second sample is one moment's luck. A field is null when the interval cannot
     /// answer it - no time passed, or no read happened so there is no time per read - never zero.
     /// </summary>
     internal static DiskRates DiskRatesBetween(DiskCounters earlier, DiskCounters later)
     {
         var interval = later.QueryTime - earlier.QueryTime;
-        if (interval <= 0) return new DiskRates(null, null, null, null, null, later.QueueDepth);
+        if (interval <= 0) return new DiskRates(null, null, null, null, null, null);
 
         var seconds = interval / 1e7;
         var idle = later.IdleTime - earlier.IdleTime;
@@ -239,27 +242,7 @@ internal static class WindowsResourceParsing
             WriteBytesPerSecond: Math.Max(0, later.BytesWritten - earlier.BytesWritten) / seconds,
             SecondsPerRead: reads == 0 ? null : (later.ReadTime - earlier.ReadTime) / 1e7 / reads,
             SecondsPerWrite: writes == 0 ? null : (later.WriteTime - earlier.WriteTime) / 1e7 / writes,
-            QueueDepth: later.QueueDepth);
-    }
-
-    /// <summary>
-    /// Decodes STORAGE_DEVICE_DESCRIPTOR from <c>IOCTL_STORAGE_QUERY_PROPERTY(StorageDeviceProperty)</c>:
-    /// the disk's vendor and product strings and the bus it hangs off. The serial number is in the
-    /// same structure and is deliberately NOT read - it identifies the hardware and nothing here needs it.
-    /// </summary>
-    internal static StorageDescriptor ParseStorageDeviceDescriptor(ReadOnlySpan<byte> buffer)
-    {
-        if (buffer.Length < 32)
-            throw new FormatException($"STORAGE_DEVICE_DESCRIPTOR is {buffer.Length} bytes, expected at least 32");
-
-        var vendor = ReadAsciiAt(buffer, (int)ReadUInt32(buffer, 12));
-        var product = ReadAsciiAt(buffer, (int)ReadUInt32(buffer, 16));
-        var model = string.Join(' ', new[] { vendor, product }.Where(s => !string.IsNullOrEmpty(s)));
-
-        return new StorageDescriptor(
-            Model: model.Length == 0 ? null : model,
-            BusType: (int)ReadUInt32(buffer, 28),
-            Removable: buffer[10] != 0);
+            AverageQueueLength: Math.Max(0, (later.ReadTime - earlier.ReadTime) + (later.WriteTime - earlier.WriteTime)) / (double)interval);
     }
 
     /// <summary>
@@ -271,14 +254,6 @@ internal static class WindowsResourceParsing
         if (buffer.Length < 9)
             throw new FormatException($"DEVICE_SEEK_PENALTY_DESCRIPTOR is {buffer.Length} bytes, expected at least 9");
         return buffer[8] != 0;
-    }
-
-    /// <summary>Decodes the disk size from DISK_GEOMETRY_EX (<c>IOCTL_DISK_GET_DRIVE_GEOMETRY_EX</c>): DiskSize follows the 24-byte geometry.</summary>
-    internal static ulong ParseDiskSize(ReadOnlySpan<byte> buffer)
-    {
-        if (buffer.Length < 32)
-            throw new FormatException($"DISK_GEOMETRY_EX is {buffer.Length} bytes, expected at least 32");
-        return ReadUInt64(buffer, 24);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -366,15 +341,6 @@ internal static class WindowsResourceParsing
     private static ulong ReadUInt64(ReadOnlySpan<byte> b, int at) => BinaryPrimitives.ReadUInt64LittleEndian(b[at..]);
     private static uint ReadUInt32(ReadOnlySpan<byte> b, int at) => BinaryPrimitives.ReadUInt32LittleEndian(b[at..]);
 
-    private static string? ReadAsciiAt(ReadOnlySpan<byte> buffer, int offset)
-    {
-        if (offset <= 0 || offset >= buffer.Length) return null;
-        var rest = buffer[offset..];
-        var end = rest.IndexOf((byte)0);
-        var text = Encoding.ASCII.GetString(end < 0 ? rest : rest[..end]).Trim();
-        return text.Length == 0 ? null : text;
-    }
-
     private static string ReadFixedUtf16(ReadOnlySpan<byte> field)
     {
         var text = Encoding.Unicode.GetString(field);
@@ -424,10 +390,7 @@ internal readonly record struct DiskRates(
     double? WriteBytesPerSecond,
     double? SecondsPerRead,
     double? SecondsPerWrite,
-    uint QueueDepth);
-
-/// <summary>A disk's identity from STORAGE_DEVICE_DESCRIPTOR. BusType is the STORAGE_BUS_TYPE value.</summary>
-internal readonly record struct StorageDescriptor(string? Model, int BusType, bool Removable);
+    double? AverageQueueLength);
 
 /// <summary>One row of MIB_IF_TABLE2.</summary>
 internal sealed record RawInterface(
