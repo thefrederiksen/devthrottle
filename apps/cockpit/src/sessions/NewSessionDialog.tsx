@@ -15,6 +15,7 @@ import { directorPort } from "@devthrottle/client-core/fleet/directorEndpoint";
 import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
 import { useDismissOnBackdrop } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { reposFilterFirst } from "@devthrottle/client-core/sessions/filter";
 
 const SURFACE = "cockpit-new-session";
 
@@ -75,6 +76,11 @@ export interface NewSessionDialogProps {
    * list, the dialog falls back to the newest-started Director exactly as before.
    */
   initialDirectorId?: string;
+  /**
+   * The repos of the Sessions filter on this tab (issue #4009). The repository list puts these first, so a tab
+   * filtered to a client's repos offers that client's repos at the top. Empty, or absent, changes nothing.
+   */
+  filterRepos?: string[];
 }
 
 // Permission choices, mapped to the desktop dialog's "Bypass permission prompts" checkbox. "Skip
@@ -342,7 +348,7 @@ export function launchSummary(agent: AgentChoice | null, bypass: boolean, factor
   return `${agent.displayName} . ${model} . ${permission}${inFactory}`;
 }
 
-export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewSessionDialogProps) {
+export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filterRepos }: NewSessionDialogProps) {
   const [directors, setDirectors] = useState<DirectorInfo[] | null>(null);
   const [directorsError, setDirectorsError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -481,13 +487,18 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
   // The rows on the page: the chosen heading's order, then the search box's filter over name OR path -
   // the desktop tab's ApplyRepoFilter, which searches both fields and is case-insensitive.
   const visibleRepos = useMemo(() => {
-    const ordered = orderRepositories(repos ?? [], sortColumn, sortAscending);
+    // The Sessions filter's repos first (issue #4009), then the chosen heading's order for the rest.
+    const ordered = reposFilterFirst(
+      orderRepositories(repos ?? [], sortColumn, sortAscending),
+      { repos: filterRepos ?? [], machines: [] },
+      (r) => r.path,
+    );
     const needle = repoFilter.trim().toLowerCase();
     if (needle.length === 0) return ordered;
     return ordered.filter(
       (r) => r.name.toLowerCase().includes(needle) || r.path.toLowerCase().includes(needle),
     );
-  }, [repos, sortColumn, sortAscending, repoFilter]);
+  }, [repos, sortColumn, sortAscending, repoFilter, filterRepos]);
 
   // The one line describing the list: loading, empty, failed, or what it holds and the order it is in.
   // It lives in exactly one place so the screen cannot say two things about one list.

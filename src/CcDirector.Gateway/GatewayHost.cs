@@ -686,6 +686,8 @@ public sealed class GatewayHost : IAsyncDisposable
     // re-serves every WHY after a restart); exposed to the client over MissionNotesEndpoint.
     private readonly MissionNotes.MissionNoteStore _missionNotes;
     private readonly Settings.TenantSettingsStore _tenantSettings;
+    // The saved session filters on each account (issue #4009), for the Sessions filter panel.
+    private readonly SessionFilters.SavedSessionFilterStore _savedSessionFilters;
     private readonly Settings.TenantSettingsResolver _tenantSettingsResolver;
     // Hosted Gateway mission, Step 1b: the EF data layer (gateway.db). The host owns ONE instance and the
     // structured stores that have moved off hand-rolled JSON read/write through it. On the single-tenant
@@ -2373,6 +2375,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // global default (the existing config.json value), so an existing install's settings are unchanged
         // until the owner explicitly overrides one.
         _tenantSettings = new Settings.TenantSettingsStore(_gatewayDb);
+        _savedSessionFilters = new SessionFilters.SavedSessionFilterStore(_gatewayDb);
         _tenantSettingsResolver = new Settings.TenantSettingsResolver(_tenantSettings);
         // The factory agents switch per account: the machine switch, or the account's own recorded decision, which
         // lives in the per-tenant settings just built - so no new table, and the administrator route writes it.
@@ -6019,6 +6022,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // What every session colour means, for the Cockpit's and the phone's colour legend. The words are written
         // beside the fold that decides the colours (SessionColourLegend), and the clients render them verbatim.
         Api.SessionColourLegendEndpoints.Map(_app);
+
+        // The saved session filters on the caller's account (issue #4009): the Sessions filter panel's named filters.
+        Api.SavedSessionFilterEndpoints.Map(_app, _savedSessionFilters, _tenantBoundary);
 
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly

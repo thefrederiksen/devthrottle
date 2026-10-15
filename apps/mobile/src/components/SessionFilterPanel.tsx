@@ -4,11 +4,14 @@ import {
   type FacetOption,
   type SessionFilter,
   EMPTY_FILTER,
+  applyFilter,
   filterIsActive,
   machineFacet,
   repoFacet,
+  savedFilterSelection,
   toggleValue,
 } from "@devthrottle/client-core/sessions/filter";
+import { useSavedFilters } from "@devthrottle/client-core/sessions/savedFilters";
 
 // The full-screen "Filter sessions" panel, opened by the app-bar funnel icon. It edits a DRAFT copy of
 // the active filter so the roster underneath does not reshuffle while you are still choosing; Apply
@@ -28,6 +31,9 @@ export function SessionFilterPanel({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<SessionFilter>(filter);
+  // The account's saved filters (issue #4009), named and coloured in the Cockpit. On the phone one tap applies one;
+  // they are made, renamed and deleted in the Cockpit.
+  const saved = useSavedFilters();
   const machines = machineFacet(sessions);
   const repos = repoFacet(sessions);
 
@@ -60,6 +66,22 @@ export function SessionFilterPanel({
         </header>
 
         <div className="filter-body">
+          {saved.error !== null && (
+            // error-reported-by: useSavedFilters
+            <div className="filter-facet-note">Could not load your saved filters: {saved.error}</div>
+          )}
+          {saved.filters !== null && saved.filters.length > 0 && (
+            <div className="filter-facet">
+              <h3 className="filter-facet-heading">Saved filters</h3>
+              {saved.filters.map((f) => (
+                <button key={f.id} type="button" className="filter-opt" onClick={() => onApply(savedFilterSelection(f))}>
+                  <span className="filter-saved-dot" style={{ backgroundColor: f.colourHex }} aria-hidden="true" />
+                  <span className="filter-opt-label">{f.name}</span>
+                  <span className="filter-opt-count">{applyFilter(sessions, savedFilterSelection(f)).length}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <FilterFacet
             heading="Machine"
             options={machines}

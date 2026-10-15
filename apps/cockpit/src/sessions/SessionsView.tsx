@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Outlet, useMatch, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { getDirectors, type SessionDto } from "@devthrottle/client-core/api/client";
 import { type DirectorReachability } from "@devthrottle/client-core/fleet/fleetClient";
 import { directorPort } from "@devthrottle/client-core/fleet/directorEndpoint";
@@ -10,6 +10,8 @@ import { SessionRoster, type RosterView } from "./SessionRoster";
 import { NewSessionDialog } from "./NewSessionDialog";
 import { LinkRequestsProvider } from "./LinkRequests";
 import { SecretTransfersProvider } from "@devthrottle/client-core/secrets/SecretTransfers";
+import { filterSearchOf, filteredDocumentTitle } from "@devthrottle/client-core/sessions/filter";
+import { useRosterFilter } from "./useRosterFilter";
 
 // The Sessions experience (issue #972): the core driving loop - see every session, select one,
 // answer it. This layout route renders the roster on the left and routes the selected session's detail
@@ -18,6 +20,10 @@ import { SecretTransfersProvider } from "@devthrottle/client-core/secrets/Secret
 // all read the identical roster from a single poll loop and a hidden tab goes quiet. The roster stays
 // mounted while you switch sessions, so the selection persists across navigations.
 const VIEW_STORAGE_KEY = "cockpit.rosterView";
+
+// The browser tab's own title (apps/cockpit/index.html). A saved filter's name goes in front of it, so several Cockpit
+// tabs, each on its own filter, can be told apart in the tab strip (issue #4009).
+const COCKPIT_TITLE = "DevThrottle Cockpit";
 
 // The default ordering is "My order" (the session-rail ordering decision): attention-first is opt-in,
 // never automatic. Read the last choice back so the toggle is sticky per browser, defaulting to
@@ -45,6 +51,17 @@ export function SessionsView() {
   const [view, setView] = useState<RosterView>(initialView);
   const [showNew, setShowNew] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const rosterFilter = useRosterFilter();
+  const savedName =
+    rosterFilter.resolved.status === "active" ? (rosterFilter.resolved.saved?.name ?? null) : null;
+
+  useEffect(() => {
+    document.title = filteredDocumentTitle(COCKPIT_TITLE, savedName);
+    return () => {
+      document.title = COCKPIT_TITLE;
+    };
+  }, [savedName]);
 
   // The roster's per-Director reachability (from GET /sessions?envelope=true) carries the machine name
   // but NOT the Control API port, and the port is what tells apart several cc-directors on one machine.
@@ -107,9 +124,9 @@ export function SessionsView() {
     (sessionId: string) => {
       setShowNew(false);
       refreshNow();
-      navigate(`/session/${encodeURIComponent(sessionId)}`);
+      navigate(`/session/${encodeURIComponent(sessionId)}${filterSearchOf(location.search)}`);
     },
-    [refreshNow, navigate],
+    [refreshNow, navigate, location.search],
   );
 
   const context: SessionsOutletContext = { sessions, directors };
@@ -130,11 +147,18 @@ export function SessionsView() {
             onView={onView}
             error={error}
             onNewSession={() => setShowNew(true)}
+            rosterFilter={rosterFilter}
           />
           <div className="sessions-detail">
             <Outlet context={context} />
           </div>
-          {showNew && <NewSessionDialog onClose={() => setShowNew(false)} onCreated={onCreated} />}
+          {showNew && (
+            <NewSessionDialog
+              onClose={() => setShowNew(false)}
+              onCreated={onCreated}
+              filterRepos={rosterFilter.resolved.status === "active" ? rosterFilter.resolved.filter.repos : []}
+            />
+          )}
         </div>
       </LinkRequestsProvider>
     </SecretTransfersProvider>

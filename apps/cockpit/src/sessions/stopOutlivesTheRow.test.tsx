@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 
 // THE STOP MUST OUTLIVE THE ROW IT WAS STARTED FROM (mission "Stop a session", inspection finding I4).
@@ -149,16 +149,21 @@ function roster(sessions: SessionDto[]) {
   );
 }
 
+/** Where a stop lands: says it is the roster, and shows the address it arrived with. */
+function RosterStandIn() {
+  return <div>the roster<output data-testid="roster-address">{useLocation().search}</output></div>;
+}
+
 /** The real session page, routed and given its outlet context the way SessionsView gives it. */
-function detail(sessions: SessionDto[]) {
+function detail(sessions: SessionDto[], entry = `/session/${SID}`) {
   return (
-    <MemoryRouter initialEntries={[`/session/${SID}`]}>
+    <MemoryRouter initialEntries={[entry]}>
       <StopSessionProvider>
         <Routes>
           <Route path="/" element={<Outlet context={{ sessions, directors: [] }} />}>
             <Route path="session/:sessionId" element={<SessionDetail />} />
           </Route>
-          <Route path="/sessions" element={<div>the roster</div>} />
+          <Route path="/sessions" element={<RosterStandIn />} />
         </Routes>
       </StopSessionProvider>
     </MemoryRouter>
@@ -283,6 +288,18 @@ describe("the stop survives the session page switching its own menu off", () => 
     confirmStop();
 
     await waitFor(() => expect(screen.getByText("the roster")).toBeTruthy());
+  });
+});
+
+describe("a stop keeps the tab's Sessions filter (issue #4009)", () => {
+  it("lands on the roster with the same filter it was opened from, not every session", async () => {
+    stopSessionMock.mockResolvedValue(answer());
+    render(detail([session()], `/session/${SID}?repo=devthrottle&tab=terminal`));
+
+    openStopDialog();
+    confirmStop();
+
+    await waitFor(() => expect(screen.getByTestId("roster-address").textContent).toBe("?repo=devthrottle"));
   });
 });
 
