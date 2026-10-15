@@ -1,0 +1,34 @@
+LINUX CHECK - LinuxResourceProbe, devlinux, 2026-10-15
+======================================================
+
+Machine: devlinux, Linux 6.8.0-146-generic, 32 logical cores, .NET SDK 10.0.301.
+Tree: branch resource-monitor/linux-probe, on top of resource-monitor/probe-interface (commit 06060750e),
+which is on origin/main b805b14f0.
+
+1. dotnet build cc-director.sln -c Release
+   On Linux this stops before compiling anything: two projects target Windows only and the SDK refuses
+   them unless Windows targeting is switched on. This is true of main as it stands, not of this change:
+     [/home/soren/ReposFred/devthrottle-linux-probe/src/CcClick/CcClick.csproj]
+     [/home/soren/ReposFred/devthrottle-linux-probe/src/CcDirector.Terminal/CcDirector.Terminal.csproj]
+     2 Error(s)
+
+   dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+     (compiles every project in the solution, the Windows ones against their reference packs)
+   Build succeeded.
+       0 Warning(s)
+       0 Error(s)
+   
+   Time Elapsed 00:18:29.07
+
+2. dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+   Passed!  - Failed:     0, Passed:    98, Skipped:     0, Total:    98, Duration: 1 s - CcDirector.Core.UnitTests.dll (net10.0)
+   (63 from this change - 43 parser tests, counting the disk-name theory's nine cases, and 20
+   whole-probe tests over the devlinux snapshots and the failure cases - plus the interface's own 35)
+
+3. dotnet test src/CcDirector.Core.Tests --filter "Category=Resources"   - ON devlinux
+   Passed!  - Failed:     0, Passed:     7, Skipped:     0, Total:     7, Duration: 11 s - CcDirector.Core.Tests.dll (net10.0)
+   (none skipped: every live test read the real /proc and /sys of this machine and asserted real,
+   non-zero figures - core count, memory, swap, physical disks with a known kind, the root volume on its
+   disks, network, pressure figures, and this test process with its parent)
+
+4. The live reading beside the operating system's own figures: linux-live-reading.txt in this folder.

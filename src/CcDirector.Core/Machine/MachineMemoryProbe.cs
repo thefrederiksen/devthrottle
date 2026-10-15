@@ -173,8 +173,11 @@ public sealed class MachineMemoryProbe : IMachineMemoryProbe
         return MachineMemoryReading.Read(total, available, now);
     }
 
-    /// <summary>Reads "MemTotal:       16316576 kB" into bytes. Every value in the file is in kilobytes.</summary>
-    private static bool TryReadKilobytes(string line, string key, out ulong bytes)
+    /// <summary>
+    /// Reads "MemTotal:       16316576 kB" into bytes. Every value in the file is in kilobytes. Internal so
+    /// the resource probe reads swap from the same file with the same parsing rather than a copy of it.
+    /// </summary>
+    internal static bool TryReadKilobytes(string line, string key, out ulong bytes)
     {
         bytes = 0;
         if (!line.StartsWith(key, StringComparison.Ordinal)) return false;
