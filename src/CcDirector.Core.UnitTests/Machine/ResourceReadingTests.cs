@@ -178,6 +178,22 @@ public class ResourceReadingTests
         Assert.Contains("2.6 operations in flight", reading.ToString());
     }
 
+    [Theory]
+    [InlineData(0.337, "0.34 ms per write")]
+    [InlineData(0.004, "0.00 ms per write")]
+    [InlineData(9.5, "9.50 ms per write")]
+    [InlineData(26, "26 ms per write")]
+    [InlineData(26.4, "26 ms per write")]
+    public void PhysicalDiskToString_MillisecondsPerWrite_KeepsSubMillisecondFigures(double milliseconds, string expected)
+    {
+        // A solid-state drive answers in under a millisecond; whole milliseconds would print it as "0 ms".
+        var reading = PhysicalDiskReading.Read("nvme0n1", DiskKind.SolidState, busyPercent: 3,
+            readBytesPerSecond: 0, writeBytesPerSecond: 0,
+            millisecondsPerRead: null, millisecondsPerWrite: milliseconds, averageQueueDepth: null);
+
+        Assert.EndsWith(expected, reading.ToString());
+    }
+
     [Fact]
     public void PhysicalDiskUnreadable_KeepsNameAndKind_CarriesReasonAndZeroes()
     {

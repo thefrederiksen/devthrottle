@@ -3,8 +3,10 @@ using System.Globalization;
 namespace CcDirector.Core.Machine;
 
 /// <summary>
-/// One reading of the machine's network throughput, summed over every interface except loopback.
-/// Both figures are rates, so the first read after start-up is unreadable with
+/// One reading of the machine's network throughput, summed over the physical interfaces that are up,
+/// excluding loopback and virtual ones. Virtual switches and filter layers carry the same bytes again -
+/// on Windows they counted the same traffic three to four times - so summing them would overstate the
+/// machine's real traffic. Both figures are rates, so the first read after start-up is unreadable with
 /// <see cref="ResourceUnreadableReasons.FirstSample"/>.
 /// </summary>
 /// <param name="CouldRead">False when the network could not be read; the rates are then zero and mean nothing.</param>

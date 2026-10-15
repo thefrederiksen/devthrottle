@@ -98,9 +98,20 @@ public readonly record struct PhysicalDiskReading(
         if (AverageQueueDepth is { } depth)
             text += string.Create(CultureInfo.InvariantCulture, $", {depth:F1} operations in flight");
         if (MillisecondsPerWrite is { } perWrite)
-            text += string.Create(CultureInfo.InvariantCulture, $", {perWrite:F0} ms per write");
+            text += $", {FormatMilliseconds(perWrite)} ms per write";
         return text;
     }
+
+    /// <summary>
+    /// Two decimal places below ten milliseconds, whole milliseconds above. A solid-state drive answers in
+    /// well under one millisecond, so whole milliseconds would print every one of them as "0 ms" - the
+    /// made-up zero the meter must never show. Above ten, a decimal place is noise beside the figure that
+    /// matters (a spinning drive at 26 ms per write).
+    /// </summary>
+    internal static string FormatMilliseconds(double milliseconds) =>
+        milliseconds < 10
+            ? milliseconds.ToString("F2", CultureInfo.InvariantCulture)
+            : milliseconds.ToString("F0", CultureInfo.InvariantCulture);
 
     private string KindText => Kind switch
     {
