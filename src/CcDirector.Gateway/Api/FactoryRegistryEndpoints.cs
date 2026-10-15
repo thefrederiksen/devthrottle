@@ -20,6 +20,9 @@ namespace CcDirector.Gateway.Api;
 ///   POST /gateway/factory/goal-numbers                   body PostGoalNumberRequest -> 201 GoalNumberDto | 400 | 403 | 409
 ///   GET  /gateway/factory/goal-numbers?factory=&amp;count=  -> GoalNumbersDto | 400
 ///
+/// A factory with a PUBLISHED definition (Factory Definition, phase 4) is registered by its publish: registering it
+/// or setting its purpose here answers 409 { error, outcome: "DefinedByDefinition" }. Goal numbers still post.
+///
 /// These are the DATA routes the <c>cc-devthrottle factory register</c> and <c>factory goal-number</c> commands call,
 /// so they sit beside the other routes a factory's own session calls (<c>/gateway/factory/activity</c>,
 /// <c>/gateway/factory/map</c>) and a session key may call all four (SessionKeyGuard). The owner's finished views
@@ -44,12 +47,18 @@ internal static class FactoryRegistryEndpoints
     /// <param name="sessionStart">For an account and a session id: the activity record's "started" row of that
     /// session, or null when no factory agent started it.</param>
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FactoryRegistryStore store,
-        Func<TenantId, string, FactoryActivityDto?> sessionStart, Func<DateTime> nowUtc)
+        Func<TenantId, string, FactoryActivityDto?> sessionStart, Func<DateTime> nowUtc,
+        // Factory Definition, phase 4: whether the account's factory of this id has a published definition
+        // (FactoryDefinitionStore.IsDefined). A defined factory's registration and purpose are written by a publish,
+        // so registering it or setting its purpose here is refused (DefinedByDefinition); goal numbers still post.
+        // REQUIRED: a wiring line that forgot it would let a registration undo a publish and fail nothing.
+        Func<TenantId, string?, bool> isDefined)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(sessionStart);
         ArgumentNullException.ThrowIfNull(nowUtc);
+        ArgumentNullException.ThrowIfNull(isDefined);
 
         app.MapPut(RegistryRoute, async (HttpContext ctx) =>
         {
@@ -57,6 +66,9 @@ internal static class FactoryRegistryEndpoints
             if (bad is not null) return bad;
             return Guard(ctx, resolveTenant, "PUT registry", tenant =>
             {
+                // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a defined factory is registered by its publish.
+                if (isDefined(tenant, req!.Factory))
+                    return Factory.Definition.DefinedByDefinition.Refusal("PUT registry", req.Factory);
                 var registered = store.Register(tenant, req, Caller(ctx), nowUtc());
                 return Results.Json(registered);
             });
@@ -76,7 +88,10 @@ internal static class FactoryRegistryEndpoints
             var (req, bad) = await ReadBody<SetFactoryPurposeRequest>(ctx, $"PUT purpose {factory}");
             if (bad is not null) return bad;
             return Guard(ctx, resolveTenant, $"PUT purpose {factory}", tenant =>
-                Results.Json(store.SetPurpose(tenant, factory, req!.Purpose)));
+                // The purpose is a field of the definition (phase 4), so a defined factory's is set by a publish.
+                isDefined(tenant, factory)
+                    ? Factory.Definition.DefinedByDefinition.Refusal($"PUT purpose {factory}", factory)
+                    : Results.Json(store.SetPurpose(tenant, factory, req!.Purpose)));
         });
 
         app.MapPost(GoalNumbersRoute, async (HttpContext ctx) =>

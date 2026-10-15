@@ -107,7 +107,8 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
             sessionFactoryOf: _ => sessionFactory ?? SessionFactoryLookup.NotKnown,
             findFactory: (_, id) => _registry.Find(T, id),
             runRecords: runRecords,
-            accountZoneOf: _ => TimeZoneInfo.Utc);
+            accountZoneOf: _ => TimeZoneInfo.Utc,
+            isDefined: (_, _) => false);
 
         var settings = new TenantSettingsStore(_db);
         var record = _record;

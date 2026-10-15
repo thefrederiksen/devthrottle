@@ -24,6 +24,9 @@ namespace CcDirector.Gateway.Api;
 ///   DELETE /triggers/{id}            -> { id, deleted } | 404    (the run history is kept)
 ///   POST   /triggers/{id}/pause      -> TriggerDto | 404
 ///   POST   /triggers/{id}/resume     -> TriggerDto | 404
+///
+/// A factory with a PUBLISHED definition (Factory Definition, phase 4): the add, the edit and the delete of one of its
+/// triggers answer 409 { error, outcome: "DefinedByDefinition" }. Pause and resume still work.
 ///   GET    /triggers/{id}/runs       ?limit=N (default 50, at most 500) -> TriggerRunListResponse | 404
 ///
 /// The Director's half - never a session key's, since <see cref="SessionKeyGuard"/> lists neither:
@@ -53,10 +56,16 @@ internal static class TriggerEndpoints
         // a session naming a factory on a trigger is already in it. REQUIRED (phase 1 review, finding 1): a
         // wiring line that forgot it used to compile and fail nothing. A harness that cannot read membership
         // passes `_ => SessionFactoryLookup.NotKnown`.
-        Func<string, History.SessionFactoryLookup> sessionFactoryOf)
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf,
+        // Factory Definition, phase 4: whether the account's factory of this id has a published definition
+        // (FactoryDefinitionStore.IsDefined). A defined factory's triggers are the definition's to write, so the
+        // add, the edit and the delete of one are refused (DefinedByDefinition); pause and resume still work.
+        // REQUIRED for the same reason as the lookup above.
+        Func<TenantId, string?, bool> isDefined)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
+        ArgumentNullException.ThrowIfNull(isDefined);
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(directorMachine);
         ArgumentNullException.ThrowIfNull(nowUtc);
@@ -78,6 +87,10 @@ internal static class TriggerEndpoints
                     "POST /triggers", out var factoryError, out var settledFactory))
                 return factoryError!;
             req!.Factory = settledFactory;
+
+            // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a defined factory's triggers come from its definition.
+            if (isDefined(tenant, req.Factory))
+                return Factory.Definition.DefinedByDefinition.Refusal("POST /triggers", req.Factory!);
 
             var (created, refused) = store.Create(tenant, req!, CallerOf(ctx), nowUtc());
             if (created is null)
@@ -126,6 +139,14 @@ internal static class TriggerEndpoints
                 return factoryError!;
             req!.Factory = settledFactory;
 
+            // ONE SOURCE OF TRUTH (Factory Definition, phase 4): a trigger of a defined factory, or a body that would
+            // move one onto a defined factory, is the definition's to write.
+            var definedFactory = isDefined(tenant, storedFactory) ? storedFactory
+                : isDefined(tenant, req.Factory) ? req.Factory
+                : null;
+            if (definedFactory is not null)
+                return Factory.Definition.DefinedByDefinition.Refusal($"PUT /triggers/{id}", definedFactory);
+
             var (updated, refused) = store.Update(tenant, id, req!);
             if (refused is not null) return Refuse(StatusCodes.Status409Conflict, "trigger_name_taken", refused);
             return updated is null ? NoSuchTrigger(id) : Results.Json(service.ToDto(updated));
@@ -140,6 +161,9 @@ internal static class TriggerEndpoints
             if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
                     $"DELETE /triggers/{id}", out var actError))
                 return actError!;
+            // A defined factory's trigger is removed by publishing its definition (phase 4).
+            if (store.Find(tenant, id)?.Factory is { } storedFactory && isDefined(tenant, storedFactory))
+                return Factory.Definition.DefinedByDefinition.Refusal($"DELETE /triggers/{id}", storedFactory);
             return store.Delete(tenant, id) ? Results.Json(new { id, deleted = true }) : NoSuchTrigger(id);
         });
 
