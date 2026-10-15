@@ -107,6 +107,7 @@ internal static class FactoryDefinitionEndpoints
         if (!TryFold(factory, out var folded, out error)) return error!;
 
         var standing = store.Standing(tenant, folded);
+        FileLog.Write($"[FactoryDefinitionEndpoints] GET {folded}: published={standing.Published?.Version.ToString() ?? "none"}, newest={standing.Newest?.Version.ToString() ?? "none"}");
         if (standing.Published is null)
             return Results.Json(new
             {
@@ -130,6 +131,7 @@ internal static class FactoryDefinitionEndpoints
         if (!TryFold(factory, out var folded, out error)) return error!;
 
         var standing = store.Standing(tenant, folded);
+        FileLog.Write($"[FactoryDefinitionEndpoints] GET {folded}/draft: newest={standing.Newest?.Version.ToString() ?? "none"}");
         if (standing.Newest is null)
             return Results.Json(new
             {
@@ -174,6 +176,7 @@ internal static class FactoryDefinitionEndpoints
 
         var standing = store.Standing(tenant, folded);
         var page = store.History(tenant, folded, before, limit);
+        FileLog.Write($"[FactoryDefinitionEndpoints] GET {folded}/history: limit={limit}, before={before?.ToString() ?? "none"}, versions={page.Versions.Count} of {page.Total}");
         return Results.Json(new FactoryDefinitionHistoryResponse
         {
             Factory = folded,
@@ -208,7 +211,9 @@ internal static class FactoryDefinitionEndpoints
         if (!TryVersion(version, "version", out var wanted, out error)) return error!;
 
         var standing = store.Standing(tenant, folded);
-        if (store.Find(tenant, folded, wanted) is not { } found) return NoSuchVersion(folded, wanted, standing);
+        var found = store.Find(tenant, folded, wanted);
+        FileLog.Write($"[FactoryDefinitionEndpoints] GET {folded}/versions/{wanted}: {(found is null ? "not found" : $"{found.Files.Count} files")}");
+        if (found is null) return NoSuchVersion(folded, wanted, standing);
         return Results.Json(ToDto(found, standing));
     }
 
@@ -243,6 +248,11 @@ internal static class FactoryDefinitionEndpoints
         FactoryDefinitionVersion? published = null;
         if (fromVersion is { } fv && (published = store.Find(tenant, folded, fv)) is null)
             return NoSuchVersion(folded, fv, standing);
+
+        // A stored version that no longer passes the format check cannot be compared: say which and where (finding 1).
+        if (FirstFormatError(compared.Files) is { } badTo) return DoesNotParse(folded, compared.Summary.Version, badTo);
+        if (published is not null && FirstFormatError(published.Files) is { } badFrom)
+            return DoesNotParse(folded, published.Summary.Version, badFrom);
 
         var changes = FactoryDefinitionChanges.Compare(published?.Files, compared.Files);
         FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: diff {fromVersion?.ToString() ?? "nothing"} -> {compared.Summary.Version}: {changes.Summary}");
@@ -292,21 +302,53 @@ internal static class FactoryDefinitionEndpoints
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
             return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
 
-        // A version that does not exist is the store's to word; only one that does is checked.
+        // THE STORE'S OWN RULINGS COME FIRST (review of 4004, finding 3): no such version, already published, older
+        // than the published one. They say which version is live, and the check's "was not published" must never be
+        // said of the version that IS published.
+        var standing = store.Standing(tenant, folded);
         var wanted = store.Find(tenant, folded, body.Version);
-        var check = wanted is null ? null : Check(wanted.Files, folded, tenant, account);
-        if (check is { HasErrors: true })
+        if (wanted is null || wanted.Summary.State == FactoryDefinitionStates.Published
+            || standing.Published is { } live && live.Version > body.Version)
+            return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
+
+        var check = Check(wanted.Files, folded, tenant, account);
+        if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {body.Version} was not published");
 
-        var before = PublishedContent(store, tenant, folded);
+        // WHAT CHANGES IS WORKED OUT BEFORE THE WRITE (finding 1), so a publish that succeeds is never answered with a
+        // failure to describe it.
+        var (changes, notice) = ChangesAgainstPublished(store, tenant, folded, wanted.Files);
         var write = store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc());
-        return Answer(write, store, tenant, folded, check, write.Ok ? FactoryDefinitionChanges.Compare(before, wanted!.Files) : null);
+        return Answer(write, store, tenant, folded, check, write.Ok ? changes : null, write.Ok ? notice : null);
     }
 
-    /// <summary>The content of the version published now, or null when none is: what a publish's "what changes" is
-    /// measured against, read just before the publish.</summary>
-    private static IReadOnlyDictionary<string, string>? PublishedContent(FactoryDefinitionStore store, TenantId tenant, string factory)
-        => store.Standing(tenant, factory).Published is { } published ? store.Find(tenant, factory, published.Version)?.Files : null;
+    /// <summary>
+    /// What publishing <paramref name="content"/> changes against the version published now - everything, listed as
+    /// added, when none is. A published version that no longer passes the format check (the rules tightened since it
+    /// was published) cannot be read for a comparison, so the changes are listed against nothing and a notice says
+    /// which version, where, and why. It never refuses: the content being published has just passed the whole check.
+    /// </summary>
+    private static (FactoryDefinitionChangesDto Changes, DefinitionFinding? Notice) ChangesAgainstPublished(
+        FactoryDefinitionStore store, TenantId tenant, string factory, IReadOnlyDictionary<string, string> content)
+    {
+        if (store.Standing(tenant, factory).Published is not { } published)
+            return (FactoryDefinitionChanges.Compare(null, content), null);
+        var before = store.Find(tenant, factory, published.Version)!.Files;
+        if (FirstFormatError(before) is not { } problem)
+            return (FactoryDefinitionChanges.Compare(before, content), null);
+
+        FileLog.Write($"[FactoryDefinitionEndpoints] {factory}: version {published.Version} no longer passes the format check at {Where(problem)}; what changes is listed from nothing");
+        return (FactoryDefinitionChanges.Compare(null, content), new DefinitionFinding(DefinitionSeverity.Notice, problem.File, problem.Line,
+            $"Version {published.Version}, published until now, no longer passes the format check at {Where(problem)} " +
+            $"({problem.Message}), so what changes is listed as if nothing had been published before."));
+    }
+
+    /// <summary>The first error of the format stage alone, or null when the content parses: whether a stored version
+    /// can be read for "what changes".</summary>
+    private static DefinitionFinding? FirstFormatError(IReadOnlyDictionary<string, string> content)
+        => FactoryDefinitionCheck.Read(content).Findings.FirstOrDefault(f => f.IsError);
+
+    private static string Where(DefinitionFinding f) => f.Line > 0 ? $"{f.File}:{f.Line}" : f.File;
 
     /// <summary>POST a restore: a person publishes a copy of an older version as the newest version - once the check
     /// finds no error in it.</summary>
@@ -325,15 +367,35 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
                 store, tenant, folded, null);
 
+        // The store's own rulings first, as for a publish: no such version, already the published one, a stale view.
+        var standing = store.Standing(tenant, folded);
         var wanted = store.Find(tenant, folded, body.Version);
-        var check = wanted is null ? null : Check(wanted.Files, folded, tenant, account);
-        if (check is { HasErrors: true })
+        if (wanted is null || standing.Published?.Version == body.Version
+            || body.ExpectedVersion > 0 && body.ExpectedVersion != standing.Newest?.Version)
+            return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
+                store, tenant, folded, null);
+
+        var check = Check(wanted.Files, folded, tenant, account);
+        if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {body.Version} was not restored");
 
-        var before = PublishedContent(store, tenant, folded);
+        var (changes, notice) = ChangesAgainstPublished(store, tenant, folded, wanted.Files);
         // The copy records the version it came from (restoredFrom), so it carries no change note of its own.
         var write = store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion);
-        return Answer(write, store, tenant, folded, check, write.Ok ? FactoryDefinitionChanges.Compare(before, wanted!.Files) : null);
+        return Answer(write, store, tenant, folded, check, write.Ok ? changes : null, write.Ok ? notice : null);
+    }
+
+    /// <summary>422 for a diff naming a version the format check now refuses: which version, where, and what to do.</summary>
+    private static IResult DoesNotParse(string factory, int version, DefinitionFinding problem)
+    {
+        FileLog.Write($"[FactoryDefinitionEndpoints] {factory}: diff REFUSED (422) - version {version} does not parse at {Where(problem)}");
+        return Results.Json(new
+        {
+            error = $"Version {version} of the definition of {factory} no longer passes the format check at {Where(problem)}, " +
+                    "so what changes cannot be shown. Compare other versions with from and to.",
+            outcome = "DoesNotParse",
+            findings = new[] { ToDto(problem) },
+        }, statusCode: StatusCodes.Status422UnprocessableEntity);
     }
 
     // ---------- the check ----------
@@ -424,7 +486,7 @@ internal static class FactoryDefinitionEndpoints
     // ---------- answers ----------
 
     private static IResult Answer(FactoryDefinitionWrite write, FactoryDefinitionStore store, TenantId tenant, string factory,
-        FactoryDefinitionCheckResult? check, FactoryDefinitionChangesDto? changes = null)
+        FactoryDefinitionCheckResult? check, FactoryDefinitionChangesDto? changes = null, DefinitionFinding? notice = null)
     {
         // Read after the write, so the answer says how the factory stands now: which version is newest and which is published.
         var standing = store.Standing(tenant, factory);
@@ -432,6 +494,7 @@ internal static class FactoryDefinitionEndpoints
         {
             var dto = ToDto(write.Version!, standing);
             if (check is not null) dto.Findings = check.Findings.Select(ToDto).ToList();
+            if (notice is not null) dto.Findings.Add(ToDto(notice));
             dto.Changes = changes;
             return Results.Json(dto);
         }

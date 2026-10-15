@@ -533,11 +533,20 @@ def test_everyCall_CarriesThisSessionsKey(gateway):
     assert gw.calls[0]["auth"] == "Bearer test-session-key"
 
 
-@pytest.mark.parametrize("verb", ["get", "history", "save", "publish", "restore", "diff"])
-def test_anUnknownFlag_Fails_AndCallsNothing(gateway, verb):
+@pytest.mark.parametrize("verb, required", [
+    ("get", []), ("history", []), ("diff", []),
+    # Every required option is passed, so the unknown flag is the only reason the command can refuse.
+    ("save", ["--dir", "<folder>", "--expected-version", "0"]),
+    ("publish", ["--version", "1"]),
+    ("restore", ["--version", "1"]),
+])
+def test_anUnknownFlag_Fails_AndCallsNothing(gateway, folder, verb, required):
     gw = gateway()
+    required = [str(folder) if a == "<folder>" else a for a in required]
 
-    result = run(verb, FACTORY, "--no-such-flag")
+    result = run(verb, FACTORY, *required, "--no-such-flag")
 
-    assert result.exit_code != 0
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+    assert "--no-such-flag" in result.output
     assert gw.calls == []

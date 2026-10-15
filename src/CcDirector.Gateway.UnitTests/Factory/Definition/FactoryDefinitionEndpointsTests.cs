@@ -550,6 +550,118 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal(2, VersionsKept());
     }
 
+    // ---------- a published version the format rules now refuse (review of 4004, finding 1) ----------
+
+    /// <summary>A definition the format rules refuse - an unknown key on line 5 of the writer - stored and published
+    /// STRAIGHT THROUGH THE STORE, as one published before the rules tightened would be. The store holds paths and
+    /// caps only, so it takes it.</summary>
+    private static Dictionary<string, string> RefusedByTodaysRules() =>
+        DefinitionFixture.With("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red");
+
+    private void PublishStraightThroughTheStore(IReadOnlyDictionary<string, string> content)
+    {
+        var newest = _store.Standing(A, TheFactory).Newest?.Version ?? 0;
+        Assert.True(_store.SaveDraft(A, TheFactory, content, newest, "person", "the owner", null, Now).Ok);
+        Assert.True(_store.Publish(A, TheFactory, newest + 1, "person", "the owner", Now).Ok);
+    }
+
+    [Fact]
+    public void A_PUBLISH_OVER_A_VERSION_THAT_NO_LONGER_PARSES_SUCCEEDS_and_lists_what_changes_from_nothing_with_a_notice_saying_why()
+    {
+        PublishStraightThroughTheStore(RefusedByTodaysRules());
+        Assert.Equal(200, Status(Save(Person(), DefinitionFixture.Valid(), expect: 1)));
+
+        var published = Publish(Person(), 2);
+
+        Assert.Equal(200, Status(published));
+        var dto = Version(published);
+        Assert.Equal(2, dto.PublishedVersion);
+        Assert.True(dto.Changes!.FirstPublish);
+        var notice = Assert.Single(dto.Findings, f => f.Message.StartsWith("Version 1, published until now", StringComparison.Ordinal));
+        Assert.Equal("notice", notice.Severity);
+        Assert.Equal("seats/writer.yaml", notice.File);
+        Assert.Equal(5, notice.Line);
+        Assert.Contains("no longer passes the format check at seats/writer.yaml:5", notice.Message);
+        Assert.Contains("'colour' is not a key", notice.Message);
+        Assert.Contains("listed as if nothing had been published before", notice.Message);
+    }
+
+    [Fact]
+    public void A_RESTORE_OVER_A_VERSION_THAT_NO_LONGER_PARSES_SUCCEEDS_with_the_same_notice()
+    {
+        PublishStraightThroughTheStore(DefinitionFixture.Valid());
+        PublishStraightThroughTheStore(RefusedByTodaysRules());
+
+        var restored = Restore(Person(), 1, expect: 2);
+
+        Assert.Equal(200, Status(restored));
+        var dto = Version(restored);
+        Assert.Equal(3, dto.PublishedVersion);
+        Assert.Equal(1, dto.RestoredFrom);
+        Assert.True(dto.Changes!.FirstPublish);
+        Assert.Contains(dto.Findings, f => f.Severity == "notice" && f.Message.StartsWith("Version 2, published until now", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_DIFF_FROM_OR_TO_A_VERSION_THAT_NO_LONGER_PARSES_IS_422_IN_WORDS_naming_the_version_and_where()
+    {
+        PublishStraightThroughTheStore(RefusedByTodaysRules());
+        Assert.Equal(200, Status(Save(Person(), DefinitionFixture.Valid(), expect: 1)));
+
+        var fromIt = Diff(Person());
+        Assert.Equal(422, Status(fromIt));
+        Assert.Equal("DoesNotParse", Field(fromIt, "outcome"));
+        Assert.Equal($"Version 1 of the definition of {TheFactory} no longer passes the format check at seats/writer.yaml:5, " +
+                     "so what changes cannot be shown. Compare other versions with from and to.", ErrorOf(fromIt));
+
+        var toIt = Diff(Person(), "from=2&to=1");
+        Assert.Equal(422, Status(toIt));
+        Assert.StartsWith("Version 1 of the definition", ErrorOf(toIt));
+    }
+
+    // ---------- the store's rulings come before the check (review of 4004, finding 3) ----------
+
+    [Fact]
+    public void PUBLISHING_THE_VERSION_THAT_IS_ALREADY_PUBLISHED_SAYS_SO_even_when_the_account_changed_since()
+    {
+        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Publish(Person(), 1);
+        _fleetSkills.Remove("browsers");
+
+        var again = Publish(Person(), 1);
+
+        Assert.Equal(409, Status(again));
+        Assert.Equal("AlreadyPublished", Field(again, "outcome"));
+        Assert.Equal($"version 1 is already the published definition of {TheFactory}", ErrorOf(again));
+    }
+
+    [Fact]
+    public void PUBLISHING_A_VERSION_OLDER_THAN_THE_PUBLISHED_ONE_SAYS_SO_even_when_the_account_changed_since()
+    {
+        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+        Publish(Person(), 2);
+        _fleetSkills.Remove("browsers");
+
+        var older = Publish(Person(), 1);
+
+        Assert.Equal(409, Status(older));
+        Assert.Equal("OlderThanPublished", Field(older, "outcome"));
+    }
+
+    [Fact]
+    public void RESTORING_THE_PUBLISHED_VERSION_SAYS_SO_even_when_the_account_changed_since()
+    {
+        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Publish(Person(), 1);
+        _fleetSkills.Remove("browsers");
+
+        var restore = Restore(Person(), 1, expect: 1);
+
+        Assert.Equal(409, Status(restore));
+        Assert.Equal("AlreadyPublished", Field(restore, "outcome"));
+    }
+
     [Fact]
     public void A_publish_of_a_version_that_does_not_exist_is_NOT_FOUND_in_the_stores_words()
     {
