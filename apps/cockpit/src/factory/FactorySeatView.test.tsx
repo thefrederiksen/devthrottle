@@ -204,6 +204,33 @@ describe("A seat with a schedule", () => {
   });
 });
 
+describe("A seat of a factory with a definition", () => {
+  it("shows no Edit and no Take off, the Gateway's sentence why, and the way to the Definition tab", async () => {
+    const [schedule] = SEAT_PAGE_SCHEDULED.starts.schedules;
+    screenClient.getFactorySeatPage.mockResolvedValue({
+      ...SEAT_PAGE_SCHEDULED,
+      starts: {
+        ...SEAT_PAGE_SCHEDULED.starts,
+        schedules: [{ ...schedule, editLabel: null, unlink: null }],
+        definedText: "WarmForward has a definition, and this seat's schedules come from it. (fixture)",
+        definitionLabel: "Open the Definition tab",
+        definitionHref: "/factories/warmforward/definition",
+      },
+    });
+    renderSeat("scout");
+
+    const defined = await screen.findByTestId("fa-seat-defined");
+    expect(defined.textContent).toContain("WarmForward has a definition, and this seat's schedules come from it. (fixture)");
+    expect(within(defined).getByRole("link", { name: "Open the Definition tab" }).getAttribute("href")).toBe(
+      "/factories/warmforward/definition",
+    );
+    const row = screen.getByTestId(`fa-seat-schedule-${schedule.jobId}`);
+    expect(within(row).queryByRole("button", { name: "Edit schedule" })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Take off this seat" })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Pause" })).toBeTruthy();
+  });
+});
+
 describe("A seat whose schedule the Gateway no longer has", () => {
   it("says so in the Gateway's sentence and offers nothing to press on it", async () => {
     screenClient.getFactorySeatPage.mockResolvedValue(SEAT_PAGE_MISSING);

@@ -127,6 +127,16 @@ public sealed class FactorySeatStartsDto
 
     /// <summary>Pause or Resume for the seat's triggers, or null when it has none.</summary>
     public FactoryPauseDto? TriggersPause { get; set; }
+
+    /// <summary>For a factory with a definition: that its seats' schedules are part of the definition and are changed
+    /// there, which is why no schedule offers Edit schedule or Take off this seat. Null for every other factory.</summary>
+    public string? DefinedText { get; set; }
+
+    /// <summary>"Open the Definition tab", beside <see cref="DefinedText"/>; null when that is null.</summary>
+    public string? DefinitionLabel { get; set; }
+
+    /// <summary>The factory's Definition tab, <c>/factories/{factory}/definition</c>; null when <see cref="DefinedText"/> is.</summary>
+    public string? DefinitionHref { get; set; }
 }
 
 /// <summary>One schedule of a seat, on the seat's page.</summary>
@@ -150,7 +160,7 @@ public sealed class FactorySeatPageScheduleDto
     /// <summary>What to do about a schedule the Gateway no longer has, else null.</summary>
     public string? MissingText { get; set; }
 
-    /// <summary>"Edit schedule"; null for a schedule the Gateway no longer has.</summary>
+    /// <summary>"Edit schedule"; null for a schedule the Gateway no longer has, and on a factory with a definition.</summary>
     public string? EditLabel { get; set; }
 
     /// <summary>True when this schedule is switched off. The toggle beside it then resumes it.</summary>
@@ -159,7 +169,8 @@ public sealed class FactorySeatPageScheduleDto
     /// <summary>"Pause" or "Resume"; null for a schedule the Gateway no longer has and for a one-off that has run.</summary>
     public string? ToggleLabel { get; set; }
 
-    /// <summary>"Take off this seat" with its confirm; null for a schedule the Gateway no longer has.</summary>
+    /// <summary>"Take off this seat" with its confirm; null for a schedule the Gateway no longer has, and on a factory
+    /// with a definition.</summary>
     public FactorySeatUnlinkDto? Unlink { get; set; }
 }
 

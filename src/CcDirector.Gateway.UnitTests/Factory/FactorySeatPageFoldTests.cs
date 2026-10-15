@@ -291,6 +291,42 @@ public sealed class FactorySeatPageFoldTests
     }
 
     [Fact]
+    public void Page_ADefinedFactory_OffersNoEditAndNoTakeOff_AndSaysTheDefinitionTabIsWhereTheyChange()
+    {
+        // Phase 4 QA finding 3: the Gateway refuses an edit of a defined factory's schedule and a take-off, so the page
+        // must not offer either. Pause stays: switching a schedule off is not defining it.
+        var scout = Seat("scout", "Scout", "Scout", "cj_scout");
+        var f = WarmForward(Seat("boss", "Boss", "Boss"), scout);
+
+        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan") }), memoryNotes: 0,
+            FactoryBriefStanding.None, FactoryBriefPanelFold.DefinitionLine("WarmForward"));
+
+        var schedule = Assert.Single(page.Starts.Schedules);
+        Assert.Null(schedule.EditLabel);
+        Assert.Null(schedule.Unlink);
+        Assert.Equal("Pause", schedule.ToggleLabel);
+        Assert.Equal("WarmForward has a definition, and this seat's schedules come from it. To change or remove one, change the " +
+                     "seat's start in the definition's folder, import it on the Definition tab, and publish it.", page.Starts.DefinedText);
+        Assert.Equal("Open the Definition tab", page.Starts.DefinitionLabel);
+        Assert.Equal("/factories/warmforward/definition", page.Starts.DefinitionHref);
+    }
+
+    [Fact]
+    public void Page_AFactoryWithNoDefinition_IsUnchanged_EditAndTakeOffOffered_AndNoDefinitionSentence()
+    {
+        var scout = Seat("scout", "Scout", "Scout", "cj_scout");
+        var f = WarmForward(scout);
+
+        var page = FactorySeatPageFold.Page(f, scout, Inputs(f, new[] { Job("cj_scout", "scan") }), memoryNotes: 0, FactoryBriefStanding.None);
+
+        Assert.Equal("Edit schedule", page.Starts.Schedules[0].EditLabel);
+        Assert.Equal("Take off this seat", page.Starts.Schedules[0].Unlink!.Label);
+        Assert.Null(page.Starts.DefinedText);
+        Assert.Null(page.Starts.DefinitionLabel);
+        Assert.Null(page.Starts.DefinitionHref);
+    }
+
+    [Fact]
     public void Unlink_AScheduleTheFactorysArchiveSwitchedOff_IsNotOffered()
     {
         // Restore switches back on, by id, what the archive switched off. Taken off first, it would switch on a

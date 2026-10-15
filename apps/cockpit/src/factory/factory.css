@@ -1626,6 +1626,13 @@ a:focus .ff-bay rect {
   font-size: 14px;
 }
 
+/* A defined factory: why its schedules offer no edit, and the way to the Definition tab. */
+.fa-seat-defined {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 /* One schedule on the seat's page: its words on the left, its buttons on the right. */
 .fa-seat-start {
   display: flex;

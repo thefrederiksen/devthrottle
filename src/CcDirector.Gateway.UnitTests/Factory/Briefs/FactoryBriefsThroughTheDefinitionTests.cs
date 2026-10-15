@@ -633,6 +633,38 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
     }
 
     [Fact]
+    public async Task EditorAndHistory_DefinedFactory_ThePublishConfirmNamesEveryOtherChangeThatGoesLive()
+    {
+        // Phase 4 QA finding 5: a brief publish also published a rename waiting in the definition, and the confirm did
+        // not say so. Now it names it, in the editor and on the history row that carries Publish.
+        Define();
+        var content = new Dictionary<string, string>(_definitions.Find(A, TheFactory, 1)!.Files);
+        content["seats/writer.yaml"] = content["seats/writer.yaml"].Replace("name: Writer", "name: Author", StringComparison.Ordinal);
+        Assert.True(_definitions.SaveDraft(A, TheFactory, content, 1, FactoryMemoryAuthorKinds.Person, "owner", null, Now.AddHours(-1)).Ok);
+        SaveDefinitionDraft("boss", "Run it better.\n");
+
+        var (_, editor) = await Send("GET", BossView + "/brief/editor");
+        var (_, history) = await Send("GET", BossView + "/brief/history");
+
+        var expected = "It also puts live the other change saved in the definition since version 1 was published, not only this brief: " +
+                       "Seat Author (writer) changed: name Writer -> Author.";
+        Assert.Equal(expected, editor.GetProperty("publish").GetProperty("confirmLines").EnumerateArray().Last().GetString());
+        var row = history.GetProperty("rows").EnumerateArray().Single(r => r.GetProperty("version").GetInt32() == 3);
+        Assert.Equal(expected, row.GetProperty("publish").GetProperty("confirmLines").EnumerateArray().Last().GetString());
+    }
+
+    [Fact]
+    public async Task Editor_DefinedFactory_NothingElseSavedSinceThePublish_SaysThisBriefIsTheOnlyChange()
+    {
+        Define();
+
+        var (_, editor) = await Send("GET", BossView + "/brief/editor");
+
+        Assert.Equal("Nothing else in the definition has changed since version 1 was published, so this brief is the only change that goes live.",
+            editor.GetProperty("publish").GetProperty("confirmLines").EnumerateArray().Last().GetString());
+    }
+
+    [Fact]
     public async Task HistoryView_DefinedFactory_IsTheDefinitionVersionsThatChangedTheBrief()
     {
         Define();

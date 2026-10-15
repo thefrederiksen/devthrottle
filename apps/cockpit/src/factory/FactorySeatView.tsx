@@ -204,6 +204,16 @@ function StartsPanel({
           {starts.talkOnlyText}
         </p>
       )}
+      {starts.definedText !== null && (
+        <p className="fa-seat-defined" data-testid="fa-seat-defined">
+          {starts.definedText}{" "}
+          {starts.definitionHref !== null && starts.definitionLabel !== null && (
+            <Link className="fa-link" to={starts.definitionHref}>
+              {starts.definitionLabel}
+            </Link>
+          )}
+        </p>
+      )}
       {starts.schedules.map((s) => (
         <ScheduleRow
           key={s.jobId}

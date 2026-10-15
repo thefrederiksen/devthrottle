@@ -493,6 +493,12 @@ export interface FactorySeatStarts {
   triggers: FactoryWokenBy[];
   /** Pause or Resume for the seat's triggers; null when it has none. */
   triggersPause: FactoryPause | null;
+  /** For a factory with a definition: its schedules come from it and change there, so none offers Edit or Take off. */
+  definedText: string | null;
+  /** "Open the Definition tab"; null when `definedText` is. */
+  definitionLabel: string | null;
+  /** The factory's Definition tab; null when `definedText` is. */
+  definitionHref: string | null;
 }
 
 /** "What it has left behind": the seat's last talk, last run, recent activity and the factory's memory. */

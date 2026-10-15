@@ -47,6 +47,62 @@ public static class FactoryBriefPanelFold
         $"This brief is part of the definition of {factory}. Its versions are the definition's versions, and a " +
         "publish publishes the whole definition - every seat, start and file in it - not only this brief.";
 
+    /// <summary>How many other changes the publish confirm of a defined factory's brief names before it says how many more.</summary>
+    public const int AlsoGoesLiveShown = 6;
+
+    /// <summary>
+    /// WHAT ELSE GOES LIVE WITH A DEFINED FACTORY'S BRIEF (Factory Definition, phase 6; phase 4 QA finding 5). A brief is
+    /// saved on the definition's newest version, so publishing it publishes every change saved in the definition since
+    /// the published version - a seat renamed, a start moved - and a person reading only the brief panel would not
+    /// see them. This names each one, beside the line that the whole definition goes live.
+    /// </summary>
+    /// <param name="seat">The seat whose brief is being published: its own brief change is left out, it is what the
+    /// person is looking at. Every other change of that seat is named.</param>
+    /// <param name="published">The published definition version; <paramref name="publishedFiles"/> are its files.</param>
+    /// <param name="goingLive">The files of the definition version the publish puts live.</param>
+    public static string AlsoGoesLive(string seat, int published, IReadOnlyDictionary<string, string> publishedFiles,
+        IReadOnlyDictionary<string, string> goingLive)
+    {
+        ArgumentNullException.ThrowIfNull(seat);
+        ArgumentNullException.ThrowIfNull(publishedFiles);
+        ArgumentNullException.ThrowIfNull(goingLive);
+        // A stored version that no longer passes the format check cannot be compared: say so, and where to look.
+        if (FactoryPublishApply.FirstFormatError(goingLive) is not null || FactoryPublishApply.FirstFormatError(publishedFiles) is not null)
+            return $"What else changed since version {published} was published cannot be shown here, because a version no " +
+                   "longer passes the format check. The Definition tab says where.";
+
+        var changes = FactoryDefinitionChanges.Compare(publishedFiles, goingLive);
+        var others = new List<string>();
+        others.AddRange(changes.Factory.Select(c => Sentence(c.Sentence)));
+        foreach (var c in changes.Seats)
+        {
+            var own = string.Equals(c.Seat, seat, StringComparison.Ordinal);
+            var details = own ? c.Details.Where(d => !d.StartsWith("brief", StringComparison.Ordinal)).ToList() : c.Details;
+            if (own && details.Count == 0) continue;
+            others.Add(WithDetails(c.Sentence, details));
+        }
+        others.AddRange(changes.Starts.Select(c => c.Sentence));
+        others.AddRange(changes.Rules.Select(c => c.Sentence));
+        others.AddRange(changes.Grants.Select(c => WithDetails(c.Sentence, c.Details)));
+        others.AddRange(changes.Files.Select(c => c.Sentence));
+
+        if (others.Count == 0)
+            return $"Nothing else in the definition has changed since version {published} was published, so this brief is the only change that goes live.";
+        var shown = string.Join(" ", others.Take(AlsoGoesLiveShown));
+        var more = others.Count > AlsoGoesLiveShown
+            ? $" And {others.Count - AlsoGoesLiveShown} more; the Definition tab lists every change."
+            : "";
+        var which = others.Count == 1 ? "the other change" : $"the {others.Count} other changes";
+        return $"It also puts live {which} saved in the definition since version {published} was published, not only this brief: {shown}{more}";
+    }
+
+    // A change sentence ends with a full stop wherever it is shown in a list.
+    private static string Sentence(string text) => text.EndsWith('.') ? text : text + ".";
+
+    // "Seat Author (writer) changed: name Writer -> Author." - a change with what it changed, in one sentence.
+    private static string WithDetails(string sentence, IReadOnlyList<string> details) =>
+        details.Count == 0 ? sentence : $"{sentence.TrimEnd('.')}: {string.Join("; ", details)}.";
+
     /// <summary>The seat's name as the page says it: "Boss" for the boss seat, which has no name of its own.</summary>
     internal static string SeatName(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat) =>
         FactoryTalkSeed.IsBoss(factory, seat) ? FactoriesScreenFold.BossRoleWord : seat.Name;
@@ -155,8 +211,11 @@ public static class FactoryBriefPanelFold
     /// <summary>What the editor starts from: the newest version, said plainly, or nothing for a first brief.</summary>
     /// <param name="definition">For a DEFINED factory, <see cref="DefinitionLine"/>: the editor then starts from the
     /// seat's brief in the newest definition version and says the save makes a new definition draft. Null otherwise.</param>
+    /// <param name="alsoGoesLive">For a DEFINED factory whose newest version is above the published one,
+    /// <see cref="AlsoGoesLive"/> of the newest version: the publish confirm then names every other change that goes
+    /// live with the brief. Null otherwise.</param>
     public static FactoryBriefEditorViewDto Editor(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
-        FactoryBriefStanding brief, TimeZoneInfo zone, DateTime nowUtc, string? definition = null)
+        FactoryBriefStanding brief, TimeZoneInfo zone, DateTime nowUtc, string? definition = null, string? alsoGoesLive = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
@@ -234,6 +293,7 @@ public static class FactoryBriefPanelFold
             ? "Saved as a new draft of the definition. Nothing in it is published for this seat yet."
             : $"Saved as a new draft of the definition. Talks and runs of this seat are still given the brief in definition version {published.Version} until a person publishes.";
         view.Publish.ConfirmLines.Add(definition);
+        if (alsoGoesLive is not null) view.Publish.ConfirmLines.Add(alsoGoesLive);
         return view;
     }
 
@@ -247,9 +307,11 @@ public static class FactoryBriefPanelFold
     /// versions in which the seat's brief changed, and <paramref name="publishedDefinition"/> is the definition version
     /// that is published. Null otherwise.</param>
     /// <param name="publishedDefinition">The published definition version, for a defined factory.</param>
+    /// <param name="alsoGoesLive">For a defined factory: <see cref="AlsoGoesLive"/> of a definition version, asked for
+    /// each row that carries Publish, so its confirm names every other change that goes live with it.</param>
     public static FactoryBriefHistoryViewDto History(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
         FactoryBriefStanding brief, FactoryBriefHistoryPage page, bool firstPage, TimeZoneInfo zone, DateTime nowUtc,
-        string? definition = null, int? publishedDefinition = null)
+        string? definition = null, int? publishedDefinition = null, Func<int, string?>? alsoGoesLive = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
@@ -304,6 +366,7 @@ public static class FactoryBriefPanelFold
         foreach (var row in view.Rows)
         {
             row.Publish?.ConfirmLines.Add(definition);
+            if (row.Publish is not null && alsoGoesLive?.Invoke(row.Version) is { } also) row.Publish.ConfirmLines.Add(also);
             row.BringBack?.ConfirmLines.Add(definition);
         }
         return view;
