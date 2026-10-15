@@ -118,7 +118,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         };
 
         FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, repo={job.Action.RepoPath}, seed={job.Action.Seed}, "
-                      + (seat is null ? "brief=none given" : $"opened as {seat.Factory.Factory}/{seat.Seat.Id} with brief version {seat.Brief.Version}"));
+                      + (seat is null ? "brief=none given" : $"opened as {seat.Factory.Factory}/{seat.Seat.Id} with brief {seat.Brief.VersionWords}"));
 
         var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(job.Target.Machine, req, ct);
         if (!ok || dto is null || string.IsNullOrEmpty(dto.SessionId))
@@ -128,6 +128,6 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         }
 
         FileLog.Write($"[DirectorCronSessionStarter] started: job={job.Id}, sid={dto.SessionId}, director={directorId}");
-        return new CronRunStart(dto.SessionId, directorId, null, seat?.Brief.Version);
+        return new CronRunStart(dto.SessionId, directorId, null, seat?.Brief.Version, seat?.Brief.Kind);
     }
 }

@@ -9,7 +9,27 @@ namespace CcDirector.Gateway.Factory.Talk;
 /// </summary>
 /// <param name="Version">The published version, counting from 1.</param>
 /// <param name="Text">The brief's whole text at that version, exactly as it was published.</param>
-public sealed record FactoryGivenBrief(int Version, string Text);
+/// <param name="Kind">Which kind of version <paramref name="Version"/> is (<see cref="FactoryBriefVersionKinds"/>): the
+/// seat's own brief version, or - for a defined factory - the definition version whose seat file holds the brief
+/// (Factory Definition, phase 4).</param>
+public sealed record FactoryGivenBrief(int Version, string Text, string Kind = FactoryBriefVersionKinds.Brief)
+{
+    /// <summary>True when <see cref="Version"/> is a definition version.</summary>
+    public bool FromDefinition => Kind == FactoryBriefVersionKinds.Definition;
+
+    /// <summary>
+    /// The version as it is written down and read back - on a talk's activity line (<c>--version</c>) and on the
+    /// activity row a run leaves: "3" for a brief version, as always, and "definition v3" for a definition version,
+    /// so the two can never be mistaken for each other.
+    /// </summary>
+    public string Recorded => FromDefinition
+        ? "definition v" + Version.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        : Version.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>"version 3", or "definition version 3": the version as a sentence says it.</summary>
+    public string VersionWords => (FromDefinition ? "definition version " : "version ")
+                                  + Version.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
 
 /// <summary>
 /// HOW THE GATEWAY OPENS A SEAT'S SESSION (Factory Seats mission, phase 2c): who the seat is, from the registration,
@@ -48,8 +68,8 @@ public static class FactorySeatOpening
     {
         ArgumentNullException.ThrowIfNull(brief);
         ArgumentNullException.ThrowIfNull(newLine);
-        return $"--- your brief, version {brief.Version} ---" + newLine
+        return $"--- your brief, {brief.VersionWords} ---" + newLine
                + brief.Text.TrimEnd('\r', '\n') + newLine
-               + $"--- end of your brief, version {brief.Version} ---";
+               + $"--- end of your brief, {brief.VersionWords} ---";
     }
 }

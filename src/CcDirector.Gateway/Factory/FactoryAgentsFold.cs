@@ -889,6 +889,8 @@ public static class FactoryAgentsFold
     {
         if (string.IsNullOrWhiteSpace(version)) return name;
         var v = version.Trim();
+        // A definition version (Factory Definition, phase 4) says so itself: "Writer, definition v3".
+        if (v.StartsWith(FactoryBriefVersionKinds.Definition + " ", StringComparison.Ordinal)) return $"{name}, {v}";
         return v.StartsWith('v') || v.StartsWith('V') ? $"{name} {v}" : $"{name} v{v}";
     }
 

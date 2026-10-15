@@ -629,7 +629,7 @@ internal static class FactoryDefinitionEndpoints
     /// THE CHECK'S REFUSAL: 422, one sentence, and every finding with its file and line, so a writer can fix each one
     /// where it is. Nothing was stored.
     /// </summary>
-    private static IResult CheckRefused(string factory, FactoryDefinitionCheckResult check, string what)
+    internal static IResult CheckRefused(string factory, FactoryDefinitionCheckResult check, string what)
     {
         var errors = check.Findings.Count(f => f.IsError);
         var sentence = $"{what}: the check found {errors} {(errors == 1 ? "error" : "errors")} in the definition of {factory}. " +
@@ -739,19 +739,7 @@ internal static class FactoryDefinitionEndpoints
             dto.Applied = applied?.ToList();
             return Results.Json(dto);
         }
-        var status = write.Outcome switch
-        {
-            FactoryDefinitionOutcome.OnlyAPersonPublishes => StatusCodes.Status403Forbidden,
-            FactoryDefinitionOutcome.NoSuchVersion => StatusCodes.Status404NotFound,
-            FactoryDefinitionOutcome.BadFactory or FactoryDefinitionOutcome.Empty or FactoryDefinitionOutcome.TooManyFiles
-                or FactoryDefinitionOutcome.BadPath or FactoryDefinitionOutcome.NotText or FactoryDefinitionOutcome.FileTooLarge
-                or FactoryDefinitionOutcome.VersionTooLarge or FactoryDefinitionOutcome.ChangeNoteTooLong
-                => StatusCodes.Status400BadRequest,
-            FactoryDefinitionOutcome.WriteFailed => StatusCodes.Status500InternalServerError,
-            FactoryDefinitionOutcome.PlanRefused => StatusCodes.Status422UnprocessableEntity,
-            // Stale, too many drafts waiting, already published, older than the published one: "not as things stand".
-            _ => StatusCodes.Status409Conflict,
-        };
+        var status = StatusOf(write.Outcome);
         FileLog.Write($"[FactoryDefinitionEndpoints] {factory}: REFUSED ({status}, {write.Outcome}) - {write.Refusal}");
         return Results.Json(new
         {
@@ -764,6 +752,22 @@ internal static class FactoryDefinitionEndpoints
             findings = refusalFindings is { Count: > 0 } ? refusalFindings.Select(ToDto).ToList() : null,
         }, statusCode: status);
     }
+
+    /// <summary>The status a refused definition write answers with. Shared with a brief saved into a definition
+    /// (<see cref="FactoryBriefEndpoints"/>), so the same refusal never carries two statuses.</summary>
+    internal static int StatusOf(FactoryDefinitionOutcome outcome) => outcome switch
+    {
+        FactoryDefinitionOutcome.OnlyAPersonPublishes => StatusCodes.Status403Forbidden,
+        FactoryDefinitionOutcome.NoSuchVersion => StatusCodes.Status404NotFound,
+        FactoryDefinitionOutcome.BadFactory or FactoryDefinitionOutcome.Empty or FactoryDefinitionOutcome.TooManyFiles
+            or FactoryDefinitionOutcome.BadPath or FactoryDefinitionOutcome.NotText or FactoryDefinitionOutcome.FileTooLarge
+            or FactoryDefinitionOutcome.VersionTooLarge or FactoryDefinitionOutcome.ChangeNoteTooLong
+            => StatusCodes.Status400BadRequest,
+        FactoryDefinitionOutcome.WriteFailed => StatusCodes.Status500InternalServerError,
+        FactoryDefinitionOutcome.PlanRefused => StatusCodes.Status422UnprocessableEntity,
+        // Stale, too many drafts waiting, already published, older than the published one: "not as things stand".
+        _ => StatusCodes.Status409Conflict,
+    };
 
     private static IResult NoSuchVersion(string factory, int version, FactoryDefinitionStanding standing) =>
         Results.Json(new
@@ -799,7 +803,7 @@ internal static class FactoryDefinitionEndpoints
         PublishedVersion = standing.Published?.Version,
     };
 
-    private static FactoryDefinitionFindingDto ToDto(DefinitionFinding f) => new()
+    internal static FactoryDefinitionFindingDto ToDto(DefinitionFinding f) => new()
     {
         Severity = f.Severity,
         File = f.File,

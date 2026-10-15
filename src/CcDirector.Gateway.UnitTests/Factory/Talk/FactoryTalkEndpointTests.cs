@@ -11,6 +11,7 @@ using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Briefs;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.Factory.Talk;
 using CcDirector.Gateway.History;
@@ -215,7 +216,8 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
             timeZone: _ => TimeZoneInfo.Utc,
             factoryManager: factoryManager,
             // The real brief store, read the way the host reads it.
-            publishedBrief: (tenant, factory, seat) => Briefs.GivenTo(tenant, factory, seat));
+            // As the host wires it: from the definition for a defined factory, else from the brief store.
+            publishedBrief: (tenant, factory, seat) => new FactoryDefinitionBriefs(new FactoryDefinitionStore(Db), Briefs).GivenTo(tenant, factory, seat));
 
         await app.StartAsync();
         _app = app;
@@ -299,6 +301,57 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Contains("--agent nora-hale --version 2 --outcome talked", sent.PrePrompt);
         var started = await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web);
         Assert.Equal(2, started!.BriefVersion);
+    }
+
+    /// <summary>WarmForward's definition, published as version 1: the boss seat's file holds this brief, and the
+    /// savings engineer has a file only when told so. The store holds what it is given; only the seat files matter here.</summary>
+    private void PublishADefinition(string bossBrief, bool withEngineer = false)
+    {
+        var definitions = new FactoryDefinitionStore(Db);
+        var content = new Dictionary<string, string>
+        {
+            ["factory.yaml"] = "factory: warmforward\ntitle: WarmForward\nbossSeat: nora-hale\n",
+            ["seats/nora-hale.yaml"] = $"seat: nora-hale\nname: Boss\nrole: Boss\nbrief: |\n  {bossBrief}\n",
+        };
+        if (withEngineer) content["seats/savings-engineer.yaml"] = "seat: savings-engineer\nname: Savings Engineer\nrole: Savings Engineer\nbrief: Save.\n";
+        Assert.True(definitions.SaveDraft(TenantId.Local, "warmforward", content, 0, FactoryMemoryAuthorKinds.Person, "device-1", null, BriefAt).Ok);
+        Assert.True(definitions.Publish(TenantId.Local, "warmforward", 1, FactoryMemoryAuthorKinds.Person, "device-1", BriefAt).Ok);
+    }
+
+    [Fact]
+    public async Task Talk_ToASeatOfADefinedFactory_IsGivenTheBriefInThePublishedDefinition_AndRecordsADefinitionVersion()
+    {
+        await StartAsync();
+        PublishABrief("nora-hale", "BRIEF STORE: not read for a defined factory.");
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await Talk("warmforward", "nora-hale");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var (_, sent) = Assert.Single(_sent);
+        Assert.Contains("- your brief: definition version 1, given to you in full below this list. It is part of the factory's definition", sent.PrePrompt);
+        Assert.Contains("--- your brief, definition version 1 ---", sent.PrePrompt);
+        Assert.Contains("DEFINED: be careful with money.", sent.PrePrompt);
+        Assert.DoesNotContain("BRIEF STORE", sent.PrePrompt);
+        Assert.DoesNotContain("ceo.yaml", sent.PrePrompt);
+        Assert.Contains("--agent nora-hale --version \"definition v1\" --outcome talked", sent.PrePrompt);
+        var started = await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web);
+        Assert.Equal(1, started!.BriefVersion);
+        Assert.Equal(FactoryBriefVersionKinds.Definition, started.BriefVersionKind);
+    }
+
+    [Fact]
+    public async Task Talk_ToASeatOfADefinedFactoryWithNoFileForIt_IsRefused_NeverToldAFilePath()
+    {
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.", withEngineer: false);
+
+        var response = await Talk("warmforward", "savings-engineer");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("The talk was not started: " + FactoryDefinitionBriefs.NotInVersion("warmforward", "savings-engineer", 1, "published"),
+            await ErrorOf(response));
+        Assert.Empty(_sent);
     }
 
     [Fact]

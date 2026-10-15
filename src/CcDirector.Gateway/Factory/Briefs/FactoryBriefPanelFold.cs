@@ -1,6 +1,7 @@
 using System.Globalization;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Talk;
 
 namespace CcDirector.Gateway.Factory.Briefs;
@@ -36,6 +37,16 @@ public static class FactoryBriefPanelFold
         $"The brief is a file on {computer}. It is not held on the Gateway yet, so it cannot be read or changed here. " +
         "A talk and a scheduled run of this seat are told this path and read the file from that computer.";
 
+    /// <summary>
+    /// THE LINE A DEFINED FACTORY'S BRIEF CARRIES (Factory Definition, phase 4, design section 9): the brief is part of
+    /// the factory's definition, its versions are the definition's, and a publish publishes the whole definition. Said
+    /// on the seat page, in the editor, the history and one version, and on every answer of the brief routes, so nobody
+    /// presses Publish believing only this brief goes live.
+    /// </summary>
+    public static string DefinitionLine(string factory) =>
+        $"This brief is part of the definition of {factory}. Its versions are the definition's versions, and a " +
+        "publish publishes the whole definition - every seat, start and file in it - not only this brief.";
+
     /// <summary>The seat's name as the page says it: "Boss" for the boss seat, which has no name of its own.</summary>
     internal static string SeatName(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat) =>
         FactoryTalkSeed.IsBoss(factory, seat) ? FactoriesScreenFold.BossRoleWord : seat.Name;
@@ -43,13 +54,17 @@ public static class FactoryBriefPanelFold
     // ---------- the panel on the seat page ----------
 
     /// <summary>"What this seat does" on the seat's page.</summary>
+    /// <param name="definition">For a DEFINED factory (Factory Definition, phase 4): <paramref name="brief"/> is the
+    /// seat's brief in the definition's newest and published versions, and this is <see cref="DefinitionLine"/>. Null
+    /// for every other factory, whose panel reads exactly as before.</param>
     public static FactorySeatBriefDto Panel(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
-        FactoryBriefStanding brief, TimeZoneInfo zone, DateTime nowUtc)
+        FactoryBriefStanding brief, TimeZoneInfo zone, DateTime nowUtc, string? definition = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
         ArgumentNullException.ThrowIfNull(brief);
         ArgumentNullException.ThrowIfNull(zone);
+        if (definition is not null) return DefinedPanel(factory, seat, brief, zone, nowUtc, definition);
 
         if (brief.Published is { } published)
         {
@@ -96,11 +111,52 @@ public static class FactoryBriefPanelFold
         return file;
     }
 
+    /// <summary>
+    /// "What this seat does" for a DEFINED factory. Its brief is never a file on a computer - it is the seat's
+    /// <c>brief:</c> in the published definition - so no path is ever shown, and every version is a definition version.
+    /// </summary>
+    private static FactorySeatBriefDto DefinedPanel(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
+        FactoryBriefStanding brief, TimeZoneInfo zone, DateTime nowUtc, string definition)
+    {
+        if (brief.Published is not { } published)
+            return new FactorySeatBriefDto
+            {
+                Heading = PanelHeading,
+                State = FactorySeatBriefStates.Drafts,
+                DraftText = $"The published definition of {factory.Title} has no seat file for {SeatName(factory, seat)}, " +
+                            "so no talk or run of this seat is given a brief.",
+                WaitingText = Waiting(brief),
+                Note = definition,
+                EditLabel = EditLabel,
+                HistoryLabel = HistoryLabel,
+            };
+
+        var newest = brief.Newest ?? published;
+        return new FactorySeatBriefDto
+        {
+            Heading = PanelHeading,
+            State = FactorySeatBriefStates.Published,
+            Text = published.Text,
+            VersionText = $"Definition version {published.Version}, published by {Who(FactoryMemoryAuthorKinds.Person, published.PublishedBy)} " +
+                          $"{When(published.PublishedAtUtc ?? published.WrittenAtUtc, zone, nowUtc)}.",
+            DraftText = newest.Version > published.Version
+                ? $"A newer draft of the definition, version {newest.Version}, was written by {Who(newest)} {When(newest.WrittenAtUtc, zone, nowUtc)}. " +
+                  $"Talks and runs of this seat are given the brief in definition version {published.Version} until a person publishes a newer one."
+                : null,
+            WaitingText = Waiting(brief),
+            Note = definition,
+            EditLabel = EditLabel,
+            HistoryLabel = HistoryLabel,
+        };
+    }
+
     // ---------- the editor ----------
 
     /// <summary>What the editor starts from: the newest version, said plainly, or nothing for a first brief.</summary>
+    /// <param name="definition">For a DEFINED factory, <see cref="DefinitionLine"/>: the editor then starts from the
+    /// seat's brief in the newest definition version and says the save makes a new definition draft. Null otherwise.</param>
     public static FactoryBriefEditorViewDto Editor(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
-        FactoryBriefStanding brief, TimeZoneInfo zone, DateTime nowUtc)
+        FactoryBriefStanding brief, TimeZoneInfo zone, DateTime nowUtc, string? definition = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
@@ -112,7 +168,10 @@ public static class FactoryBriefPanelFold
         var fromDraft = newest is not null && newest.State == FactoryBriefStates.Draft;
 
         string start;
-        if (newest is null)
+        if (newest is null && definition is not null)
+            start = $"{name} has no seat file in the newest definition of {factory.Title}, so it has no brief to edit here. " +
+                    "Add the seat to the definition first.";
+        else if (newest is null)
             start = $"{name} has no brief on the Gateway yet. Write it here. Until one is published, talks and runs of " +
                     $"this seat are told the path of its brief file, {FactoryTalkSeed.InFolder(factory.Folder, seat.BriefFile)} on {seat.Computer}.";
         else if (!fromDraft)
@@ -125,7 +184,9 @@ public static class FactoryBriefPanelFold
                     $"{When(newest.WrittenAtUtc, zone, nowUtc)}. It is not the published brief: talks and runs of this " +
                     $"seat are given version {published.Version}.";
 
-        return new FactoryBriefEditorViewDto
+        if (definition is not null) start += " " + definition;
+
+        var view = new FactoryBriefEditorViewDto
         {
             Heading = newest is null ? $"Write the brief of {name}" : $"Edit the brief of {name}",
             StartText = start,
@@ -163,6 +224,17 @@ public static class FactoryBriefPanelFold
             SaveOverLabel = "Save my text after the newer version",
             TakeTheirsLabel = "Take the newer version and drop my text",
         };
+        if (definition is null) return view;
+
+        // A DEFINED FACTORY'S BRIEF IS SAVED INTO ITS SEAT FILE, so the file's cap is the one that holds, and the confirm
+        // of a publish carries the line that it is the whole definition that goes live.
+        view.LimitText = "The brief is saved into the seat's file, and a file in a definition takes at most " +
+                         $"{Size(DefinitionPaths.MaxFileBytes)}.";
+        view.SavedText = published is null
+            ? "Saved as a new draft of the definition. Nothing in it is published for this seat yet."
+            : $"Saved as a new draft of the definition. Talks and runs of this seat are still given the brief in definition version {published.Version} until a person publishes.";
+        view.Publish.ConfirmLines.Add(definition);
+        return view;
     }
 
     // ---------- the history ----------
@@ -171,8 +243,13 @@ public static class FactoryBriefPanelFold
     /// One page of the seat's history, newest first. <paramref name="firstPage"/> is false when the page was asked
     /// for with a starting version, so the screen can offer the way back to the newest versions.
     /// </summary>
+    /// <param name="definition">For a DEFINED factory, <see cref="DefinitionLine"/>: the page then holds the definition
+    /// versions in which the seat's brief changed, and <paramref name="publishedDefinition"/> is the definition version
+    /// that is published. Null otherwise.</param>
+    /// <param name="publishedDefinition">The published definition version, for a defined factory.</param>
     public static FactoryBriefHistoryViewDto History(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat,
-        FactoryBriefStanding brief, FactoryBriefHistoryPage page, bool firstPage, TimeZoneInfo zone, DateTime nowUtc)
+        FactoryBriefStanding brief, FactoryBriefHistoryPage page, bool firstPage, TimeZoneInfo zone, DateTime nowUtc,
+        string? definition = null, int? publishedDefinition = null)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
@@ -183,7 +260,7 @@ public static class FactoryBriefPanelFold
         var published = brief.Published?.Version;
         var newest = brief.Newest?.Version ?? 0;
 
-        return new FactoryBriefHistoryViewDto
+        var view = new FactoryBriefHistoryViewDto
         {
             Heading = $"History of the brief of {name}",
             SummaryText = page.Total == 0
@@ -206,6 +283,24 @@ public static class FactoryBriefPanelFold
             NewestLabel = firstPage ? null : "Newest versions",
             CloseLabel = "Back to the brief",
         };
+        if (definition is null) return view;
+
+        // THE VERSIONS OF A DEFINED FACTORY'S BRIEF ARE THE DEFINITION'S, and only those that changed this brief are
+        // listed - so the summary says which definition version is live, and every confirm says the whole definition goes.
+        view.SummaryText = page.Total == 0
+            ? "No version of the definition holds a brief for this seat."
+            : $"{FactoriesScreenFold.Count(page.Total, "version")} of the definition changed this brief. " +
+              (publishedDefinition is { } live ? $"Definition version {live} is published." : "None is published.") +
+              " " + definition;
+        view.EmptyText = page.Total == 0
+            ? "No version of the definition holds a brief for this seat, so it has no history."
+            : view.EmptyText;
+        foreach (var row in view.Rows)
+        {
+            row.Publish?.ConfirmLines.Add(definition);
+            row.BringBack?.ConfirmLines.Add(definition);
+        }
+        return view;
     }
 
     private static FactoryBriefHistoryRowDto Row(string name, FactoryBriefVersionSummary v, int? published, int newest,
@@ -289,8 +384,10 @@ public static class FactoryBriefPanelFold
     // ---------- one version ----------
 
     /// <summary>One version, with its text: what Open on a history row shows.</summary>
+    /// <param name="definition">For a DEFINED factory, <see cref="DefinitionLine"/>, said after the version's line.
+    /// Null otherwise.</param>
     public static FactoryBriefVersionViewDto Version(FactoryBriefVersionEntity version, FactoryBriefStanding brief,
-        TimeZoneInfo zone, DateTime nowUtc)
+        TimeZoneInfo zone, DateTime nowUtc, string? definition = null)
     {
         ArgumentNullException.ThrowIfNull(version);
         ArgumentNullException.ThrowIfNull(brief);
@@ -305,8 +402,9 @@ public static class FactoryBriefPanelFold
         return new FactoryBriefVersionViewDto
         {
             Version = version.Version,
-            Title = $"Version {version.Version}",
-            LineText = $"{state}. Written by {Who(version)} {When(version.WrittenAtUtc, zone, nowUtc)}.{publishedBy} {Size(version.TextBytes)}.",
+            Title = definition is null ? $"Version {version.Version}" : $"Definition version {version.Version}",
+            LineText = $"{state}. Written by {Who(version)} {When(version.WrittenAtUtc, zone, nowUtc)}.{publishedBy} {Size(version.TextBytes)}."
+                       + (definition is null ? "" : " " + definition),
             Text = version.Text,
             CloseLabel = "Close",
         };

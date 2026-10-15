@@ -3,7 +3,9 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Briefs;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
@@ -40,6 +42,16 @@ namespace CcDirector.Gateway.Api;
 ///
 /// A CALLER THAT IS NEITHER - the account's shared machine token, or a Director - may read, as that gate allows, and
 /// may not write: every version records who wrote it, a person or which session, and such a caller is neither.
+///
+/// A DEFINED FACTORY'S BRIEFS ARE PART OF ITS DEFINITION (Factory Definition, phase 4, design section 9). For a factory
+/// with a published definition every route here answers from the definition, and the brief store is not touched: the
+/// published brief is the seat's <c>brief:</c> in the published definition, the draft is the one in the newest
+/// version, the history is the definition versions in which the seat's brief changed, and a version number is a
+/// definition version - every answer says so (<c>versionKind</c>, <c>definition</c>). A save writes a new DEFINITION
+/// draft with only that seat's brief replaced, as a text edit, and runs the whole-definition check like any definition
+/// save. Publishing or restoring is the whole definition's act, so on a defined factory those two routes send the
+/// person to the definition's own publish and restore. A factory with no published definition - none at all, or only
+/// drafts - takes every path here exactly as before (goal 14).
 /// </summary>
 internal static class FactoryBriefEndpoints
 {
@@ -49,38 +61,42 @@ internal static class FactoryBriefEndpoints
         Func<HttpContext, TenantId?> resolveTenant,
         FactoryBriefStore store,
         Func<string, SessionFactoryLookup> sessionFactoryOf,
-        Func<DateTime> nowUtc)
+        Func<DateTime> nowUtc,
+        Defined defined)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(nowUtc);
+        ArgumentNullException.ThrowIfNull(defined);
 
         const string seatRoute = Prefix + "/{factory}/{seat}";
         app.MapGet(seatRoute, (HttpContext ctx, string factory, string seat) =>
-            ReadPublished(ctx, factory, seat, store, resolveTenant, sessionFactoryOf));
+            ReadPublished(ctx, factory, seat, store, resolveTenant, sessionFactoryOf, defined));
         app.MapGet(seatRoute + "/draft", (HttpContext ctx, string factory, string seat) =>
-            ReadNewest(ctx, factory, seat, store, resolveTenant, sessionFactoryOf));
+            ReadNewest(ctx, factory, seat, store, resolveTenant, sessionFactoryOf, defined));
         app.MapGet(seatRoute + "/history", (HttpContext ctx, string factory, string seat) =>
-            History(ctx, factory, seat, store, resolveTenant, sessionFactoryOf));
+            History(ctx, factory, seat, store, resolveTenant, sessionFactoryOf, defined));
         app.MapGet(seatRoute + "/versions/{version}", (HttpContext ctx, string factory, string seat, string version) =>
-            ReadVersion(ctx, factory, seat, version, store, resolveTenant, sessionFactoryOf));
+            ReadVersion(ctx, factory, seat, version, store, resolveTenant, sessionFactoryOf, defined));
         app.MapPut(seatRoute + "/draft", (HttpContext ctx, string factory, string seat, SaveFactoryBriefDraftRequest? body) =>
-            SaveDraft(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc));
+            SaveDraft(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc, defined));
         app.MapPost(seatRoute + "/publish", (HttpContext ctx, string factory, string seat, PublishFactoryBriefRequest? body) =>
-            Publish(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc));
+            Publish(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc, defined));
         app.MapPost(seatRoute + "/restore", (HttpContext ctx, string factory, string seat, BringBackFactoryBriefRequest? body) =>
-            BringBack(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc));
+            BringBack(ctx, factory, seat, body, store, resolveTenant, sessionFactoryOf, nowUtc, defined));
 
         FileLog.Write($"[FactoryBriefEndpoints] mapped {seatRoute} and its draft, history, versions, publish and restore routes");
     }
 
     /// <summary>GET the published brief: what a talk or a run of the seat is given.</summary>
     internal static IResult ReadPublished(HttpContext ctx, string factory, string seat, FactoryBriefStore store,
-        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf, Defined defined)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/{seat}", out _, out var error)) return error!;
+        if (defined.Briefs.IsDefined(tenant, factory))
+            return DefinedRead(defined, tenant, factory, seat, d => d.Published!.Version, "published");
         if (store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
 
         var standing = store.Standing(tenant, factory, seat);
@@ -100,10 +116,12 @@ internal static class FactoryBriefEndpoints
 
     /// <summary>GET the newest version, published or not: the text an editor starts from, and the version a save states.</summary>
     internal static IResult ReadNewest(HttpContext ctx, string factory, string seat, FactoryBriefStore store,
-        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf, Defined defined)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/{seat}/draft", out _, out var error)) return error!;
+        if (defined.Briefs.IsDefined(tenant, factory))
+            return DefinedRead(defined, tenant, factory, seat, d => d.Newest!.Version, "newest");
         if (store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
 
         var standing = store.Standing(tenant, factory, seat);
@@ -124,11 +142,12 @@ internal static class FactoryBriefEndpoints
     /// seen them all.
     /// </summary>
     internal static IResult History(HttpContext ctx, string factory, string seat, FactoryBriefStore store,
-        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf, Defined defined)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/{seat}/history", out _, out var error)) return error!;
-        if (store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
+        var isDefined = defined.Briefs.IsDefined(tenant, factory);
+        if (!isDefined && store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
 
         var limit = FactoryBriefStore.DefaultHistoryPage;
         if (ctx.Request.Query.TryGetValue("limit", out var limitSent)
@@ -149,6 +168,8 @@ internal static class FactoryBriefEndpoints
                 });
             before = b;
         }
+
+        if (isDefined) return DefinedHistory(defined, tenant, factory, seat, before, limit);
 
         var standing = store.Standing(tenant, factory, seat);
         var page = store.History(tenant, factory, seat, before, limit);
@@ -176,13 +197,15 @@ internal static class FactoryBriefEndpoints
 
     /// <summary>GET one version of the seat's brief, with its text: how the history's text is read, one at a time.</summary>
     internal static IResult ReadVersion(HttpContext ctx, string factory, string seat, string version, FactoryBriefStore store,
-        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf, Defined defined)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         if (!TryCaller(ctx, sessionFactoryOf, factory, $"GET {Prefix}/{factory}/{seat}/versions/{version}", out _, out var error)) return error!;
-        if (store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
+        var isDefined = defined.Briefs.IsDefined(tenant, factory);
+        if (!isDefined && store.WhyNotASeat(tenant, factory, seat) is { } notASeat) return Answer(notASeat, store, tenant, factory, seat);
         if (!int.TryParse(version, out var wanted) || wanted < 1)
             return Results.BadRequest(new { error = $"a version is a whole number from 1, not '{version}'" });
+        if (isDefined) return DefinedRead(defined, tenant, factory, seat, _ => wanted, null);
 
         var standing = store.Standing(tenant, factory, seat);
         if (store.Find(tenant, factory, seat, wanted) is not { } found)
@@ -199,13 +222,14 @@ internal static class FactoryBriefEndpoints
     /// <summary>PUT a draft: a person, or a session of the factory, saves the next version.</summary>
     internal static IResult SaveDraft(HttpContext ctx, string factory, string seat, SaveFactoryBriefDraftRequest? body,
         FactoryBriefStore store, Func<HttpContext, TenantId?> resolveTenant,
-        Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc)
+        Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc, Defined defined)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         var route = $"PUT {Prefix}/{factory}/{seat}/draft";
         if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
+        if (defined.Briefs.IsDefined(tenant, factory)) return DefinedSave(defined, tenant, factory, seat, body, caller, nowUtc());
         return Answer(store.SaveDraft(tenant, factory, seat, body.Text, body.ExpectedVersion, caller.Kind, caller.Id, nowUtc()),
             store, tenant, factory, seat);
     }
@@ -213,13 +237,14 @@ internal static class FactoryBriefEndpoints
     /// <summary>POST a publish: a person makes one version the brief talks and runs are given.</summary>
     internal static IResult Publish(HttpContext ctx, string factory, string seat, PublishFactoryBriefRequest? body,
         FactoryBriefStore store, Func<HttpContext, TenantId?> resolveTenant,
-        Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc)
+        Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc, Defined defined)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         var route = $"POST {Prefix}/{factory}/{seat}/publish";
         if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
+        if (defined.Briefs.IsDefined(tenant, factory)) return DefinedPublishOrRestore(caller, factory, seat, body.Version, restore: false);
         return Answer(store.Publish(tenant, factory, seat, body.Version, caller.Kind, caller.Id, nowUtc()),
             store, tenant, factory, seat);
     }
@@ -227,16 +252,214 @@ internal static class FactoryBriefEndpoints
     /// <summary>POST a bring back: a person publishes a copy of an older version as the newest version.</summary>
     internal static IResult BringBack(HttpContext ctx, string factory, string seat, BringBackFactoryBriefRequest? body,
         FactoryBriefStore store, Func<HttpContext, TenantId?> resolveTenant,
-        Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc)
+        Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc, Defined defined)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         var route = $"POST {Prefix}/{factory}/{seat}/restore";
         if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
+        if (defined.Briefs.IsDefined(tenant, factory)) return DefinedPublishOrRestore(caller, factory, seat, body.Version, restore: true);
         return Answer(store.BringBack(tenant, factory, seat, body.Version, caller.Kind, caller.Id, nowUtc(), body.ExpectedVersion),
             store, tenant, factory, seat);
     }
+
+    // ---------- a defined factory: the brief is part of the definition ----------
+
+    /// <summary>What the routes need for a DEFINED factory: its briefs as the definition holds them, and the account's
+    /// fleet skills and machines the whole-definition check is run with on a save. REQUIRED, so a wiring line that
+    /// forgot it fails to compile rather than answering a defined factory from the brief store.</summary>
+    internal sealed record Defined(FactoryDefinitionBriefs Briefs, FactoryDefinitionEndpoints.Account Account);
+
+    /// <summary>
+    /// The sentence a person's publish of a defined factory's brief is answered with until the publish transaction
+    /// (phase 4, Developer A) is wired here: the brief is part of the definition, so it is the definition that is
+    /// published, through its own command.
+    /// </summary>
+    internal static string PublishTheDefinition(string factory, int version) =>
+        $"Publish the definition: cc-devthrottle factory definition publish {factory} --version {version}.";
+
+    /// <summary>As <see cref="PublishTheDefinition"/>, for a restore: an older version is used again by restoring it.</summary>
+    internal static string RestoreTheDefinition(string factory, int version) =>
+        $"Restore the definition: cc-devthrottle factory definition restore {factory} --version {version}.";
+
+    /// <summary>
+    /// One read of a defined factory's brief: the seat's brief in the definition version <paramref name="which"/> picks,
+    /// or the 404 that says what is missing. <paramref name="what"/> names that version in the sentence ("published",
+    /// "newest"), or is null for a version the caller named by number.
+    /// </summary>
+    private static IResult DefinedRead(Defined defined, TenantId tenant, string factory, string seat,
+        Func<FactoryDefinitionStanding, int> which, string? what)
+    {
+        if (!FactoryNames.TrySeat(seat, out var folded, out var seatRefusal))
+            return Results.BadRequest(new { error = seatRefusal, outcome = FactoryBriefOutcome.BadSeat.ToString() });
+        var standing = defined.Briefs.Definitions.Standing(tenant, factory);
+        var factoryId = standing.Newest!.Factory;
+        var version = which(standing);
+        if (defined.Briefs.InVersion(tenant, factoryId, folded, version) is not { } brief)
+        {
+            var missing = defined.Briefs.Definitions.Find(tenant, factoryId, version) is null
+                ? $"version {version} of the definition of {factoryId} does not exist; its newest version is {standing.Newest.Version}"
+                : FactoryDefinitionBriefs.NotInVersion(factoryId, folded, version, what ?? "named");
+            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, no brief in definition version {version}");
+            return Results.Json(new
+            {
+                error = missing,
+                definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
+                newestVersion = standing.Newest.Version,
+            }, statusCode: StatusCodes.Status404NotFound);
+        }
+        FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, brief from definition version {version}");
+        return Results.Json(DefinedDto(brief, standing));
+    }
+
+    /// <summary>One page of a defined factory's brief history: the definition versions in which the seat's brief changed.</summary>
+    private static IResult DefinedHistory(Defined defined, TenantId tenant, string factory, string seat, int? before, int limit)
+    {
+        if (!FactoryNames.TrySeat(seat, out var folded, out var seatRefusal))
+            return Results.BadRequest(new { error = seatRefusal, outcome = FactoryBriefOutcome.BadSeat.ToString() });
+        var standing = defined.Briefs.Definitions.Standing(tenant, factory);
+        var factoryId = standing.Newest!.Factory;
+        var page = defined.Briefs.History(tenant, factoryId, folded, before, limit);
+        return Results.Json(new FactoryBriefHistoryResponse
+        {
+            Factory = factoryId,
+            Seat = folded,
+            PublishedVersion = standing.Published?.Version,
+            NewestVersion = standing.Newest.Version,
+            Total = page.Total,
+            Versions = page.Versions.Select(v => new FactoryBriefVersionSummaryDto
+            {
+                Version = v.Version,
+                State = v.State,
+                AuthorKind = v.AuthorKind,
+                AuthorId = v.AuthorId,
+                WrittenAtUtc = v.WrittenAtUtc,
+                PublishedAtUtc = v.PublishedAtUtc,
+                PublishedBy = v.PublishedBy,
+                TextBytes = v.TextBytes,
+            }).ToList(),
+            NextBefore = page.NextBefore,
+            VersionKind = FactoryBriefVersionKinds.Definition,
+            Definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
+        });
+    }
+
+    /// <summary>
+    /// SAVE A DEFINED FACTORY'S BRIEF: a new DEFINITION draft that is the newest version with only this seat's
+    /// <c>brief:</c> replaced, as a text edit, every other byte of every file kept. <c>expectedVersion</c> is the
+    /// definition version the writer read; a stale one is refused by the definition store exactly as a definition save
+    /// is, and before the check, which would otherwise judge content the writer never saw. Then the whole-definition
+    /// check runs, as for any save, and a definition with an error is not saved.
+    /// </summary>
+    private static IResult DefinedSave(Defined defined, TenantId tenant, string factory, string seat,
+        SaveFactoryBriefDraftRequest body, Caller caller, DateTime nowUtc)
+    {
+        var draft = defined.Briefs.DraftWith(tenant, factory, seat, body.Text ?? "");
+        if (!draft.Ok)
+        {
+            var status = draft.Outcome switch
+            {
+                FactoryBriefOutcome.SeatNotRegistered => StatusCodes.Status404NotFound,
+                FactoryBriefOutcome.NotEditable => StatusCodes.Status422UnprocessableEntity,
+                _ => StatusCodes.Status400BadRequest,
+            };
+            FileLog.Write($"[FactoryBriefEndpoints] {factory}/{seat}: defined factory, draft REFUSED ({status}, {draft.Outcome}) - {draft.Refusal}");
+            return Results.Json(new
+            {
+                error = draft.Refusal,
+                outcome = draft.Outcome.ToString(),
+                definition = draft.Newest is null ? null : FactoryBriefPanelFold.DefinitionLine(draft.Newest.Factory),
+            }, statusCode: status);
+        }
+
+        var newest = draft.Newest!;
+        var factoryId = newest.Factory;
+        var seatId = draft.Seat!;
+        FactoryDefinitionCheckResult? check = null;
+        if (body.ExpectedVersion == newest.Version)
+        {
+            check = FactoryDefinitionCheck.Check(draft.Content!, factoryId, defined.Account.FleetSkillsOf(tenant),
+                defined.Account.ConnectedMachinesOf(tenant));
+            if (check.HasErrors)
+                return FactoryDefinitionEndpoints.CheckRefused(factoryId, check, $"The brief of '{seatId}' was not saved");
+        }
+
+        // The store decides staleness against what is newest NOW, so a writer who read an older version, or lost a race
+        // since the edit was made, is refused with the newest version - never saved over it.
+        var write = defined.Briefs.Definitions.SaveDraft(tenant, factoryId, draft.Content, body.ExpectedVersion, caller.Kind,
+            caller.Id, $"The brief of '{seatId}' was edited.", nowUtc);
+        var standing = defined.Briefs.Definitions.Standing(tenant, factoryId);
+        if (write.Ok)
+        {
+            var saved = defined.Briefs.InVersion(tenant, factoryId, seatId, write.Version!.Version)!;
+            var dto = DefinedDto(saved, standing);
+            dto.Findings = check!.Findings.Select(FactoryDefinitionEndpoints.ToDto).ToList();
+            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{seatId}: defined factory, brief saved as definition version {write.Version.Version} by {caller.Kind}");
+            return Results.Json(dto);
+        }
+
+        var refusedStatus = FactoryDefinitionEndpoints.StatusOf(write.Outcome);
+        FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{seatId}: defined factory, save REFUSED ({refusedStatus}, {write.Outcome}) - {write.Refusal}");
+        // THE VERSION THE CALLER NEEDS RIDES THE REFUSAL, with this seat's brief in it, so an editor shows it beside the
+        // writer's own text exactly as it does for a brief.
+        var current = write.Version is { } v && defined.Briefs.InVersion(tenant, factoryId, seatId, v.Version) is { } b
+            ? DefinedDto(b, standing) : null;
+        return Results.Json(new
+        {
+            error = write.Refusal,
+            outcome = write.Outcome.ToString(),
+            current,
+            definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
+        }, statusCode: refusedStatus);
+    }
+
+    /// <summary>
+    /// A publish or restore of a defined factory's brief. Only a person publishes, so a session is refused first, in the
+    /// definition's own words. A person is sent to the definition's own command: the brief is part of the definition,
+    /// and publishing it publishes the whole definition.
+    /// </summary>
+    private static IResult DefinedPublishOrRestore(Caller caller, string factory, string seat, int version, bool restore)
+    {
+        var factoryId = FactoryNames.TryFactory(factory, out var folded, out _) ? folded : factory;
+        var act = restore ? "restore" : "publish";
+        if (caller.Kind != FactoryMemoryAuthorKinds.Person)
+        {
+            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{seat}: defined factory, a {act} by a session REFUSED");
+            return Results.Json(new
+            {
+                error = restore ? FactoryDefinitionStore.OnlyAPersonRestores : FactoryDefinitionStore.OnlyAPersonPublishes,
+                outcome = FactoryBriefOutcome.OnlyAPersonPublishes.ToString(),
+                definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{seat}: defined factory, a {act} of version {version} sent to the definition");
+        return Results.Json(new
+        {
+            error = restore ? RestoreTheDefinition(factoryId, version) : PublishTheDefinition(factoryId, version),
+            outcome = "PublishTheDefinition",
+            definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
+        }, statusCode: StatusCodes.Status409Conflict);
+    }
+
+    /// <summary>A defined factory's brief in one definition version, as the brief routes answer it.</summary>
+    private static FactoryBriefDto DefinedDto(DefinedSeatBrief brief, FactoryDefinitionStanding standing) => new()
+    {
+        Factory = brief.Version.Factory,
+        Seat = brief.Seat,
+        Version = brief.Version.Version,
+        Text = brief.Text,
+        State = brief.Version.State,
+        AuthorKind = brief.Version.AuthorKind,
+        AuthorId = brief.Version.AuthorId,
+        WrittenAtUtc = brief.Version.WrittenAtUtc,
+        PublishedAtUtc = brief.Version.PublishedAtUtc,
+        PublishedBy = brief.Version.PublishedBy,
+        NewestVersion = standing.Newest?.Version ?? brief.Version.Version,
+        PublishedVersion = standing.Published?.Version,
+        VersionKind = FactoryBriefVersionKinds.Definition,
+        Definition = FactoryBriefPanelFold.DefinitionLine(brief.Version.Factory),
+    };
 
     /// <summary>The caller kind of a credential that is neither a person's device nor a session's key. Deliberately
     /// NOT one of <see cref="FactoryMemoryAuthorKinds"/>: such a caller may read and can never be the author of a version.</summary>

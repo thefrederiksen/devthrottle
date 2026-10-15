@@ -215,6 +215,27 @@ public sealed class FactoryDefinitionStore
         }
     }
 
+    /// <summary>
+    /// EVERY version of one factory's definition, oldest first, each with the text of ONE file in it - null when that
+    /// version holds no such file. How a seat's brief history is read for a defined factory (phase 4, design section
+    /// 9): which versions changed the seat's file is only known by reading the file in each of them. Every version's
+    /// content is read once and only the one file is kept, so the answer is as large as that file's versions.
+    /// </summary>
+    public IReadOnlyList<FactoryDefinitionFileVersion> FileInEveryVersion(TenantId tenant, string factory, string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return Array.Empty<FactoryDefinitionFileVersion>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var found = new List<FactoryDefinitionFileVersion>();
+            foreach (var row in Versions(ctx, factory).OrderBy(v => v.Version).AsEnumerable())
+                found.Add(new FactoryDefinitionFileVersion(Summary(row), ReadContent(row.Content).TryGetValue(path, out var text) ? text : null));
+            FileLog.Write($"[FactoryDefinitionStore] {factory}: read {path} in {found.Count} versions");
+            return found;
+        }
+    }
+
     // ---------- writes ----------
 
     /// <summary>
@@ -664,6 +685,9 @@ public sealed record FactoryDefinitionStanding(FactoryDefinitionVersionSummary? 
 public sealed record FactoryDefinitionVersionSummary(string Factory, int Version, string State, string AuthorKind,
     string? AuthorId, string? ChangeNote, int? RestoredFrom, DateTime WrittenAtUtc, DateTime? PublishedAtUtc,
     string? PublishedBy, int ContentBytes, int FileCount);
+
+/// <summary>One version of a definition with the text of one file in it, or null when that version holds no such file.</summary>
+public sealed record FactoryDefinitionFileVersion(FactoryDefinitionVersionSummary Summary, string? Text);
 
 /// <summary>One version of a definition with its content: path to text, in ordinal order of the paths.</summary>
 public sealed record FactoryDefinitionVersion(FactoryDefinitionVersionSummary Summary, IReadOnlyDictionary<string, string> Files);

@@ -42,6 +42,23 @@ public sealed class FactoryBriefDto
     /// <summary>The version a talk or a run of the seat is given when this answer was made, or null when no
     /// version has been published yet.</summary>
     public int? PublishedVersion { get; set; }
+
+    /// <summary>
+    /// Which kind of version <see cref="Version"/>, <see cref="NewestVersion"/> and <see cref="PublishedVersion"/> are
+    /// (<see cref="FactoryBriefVersionKinds"/>): "brief", the seat's own brief versions, or "definition" for a defined
+    /// factory, whose brief versions are its definition's versions (Factory Definition, phase 4).
+    /// </summary>
+    public string VersionKind { get; set; } = FactoryBriefVersionKinds.Brief;
+
+    /// <summary>
+    /// For a defined factory, the Gateway's sentence saying this brief is part of the factory's definition and that a
+    /// publish publishes the whole definition; null otherwise. Printed and drawn as it is.
+    /// </summary>
+    public string? Definition { get; set; }
+
+    /// <summary>For a brief saved into a definition: the whole-definition check's notices on the saved version, each
+    /// with its file and line. Empty otherwise.</summary>
+    public List<FactoryDefinitionFindingDto> Findings { get; set; } = new();
 }
 
 /// <summary>
@@ -101,6 +118,13 @@ public sealed class FactoryBriefHistoryResponse
     /// version. The Gateway decides whether there is more; a reader never works it out for itself.
     /// </summary>
     public int? NextBefore { get; set; }
+
+    /// <summary>Which kind of version every version on the page is (<see cref="FactoryBriefVersionKinds"/>). For a
+    /// defined factory the page holds the definition versions in which this seat's brief changed.</summary>
+    public string VersionKind { get; set; } = FactoryBriefVersionKinds.Brief;
+
+    /// <summary>For a defined factory, the Gateway's sentence that the brief is part of the definition; null otherwise.</summary>
+    public string? Definition { get; set; }
 }
 
 /// <summary>
@@ -131,4 +155,19 @@ public sealed class BringBackFactoryBriefRequest
     /// means "I did not check", and the copy is then added after whatever is newest.
     /// </summary>
     public int ExpectedVersion { get; set; }
+}
+
+/// <summary>
+/// WHICH KIND OF VERSION A BRIEF VERSION IS (Factory Definition, phase 4). A seat of a factory with no published
+/// definition has its own brief versions, held by the brief store; a seat of a DEFINED factory has none of its own -
+/// its brief is part of the definition, and the version recorded is the definition's. Everywhere a brief version is
+/// recorded or shown, this word goes beside it so a reader never takes a definition version for a brief version.
+/// </summary>
+public static class FactoryBriefVersionKinds
+{
+    /// <summary>A version of the seat's own brief, in the brief store.</summary>
+    public const string Brief = "brief";
+
+    /// <summary>A version of the factory's definition, whose seat file holds the brief.</summary>
+    public const string Definition = "definition";
 }

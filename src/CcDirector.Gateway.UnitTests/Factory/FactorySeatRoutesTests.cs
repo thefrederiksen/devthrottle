@@ -7,6 +7,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Briefs;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
@@ -129,9 +130,13 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
             (_, f) => new CronRunProblemsDto { Factory = f },
             (_, f) => new FactoryEmailsDto { Factory = f });
         FactoriesScreenEndpoints.Map(app, _ => T, sources);
-        FactoriesScreenEndpoints.MapSeatPage(app, _ => T, sources, (_, _) => _memoryNotes, _briefs);
+        // No factory here has a definition, so the seat page and the brief routes read the brief store, as before phase 4.
+        var defined = new FactoryDefinitionBriefs(new FactoryDefinitionStore(_db), _briefs);
+        FactoriesScreenEndpoints.MapSeatPage(app, _ => T, sources, (_, _) => _memoryNotes, _briefs, defined);
         // The brief's own routes, as the host maps them: what the brief panel's buttons send.
-        FactoryBriefEndpoints.Map(app, _ => T, _briefs, _ => sessionFactory ?? SessionFactoryLookup.NotKnown, () => Now);
+        FactoryBriefEndpoints.Map(app, _ => T, _briefs, _ => sessionFactory ?? SessionFactoryLookup.NotKnown, () => Now,
+            new FactoryBriefEndpoints.Defined(defined,
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>())));
 
         await app.StartAsync();
         _app = app;

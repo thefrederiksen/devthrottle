@@ -527,6 +527,9 @@ public enum FactoryBriefOutcome
     OnlyAPersonPublishes,
     /// <summary>The write failed for its own reason, and no second writer holds the version it wanted.</summary>
     WriteFailed,
+    /// <summary>A defined factory's seat file holds its brief in a shape a text edit cannot replace, or the text cannot be
+    /// written into it as a literal block (phase 4 of the factory definition).</summary>
+    NotEditable,
 }
 
 /// <summary>

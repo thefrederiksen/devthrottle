@@ -227,6 +227,7 @@ public sealed class CronEngine
             string? error;
             string? resolvedDirectorId = null;   // the Director the machine resolved to (#503)
             int? briefVersion = null;            // the seat's brief the Gateway gave the run, when it gave one
+            string? briefVersionKind = null;     // and which kind of version that is: the brief's own, or the definition's
             bool started;
             string baseStatus;
             if (isWorkList)
@@ -239,7 +240,7 @@ public sealed class CronEngine
             }
             else
             {
-                (sessionId, resolvedDirectorId, error, briefVersion) = await _starter.StartRunAsync(job, ct);
+                (sessionId, resolvedDirectorId, error, briefVersion, briefVersionKind) = await _starter.StartRunAsync(job, ct);
                 started = sessionId is not null;
                 baseStatus = started ? "started" : "not-started";
             }
@@ -259,6 +260,7 @@ public sealed class CronEngine
                 TaskStatus = TaskStatusUnknown,
                 // Which brief this run was given, fixed on the run: the brief can be published again a minute later.
                 BriefVersion = briefVersion,
+                BriefVersionKind = briefVersionKind,
             };
             // How the run went (Factory Control, step 1). A started session owes its report. A fire that started
             // nothing did not run. A work-list drain starts many sessions and records none, so no one session can

@@ -258,6 +258,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<int?>("BriefVersion")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("BriefVersionKind")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Factory")
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");

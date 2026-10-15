@@ -1184,6 +1184,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>Every seat's brief held on the Gateway, every version kept (Factory Seats mission, phase 2a).</summary>
     private readonly Factory.Briefs.FactoryBriefStore _factoryBriefs;
+    private readonly Factory.Briefs.FactoryDefinitionBriefs _factorySeatBriefs;
     private readonly History.KnownRepositoryStore _knownRepositories;
     /// <summary>The one-repository-list mission, phase 2: the third observer on the repository snapshot a
     /// Director already pushes, which folds the root-folder scan into <see cref="_knownRepositories"/> as
@@ -2567,6 +2568,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // database: a definition does not require the factory to be registered.
         FactoryDefinitions = new Factory.Definition.FactoryDefinitionStore(_gatewayDb);
         FactoryDefinitionPublish = new Factory.Definition.FactoryPublishApply(_gatewayDb);
+        // A defined factory's briefs are part of its definition (Factory Definition mission, phase 4): what a talk and a
+        // run are given, and what the brief routes read and save, come from the definition once one is published.
+        _factorySeatBriefs = new Factory.Briefs.FactoryDefinitionBriefs(FactoryDefinitions, _factoryBriefs);
         var cronClock = new Running.SystemClock();
         // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
         // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run
@@ -2591,7 +2595,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 // brief by the Gateway. Read in the same scope as the check above.
                 seatWithABrief: job => Running.ScheduledRunOpening.SeatFor(job,
                     id => FactoryRegistry.Find(_tenantContext.Current, id),
-                    (factory, seat) => _factoryBriefs.GivenTo(_tenantContext.Current, factory, seat))),
+                    (factory, seat) => _factorySeatBriefs.GivenTo(_tenantContext.Current, factory, seat))),
             cronWorkListRunner, cronNotifier, cronClock,
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
@@ -5286,8 +5290,10 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
             memoryNoteCount: (tenant, factory) => _factoryMemory.List(tenant, factory).Count,
-            // Its brief panel (phase 2b): the published brief, the editor's starting text, the history and one version.
-            briefs: _factoryBriefs);
+            // Its brief panel (phase 2b): the published brief, the editor's starting text, the history and one version -
+            // from the definition for a defined factory (Factory Definition, phase 4).
+            briefs: _factoryBriefs,
+            definedBriefs: _factorySeatBriefs);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
         Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,
@@ -5328,7 +5334,7 @@ public sealed class GatewayHost : IAsyncDisposable
             problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             factoryManager: factoryManagerSources,
-            publishedBrief: (tenant, factory, seat) => _factoryBriefs.GivenTo(tenant, factory, seat));
+            publishedBrief: (tenant, factory, seat) => _factorySeatBriefs.GivenTo(tenant, factory, seat));
         // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
         Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
@@ -5894,7 +5900,10 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryBriefs,
             sessionFactoryOf: _sessionHistory.FactoryOf,
-            nowUtc: () => DateTime.UtcNow);
+            nowUtc: () => DateTime.UtcNow,
+            // A defined factory's briefs are read from and saved into its definition, checked as any definition save is.
+            defined: new Api.FactoryBriefEndpoints.Defined(_factorySeatBriefs,
+                new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf)));
 
         // A factory's whole DEFINITION, held on the Gateway (Factory Definition mission, phase 1): saved as a draft by a
         // person or a session of the factory, published and restored by a person, every write checked first against

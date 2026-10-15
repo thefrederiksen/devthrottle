@@ -65,8 +65,10 @@ public static class FactoryTalkSeed
         if (brief is null)
             sb.Append("- your brief: ").AppendLine(InFolder(factory.Folder, seat.BriefFile));
         else
-            sb.Append("- your brief: version ").Append(brief.Version).AppendLine(", given to you in full below this list. "
-                      + "The Gateway holds it; it is not a file in the factory's folder.");
+            sb.Append("- your brief: ").Append(brief.VersionWords).AppendLine(", given to you in full below this list. "
+                      + (brief.FromDefinition
+                          ? "It is part of the factory's definition, which the Gateway holds; it is not a file in the factory's folder."
+                          : "The Gateway holds it; it is not a file in the factory's folder."));
         sb.Append("- the factory's goal: ").AppendLine(string.IsNullOrWhiteSpace(factory.GoalText)
             ? $"{goalPath} (the registry holds no goal for this factory yet, so there may be none)"
             : goalPath);
@@ -132,10 +134,12 @@ public static class FactoryTalkSeed
         // WHICH BRIEF THIS TALK WAS GIVEN is recorded where the talk itself is: on its talked line, in the field the
         // activity record keeps for the factory agent's version. A seat with no brief on the Gateway has no version.
         if (brief is not null)
-            sb.Append(" --version ").Append(brief.Version);
+            sb.Append(" --version ").Append(VersionArgument(brief));
         sb.AppendLine(" --outcome talked --what \"<one line of what was decided>\"");
         if (brief is not null)
-            sb.Append("   Keep --version ").Append(brief.Version).AppendLine(" exactly as written: it records which version of your brief this talk was given.");
+            sb.Append("   Keep --version ").Append(VersionArgument(brief)).AppendLine(brief.FromDefinition
+                ? " exactly as written: it records which version of the factory's definition your brief came from in this talk."
+                : " exactly as written: it records which version of your brief this talk was given.");
         sb.AppendLine("2. Write what was decided into the factory's memory: cc-devthrottle factory memory set <name> \"<what was decided>\"");
         sb.Append("3. Run ").Append(StatusCommand(factory)).AppendLine(" again. For every failing or waiting item that is "
                   + "now resolved, mark it handled with its evidence - and only if it is resolved:");
@@ -145,6 +149,10 @@ public static class FactoryTalkSeed
 
         return sb.ToString();
     }
+
+    /// <summary>The <c>--version</c> a talk records, as it is pasted: a definition version holds a space, so it is quoted.</summary>
+    private static string VersionArgument(FactoryGivenBrief brief) =>
+        brief.FromDefinition ? "\"" + brief.Recorded + "\"" : brief.Recorded;
 
     /// <summary>The session name of a talk opened by Handle the issue: <c>&lt;Factory title&gt; - Boss - handle the issue
     /// (&lt;schedule&gt;)</c>.</summary>

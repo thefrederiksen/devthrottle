@@ -17,6 +17,11 @@ EVERY VERSION IS KEPT, SO THE WRITING AND THE READING ARE BOUNDED. A session is 
 wait above the published version; `set` prints the Gateway's sentence, which says to ask the owner to publish. And
 `history` reads one page and never a version's text: `get --version N` reads one version's text.
 
+A DEFINED FACTORY'S BRIEF IS PART OF ITS DEFINITION (Factory Definition, phase 4). For a factory with a published
+definition the Gateway answers every verb from the definition: a version is a definition version, `set` saves a new
+definition draft, and `publish` and `restore` are answered with the definition's own command to run. The Gateway says
+so in one sentence (`definition`), which this module prints exactly as it is sent; it decides nothing itself.
+
 TWO WRITERS ON ONE BRIEF. `set` sends the version the caller last READ (`--expected-version`, 0 when the seat has no
 brief on the Gateway yet). It is never looked up here just before writing: a version nobody was shown is not a
 version anybody read, and sending it would let this command replace text its caller never saw. A stale save is
@@ -82,6 +87,24 @@ def _outcome(exc: gateway.GatewayError) -> Optional[str]:
     return exc.body.get("outcome") if isinstance(exc.body, dict) else None
 
 
+def _definition_lines(answer: Any) -> List[str]:
+    """The Gateway's sentence that a defined factory's brief is part of its definition, and the whole-definition
+    check's notices on a saved version, each printed as the Gateway sent it. Nothing for any other factory."""
+    if not isinstance(answer, dict):
+        return []
+    lines = []
+    definition = answer.get("definition")
+    if isinstance(definition, str) and definition:
+        lines.append(axi_cli.ascii_text(definition))
+    for finding in answer.get("findings") or []:
+        if isinstance(finding, dict) and isinstance(finding.get("message"), str):
+            where = finding.get("file") or ""
+            if isinstance(finding.get("line"), int) and finding["line"] > 0:
+                where = f"{where}:{finding['line']}"
+            lines.append(axi_cli.ascii_text(f"{finding.get('severity') or 'notice'}: {where}: {finding['message']}"))
+    return lines
+
+
 def _standing_line(brief: Dict[str, Any]) -> Optional[str]:
     """What else is true of the seat's brief beside the version shown: a newer draft waiting, or nothing published."""
     version = brief["version"]
@@ -129,6 +152,7 @@ def get_brief(factory: str, seat: str, draft: bool, json_output: bool, version: 
     standing = _standing_line(brief)
     if standing:
         lines.append(standing)
+    lines.extend(_definition_lines(brief))
     axi_cli.write_lines(*lines)
     sys.stdout.flush()
     axi_output.write_blocks(sys.stdout, *_text_lines(brief.get("text")))
@@ -165,6 +189,7 @@ def history(factory: str, seat: str, json_output: bool, count: Optional[int] = N
     next_before = page.get("nextBefore")
     lines = [f"count: {len(versions)} of {total}. " + ("No version is published." if published is None
                                                       else f"Version {published} is the published brief.")]
+    lines.extend(_definition_lines(page))
     for v in versions:
         mark = "published" if v.get("state") == "published" else "draft"
         if v.get("version") == published:
@@ -227,6 +252,7 @@ def set_draft(factory: str, seat: str, file: str, expected_version: int, json_ou
         f"Saved: version {brief['version']} of the brief of '{brief.get('seat')}' is a draft.",
         "A talk or a run is given " + ("nothing from the Gateway" if published is None else f"version {published}")
         + " until a person publishes this draft.",
+        *_definition_lines(brief),
     )
     axi_cli.print_next([f"{_TOOL} get {where} --draft"])
 
@@ -237,7 +263,7 @@ def publish(factory: str, seat: str, version: int, json_output: bool) -> None:
     try:
         brief = gateway.post_json(_seat_route(factory, seat) + "/publish", {"version": version})
     except gateway.GatewayError as exc:
-        _fail_gateway(exc, _after_refusal(exc, where))
+        _fail_gateway(exc, _after_refusal(exc, where, factory))
         return
     _published(brief, where, json_output, f"Published: version {version}")
 
@@ -249,16 +275,19 @@ def restore(factory: str, seat: str, version: int, expected_version: int, json_o
         brief = gateway.post_json(_seat_route(factory, seat) + "/restore",
                                   {"version": version, "expectedVersion": expected_version})
     except gateway.GatewayError as exc:
-        _fail_gateway(exc, _after_refusal(exc, where))
+        _fail_gateway(exc, _after_refusal(exc, where, factory))
         return
     _published(brief, where, json_output, f"Brought back: version {version}")
 
 
-def _after_refusal(exc: gateway.GatewayError, where: str) -> List[str]:
+def _after_refusal(exc: gateway.GatewayError, where: str, factory: str) -> List[str]:
     """What to run after a refused publish or restore. A session is told to save a draft, because that is the one
     thing it may do; everything else starts from the history."""
     if _outcome(exc) == "OnlyAPersonPublishes":
         return [f"{_TOOL} set {where} --file <path> --expected-version <newest version>", f"{_TOOL} history {where}"]
+    if _outcome(exc) == "PublishTheDefinition":
+        # The Gateway's sentence names the definition's own command; what a person reads first is what it changes.
+        return [f"cc-devthrottle factory definition diff {axi_cli.bare(factory, '<factory>')}", f"{_TOOL} history {where}"]
     if exc.status in (400, 404, 409):
         return [f"{_TOOL} history {where}"]
     return [axi_cli.CHECK_GATEWAY]

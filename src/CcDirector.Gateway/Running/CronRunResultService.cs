@@ -410,7 +410,9 @@ public sealed class CronRunResultService
             Factory = run.Factory,
             FactoryAgent = run.Seat,
             // Which brief the run was given, in the field the activity record keeps for the factory agent's version.
-            FactoryAgentVersion = run.BriefVersion?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            // A definition version is written as one ("definition v3"), so it is never read as a brief version.
+            FactoryAgentVersion = run.BriefVersion is not { } given ? null
+                : new Factory.Talk.FactoryGivenBrief(given, "", run.BriefVersionKind ?? Contracts.FactoryBriefVersionKinds.Brief).Recorded,
             SessionId = string.IsNullOrWhiteSpace(run.SessionId) ? null : run.SessionId,
             What = Truncate(what),
             Outcome = ok ? FactoryActivityOutcome.Done : FactoryActivityOutcome.Failed,

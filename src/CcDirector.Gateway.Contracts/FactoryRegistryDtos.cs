@@ -221,4 +221,9 @@ public sealed class FactoryTalkStartedDto
     /// <summary>The version of the seat's brief the Gateway gave the talk (Factory Seats mission, phase 2c), or null
     /// when the seat has no brief published on the Gateway and the talk was told the path of its brief file.</summary>
     public int? BriefVersion { get; set; }
+
+    /// <summary>Which kind of version <see cref="BriefVersion"/> is (<see cref="FactoryBriefVersionKinds"/>): "brief", or
+    /// "definition" for a defined factory, whose brief versions are its definition's versions (Factory Definition,
+    /// phase 4). Null when <see cref="BriefVersion"/> is.</summary>
+    public string? BriefVersionKind { get; set; }
 }
