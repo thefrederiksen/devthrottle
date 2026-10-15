@@ -8,6 +8,7 @@ using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Tests.Data;
+using CcDirector.Gateway.Tests.Factory.Definition;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -51,7 +52,7 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
         _store = new FactoryBriefStore(db, registry);
         // No factory here has a definition, so every route takes the brief store's paths, exactly as before phase 4.
         _defined = new FactoryBriefEndpoints.Defined(new FactoryDefinitionBriefs(new FactoryDefinitionStore(db), _store),
-            new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()), new FactoryPublishApply(db));
+            new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody), new FactoryPublishApply(db));
     }
 
     public void Dispose() => _h.Dispose();
@@ -110,11 +111,11 @@ public sealed class FactoryBriefEndpointsTests : IDisposable
 
     private IResult Publish(HttpContext ctx, int version) =>
         FactoryBriefEndpoints.Publish(ctx, TheFactory, Boss, new PublishFactoryBriefRequest { Version = version },
-            _store, InA, FactoryOf, () => Now.AddMinutes(5), _defined);
+            _store, InA, FactoryOf, () => Now.AddMinutes(5), _defined).GetAwaiter().GetResult();
 
     private IResult BringBack(HttpContext ctx, int version, int expect = 0) =>
         FactoryBriefEndpoints.BringBack(ctx, TheFactory, Boss, new BringBackFactoryBriefRequest { Version = version, ExpectedVersion = expect },
-            _store, InA, FactoryOf, () => Now.AddMinutes(10), _defined);
+            _store, InA, FactoryOf, () => Now.AddMinutes(10), _defined).GetAwaiter().GetResult();
 
     private IResult Published(HttpContext ctx, Func<HttpContext, TenantId?>? tenant = null, string seat = Boss) =>
         FactoryBriefEndpoints.ReadPublished(ctx, TheFactory, seat, _store, tenant ?? InA, FactoryOf, _defined);

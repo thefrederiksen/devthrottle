@@ -14,6 +14,7 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
+using CcDirector.Gateway.Tests.Factory.Definition;
 using CcDirector.Gateway.Tests.Factory.Registry;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
@@ -136,7 +137,7 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
         // The brief's own routes, as the host maps them: what the brief panel's buttons send.
         FactoryBriefEndpoints.Map(app, _ => T, _briefs, _ => sessionFactory ?? SessionFactoryLookup.NotKnown, () => Now,
             new FactoryBriefEndpoints.Defined(defined,
-                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()), new FactoryPublishApply(_db)));
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody), new FactoryPublishApply(_db)));
 
         await app.StartAsync();
         _app = app;

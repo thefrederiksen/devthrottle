@@ -340,6 +340,20 @@ public sealed class GatewayHost : IAsyncDisposable
             .ToList();
 
     /// <summary>
+    /// THE MACHINE QUESTION a publish asks (Factory Definition, phase 5, design section 6): each seat's machine, through
+    /// a running Director there whose tunnel is connected now and whose Hello said it answers the question.
+    /// </summary>
+    private Task<IReadOnlyDictionary<string, Factory.Definition.MachineReply>> AskFactoryMachinesAsync(
+        Core.Tenancy.TenantId tenant, IReadOnlyList<Factory.Definition.MachineQuestion> questions, CancellationToken ct)
+        => new Factory.Definition.FactoryMachineQuestionAsker(
+                t => Registry.ListDirectors(t)
+                    .Where(d => d.StoppedAtUtc is null && PushedSessions.GetActiveConnectionId(t, d.DirectorId) is not null)
+                    .ToList(),
+                _factoryMachineQuestionCapabilities.Answers,
+                SendCommandAsync)
+            .AskAsync(tenant, questions, ct);
+
+    /// <summary>
     /// What the Gateway holds today about one factory, for the export of a factory that has no definition (Factory
     /// Definition, phase 3; decision A8): its registry entry, each seat's published brief, and the schedules and
     /// triggers that name it. Null when the factory is not registered.
@@ -1234,6 +1248,8 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director's Hello without connecting one.</summary>
     internal Streaming.TurnPushCapabilityRegistry TurnPushCapabilities => _turnPushCapabilities;
     private readonly Streaming.FleetManagerHomeCapabilityRegistry _fleetManagerHomeCapabilities = new();
+    // Factory Definition, phase 5: which Directors answer the factory-machine-question verb, recorded at Hello.
+    private readonly Streaming.FactoryMachineQuestionCapabilityRegistry _factoryMachineQuestionCapabilities = new();
     /// <summary>The machines that can receive a secret (the Secret Handoff mission), from each Director's Hello.
     /// Exposed for the host tests, which stand in for a Director's Hello without connecting one.</summary>
     internal Secrets.SecretMachineRegistry SecretMachines { get; } = new();
@@ -4352,6 +4368,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
+        builder.Services.AddSingleton(_factoryMachineQuestionCapabilities);
         builder.Services.AddSingleton(SecretMachines);
         // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
         builder.Services.AddSingleton(LicenseUsage);
@@ -5904,7 +5921,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // A defined factory's briefs are read from and saved into its definition, checked as any definition save is,
             // and a person's publish or restore of one publishes the whole definition through the publish transaction.
             defined: new Api.FactoryBriefEndpoints.Defined(_factorySeatBriefs,
-                new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf), FactoryDefinitionPublish));
+                new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+                FactoryDefinitionPublish));
 
         // A factory's whole DEFINITION, held on the Gateway (Factory Definition mission, phase 1): saved as a draft by a
         // person or a session of the factory, published and restored by a person, every write checked first against
@@ -5917,7 +5935,8 @@ public sealed class GatewayHost : IAsyncDisposable
             connectedMachinesOf: ConnectedMachinesOf,
             liveOf: FactoryLivePartsOf,
             apply: FactoryDefinitionPublish,
-            nowUtc: () => DateTime.UtcNow);
+            nowUtc: () => DateTime.UtcNow,
+            askMachines: AskFactoryMachinesAsync);
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
         // held here beside its memory so that no factory depends on one machine's disk (the owner's decision F2).

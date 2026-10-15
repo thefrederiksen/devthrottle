@@ -65,7 +65,8 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             connectedMachinesOf: _ => DefinitionFixture.Machines,
             liveOf: (_, _) => null,
             apply: apply,
-            nowUtc: () => Now);
+            nowUtc: () => Now,
+            askMachines: DefinitionFixture.AskNobody);
         return routes;
     }
 

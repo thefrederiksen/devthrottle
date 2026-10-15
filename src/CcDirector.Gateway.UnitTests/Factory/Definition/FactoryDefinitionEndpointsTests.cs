@@ -52,7 +52,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         _apply = new FactoryPublishApply(db);
         // A publish drives the factory from phase 4, and until phase 5 it must be registered (it runs in its folder).
         new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Register(A, DefinitionFixture.Registration(), "test", Now);
-        _account = new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines);
+        _account = new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody);
     }
 
     public void Dispose() => _h.Dispose();
@@ -107,11 +107,11 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
     private IResult Publish(HttpContext ctx, int version) =>
         FactoryDefinitionEndpoints.Publish(ctx, TheFactory, new PublishFactoryDefinitionRequest { Version = version },
-            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(5));
+            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(5)).GetAwaiter().GetResult();
 
     private IResult Restore(HttpContext ctx, int version, int expect = 0) =>
         FactoryDefinitionEndpoints.Restore(ctx, TheFactory, new RestoreFactoryDefinitionRequest { Version = version, ExpectedVersion = expect },
-            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(10));
+            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(10)).GetAwaiter().GetResult();
 
     private IResult Published(HttpContext ctx, Func<HttpContext, TenantId?>? tenant = null) =>
         FactoryDefinitionEndpoints.ReadPublished(ctx, TheFactory, _store, tenant ?? InA, FactoryOf);
@@ -722,11 +722,11 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     // ---------- the shape of a request ----------
 
     [Fact]
-    public void A_write_with_no_body_is_a_BAD_REQUEST()
+    public async Task A_write_with_no_body_is_a_BAD_REQUEST()
     {
         Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.SaveDraft(Person(), TheFactory, null, _store, InA, FactoryOf, _account, () => Now)));
-        Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.Publish(Person(), TheFactory, null, _store, _apply, InA, FactoryOf, _account, () => Now)));
-        Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.Restore(Person(), TheFactory, null, _store, _apply, InA, FactoryOf, _account, () => Now)));
+        Assert.Equal("a body is required", ErrorOf(await FactoryDefinitionEndpoints.Publish(Person(), TheFactory, null, _store, _apply, InA, FactoryOf, _account, () => Now)));
+        Assert.Equal("a body is required", ErrorOf(await FactoryDefinitionEndpoints.Restore(Person(), TheFactory, null, _store, _apply, InA, FactoryOf, _account, () => Now)));
     }
 
     [Fact]
