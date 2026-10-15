@@ -136,6 +136,26 @@ public sealed class SessionManager : IDisposable
     public string? FactoryMemoryRoot { get; init; }
 
     /// <summary>
+    /// Downloads a seat's kit for a seat of a defined factory that is about to start (Factory Definition mission, phase
+    /// 5), with the DIRECTOR's own Gateway credential, as <see cref="FactoryMemoryDownload"/> does and for the same
+    /// reason. Given the kit asked for and the new session's id; throws with the reason when the kit cannot be had. Set
+    /// by ControlApiHost when a Gateway is configured; null otherwise, and then a seat cannot start.
+    /// </summary>
+    public Func<FactoryKitRequest, Guid, Gateway.Contracts.FactoryKitResponse>? FactoryKitDownload { get; set; }
+
+    /// <summary>Where seats' kit folders go. Null is the real storage root (<see cref="Storage.CcStorage.FactoryRun"/>);
+    /// a test points it at a scratch folder.</summary>
+    public string? FactoryRunRoot { get; init; }
+
+    /// <summary>
+    /// The kit folders a create is writing or a live session is using, guarded by <see cref="_kitGate"/>. The start-up
+    /// sweep takes the same lock, so it can never delete a folder a create is putting in place at that moment, before
+    /// the session that owns it is in the roster.
+    /// </summary>
+    private readonly HashSet<string> _kitFoldersInUse = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private readonly object _kitGate = new();
+
+    /// <summary>
     /// Resolves a session's folder to the repository it is a linked WORKTREE of, or null when it is not
     /// one (the one-repository-list mission, "a worktree is not a repository"). The default is
     /// <see cref="Git.LinkedWorktree.ParentRepositoryOf"/> and it is the only one production uses; it is
@@ -693,15 +713,30 @@ public sealed class SessionManager : IDisposable
     /// being restored after a Director restart. When supplied, the session runs in that slot on that
     /// lease and cc-worktrees is not asked for a slot at all - the repository's setting is not even
     /// read, because the answer is already known. Null on every ordinary create.</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null)
+    /// <param name="factoryKit">The kit a seat of a defined factory starts with (Factory Definition mission, phase 5),
+    /// or null for every other session. It is put in place before anything else, and a failure stops the create. When
+    /// <see cref="FactoryKitRequest.Home"/> is set the seat has no repository: <paramref name="repoPath"/> is ignored
+    /// and the session works in the kit's <c>work/</c> folder, which can only be named here, once the id exists.</param>
+    /// <param name="forcePooledWorktree">True for a seat that works in a repository (phase 5's <c>FactoryWorktree</c>):
+    /// it takes a fresh pooled slot whatever the repository's pooled-worktree setting says, with the setting's pool
+    /// size (the default, four, when it was never set). A refusal is the tool's own, unchanged.</param>
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null, FactoryKitRequest? factoryKit = null, bool forcePooledWorktree = false)
     {
         using var creation = EnterCreation();
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
-        if (!Directory.Exists(repoPath))
+        var home = factoryKit?.Home == true;
+        if (!home && !Directory.Exists(repoPath))
             throw new DirectoryNotFoundException($"Repository path not found: {repoPath}");
 
         var id = Guid.NewGuid();
+
+        // A SEAT'S KIT, IN PLACE BEFORE ANYTHING ELSE (Factory Definition mission, phase 5). Like the memory, it stops a
+        // launch: a seat never starts without its kit, so a download that fails ends the create here with the reason,
+        // before a worktree slot is taken or a Gateway key is minted - so a refused create has nothing to give back.
+        // It comes first because a seat with no repository WORKS in the kit's work/ folder, and the folder is named by
+        // the id minted just above. A session that is not a seat skips it entirely.
+        var kitDirectory = factoryKit is not null ? PutFactoryKitInPlace(factoryKit, id) : null;
 
         // Issue #800: the name-at-birth is composed HERE, once, because the pooled worktree below is
         // taken in this session's name and the holder shown by `cc-worktrees list` should be the name
@@ -723,10 +758,24 @@ public sealed class SessionManager : IDisposable
         // re-attached and cc-worktrees is not asked for anything. Asking would take a SECOND slot
         // while the first stayed in use under a holder that no longer exists, so a Director that
         // restarted a few times would fill its own pool with sessions nobody could give back.
-        var pooled = reattachPooledWorktree is not null
-            ? ReattachPooledWorktree(reattachPooledWorktree, id, birthName)
-            : AcquirePooledWorktree(repoPath, id, birthName);
-        var workingDirectory = pooled?.Path ?? repoPath;
+        //
+        // A SEAT WITH NO REPOSITORY TAKES NO SLOT: it works in its kit's work/ folder. A seat that works in a repository
+        // ALWAYS takes one (forcePooledWorktree), so it never runs in the shared checkout.
+        Git.PooledWorktree? pooled;
+        try
+        {
+            pooled = home ? null
+                : reattachPooledWorktree is not null
+                    ? ReattachPooledWorktree(reattachPooledWorktree, id, birthName)
+                    : AcquirePooledWorktree(repoPath, id, birthName, forcePooledWorktree);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionManager] CreateSession FAILED before the session existed: session={id}: {ex.Message}");
+            DiscardFreshKit(factoryKit, kitDirectory);
+            throw;
+        }
+        var workingDirectory = home ? FactoryRunKit.WorkDirectoryOf(kitDirectory!) : pooled?.Path ?? repoPath;
 
         var studioMode = backendType == SessionBackendType.Studio;
         var launchSpec = agent.BuildLaunchSpec(userArgs, resumeSessionId, studioMode);
@@ -786,6 +835,11 @@ public sealed class SessionManager : IDisposable
         // lease that was never recorded is a slot cc-worktrees will not take back.
         session.PooledWorktree = pooled;
 
+        // The kit folder travels with the session too: it is deleted when the session ends, and a restore hands it
+        // back so the seat resumes in the folder it ran in.
+        session.FactoryKitDirectory = kitDirectory;
+        session.FactoryHome = factoryKit?.Home == true;
+
         // Pre-launch stamps (Workflows mission, phase 5b): applied BEFORE the per-agent launch
         // channels below read the session (Pi's preamble file is written from it) and BEFORE the
         // process starts (a startup hook can fetch the preamble the instant the agent boots).
@@ -825,6 +879,11 @@ public sealed class SessionManager : IDisposable
             // agent kind - including those that get no start-up text - and the command line reads it too.
             if (factoryMemoryDir is not null)
                 envVars[FactoryMemoryFiles.DirectoryEnvVar] = factoryMemoryDir;
+
+            // The seat's kit, on the same terms. A session that is not a seat is never stamped it, and the strip list
+            // (InheritedSessionEnvironment) removes one this Director inherited from a parent seat.
+            if (kitDirectory is not null)
+                envVars[FactoryRunKit.DirectoryEnvVar] = kitDirectory;
 
             // Put the machine's installed cc-* tools first on the session's PATH.
             //
@@ -1194,6 +1253,9 @@ public sealed class SessionManager : IDisposable
             if (session.Factory is not null)
                 FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
 
+            // Nor a kit - unless it is a restored seat's own folder, whose work/ belongs to the seat, not to this create.
+            DiscardFreshKit(factoryKit, kitDirectory);
+
             session.Dispose();
             throw;
         }
@@ -1240,6 +1302,163 @@ public sealed class SessionManager : IDisposable
     }
 
     /// <summary>
+    /// Download a seat's kit and write it to its folder in storage (Factory Definition mission, phase 5), or - for a
+    /// restored seat - refresh the folder it already had, in place, keeping its <c>work/</c>. Returns the folder. Throws
+    /// <see cref="FactoryKitUnavailableException"/>, which ends the create, when there is no way to download it, when the
+    /// download fails, when a returning folder is not one of this Director's kit folders, or when it cannot be written.
+    /// </summary>
+    private string PutFactoryKitInPlace(FactoryKitRequest request, Guid id)
+    {
+        FileLog.Write($"[SessionManager] PutFactoryKitInPlace: session={id}, {request}");
+        if (request.ReturningDirectory is { } returning
+            && FactoryRunKit.WhyNotAKitFolder(returning, FactoryRunRoot) is { } notOurs)
+            throw new FactoryKitUnavailableException(request, $"the kit folder handed back by the restore is refused. {notOurs}");
+        if (FactoryKitDownload is not { } download)
+            throw new FactoryKitUnavailableException(request,
+                "this Director is not connected to a Gateway, so there is nowhere to download the kit from");
+
+        Gateway.Contracts.FactoryKitResponse kit;
+        try
+        {
+            kit = download(request, id);
+        }
+        catch (Exception ex) when (ex is not FactoryKitUnavailableException)
+        {
+            // Rethrown with the seat named, in a sentence a person can act on; the original is kept inside.
+            throw new FactoryKitUnavailableException(request, ex.Message, ex);
+        }
+
+        var target = request.ReturningDirectory ?? FactoryRunKit.DirectoryFor(id, FactoryRunRoot);
+        ClaimKitFolder(target);
+        string dir;
+        try
+        {
+            dir = request.ReturningDirectory is { } kept
+                ? FactoryRunKit.Refresh(kept, kit, root: FactoryRunRoot)
+                : FactoryRunKit.Write(id, kit, root: FactoryRunRoot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            if (request.ReturningDirectory is null) FactoryRunKit.Delete(target, FactoryRunRoot);
+            ReleaseKitFolder(target);
+            throw new FactoryKitUnavailableException(request, $"it was downloaded but could not be written to {target}: {ex.Message}", ex);
+        }
+
+        FileLog.Write($"[SessionManager] PutFactoryKitInPlace: session={id}, files={kit.Files.Count}, dir={dir}, refreshed={request.ReturningDirectory is not null}");
+        _log?.Invoke(request.ReturningDirectory is null
+            ? $"The kit of the seat '{request.Seat}' is in place: {kit.Files.Count} files in {dir}."
+            : $"The kit of the seat '{request.Seat}' was refreshed in its own folder {dir}; its work folder is kept.");
+        return dir;
+    }
+
+    /// <summary>A kit this create wrote is removed when the create fails. A restored seat's own folder is never removed
+    /// here: its work/ is the seat's, and the next restore needs it.</summary>
+    private void DiscardFreshKit(FactoryKitRequest? request, string? kitDirectory)
+    {
+        if (request is null || kitDirectory is null) return;
+        if (request.ReturningDirectory is null) FactoryRunKit.Delete(kitDirectory, FactoryRunRoot);
+        ReleaseKitFolder(kitDirectory);
+    }
+
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static string KitKey(string kitDirectory)
+        => Path.GetFullPath(kitDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private void ClaimKitFolder(string kitDirectory)
+    {
+        lock (_kitGate) _kitFoldersInUse.Add(KitKey(kitDirectory));
+    }
+
+    private void ReleaseKitFolder(string kitDirectory)
+    {
+        lock (_kitGate) _kitFoldersInUse.Remove(KitKey(kitDirectory));
+    }
+
+    /// <summary>
+    /// KEEP THIS SEAT'S KIT WHEN IT ENDS (Factory Definition mission, phase 5): a smart shutdown or drain has captured the
+    /// seat, and the restore will hand the folder back so the seat resumes in it with its work/ kept. Called by the drain
+    /// just before it ends the seat; the folder then outlives the session, and the start-up sweep
+    /// (<see cref="SweepFactoryRunFolders"/>) deletes it once nothing names it. Returns false for a session that is not
+    /// here or has no kit.
+    /// </summary>
+    public bool KeepFactoryKitForRestore(Guid id)
+    {
+        if (GetSession(id) is not { FactoryKitDirectory: { } dir } session) return false;
+        session.FactoryKitKeptForRestore = true;
+        FileLog.Write($"[SessionManager] KeepFactoryKitForRestore: session={id}, dir={dir}");
+        return true;
+    }
+
+    /// <summary>Take back <see cref="KeepFactoryKitForRestore"/>: the shutdown was cancelled and the seat keeps working, so
+    /// its kit goes when it ends, as any session's does.</summary>
+    public void ReleaseFactoryKitKeep(Guid id)
+    {
+        if (GetSession(id) is not { } session || !session.FactoryKitKeptForRestore) return;
+        session.FactoryKitKeptForRestore = false;
+        FileLog.Write($"[SessionManager] ReleaseFactoryKitKeep: session={id}");
+    }
+
+    /// <summary>
+    /// THE START-UP SWEEP OF KIT FOLDERS (Factory Definition mission, phase 5). Deletes a folder under the kit root only
+    /// when it can POSITIVELY show nothing names it: its name is a session id, no live session on this Director has that
+    /// id or uses that folder, no create is writing it, and <paramref name="named"/> - every session id and kit folder
+    /// the persisted sessions, the crash journals and the captured workspaces name, which the caller read in full -
+    /// does not hold it. A folder whose name is not a session id is not one this Director made, and is left alone. It
+    /// enumerates what to delete, never what to keep. Returns the folders it deleted.
+    /// </summary>
+    public IReadOnlyList<string> SweepFactoryRunFolders(IEnumerable<string> named)
+    {
+        ArgumentNullException.ThrowIfNull(named);
+        var root = FactoryRunRoot ?? Storage.CcStorage.FactoryRun();
+        var deleted = new List<string>();
+        if (!Directory.Exists(root))
+        {
+            FileLog.Write($"[SessionManager] SweepFactoryRunFolders: no kit root at {root}");
+            return deleted;
+        }
+
+        // A name is a session id or a kit folder; a kit folder is named by its session id.
+        var namedIds = new HashSet<Guid>();
+        foreach (var name in named)
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var leaf = Path.GetFileName(name.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (Guid.TryParse(leaf, out var g)) namedIds.Add(g);
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(root))
+        {
+            if (!Guid.TryParse(Path.GetFileName(dir), out var id))
+            {
+                FileLog.Write($"[SessionManager] SweepFactoryRunFolders: {dir} is not named by a session id; left alone");
+                continue;
+            }
+            if (namedIds.Contains(id))
+            {
+                FileLog.Write($"[SessionManager] SweepFactoryRunFolders: {dir} is named by a persisted session, a crash journal or a captured workspace; kept");
+                continue;
+            }
+            lock (_kitGate)
+            {
+                var key = KitKey(dir);
+                var live = _sessions.Values.Any(s => s.Id == id
+                    || (s.FactoryKitDirectory is { } own && string.Equals(KitKey(own), key, PathComparison)));
+                if (live || _kitFoldersInUse.Contains(key))
+                {
+                    FileLog.Write($"[SessionManager] SweepFactoryRunFolders: {dir} is in use on this Director; kept");
+                    continue;
+                }
+                FactoryRunKit.Delete(dir, FactoryRunRoot);
+                deleted.Add(dir);
+            }
+        }
+        FileLog.Write($"[SessionManager] SweepFactoryRunFolders: root={root}, deleted={deleted.Count}");
+        return deleted;
+    }
+
+    /// <summary>
     /// The pooled worktree a new session in <paramref name="repoPath"/> runs in, or null when that
     /// repository's pooled-worktree setting is off - which is the default, and which means no tool is
     /// run and nothing about the create changes.
@@ -1271,12 +1490,20 @@ public sealed class SessionManager : IDisposable
         return pooled;
     }
 
-    private Git.PooledWorktree? AcquirePooledWorktree(string repoPath, Guid id, string? birthName)
+    private Git.PooledWorktree? AcquirePooledWorktree(string repoPath, Guid id, string? birthName, bool force = false)
     {
         Git.WorktreePoolSetting setting;
         try
         {
             setting = _worktreePoolSetting(repoPath);
+        }
+        catch (Exception ex) when (force)
+        {
+            // A seat must take a slot, so "off" is not a safe reading here: it would start the seat in the shared
+            // checkout. The create stops instead, saying why.
+            FileLog.Write($"[SessionManager] AcquirePooledWorktree FAILED: could not read the setting for {repoPath}: {ex.Message}; a seat cannot start");
+            throw new InvalidOperationException(
+                $"No session was opened. A seat works in a pooled worktree of {repoPath}, and that repository's pooled-worktree setting could not be read: {ex.Message}", ex);
         }
         catch (Exception ex)
         {
@@ -1286,7 +1513,10 @@ public sealed class SessionManager : IDisposable
             return null;
         }
 
-        if (!setting.Enabled)
+        // A seat of a defined factory that works in a repository takes a slot whatever the setting says (phase 5): a
+        // seat never runs in the shared checkout. The pool size is the repository's own, which is the default (four)
+        // when the setting was never saved - the size a person gets the moment they turn the setting on.
+        if (!setting.Enabled && !force)
             return null;
 
         // Who holds the slot, as `cc-worktrees list` will show it: the name the session is born with
@@ -1305,8 +1535,12 @@ public sealed class SessionManager : IDisposable
             // The tool's own sentence, unchanged, plus its own "what to run next" lines. Nothing here
             // paraphrases it: it is the only account of what happened, and it is written for a person.
             var help = ex.Help.Count == 0 ? "" : " Try: " + string.Join("; ", ex.Help);
-            var message = $"No session was opened. {repoPath} is set to run its sessions in a pooled worktree, "
-                + $"and cc-worktrees refused: {ex.Message}.{help}";
+            // Why a slot was asked for at all: the repository's setting, or - for a seat, whatever the setting says - the
+            // rule that a seat never runs in the shared checkout.
+            var why = setting.Enabled
+                ? $"{repoPath} is set to run its sessions in a pooled worktree"
+                : $"A seat of a defined factory always works in a pooled worktree of {repoPath}";
+            var message = $"No session was opened. {why}, and cc-worktrees refused: {ex.Message}.{help}";
             FileLog.Write($"[SessionManager] AcquirePooledWorktree FAILED (refused): code={ex.Code}, exit={ex.ExitCode}, message={ex.Message}");
             _log?.Invoke(message);
             throw new InvalidOperationException(message, ex);
@@ -1661,6 +1895,18 @@ public sealed class SessionManager : IDisposable
             if (session.Factory is not null)
                 FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
 
+            // And a seat's kit, with its work/ folder (Factory Definition mission, phase 5): the session has ended. Unless a
+            // smart shutdown or drain captured it for a restore, which hands the folder back: then it is kept, and the
+            // start-up sweep deletes it once nothing names it.
+            if (session.FactoryKitDirectory is { } kitDir)
+            {
+                if (session.FactoryKitKeptForRestore)
+                    FileLog.Write($"[SessionManager] RemoveSession: session={id} kit folder KEPT for its restore: {kitDir}");
+                else
+                    FactoryRunKit.Delete(kitDir, FactoryRunRoot);
+                ReleaseKitFolder(kitDir);
+            }
+
             _log?.Invoke($"Session {id} removed.");
             return true;
         }
@@ -1957,6 +2203,9 @@ public sealed class SessionManager : IDisposable
                         Lease = pooled.Lease,
                     }
                     : null,
+                // The seat's kit folder (Factory Definition, phase 5): it goes with the seat across a restart.
+                FactoryKitDirectory = s.FactoryKitDirectory,
+                FactoryHome = s.FactoryHome ? true : null,
                 QueuedPrompts = s.PromptQueue.HasItems
                     ? s.PromptQueue.Items.Select(q => new PersistedPromptQueueItem
                     {
@@ -2065,6 +2314,17 @@ public sealed class SessionManager : IDisposable
         // is one this Director cannot give back, and carrying it would make the session look properly
         // restored while close silently did nothing.
         session.PooledWorktree = ToPooledWorktree(ps.PooledWorktree, ps.Id);
+
+        // The seat's kit folder comes back with it (Factory Definition, phase 5), but only one of this Director's own:
+        // the folder is deleted when the session ends, so a path from a damaged snapshot is never trusted with that.
+        if (ps.FactoryKitDirectory is { } kitDir)
+        {
+            if (FactoryRunKit.WhyNotAKitFolder(kitDir, FactoryRunRoot) is { } refusal)
+                FileLog.Write($"[SessionManager] RestoreEmbeddedSession: session={ps.Id} kit folder NOT restored: {refusal}");
+            else
+                session.FactoryKitDirectory = kitDir;
+        }
+        session.FactoryHome = ps.FactoryHome == true;
 
         // Restored sessions already have history, so the brand-new gate (which short-
         // circuits the Wingman's first turn-end briefing on fresh sessions) does not apply.

@@ -212,6 +212,9 @@ internal class FakeSessionControl : IDrainSessionControl
     /// <summary>Every end ASKED FOR, in order: (sessionId, reason), whatever came of it.</summary>
     public List<(string SessionId, string Reason)> Ended { get; } = new();
 
+    /// <summary>The sessions ended with their kit kept for a restore (a seat the capture holds).</summary>
+    public List<string> EndedKeepingKit { get; } = new();
+
     /// <summary>Sessions whose stop verb is sent and refused. The value is the reason the Director's verb
     /// handler gives.</summary>
     public Dictionary<string, string> RefuseInterruptWithReason { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -241,9 +244,10 @@ internal class FakeSessionControl : IDrainSessionControl
 
     /// <summary>Unlike a flag, an end is immediate: the session is absent on the very next presence
     /// check, with no reaper and no grace window in between.</summary>
-    public virtual Task<DrainEnd> EndAsync(string sessionId, string reason)
+    public virtual Task<DrainEnd> EndAsync(string sessionId, string reason, bool keepKitForRestore)
     {
         Ended.Add((sessionId, reason));
+        if (keepKitForRestore) EndedKeepingKit.Add(sessionId);
         Journal?.Add($"end:{sessionId}");
         if (!Live.Contains(sessionId)) return Task.FromResult(DrainEnd.Gone);
         if (RefuseEndWithReason.TryGetValue(sessionId, out var why))

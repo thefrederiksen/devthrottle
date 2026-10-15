@@ -152,6 +152,10 @@ public static class WorkspaceCapture
             FactoryKit = string.IsNullOrWhiteSpace(s.FactoryKit) ? null : s.FactoryKit,
             LaunchModel = string.IsNullOrWhiteSpace(s.LaunchModel) ? null : s.LaunchModel,
 
+            // The seat's kit folder, captured so the restore resumes the seat in it (Factory Definition, phase 5).
+            FactoryKitDirectory = string.IsNullOrWhiteSpace(s.FactoryKitDirectory) ? null : s.FactoryKitDirectory,
+            FactoryHome = s.FactoryHome == true ? true : null,
+
             // A live session does not carry the prompt it was started with, so a captured seat has no
             // opening prompt. Left null rather than filled with something plausible: a restart seeds each
             // seat from its own handover, and a cold start of a captured workspace needs a prompt written

@@ -23,6 +23,11 @@ namespace CcDirector.Core.Sessions;
 /// </summary>
 public static class InheritedSessionEnvironment
 {
+    private static readonly HashSet<string> ParentSessionVariables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CC_SESSION_ID", "CC_DIRECTOR_ID", "CC_GATEWAY_URL", "CC_GATEWAY_SESSION_KEY", "CC_FLEET_TOOLS",
+    };
+
     /// <summary>
     /// True when <paramref name="name"/> is a variable of the Director's own environment that must NOT be
     /// inherited by a session. The session's own stamped variables are applied after this rule, so a name
@@ -48,6 +53,18 @@ public static class InheritedSessionEnvironment
         // The parent session's factory. A session in a factory is stamped its own folder after this rule;
         // a session in no factory must see no folder at all.
         if (name.Equals(FactoryMemoryFiles.DirectoryEnvVar, StringComparison.OrdinalIgnoreCase))
+            return true;
+        // The parent seat's kit, on the same terms: a seat is stamped its own kit folder after this rule, and a
+        // session that is not a seat (or a child) must not read another seat's brief, rules or files as its own.
+        if (name.Equals(FactoryRunKit.DirectoryEnvVar, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // The parent session's identity and its door to the fleet. The SessionManager stamps each of these for the new
+        // session whenever the new session should have it (CC_SESSION_ID always; the Director's id, the Gateway
+        // address and this session's own key, and the fleet text when this Director has them). When it does not, an
+        // inherited one names the PARENT session and carries the parent's key: the new session would act on the fleet
+        // as the session that started its Director.
+        if (ParentSessionVariables.Contains(name))
             return true;
 
         // The license tool's allowance to use the machine's real Claude login. The Director sets it only on its

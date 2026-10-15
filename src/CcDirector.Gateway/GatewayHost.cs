@@ -6017,6 +6017,13 @@ public sealed class GatewayHost : IAsyncDisposable
             sessionFactoryOf: _sessionHistory.FactoryOf,
             nowUtc: () => DateTime.UtcNow);
 
+        // A seat's KIT (Factory Definition mission, phase 5): composed here from a published version and the seat's
+        // records, downloaded by the Director that starts the seat - with its own credential, before the agent starts.
+        Api.FactoryKitEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            stores: new Api.FactoryKitEndpoints.Stores(FactoryDefinitions, _factoryJournal, _factoryDocuments, _factoryAttachments),
+            nowUtc: () => DateTime.UtcNow);
+
         CronRunEndpoints.Map(_app, _cronEngine, cronRunRecords,
             // Factory Memory mission: running a factory's schedule on demand is limited to a person or a session
             // of that factory, so this route needs the schedule's factory and the caller's.

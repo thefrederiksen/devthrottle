@@ -45,6 +45,20 @@ public sealed class SessionDto
     public PooledWorktreeRef? PooledWorktree { get; set; }
 
     /// <summary>
+    /// The folder this seat's kit is in (Factory Definition mission, phase 5), or null for a session that is not a seat
+    /// of a defined factory or a child of one. It rides the roster so a workspace CAPTURE keeps it, and the restore hands
+    /// it back (<see cref="NewSessionRequest.FactoryKitDirectory"/>): a restored seat resumes in the folder it ran in.
+    /// </summary>
+    public string? FactoryKitDirectory { get; set; }
+
+    /// <summary>
+    /// True for a seat with no repository, which works in its kit's work/ folder (Factory Definition mission, phase 5),
+    /// or null. A birth fact: it rides the roster so a capture keeps it and the restore hands it back
+    /// (<see cref="NewSessionRequest.FactoryHome"/>).
+    /// </summary>
+    public bool? FactoryHome { get; set; }
+
+    /// <summary>
     /// THE REPOSITORY <see cref="RepoPath"/> IS A LINKED WORKTREE OF, resolved by the owning Director on
     /// the machine that holds the disk - or null, which is every session started in a repository proper,
     /// every session whose worktree could not be resolved to a repository that exists, and every session

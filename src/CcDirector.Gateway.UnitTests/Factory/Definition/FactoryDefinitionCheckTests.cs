@@ -26,6 +26,7 @@ public sealed class FactoryDefinitionCheckTests
         var notices = result.Findings.Select(f => $"{f.File}:{f.Line}: {f.Message}").ToList();
         Assert.Equal(new[]
         {
+            "rules/base.json:3: allow rules are not applied when the seat starts: a definition only adds limits.",
             "seats/outreach.yaml:5: No Director on SOREN_SOUTH is connected now, so it could not be confirmed.",
             "seats/outreach.yaml:8: Whether SOREN_SOUTH has the repository 'devthrottle' registered is not checked yet.",
             "seats/outreach.yaml:14: Whether SOREN_SOUTH holds 'outreach-imap-password' is not checked yet.",
@@ -34,6 +35,21 @@ public sealed class FactoryDefinitionCheckTests
         }, notices);
         Assert.All(result.Findings, f => Assert.Equal(DefinitionSeverity.Notice, f.Severity));
         Assert.NotNull(result.Definition);
+    }
+
+    [Fact]
+    public void Check_EveryAllowListOfARuleSet_GetsTheNoticeThatItIsNotApplied()
+    {
+        // An allow list, even an empty one, gets the notice on its own line; a rule set with none gets nothing.
+        var content = Valid();
+        content["rules/outreach.json"] = "{\n  \"permissions\": {\n    \"deny\": [\"Bash(rm:*)\"],\n    \"allow\": []\n  }\n}\n";
+        content["rules/quiet.json"] = "{\n  \"permissions\": {\n    \"deny\": [\"Bash(curl:*)\"]\n  }\n}\n";
+
+        var allow = Check(content).Findings.Where(f => f.Message == FactoryDefinitionCheck.AllowNotApplied)
+            .Select(f => $"{f.File}:{f.Line}:{f.Severity}").ToList();
+
+        Assert.Equal(new[] { "rules/base.json:3:notice", "rules/outreach.json:4:notice" }, allow);
+        Assert.Equal("allow rules are not applied when the seat starts: a definition only adds limits.", FactoryDefinitionCheck.AllowNotApplied);
     }
 
     [Fact]

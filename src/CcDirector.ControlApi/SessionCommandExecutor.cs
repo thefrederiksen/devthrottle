@@ -1355,14 +1355,102 @@ internal static class SessionCommandExecutor
     /// <summary>
     /// Stamp the seat-start birth facts a create carries onto the new session, before launch (Factory Definition
     /// mission, phase 5): the seat, its definition version and its kit kind, a talk's override, and the model asked
-    /// for. The Gateway settled them at the spawn door; the Director stamps what it is sent and does nothing else with
-    /// them yet - the kit is built in a later step. Its own method so a test can watch the create's own stamping.
+    /// for. The Gateway settled them at the spawn door; the Director stamps what it is sent. The kit they name is put in
+    /// place by <see cref="SettleSeatStart"/> and the SessionManager, and the model goes on the launch line through
+    /// <see cref="LaunchLineWithModel"/>. Its own method so a test can watch the create's own stamping.
     /// </summary>
     internal static void StampSeatStartFacts(Session session, NewSessionRequest req)
     {
         session.StampFactorySeat(req.FactorySeat, req.FactoryDefinitionVersion, req.FactoryKit);
         session.StampFactoryStartOverride(req.FactoryStartOverride);
         session.StampLaunchModel(req.Model);
+    }
+
+    /// <summary>
+    /// THE SEAT'S START, SETTLED BEFORE THE CREATE (Factory Definition mission, phase 5, design sections 2 and 4): which
+    /// kit the Director downloads and writes before the agent starts, and where the seat works. Returns the refusal, in
+    /// one sentence, or null. A create that names no part of a seat settles nothing and is exactly what it was.
+    ///
+    /// A seat with no repository (<see cref="NewSessionRequest.FactoryHome"/>) works in its kit's work/ folder, and any
+    /// repository path sent with it is ignored. A seat in a repository names it by NAME
+    /// (<see cref="NewSessionRequest.FactoryWorktree"/>), resolved through this machine's own registered repositories,
+    /// and takes a fresh pooled slot of it whatever the pooled-worktree setting says. A restore hands back the kit
+    /// folder the seat ran in (<see cref="NewSessionRequest.FactoryKitDirectory"/>), which is only ever taken with its
+    /// seat; the SessionManager then checks the folder is one of its own.
+    /// </summary>
+    internal static string? SettleSeatStart(NewSessionRequest req, IReadOnlyList<RepositoryConfig>? registered,
+        string machine, out FactoryKitRequest? factoryKit, out bool forcePooledWorktree)
+    {
+        factoryKit = null;
+        forcePooledWorktree = false;
+        var seat = string.IsNullOrWhiteSpace(req.FactorySeat) ? null : req.FactorySeat.Trim();
+        var kitDirectory = string.IsNullOrWhiteSpace(req.FactoryKitDirectory) ? null : req.FactoryKitDirectory.Trim();
+        var worktree = string.IsNullOrWhiteSpace(req.FactoryWorktree) ? null : req.FactoryWorktree.Trim();
+        var home = req.FactoryHome == true;
+        var namesASeat = seat is not null || kitDirectory is not null || worktree is not null || home
+                         || !string.IsNullOrWhiteSpace(req.FactoryKit) || req.FactoryDefinitionVersion is not null;
+        if (!namesASeat)
+            return null;
+
+        if (kitDirectory is not null && seat is null)
+            return "The create hands back a kit folder but names no seat it belongs to, so no session was started; " +
+                   "a kit folder is only ever taken with its seat.";
+        if (seat is null || string.IsNullOrWhiteSpace(req.Factory) || req.FactoryDefinitionVersion is not int version
+            || string.IsNullOrWhiteSpace(req.FactoryKit))
+            return "The create names part of a seat but not all of its factory, seat, published version and kit, so no " +
+                   "session was started.";
+        if (!FactoryKits.IsKnown(req.FactoryKit))
+            return $"The kit '{req.FactoryKit}' is not one this Director builds ({FactoryKits.Seat} or " +
+                   $"{FactoryKits.RulesOnly}), so no session was started.";
+        if (version < 1)
+            return $"Version {version} is not a published version of the definition of {req.Factory}, so no session was started.";
+        if (home && worktree is not null)
+            return $"The seat {seat} is given both a repository ('{worktree}') and no repository, so no session was started.";
+
+        if (worktree is not null)
+        {
+            if (registered is null)
+                return $"The seat {seat} works in the repository '{worktree}', and this Director has no list of " +
+                       "registered repositories to find it in, so no session was started.";
+            var resolved = FactoryWorktreeRepository.Resolve(registered, seat, worktree, machine);
+            if (!resolved.Ok)
+                return resolved.Refusal;
+            FileLog.Write($"[SessionCommandExecutor] create: seat {seat} works in '{worktree}' at {resolved.Path} " +
+                          $"(ignored repoPath=\"{req.RepoPath}\"); it takes a pooled slot whatever the setting says");
+            req.RepoPath = resolved.Path ?? throw new InvalidOperationException("a resolved repository has no folder");
+            forcePooledWorktree = true;
+        }
+        else if (home)
+        {
+            FileLog.Write($"[SessionCommandExecutor] create: seat {seat} has no repository; it works in its kit's " +
+                          $"work folder (ignored repoPath=\"{req.RepoPath}\")");
+        }
+
+        factoryKit = new FactoryKitRequest(req.Factory.Trim(), version, seat, req.FactoryKit, home, kitDirectory);
+        FileLog.Write($"[SessionCommandExecutor] create: seat start settled: factory={factoryKit.Factory}, seat={seat}, " +
+                      $"version={version}, kit={factoryKit.Kind}, home={home}, returning={kitDirectory ?? "(none)"}");
+        return null;
+    }
+
+    /// <summary>
+    /// THE MODEL ON THE LAUNCH LINE (Factory Definition mission, phase 5): the line the agent starts with, with the
+    /// create's <see cref="NewSessionRequest.Model"/> on it. A line the person gave (<see cref="NewSessionRequest.Args"/>)
+    /// that already names a model wins untouched, and the log says the model asked for was not applied. With no model
+    /// the line is returned as it is. A restore carries the model back on its create, so this covers restores too.
+    /// </summary>
+    internal static AgentLaunchModelResult LaunchLineWithModel(AgentKind kind, string? effectiveArgs, bool argsAreExplicit,
+        string? model, AgentOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+            return new AgentLaunchModelResult(effectiveArgs, null, false);
+        // With no line at all, Claude Code starts on the configured fallback line; the model goes onto that one, so
+        // asking for a model never drops it.
+        var line = effectiveArgs ?? (kind == AgentKind.ClaudeCode ? options.DefaultClaudeArgs : null);
+        var composed = AgentLaunchModel.Compose(kind, line, argsAreExplicit, model);
+        if (composed.ArgsNamedAModel)
+            FileLog.Write($"[SessionCommandExecutor] create: the model '{model.Trim()}' was not applied because the " +
+                          "arguments the person gave name a model of their own");
+        return composed;
     }
 
     internal static DirectorCommandResult Create(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
@@ -1384,10 +1472,27 @@ internal static class SessionCommandExecutor
             req.RepoPath = home;
         }
 
-        if (req is null || string.IsNullOrWhiteSpace(req.RepoPath))
+        // THE SEAT'S START (Factory Definition mission, phase 5), settled BEFORE the repository path is required, for
+        // the Fleet Manager's reason: a seat with no repository carries none, and a seat in a repository names it by
+        // name, which this machine turns into its folder here.
+        FactoryKitRequest? factoryKit = null;
+        var forcePooledWorktree = false;
+        if (req is not null)
+        {
+            var seatRefusal = SettleSeatStart(req, services?.Repositories?.Repositories, Environment.MachineName,
+                out factoryKit, out forcePooledWorktree);
+            if (seatRefusal is not null)
+            {
+                FileLog.Write($"[SessionCommandExecutor] create REFUSED: {seatRefusal}");
+                return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, seatRefusal);
+            }
+        }
+        var factoryHome = factoryKit?.Home == true;
+
+        if (req is null || (!factoryHome && string.IsNullOrWhiteSpace(req.RepoPath)))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "repoPath is required");
 
-        if (!Directory.Exists(req.RepoPath))
+        if (!factoryHome && !Directory.Exists(req.RepoPath))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"repoPath does not exist: {req.RepoPath}");
 
         if (!Enum.TryParse<AgentKind>(req.Agent, ignoreCase: true, out var kind))
@@ -1512,9 +1617,20 @@ internal static class SessionCommandExecutor
             FileLog.Write($"[SessionCommandExecutor] create: no args supplied; applied default agent settings for {kind} (bypassPermissions={bypassPermissions}): \"{effectiveArgs ?? "(empty)"}\"");
         }
 
+        // The model asked for (Factory Definition mission, phase 5) goes on the launch line; a refusal (an agent with
+        // no model flag, a model that cannot sit on a command line) starts nothing.
+        var withModel = LaunchLineWithModel(kind, effectiveArgs, argsAreExplicit: req.Args is not null, req.Model, sessionManager.Options);
+        if (!withModel.Ok)
+        {
+            FileLog.Write($"[SessionCommandExecutor] create REFUSED: {withModel.Refusal}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, withModel.Refusal!);
+        }
+        effectiveArgs = withModel.Arguments;
+
         // Issue #800: enforce a meaningful name at birth. An EXPLICIT name that is blank or equal to the
         // bare repository folder name is rejected; an ABSENT name is auto-composed by the name factory.
-        var repoFolderName = SessionName.FolderName(req.RepoPath);
+        // A seat with no repository has no folder to be named after; it is named after its seat.
+        var repoFolderName = factoryHome ? factoryKit!.Seat : SessionName.FolderName(req.RepoPath);
         if (req.Name is not null && SessionName.IsWeakExplicitName(req.Name, repoFolderName))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest,
                 $"Provide a meaningful session name or a purpose: a blank name or the bare repository folder name (\"{repoFolderName}\") is not allowed.");
@@ -1569,7 +1685,8 @@ internal static class SessionCommandExecutor
         try
         {
             session = sessionManager.CreateSession(
-                req.RepoPath,
+                // A seat with no repository ignores this: the SessionManager works it in its kit's work folder.
+                req.RepoPath ?? "",
                 agent,
                 effectiveArgs,
                 SessionBackendType.ConPty,
@@ -1610,7 +1727,9 @@ internal static class SessionCommandExecutor
                     // Definition mission, phase 5), in the same window and on the same terms.
                     StampSeatStartFacts(s, req);
                 },
-                reattachPooledWorktree: reattachPooledWorktree);
+                reattachPooledWorktree: reattachPooledWorktree,
+                factoryKit: factoryKit,
+                forcePooledWorktree: forcePooledWorktree);
         }
         catch (Exception ex)
         {

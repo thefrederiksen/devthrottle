@@ -761,6 +761,12 @@ public sealed class DirectorRestore
             FactoryKit = seat.FactoryKit,
             // And the model it was started on, so the restored seat relaunches on it rather than on the default.
             Model = seat.LaunchModel,
+            // THE SEAT'S KIT FOLDER, HANDED BACK (Factory Definition, phase 5): the restored seat resumes in the folder
+            // it ran in, and the Director refreshes the kit there and keeps its work/.
+            FactoryKitDirectory = string.IsNullOrWhiteSpace(seat.FactoryKitDirectory) ? null : seat.FactoryKitDirectory,
+            // And whether it has a repository at all: a seat with none works in its kit's work/ folder, and its
+            // captured RepoPath (that folder) is not a repository the create may require.
+            FactoryHome = seat.FactoryHome == true ? true : null,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) req.MissionId = missionId;
         if (Guid.TryParse(seat.WorkflowRunId, out var runId)) req.WorkflowRunId = runId;

@@ -602,14 +602,14 @@ public sealed class SmartShutdownCancelIgnoreRestartTests
     {
         private bool _started;
 
-        public override Task<DrainEnd> EndAsync(string sessionId, string reason)
+        public override Task<DrainEnd> EndAsync(string sessionId, string reason, bool keepKitForRestore)
         {
             if (!_started)
             {
                 _started = true;
                 Live.Add("late");
             }
-            return base.EndAsync(sessionId, reason);
+            return base.EndAsync(sessionId, reason, keepKitForRestore);
         }
     }
 

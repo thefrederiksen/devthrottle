@@ -166,6 +166,16 @@ public class PersistedSession
     /// Null for sessions persisted before this field existed, which is the truth about them.
     /// </summary>
     public PersistedPooledWorktree? PooledWorktree { get; set; }
+
+    /// <summary>
+    /// The folder this seat's kit is in (Factory Definition mission, phase 5), or null for a session that is not a seat
+    /// of a defined factory or a child of one. Persisted so a Director restart keeps the folder with the seat - it is
+    /// deleted when the session ends, and nothing else could name it again.
+    /// </summary>
+    public string? FactoryKitDirectory { get; set; }
+
+    /// <summary>True for a seat with no repository (Factory Definition mission, phase 5), or null.</summary>
+    public bool? FactoryHome { get; set; }
 }
 
 /// <summary>

@@ -377,6 +377,33 @@ public sealed class DirectorCrashJournal
     }
 
     /// <summary>
+    /// Every session id named by any journal in the folder - a running Director's own and every dirty one, of any age
+    /// (Factory Definition mission, phase 5). Read for the start-up sweep of kit folders, which may delete a folder only
+    /// when nothing names it, so this THROWS when a journal cannot be read rather than leaving its sessions out.
+    /// </summary>
+    public static IReadOnlyList<string> SessionIdsInEveryJournal(string? directory = null)
+    {
+        var dir = directory ?? DefaultDirectory;
+        var ids = new List<string>();
+        if (!Directory.Exists(dir)) return ids;
+        foreach (var path in Directory.EnumerateFiles(dir, "*.json"))
+        {
+            DirectorCrashJournalData? data;
+            try
+            {
+                data = JsonSerializer.Deserialize<DirectorCrashJournalData>(File.ReadAllText(path), JsonOptions);
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException($"the crash journal {path} could not be read: {ex.Message}", ex);
+            }
+            if (data is not null) ids.AddRange(data.Sessions.Select(s => s.SessionId));
+        }
+        FileLog.Write($"[DirectorCrashJournal] SessionIdsInEveryJournal: dir={dir}, sessions={ids.Count}");
+        return ids;
+    }
+
+    /// <summary>
     /// All claimed-but-not-yet-recovered dirty journals, newest session-activity first. The
     /// read API for the recovery surface (Cockpit Interrupted sessions list / restore skill).
     /// </summary>

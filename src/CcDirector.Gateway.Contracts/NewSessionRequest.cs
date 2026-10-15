@@ -26,6 +26,18 @@ public sealed class NewSessionRequest
     public PooledWorktreeRef? PooledWorktree { get; set; }
 
     /// <summary>
+    /// THE KIT FOLDER A RESTORED SEAT ALREADY HAS (Factory Definition mission, phase 5, design section 4), or null on
+    /// every create that is not the restore of a seat of a defined factory. A restored seat must resume in the folder it
+    /// ran in - its agent finds its conversation by that folder - so the Director refreshes this folder's kit in place
+    /// from the same version and keeps its <c>work/</c>, instead of writing a new one.
+    ///
+    /// Like <see cref="PooledWorktree"/>, only a Director restoring a workspace sends it, handing back what the capture
+    /// recorded. The Director accepts it only on a create that is a seat start or a child, and only when it is a folder
+    /// directly under its own kit root; anything else is refused in words.
+    /// </summary>
+    public string? FactoryKitDirectory { get; set; }
+
+    /// <summary>
     /// Optional explicit display name for the new session (issue #800). When provided it is used
     /// verbatim, EXCEPT that a blank name or one equal (case-insensitive) to the bare repository
     /// folder name is rejected with HTTP 400 - pass a meaningful name or a <see cref="Purpose"/>.

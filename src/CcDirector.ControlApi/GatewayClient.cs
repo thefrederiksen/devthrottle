@@ -271,6 +271,73 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGateway
     }
 
     /// <summary>
+    /// DOWNLOAD A SEAT'S KIT for a seat of a defined factory this Director is about to start
+    /// (GET /factory-definitions/{factory}/versions/{version}/kit?seat=&amp;kind=; Factory Definition mission, phase 5).
+    ///
+    /// The credential is this Director's own Gateway token, as for <see cref="DownloadFactoryMemoryAsync"/>: the
+    /// session's own key does not exist yet. And it THROWS on every failure, for the same reason - a seat never starts
+    /// without its kit, so "could not download" reaches the person as the reason the session did not open.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No Gateway is configured, it could not be reached, it refused, or
+    /// its answer could not be read or is not the kit asked for. The message says which, in words.</exception>
+    public async Task<FactoryKitResponse> DownloadFactoryKitAsync(
+        string factory, int version, string seat, string kind, Guid sessionId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(seat);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("no Gateway is configured on this Director");
+
+        var route = $"factory-definitions/{Uri.EscapeDataString(factory)}/versions/{version}/kit" +
+                    $"?seat={Uri.EscapeDataString(seat)}&kind={Uri.EscapeDataString(kind)}";
+        FileLog.Write($"[GatewayClient] DownloadFactoryKitAsync: session={sessionId}, GET /{route}");
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await _http.GetAsync(route, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            FileLog.Write($"[GatewayClient] DownloadFactoryKitAsync FAILED (unreachable): session={sessionId}: {ex.Message}");
+            throw new InvalidOperationException($"the Gateway could not be reached: {ex.Message}", ex);
+        }
+
+        using (resp)
+        {
+            if (!resp.IsSuccessStatusCode)
+            {
+                var said = await ReadGatewayErrorAsync(resp, ct);
+                FileLog.Write($"[GatewayClient] DownloadFactoryKitAsync REFUSED: session={sessionId}, HTTP {(int)resp.StatusCode}: {said}");
+                throw new InvalidOperationException($"the Gateway refused the kit (HTTP {(int)resp.StatusCode}): {said}");
+            }
+
+            FactoryKitResponse? kit;
+            try
+            {
+                kit = await resp.Content.ReadFromJsonAsync<FactoryKitResponse>(ct);
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[GatewayClient] DownloadFactoryKitAsync FAILED (unreadable): session={sessionId}: {ex.Message}");
+                throw new InvalidOperationException($"the Gateway's answer could not be read: {ex.Message}", ex);
+            }
+            if (kit is null || kit.Files.Count == 0)
+                throw new InvalidOperationException("the Gateway's answer carried no kit files");
+            if (!string.Equals(kit.Factory, factory, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(kit.Seat, seat, StringComparison.Ordinal)
+                || kit.Version != version
+                || !string.Equals(kit.Kind, kind, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"the Gateway answered with the {kit.Kind} kit of seat '{kit.Seat}' of '{kit.Factory}' version {kit.Version} " +
+                    $"when the {kind} kit of seat '{seat}' of '{factory}' version {version} was asked for");
+
+            FileLog.Write($"[GatewayClient] DownloadFactoryKitAsync: session={sessionId}, factory={factory}, seat={seat}, version={version}, kind={kind}, files={kit.Files.Count}");
+            return kit;
+        }
+    }
+
+    /// <summary>
     /// The Gateway's own words from a failed answer - its <c>error</c> key when it sent one, otherwise the
     /// status line, which is the only fact available. Never throws: this runs while reporting a failure.
     /// </summary>
