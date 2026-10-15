@@ -351,7 +351,10 @@ public sealed class SessionHistoryRecorder
             // known" until the row catches up. Waiting five minutes for the freshness heartbeat to fill it in is
             // exactly the wrong cost to pay. Write-once on the column keeps this safe: it can fill a blank and
             // never overwrite a recorded value.
-            s.Factory);
+            s.Factory,
+            // The seat beside it (Factory Definition mission, phase 5), for the same reason: a child's seat is read
+            // from the row, so a row still missing it would hand a seat's child nothing until the heartbeat.
+            s.FactorySeat, s.FactoryDefinitionVersion?.ToString(), s.FactoryKit, s.FactoryStartOverride);
 
     private static string Key(TenantId tenant, string id) => $"{tenant.Value}|{id}";
 }

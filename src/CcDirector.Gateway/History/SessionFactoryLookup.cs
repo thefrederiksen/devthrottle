@@ -9,10 +9,12 @@ namespace CcDirector.Gateway.History;
 /// </summary>
 public readonly record struct SessionFactoryLookup
 {
-    private SessionFactoryLookup(bool known, string? factory)
+    private SessionFactoryLookup(bool known, string? factory, string? seat = null, int? definitionVersion = null)
     {
         IsKnown = known;
         Factory = factory;
+        Seat = seat;
+        DefinitionVersion = definitionVersion;
     }
 
     /// <summary>False when the Gateway holds no history row for the session yet - it is younger than its
@@ -21,6 +23,16 @@ public readonly record struct SessionFactoryLookup
 
     /// <summary>The factory id when the session is in one; null when the row says it is in none.</summary>
     public string? Factory { get; }
+
+    /// <summary>The seat of a defined factory the session was started as, or inherited (Factory Definition mission,
+    /// phase 5); null when it is no seat. Read from the same row as <see cref="Factory"/>.</summary>
+    public string? Seat { get; }
+
+    /// <summary>The published definition version the session's kit was built from; null when it is no seat.</summary>
+    public int? DefinitionVersion { get; }
+
+    /// <summary>True when the session is in a factory AND carries a seat and its version: what a child inherits.</summary>
+    public bool HasASeat => IsInAFactory && !string.IsNullOrWhiteSpace(Seat) && DefinitionVersion is not null;
 
     /// <summary>True when the session is known AND in a factory.</summary>
     public bool IsInAFactory => IsKnown && !string.IsNullOrWhiteSpace(Factory);
@@ -31,6 +43,8 @@ public readonly record struct SessionFactoryLookup
     /// <summary>A row exists and says the session belongs to no factory. A settled answer.</summary>
     public static readonly SessionFactoryLookup InNoFactory = new(true, null);
 
-    /// <summary>A row exists and names the factory.</summary>
-    public static SessionFactoryLookup In(string factory) => new(true, factory);
+    /// <summary>A row exists and names the factory - and, for a seat of a defined factory, the seat and the definition
+    /// version it was started from.</summary>
+    public static SessionFactoryLookup In(string factory, string? seat = null, int? definitionVersion = null)
+        => new(true, factory, string.IsNullOrWhiteSpace(seat) ? null : seat, definitionVersion);
 }

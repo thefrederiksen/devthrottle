@@ -3066,6 +3066,18 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("Factory")
                         .HasColumnType("text");
 
+                    b.Property<int?>("FactoryDefinitionVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FactoryKit")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FactorySeat")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FactoryStartOverride")
+                        .HasColumnType("text");
+
                     b.Property<string>("FirstPromptLine")
                         .HasColumnType("text");
 

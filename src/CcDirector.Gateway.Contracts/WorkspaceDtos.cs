@@ -342,6 +342,26 @@ public sealed class WorkspaceSeat
     /// </summary>
     public string? Factory { get; set; }
 
+    /// <summary>
+    /// The seat of a defined factory this seat was started as, its definition version and its kit kind (Factory
+    /// Definition mission, phase 5), or null. Carried so a restore and a Smart Restart reopen hand them back, exactly
+    /// as <see cref="Factory"/> is - and, like it, AN OBSERVATION, NOT A SETTING: the Gateway restores them from its
+    /// stored copy on every write, because a writer who could set them could aim a restore at a seat of its choosing.
+    /// </summary>
+    public string? FactorySeat { get; set; }
+
+    /// <summary>See <see cref="FactorySeat"/>.</summary>
+    public int? FactoryDefinitionVersion { get; set; }
+
+    /// <summary>See <see cref="FactorySeat"/>.</summary>
+    public string? FactoryKit { get; set; }
+
+    /// <summary>The model the seat's create ASKED for, or null (Factory Definition mission, phase 5). Not
+    /// <see cref="Model"/>, which is what the agent last reported. Handed back as the restore's
+    /// <c>NewSessionRequest.Model</c>, so a restored seat relaunches on its own model. An observation, restored from
+    /// the stored copy on every write like the seat beside it.</summary>
+    public string? LaunchModel { get; set; }
+
     /// <summary>The prompt this seat is started with when the workspace is started COLD. Null when the
     /// seat is started SEEDED instead, where the seed points at <see cref="HandoverPath"/>.
     ///

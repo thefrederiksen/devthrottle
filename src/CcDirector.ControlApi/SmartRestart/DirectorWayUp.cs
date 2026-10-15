@@ -1033,6 +1033,13 @@ public sealed class DirectorWayUp : IDirectorWayUp
             // most here: a reopen RESUMES the same conversation, so the agent comes back believing it is the
             // same session mid-task - and would find its own factory's memory closed to it.
             Factory = seat.Factory,
+            // The seat of a defined factory it was started as, handed back with its factory (Factory Definition
+            // mission, phase 5): a restored seat is still that seat, held by the same rules.
+            FactorySeat = seat.FactorySeat,
+            FactoryDefinitionVersion = seat.FactoryDefinitionVersion,
+            FactoryKit = seat.FactoryKit,
+            // And the model it was started on, so the restored seat relaunches on it rather than on the default.
+            Model = seat.LaunchModel,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) request.MissionId = missionId;
         return request;

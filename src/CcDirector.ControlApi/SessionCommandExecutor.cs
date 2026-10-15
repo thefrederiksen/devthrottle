@@ -1352,6 +1352,19 @@ internal static class SessionCommandExecutor
     /// session mapped through the plain <see cref="ControlEndpoints.Map"/> (the Director's own REST
     /// endpoint re-maps with its identity-stamped mapper for its local 201 response).
     /// </summary>
+    /// <summary>
+    /// Stamp the seat-start birth facts a create carries onto the new session, before launch (Factory Definition
+    /// mission, phase 5): the seat, its definition version and its kit kind, a talk's override, and the model asked
+    /// for. The Gateway settled them at the spawn door; the Director stamps what it is sent and does nothing else with
+    /// them yet - the kit is built in a later step. Its own method so a test can watch the create's own stamping.
+    /// </summary>
+    internal static void StampSeatStartFacts(Session session, NewSessionRequest req)
+    {
+        session.StampFactorySeat(req.FactorySeat, req.FactoryDefinitionVersion, req.FactoryKit);
+        session.StampFactoryStartOverride(req.FactoryStartOverride);
+        session.StampLaunchModel(req.Model);
+    }
+
     internal static DirectorCommandResult Create(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
     {
         var req = Deserialize<NewSessionRequest>(command.PayloadJson);
@@ -1593,6 +1606,9 @@ internal static class SessionCommandExecutor
                     // its memory. The value is whatever the Gateway settled at the spawn door; the Director does
                     // not decide it and does not check it.
                     s.StampFactory(req.Factory);
+                    // The seat, its version and its kit kind, a talk's override and the requested model (Factory
+                    // Definition mission, phase 5), in the same window and on the same terms.
+                    StampSeatStartFacts(s, req);
                 },
                 reattachPooledWorktree: reattachPooledWorktree);
         }

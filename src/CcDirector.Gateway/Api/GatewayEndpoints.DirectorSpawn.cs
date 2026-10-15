@@ -18,7 +18,12 @@ internal sealed record DirectorSpawnDoor(
     DirectorCommandRouter.SendDirectorCommandAsync? SendCommand,
     Core.Sessions.MissionStore? Missions,
     Workflows.WorkflowRunStore? WorkflowRuns,
-    Workspaces.WorkspaceStore? Workspaces);
+    Workspaces.WorkspaceStore? Workspaces,
+    // Factory Definition mission, phase 5: which Directors build a seat's kit, and whether a seat carries rules in a
+    // definition version, for the account the request is bound to. A door without the first refuses every seat start;
+    // a door without the second refuses a seat's child on an agent that cannot take rules. Neither ever lets one by.
+    Streaming.FactoryKitCapabilityRegistry? KitCapabilities = null,
+    Func<Core.Tenancy.TenantId, Factory.Definition.SeatRulesReader>? SeatRulesFor = null);
 
 /// <summary>The answer of one create: the session the Director started, or the refusal to hand the caller.</summary>
 internal sealed record DirectorSpawnOutcome(SessionDto? Session, IResult? Refusal)
@@ -72,13 +77,20 @@ internal static partial class GatewayEndpoints
         // WHICH FACTORY the new session belongs to (Factory Memory mission, phase 1), settled from the same
         // credential, in the same one place, for the same reason: this door is the one an unqualified
         // `cc-devthrottle session spawn` uses, so it is the door a session would join a factory through.
-        if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, door.SessionFactoryOf, out var factoryError))
+        if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, door.SessionFactoryOf, out var factoryError,
+                door.SeatRulesFor?.Invoke(spawnTenant.Value)))
             return DirectorSpawnOutcome.Refused(factoryError!);
 
         // AND THE DIRECTOR MUST BE ABLE TO CARRY IT. A Director older than the factory field drops it silently, so the
         // session would start in no factory and never know - refused here, loudly, before anything is started.
         if (SpawnFactory.DirectorCannotCarry(req, d) is { } tooOld)
             return DirectorSpawnOutcome.Refused(Results.Json(new { error = tooOld }, statusCode: StatusCodes.Status409Conflict));
+
+        // AND A SEAT START GOES ONLY TO A DIRECTOR THAT BUILDS THE KIT (Factory Definition mission, phase 5). This is the
+        // door the talk takes, so it is where a talk with a seat is refused on an older Director - before anything starts.
+        if (SpawnFactory.DirectorCannotBuildKit(req, d,
+                door.KitCapabilities?.BuildsFactoryKit(spawnTenant.Value, d.DirectorId) ?? false) is { } noKit)
+            return DirectorSpawnOutcome.Refused(Results.Json(new { error = noKit }, statusCode: StatusCodes.Status409Conflict));
 
         // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
         // stored on the workspace seat before sending it. Only a Director restores, so only a Director's

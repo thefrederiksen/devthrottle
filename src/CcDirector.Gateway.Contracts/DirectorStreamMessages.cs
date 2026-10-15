@@ -53,6 +53,15 @@ public sealed class DirectorStreamHello
     public bool CreatesFleetManagerHome { get; set; }
 
     /// <summary>
+    /// This Director builds a seat's kit (Factory Definition mission, phase 5): it honours the seat-start fields of
+    /// <see cref="NewSessionRequest"/> (<see cref="NewSessionRequest.CarriesSeatStartFields"/>). False from an older
+    /// build, which would drop them and start the seat as an ordinary session with none of its limits - so the
+    /// Gateway refuses such a create itself, with a sentence that says the Director on that computer must be
+    /// updated. A Director built from main says true only once the whole kit has merged.
+    /// </summary>
+    public bool BuildsFactoryKit { get; set; }
+
+    /// <summary>
     /// This Director understands the <c>set-controller</c> verb (<see cref="SetControllerRequest"/>): it changes
     /// which session owns an existing session (the Fleet Manager mission, step 8). False from an older build,
     /// which answers the verb as unknown - so the Gateway refuses a hand-over itself, with a sentence that says

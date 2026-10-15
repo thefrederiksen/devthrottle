@@ -356,6 +356,85 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] {Id} factory stamped: {Factory ?? "(none)"}");
     }
 
+    /// <summary>
+    /// THE SEAT of a defined factory this session was started as, or whose kit it inherited (Factory Definition
+    /// mission, phase 5), or null. A birth fact like <see cref="Factory"/> and on its terms: settled by the Gateway
+    /// from the credential, stamped here before launch, persisted, handed back by every restore, and never changed.
+    /// </summary>
+    public string? FactorySeat { get; internal set; }
+
+    /// <summary>The published definition version the session's kit was built from, or null. Stamped with
+    /// <see cref="FactorySeat"/>.</summary>
+    public int? FactoryDefinitionVersion { get; internal set; }
+
+    /// <summary>Which kit the session was given (<c>"seat"</c> or <c>"rules-only"</c>), or null. Stamped with
+    /// <see cref="FactorySeat"/>.</summary>
+    public string? FactoryKit { get; internal set; }
+
+    /// <summary>A person's override of a talk with a seat, in words, or null (Factory Definition mission, phase 5).
+    /// Stamped once at birth.</summary>
+    public string? FactoryStartOverride { get; internal set; }
+
+    /// <summary>
+    /// Stamp the seat, its definition version and its kit kind once, before launch - as ONE fact, because a seat
+    /// without its version names no kit. The rules of <see cref="StampFactory"/>: the first stamp wins, a second
+    /// naming a DIFFERENT seat, version or kit is refused and logged rather than applied, the same values said again
+    /// (a restore replaying them) are accepted, and a stamp of nothing never clears what is there.
+    /// </summary>
+    public void StampFactorySeat(string? seat, int? definitionVersion, string? kit)
+    {
+        var settledSeat = string.IsNullOrWhiteSpace(seat) ? null : seat.Trim();
+        var settledKit = string.IsNullOrWhiteSpace(kit) ? null : kit.Trim();
+        var stamped = FactorySeat is not null || FactoryDefinitionVersion is not null || FactoryKit is not null;
+        if (settledSeat is null && definitionVersion is null && settledKit is null)
+        {
+            if (stamped)
+                FileLog.Write($"[Session] {Id} kept seat '{FactorySeat}' v{FactoryDefinitionVersion} ({FactoryKit}): a stamp of nothing does not clear a birth fact");
+            return;
+        }
+        if (stamped)
+        {
+            var same = string.Equals(FactorySeat, settledSeat, StringComparison.Ordinal)
+                       && FactoryDefinitionVersion == definitionVersion
+                       && string.Equals(FactoryKit, settledKit, StringComparison.Ordinal);
+            FileLog.Write(same
+                ? $"[Session] {Id} seat re-stamped unchanged: {FactorySeat} v{FactoryDefinitionVersion} ({FactoryKit})"
+                : $"[Session] {Id} REFUSED a second seat stamp: it is '{FactorySeat}' v{FactoryDefinitionVersion} ({FactoryKit}) and '{settledSeat}' v{definitionVersion} ({settledKit}) was offered");
+            return;
+        }
+        FactorySeat = settledSeat;
+        FactoryDefinitionVersion = definitionVersion;
+        FactoryKit = settledKit;
+        FileLog.Write($"[Session] {Id} seat stamped: {FactorySeat ?? "(none)"} v{FactoryDefinitionVersion} ({FactoryKit ?? "no kit"})");
+    }
+
+    /// <summary>
+    /// The model the create ASKED the agent to run (<c>NewSessionRequest.Model</c>; Factory Definition mission, phase
+    /// 5), or null for the agent's configured default. Not <see cref="CurrentModel"/>, which is what the agent last
+    /// REPORTED. A birth fact on the seat's terms: persisted and handed back by every restore, because a restore builds
+    /// a new create, and a seat restored without it would come back on the default model rather than its own.
+    /// </summary>
+    public string? LaunchModel { get; internal set; }
+
+    /// <summary>Stamp the requested model once, before launch. Write-once: a later stamp never replaces or clears it.</summary>
+    public void StampLaunchModel(string? model)
+    {
+        var settled = string.IsNullOrWhiteSpace(model) ? null : model.Trim();
+        if (settled is null || LaunchModel is not null) return;
+        LaunchModel = settled;
+        FileLog.Write($"[Session] {Id} launch model stamped: {LaunchModel}");
+    }
+
+    /// <summary>Stamp a person's override of a talk once, before launch. Write-once: a later stamp never replaces or
+    /// clears it.</summary>
+    public void StampFactoryStartOverride(string? overrideWords)
+    {
+        var settled = string.IsNullOrWhiteSpace(overrideWords) ? null : overrideWords.Trim();
+        if (settled is null || FactoryStartOverride is not null) return;
+        FactoryStartOverride = settled;
+        FileLog.Write($"[Session] {Id} start override stamped: {FactoryStartOverride}");
+    }
+
     /// <summary>The three birth facts read back together. Stamped through
     /// <see cref="StampOrigin"/>.</summary>
     public SessionOrigin Origin => new(OriginKind, OriginSurface, ParentSessionId);

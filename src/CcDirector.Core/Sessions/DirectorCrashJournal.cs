@@ -28,6 +28,15 @@ public sealed class DirectorCrashJournalSession
     /// crashes comes back in its factory rather than outside it. A journal written before this field existed reads
     /// as null, which continues the session in no factory - the behaviour every continuation had until now.</summary>
     public string? Factory { get; set; }
+    /// <summary>The seat, definition version and kit kind this session was born with (Factory Definition mission,
+    /// phase 5), or null. Recorded for the reason <see cref="Factory"/> is: a session continued from the Interrupted
+    /// list comes back as the same seat. A journal written before these fields existed reads as null.</summary>
+    public string? FactorySeat { get; set; }
+    public int? FactoryDefinitionVersion { get; set; }
+    public string? FactoryKit { get; set; }
+    /// <summary>The model the create asked for, or null (Factory Definition mission, phase 5), so a continuation
+    /// relaunches on the same model.</summary>
+    public string? LaunchModel { get; set; }
 }
 
 /// <summary>The on-disk shape of a Director crash journal.</summary>

@@ -203,6 +203,81 @@ public sealed class NewSessionRequest
     public string? Factory { get; set; }
 
     /// <summary>
+    /// THE SEAT of a defined factory this session is started as (Factory Definition mission, phase 5), or null for a
+    /// session that is not a seat start or a child of one. A seat id, as the definition spells it.
+    ///
+    /// SETTLED AT THE SPAWN DOORS FROM THE CREDENTIAL, exactly as <see cref="Factory"/> is
+    /// (<c>SpawnFactory.TryEstablish</c>):
+    ///
+    ///  - The Gateway's own seat starts (a schedule, a talk, a run now) set it themselves, and a Director's or the
+    ///    Gateway's internal credential passes it through as sent - a restore must be able to hand it back.
+    ///  - A SESSION key: the caller's own recorded seat is copied onto the child, with <see cref="FactoryKit"/> =
+    ///    <see cref="FactoryKits.RulesOnly"/>. A stated seat that differs is refused. A caller with no seat gives none.
+    ///  - A PERSON'S device: refused when it names one. A seat is started from its factory's page or its schedule.
+    ///
+    /// Only a Director that said <see cref="DirectorStreamHello.BuildsFactoryKit"/> is sent a create carrying it; any
+    /// other is refused before the create leaves, because an older Director would drop it and start the session as
+    /// an ordinary one.
+    /// </summary>
+    public string? FactorySeat { get; set; }
+
+    /// <summary>
+    /// The PUBLISHED definition version the seat's kit is built from (Factory Definition mission, phase 5), or null.
+    /// Settled with <see cref="FactorySeat"/>, on the same terms: a child gets its caller's version, never one it
+    /// names.
+    /// </summary>
+    public int? FactoryDefinitionVersion { get; set; }
+
+    /// <summary>
+    /// Which kit the Director builds for the session (Factory Definition mission, phase 5): <see cref="FactoryKits.Seat"/>
+    /// for a seat start, <see cref="FactoryKits.RulesOnly"/> for a child of one, null for neither. Settled with
+    /// <see cref="FactorySeat"/>: a session key's child always gets <see cref="FactoryKits.RulesOnly"/>.
+    /// </summary>
+    public string? FactoryKit { get; set; }
+
+    /// <summary>
+    /// The REPOSITORY NAME a seat works in (Factory Definition mission, phase 5), or null. A name, not a folder: the
+    /// Director resolves it through its own repository registry and takes a fresh pooled slot off origin/main for the
+    /// seat, whatever the machine's pooled-worktree setting says. Not seat-derived on a child: a session key's child
+    /// chooses its own folder as today, so this is passed through as sent.
+    /// </summary>
+    public string? FactoryWorktree { get; set; }
+
+    /// <summary>
+    /// True for a seat with no repository (Factory Definition mission, phase 5): the Director runs it in the kit's
+    /// <c>work/</c> folder and ignores <see cref="RepoPath"/>, as <see cref="FleetManagerHome"/> does. Not seat-derived
+    /// on a child.
+    /// </summary>
+    public bool? FactoryHome { get; set; }
+
+    /// <summary>
+    /// The model to launch the agent with (Factory Definition mission, phase 5), or null for the agent's configured
+    /// default. The Director composes it into each agent's own launch line, replacing any model the agent's default
+    /// arguments carry; <see cref="Args"/> stays the person's explicit override, untouched. Not seat-derived on a
+    /// child: a child chooses its own model as today.
+    /// </summary>
+    public string? Model { get; set; }
+
+    /// <summary>
+    /// A person's override of a talk with a seat, in words - "agent Codex, model x, machine Y, chosen by the person" -
+    /// or null (Factory Definition mission, phase 5). Recorded on the session's history row so a talk that did not run
+    /// as the definition says can be told apart from one that did. A scheduled or triggered start never carries one.
+    /// </summary>
+    public string? FactoryStartOverride { get; set; }
+
+    /// <summary>True when the create carries any of the six seat-start fields (<see cref="FactorySeat"/>,
+    /// <see cref="FactoryDefinitionVersion"/>, <see cref="FactoryKit"/>, <see cref="FactoryWorktree"/>,
+    /// <see cref="FactoryHome"/>, <see cref="Model"/>): such a create goes only to a Director that said
+    /// <see cref="DirectorStreamHello.BuildsFactoryKit"/>.</summary>
+    public bool CarriesSeatStartFields()
+        => !string.IsNullOrWhiteSpace(FactorySeat)
+           || FactoryDefinitionVersion is not null
+           || !string.IsNullOrWhiteSpace(FactoryKit)
+           || !string.IsNullOrWhiteSpace(FactoryWorktree)
+           || FactoryHome == true
+           || !string.IsNullOrWhiteSpace(Model);
+
+    /// <summary>
     /// Optional EXPLICIT role for the new session (automatic session roles). One of the
     /// <see cref="SessionRoles"/> values (Standalone / Manager / Worker / Architect); case-insensitive. An
     /// unknown value is REJECTED as a bad request (so a mistyped --role never silently drops). When set it
@@ -303,6 +378,22 @@ public sealed class NewSessionRequest
     /// is NEVER auto-closed. Set true only by the cron starter for scheduled seed runs.
     /// </summary>
     public bool AutoDismiss { get; set; } = false;
+}
+
+/// <summary>
+/// The two kinds of kit a Director builds for a session of a defined factory (Factory Definition mission, phase 5),
+/// spelled once: <see cref="NewSessionRequest.FactoryKit"/> carries one of these or null.
+/// </summary>
+public static class FactoryKits
+{
+    /// <summary>A seat start's kit: the seat's brief, grants, rules, files, records and skills.</summary>
+    public const string Seat = "seat";
+
+    /// <summary>A child's kit: the seat's rules only. A child is held by its seat's limits and given nothing else.</summary>
+    public const string RulesOnly = "rules-only";
+
+    /// <summary>True for one of the two kinds, compared exactly.</summary>
+    public static bool IsKnown(string? kit) => kit is Seat or RulesOnly;
 }
 
 /// <summary>

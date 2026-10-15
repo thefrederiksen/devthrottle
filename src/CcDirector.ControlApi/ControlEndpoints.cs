@@ -352,6 +352,13 @@ internal static class ControlEndpoints
             // agent, permanently. It rides every push so any later push can also fill a row an older Director
             // created before this field existed.
             Factory = s.Factory,
+            // The seat it was started as (Factory Definition mission, phase 5), on the same every-push terms: the
+            // Gateway's columns are write-once from first sight, and a child's seat is read from them.
+            FactorySeat = s.FactorySeat,
+            FactoryDefinitionVersion = s.FactoryDefinitionVersion,
+            FactoryKit = s.FactoryKit,
+            FactoryStartOverride = s.FactoryStartOverride,
+            LaunchModel = s.LaunchModel,
             // Automatic session roles (chunk 2.5): the sticky explicit role, so the Gateway aggregation can
             // apply the explicit-wins precedence. The RESOLVED SessionRole is computed at the aggregation.
             ExplicitRole = s.ExplicitRole,

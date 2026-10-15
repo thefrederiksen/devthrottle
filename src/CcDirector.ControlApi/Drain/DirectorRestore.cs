@@ -754,6 +754,13 @@ public sealed class DirectorRestore
             // agent is refused by its own factory's memory the next time it writes. The Gateway keeps the body
             // as it arrives for a Director's credential, which is exactly what a restore needs.
             Factory = seat.Factory,
+            // The seat of a defined factory it was started as, handed back with its factory (Factory Definition
+            // mission, phase 5): a restored seat is still that seat, held by the same rules.
+            FactorySeat = seat.FactorySeat,
+            FactoryDefinitionVersion = seat.FactoryDefinitionVersion,
+            FactoryKit = seat.FactoryKit,
+            // And the model it was started on, so the restored seat relaunches on it rather than on the default.
+            Model = seat.LaunchModel,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) req.MissionId = missionId;
         if (Guid.TryParse(seat.WorkflowRunId, out var runId)) req.WorkflowRunId = runId;

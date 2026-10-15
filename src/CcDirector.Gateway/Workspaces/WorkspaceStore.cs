@@ -335,6 +335,12 @@ public sealed class WorkspaceStore
             // who may write that factory's memory from it. A writer who could set it here could put a restored
             // seat into a factory it was never in.
             seat.Factory = from.Factory;
+            // The seat a defined factory started it as, an observation on exactly those terms (Factory Definition
+            // mission, phase 5): a writer who could set it could restore a session as a seat it never was.
+            seat.FactorySeat = from.FactorySeat;
+            seat.FactoryDefinitionVersion = from.FactoryDefinitionVersion;
+            seat.FactoryKit = from.FactoryKit;
+            seat.LaunchModel = from.LaunchModel;
             seat.SortOrder = from.SortOrder;
             seat.StateAtDrain = from.StateAtDrain;
             seat.ClaudeSessionId = from.ClaudeSessionId;

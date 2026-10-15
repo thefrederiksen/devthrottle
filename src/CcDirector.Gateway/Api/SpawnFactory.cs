@@ -1,6 +1,8 @@
+using CcDirector.Core.Agents;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
@@ -35,6 +37,12 @@ namespace CcDirector.Gateway.Api;
 /// far worse - copy an EMPTY factory onto any child spawned in it, putting that child outside its factory
 /// for the rest of its life. An absent row is therefore its own answer: "not yet known", which is a retry,
 /// not a judgement about membership, and the spawn is refused rather than given nothing to inherit.
+///
+/// THE SEAT, SETTLED IN THE SAME PLACE (Factory Definition mission, phase 5). A session started as a seat of a defined
+/// factory carries the seat, the definition version and the kind of kit it was given, and those are settled here, from
+/// the same credential and the same history row, on the same three arms: a person's device may not name a seat; a
+/// session key's child inherits the caller's seat and version with a rules-only kit; any other credential passes them
+/// through. The six seat-start fields go only to a Director that builds the kit (<see cref="DirectorCannotBuildKit(NewSessionRequest, DirectorDto?, bool)"/>).
 /// </summary>
 internal static class SpawnFactory
 {
@@ -48,19 +56,29 @@ internal static class SpawnFactory
     /// must not be a Gateway that hands it out.
     ///
     /// <paramref name="route"/> names the calling door in the log, so a refusal says which one it came through.
+    ///
+    /// <paramref name="seatRules"/> reads whether a seat carries rules in a definition version, bound to the caller's
+    /// account by the door. It is read only for a session key's child on an agent that cannot take rules, and a null
+    /// reader there FAILS CLOSED: the child is refused, because a limit that cannot be checked is not a limit.
     /// </summary>
     internal static bool TryEstablish(
         NewSessionRequest req,
         HttpContext ctx,
         string route,
         Func<string, SessionFactoryLookup>? factoryOf,
-        out IResult? error)
+        out IResult? error,
+        SeatRulesReader? seatRules = null)
     {
         error = null;
         if (req is null) return true;
 
         var stated = req.Factory?.Trim();
         req.Factory = string.IsNullOrEmpty(stated) ? null : stated;
+        var statedSeat = req.FactorySeat?.Trim();
+        req.FactorySeat = string.IsNullOrEmpty(statedSeat) ? null : statedSeat;
+        var statedKit = req.FactoryKit?.Trim();
+        req.FactoryKit = string.IsNullOrEmpty(statedKit) ? null : statedKit;
+        var namesASeat = req.FactorySeat is not null || req.FactoryDefinitionVersion is not null || req.FactoryKit is not null;
 
         // A PERSON'S DEVICE. The stated factory is KEPT: a person putting a session into a factory by hand is
         // the intended path (the Cockpit's and the phone's spawn), and there is no second candidate for who is
@@ -69,6 +87,18 @@ internal static class SpawnFactory
         var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
         if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown)
         {
+            // A PERSON NEVER NAMES A SEAT (Factory Definition mission, phase 5). A seat start is built by the Gateway
+            // from the published definition - the talk, a schedule, a run now - and the talk is the person's door to
+            // a seat. A seat typed into a spawn would be a session claiming a seat's kit, rules and records without
+            // the definition that grants them. The one exception is the Gateway's own start through this door (the
+            // talk), which marks the request it built; a body cannot set that mark.
+            if (namesASeat && !IsGatewaySeatStart(ctx))
+            {
+                FileLog.Write($"[SpawnFactory] {route}: REFUSED - a person named the seat '{req.FactorySeat}' v{req.FactoryDefinitionVersion} ({req.FactoryKit})");
+                error = Results.Json(new { error = PersonNamedASeat }, statusCode: StatusCodes.Status403Forbidden);
+                return false;
+            }
+
             // ONE SPELLING (phase 2 review, finding 1). A person's hand spawn is one of the two places a factory
             // id first comes into being, so it is folded here and refused if it is not one: membership compares
             // ids without regard to case while the memory is keyed on the exact string, so 'Website-Factory'
@@ -110,13 +140,14 @@ internal static class SpawnFactory
         // goes through with none, exactly as it did before this mission.
         if (factoryOf is null)
         {
-            if (req.Factory is not null)
+            if (req.Factory is not null || namesASeat)
             {
                 FileLog.Write($"[SpawnFactory] {route}: REFUSED - this Gateway cannot read a session's factory, so '{req.Factory}' cannot be verified");
                 error = Results.Json(new { error = CannotVerify, detail = CannotVerifyDetail },
                     statusCode: StatusCodes.Status503ServiceUnavailable);
                 return false;
             }
+            ClearSeat(req);
             return true;
         }
 
@@ -136,17 +167,20 @@ internal static class SpawnFactory
         if (!lookup.IsInAFactory)
         {
             // A settled answer: the caller belongs to no factory, so it has none to give.
-            if (req.Factory is not null)
+            if (req.Factory is not null || namesASeat)
             {
                 FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller.SessionId} is in no factory and named '{req.Factory}'");
                 error = Results.Json(new
                 {
-                    error = $"this session is in no factory, so it cannot start a session in '{req.Factory}'",
+                    error = req.Factory is not null
+                        ? $"this session is in no factory, so it cannot start a session in '{req.Factory}'"
+                        : $"this session is no seat of a factory, so it cannot start a session as the seat '{req.FactorySeat}'",
                     detail = OutsideNamedAFactory,
                 }, statusCode: StatusCodes.Status403Forbidden);
                 return false;
             }
             req.Factory = null;
+            ClearSeat(req);
             return true;
         }
 
@@ -168,7 +202,145 @@ internal static class SpawnFactory
         // Inherited, in the Gateway's own spelling of the factory id rather than the caller's.
         req.Factory = lookup.Factory;
         FileLog.Write($"[SpawnFactory] {route}: factory established from the verified session key: {req.Factory} (parent {caller.SessionId})");
+        return TryInheritSeat(req, route, caller.SessionId, lookup, seatRules, out error);
+    }
+
+    /// <summary>
+    /// THE SEAT A SESSION KEY'S CHILD INHERITS (Factory Definition mission, phase 5): the caller's own recorded seat and
+    /// version, with a rules-only kit - so a review session or a worker started by a seat is held by that seat's limits,
+    /// and is given none of its brief, grants, records or skills. A caller with no seat gives none; a seat or version
+    /// named that is not the caller's own is refused, in the shape a named other factory is. A child whose inherited
+    /// kit carries rules on an agent that cannot take them at launch is refused with that agent's reason: a seat whose
+    /// rules bind it cannot start a Codex reviewer that would run free of them (rule A4, applied to the child).
+    /// </summary>
+    private static bool TryInheritSeat(NewSessionRequest req, string route, Guid caller, SessionFactoryLookup lookup,
+        SeatRulesReader? seatRules, out IResult? error)
+    {
+        error = null;
+        if (!lookup.HasASeat)
+        {
+            if (req.FactorySeat is not null || req.FactoryDefinitionVersion is not null || req.FactoryKit is not null)
+            {
+                FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller} is no seat and named the seat '{req.FactorySeat}' v{req.FactoryDefinitionVersion} ({req.FactoryKit})");
+                error = Results.Json(new
+                {
+                    error = $"this session is no seat of '{lookup.Factory}', so it cannot start a session as the seat '{req.FactorySeat}'",
+                    detail = NamedAnotherSeat,
+                }, statusCode: StatusCodes.Status403Forbidden);
+                return false;
+            }
+            ClearSeat(req);
+            FileLog.Write($"[SpawnFactory] {route}: session {caller} carries no seat - the child gets none");
+            return true;
+        }
+
+        var seat = lookup.Seat!;
+        var version = lookup.DefinitionVersion!.Value;
+        if ((req.FactorySeat is not null && !string.Equals(req.FactorySeat, seat, StringComparison.Ordinal))
+            || (req.FactoryDefinitionVersion is not null && req.FactoryDefinitionVersion != version)
+            || (req.FactoryKit is not null && !string.Equals(req.FactoryKit, FactoryKits.RulesOnly, StringComparison.Ordinal)))
+        {
+            // REFUSED, NOT QUIETLY CORRECTED, for the reason a named other factory is.
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller} of seat '{seat}' v{version} named '{req.FactorySeat}' v{req.FactoryDefinitionVersion} ({req.FactoryKit})");
+            error = Results.Json(new
+            {
+                error = $"a session of the seat '{seat}' (definition version {version}) may not start a session as " +
+                        $"{DescribeNamed(req)}",
+                detail = NamedAnotherSeat,
+            }, statusCode: StatusCodes.Status403Forbidden);
+            return false;
+        }
+
+        req.FactorySeat = seat;
+        req.FactoryDefinitionVersion = version;
+        req.FactoryKit = FactoryKits.RulesOnly;
+
+        if (ChildCannotTakeRules(req, seat, version, seatRules) is { } refusal)
+        {
+            FileLog.Write($"[SpawnFactory] {route}: REFUSED - session {caller}'s child on {req.Agent} under seat '{seat}' v{version}: {refusal}");
+            error = Results.Json(new { error = refusal }, statusCode: StatusCodes.Status409Conflict);
+            return false;
+        }
+
+        FileLog.Write($"[SpawnFactory] {route}: seat inherited from the verified session key: {seat} v{version} ({FactoryKits.RulesOnly}, agent {req.Agent})");
         return true;
+    }
+
+    /// <summary>The refusal for a child whose rules-only kit carries rules its agent cannot take, or null when it may
+    /// start. The definition is read only when the agent cannot take rules, and read once.</summary>
+    private static string? ChildCannotTakeRules(NewSessionRequest req, string seat, int version, SeatRulesReader? seatRules)
+    {
+        var agentWord = string.IsNullOrWhiteSpace(req.Agent) ? "ClaudeCode" : req.Agent.Trim();
+        string? cannot;
+        // Enum.TryParse accepts any number ("99" parses to an agent the enum does not define), and the rules table throws
+        // for a kind it holds no row for - so an undefined kind is refused in words here, never handed to the table.
+        if (Enum.TryParse<AgentKind>(agentWord, ignoreCase: true, out var agent) && Enum.IsDefined(agent) && agent != AgentKind.RawCli)
+        {
+            var answer = FactoryRulesSupport.For(agent);
+            if (answer.CanTake) return null;
+            cannot = answer.Reason!;
+        }
+        else
+        {
+            cannot = $"The agent '{agentWord}' cannot take a seat's rules at launch, so it cannot start under the seat {seat}.";
+        }
+
+        if (seatRules is null)
+            return $"The Gateway cannot read whether the seat {seat} carries rules, so no {agentWord} session was started under it.";
+        var read = seatRules(req.Factory!, version, seat);
+        if (!read.Read)
+            return $"The Gateway cannot read whether the seat {seat} carries rules ({read.Why}), so no {agentWord} session was started under it.";
+        return read.CarriesRules ? cannot : null;
+    }
+
+    private static string DescribeNamed(NewSessionRequest req)
+    {
+        var parts = new List<string>();
+        if (req.FactorySeat is not null) parts.Add($"the seat '{req.FactorySeat}'");
+        if (req.FactoryDefinitionVersion is not null) parts.Add($"definition version {req.FactoryDefinitionVersion}");
+        if (req.FactoryKit is not null) parts.Add($"a '{req.FactoryKit}' kit");
+        return string.Join(", ", parts);
+    }
+
+    private static void ClearSeat(NewSessionRequest req)
+    {
+        req.FactorySeat = null;
+        req.FactoryDefinitionVersion = null;
+        req.FactoryKit = null;
+    }
+
+    /// <summary>The <see cref="HttpContext.Items"/> key that marks a request the GATEWAY built as a seat start and sent
+    /// through a person's door (the talk). Only Gateway code can set it; a body cannot.</summary>
+    internal const string GatewaySeatStartItemKey = "cc.factory.gateway-seat-start";
+
+    /// <summary>Mark this request as a seat start the Gateway built itself, so the seat fields it set pass a person's
+    /// door. Called by the talk route only, on the request it is answering.</summary>
+    internal static void MarkGatewaySeatStart(HttpContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        ctx.Items[GatewaySeatStartItemKey] = true;
+    }
+
+    private static bool IsGatewaySeatStart(HttpContext ctx)
+        => ctx.Items.TryGetValue(GatewaySeatStartItemKey, out var v) && v is true;
+
+    /// <summary>
+    /// The refusal for a SEAT START (a create carrying any of the six seat-start fields) going to a Director that does
+    /// not build a seat's kit, or null when the create may go. An older Director would drop the fields and start the
+    /// seat as an ordinary session - in a checkout, with none of its limits - which is worse than not starting it, so it
+    /// is refused before it leaves. Never started somewhere else instead.
+    /// </summary>
+    internal static string? DirectorCannotBuildKit(NewSessionRequest req, DirectorDto? director, bool buildsFactoryKit)
+    {
+        if (req is null || !req.CarriesSeatStartFields() || buildsFactoryKit) return null;
+        var name = director is null ? "that computer"
+            : string.IsNullOrWhiteSpace(director.MachineName) ? director.DirectorId : director.MachineName;
+        var shown = director is null || string.IsNullOrWhiteSpace(director.Version)
+            ? "a version it does not report"
+            : $"version {director.Version.Trim()}";
+        FileLog.Write($"[SpawnFactory] REFUSED a seat start (seat '{req.FactorySeat}', kit {req.FactoryKit}) to Director {director?.DirectorId ?? "(unknown)"} on {name}: it does not build a seat's kit");
+        return $"The Director on {name} is {shown}, which cannot start a seat of a defined factory (it cannot build the " +
+               "seat's kit), so no session was started. Update this Director and try again.";
     }
 
     /// <summary>The first Director release that reads <see cref="NewSessionRequest.Factory"/> on a create, stamps it
@@ -213,6 +385,22 @@ internal static class SpawnFactory
                $"put a session into a factory, and no session was started in '{req.Factory}'.";
     }
 
+    /// <summary>
+    /// The machine door's refusal for the Director its machine resolved to, or null when the create may go: a factory
+    /// it is too old to carry (<see cref="DirectorCannotCarry(NewSessionRequest, string, Func{string, DirectorDto?})"/>),
+    /// then a seat start it cannot build the kit for (<paramref name="refuseSeatStart"/>, the spawner's own check; a
+    /// door with none refuses a seat start rather than sending it). Asked before the create leaves, so the answer is a
+    /// 409 the caller acts on and never the 502 of a machine that could not be reached.
+    /// </summary>
+    internal static string? RefuseAtMachineDoor(NewSessionRequest req, string directorId,
+        Func<string, DirectorDto?>? directorOf, Func<NewSessionRequest, string, string?>? refuseSeatStart)
+    {
+        if (req is null) return null;
+        if (req.Factory is not null && DirectorCannotCarry(req, directorId, directorOf) is { } tooOld) return tooOld;
+        if (!req.CarriesSeatStartFields()) return null;
+        return refuseSeatStart is null ? Running.MachineSessionSpawner.CannotTellKit : refuseSeatStart(req, directorId);
+    }
+
     // "2.12.0", "v2.16.0", "2.16.0-rc1", "2.16.0+68fd9d7" -> the release; anything else -> null.
     private static Version? ReleaseOf(string? reported)
     {
@@ -253,6 +441,51 @@ internal static class SpawnFactory
         FileLog.Write($"[SpawnFactory] handover: factory={inherited ?? "(none)"} (byPerson={byPerson}, bySourceItself={bySourceItself}, source={sourceFactory ?? "(none)"})");
         return inherited;
     }
+
+    /// <summary>The refusal for a person's device naming a seat, a definition version or a kit (Factory Definition
+    /// mission, phase 5). Held once so a test can pin the wording.</summary>
+    internal const string PersonNamedASeat =
+        "A seat is started from its factory's page or its schedule, not named on a spawn.";
+
+    /// <summary>Why a session may not name a seat other than its own.</summary>
+    internal const string NamedAnotherSeat =
+        "A session's children are held by its own seat's rules and nothing else: naming another seat or another " +
+        "version here would let a session choose the limits its children run under, which is the whole thing the " +
+        "seat decides. Leave the seat out and the new session inherits this one's.";
+
+    /// <summary>
+    /// THE SEAT A HANDOVER'S TARGET IS BORN AS (Factory Definition mission, phase 5): the source's seat, definition
+    /// version, kit kind and requested model, carried EXACTLY when <see cref="ForHandover"/> carries the factory, and
+    /// otherwise none. A handover is the work moving on, so a seat that hands itself over is still that seat, held by
+    /// the same rules; a handover that moves no factory moves no seat, because a seat outside its factory names a kit
+    /// nobody could build. Whatever the request body said is overwritten: only the source's own record is believed.
+    /// Call after <see cref="ForHandover"/> has set <see cref="HandoverRequest.Factory"/>.
+    /// </summary>
+    internal static void SettleHandoverSeat(HandoverRequest req, SessionDto source)
+    {
+        ArgumentNullException.ThrowIfNull(req);
+        var moves = req.Factory is not null && source is not null;
+        req.FactorySeat = moves && !string.IsNullOrWhiteSpace(source!.FactorySeat) ? source.FactorySeat.Trim() : null;
+        req.FactoryDefinitionVersion = moves ? source!.FactoryDefinitionVersion : null;
+        req.FactoryKit = moves && !string.IsNullOrWhiteSpace(source!.FactoryKit) ? source.FactoryKit.Trim() : null;
+        req.Model = moves && !string.IsNullOrWhiteSpace(source!.LaunchModel) ? source.LaunchModel.Trim() : null;
+        FileLog.Write($"[SpawnFactory] handover: seat={req.FactorySeat ?? "(none)"} v{req.FactoryDefinitionVersion} ({req.FactoryKit ?? "no kit"}), model={req.Model ?? "(none)"} (factory carried={moves})");
+    }
+
+    /// <summary>The seat-start fields a handover that starts a NEW session carries, as the create they describe - so the
+    /// older-Director refusal asks one question of every create. Null for a handover into an existing session, which
+    /// starts nothing.</summary>
+    internal static NewSessionRequest? HandoverCreate(HandoverRequest req)
+        => req is null || string.IsNullOrEmpty(req.ToRepoPath) ? null : new NewSessionRequest
+        {
+            RepoPath = req.ToRepoPath!,
+            Agent = req.ToAgent,
+            Factory = req.Factory,
+            FactorySeat = req.FactorySeat,
+            FactoryDefinitionVersion = req.FactoryDefinitionVersion,
+            FactoryKit = req.FactoryKit,
+            Model = req.Model,
+        };
 
     /// <summary>Why one spelling matters, in words a person can act on.</summary>
     internal const string OneSpelling =

@@ -24,6 +24,18 @@ namespace CcDirector.ControlApi;
 /// </summary>
 internal sealed class SessionWriteExecutor : ISessionCommandArea
 {
+    /// <summary>
+    /// Stamp the seat a handover's new target is born as (Factory Definition mission, phase 5): the seat, definition
+    /// version, kit kind and model the Gateway settled - the source's own, carried exactly when the factory is. The
+    /// Director does not decide them and does not check them. Its own method so a test can watch the handover's own
+    /// stamping without starting a process.
+    /// </summary>
+    internal static void StampHandoverSeat(Session target, HandoverRequest req)
+    {
+        target.StampFactorySeat(req.FactorySeat, req.FactoryDefinitionVersion, req.FactoryKit);
+        target.StampLaunchModel(req.Model);
+    }
+
     public IReadOnlyCollection<string> Verbs { get; } = new[]
     {
         // The ten verbs that already rode the tunnel (cores in SessionCommandExecutor, routed here).
@@ -575,6 +587,8 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
                             SessionOriginKinds.Normalize(source.OriginKind) ?? SessionOriginKinds.Unknown,
                             SessionOriginSurfaces.Api));
                         s.StampFactory(req.Factory);
+                        // The seat the Gateway settled with the factory (Factory Definition mission, phase 5).
+                        StampHandoverSeat(s, req);
                     });
             }
             catch (Exception ex)
