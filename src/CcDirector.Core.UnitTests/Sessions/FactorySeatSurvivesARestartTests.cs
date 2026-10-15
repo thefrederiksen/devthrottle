@@ -57,6 +57,7 @@ public sealed class FactorySeatSurvivesARestartTests : IDisposable
         FactoryKit = "seat",
         FactoryStartOverride = "agent Codex, chosen by the person",
         LaunchModel = "claude-sonnet-5-5",
+        FactoryHome = true,
     };
 
     private Session Restored(PersistedSession ps) => new SessionManager(new AgentOptions()).RestoreEmbeddedSession(ps, new NullBackend());
@@ -79,6 +80,7 @@ public sealed class FactorySeatSurvivesARestartTests : IDisposable
         Assert.Equal("seat", afterRestart.FactoryKit);
         Assert.Equal("agent Codex, chosen by the person", afterRestart.FactoryStartOverride);
         Assert.Equal("claude-sonnet-5-5", afterRestart.LaunchModel);
+        Assert.True(afterRestart.FactoryHome);
     }
 
     [Fact]

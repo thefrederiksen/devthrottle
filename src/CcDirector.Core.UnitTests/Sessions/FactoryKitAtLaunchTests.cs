@@ -44,10 +44,12 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
     private sealed class FakePool : IWorktreePool
     {
         public readonly List<(string Repo, string Holder, int PoolSize)> Taken = new();
+        public string? RefuseWith;
 
         public PooledWorktree Get(string repoPath, string holder, int poolSize)
         {
             Taken.Add((repoPath, holder, poolSize));
+            if (RefuseWith is not null) throw new CcWorktreesRefusedException("pool-full", RefuseWith, 3, Array.Empty<string>());
             var slot = Path.Combine(Path.GetDirectoryName(repoPath)!, "repo.worktrees", "wt01");
             Directory.CreateDirectory(slot);
             return new PooledWorktree(repoPath, "wt01", slot, "lease-1");
@@ -195,7 +197,23 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
     }
 
     [Fact]
-    public void CreateSession_ARestoredFactoryHomeSeat_ResumesInTheSameFolderWithItsWorkKept()
+    public void CreateSession_AForcedSeatWhosePoolIsRefused_SaysASeatAlwaysWorksInAPooledWorktree()
+    {
+        using var manager = Manager(poolSettingOn: false);
+        var repo = Repo();
+        _pool.RefuseWith = "every slot is in use";
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Create(manager, repo, Seat(), force: true));
+
+        Assert.Equal($"No session was opened. A seat of a defined factory always works in a pooled worktree of {repo}, " +
+                     "and cc-worktrees refused: every slot is in use.", ex.Message);
+    }
+
+    // The writer's refresh, reached through the create with the first session still alive. The restore that exists -
+    // the session ended by the smart shutdown, its create built from the capture - is proven end to end in
+    // FactoryKitSurvivesARestoreTests.
+    [Fact]
+    public void CreateSession_AFolderHandedBackWhileItsSeatIsStillAlive_IsRefreshedInPlaceWithItsWorkKept()
     {
         using var manager = Manager();
         var first = Create(manager, Repo(), Seat(home: true));

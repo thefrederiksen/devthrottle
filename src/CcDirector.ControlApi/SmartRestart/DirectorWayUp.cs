@@ -1043,6 +1043,7 @@ public sealed class DirectorWayUp : IDirectorWayUp
             // The seat's kit folder, handed back for the reason DirectorRestore.BuildRequest gives (phase 5). A reopen
             // RESUMES the conversation, and Claude Code finds it by the folder, so the folder must be the same one.
             FactoryKitDirectory = string.IsNullOrWhiteSpace(seat.FactoryKitDirectory) ? null : seat.FactoryKitDirectory,
+            FactoryHome = seat.FactoryHome == true ? true : null,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) request.MissionId = missionId;
         return request;

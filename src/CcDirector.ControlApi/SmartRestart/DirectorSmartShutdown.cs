@@ -298,7 +298,8 @@ public sealed class DirectorSmartShutdown : ISmartShutdown
         {
             foreach (var id in ids)
             {
-                var end = await sessions.EndAsync(id, "Shut down and ignore all sessions.").ConfigureAwait(false);
+                // The owner chose to discard these sessions, so nothing restores them: a seat's kit goes with it.
+                var end = await sessions.EndAsync(id, "Shut down and ignore all sessions.", keepKitForRestore: false).ConfigureAwait(false);
                 if (end.Ended)
                 {
                     ended++;

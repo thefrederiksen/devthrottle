@@ -216,7 +216,7 @@ public class DrainSessionControlSmartShutdownVerbsTests
     {
         using var rig = new Rig();
 
-        var answer = await rig.Control.EndAsync(rig.Id, "the smart shutdown reached its limit");
+        var answer = await rig.Control.EndAsync(rig.Id, "the smart shutdown reached its limit", keepKitForRestore: true);
 
         Assert.Equal(DrainEnd.Ok, answer);
         Assert.Equal(1, rig.Backend.ShutdownsAskedFor);
@@ -237,7 +237,7 @@ public class DrainSessionControlSmartShutdownVerbsTests
         Assert.Equal(ActivityState.Working, rig.Session.ActivityState);
 
         // The reaper leaves a working session alone for ever. This verb does not.
-        var answer = await rig.Control.EndAsync(rig.Id, "the smart shutdown reached its limit");
+        var answer = await rig.Control.EndAsync(rig.Id, "the smart shutdown reached its limit", keepKitForRestore: true);
 
         Assert.Equal(DrainEnd.Ok, answer);
         Assert.False(rig.Control.IsPresent(rig.Id));
@@ -250,7 +250,7 @@ public class DrainSessionControlSmartShutdownVerbsTests
     {
         using var rig = new Rig();
 
-        var answer = await rig.Control.EndAsync(sessionId, "the smart shutdown reached its limit");
+        var answer = await rig.Control.EndAsync(sessionId, "the smart shutdown reached its limit", keepKitForRestore: true);
 
         // The stop verb underneath calls a missing session a SUCCESS ("already stopped"). The seam keeps
         // "I ended it" and "it was not here" apart, because they are different rows in the record.
@@ -319,7 +319,7 @@ public class DrainSessionControlSmartShutdownVerbsTests
         using var rig = new Rig();
         rig.Backend.LastShutdownFailure = "the remote run would not cancel";
 
-        var answer = await rig.Control.EndAsync(rig.Id, "the smart shutdown reached its limit");
+        var answer = await rig.Control.EndAsync(rig.Id, "the smart shutdown reached its limit", keepKitForRestore: true);
 
         Assert.False(answer.Ended);
         Assert.False(answer.SessionGone);

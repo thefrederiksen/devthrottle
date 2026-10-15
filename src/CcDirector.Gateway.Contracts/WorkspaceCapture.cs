@@ -154,6 +154,7 @@ public static class WorkspaceCapture
 
             // The seat's kit folder, captured so the restore resumes the seat in it (Factory Definition, phase 5).
             FactoryKitDirectory = string.IsNullOrWhiteSpace(s.FactoryKitDirectory) ? null : s.FactoryKitDirectory,
+            FactoryHome = s.FactoryHome == true ? true : null,
 
             // A live session does not carry the prompt it was started with, so a captured seat has no
             // opening prompt. Left null rather than filled with something plausible: a restart seeds each

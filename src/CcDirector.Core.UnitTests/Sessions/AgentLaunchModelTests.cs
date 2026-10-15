@@ -60,6 +60,19 @@ public sealed class AgentLaunchModelTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Compose_ALineThatNamesNoModel_IsKeptExactlyAndTheModelIsAddedToItsEnd(bool explicitArguments)
+    {
+        // A quoted value with two spaces, and a tab: rebuilding the line from its words would change both.
+        const string line = "--append-system-prompt \"Reply in  two lines\"\t--verbose";
+
+        var result = AgentLaunchModel.Compose(AgentKind.ClaudeCode, "  " + line + " ", explicitArguments, "claude-sonnet-5-5");
+
+        Assert.Equal(line + " --model claude-sonnet-5-5", result.Arguments);
+    }
+
+    [Theory]
     [InlineData(AgentKind.Cursor)]
     [InlineData(AgentKind.RawCli)]
     public void Compose_AnAgentWithNoModelFlag_IsRefusedWithTheReason(AgentKind kind)

@@ -407,6 +407,16 @@ public sealed class ControlApiHost : IAsyncDisposable
             if (GatewayMonitor.Status == GatewayConnectionStatus.Connected)
                 _ = RefreshInjectedTextAsync();
         };
+
+        // The start-up sweep of seats' kit folders (Factory Definition mission, phase 5), once per Director start, the
+        // first time the Gateway is reachable: it needs the Gateway's workspace records to know what a restore may still
+        // hand back.
+        GatewayMonitor.Changed += () =>
+        {
+            if (GatewayMonitor.Status == GatewayConnectionStatus.Connected
+                && Interlocked.Exchange(ref _factoryRunSwept, 1) == 0)
+                _ = SweepFactoryRunFoldersAsync();
+        };
         _repositoryRegistry = repositoryRegistry;
 
         // WHICH REPOSITORY WAS USED LAST, recorded for every session this Director creates rather than
@@ -1106,6 +1116,28 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// synchronous, through whichever Gateway client is current at the moment of the call. Internal so a test can drive
     /// the very function the host installs.
     /// </summary>
+    private int _factoryRunSwept;
+
+    /// <summary>Runs <see cref="FactoryRunSweep"/> once. An entry point: nothing awaits it, so a failure is logged.</summary>
+    private async Task SweepFactoryRunFoldersAsync()
+    {
+        try
+        {
+            var deleted = await FactoryRunSweep.RunAsync(
+                _sessionManager,
+                new SmartRestart.GatewayClientWayUp(() => _gatewayClient, DirectorId),
+                Environment.MachineName,
+                () => FactoryRunSweep.PersistedNames(new Core.Sessions.SessionStateStore()),
+                () => Core.Sessions.DirectorCrashJournal.SessionIdsInEveryJournal(),
+                CancellationToken.None).ConfigureAwait(false);
+            FileLog.Write($"[ControlApiHost] SweepFactoryRunFoldersAsync: {(deleted is null ? "not swept" : $"deleted {deleted.Count}")}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ControlApiHost] SweepFactoryRunFoldersAsync FAILED: {ex.Message}");
+        }
+    }
+
     internal static Func<Core.Sessions.FactoryKitRequest, Guid, Gateway.Contracts.FactoryKitResponse> FactoryKitDownloadThrough(
         Func<GatewayClient?> currentClient)
     {

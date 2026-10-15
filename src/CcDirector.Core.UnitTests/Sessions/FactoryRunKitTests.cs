@@ -114,6 +114,29 @@ public sealed class FactoryRunKitTests : IDisposable
     }
 
     [Fact]
+    public void Refresh_KeepsTheChecksFileBesideWork()
+    {
+        const string check = "{\"count\": 2}\n";
+        var dir = FactoryRunKit.Write(Guid.NewGuid(), TheKit(),
+            new[] { new FactoryKitFileDto { Path = FactoryRunKit.CheckFileName, Text = check } }, root: _root);
+
+        FactoryRunKit.Refresh(dir, TheKit(), root: _root);
+
+        Assert.Equal(check, File.ReadAllText(Path.Combine(dir, FactoryRunKit.CheckFileName)));
+    }
+
+    [Fact]
+    public void Refresh_AFolderThatIsGone_IsWrittenAgainWithAnEmptyWork()
+    {
+        var dir = FactoryRunKit.DirectoryFor(Guid.NewGuid(), _root);
+
+        FactoryRunKit.Refresh(dir, TheKit(), root: _root);
+
+        Assert.True(File.Exists(Path.Combine(dir, "brief.md")));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(dir, "work")));
+    }
+
+    [Fact]
     public void WhyNotAKitFolder_AFolderDirectlyUnderTheRoot_IsAccepted()
         => Assert.Null(FactoryRunKit.WhyNotAKitFolder(Path.Combine(_root, Guid.NewGuid().ToString()), _root));
 

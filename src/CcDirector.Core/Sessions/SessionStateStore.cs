@@ -173,6 +173,9 @@ public class PersistedSession
     /// deleted when the session ends, and nothing else could name it again.
     /// </summary>
     public string? FactoryKitDirectory { get; set; }
+
+    /// <summary>True for a seat with no repository (Factory Definition mission, phase 5), or null.</summary>
+    public bool? FactoryHome { get; set; }
 }
 
 /// <summary>

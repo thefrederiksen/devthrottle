@@ -33,6 +33,13 @@ public static class FactoryRunKit
     /// <summary>The folder inside the kit a seat with no repository works in. Never written by the kit.</summary>
     public const string WorkFolderName = "work";
 
+    /// <summary>
+    /// The file phase 5b's check writes beside the kit, which a refresh KEEPS like <c>work/</c>: a restored check seat
+    /// still has the check it was started for. When the caller passes a new one among its extra files, that one is
+    /// written over it.
+    /// </summary>
+    public const string CheckFileName = "check.json";
+
     /// <summary>A session's kit folder under the real storage root, or under <paramref name="root"/> in a test.</summary>
     public static string DirectoryFor(Guid sessionId, string? root = null)
         => Path.Combine(root ?? CcStorage.FactoryRun(), sessionId.ToString());
@@ -65,9 +72,9 @@ public static class FactoryRunKit
     }
 
     /// <summary>
-    /// Rewrite a restored seat's kit IN PLACE: every file but <c>work/</c> is removed and the kit is written again from
-    /// <paramref name="kit"/> (the same version the seat started with); <c>work/</c> is kept as it is, and created when
-    /// it is missing. <paramref name="kitDirectory"/> must be a folder directly under the kit root
+    /// Rewrite a restored seat's kit IN PLACE: every file but <c>work/</c> and <see cref="CheckFileName"/> is removed and
+    /// the kit is written again from <paramref name="kit"/> (the same version the seat started with); <c>work/</c> is
+    /// kept as it is, and created when it is missing - a seat whose folder was deleted gets an empty one. <paramref name="kitDirectory"/> must be a folder directly under the kit root
     /// (<see cref="WhyNotAKitFolder"/>); the caller checks it first.
     /// </summary>
     public static string Refresh(string kitDirectory, FactoryKitResponse kit, IReadOnlyList<FactoryKitFileDto>? extraFiles = null,
@@ -86,13 +93,16 @@ public static class FactoryRunKit
             if (string.Equals(Path.GetFileName(entry), WorkFolderName, StringComparison.OrdinalIgnoreCase)
                 && Directory.Exists(entry))
                 continue;
+            if (string.Equals(Path.GetFileName(entry), CheckFileName, StringComparison.OrdinalIgnoreCase)
+                && File.Exists(entry))
+                continue;
             if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
             else File.Delete(entry);
         }
         Place(dir, files);
         Directory.CreateDirectory(WorkDirectoryOf(dir));
 
-        FileLog.Write($"[FactoryRunKit] Refresh: placed {files.Count} files in {dir}, work kept");
+        FileLog.Write($"[FactoryRunKit] Refresh: placed {files.Count} files in {dir}, work and {CheckFileName} kept");
         return dir;
     }
 

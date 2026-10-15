@@ -332,6 +332,20 @@ public sealed class Session : IDisposable
     public string? FactoryKitDirectory { get; internal set; }
 
     /// <summary>
+    /// True for a seat with no repository, which works in its kit's work/ folder (Factory Definition mission, phase 5).
+    /// A birth fact: a restore hands it back, so the restored seat takes the same path and never depends on a
+    /// repository folder that the kit owns.
+    /// </summary>
+    public bool FactoryHome { get; internal set; }
+
+    /// <summary>
+    /// True once a smart shutdown or drain has captured this seat for a restore and is ending it: the kit folder is
+    /// then KEPT when the session ends, because the restore hands it back. The start-up sweep deletes it once nothing
+    /// names it any more.
+    /// </summary>
+    public bool FactoryKitKeptForRestore { get; internal set; }
+
+    /// <summary>
     /// Stamp the factory once, before launch. A birth fact does not move: a second stamp naming a DIFFERENT
     /// factory is refused and logged rather than applied, because the only ways that could happen are a bug
     /// and an attempt, and both should be visible instead of silently changing who may write a factory's

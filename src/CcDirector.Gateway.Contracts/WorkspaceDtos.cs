@@ -308,6 +308,10 @@ public sealed class WorkspaceSeat
     /// </summary>
     public string? FactoryKitDirectory { get; set; }
 
+    /// <summary>True for a seat with no repository (Factory Definition mission, phase 5), or null. A restore hands it
+    /// back, so the restored seat works in its kit's work/ folder again.</summary>
+    public bool? FactoryHome { get; set; }
+
     /// <summary>The mission this seat is attached to, if any.</summary>
     public WorkspaceMissionRef? Mission { get; set; }
 

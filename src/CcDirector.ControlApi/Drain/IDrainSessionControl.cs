@@ -173,6 +173,9 @@ public interface IDrainSessionControl
     /// So the session does end up killed - by the reaper, once it has stopped. What never happens is a
     /// session being cut off DURING a turn, which is what "never force" means and is the whole reason a
     /// blocked seat is never flagged at all.
+    ///
+    /// A seat flagged here was captured for a restore, so a seat of a defined factory KEEPS its kit folder when the
+    /// reaper removes it: the restore hands the folder back (Factory Definition mission, phase 5).
     /// </summary>
     /// <param name="sessionId">The session id.</param>
     /// <param name="reason">Why, recorded on the session.</param>
@@ -212,7 +215,10 @@ public interface IDrainSessionControl
     /// </summary>
     /// <param name="sessionId">The session id.</param>
     /// <param name="reason">Why, for the log.</param>
-    Task<DrainEnd> EndAsync(string sessionId, string reason);
+    /// <param name="keepKitForRestore">True when the session is a seat the capture holds and a restore will bring back:
+    /// a seat of a defined factory then keeps its kit folder, which the restore hands back (Factory Definition mission,
+    /// phase 5). False for a session that will not be restored, whose kit goes with it.</param>
+    Task<DrainEnd> EndAsync(string sessionId, string reason, bool keepKitForRestore);
 
     /// <summary>
     /// Take back a <see cref="MarkForDeletion"/> that the reaper has not acted on yet, through the
@@ -339,6 +345,7 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
         if (!Guid.TryParse(sessionId, out var id)) return false;
         var session = _sessions.GetSession(id);
         if (session is null) return false;
+        _sessions.KeepFactoryKitForRestore(id);
         session.MarkForDeletion(reason);
         return true;
     }
@@ -352,6 +359,8 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
             return false;
         }
         session.CancelDeletion();
+        // It keeps working, so it is not restored: its kit goes when it ends, as any session's does.
+        _sessions.ReleaseFactoryKitKeep(id);
         FileLog.Write($"[DrainSessionControl] CancelDeletion: session={sessionId} is no longer flagged");
         return true;
     }
@@ -451,9 +460,9 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
     }
 
     /// <inheritdoc />
-    public async Task<DrainEnd> EndAsync(string sessionId, string reason)
+    public async Task<DrainEnd> EndAsync(string sessionId, string reason, bool keepKitForRestore)
     {
-        FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId}, reason={reason}");
+        FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId}, reason={reason}, keepKitForRestore={keepKitForRestore}");
 
         // Asked BEFORE the stop, because the stop verb answers "already stopped" as a success for a
         // session with no row (it has to: a stop must never fail because there is nothing left to stop),
@@ -463,6 +472,9 @@ public sealed class SessionManagerDrainControl : IDrainSessionControl
             FileLog.Write($"[DrainSessionControl] EndAsync: session={sessionId} is not here");
             return DrainEnd.Gone;
         }
+
+        // Marked BEFORE the stop, because the stop removes the row and the row's removal is what deletes a kit.
+        if (keepKitForRestore) _sessions.KeepFactoryKitForRestore(id);
 
         var result = await SessionCommandExecutor.KillAsync(
             _sessions,

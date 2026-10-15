@@ -1746,7 +1746,8 @@ public sealed class DirectorDrain
         foreach (var seat in present)
         {
             var id = seat.SessionId!;
-            var end = await _sessions.EndAsync(id, $"Smart shutdown: {why}.").ConfigureAwait(false);
+            // A seat the capture holds: the restore brings it back, so a seat of a defined factory keeps its kit.
+            var end = await _sessions.EndAsync(id, $"Smart shutdown: {why}.", keepKitForRestore: true).ConfigureAwait(false);
             FileLog.Write(
                 $"[DirectorDrain] ended at the limit: {id} ({seat.Name}): ended={end.Ended}, gone={end.SessionGone}" +
                 (end.Reason is null ? "" : $", {end.Reason}"));
@@ -2159,7 +2160,8 @@ public sealed class DirectorDrain
         var known = new HashSet<string>(seats.Select(s => s.SessionId!), StringComparer.OrdinalIgnoreCase);
         foreach (var id in live.Where(id => !known.Contains(id)))
         {
-            var end = await _sessions.EndAsync(id, "Smart shutdown: not in the record, ended with the rest.")
+            // Not in the record, so nothing restores it: its kit goes with it.
+            var end = await _sessions.EndAsync(id, "Smart shutdown: not in the record, ended with the rest.", keepKitForRestore: false)
                 .ConfigureAwait(false);
             _problems.Add(
                 $"session {DrainPaths.ShortId(id)} was running on this Director and is NOT in this record - it " +

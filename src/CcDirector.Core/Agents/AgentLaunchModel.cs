@@ -79,6 +79,16 @@ public static class AgentLaunchModel
             return new AgentLaunchModelResult(line, null, ArgsNamedAModel: true);
         }
 
+        // A line that names no model is never rebuilt: the model is added to its end, so an argument holding a quoted
+        // run of spaces or a tab reaches the agent exactly as it was written.
+        if (!named)
+        {
+            var added = line.Length == 0 ? $"{flag} {trimmedModel}" : $"{line} {flag} {trimmedModel}";
+            FileLog.Write($"[AgentLaunchModel] Compose: agent={kind}, model={trimmedModel}, added to the end, line=\"{added}\"");
+            return new AgentLaunchModelResult(added, null, false);
+        }
+
+        // Only the replacing path rebuilds the line, to take the old model out.
         var kept = new List<string>(tokens.Count + 2);
         for (var i = 0; i < tokens.Count; i++)
         {
@@ -95,7 +105,7 @@ public static class AgentLaunchModel
         kept.Add(flag);
         kept.Add(trimmedModel);
         var composed = string.Join(' ', kept);
-        FileLog.Write($"[AgentLaunchModel] Compose: agent={kind}, model={trimmedModel}, replaced={named}, line=\"{composed}\"");
+        FileLog.Write($"[AgentLaunchModel] Compose: agent={kind}, model={trimmedModel}, replaced the old model, line=\"{composed}\"");
         return new AgentLaunchModelResult(composed, null, false);
     }
 

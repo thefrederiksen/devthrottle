@@ -218,6 +218,8 @@ public sealed class SmartShutdownRunTests
 
         Assert.Equal(new[] { "stuck" }, sessions.Ended.Select(e => e.SessionId));
         Assert.Equal(WorkspaceDrainStates.EndedAtLimit, SavedSeat(sink, "stuck").DrainState);
+        // A seat the capture holds is ended for its restore, so a seat of a defined factory keeps its kit.
+        Assert.Equal(new[] { "stuck" }, sessions.EndedKeepingKit);
         Assert.Equal(SmartShutdownOutcome.Emptied, watched.Result.Outcome);
     }
 
@@ -402,6 +404,8 @@ public sealed class SmartShutdownRunTests
 
         Assert.Equal(SmartShutdownOutcome.Emptied, watched.Result.Outcome);
         Assert.Contains(sessions.Ended, e => e.SessionId == "stranger");
+        // Not in the record, so nothing restores it: its kit goes with it.
+        Assert.DoesNotContain("stranger", sessions.EndedKeepingKit);
         Assert.Empty(sessions.Live);
         Assert.Contains(sink.Last.Integrity!.Problems, p => p.Contains("stranger") && p.Contains("NOT in this record"));
     }
@@ -674,10 +678,10 @@ public sealed class SmartShutdownRunTests
             return base.StopTurnAsync(sessionId);
         }
 
-        public override Task<DrainEnd> EndAsync(string sessionId, string reason)
+        public override Task<DrainEnd> EndAsync(string sessionId, string reason, bool keepKitForRestore)
         {
             EndedAt.Add(_clock());
-            return base.EndAsync(sessionId, reason);
+            return base.EndAsync(sessionId, reason, keepKitForRestore);
         }
     }
 
