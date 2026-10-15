@@ -9,6 +9,7 @@ using CcDirector.Gateway.Factory.Registry;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Tests.Data;
+using CcDirector.Gateway.Tests.Factory.Definition;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -66,7 +67,7 @@ public sealed class FactoryBriefRoutesThroughThePipelineTests : IDisposable
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             nowUtc: () => Now,
             defined: new FactoryBriefEndpoints.Defined(new FactoryDefinitionBriefs(new FactoryDefinitionStore(db), briefs),
-                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>()), new FactoryPublishApply(db)));
+                new FactoryDefinitionEndpoints.Account(_ => Array.Empty<string>(), _ => Array.Empty<string>(), DefinitionFixture.AskNobody), new FactoryPublishApply(db)));
     }
 
     public void Dispose()

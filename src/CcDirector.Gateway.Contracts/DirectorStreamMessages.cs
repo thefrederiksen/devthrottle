@@ -95,4 +95,12 @@ public sealed class DirectorStreamHello
     /// a build too old to send it - the Gateway then records the OS as not known, never guesses one.
     /// </summary>
     public string Os { get; set; } = "";
+
+    /// <summary>
+    /// This Director answers the <see cref="FactoryMachineQuestionContract.Verb"/> verb (Factory Definition, phase 5):
+    /// whether this machine holds a seat's secrets and has its repositories registered. False from an older build,
+    /// which would answer the verb as unknown - so the Gateway never sends it one, and a publish says that machine's
+    /// Director is too old to be asked instead.
+    /// </summary>
+    public bool AnswersFactoryMachineQuestion { get; set; }
 }

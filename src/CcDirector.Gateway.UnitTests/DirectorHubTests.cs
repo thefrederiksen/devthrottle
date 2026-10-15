@@ -234,6 +234,24 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_RecordsWhetherThisDirectorAnswersTheFactoryMachineQuestion()
+    {
+        // Factory Definition, phase 5: a publish asks the machine question only of a Director that said this, because
+        // an older one answers the verb as unknown.
+        var caps = new CcDirector.Gateway.Streaming.FactoryMachineQuestionCapabilityRegistry();
+        var newBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), factoryMachineQuestionCapabilities: caps) { Context = new FakeHubCallerContext("conn-1") };
+        var oldBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), factoryMachineQuestionCapabilities: caps) { Context = new FakeHubCallerContext("conn-2") };
+
+        newBuild.Hello(new DirectorStreamHello { DirectorId = "dir-new", Version = "test", AnswersFactoryMachineQuestion = true });
+        oldBuild.Hello(new DirectorStreamHello { DirectorId = "dir-old", Version = "test" });
+
+        Assert.True(caps.Answers(TenantId.Local, "dir-new"));
+        Assert.False(caps.Answers(TenantId.Local, "dir-old"));
+        Assert.False(caps.Answers(TenantId.Local, "dir-never-seen"));
+        Assert.False(caps.Answers(new TenantId("11111111-1111-1111-1111-111111111111"), "dir-new"));
+    }
+
+    [Fact]
     public void Hello_RecordsWhetherThisDirectorChangesASessionsOwnerOnlyIfExpected()
     {
         // The Fleet Manager mission, step 8: the Gateway refuses a hand over on a Director that did not say this, because

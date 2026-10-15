@@ -1,3 +1,4 @@
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Factory.Definition;
 using Xunit;
 
@@ -15,6 +16,20 @@ internal static class DefinitionFixture
     public static readonly IReadOnlyCollection<string> FleetSkills = new[] { "browsers", "dev-throttle" };
 
     public static readonly IReadOnlyCollection<string> Machines = new[] { "SOREN_NORTH" };
+
+    /// <summary>The machine question as a publish meets it when no machine has a Director to ask (phase 5): every
+    /// machine asked answers that none is connected. Tests about the answers themselves build their own.</summary>
+    public static readonly FactoryDefinitionEndpoints.AskMachinesAsync AskNobody =
+        (_, questions, _) => Task.FromResult(NotConnected(questions));
+
+    /// <summary>One "no Director is connected" reply for each machine asked.</summary>
+    public static IReadOnlyDictionary<string, MachineReply> NotConnected(IReadOnlyList<MachineQuestion> questions)
+        => questions.ToDictionary(q => q.Machine, q => MachineReply.CouldNotAsk($"no Director on {q.Machine} is connected now."),
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The replies a publish of <paramref name="content"/> would get when no machine has a Director to ask.</summary>
+    public static IReadOnlyDictionary<string, MachineReply> NotConnected(IReadOnlyDictionary<string, string> content)
+        => NotConnected(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition));
 
     // 1  factory: devthrottle
     // 2  title: DevThrottle

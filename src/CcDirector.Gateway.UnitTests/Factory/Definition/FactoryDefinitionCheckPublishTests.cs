@@ -6,13 +6,15 @@ namespace CcDirector.Gateway.Tests.Factory.Definition;
 /// <summary>
 /// WHAT THE WHOLE-DEFINITION CHECK ADDS IN PHASE 4 (Factory Definition; design sections 3 and 7): the boss seat's name
 /// must be Boss, on every check; and, at a publish or a restore only, a start with a check is an error on its check
-/// line and the secret question is worded as the publish asks it. A save keeps the phase 1 behaviour for both.
+/// line and the secret question is worded as the publish asks it (phase 5: FactoryDefinitionCheckMachineQuestionTests). A save keeps
+/// the phase 1 behaviour for both.
 /// </summary>
 [Trait("Category", "FactoryDefinition")]
 public sealed class FactoryDefinitionCheckPublishTests
 {
     private static FactoryDefinitionCheckResult CheckFor(IReadOnlyDictionary<string, string> content, DefinitionCheckPurpose purpose)
-        => FactoryDefinitionCheck.Check(content, DefinitionFixture.FactoryId, DefinitionFixture.FleetSkills, DefinitionFixture.Machines, purpose);
+        => FactoryDefinitionCheck.Check(content, DefinitionFixture.FactoryId, DefinitionFixture.FleetSkills, DefinitionFixture.Machines, purpose,
+            DefinitionFixture.NotConnected(content));
 
     [Fact]
     public void Check_ABossSeatNamedOtherThanBoss_IsAnErrorOnItsNameLine_AtASave()
@@ -48,16 +50,6 @@ public sealed class FactoryDefinitionCheckPublishTests
 
         Assert.False(result.HasErrors);
         Assert.NotNull(result.Definition);
-    }
-
-    [Fact]
-    public void Check_TheSecretQuestion_AtAPublish_SaysTheMachineCannotAnswerYet()
-    {
-        var result = CheckFor(DefinitionFixture.Publishable(), DefinitionCheckPurpose.Publish);
-
-        DefinitionFixture.AssertNotice(result, "seats/outreach.yaml", 18,
-            "SOREN_SOUTH cannot answer yet whether it holds 'outreach-smtp-password': the question needs a Director that can be asked it, which comes with phase 5. The seat's start will check it.");
-        Assert.DoesNotContain(result.Findings, f => f.Message.Contains("is not checked yet", StringComparison.Ordinal) && f.Message.Contains("holds", StringComparison.Ordinal));
     }
 
     [Fact]

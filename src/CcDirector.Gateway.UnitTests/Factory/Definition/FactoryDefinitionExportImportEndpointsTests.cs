@@ -45,7 +45,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
         // fixture without the start that has a check.
         _apply = new FactoryPublishApply(db);
         new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Register(A, DefinitionFixture.Registration(), "test", Now);
-        _account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines);
+        _account = new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines, DefinitionFixture.AskNobody);
     }
 
     public void Dispose() => _h.Dispose();
@@ -98,7 +98,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
 
     private IResult Publish(int version) =>
         FactoryDefinitionEndpoints.Publish(Person(), TheFactory, new PublishFactoryDefinitionRequest { Version = version },
-            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(1));
+            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(1)).GetAwaiter().GetResult();
 
     private static int Status(IResult result) => Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode ?? 200;
 

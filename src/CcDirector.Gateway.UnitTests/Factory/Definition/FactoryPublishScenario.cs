@@ -84,7 +84,7 @@ internal sealed class FactoryPublishScenario
     public static FactoryDefinition Parse(IReadOnlyDictionary<string, string> content)
     {
         var check = FactoryDefinitionCheck.Check(content, Factory, DefinitionFixture.FleetSkills, DefinitionFixture.Machines,
-            DefinitionCheckPurpose.Publish);
+            DefinitionCheckPurpose.Publish, DefinitionFixture.NotConnected(content));
         Assert.True(check.Definition is not null, string.Join("\n", check.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}")));
         return check.Definition!;
     }

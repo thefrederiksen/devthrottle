@@ -77,7 +77,8 @@ internal static class FactoryDefinitionEndpoints
         Func<TenantId, IReadOnlyCollection<string>> connectedMachinesOf,
         Func<TenantId, string, FactoryLiveParts?> liveOf,
         FactoryPublishApply apply,
-        Func<DateTime> nowUtc)
+        Func<DateTime> nowUtc,
+        AskMachinesAsync askMachines)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(store);
@@ -87,8 +88,9 @@ internal static class FactoryDefinitionEndpoints
         ArgumentNullException.ThrowIfNull(connectedMachinesOf);
         ArgumentNullException.ThrowIfNull(liveOf);
         ArgumentNullException.ThrowIfNull(nowUtc);
+        ArgumentNullException.ThrowIfNull(askMachines);
 
-        var account = new Account(fleetSkillsOf, connectedMachinesOf);
+        var account = new Account(fleetSkillsOf, connectedMachinesOf, askMachines);
         const string factoryRoute = Prefix + "/{factory}";
         app.MapGet(factoryRoute, (HttpContext ctx, string factory) =>
             ReadPublished(ctx, factory, store, resolveTenant, sessionFactoryOf));
@@ -115,11 +117,17 @@ internal static class FactoryDefinitionEndpoints
         FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, diff, publish, restore and export routes, {ImportRoute} and {SchemasRoute}");
     }
 
-    /// <summary>What the whole-definition check needs to know about the account: its fleet skill ids and the machines
-    /// its Directors report now. Both are read at the moment of the write, never cached.</summary>
+    /// <summary>Asks each machine its question and answers one reply per machine (Factory Definition, phase 5).</summary>
+    internal delegate Task<IReadOnlyDictionary<string, MachineReply>> AskMachinesAsync(TenantId tenant,
+        IReadOnlyList<MachineQuestion> questions, CancellationToken ct);
+
+    /// <summary>What the whole-definition check needs to know about the account: its fleet skill ids, the machines its
+    /// Directors report now, and - for a publish or a restore - what each seat's machine answers when it is asked
+    /// (<see cref="FactoryMachineQuestionAsker"/>). All are read at the moment of the write, never cached.</summary>
     internal sealed record Account(
         Func<TenantId, IReadOnlyCollection<string>> FleetSkillsOf,
-        Func<TenantId, IReadOnlyCollection<string>> ConnectedMachinesOf);
+        Func<TenantId, IReadOnlyCollection<string>> ConnectedMachinesOf,
+        AskMachinesAsync AskMachines);
 
     /// <summary>GET the published definition, with its content.</summary>
     internal static IResult ReadPublished(HttpContext ctx, string factory, FactoryDefinitionStore store,
@@ -537,7 +545,7 @@ internal static class FactoryDefinitionEndpoints
     }
 
     /// <summary>POST a publish: a person makes one version the factory's definition - once the check finds no error in it.</summary>
-    internal static IResult Publish(HttpContext ctx, string factory, PublishFactoryDefinitionRequest? body,
+    internal static async Task<IResult> Publish(HttpContext ctx, string factory, PublishFactoryDefinitionRequest? body,
         FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
     {
@@ -552,7 +560,8 @@ internal static class FactoryDefinitionEndpoints
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
             return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
 
-        return PublishAsPerson(tenant, folded, body.Version, body.Replaces, caller.Id, store, apply, account, nowUtc());
+        return await PublishAsPerson(tenant, folded, body.Version, body.Replaces, caller.Id, store, apply, account, nowUtc(),
+            ct: ctx.RequestAborted);
     }
 
     /// <summary>
@@ -561,9 +570,9 @@ internal static class FactoryDefinitionEndpoints
     /// definition the same way. <paramref name="published"/> composes the answer to a publish that went through; every
     /// refusal is answered here, the same for both routes. Null answers as this route does.
     /// </summary>
-    internal static IResult PublishAsPerson(TenantId tenant, string folded, int version, int? replaces, string? personId,
+    internal static async Task<IResult> PublishAsPerson(TenantId tenant, string folded, int version, int? replaces, string? personId,
         FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
-        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null)
+        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null, CancellationToken ct = default)
     {
         // THE STORE'S OWN RULINGS COME FIRST (review of 4004, finding 3): no such version, already published, older
         // than the published one. They say which version is live, and the check's "was not published" must never be
@@ -572,7 +581,7 @@ internal static class FactoryDefinitionEndpoints
         if (store.RuleOnPublish(tenant, folded, version, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
 
-        var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
+        var check = await PublishCheckAsync(wanted!.Files, folded, tenant, account, ct);
         if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {version} was not published");
 
@@ -589,7 +598,7 @@ internal static class FactoryDefinitionEndpoints
 
     /// <summary>POST a restore: a person publishes a copy of an older version as the newest version - once the check
     /// finds no error in it.</summary>
-    internal static IResult Restore(HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body,
+    internal static async Task<IResult> Restore(HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body,
         FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
     {
@@ -604,24 +613,24 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
                 store, tenant, folded, null);
 
-        return RestoreAsPerson(tenant, folded, body.Version, body.ExpectedVersion, body.Replaces, caller.Id, store, apply,
-            account, nowUtc());
+        return await RestoreAsPerson(tenant, folded, body.Version, body.ExpectedVersion, body.Replaces, caller.Id, store, apply,
+            account, nowUtc(), ct: ctx.RequestAborted);
     }
 
     /// <summary>
     /// A PERSON'S RESTORE of one older definition version, which drives the factory. Shared with a defined factory's
     /// brief restore exactly as <see cref="PublishAsPerson"/> is shared with its publish.
     /// </summary>
-    internal static IResult RestoreAsPerson(TenantId tenant, string folded, int version, int expectedVersion, int? replaces,
+    internal static async Task<IResult> RestoreAsPerson(TenantId tenant, string folded, int version, int expectedVersion, int? replaces,
         string? personId, FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
-        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null)
+        Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null, CancellationToken ct = default)
     {
         // The store's own rulings first, as for a publish and asked without writing: no such version, already the
         // published one, a stale view.
         if (store.RuleOnRestore(tenant, folded, version, expectedVersion, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
 
-        var check = Check(wanted!.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
+        var check = await PublishCheckAsync(wanted!.Files, folded, tenant, account, ct);
         if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {version} was not restored");
 
@@ -649,6 +658,21 @@ internal static class FactoryDefinitionEndpoints
     private static FactoryDefinitionCheckResult Check(IReadOnlyDictionary<string, string> content, string factory,
         TenantId tenant, Account account, DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save)
         => FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant), purpose);
+
+    /// <summary>
+    /// THE CHECK A PUBLISH OR A RESTORE RUNS (phase 5, design section 6): ask first, then check. The definition is read
+    /// (format only) for the questions its seats raise, each seat's machine is asked them, and the answers go into the
+    /// pure check, which words the secret and repository notices from them. A definition that does not parse raises no
+    /// question; the check then refuses it on its format.
+    /// </summary>
+    private static async Task<FactoryDefinitionCheckResult> PublishCheckAsync(IReadOnlyDictionary<string, string> content,
+        string factory, TenantId tenant, Account account, CancellationToken ct)
+    {
+        var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition);
+        var replies = await account.AskMachines(tenant, questions, ct);
+        return FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant),
+            DefinitionCheckPurpose.Publish, replies);
+    }
 
     /// <summary>
     /// THE CHECK'S REFUSAL: 422, one sentence, and every finding with its file and line, so a writer can fix each one

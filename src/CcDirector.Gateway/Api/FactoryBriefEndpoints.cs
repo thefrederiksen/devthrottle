@@ -235,7 +235,7 @@ internal static class FactoryBriefEndpoints
     }
 
     /// <summary>POST a publish: a person makes one version the brief talks and runs are given.</summary>
-    internal static IResult Publish(HttpContext ctx, string factory, string seat, PublishFactoryBriefRequest? body,
+    internal static async Task<IResult> Publish(HttpContext ctx, string factory, string seat, PublishFactoryBriefRequest? body,
         FactoryBriefStore store, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc, Defined defined)
     {
@@ -245,13 +245,14 @@ internal static class FactoryBriefEndpoints
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
         if (defined.Briefs.IsDefined(tenant, factory))
-            return DefinedPublishOrRestore(defined, tenant, caller, factory, seat, body.Version, null, body.Replaces, nowUtc(), restore: false);
+            return await DefinedPublishOrRestore(defined, tenant, caller, factory, seat, body.Version, null, body.Replaces, nowUtc(),
+                restore: false, ctx.RequestAborted);
         return Answer(store.Publish(tenant, factory, seat, body.Version, caller.Kind, caller.Id, nowUtc()),
             store, tenant, factory, seat);
     }
 
     /// <summary>POST a bring back: a person publishes a copy of an older version as the newest version.</summary>
-    internal static IResult BringBack(HttpContext ctx, string factory, string seat, BringBackFactoryBriefRequest? body,
+    internal static async Task<IResult> BringBack(HttpContext ctx, string factory, string seat, BringBackFactoryBriefRequest? body,
         FactoryBriefStore store, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Func<DateTime> nowUtc, Defined defined)
     {
@@ -261,8 +262,8 @@ internal static class FactoryBriefEndpoints
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
         if (defined.Briefs.IsDefined(tenant, factory))
-            return DefinedPublishOrRestore(defined, tenant, caller, factory, seat, body.Version, body.ExpectedVersion, body.Replaces,
-                nowUtc(), restore: true);
+            return await DefinedPublishOrRestore(defined, tenant, caller, factory, seat, body.Version, body.ExpectedVersion, body.Replaces,
+                nowUtc(), restore: true, ctx.RequestAborted);
         return Answer(store.BringBack(tenant, factory, seat, body.Version, caller.Kind, caller.Id, nowUtc(), body.ExpectedVersion),
             store, tenant, factory, seat);
     }
@@ -426,8 +427,8 @@ internal static class FactoryBriefEndpoints
     /// answer is the seat's brief in the version now published, with the line saying the whole definition was
     /// published, what changes and what the transaction applied.
     /// </summary>
-    private static IResult DefinedPublishOrRestore(Defined defined, TenantId tenant, Caller caller, string factory,
-        string seat, int version, int? expectedVersion, int? replaces, DateTime nowUtc, bool restore)
+    private static async Task<IResult> DefinedPublishOrRestore(Defined defined, TenantId tenant, Caller caller, string factory,
+        string seat, int version, int? expectedVersion, int? replaces, DateTime nowUtc, bool restore, CancellationToken ct)
     {
         var act = restore ? "restore" : "publish";
         if (!FactoryNames.TrySeat(seat, out var folded, out var seatRefusal))
@@ -470,10 +471,10 @@ internal static class FactoryBriefEndpoints
             return Results.Json(dto);
         }
         return restore
-            ? FactoryDefinitionEndpoints.RestoreAsPerson(tenant, factoryId, version, expectedVersion ?? 0, replaces, caller.Id,
-                defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published)
-            : FactoryDefinitionEndpoints.PublishAsPerson(tenant, factoryId, version, replaces, caller.Id,
-                defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published);
+            ? await FactoryDefinitionEndpoints.RestoreAsPerson(tenant, factoryId, version, expectedVersion ?? 0, replaces, caller.Id,
+                defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published, ct)
+            : await FactoryDefinitionEndpoints.PublishAsPerson(tenant, factoryId, version, replaces, caller.Id,
+                defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published, ct);
     }
 
     /// <summary>A defined factory's brief in one definition version, as the brief routes answer it.</summary>

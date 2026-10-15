@@ -62,27 +62,34 @@ public static class FactoryDefinitionCheck
     /// <paramref name="fleetSkillIds"/> the skill ids in the account's skill store; <paramref name="connectedMachines"/>
     /// the machine names the account's Directors report now. The result carries the parsed definition when there is no
     /// error. <paramref name="purpose"/> says what the check is for: a publish or a restore drives the factory (phase
-    /// 4), so it also refuses a start with a check and words the secret question as the publish asks it.
+    /// 4), so it also refuses a start with a check and words the secret and repository questions from
+    /// <paramref name="machineReplies"/> - what each seat's machine answered when the publish asked it (phase 5,
+    /// <see cref="FactoryMachineQuestionAsker"/>), keyed by machine name. The check never asks a machine itself: the
+    /// caller asks first, then checks. A publish must pass the replies; a save ignores them.
     /// </summary>
     public static FactoryDefinitionCheckResult Check(
         IReadOnlyDictionary<string, string> content,
         string factoryId,
         IReadOnlyCollection<string> fleetSkillIds,
         IReadOnlyCollection<string> connectedMachines,
-        DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save)
+        DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save,
+        IReadOnlyDictionary<string, MachineReply>? machineReplies = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(factoryId);
         ArgumentNullException.ThrowIfNull(fleetSkillIds);
         ArgumentNullException.ThrowIfNull(connectedMachines);
-        FileLog.Write($"[FactoryDefinitionCheck] Check: factory={factoryId}, purpose={purpose}, files={content.Count}, fleetSkills={fleetSkillIds.Count}, machines={connectedMachines.Count}");
+        if (purpose == DefinitionCheckPurpose.Publish && machineReplies is null)
+            throw new ArgumentNullException(nameof(machineReplies),
+                "A publish check needs what the seats' machines answered: ask them first (FactoryMachineQuestionAsker), then check.");
+        FileLog.Write($"[FactoryDefinitionCheck] Check: factory={factoryId}, purpose={purpose}, files={content.Count}, fleetSkills={fleetSkillIds.Count}, machines={connectedMachines.Count}, replies={machineReplies?.Count ?? 0}");
 
         var findings = new List<DefinitionFinding>();
         var parsed = ReadFormat(content, findings);
         FactoryDefinition? definition = null;
         if (parsed is not null)
         {
-            new ReferenceCheck(parsed, factoryId, fleetSkillIds, connectedMachines, purpose, findings).Run();
+            new ReferenceCheck(parsed, factoryId, fleetSkillIds, connectedMachines, purpose, machineReplies, findings).Run();
             if (!findings.Any(f => f.IsError)) definition = Build(parsed);
         }
 
@@ -396,15 +403,18 @@ public static class FactoryDefinitionCheck
         private readonly HashSet<string> _machines;
         private readonly List<DefinitionFinding> _findings;
         private readonly DefinitionCheckPurpose _purpose;
+        private readonly IReadOnlyDictionary<string, MachineReply>? _replies;
         private readonly HashSet<string> _repositories = new(StringComparer.Ordinal);
         private string _defaultMachine = "";
         private string _defaultAgent = "";
 
         public ReferenceCheck(Parsed parsed, string factoryId, IReadOnlyCollection<string> fleetSkills,
-            IReadOnlyCollection<string> machines, DefinitionCheckPurpose purpose, List<DefinitionFinding> findings)
+            IReadOnlyCollection<string> machines, DefinitionCheckPurpose purpose,
+            IReadOnlyDictionary<string, MachineReply>? replies, List<DefinitionFinding> findings)
         {
             _p = parsed;
             _purpose = purpose;
+            _replies = replies is null ? null : new Dictionary<string, MachineReply>(replies, StringComparer.OrdinalIgnoreCase);
             _factoryId = factoryId;
             _fleetSkills = new HashSet<string>(fleetSkills, StringComparer.Ordinal);
             _machines = new HashSet<string>(machines, StringComparer.OrdinalIgnoreCase);
@@ -495,8 +505,7 @@ public static class FactoryDefinitionCheck
                     Error(_findings, path, repository.KeyLine,
                         $"The seat names the repository '{name}', which factory.yaml does not list under repositories. Add it there or remove it here.");
                 else
-                    Notice(_findings, path, repository.KeyLine,
-                        $"Whether {machine} has the repository '{name}' registered is not checked yet.");
+                    RepositoryNotice(path, repository.KeyLine, machine, name);
             }
 
             if (map.Find("grants") is { } grants)
@@ -706,12 +715,66 @@ public static class FactoryDefinitionCheck
                 Notice(_findings, path, line, $"No Director on {machine} is connected now, so it could not be confirmed.");
         }
 
-        // THE SECRET QUESTION (mission 5.5 step 5). A publish would ask the seat's machine; until phase 5 ships the
-        // Director's half, the publish says the machine cannot answer yet. A save keeps the phase 1 wording.
+        // THE MACHINE QUESTION (mission 5.5 step 5; phase 5, design section 6). A publish has asked the seat's machine
+        // before this check ran, and words each notice from its answer: held and allowed for run, or registered, is no
+        // notice; anything else is a notice naming the machine and the name - never an error, because the seat's start
+        // is the check that binds. A save asks nothing and keeps the phase 1 wording.
         private void SecretNotice(string path, int line, string machine, string secret)
-            => Notice(_findings, path, line, _purpose == DefinitionCheckPurpose.Publish
-                ? $"{machine} cannot answer yet whether it holds '{secret}': the question needs a Director that can be asked it, which comes with phase 5. The seat's start will check it."
-                : $"Whether {machine} holds '{secret}' is not checked yet.");
+        {
+            if (_purpose != DefinitionCheckPurpose.Publish)
+            {
+                Notice(_findings, path, line, $"Whether {machine} holds '{secret}' is not checked yet.");
+                return;
+            }
+            var reply = ReplyFrom(machine);
+            if (reply.NotAsked is { } why)
+            {
+                Notice(_findings, path, line, $"Whether {machine} holds '{secret}' could not be asked: {why} The seat's start will check it.");
+                return;
+            }
+            var answer = reply.Answer!;
+            if (answer.SecretsUnavailable is { } unavailable)
+            {
+                Notice(_findings, path, line, $"Whether {machine} holds '{secret}' could not be answered: {unavailable} The seat's start will check it.");
+                return;
+            }
+            var held = answer.Secrets.FirstOrDefault(s => string.Equals(s.Name, secret, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"{machine} answered the machine question without the secret '{secret}' it was asked about.");
+            if (!held.Held)
+                Notice(_findings, path, line,
+                    $"{machine} does not hold the secret '{secret}'. Add it there with cc-secrets; the seat's start will refuse without it.");
+            else if (!held.AllowedForRun)
+                Notice(_findings, path, line,
+                    $"{machine} holds '{secret}', but cc-secrets will not let a seat use it: {held.NotAllowedReason} The seat's start will refuse it.");
+        }
+
+        private void RepositoryNotice(string path, int line, string machine, string repository)
+        {
+            if (_purpose != DefinitionCheckPurpose.Publish)
+            {
+                Notice(_findings, path, line, $"Whether {machine} has the repository '{repository}' registered is not checked yet.");
+                return;
+            }
+            var reply = ReplyFrom(machine);
+            if (reply.NotAsked is { } why)
+            {
+                Notice(_findings, path, line,
+                    $"Whether {machine} has the repository '{repository}' registered could not be asked: {why} The seat's start will check it.");
+                return;
+            }
+            var registered = reply.Answer!.Repositories.FirstOrDefault(r => string.Equals(r.Name, repository, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"{machine} answered the machine question without the repository '{repository}' it was asked about.");
+            if (!registered.Registered)
+                Notice(_findings, path, line,
+                    $"{machine} does not have the repository '{repository}' registered. Register it there; the seat's start will refuse without it.");
+        }
+
+        // A publish asks every machine a seat with a secret or a repository runs on, so a machine with no reply here is
+        // a caller that did not ask - a defect, never something to word as a notice.
+        private MachineReply ReplyFrom(string machine)
+            => _replies!.TryGetValue(machine, out var reply)
+                ? reply
+                : throw new InvalidOperationException($"The publish did not ask {machine} the machine question before the check ran.");
     }
 
     /// <summary>An interval's length in seconds: <c>10m</c> is 600. The schema has already checked its form.</summary>

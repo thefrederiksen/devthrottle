@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.History;
@@ -53,8 +54,9 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(_db).Register(A, DefinitionFixture.Registration(), "test", Now);
     }
 
-    /// <summary>The definition routes mapped over this test's database, publishing through <paramref name="apply"/>.</summary>
-    private Routes MapThrough(FactoryPublishApply apply)
+    /// <summary>The definition routes mapped over this test's database, publishing through <paramref name="apply"/> and
+    /// asking the machines through <paramref name="askMachines"/> (by default, no machine has a Director to ask).</summary>
+    private Routes MapThrough(FactoryPublishApply apply, FactoryDefinitionEndpoints.AskMachinesAsync? askMachines = null)
     {
         var routes = new Routes(_services);
         FactoryDefinitionEndpoints.Map(routes,
@@ -65,7 +67,8 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             connectedMachinesOf: _ => DefinitionFixture.Machines,
             liveOf: (_, _) => null,
             apply: apply,
-            nowUtc: () => Now);
+            nowUtc: () => Now,
+            askMachines: askMachines ?? DefinitionFixture.AskNobody);
         return routes;
     }
 
@@ -189,6 +192,38 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.Equal("first", row.GetProperty("changeNote").GetString());
         Assert.False(row.TryGetProperty("files", out _));
         Assert.DoesNotContain("Run the factory.", history.Body.GetRawText());
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_ASKS_THE_SEATS_MACHINE_AND_ITS_ANSWER_COMES_BACK_AS_A_NOTICE_IN_THE_RESPONSE()
+    {
+        // Phase 5, design section 6: the machine answers that it does not hold the seat's secret and has its repository
+        // registered. The publish goes through, and the response carries the notice on the line that names the secret.
+        IReadOnlyList<MachineQuestion>? asked = null;
+        _routes = MapThrough(new FactoryPublishApply(_db), (_, questions, _) =>
+        {
+            asked = questions;
+            IReadOnlyDictionary<string, MachineReply> replies = questions.ToDictionary(q => q.Machine, q => MachineReply.Answered(new FactoryMachineAnswer
+            {
+                Machine = q.Machine,
+                Secrets = q.Secrets.Select(n => new FactorySecretAnswer { Name = n, Held = false }).ToList(),
+                Repositories = q.Repositories.Select(n => new FactoryRepositoryAnswer { Name = n, Registered = true, Path = "repos/" + n }).ToList(),
+            }), StringComparer.OrdinalIgnoreCase);
+            return Task.FromResult(replies);
+        });
+        await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Publishable(), 0));
+
+        var published = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+
+        Assert.Equal(200, published.Status);
+        var question = Assert.Single(asked!);
+        Assert.Equal("SOREN_SOUTH", question.Machine);
+        var findings = published.Body.GetProperty("findings").EnumerateArray().ToList();
+        var notice = Assert.Single(findings, f => f.GetProperty("file").GetString() == "seats/outreach.yaml" && f.GetProperty("line").GetInt32() == 18);
+        Assert.Equal("notice", notice.GetProperty("severity").GetString());
+        Assert.Equal("SOREN_SOUTH does not hold the secret 'outreach-smtp-password'. Add it there with cc-secrets; the seat's start will refuse without it.",
+            notice.GetProperty("message").GetString());
+        Assert.DoesNotContain(findings, f => f.GetProperty("file").GetString() == "seats/outreach.yaml" && f.GetProperty("line").GetInt32() == 8);
     }
 
     [Fact]

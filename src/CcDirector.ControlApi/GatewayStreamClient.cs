@@ -912,6 +912,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 CreatesFleetManagerHome = true,   // this build honours NewSessionRequest.FleetManagerHome
                 ChangesOwner = true,              // this build carries out the set-controller verb (hand over)
                 ChangesOwnerIfExpected = true,    // ...and makes the change only while the owner is still the expected one
+                AnswersFactoryMachineQuestion = true, // this build answers the factory-machine-question verb
             });
             awaitGateway += DateTime.UtcNow - helloStarted;
             helloAnswered = true;

@@ -126,6 +126,9 @@ internal static class SessionCommandExecutor
         // The License Switching mission, contract section 8: signing an account in on this machine when the Gateway
         // asks, approving another machine's sign-in in a browser profile here, and taking that approval back.
         new LicenseSignInExecutor(),
+        // Factory Definition, phase 5: the machine question - whether this machine holds a defined factory's seat
+        // secrets and has its repositories registered, asked by the Gateway when a person publishes the definition.
+        new FactoryMachineQuestionExecutor(),
     };
 
     /// <summary>
