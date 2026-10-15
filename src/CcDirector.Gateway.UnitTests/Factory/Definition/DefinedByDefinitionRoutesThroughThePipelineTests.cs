@@ -522,6 +522,34 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
     }
 
     [Fact]
+    public async Task Disable_ASchedulesOfADefinedFactory_InTheCockpitsBodyShape_Works()
+    {
+        Seed(Standing.Published);
+        // client-core's cronJobWriteBody: no id, no factory or seat (said nothing, so kept), none of the display words.
+        var job = Job("cj_dt");
+        var cockpit = Json(new
+        {
+            id = "",
+            name = job.Name,
+            enabled = false,
+            scheduleKind = job.ScheduleKind,
+            cronExpression = job.CronExpression,
+            runAt = job.RunAt,
+            timeZoneId = job.TimeZoneId,
+            target = new { machine = job.Target.Machine },
+            action = new { repoPath = job.Action.RepoPath, seed = job.Action.Seed, workListName = job.Action.WorkListName, autoDismiss = job.Action.AutoDismiss },
+            preventOverlap = job.PreventOverlap,
+            notifyOn = job.NotifyOn,
+            notifyWebhookUrl = job.NotifyWebhookUrl,
+        });
+
+        var answer = await Send("PUT", "/cron/jobs/cj_dt", cockpit);
+
+        AssertNotRefusedByTheDefinition(answer, 200);
+        Assert.Equal((false, Defined, "boss"), (Job("cj_dt").Enabled, Job("cj_dt").Factory, Job("cj_dt").Seat));
+    }
+
+    [Fact]
     public async Task PauseThenResume_ATriggerOfADefinedFactory_BothWork()
     {
         Seed(Standing.Published);

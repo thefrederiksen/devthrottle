@@ -28,6 +28,8 @@ export interface CronJobAction {
   seed: string;
   /** When set, the fire drains this named work list instead of seeding a single session. */
   workListName?: string | null;
+  /** Whether each session a fire starts closes itself when it is done. Absent on an older Gateway. */
+  autoDismiss?: boolean;
 }
 
 /** A scheduled job: WHEN (scheduleKind + cronExpression | runAt in timeZoneId), WHICH machine
@@ -297,6 +299,10 @@ export function cronJobWriteBody(job: CronJob, overrides: Partial<CronJob>): Cro
       repoPath: job.action.repoPath,
       seed: job.action.seed,
       workListName: job.action.workListName ?? null,
+      // Sent back as stored: left out, the Gateway reads it as true, so a pause would switch a schedule's sessions
+      // to closing themselves, and on a factory with a published definition (where only a switch is allowed) the
+      // pause would read as an edit and be refused.
+      autoDismiss: job.action.autoDismiss,
     },
     preventOverlap: job.preventOverlap,
     notifyOn: job.notifyOn,

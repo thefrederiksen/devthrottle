@@ -106,6 +106,19 @@ describe("cronJobWriteBody", () => {
     expect(body.id).toBe("");
     expect(body.action).toEqual({ repoPath: STORED.action.repoPath, seed: STORED.action.seed, workListName: null });
   });
+
+  it("sends a schedule's autoDismiss back as stored, so a pause changes nothing but enabled", () => {
+    const stored: CronJob = { ...STORED, action: { ...STORED.action, autoDismiss: false } };
+
+    const body = cronJobWriteBody(stored, { enabled: false });
+
+    expect(JSON.parse(JSON.stringify(body)).action).toEqual({
+      repoPath: STORED.action.repoPath,
+      seed: STORED.action.seed,
+      workListName: null,
+      autoDismiss: false,
+    });
+  });
 });
 
 describe("the pause-everything switch", () => {
