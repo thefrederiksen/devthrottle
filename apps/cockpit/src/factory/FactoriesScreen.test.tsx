@@ -342,6 +342,7 @@ describe("A factory's page (mockup 2)", () => {
       ["Activity", "/factories/warmforward/activity"],
       ["Reports", "/factories/warmforward/reports"],
       ["Memory", "/factories/warmforward/memory"],
+      ["Records", "/factories/warmforward/records"],
       ["Definition", "/factories/warmforward/definition"],
     ]);
     expect(tabs[0].getAttribute("aria-current")).toBe("page");

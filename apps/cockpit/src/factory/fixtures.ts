@@ -342,6 +342,7 @@ export const FACTORY_PAGE: FactoryPageView = {
     { key: "activity", label: "Activity" },
     { key: "reports", label: "Reports" },
     { key: "memory", label: "Memory" },
+    { key: "records", label: "Records" },
     { key: "definition", label: "Definition" },
   ],
   goal: {

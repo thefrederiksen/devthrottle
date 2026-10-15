@@ -1,0 +1,250 @@
+{
+  "20-records-empty": {
+    "body": {
+      "attachmentColumns": [
+        "File",
+        "Seat",
+        "Type",
+        "Size",
+        "Kept by",
+        "When"
+      ],
+      "attachmentRows": [],
+      "attachments": {
+        "emptyText": "No attachment yet. A seat of QA Empty keeps one with cc-devthrottle factory attach add.",
+        "heading": "Attachments",
+        "summaryText": ""
+      },
+      "documentColumns": [
+        "Document",
+        "Version",
+        "Written by",
+        "When",
+        "Size"
+      ],
+      "documentRows": [],
+      "documents": {
+        "emptyText": "No working document yet. A seat of QA Empty writes one with cc-devthrottle factory doc write.",
+        "heading": "Working documents",
+        "summaryText": ""
+      },
+      "factory": "qa-empty",
+      "heading": "The records of QA Empty",
+      "introText": "What QA Empty has produced, kept on the Gateway so it does not depend on one machine's disk: a journal per seat, working documents with every version, and attachments. The factory's sessions write them with cc-devthrottle factory journal, doc and attach. A journal entry is never edited, and every version of a document is kept.",
+      "journalGroups": [],
+      "journals": {
+        "emptyText": "No journal entry yet. A seat of QA Empty adds one with cc-devthrottle factory journal add.",
+        "heading": "Journals",
+        "summaryText": ""
+      }
+    },
+    "request": "GET /gateway/factories/qa-empty/records"
+  },
+  "21-records": {
+    "body": {
+      "attachmentColumns": [
+        "File",
+        "Seat",
+        "Type",
+        "Size",
+        "Kept by",
+        "When"
+      ],
+      "attachmentRows": [
+        {
+          "contentType": "text/plain",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/c54c944f-55a6-43e8-b178-2036137183be",
+          "downloadLabel": "Download",
+          "id": "c54c944f-55a6-43e8-b178-2036137183be",
+          "name": "notes/kickoff.txt",
+          "seatText": "The factory as a whole",
+          "sizeText": "30 bytes",
+          "whenText": "today 12:46",
+          "whoText": "a person (device browser qa-cockpit-browser)"
+        },
+        {
+          "contentType": "text/csv",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/afb87f3b-9b7d-49ec-98ef-46ae8a85e9be",
+          "downloadLabel": "Download",
+          "id": "afb87f3b-9b7d-49ec-98ef-46ae8a85e9be",
+          "name": "exports/leads-2026-10-13.csv",
+          "seatText": "Boss (boss)",
+          "sizeText": "39 bytes",
+          "whenText": "today 12:46",
+          "whoText": "the one-time upload from RIG_MACHINE"
+        },
+        {
+          "contentType": "image/png",
+          "downloadHref": "/gateway/factories/qa-outreach/records/attachments/9a08ce18-03ee-4b29-8ce7-292f10eb0e31",
+          "downloadLabel": "Download",
+          "id": "9a08ce18-03ee-4b29-8ce7-292f10eb0e31",
+          "name": "shots/home-page.png",
+          "seatText": "Writer (writer)",
+          "sizeText": "146 bytes",
+          "whenText": "today 12:46",
+          "whoText": "a person (device browser qa-cockpit-browser)"
+        }
+      ],
+      "attachments": {
+        "emptyText": null,
+        "heading": "Attachments",
+        "summaryText": "3 files, 215 bytes in all."
+      },
+      "documentColumns": [
+        "Document",
+        "Version",
+        "Written by",
+        "When",
+        "Size"
+      ],
+      "documentRows": [
+        {
+          "historyLabel": null,
+          "name": "focus.md",
+          "openLabel": "Open",
+          "sizeText": "54 bytes",
+          "versionText": "Version 1",
+          "whenText": "today 12:46",
+          "whoText": "Written by a person (device browser qa-cockpit-browser)"
+        },
+        {
+          "historyLabel": "History",
+          "name": "outreach/ledger.json",
+          "openLabel": "Open",
+          "sizeText": "175 bytes",
+          "versionText": "Version 3",
+          "whenText": "today 12:46",
+          "whoText": "Written by a person (device browser qa-cockpit-browser)"
+        }
+      ],
+      "documents": {
+        "emptyText": null,
+        "heading": "Working documents",
+        "summaryText": "2 documents, each as it stands now."
+      },
+      "factory": "qa-outreach",
+      "heading": "The records of QA Outreach",
+      "introText": "What QA Outreach has produced, kept on the Gateway so it does not depend on one machine's disk: a journal per seat, working documents with every version, and attachments. The factory's sessions write them with cc-devthrottle factory journal, doc and attach. A journal entry is never edited, and every version of a document is kept.",
+      "journalGroups": [
+        {
+          "openLabel": "Read",
+          "seat": null,
+          "summaryText": "1 entry, the newest of 2026-10-12.",
+          "title": "The factory as a whole"
+        },
+        {
+          "openLabel": "Read",
+          "seat": "boss",
+          "summaryText": "2 entries, the newest of 2026-10-14.",
+          "title": "Boss (boss)"
+        },
+        {
+          "openLabel": "Read",
+          "seat": "writer",
+          "summaryText": "2 entries, the newest of 2026-10-14.",
+          "title": "Writer (writer)"
+        }
+      ],
+      "journals": {
+        "emptyText": null,
+        "heading": "Journals",
+        "summaryText": "3 journals, 5 entries in all."
+      }
+    },
+    "request": "GET /gateway/factories/qa-outreach/records"
+  },
+  "22-journal-of-a-seat": {
+    "body": {
+      "closeLabel": "Back to the records",
+      "emptyText": null,
+      "entries": [
+        {
+          "attachments": [
+            {
+              "contentType": "image/png",
+              "downloadHref": "/gateway/factories/qa-outreach/records/attachments/9a08ce18-03ee-4b29-8ce7-292f10eb0e31",
+              "downloadLabel": "Download",
+              "id": "9a08ce18-03ee-4b29-8ce7-292f10eb0e31",
+              "name": "shots/home-page.png",
+              "seatText": "Writer (writer)",
+              "sizeText": "146 bytes",
+              "whenText": "today 12:46",
+              "whoText": "a person (device browser qa-cockpit-browser)"
+            }
+          ],
+          "dateText": "2026-10-14",
+          "id": "0f825c4d-eddb-47cc-8c7a-f9203b0f4e3a",
+          "lineText": "Written by a person (device browser qa-cockpit-browser) today 12:46.",
+          "text": "Published the first post. Screenshot of the home page attached."
+        },
+        {
+          "attachments": [],
+          "dateText": "2026-10-13",
+          "id": "e64e3098-7507-4191-9307-9e9dee056de0",
+          "lineText": "Written by the one-time upload from RIG_MACHINE today 12:46.",
+          "text": "Drafted the first post from the template."
+        }
+      ],
+      "heading": "The journal of Writer (writer)",
+      "summaryText": "2 entries."
+    },
+    "request": "GET /gateway/factories/qa-outreach/records/journal?seat=writer"
+  },
+  "26-document-history": {
+    "body": {
+      "closeLabel": "Back to the records",
+      "columns": [
+        "Version",
+        "State",
+        "Written by",
+        "When",
+        "Size"
+      ],
+      "heading": "Every version of outreach/ledger.json",
+      "name": "outreach/ledger.json",
+      "newestLabel": null,
+      "nextBefore": null,
+      "olderLabel": null,
+      "rows": [
+        {
+          "openLabel": "Open",
+          "sizeText": "175 bytes",
+          "stateTone": "ok",
+          "stateWord": "Newest",
+          "title": "Version 3",
+          "version": 3,
+          "whenText": "today 12:46",
+          "whoText": "Written by a person (device browser qa-cockpit-browser)"
+        },
+        {
+          "openLabel": "Open",
+          "sizeText": "95 bytes",
+          "stateTone": "grey",
+          "stateWord": "Earlier",
+          "title": "Version 2",
+          "version": 2,
+          "whenText": "today 12:46",
+          "whoText": "Written by a person (device browser qa-cockpit-browser)"
+        },
+        {
+          "openLabel": "Open",
+          "sizeText": "17 bytes",
+          "stateTone": "grey",
+          "stateWord": "Earlier",
+          "title": "Version 1",
+          "version": 1,
+          "whenText": "today 12:46",
+          "whoText": "Written by the one-time upload from RIG_MACHINE"
+        }
+      ],
+      "summaryText": "3 versions. Every version is kept."
+    },
+    "request": "GET /gateway/factories/qa-outreach/records/documents/history?name=outreach/ledger.json"
+  },
+  "28-attachment-downloaded": {
+    "file": "home-page.png",
+    "id": "9a08ce18-03ee-4b29-8ce7-292f10eb0e31",
+    "same_bytes_as_kept": true,
+    "sha256": "7b36187ded79a3dc2bbcda5f0d4e916a47b6a0f54c2f409a8e521751f4a2a928"
+  }
+}

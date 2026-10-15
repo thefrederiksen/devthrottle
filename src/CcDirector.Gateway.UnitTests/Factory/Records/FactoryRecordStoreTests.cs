@@ -419,7 +419,7 @@ public sealed class FactoryRecordStoreTests : IDisposable
         Assert.Equal(2, store.List(A, TheFactory, Outreach).Total);
         // Nothing on the store can change or remove an entry: Append is its only write.
         var writes = typeof(FactoryJournalStore).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
-            .Select(m => m.Name).Where(n => n is not ("List" or "Get")).ToList();
+            .Select(m => m.Name).Where(n => n is not ("List" or "Get" or "Journals")).ToList();
         Assert.Equal(new[] { "Append" }, writes);
     }
 
