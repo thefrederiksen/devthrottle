@@ -1,6 +1,5 @@
-using CcDirector.Core.Agents;
 
-namespace CcDirector.Gateway.Factory.Definition;
+namespace CcDirector.Core.Agents;
 
 /// <summary>Whether an agent can take a seat's rules at launch, and the reason when it cannot.</summary>
 public sealed record FactoryRulesAnswer(bool CanTake, string? Reason);
@@ -15,6 +14,10 @@ public sealed record FactoryRulesAnswer(bool CanTake, string? Reason);
 /// limits. Claude Code takes them (proof (a): merged into the one settings file it is launched with). Codex enforces a
 /// rule given at launch only while its hook runs, fail-open (proof (b)), so it is refused. Every other agent reads
 /// "not shown yet"; when a proof answers for one, its row below is the one edit that changes the check.
+///
+/// ONE TABLE, READ ON BOTH SIDES: the Gateway's publish and spawn door, and the Director's own guard at the start
+/// (<see cref="CcDirector.Core.Sessions.FactoryKitLaunch"/>), which refuses a kit an old version or a child brings to an
+/// agent that cannot take it. It lives in Core so neither side keeps a copy.
 /// </summary>
 public static class FactoryRulesSupport
 {

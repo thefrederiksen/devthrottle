@@ -1,6 +1,5 @@
-using CcDirector.Core.Agents;
 
-namespace CcDirector.Gateway.Factory.Definition;
+namespace CcDirector.Core.Agents;
 
 /// <summary>Whether an agent can load a factory skill, and the reason when it cannot.</summary>
 public sealed record FactorySkillAnswer(bool CanLoad, string? Reason);
@@ -14,6 +13,10 @@ public sealed record FactorySkillAnswer(bool CanLoad, string? Reason);
 /// agent reads "not shown yet", so a seat that names a factory skill is refused with that reason rather than started
 /// with a skill it silently does not get. When a proof answers for an agent, its row below is the one edit that
 /// changes the check. <see cref="FactoryRulesSupport"/> is the same table for rules at launch.
+///
+/// ONE TABLE, READ ON BOTH SIDES: the Gateway's publish and spawn door, and the Director's own guard at the start
+/// (<see cref="CcDirector.Core.Sessions.FactoryKitLaunch"/>), which refuses a kit an old version or a child brings to an
+/// agent that cannot take it. It lives in Core so neither side keeps a copy.
 /// </summary>
 public static class FactorySkillSupport
 {

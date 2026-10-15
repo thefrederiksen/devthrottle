@@ -148,6 +148,17 @@ public sealed class SessionManager : IDisposable
     public string? FactoryRunRoot { get; init; }
 
     /// <summary>
+    /// Answers, before a seat's agent starts, whether this machine holds the secrets its kit lists and may use them for
+    /// run (Factory Definition mission, phase 5, design section 6). The installed cc-secrets by default; it is run only
+    /// for a seat that lists a secret. A test hands in one with a faked list.
+    /// </summary>
+    public FactoryMachineQuestion FactorySecretsQuestion { get; set; } = FactoryMachineQuestion.ForThisMachine();
+
+    /// <summary>Where the Claude Code hook files go. Null is the real storage root
+    /// (<see cref="Claude.ClaudeHookInstaller.DefaultDirectory"/>); a test points it at a scratch folder.</summary>
+    public string? ClaudeHooksDirectory { get; init; }
+
+    /// <summary>
     /// The kit folders a create is writing or a live session is using, guarded by <see cref="_kitGate"/>. The start-up
     /// sweep takes the same lock, so it can never delete a folder a create is putting in place at that moment, before
     /// the session that owns it is in the roster.
@@ -738,6 +749,24 @@ public sealed class SessionManager : IDisposable
         // the id minted just above. A session that is not a seat skips it entirely.
         var kitDirectory = factoryKit is not null ? PutFactoryKitInPlace(factoryKit, id) : null;
 
+        // WHAT THE KIT CARRIES DECIDES WHETHER THE SEAT MAY START HERE (Factory Definition mission, phase 5): an agent
+        // that cannot take its rules or skills is refused, and so is a machine that does not hold a secret the seat
+        // lists. Asked now, with the kit, so a refusal takes no slot and mints no key; the kit this create wrote goes.
+        FactoryKitLaunchPlan? kitLaunch = null;
+        if (factoryKit is not null)
+        {
+            try
+            {
+                kitLaunch = PrepareFactoryKitLaunch(factoryKit, kitDirectory!, agent.Kind);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionManager] CreateSession FAILED before the session existed, at the seat's kit: session={id}: {ex.Message}");
+                DiscardFreshKit(factoryKit, kitDirectory);
+                throw;
+            }
+        }
+
         // Issue #800: the name-at-birth is composed HERE, once, because the pooled worktree below is
         // taken in this session's name and the holder shown by `cc-worktrees list` should be the name
         // a person reads, not only an identifier. The factory takes nothing but the id, so composing it
@@ -1043,14 +1072,23 @@ public sealed class SessionManager : IDisposable
             // auto-compaction (Claude mints a new id + transcript file on each). --settings MERGES
             // with the user's own hooks - it never replaces them - and the hook files read the two
             // file paths stamped above from the environment.
+            //
+            // A SEAT WITH RULES is given its OWN settings file instead (Factory Definition mission, phase 5): the same hooks
+            // plus its rules, written into its kit before the agent starts. Still exactly one --settings. The shared file is
+            // installed all the same, because the seat's file runs the script it installs. A seat with factory skills also
+            // gets --plugin-dir. A session that is not a seat, or a seat whose kit carries neither, gets today's line.
             if (agent.Kind == AgentKind.ClaudeCode)
             {
-                var hookSettings = CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled();
-                if (!string.IsNullOrEmpty(hookSettings))
-                {
-                    args = $"{args} --settings \"{hookSettings}\"".Trim();
+                var hookSettings = ClaudeHooksDirectory is { } hooksDirectory
+                    ? CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled(hooksDirectory)
+                    : CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled();
+                args = FactoryKitLaunch.ClaudeArguments(args, hookSettings, kitLaunch);
+                if (kitLaunch?.SettingsPath is { } seatSettings)
+                    _log?.Invoke($"Started with the seat's own settings, its hooks and its rules (--settings \"{seatSettings}\").");
+                else if (!string.IsNullOrEmpty(hookSettings))
                     _log?.Invoke("Installed Claude session-pointer hooks (--settings).");
-                }
+                if (kitLaunch?.PluginDirectory is { } pluginDirectory)
+                    _log?.Invoke($"Started with the seat's factory skills (--plugin-dir \"{pluginDirectory}\").");
             }
 
             // For Codex, merge the fleet-preamble SessionStart hook into ~/.codex/hooks.json and
@@ -1358,6 +1396,59 @@ public sealed class SessionManager : IDisposable
         if (request is null || kitDirectory is null) return;
         if (request.ReturningDirectory is null) FactoryRunKit.Delete(kitDirectory, FactoryRunRoot);
         ReleaseKitFolder(kitDirectory);
+    }
+
+    /// <summary>
+    /// Read the kit just put in place and decide what it means for this start (Factory Definition mission, phase 5):
+    /// refuse an agent that cannot take its rules or skills, refuse a machine that does not hold, or may not run, a
+    /// secret the seat lists - asked through <see cref="FactorySecretsQuestion"/>, never reading a value - and, for a
+    /// Claude Code seat, write its own settings file. Throws <see cref="FactorySeatRefusedException"/> for a refusal and
+    /// <see cref="FactoryKitUnavailableException"/> for a kit that cannot be read or a settings file that cannot be
+    /// written.
+    /// </summary>
+    private FactoryKitLaunchPlan PrepareFactoryKitLaunch(FactoryKitRequest request, string kitDirectory, AgentKind agent)
+    {
+        FileLog.Write($"[SessionManager] PrepareFactoryKitLaunch: agent={agent}, {request}, dir={kitDirectory}");
+        FactoryKitContents contents;
+        try
+        {
+            contents = FactoryKitLaunch.Read(kitDirectory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            throw new FactoryKitUnavailableException(request, $"it was written but could not be read: {ex.Message}", ex);
+        }
+
+        if (FactoryKitLaunch.WhyTheAgentCannotTakeIt(agent, contents) is { } agentRefusal)
+        {
+            FileLog.Write($"[SessionManager] PrepareFactoryKitLaunch REFUSED: agent={agent}, seat={request.Seat}: {agentRefusal}");
+            throw new FactorySeatRefusedException(request, agentRefusal);
+        }
+
+        if (contents.Secrets.Count > 0)
+        {
+            var machine = Environment.MachineName;
+            var question = FactorySecretsQuestion;
+            // The create is synchronous; the question runs on a pool thread so no caller's synchronisation context can
+            // deadlock it, as the kit download does. It answers within its own list timeout.
+            var answer = Task.Run(() => question.AnswerAsync(machine, contents.Secrets, Array.Empty<string>(),
+                Array.Empty<Configuration.RepositoryConfig>(), CancellationToken.None)).GetAwaiter().GetResult();
+            if (FactoryKitLaunch.WhyTheSecretsRefuse(request.Seat, machine, contents.Secrets, answer) is { } secretRefusal)
+            {
+                FileLog.Write($"[SessionManager] PrepareFactoryKitLaunch REFUSED: seat={request.Seat}: {secretRefusal}");
+                throw new FactorySeatRefusedException(request, secretRefusal);
+            }
+        }
+
+        try
+        {
+            return FactoryKitLaunch.PlanFor(agent, kitDirectory, contents,
+                ClaudeHooksDirectory ?? Claude.ClaudeHookInstaller.DefaultDirectory(), OperatingSystem.IsWindows());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new FactoryKitUnavailableException(request, $"the seat's own settings file, which carries its rules, could not be written to {kitDirectory}: {ex.Message}", ex);
+        }
     }
 
     private static readonly StringComparison PathComparison =

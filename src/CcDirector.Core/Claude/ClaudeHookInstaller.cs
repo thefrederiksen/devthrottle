@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
@@ -131,12 +132,10 @@ public static class ClaudeHookInstaller
         {
             Directory.CreateDirectory(directory);
 
-            var scriptPath = forWindows
-                ? Path.Combine(directory, "report-session.ps1")
-                : Path.Combine(directory, "report-session.sh");
+            var scriptPath = ScriptPathIn(directory, forWindows);
             File.WriteAllText(scriptPath, forWindows ? PowerShellScriptContent : ShellScriptContent);
 
-            var settingsPath = Path.Combine(directory, "hooks-settings.json");
+            var settingsPath = Path.Combine(directory, SharedSettingsFileName);
             File.WriteAllText(settingsPath, BuildSettingsJson(scriptPath, forWindows));
 
             return settingsPath;
@@ -148,9 +147,57 @@ public static class ClaudeHookInstaller
         }
     }
 
-    private static string DefaultDirectory() => CcStorage.ClaudeHooks();
+    /// <summary>The one settings file every Claude Code session on the machine shares.</summary>
+    public const string SharedSettingsFileName = "hooks-settings.json";
+
+    /// <summary>The name of a seat's OWN settings file, in its kit folder (Factory Definition mission, phase 5).</summary>
+    public const string SessionSettingsFileName = "settings.json";
+
+    /// <summary>
+    /// A SEAT'S OWN SETTINGS FILE (Factory Definition mission, phase 5, design section 5; phase 0 proof (a), finding 3).
+    /// Writes <c>&lt;kitDirectory&gt;/settings.json</c>: exactly the hooks content <see cref="EnsureInstalled(string, bool)"/>
+    /// writes into the shared file for <paramref name="hooksDirectory"/> - the same builder, the same script path - plus
+    /// <paramref name="permissions"/>, the seat's rules. Returns the file's path, which the session is given as its one
+    /// <c>--settings</c> in place of the shared file.
+    ///
+    /// The rules NEVER go into the shared file: every Claude Code session on the machine is launched with it, so a merge
+    /// there would hand this seat's limits to every other session, and the next launch rewrites it whole, erasing them
+    /// under a seat still running. A copy in the kit is seen by this session alone and goes with the kit.
+    ///
+    /// Unlike <see cref="EnsureInstalled(string, bool)"/>, a failure is THROWN: a seat with rules is never started
+    /// without them.
+    /// </summary>
+    public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(kitDirectory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(hooksDirectory);
+        ArgumentNullException.ThrowIfNull(permissions);
+
+        var settings = JsonSerializer.SerializeToNode(BuildSettings(ScriptPathIn(hooksDirectory, forWindows), forWindows))!.AsObject();
+        settings["permissions"] = permissions.DeepClone();
+
+        var path = Path.Combine(kitDirectory, SessionSettingsFileName);
+        File.WriteAllText(path, settings.ToJsonString(SettingsJsonOptions));
+        FileLog.Write($"[ClaudeHookInstaller] WriteSessionSettings: wrote {path} (hooks from {hooksDirectory})");
+        return path;
+    }
+
+    /// <summary>The directory the shared hook files go in on this machine.</summary>
+    public static string DefaultDirectory() => CcStorage.ClaudeHooks();
+
+    private static string ScriptPathIn(string directory, bool forWindows) => forWindows
+        ? Path.Combine(directory, "report-session.ps1")
+        : Path.Combine(directory, "report-session.sh");
+
+    private static readonly JsonSerializerOptions SettingsJsonOptions = new() { WriteIndented = true };
 
     private static string BuildSettingsJson(string scriptPath, bool forWindows)
+        => JsonSerializer.Serialize(BuildSettings(scriptPath, forWindows), SettingsJsonOptions);
+
+    // THE ONE BUILDER of the hooks content: the shared file is it serialized, and a seat's own file is it plus the
+    // seat's permissions (WriteSessionSettings). Two builders would drift, and a seat would lose the pointer tracking
+    // and the preamble every other session has.
+    private static object BuildSettings(string scriptPath, bool forWindows)
     {
         // Shell form (single command string), which works whether Claude runs hooks through
         // cmd.exe or sh. The script path is quoted (per-user data dirs contain spaces, e.g.
@@ -165,14 +212,12 @@ public static class ClaudeHookInstaller
         for (var i = 0; i < SessionStartMatchers.Length; i++)
             sessionStart[i] = new { matcher = SessionStartMatchers[i], hooks = new[] { hook } };
 
-        var settings = new
+        return new
         {
             hooks = new Dictionary<string, object[]>
             {
                 ["SessionStart"] = sessionStart,
             },
         };
-
-        return JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
     }
 }

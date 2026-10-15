@@ -40,6 +40,15 @@ public static class FactoryRunKit
     /// </summary>
     public const string CheckFileName = "check.json";
 
+    /// <summary>The kit's description: factory, seat, version, kind, and on a seat kit the seat's secret names.</summary>
+    public const string KitFileName = "kit.json";
+
+    /// <summary>The seat's rules, merged: <c>{"permissions": {"deny": [...], "ask": [...]}}</c>.</summary>
+    public const string RulesFileName = "rules.json";
+
+    /// <summary>The folder of a Claude Code seat's factory skills, a plugin passed with <c>--plugin-dir</c>.</summary>
+    public const string PluginFolderName = "claude-plugin";
+
     /// <summary>A session's kit folder under the real storage root, or under <paramref name="root"/> in a test.</summary>
     public static string DirectoryFor(Guid sessionId, string? root = null)
         => Path.Combine(root ?? CcStorage.FactoryRun(), sessionId.ToString());

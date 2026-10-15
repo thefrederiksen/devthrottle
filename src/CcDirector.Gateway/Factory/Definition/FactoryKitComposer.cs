@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Agents;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Factory.Records;
@@ -55,15 +56,15 @@ public sealed record FactoryKitSource(
 /// </summary>
 public static class FactoryKitComposer
 {
-    public const string KitFile = "kit.json";
-    public const string RulesFile = "rules.json";
+    public const string KitFile = FactoryRunKit.KitFileName;
+    public const string RulesFile = FactoryRunKit.RulesFileName;
     public const string BriefFile = "brief.md";
     public const string GrantsFile = "grants.md";
     public const string JournalFile = "records/journal.md";
     public const string DocumentsFile = "records/documents.md";
 
     /// <summary>Where the seat's factory skills go: a Claude Code plugin folder, passed with <c>--plugin-dir</c> (phase 5 P4).</summary>
-    public const string PluginFolder = "claude-plugin";
+    public const string PluginFolder = FactoryRunKit.PluginFolderName;
 
     /// <summary>The plugin's name. A skill reaches the session as <c>factory-kit:&lt;skill&gt;</c>.</summary>
     public const string PluginName = "factory-kit";

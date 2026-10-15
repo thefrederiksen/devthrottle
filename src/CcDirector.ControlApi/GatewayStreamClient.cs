@@ -915,11 +915,11 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 AnswersFactoryMachineQuestion = true, // this build answers the factory-machine-question verb
                 AnswersFactoryCheckMachineQuestion = true, // and its Python and uv parts (phase 5b)
                 DefinitionChecks = true,          // this build runs checks from a factory's definition (phase 5b)
-                // FALSE ON PURPOSE (Factory Definition mission, phase 5). This build stamps the seat-start fields it is
-                // sent but does not yet build the seat's kit, so it must not be sent a seat start. The LAST Director
-                // pull request of phase 5 - whichever of the kit, the launch and the machine question merges last -
-                // turns this on, so a Director built from main never advertises a half-built kit.
-                BuildsFactoryKit = false,
+                // This build starts a seat of a defined factory whole (Factory Definition mission, phase 5): it writes
+                // the seat's kit, starts a Claude Code seat with its own rules and factory skills, refuses an agent that
+                // cannot take them, and checks the seat's secrets on this machine before the agent starts. Turned on by
+                // the last Director pull request of phase 5, so no Director built from main advertised a half-built kit.
+                BuildsFactoryKit = true,
             });
             awaitGateway += DateTime.UtcNow - helloStarted;
             helloAnswered = true;
