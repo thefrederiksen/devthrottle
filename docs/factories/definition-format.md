@@ -155,6 +155,11 @@ seat on its `rules:` line with the reason. Phase 0 answered for two agents:
 | Codex | no | Codex enforces a rule given at launch only while its hook runs; when the hook is missing, fails or times out the command runs anyway, so a Codex seat cannot carry rules. |
 | every other agent | not yet | Phase 0 has not shown that the agent can take rules at launch, so a seat on it cannot carry rules yet. |
 
+A path in a rule must not begin with exactly one slash. Claude Code reads `Read(/secrets/**)` from the folder the rules
+are launched from, not the seat's repository, so it would match nothing there; the check refuses it on the entry's
+line. Write `./secrets/**` for the start folder, or `//secrets/**` for an absolute path. `//...`, `./...`, `~/...`
+and every `Bash(...)` entry are left as they are.
+
 ```json
 { "permissions": { "allow": ["Bash(git status)"], "deny": ["Bash(git push:*)"], "ask": [] } }
 ```
@@ -204,7 +209,7 @@ Errors:
   a grant naming a seat that does not exist; the two grant lists disagreeing; a skill file whose folder has no
   `SKILL.md`.
 - A factory skill and a fleet skill with one name; a factory skill on an agent that cannot load one; a rule set on
-  an agent that cannot take rules at launch.
+  an agent that cannot take rules at launch; a rule whose path begins with exactly one slash.
 - A start with both or neither of `cron` and `every`; `every` with no check; a check with `preventOverlap: false`;
   `secrets` on a start with no check.
 

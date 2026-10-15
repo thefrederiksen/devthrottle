@@ -72,7 +72,7 @@ internal static class DefinitionFixture
     // 4  line: Find and sell
     // 5  machine: SOREN_SOUTH
     // 6  agent: ClaudeCode
-    // 7  model: gpt-6-luna
+    // 7  model: claude-sonnet-5-5
     // 8  repository: devthrottle
     // 9  brief: |
     // 10   Find prospects.
@@ -94,7 +94,7 @@ internal static class DefinitionFixture
         line: Find and sell
         machine: SOREN_SOUTH
         agent: ClaudeCode
-        model: gpt-6-luna
+        model: claude-sonnet-5-5
         repository: devthrottle
         brief: |
           Find prospects.

@@ -65,7 +65,7 @@ public sealed class FactoryDefinitionChangesTests
         Assert.All(dto.Seats, s => Assert.Equal("added", s.Change));
         Assert.Equal(new[]
         {
-            "role Sales", "line Find and sell", "machine SOREN_SOUTH", "agent ClaudeCode", "model gpt-6-luna",
+            "role Sales", "line Find and sell", "machine SOREN_SOUTH", "agent ClaudeCode", "model claude-sonnet-5-5",
             "repository devthrottle", "grant send-outreach-email added", "rule set base added", "rule set outreach added",
             "secret outreach-smtp-password added", "fleet skill browsers added", "file files/outreach_send.py added",
             "brief: 1 line",

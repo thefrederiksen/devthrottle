@@ -861,10 +861,11 @@ public sealed class FactoryDefinitionCheckTests
     }
 
     [Fact]
-    public void Check_CodexSeatWithAFactorySkill_IsRefusedOnItsSkillsLine()
+    public void Check_CodexSeatWithAFactorySkill_IsRefusedOnItsFactoryLine()
     {
-        // 6 skills:  7   factory: [mail-voice]
-        var result = Check(WriterOn("Codex", "skills:\n  factory: [mail-voice]\n"));
+        // Written as a block list, so the key's line and the item's line differ:
+        // 6 skills:  7   factory:  8     - mail-voice
+        var result = Check(WriterOn("Codex", "skills:\n  factory:\n    - mail-voice\n"));
 
         AssertOneError(result, "seats/writer.yaml", 7, CodexSkillReason);
     }
@@ -872,20 +873,27 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_CodexSeatWithARuleSet_IsRefusedOnItsRulesLine()
     {
-        // 6 rules: [base]
-        var result = Check(WriterOn("Codex", "rules: [base]\n"));
+        // Written as a block list, so the key's line and the items' lines differ: 6 rules:  7   - base  8   - outreach
+        var result = Check(WriterOn("Codex", "rules:\n  - base\n  - outreach\n"));
 
         AssertOneError(result, "seats/writer.yaml", 6, CodexRulesReason);
     }
 
     [Fact]
-    public void Check_SeatOnACodexFactoryDefault_IsRefusedTheSame()
+    public void Check_SeatOnACodexFactoryDefault_IsRefusedTheSameForRulesAndSkills()
     {
-        // Boss names no agent, so it runs the factory's default; its line 10 is "rules: [base]". Outreach names its
-        // own agent (ClaudeCode) and is not refused.
-        var result = Check(Edit("factory.yaml", "  agent: ClaudeCode", "  agent: Codex"));
+        // Boss names no agent, so it runs the factory's default; its line 10 is "rules: [base]", and line 12 the
+        // factory skill added here. Outreach names its own agent (ClaudeCode) and is not refused.
+        var content = Edit("factory.yaml", "  agent: ClaudeCode", "  agent: Codex");
+        content["seats/boss.yaml"] += "\nskills:\n  factory: [mail-voice]";
 
-        AssertOneError(result, "seats/boss.yaml", 10, CodexRulesReason);
+        var errors = Check(content).Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}").ToList();
+
+        Assert.Equal(new[]
+        {
+            $"seats/boss.yaml:10 {CodexRulesReason}",
+            $"seats/boss.yaml:12 {CodexSkillReason}",
+        }, errors);
     }
 
     [Fact]
@@ -900,6 +908,41 @@ public sealed class FactoryDefinitionCheckTests
             "seats/writer.yaml:6 Phase 0 has not shown that Gemini can take rules at launch, so a seat on Gemini cannot carry rules yet.",
             "seats/writer.yaml:8 Phase 0 has not shown that Gemini can load a factory skill, so a seat on Gemini cannot name one yet.",
         }, errors);
+    }
+
+    // The leading-slash path rule (phase 0 finding 4, design section 9).
+
+    [Fact]
+    public void Check_RuleWithAOneSlashPath_IsRefusedOnTheEntrysLine()
+    {
+        // rules/base.json line 3 is the allow list.
+        var result = Check(Edit("rules/base.json", "\"allow\": [\"Bash(git status)\"]", "\"allow\": [\"Bash(git status)\", \"Read(/secrets/**)\"]"));
+
+        AssertOneError(result, "rules/base.json", 3,
+            "'Read(/secrets/**)' starts with one slash, which Claude Code reads from the folder the rules are launched from, " +
+            "not the seat's repository, so it would match nothing there. Write ./secrets/** for the start folder, or " +
+            "//secrets/** for an absolute path.");
+    }
+
+    [Fact]
+    public void Check_RuleWithAOneSlashPath_IsRefusedOnItsOwnLineInABlockList()
+    {
+        var result = Check(With("rules/base.json", "{\n  \"permissions\": {\n    \"deny\": [\n      \"Bash(git push:*)\",\n      \"Edit(/etc/hosts)\"\n    ]\n  }\n}\n"));
+
+        AssertOneError(result, "rules/base.json", 5, "'Edit(/etc/hosts)' starts with one slash", "Write ./etc/hosts for the start folder, or //etc/hosts");
+    }
+
+    [Theory]
+    [InlineData("Read(//secrets/**)")]
+    [InlineData("Read(./secrets/**)")]
+    [InlineData("Read(~/secrets/**)")]
+    [InlineData("Bash(/usr/bin/x)")]
+    public void Check_RulePathsThatAreAlreadyExact_AreNotTouched(string entry)
+    {
+        var result = Check(Edit("rules/base.json", "\"deny\": [\"Bash(git push:*)\"]", $"\"deny\": [\"Bash(git push:*)\", \"{entry}\"]"));
+
+        Assert.False(result.HasErrors,
+            string.Join("\n", result.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}")));
     }
 
     [Fact]
