@@ -10,15 +10,20 @@ using Xunit;
 namespace CcDirector.Core.UnitTests.Sessions;
 
 /// <summary>
-/// THE START'S OWN GUARD, THROUGH THE REAL CREATE (Factory Definition mission, phase 5, design sections 5 and 6). After
-/// the kit is written and before a slot is taken or a key minted: an agent that cannot take the kit's rules or factory
-/// skills is refused with the shared table's reason, and every secret the seat lists is asked about on this machine -
-/// not held, not allowed for run, and a cc-secrets that cannot answer each refuse in words. cc-secrets is faked: the
-/// question is handed a list that answers as told, so no process starts. Sessions start on the Studio backend, which
-/// runs no process either.
+/// A SEAT AT ITS START, THROUGH THE REAL CREATE (Factory Definition mission, phase 5, design sections 5 and 6).
+///
+/// The guard: after the kit is written and before a slot is taken or a key minted, an agent that cannot take the kit's
+/// rules or factory skills is refused with the shared table's reason, and every secret the seat lists is asked about on
+/// this machine - not held, not allowed for run, and a cc-secrets that cannot answer each refuse in words. cc-secrets is
+/// faked: the question is handed a list that answers as told, so no process starts.
+///
+/// The line: a Claude Code seat is started with exactly the arguments the Director emits - one --settings naming its
+/// own settings file when its kit carries rules, --plugin-dir when it carries factory skills - and a session that is not
+/// a seat with the line it always had. Read from the Studio backend, which records what it was started with and runs no
+/// process; the hook files, the preamble and the pointer drop box all go to the scratch folder.
 /// </summary>
 [Trait("Category", "FactoryDefinition")]
-public sealed class FactorySeatRefusedAtStartTests : IDisposable
+public sealed class FactorySeatAtStartTests : IDisposable
 {
     private readonly string _scratch = Directory.CreateTempSubdirectory("dt-kit-refuse-").FullName;
     private readonly List<string> _poolTaken = new();
@@ -37,6 +42,10 @@ public sealed class FactorySeatRefusedAtStartTests : IDisposable
     }
 
     private string KitRoot => Path.Combine(_scratch, "factory-run");
+
+    private string HooksDirectory => Path.Combine(_scratch, "claude-hooks");
+
+    private string SharedSettings => Path.Combine(HooksDirectory, Claude.ClaudeHookInstaller.SharedSettingsFileName);
 
     private string Repo()
     {
@@ -68,7 +77,9 @@ public sealed class FactorySeatRefusedAtStartTests : IDisposable
         {
             FactoryRunRoot = KitRoot,
             FactoryMemoryRoot = Path.Combine(_scratch, "factory-memory"),
-            ClaudeHooksDirectory = Path.Combine(_scratch, "claude-hooks"),
+            ClaudeHooksDirectory = HooksDirectory,
+            SessionPreambleDirectory = Path.Combine(_scratch, "session-preambles"),
+            SessionPointerDirectory = Path.Combine(_scratch, "session-pointers"),
         };
         manager.FactorySecretsQuestion = new FactoryMachineQuestion(_ =>
         {
@@ -108,6 +119,18 @@ public sealed class FactorySeatRefusedAtStartTests : IDisposable
     private CodexAgent Codex() => new(new AgentOptions { CodexPath = AgentExe() });
 
     private RawCliAgent RawCli() => new(AgentExe());
+
+    private ClaudeAgent ClaudeCode() => new(new AgentOptions { ClaudePath = AgentExe(), DefaultClaudeArgs = "--dangerously-skip-permissions" });
+
+    private static string Arguments(Session session) => Assert.IsType<StudioBackend>(session.Backend).StartedArguments;
+
+    private static int Count(string haystack, string needle)
+    {
+        var count = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0; i = haystack.IndexOf(needle, i + 1, StringComparison.Ordinal))
+            count++;
+        return count;
+    }
 
     private static FactoryKitRequest Seat(string kind = FactoryKits.Seat) => new("devthrottle", 4, "outreach", kind);
 
@@ -239,5 +262,60 @@ public sealed class FactorySeatRefusedAtStartTests : IDisposable
         Assert.Null(session.FactoryKitDirectory);
         Assert.Equal(0, _secretListRuns);
         Assert.Empty(_poolTaken);
+    }
+
+    [Fact]
+    public void CreateSession_AClaudeCodeSeatWhoseKitCarriesRules_StartsWithOneSettingsNamingItsOwnFile()
+    {
+        using var manager = Manager();
+        _rules = "{\"permissions\":{\"deny\":[\"Bash(git push:*)\"],\"ask\":[]}}\n";
+
+        var session = Create(manager, ClaudeCode(), Seat());
+
+        var own = Path.Combine(session.FactoryKitDirectory!, "settings.json");
+        var line = Arguments(session);
+        Assert.Equal($"{session.EffectiveLaunchArgs} --settings \"{own}\"", line);
+        Assert.Equal(1, Count(line, "--settings"));
+        Assert.DoesNotContain("--plugin-dir", line);
+        Assert.Contains("git push", File.ReadAllText(own));
+        // The shared file was installed for the hooks the seat's file runs, and carries no rule.
+        Assert.DoesNotContain("permissions", File.ReadAllText(SharedSettings));
+    }
+
+    [Fact]
+    public void CreateSession_AClaudeCodeSeatKitWithFactorySkills_StartsWithPluginDir()
+    {
+        using var manager = Manager();
+        _plugin = true;
+
+        var session = Create(manager, ClaudeCode(), Seat());
+
+        Assert.Equal($"{session.EffectiveLaunchArgs} --settings \"{SharedSettings}\" " +
+                     $"--plugin-dir \"{Path.Combine(session.FactoryKitDirectory!, "claude-plugin")}\"", Arguments(session));
+    }
+
+    [Fact]
+    public void CreateSession_AClaudeCodeChildWhoseRulesOnlyKitCarriesRules_HasItsOwnSettingsAndNoPluginDir()
+    {
+        using var manager = Manager();
+        _rules = "{\"permissions\":{\"deny\":[],\"ask\":[\"Bash(git tag:*)\"]}}\n";
+        _kitJson = "{\"kind\":\"rules-only\"}\n";
+
+        var session = Create(manager, ClaudeCode(), Seat(FactoryKits.RulesOnly));
+
+        Assert.Equal($"{session.EffectiveLaunchArgs} --settings \"{Path.Combine(session.FactoryKitDirectory!, "settings.json")}\"",
+            Arguments(session));
+    }
+
+    [Fact]
+    public void CreateSession_UNDEFINED_FACTORY_AClaudeCodeSessionThatIsNotASeat_StartsWithTheSharedSettingsAsBefore()
+    {
+        using var manager = Manager();
+
+        var session = Create(manager, ClaudeCode(), kit: null);
+
+        // The line the Director appended before phase 5: the shared file, once, quoted.
+        Assert.Equal($"{session.EffectiveLaunchArgs} --settings \"{SharedSettings}\"".Trim(), Arguments(session));
+        Assert.Null(session.FactoryKitDirectory);
     }
 }

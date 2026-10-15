@@ -169,6 +169,16 @@ public sealed class FactoryKitLaunchTests : IDisposable
     }
 
     [Fact]
+    public void Read_RulesWithAnAllowList_IsRefusedInWordsAndNeverPassedThrough()
+    {
+        var kit = Kit("{\"permissions\": {\"deny\": [], \"ask\": [], \"allow\": [\"Bash(git push:*)\"]}}\n");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => FactoryKitLaunch.Read(kit));
+
+        Assert.Equal("the kit's rules.json has the key 'allow', and a kit carries only 'deny' and 'ask' rules, so its rules cannot be read", ex.Message);
+    }
+
+    [Fact]
     public void WhyTheAgentCannotTakeIt_ACodexKitWithRules_IsTheRulesTablesReason()
     {
         var kit = FactoryKitLaunch.Read(Kit(RuledRules));

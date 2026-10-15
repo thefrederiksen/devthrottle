@@ -158,6 +158,14 @@ public sealed class SessionManager : IDisposable
     /// (<see cref="Claude.ClaudeHookInstaller.DefaultDirectory"/>); a test points it at a scratch folder.</summary>
     public string? ClaudeHooksDirectory { get; init; }
 
+    /// <summary>Where a session's maintained preamble file goes. Null is the real storage root
+    /// (<see cref="Storage.CcStorage.SessionPreambles"/>); a test points it at a scratch folder.</summary>
+    public string? SessionPreambleDirectory { get; init; }
+
+    /// <summary>Where a Claude Code session's pointer drop box is. Null is the real storage root
+    /// (<see cref="Storage.CcStorage.SessionPointers"/>); a test points it at a scratch folder.</summary>
+    public string? SessionPointerDirectory { get; init; }
+
     /// <summary>
     /// The kit folders a create is writing or a live session is using, guarded by <see cref="_kitGate"/>. The start-up
     /// sweep takes the same lock, so it can never delete a folder a create is putting in place at that moment, before
@@ -1030,7 +1038,7 @@ public sealed class SessionManager : IDisposable
                 try
                 {
                     var preamblePath = SessionPreambleFile.WriteFor(
-                        session, Environment.MachineName, SignedInUserAccessor?.Invoke());
+                        session, Environment.MachineName, SignedInUserAccessor?.Invoke(), SessionPreambleDirectory, store: null);
                     envVars[SessionHookFiles.PreambleFileEnvVar] = preamblePath;
                 }
                 catch (Exception ex)
@@ -1056,7 +1064,7 @@ public sealed class SessionManager : IDisposable
             {
                 try
                 {
-                    var pointerPath = SessionHookFiles.PointerPathFor(id, session.PointerDropToken);
+                    var pointerPath = SessionHookFiles.PointerPathFor(id, session.PointerDropToken, SessionPointerDirectory);
                     Directory.CreateDirectory(Path.GetDirectoryName(pointerPath)!);
                     envVars[SessionHookFiles.PointerFileEnvVar] = pointerPath;
                 }

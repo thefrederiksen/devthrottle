@@ -142,8 +142,9 @@ public static class FactoryKitLaunch
         return args;
     }
 
-    // rules.json is {"permissions": {"deny": [...], "ask": [...]}} (FactoryKitComposer.Rules). Every list in it must be
-    // a list of strings; anything else is a kit this Director cannot honour, and is said so.
+    // rules.json is {"permissions": {"deny": [...], "ask": [...]}} (FactoryKitComposer.Rules). Only those two keys: a
+    // definition only adds limits (R13), so an 'allow' - or any other key Claude Code would act on - is refused here too,
+    // not passed through. Every list must be a list of strings; anything else is a kit this Director cannot honour.
     private static JsonObject ReadPermissions(string text)
     {
         JsonNode? root;
@@ -156,6 +157,8 @@ public static class FactoryKitLaunch
             throw new InvalidOperationException($"the kit's {FactoryRunKit.RulesFileName} has no 'permissions' object, so its rules cannot be read");
         foreach (var (key, value) in permissions)
         {
+            if (key is not ("deny" or "ask"))
+                throw new InvalidOperationException($"the kit's {FactoryRunKit.RulesFileName} has the key '{key}', and a kit carries only 'deny' and 'ask' rules, so its rules cannot be read");
             if (value is not JsonArray list || list.Any(r => r is not JsonValue v || v.GetValueKind() != JsonValueKind.String))
                 throw new InvalidOperationException($"the kit's {FactoryRunKit.RulesFileName} has a '{key}' that is not a list of rules, so its rules cannot be read");
         }

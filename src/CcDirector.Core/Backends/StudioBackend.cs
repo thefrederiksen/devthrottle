@@ -37,6 +37,10 @@ public sealed class StudioBackend : ISessionBackend
 
     /// <summary>The folder the session was started in. Read by tests, as <see cref="StartedEnvironment"/> is.</summary>
     internal string StartedWorkingDirectory => _workingDir;
+
+    /// <summary>The arguments the session was started with - its agent's launch line. Read by tests, as
+    /// <see cref="StartedEnvironment"/> is.</summary>
+    internal string StartedArguments => _baseArgs;
     private string _status = "Not Started";
 
     private readonly List<StreamMessage> _messages = new();
