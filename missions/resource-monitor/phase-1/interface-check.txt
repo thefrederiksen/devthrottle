@@ -1,0 +1,30 @@
+Resource Monitor - phase 1 - the shared probe interface - check run 2026-10-15 on devlinux (Linux)
+Base: origin/main at 6601fcb17 (rebased), including the PhysicalDiskReading change asked for by the Tech Lead. .NET software development kit 10.0.301.
+
+$ dotnet build cc-director.sln -c Release -p:EnableWindowsTargeting=true
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+Time Elapsed 00:15:44.86
+
+Note: on Linux, the plain "dotnet build cc-director.sln -c Release" stops before compiling anything,
+with NETSDK1100 on the two Windows-only projects (src/CcDirector.Terminal, src/CcClick). That is the
+operating system, not this change. EnableWindowsTargeting=true lets those two projects build here; the
+command is otherwise the mission's own.
+
+$ dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+Passed!  - Failed:     0, Passed:    36, Skipped:     0, Total:    36, Duration: 62 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+--- Rerun 2026-10-15 after the Tech Lead's two follow-up fixes (milliseconds formatting, network
+interface wording). Not rebased: the review had already started on the previous head.
+
+$ dotnet test src/CcDirector.Core.UnitTests --filter "Category=Resources"
+Passed!  - Failed:     0, Passed:    41, Skipped:     0, Total:    41, Duration: 146 ms - CcDirector.Core.UnitTests.dll (net10.0)
+
+$ dotnet build src/CcDirector.Core/CcDirector.Core.csproj -c Release
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+The full solution build was not rerun for this commit (it takes about 16 minutes on this machine).
+Both changes are inside CcDirector.Core and its unit tests, and nothing else references these types yet.
