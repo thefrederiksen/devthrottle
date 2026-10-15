@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission: Resource Monitor</title>
+<style>
+  :root{--bg:#f6f6f4;--card:#fff;--ink:#1d1d1f;--muted:#666;--line:#e2e2de;--acc:#2f6fd6;}
+  @media (prefers-color-scheme: dark){:root{--bg:#161618;--card:#1f1f22;--ink:#ececec;--muted:#9a9a9a;--line:#333;}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,Segoe UI,Roboto,sans-serif}
+  main{max-width:980px;margin:0 auto;padding:24px 16px 64px}
+  h1{font-size:26px;margin:0 0 4px}h2{font-size:20px;margin:0 0 10px}h3{font-size:16px;margin:18px 0 6px}
+  .sub{color:var(--muted)}
+  section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:16px 0}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#fdf1d6;color:#7a5400}
+  .num{display:inline-block;min-width:26px;height:26px;line-height:26px;text-align:center;border-radius:50%;background:var(--acc);color:#fff;font-size:13px;margin-right:8px}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  .scroll{overflow-x:auto}
+  code,pre{font:13px ui-monospace,Consolas,monospace}
+  pre{background:#1e1e1e;color:#ddd;padding:12px;border-radius:6px;overflow-x:auto}
+  blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--acc);color:var(--muted)}
+  label{display:block;margin:6px 0}
+  textarea{width:100%;min-height:50px;margin-top:6px}
+  .cap{color:var(--muted);font-size:13px;margin-top:8px}
+  /* compact Director mock-up */
+  .app{background:#1e1e1e;color:#ccc;border-radius:8px;overflow:hidden;font:12px Segoe UI,sans-serif;border:1px solid #000}
+  .bar{display:flex;align-items:center;gap:8px;background:#252526;padding:6px 10px;flex-wrap:wrap}
+  .btnNew{background:#0e639c;color:#fff;padding:4px 10px;border-radius:3px}.spacer{flex:1}
+  .tb{display:flex;align-items:center;gap:6px;padding:4px 8px}.sep{width:1px;height:18px;background:#3c3c3c}
+  .meter{display:flex;gap:3px;align-items:flex-end;height:14px}.meter i{display:block;width:4px;border-radius:1px;background:#4caf50}
+  .toast{margin:10px;background:#3a1010;border-left:4px solid #f44336;color:#ffc4c4;padding:8px 12px;border-radius:4px}
+  .phase{border-left:4px solid var(--acc);padding:4px 0 4px 14px;margin:14px 0}
+  .phase h3{margin-top:0}
+  .flow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px}
+  .flow span{background:var(--bg);border:1px solid var(--line);padding:6px 10px;border-radius:6px}
+</style>
+</head>
+<body><main>
+
+<header data-dev-report="header" data-dev-report-status="agent-working">
+  <h1>Mission: Resource Monitor</h1>
+  <div class="sub">Mission document v3 · Architect seat · devthrottle repository · 2026-10-15 · <span class="pill">Go given 2026-10-15 · Delivery Lead driving</span></div>
+</header>
+
+<section data-dev-report="summary">
+  <h2>Summary</h2>
+  <p><b>The mission:</b> every Director measures its machine's CPU, memory and disk on Windows, Linux and macOS. It shows them in a toolbar meter and a detail screen, warns when one is maxing out, and logs them on the Gateway. The Cockpit then shows the whole fleet's capacity, so factories can be placed where there is room.</p>
+  <p><b>New in version 2: "Why is it slow?"</b> You asked for diagnostics the Director runs itself. On top of the meter, the Director continuously works out <b>which resource programs are stalled waiting on</b>: CPU, memory or disk. It names the cause and the culprit, for example "Slow because of the disk: the hard drive sdc is 75% busy, 26 ms per write; mostly dotnet test in session 140". It keeps a 24-hour local recording, so a slowdown can be explained after it has passed. Agents can ask for the same verdict through a command.</p>
+<p>All four of your earlier decisions follow my recommendations:</p>
+  <ul>
+    <li>Usage is shown per session from the start.</li>
+    <li>The Gateway keeps 1-minute history for 30 days, then hourly history for a year.</li>
+    <li>On a warning, the icon changes colour and one banner appears.</li>
+    <li>The Director side is built first, then the Cockpit fleet view.</li>
+  </ul>
+  <p>The work has 4 phases. Phases 2 and 3 run in parallel once phase 1's interface is fixed. It ends <b>merged to main</b>. Releasing the Director and deploying the Gateway stay your decision.</p>
+  <p>It takes in issue <b>#2811</b>, the open "memory first" toolbar meter, and builds on the memory probe that already exists from #2818.</p>
+  <p><b>You said go on 2026-10-15.</b> The Delivery Lead is open as a top-level session that answers to you, and drives this document to done. You hear from it once, at the report.</p>
+</section>
+
+<section data-dev-report="questions">
+  <h2>Questions</h2>
+  <p data-dev-report-no-questions>No questions. Nothing is needed from you. You answered both on 2026-10-15: the QA runs on the fleet's existing Windows and macOS Directors, and go.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2><span class="num">1</span>The mission</h2>
+  <p>Every Director measures its machine (CPU, memory, disk and what each session uses), shows it and warns on it in the toolbar, and logs it on the Gateway. The fleet can then see its capacity and place factories where there is room.</p>
+
+  <h2 style="margin-top:28px"><span class="num">2</span>The why</h2>
+  <p>In your words:</p>
+  <blockquote>"When we start building factories, we want to know how much we're using so we can load balance the different factories and different machines." … "So I don't have to use task manager or anything else. And we can log it centrally."</blockquote>
+  <ul>
+    <li><b>Factories run on machine capacity, and nobody can see it.</b> The Gateway knows which sessions run where, but not what they cost the machine. Without that you can't decide where the next factory goes, which machine is overloaded, or what a factory costs to run.</li>
+    <li><b>The Director should know why the machine is slow, not just how busy it is.</b> On 2026-10-15 devlinux was "super slow". CPU and memory looked healthy. Linux's pressure figures showed programs stalled waiting on the disk 32% of the time, against 0.06% for CPU and 0.17% for memory. The cause was a spinning hard drive inside the root volume (sdc, 75% busy, 26 ms per write) while both SSDs sat idle. Finding that took a session running shell commands by hand. The Director should say it unprompted.</li>
+<li><b>Slowness looks like the product's fault.</b> This morning devlinux had 26 GiB of 39 GiB memory available and was 80% CPU-idle, yet the load was 19 to 23. Processes were waiting on the disk, and nothing in the Director said so. Issue #2811 records the same thing on a customer's 16 GB laptop on 2026-09-11.</li>
+  </ul>
+
+  <h2 style="margin-top:28px"><span class="num">3</span>The goal</h2>
+  <p>When this mission ends, all of these are true and shown in the QA report:</p>
+  <ol>
+    <li>On Windows, Linux and macOS, the toolbar meter's CPU, memory and disk figures agree with the operating system's own monitor, within 5 percentage points.</li>
+    <li>Pushing a resource past its limit turns the meter amber or red <b>and shows one banner</b> within 70 seconds. Bringing it back down clears the warning. This is shown for CPU, memory and disk activity.</li>
+    <li>Clicking the meter opens the detail screen, which shows usage by session and by process. A session's figure includes the child processes it started.</li>
+    <li>Every machine's 1-minute summaries appear in the Gateway's database. A Director cut off from the Gateway for 10 minutes sends the missing minutes when it reconnects, leaving no gap.</li>
+    <li>The Cockpit fleet view lists every machine with its spare capacity, and every factory (Mission) with its average and peak cost.</li>
+    <li>The sampler itself costs under 0.5% of one core, as measured.</li>
+    <li><b>The slowness diagnosis names the right cause.</b> On devlinux, with its hard drive in the root volume, it says "disk", names sdc as the spinning hard drive and names the busiest process and session. Under a CPU load it says "CPU". With memory tight it says "memory". The same command gives the same verdict to an agent.</li>
+<li>When a platform can't be read, the meter says "cannot read" and logs why. <b>It never shows a made-up or zero value.</b></li>
+  </ol>
+</section>
+
+<section data-dev-report="detail">
+  <h2><span class="num">4</span>Decisions</h2>
+  <div class="scroll"><table>
+    <tr><th>Decision</th><th>Your words / answer</th></tr>
+    <tr><td>Build it, and what for</td><td>"the director should track this and report it and we should log it on the gateway … so we can load balance the different factories and different machines"</td></tr>
+    <tr><td>Platforms</td><td>"will work on Windows, Linux, and Mac"</td></tr>
+    <tr><td>Placement</td><td>"a little icon up next to Where it says cockpit and settings". It goes between the Director name and Cockpit. This replaces #2811's "left of the Director name".</td></tr>
+    <tr><td>Warning</td><td>"a warning should come up when any of the resources are maxing out"</td></tr>
+    <tr><td>Detail screen</td><td>"I should be able to click on it and see a detailed screen of my resources"</td></tr>
+    <tr><td>Per session from the start</td><td>"go with your recommendations": yes</td></tr>
+    <tr><td>Gateway history</td><td>"go with your recommendations": 1-minute average and peak, kept 30 days, then hourly for 1 year</td></tr>
+    <tr><td>How loud the warning is</td><td>"go with your recommendations": the icon changes colour, plus one banner per resource each time it crosses the limit. No phone notification.</td></tr>
+    <tr><td>Build order</td><td>"go with your recommendations": the Director and Gateway logging first, then the Cockpit fleet view</td></tr>
+    <tr><td>Diagnostics built into the Director</td><td>"How can we run diagnostics … figure out what is causing this crazy slowness … do we write our own directly in the director. That's what I prefer … so we can always know this … track something in the background and the director itself knows how to do things"</td></tr>
+<tr><td>Where the Windows and macOS QA runs</td><td>"On the fleet's existing Windows and macOS Directors. The Delivery Lead spawns a QA session on each. This is the only way to prove \"works on all three\"."</td></tr>
+<tr><td>Start</td><td>"Go. Open the Delivery Lead on this document now." (2026-10-15)</td></tr>
+<tr><td>Left out of version 1</td><td>GPU (my recommendation, which you accepted with the rest)</td></tr>
+  </table></div>
+  <p class="cap">The design and its mock-ups were in the first report, which you approved: <a href="https://gateway.devthrottle.com/r/f2a78c6c-0e44-4c53-a5c4-6f3cab1d1074">Director resource monitor design</a>.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2><span class="num">5</span>Design</h2>
+  <div class="flow"><span>Probes (Core)</span>→<span>5 s samples, last hour in memory</span>→<span>Toolbar meter + detail screen</span>→<span>1-min summary over the existing Gateway stream</span>→<span><code>gateway_stats</code> table</span>→<span>Cockpit fleet view</span></div>
+
+  <h3>The pieces</h3>
+  <div class="scroll"><table>
+    <tr><th>Piece</th><th>Where</th><th>What it does</th></tr>
+    <tr><td><b>Resource probes</b></td><td><code>src/CcDirector.Core/Machine/</code>, alongside <code>MachineMemoryProbe</code></td><td>CPU (total and busiest core), disk busy and I/O wait, disk read and write speed, free space per volume, swap, network, and per-process-tree CPU and memory. Each reads the operating system directly and starts no subprocess. Results are cached for 1 s. The text-parsing logic is pure functions, so it can be unit-tested from captured <code>/proc</code> output and the like.</td></tr>
+    <tr><td><b>Verdicts</b></td><td><code>ResourcePressure</code>, built the same way as <code>MemoryPressure</code></td><td>One pure function per resource gives Normal, Tight or Critical, using the limits in section 5b. A resource must stay over the limit for 60 s to count. Memory keeps its existing, tested limits.</td></tr>
+    <tr><td><b>Stall readings</b> (the core of "why is it slow")</td><td>Core, with the probes</td><td>How much of the time programs are frozen waiting on each resource.<br><b>Linux:</b> <code>/proc/pressure/{cpu,memory,io}</code>.<br><b>Windows:</b> processor queue length, disk seconds per transfer and queue length, and hard page faults per second (performance counters).<br><b>macOS:</b> the kernel's memory-pressure level, run-queue load, and the IOKit disk-time statistics.<br>Also: a count of processes stuck waiting on the disk, and <b>each physical disk with whether it is spinning or solid-state</b>.</td></tr>
+<tr><td><b>Slowness diagnosis</b></td><td>Core, a pure function like <code>MemoryPressure</code></td><td>Turns the stall readings into one verdict: <i>not slow</i>, or <i>slow because of CPU / memory / disk / a combination</i>. Each verdict carries its evidence (the figures), the culprit (process, session and, for disk, the physical disk and its type) and a plain next step. Shown in the banner, at the top of the detail screen, and in a new "Diagnosis" tab with the 24-hour timeline.</td></tr>
+<tr><td><b>Background recording</b></td><td>Director, local</td><td>Keeps 24 hours of 5-second samples on local disk, written once a minute in one append so the recorder doesn't load a slow disk, and pruned automatically. "What made it slow at 08:26?" can be answered afterwards, even with no Gateway.</td></tr>
+<tr><td><b>Diagnose command</b></td><td>An agent-discoverable action (it appears in <code>cc-devthrottle actions</code>; the builder settles its name)</td><td>Returns the current verdict plus the last hour of history as text or JSON. A session asked "why is this machine slow?" runs this one command instead of improvising shell commands.</td></tr>
+<tr><td><b>Sampler</b></td><td>Director background job</td><td>Samples every 5 s and keeps a 1-hour ring buffer. It builds the 1-minute summary, raises crossing events, and holds up to 24 h of summaries while the Gateway can't be reached.</td></tr>
+    <tr><td><b>Toolbar meter</b></td><td><code>MainWindow.axaml</code>, right-hand group, before Cockpit</td><td>Three bars (CPU, memory, disk), each coloured on its own, with a tooltip. It shrinks to percentages on a narrow window (#2812).</td></tr>
+    <tr><td><b>Warning banner</b></td><td>Director</td><td>Appears once per resource each time that resource crosses into amber or red. It names the biggest user and offers "Show resources" and "Dismiss".</td></tr>
+    <tr><td><b>Detail screen</b></td><td>New Director window</td><td>Tiles with a 1-hour history, plus tabs for sessions, processes, disks and history. A session row expands into its process tree, and a process can be ended from there (with a confirmation).</td></tr>
+    <tr><td><b>Gateway contract and storage</b></td><td><code>Gateway.Contracts</code>, a new hub method beside <code>PushSnapshot</code>, a new table in <code>gateway_stats</code> keyed by tenant</td><td>Stores 1-minute machine rows and session rows, runs an hourly roll-up, and deletes 1-minute rows after 30 days and hourly rows after a year. The migration only adds tables.</td></tr>
+    <tr><td><b>Cockpit fleet view</b></td><td><code>apps/cockpit</code></td><td>Lists machines with their peak, average and spare capacity, and factories (Missions) with their average and peak cost.</td></tr>
+  </table></div>
+
+  <h3>5b. Limits (amber / red)</h3>
+  <div class="scroll"><table>
+    <tr><th>Resource</th><th>Amber</th><th>Red</th></tr>
+    <tr><td>CPU, whole machine</td><td>&gt; 85% for 60 s</td><td>&gt; 95% for 60 s</td></tr>
+    <tr><td>Disk activity (busy, or I/O pressure)</td><td>&gt; 80% for 60 s</td><td>&gt; 95% for 60 s</td></tr>
+    <tr><td>Memory available</td><td colspan="2">The existing <code>MemoryPressure</code> Tight and Critical levels, unchanged</td></tr>
+    <tr><td>Swap / page file</td><td>Grows more than 1 GB in 5 min</td><td>&gt; 75% used</td></tr>
+    <tr><td>Disk free</td><td>&lt; 15% or &lt; 20 GB</td><td>&lt; 5% or &lt; 5 GB</td></tr>
+  </table></div>
+  <p class="cap">One stuck core (the busiest-core figure) is shown in the detail screen and doesn't raise a warning on its own. On a 32-core machine it isn't the machine maxing out.</p>
+
+  <h3>The warning, as built</h3>
+  <div class="app"><div class="bar">
+    <span class="btnNew">+ New Session</span><span class="spacer"></span><span style="color:#888">devlinux</span><span class="sep"></span>
+    <span class="tb"><span class="meter"><i style="height:5px"></i><i style="height:6px"></i><i style="height:14px;background:#f44336"></i></span><span style="color:#ff8a80">Resources</span></span>
+    <span class="sep"></span><span class="tb">◷ Cockpit</span><span class="sep"></span><span class="tb">⚙ Settings</span>
+  </div>
+  <div class="toast"><b>Disk is maxed out on devlinux.</b> The disk has been 97% busy for 2 minutes. Busiest: <code>grep</code> (PID 3933596). <u>Show resources</u> · <u>Dismiss</u></div></div>
+
+  <h3>Out of scope</h3>
+  <ul>
+    <li>Moving sessions or factories between machines automatically. This mission measures. Load balancing on top of these numbers is a later mission.</li>
+    <li>GPU.</li>
+    <li>Phone notifications.</li>
+    <li>Billing customers on these numbers.</li>
+  </ul>
+
+  <h3>Style guides the building sessions follow</h3>
+  <p><code>docs/CodingStyle.md</code>, <code>docs/VisualStyle.md</code> (Director), <code>docs/CockpitVisualStyle.md</code> (Cockpit), <code>docs/CODE_REVIEW_GUIDE.md</code>.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2><span class="num">6</span>Phases</h2>
+
+  <div class="phase"><h3>Phase 1: Probes and verdicts (Core). Tech Lead: yes.</h3>
+    <p>Three Developers in parallel, one per operating system, against one shared <code>IResourceProbe</code> interface. The Tech Lead fixes the interface on day one, before anyone else builds on it. Includes per-process-tree attribution: on Windows that means checking whether a child process that detaches from its parent is still counted; on macOS the disk statistics come from IOKit. Adds the stall readings, physical-disk type detection, <code>ResourcePressure</code> and the slowness-diagnosis function, each with exhaustive unit tests. The devlinux readings recorded on 2026-10-15 become a test fixture that must produce the verdict "disk, sdc spinning hard drive".</p>
+    <p><b>Done when:</b> the parser tests pass on recorded output, and each platform's live test reads real, non-zero values on a real machine of that kind.</p></div>
+
+  <div class="phase"><h3>Phase 2: Director interface (meter, banner, detail screen). Tech Lead: yes. Runs in parallel with phase 3.</h3>
+    <p>Starts against a fake probe as soon as phase 1's interface is fixed. Developers: (a) the sampler, meter and banner, (b) the detail screen and the Diagnosis tab, (c) the 24-hour local recording and the diagnose command.</p>
+    <p><b>Done when:</b> there is a QA report with screenshots: normal, amber, red, the banner, the warning clearing, a narrow window, "cannot read", and the detail screen with a session expanded.</p></div>
+
+  <div class="phase"><h3>Phase 3: Gateway logging. Single Developer, no Tech Lead. Runs in parallel with phase 2.</h3>
+    <p>The contract, the hub method, the migration (adds tables only), the roll-up and deletion job, and the Director's offline buffer with catch-up after reconnecting.</p>
+    <p><b>Done when:</b> the Gateway tests show summaries stored, rolled up and deleted on schedule, and a 10-minute disconnect leaves no gap.</p></div>
+
+  <div class="phase"><h3>Phase 4: Cockpit fleet view. Single Developer. Starts after phase 3 merges.</h3>
+    <p>Reads the Gateway: machines by spare capacity, and factories (Missions) by cost.</p>
+    <p><b>Done when:</b> the Cockpit tests pass, and screenshots against a local Gateway seeded with 3 machines show the view.</p></div>
+
+  <div class="phase"><h3>Final: cross-platform QA (Delivery Lead)</h3>
+    <p>On a Linux, a Windows and a macOS Director, depending on your answer above. Covers the flow and every failure case in section 7.</p></div>
+</section>
+
+<section data-dev-report="detail">
+  <h2><span class="num">7</span>The check</h2>
+  <p><b>What counts as proven:</b> tests pass, <b>and</b> real numbers on a real machine agree with that machine's own monitor, <b>and</b> each warning is shown firing and clearing under a real load. A test run alone doesn't prove the meter matches the machine.</p>
+  <pre># 1. Build and unit/integration tests (every phase)
+dotnet build cc-director.sln -c Release
+dotnet test src/CcDirector.Core.UnitTests
+dotnet test src/CcDirector.Core.Tests        --filter "Category=Resources"
+dotnet test src/CcDirector.Avalonia.Tests    --filter "Category=Resources"
+dotnet test src/CcDirector.Gateway.UnitTests --filter "Category=Resources"
+cd apps/cockpit &amp;&amp; npm test
+
+# 2. Live load check, run on each platform (new harness, built in phase 2)
+dotnet run --project tools/harnesses/resource-load-proof -- --cpu --disk --memory --report out/</pre>
+  <p><b>The load harness</b> (it reuses <code>CpuLoad</code> from <code>DeliveryQualification</code>) does these things in turn and writes a screenshot and a reading for each:</p>
+  <ol>
+    <li>Records the meter's figures next to the operating system's own figures, at idle.</li>
+    <li>Puts the CPU under full load and expects red within 70 s, then removes the load and expects the warning to clear.</li>
+    <li>Writes to disk continuously and expects disk activity to go red. Then stops.</li>
+    <li>Allocates memory until the machine is Tight and expects amber. Then frees it.</li>
+    <li>Blocks the Gateway for 10 minutes, then unblocks it, and expects no gap in the stored minutes.</li>
+    <li>Measures the sampler's own CPU over 10 minutes and expects under 0.5% of one core.</li>
+    <li>Runs the diagnose command after each load and expects the matching verdict ("CPU", "disk", "memory"). On devlinux at idle-with-builds it expects "disk, sdc spinning hard drive".</li>
+  </ol>
+  <p><b>Failure cases that must be in the QA report:</b></p>
+  <ul>
+    <li>A probe that can't read shows "cannot read" and logs why, never 0.</li>
+    <li>The Gateway is down for a long time; the buffer caps at 24 h and drops the oldest.</li>
+    <li>A session's child process outlives the session.</li>
+    <li>The clock jumps.</li>
+    <li>The window is narrow.</li>
+  </ul>
+</section>
+
+<section data-dev-report="detail">
+  <h2><span class="num">8</span>Merge plan</h2>
+  <ul>
+    <li><b>Each Developer's pull request merges to main once it passes review.</b> Review is by Codex, or Pi on GLM-5.3 if Codex wrote the code. No long-lived branch.</li>
+    <li><b>Why that is safe here:</b>
+      <ul>
+        <li>The probes are new files with no caller until phase 2.</li>
+        <li>The Gateway migration only adds tables.</li>
+        <li>The new hub method is ignored by older Gateways. A Director checks that the Gateway supports it before sending.</li>
+        <li>An older Director simply never calls the new method.</li>
+      </ul></li>
+    <li>The meter appears in the toolbar when phase 2 merges. Nobody gets it until you cut a Director release.</li>
+    <li>One worktree per workstream, cut from <code>origin/main</code>.</li>
+  </ul>
+
+  <h2 style="margin-top:28px"><span class="num">9</span>Where it ends</h2>
+  <p><b>Merged to main</b> (the default). Releasing the Director, and deploying the new Gateway migration and hub method to production, are <b>your decisions</b>, made separately. No session deploys on its own.</p>
+
+  <h2 style="margin-top:28px"><span class="num">10</span>Questions</h2>
+  <div class="scroll"><table>
+    <tr><th>Question</th><th>My recommendation</th><th>Answer</th></tr>
+    <tr><td>Per session from the start?</td><td>Yes</td><td>Yes</td></tr>
+    <tr><td>How detailed is the Gateway history?</td><td>1 min for 30 days, then hourly for 1 year</td><td>As recommended</td></tr>
+    <tr><td>How loud is the warning?</td><td>Icon colour plus one banner</td><td>As recommended</td></tr>
+    <tr><td>Build order?</td><td>Director and Gateway first, then Cockpit</td><td>As recommended</td></tr>
+    <tr><td>Where does the QA run for Windows and macOS?</td><td>The fleet's existing machines</td><td>As recommended</td></tr>
+    <tr><td>Go?</td><td>Go</td><td>Go, 2026-10-15</td></tr>
+  </table></div>
+</section>
+
+<section data-dev-report="evidence">
+  <h2>What this rests on, and what is not proved</h2>
+  <p><b>Read in the code today:</b></p>
+  <ul>
+    <li><code>MachineMemoryProbe</code> and <code>MemoryPressure</code>, the memory reading and tested limits for Windows, Linux and macOS.</li>
+    <li>The toolbar in <code>MainWindow.axaml</code>, with Cockpit and Settings in the right-hand group.</li>
+    <li>The Director's Gateway stream methods (<code>PushSnapshot</code>, <code>PushDelta</code> and others) in <code>GatewayStreamClient.cs</code>.</li>
+    <li>The <code>gateway_stats</code> PostgreSQL schema, which already has a tenant column.</li>
+    <li>The <code>CpuLoad</code> harness.</li>
+    <li>The Cockpit app at <code>apps/cockpit</code>.</li>
+    <li>Issue #2811, which is open.</li>
+    <li>The style guides in <code>docs/</code>.</li>
+  </ul>
+  <p><b>Not proved:</b></p>
+  <ul>
+    <li>No code is written.</li>
+    <li>That the Windows performance counters and the macOS signals give a stall verdict as clean as Linux's pressure figures. On Linux the reading is direct; on the other two the verdict is built from proxies, and the QA has to show they agree with what the machine feels like.</li>
+    <li>That the existing stream can take a 1-minute summary without changes to how it connects and authenticates. I believe so, from the method names, but haven't traced it.</li>
+    <li>That per-process-tree attribution is reliable on Windows when child processes detach. This is phase 1's first risk.</li>
+    <li>That the macOS disk-busy reading through IOKit works.</li>
+    <li>The CPU, disk and swap limits. They are proposals until the QA has run them.</li>
+  </ul>
+  <p>Done at go: this document is committed as <code>missions/resource-monitor.html</code>, issue #2811 points at it, and the Delivery Lead is open.</p>
+</section>
+
+</main></body>
+</html>
