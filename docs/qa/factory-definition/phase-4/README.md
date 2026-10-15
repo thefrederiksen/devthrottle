@@ -367,6 +367,13 @@ and the transcript uncommitted; nothing it builds or tests reads them.
 | `npm test --workspace @devthrottle/client-core` | 168 files, 2,102 tests passed |
 | `uv run --no-project --with "typer>=0.16.1" --with "click>=8.2.1" --with "rich>=13.0.0" --with "requests>=2.31.0" --with pytest python -m pytest tools/cc-devthrottle/tests -q -k "factory or schedule or trigger"` | 1,195 passed, 3,425 deselected (run with `-p no:cacheprovider` added, so it leaves no cache folder in the tree) |
 
+Also run, by the Tech Lead, on `7a991c14b` (the code of `4b0dc005b`: 4008 rebased onto `785719ae9`):
+
+| Command | Result |
+|---|---|
+| `.\scripts\test-local.ps1 -Parked` | GREEN: 16 suites, every one `outcome=Completed`. Gateway.UnitTests 12,811; Gateway.Tests 1,624, in four shards; Core.Tests 4,516 |
+| `.\scripts\test-database.ps1` (every database test) | GREEN: 75 executed, 0 failed, 0 skipped |
+
 ## Findings
 
 None of these blocks phase 4. Each is a place where something the phase built says a thing that is not so, or offers
@@ -420,5 +427,3 @@ a thing that is refused.
   holds the secret is asked from phase 5, and is not exercised here.
 - **The Cockpit.** No screen was opened; the seat page and the brief panel were read through their Gateway routes.
 - **The hosted Gateway, other machines, and macOS or Linux.** One Windows machine, one local Gateway.
-- **The whole Gateway unit suite and `-Parked`.** Only the filtered lines of the check were run, as the mission's
-  check asks.
