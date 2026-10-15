@@ -86,7 +86,7 @@
     <li>Pushing a resource past its limit turns the meter amber or red <b>and shows one banner</b> within 70 seconds. Bringing it back down clears the warning. This is shown for CPU, memory and disk activity.</li>
     <li>Clicking the meter opens the detail screen, which shows usage by session and by process. A session's figure includes the child processes it started.</li>
     <li>Every machine's 1-minute summaries appear in the Gateway's database. A Director cut off from the Gateway for 10 minutes sends the missing minutes when it reconnects, leaving no gap.</li>
-    <li>The Cockpit fleet view lists every machine with its spare capacity, and every factory (Mission) with its average and peak cost.</li>
+    <li>The Cockpit fleet view lists every machine with its spare capacity, and every registered factory with its average and peak cost, grouped by the factory each session belongs to (the session's <code>Factory</code> value, not its Mission).</li>
     <li>The sampler itself costs under 0.5% of one core, as measured.</li>
     <li><b>The slowness diagnosis names the right cause.</b> On devlinux, with its hard drive in the root volume, it says "disk", names sdc as the spinning hard drive and names the busiest process and session. Under a CPU load it says "CPU". With memory tight it says "memory". The same command gives the same verdict to an agent.</li>
 <li>When a platform can't be read, the meter says "cannot read" and logs why. <b>It never shows a made-up or zero value.</b></li>
@@ -132,7 +132,7 @@
     <tr><td><b>Warning banner</b></td><td>Director</td><td>Appears once per resource each time that resource crosses into amber or red. It names the biggest user and offers "Show resources" and "Dismiss".</td></tr>
     <tr><td><b>Detail screen</b></td><td>New Director window</td><td>Tiles with a 1-hour history, plus tabs for sessions, processes, disks and history. A session row expands into its process tree, and a process can be ended from there (with a confirmation).</td></tr>
     <tr><td><b>Gateway contract and storage</b></td><td><code>Gateway.Contracts</code>, a new hub method beside <code>PushSnapshot</code>, a new table in <code>gateway_stats</code> keyed by tenant</td><td>Stores 1-minute machine rows and session rows, runs an hourly roll-up, and deletes 1-minute rows after 30 days and hourly rows after a year. The migration only adds tables.</td></tr>
-    <tr><td><b>Cockpit fleet view</b></td><td><code>apps/cockpit</code></td><td>Lists machines with their peak, average and spare capacity, and factories (Missions) with their average and peak cost.</td></tr>
+    <tr><td><b>Cockpit fleet view</b></td><td><code>apps/cockpit</code></td><td>Lists machines with their peak, average and spare capacity, and registered factories with their average and peak cost, grouped by each session's <code>Factory</code> value (a factory is not a Mission).</td></tr>
   </table></div>
 
   <h3>5b. Limits (amber / red)</h3>
@@ -182,7 +182,7 @@
     <p><b>Done when:</b> the Gateway tests show summaries stored, rolled up and deleted on schedule, and a 10-minute disconnect leaves no gap.</p></div>
 
   <div class="phase"><h3>Phase 4: Cockpit fleet view. Single Developer. Starts after phase 3 merges.</h3>
-    <p>Reads the Gateway: machines by spare capacity, and factories (Missions) by cost.</p>
+    <p>Reads the Gateway: machines by spare capacity, and registered factories by cost, grouped by each session's <code>Factory</code> value.</p>
     <p><b>Done when:</b> the Cockpit tests pass, and screenshots against a local Gateway seeded with 3 machines show the view.</p></div>
 
   <div class="phase"><h3>Final: cross-platform QA (Delivery Lead)</h3>
@@ -275,6 +275,15 @@ dotnet run --project tools/harnesses/resource-load-proof -- --cpu --disk --memor
     <li>The CPU, disk and swap limits. They are proposals until the QA has run them.</li>
   </ul>
   <p>Done at go: this document is committed as <code>missions/resource-monitor.html</code>, issue #2811 points at it, and the Delivery Lead is open.</p>
+</section>
+
+<section>
+  <h2>Review findings and their answers</h2>
+  <p>Every finding a Reviewer raises on this mission is answered here, accepted or declined with the reason. The reviews themselves are in <code>missions/resource-monitor/reviews/</code>.</p>
+  <div class="scroll"><table>
+    <tr><th>Review</th><th>Finding</th><th>Answer</th></tr>
+    <tr><td><code>reviews/01-mission-document.md</code> (Pi, 2026-10-15)</td><td>The goal, the design and phase 4 said "factory (Mission)", but a factory and a Mission are separate records: a session carries a <code>Factory</code> value and a <code>MissionId</code> independently. Grouping cost by Mission would report units of work, not the factories the owner wants to place.</td><td><b>Accepted</b> by the Delivery Lead, answering for the Architect, who has handed over. The owner's words are "load balance the different factories", and the product's own vocabulary defines a factory as its own record, not a Mission. Goal item 5, the Cockpit fleet view row and phase 4 now group cost by registered factory, using each session's <code>Factory</code> value. Cost per Mission was never asked for and stays out of version 1.</td></tr>
+  </table></div>
 </section>
 
 </main></body>
