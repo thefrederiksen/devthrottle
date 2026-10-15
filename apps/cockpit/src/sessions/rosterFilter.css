@@ -78,23 +78,6 @@
   text-decoration: underline;
 }
 
-/* A session OUTSIDE the filter is waiting on you: one small red line, so a filter never hides a stuck session. */
-.roster-filter-outside {
-  margin: 0 4px;
-  padding: 4px 8px;
-  font-size: 12px;
-  text-align: left;
-  color: var(--danger-text);
-  background: transparent;
-  border: 1px solid var(--attention);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.roster-filter-outside:hover {
-  background: var(--needsyou-bg);
-}
-
 /* A saved filter name in the address that no longer exists, or that cannot be read yet. */
 .roster-filter-problem {
   margin: 0 4px;

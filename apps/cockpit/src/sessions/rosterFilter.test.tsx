@@ -6,8 +6,8 @@ import type { SessionDto } from "@devthrottle/client-core/api/client";
 import type { SavedFiltersState, SavedSessionFilter } from "@devthrottle/client-core/sessions/savedFilters";
 
 // The Cockpit's Sessions filter (issue #4009), driven through the real roster, the real panel and the real address
-// hook: the Filter button's three faces, "6 of 28", the line under the header, the red line for a stuck session the
-// filter hides, the empty filter, a saved filter by name (and one that no longer exists), the filter riding on a
+// hook: the Filter button's three faces, "6 of 28", the line under the header, no word about sessions outside the
+// filter, the empty filter, a saved filter by name (and one that no longer exists), the filter riding on a
 // session link, and the panel's quick filter, save, edit and delete. The address is read back after every action,
 // because the address IS the filter - nothing is written to shared storage.
 
@@ -159,20 +159,12 @@ describe("the Sessions filter on the Cockpit roster", () => {
     expect(hrefs).toEqual(["/session/dt-one?repo=devthrottle", "/session/dt-two?repo=devthrottle"]);
   });
 
-  it("names a stuck session the filter hides, in one red line, and clicking it clears the filter", () => {
+  it("says nothing about sessions outside the filter, even one that needs you (owner ruling, 15 October 2026)", () => {
     renderAt("/?repo=devthrottle");
 
-    const line = screen.getByTestId("roster-filter-outside");
-    expect(line.textContent).toBe("1 session outside this filter needs you: 412 acme-work");
-    fireEvent.click(line);
-    expect(address()).toBe("");
-    expect(rowNames()).toHaveLength(4);
-  });
-
-  it("does not show the red line when the waiting session is inside the filter", () => {
-    renderAt("/?repo=acme");
-
     expect(screen.queryByTestId("roster-filter-outside")).toBeNull();
+    expect(document.body.textContent).not.toContain("outside this filter");
+    expect(document.body.textContent).not.toContain("acme-work");
   });
 
   it("an empty filter says so and keeps the filter", () => {
