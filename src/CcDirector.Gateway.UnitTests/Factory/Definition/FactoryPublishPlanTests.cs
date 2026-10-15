@@ -515,11 +515,43 @@ public sealed class FactoryPublishPlanTests
         };
 
         // Act
-        var listed = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateFold.List(d, new[] { live }, _ => null);
+        var listed = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateFold.List(d, new[] { live }, Array.Empty<CronJobDto>(), _ => null);
 
         // Assert
         var only = Assert.Single(listed);
         Assert.Equal(("outreach", 2, "devthrottle-outreach-start-2"), (only.Seat, only.Start, only.Name));
+    }
+
+    [Fact]
+    public void CheckStateFold_ListsATimedStartsCheck_UnderItsSchedulesOwnerKey_AndNotATimedStartWithoutOne()
+    {
+        // Arrange: the seat's first start is timed with a check, its second timed with none; both have their schedule.
+        var d = WithSeat(Definition(DefinitionFixture.Valid()), "outreach", s => s with
+        {
+            Starts = new[]
+            {
+                new SeatStartDefinition("0 9 * * 1-5", "Europe/Copenhagen", null, null, "checks/new_mail.py", Array.Empty<string>(), "Morning {count}.", true),
+                new SeatStartDefinition("0 17 * * 1-5", "Europe/Copenhagen", null, null, null, Array.Empty<string>(), "Evening.", true),
+            },
+        });
+        CronJobDto Schedule(string id, string cron, string seed, string? check) => new()
+        {
+            Id = id, Name = $"Outreach {id}", Factory = TheFactory, Seat = "outreach", ScheduleKind = CronSchedule.KindRecurring,
+            CronExpression = cron, TimeZoneId = "Europe/Copenhagen", PreventOverlap = true, CheckPath = check,
+            CheckSecrets = check is null ? null : new List<string>(), Action = new CronJobAction { Seed = seed },
+        };
+        var schedules = new[]
+        {
+            Schedule("cj_morning", "0 9 * * 1-5", "Morning {count}.", "checks/new_mail.py"),
+            Schedule("cj_evening", "0 17 * * 1-5", "Evening.", null),
+        };
+
+        // Act
+        var listed = CcDirector.Gateway.Factory.Triggers.FactoryCheckStateFold.List(d, Array.Empty<TriggerEntity>(), schedules, _ => null);
+
+        // Assert
+        var only = Assert.Single(listed);
+        Assert.Equal(("cron:cj_morning", "outreach", 1, "checks/new_mail.py"), (only.OwnerKey, only.Seat, only.Start, only.CheckPath));
     }
 
     [Fact]
@@ -659,14 +691,54 @@ public sealed class FactoryPublishPlanTests
     }
 
     [Fact]
-    public void Compose_ATimedStartWithACheck_IsRefused_OnItsSeatFile_UntilTheDueCheckLands()
+    public void Compose_ATimedStartWithACheck_IsAScheduleCarryingItsCheck_AndMakesNoTrigger()
     {
-        var refusal = Refusal(Definition(DefinitionFixture.TimedChecked()));
+        // Act
+        var plan = Plan(Definition(DefinitionFixture.TimedChecked()));
 
-        Assert.Equal(FactoryDefinitionOutcome.PlanRefused, refusal.Outcome);
-        var finding = Assert.Single(refusal.Findings);
-        Assert.Equal("seats/outreach.yaml", finding.File);
-        Assert.Equal(FactoryDefinitionCheck.TimedCheckStartNotYet, finding.Message);
+        // Assert
+        var outreach = Assert.Single(plan.Schedules, s => s.Seat == "outreach");
+        Assert.Equal(PlannedScheduleAction.Create, outreach.Action);
+        Assert.Equal(("checks/new_mail.py", true), (outreach.Job!.CheckPath, outreach.Job.PreventOverlap));
+        Assert.Equal("New mail: {count}. {context}", outreach.Job.Action.Seed);
+        Assert.Equal("A new schedule (DevThrottle - Outreach) for seat outreach: Weekdays 09:00 Europe/Copenhagen, check checks/new_mail.py.",
+            outreach.Sentence());
+        Assert.Empty(plan.Triggers);
+    }
+
+    [Fact]
+    public void Compose_AKeptScheduleWithACheck_SaysTheVersionItsCheckIsReadFrom()
+    {
+        // Arrange: the schedule the timed checked start made, as it stands after an earlier publish.
+        var first = Assert.Single(Plan(Definition(DefinitionFixture.TimedChecked())).Schedules, s => s.Seat == "outreach").Job!;
+        var live = new CronJobEntity { Id = "cj_mail", TenantId = "local" };
+        CronJobStore.ApplyDefinition(live, first);
+        CronJobStore.ApplyCheck(live, first, 1);
+
+        // Act
+        var kept = Assert.Single(Plan(Definition(DefinitionFixture.TimedChecked()), schedules: new[] { live }).Schedules,
+            s => s.Seat == "outreach");
+
+        // Assert
+        Assert.Equal(PlannedScheduleAction.Keep, kept.Action);
+        Assert.Equal("Schedule cj_mail (DevThrottle - Outreach) kept as it is; its check is read from version 2.", kept.Sentence(version: 2));
+    }
+
+    [Fact]
+    public void Compose_ACheckAddedToALiveTimedStart_IsAChangeInPlaceThatSaysSo()
+    {
+        // Arrange: the same start, live with no check.
+        var withCheck = Assert.Single(Plan(Definition(DefinitionFixture.TimedChecked())).Schedules, s => s.Seat == "outreach").Job!;
+        var live = new CronJobEntity { Id = "cj_mail", TenantId = "local" };
+        CronJobStore.ApplyDefinition(live, withCheck);
+
+        // Act
+        var changed = Assert.Single(Plan(Definition(DefinitionFixture.TimedChecked()), schedules: new[] { live }).Schedules,
+            s => s.Seat == "outreach");
+
+        // Assert
+        Assert.Equal(PlannedScheduleAction.Update, changed.Action);
+        Assert.Equal("Schedule cj_mail (DevThrottle - Outreach) changed: now runs check checks/new_mail.py first.", changed.Sentence());
     }
 
     [Fact]

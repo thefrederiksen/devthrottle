@@ -231,6 +231,10 @@ public sealed class DefinedByDefinitionTests : IDisposable
         nameof(CronJobDto.FactoryHref), nameof(CronJobDto.ShortName), nameof(CronJobDto.LoadWarning),
         nameof(CronJobDto.Shifts), nameof(CronJobDto.ShiftText), nameof(CronJobDto.ShiftWarning), nameof(CronJobDto.ShiftRule),
         nameof(CronJobDto.DefinedByDefinition),
+        // A timed start's check (phase 5b) is written only by a publish and ignored on every write through the
+        // schedule routes (CronJobStore.ApplyDefinition never copies it), so no route can change it.
+        nameof(CronJobDto.CheckPath), nameof(CronJobDto.CheckSecrets), nameof(CronJobDto.DefinitionVersion),
+        nameof(CronJobDto.HasCheck),
     };
 
     /// <summary>Every definition field of a schedule, READ FROM <see cref="CronJobDto"/> itself: its properties minus

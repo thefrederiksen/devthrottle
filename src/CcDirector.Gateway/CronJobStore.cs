@@ -513,7 +513,37 @@ public sealed class CronJobStore
         LastFiredUtc = e.LastFiredUtc,
         NextRunUtc = e.NextRunUtc,
         LastStatus = e.LastStatus,
+        CheckPath = string.IsNullOrEmpty(e.CheckPath) ? null : e.CheckPath,
+        CheckSecrets = CheckSecretsOf(e),
+        DefinitionVersion = e.DefinitionVersion,
     };
+
+    /// <summary>
+    /// Copy a timed start's check onto a schedule row (Factory Definition, phase 5b). Only a definition's publish calls
+    /// this: <see cref="ApplyDefinition"/>, which every schedule route uses, never touches the check, so a request body
+    /// can neither give a schedule a check nor take one away. A schedule with a check always prevents overlap.
+    /// </summary>
+    internal static void ApplyCheck(CronJobEntity entity, CronJobDto job, int definitionVersion)
+    {
+        if (string.IsNullOrEmpty(job.CheckPath))
+        {
+            entity.CheckPath = null;
+            entity.CheckSecretsJson = null;
+            entity.DefinitionVersion = null;
+            return;
+        }
+        entity.CheckPath = job.CheckPath;
+        entity.CheckSecretsJson = job.CheckSecrets is { Count: > 0 } secrets ? JsonSerializer.Serialize(secrets) : null;
+        entity.DefinitionVersion = definitionVersion;
+        entity.PreventOverlap = true;
+    }
+
+    /// <summary>The cc-secrets entry names a schedule's check declares, in declared order, or null when none.</summary>
+    internal static List<string>? CheckSecretsOf(CronJobEntity e)
+        => string.IsNullOrEmpty(e.CheckSecretsJson)
+            ? null
+            : JsonSerializer.Deserialize<List<string>>(e.CheckSecretsJson)
+              ?? throw new InvalidOperationException($"schedule {e.Id} holds check secrets that are not a JSON array: {e.CheckSecretsJson}");
 
     // ---- one-time legacy JSON import --------------------------------------------------------------
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Data.Entities;
 
 namespace CcDirector.Gateway.Running;
 
@@ -34,7 +35,19 @@ public static class CronRunResultFold
     {
         ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(shift);
-        if (run.Result != CronRunResults.Pending) return null;
+        // Only a run whose session owes its report can earn one of these. Every other result is named, so a new one
+        // cannot slip in as "waiting": a run waiting on its check owes no report yet, and nothing-to-do never will.
+        switch (run.Result)
+        {
+            case CronRunResults.Pending:
+                break;
+            case CronRunResults.Ok or CronRunResults.Problem or CronRunResults.Untracked
+                or CronRunResults.Checking or CronRunResults.NothingToDo:
+                return null;
+            default:
+                throw new InvalidOperationException(
+                    $"Run {run.RunId} has the result '{run.Result}', which is not one of the results CronRunResults defines. Add it to CronRunResultFold.GatewayProblemFor.");
+        }
 
         switch (ending)
         {
@@ -96,14 +109,20 @@ public static class CronRunResultFold
     /// <param name="asOfUtc">The instant to describe: a problem raised after it is left out, and a clear or resolve
     /// after it has not happened yet. The 16:00 and midnight checks read the state as it stood when their shift
     /// ended.</param>
+    /// <param name="definitionTriggerRuns">The SECOND SOURCE (Factory Definition, phase 5b, design 3.5): every
+    /// definition trigger of the account with its checks, newest first. A failed check is a <c>check-failed</c>
+    /// problem in the same shape (<see cref="TriggerProblems"/>). Command triggers are never handed in: their failures
+    /// are not problems.</param>
     public static CronRunProblemsDto Problems(
         IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> runsByJob,
         IReadOnlyDictionary<string, CronJobDto> jobs,
         TimeZoneInfo zone,
         string? factory,
         bool includeClosed,
-        DateTime asOfUtc)
+        DateTime asOfUtc,
+        IReadOnlyList<(TriggerEntity Trigger, IReadOnlyList<TriggerRunEntity> Runs)> definitionTriggerRuns)
     {
+        ArgumentNullException.ThrowIfNull(definitionTriggerRuns);
         ArgumentNullException.ThrowIfNull(runsByJob);
         ArgumentNullException.ThrowIfNull(jobs);
         ArgumentNullException.ThrowIfNull(zone);
@@ -116,16 +135,17 @@ public static class CronRunResultFold
         {
             jobs.TryGetValue(jobId, out var job);
 
-            // Newest first: a problem at index i is cleared by an ok run at any index before it.
+            // Newest first: a problem at index i is cleared by an ok run at any index before it - and a problem a
+            // check raised, also by a run whose check found nothing to do (the check works again: phase 5b).
             for (var i = 0; i < runs.Count; i++)
             {
                 var run = runs[i];
-                if (run.Result != CronRunResults.Problem) continue;
+                if (!IsProblem(run)) continue;
                 if (RaisedAt(run) > asOfUtc) continue;
                 // Under the factory the RUN was in, fixed when it was created - not the schedule's factory today.
                 if (wanted is not null && !string.Equals(run.Factory, wanted, StringComparison.OrdinalIgnoreCase)) continue;
 
-                var clearedBy = runs.Take(i).LastOrDefault(r => r.Result == CronRunResults.Ok && r.ResultUtc is { } at && at <= asOfUtc);
+                var clearedBy = runs.Take(i).LastOrDefault(r => Clears(r, run) && r.ResultUtc is { } at && at <= asOfUtc);
                 var dto = ProblemOf(jobId, job, run, zone);
                 if (run.ResolvedUtc is { } resolved && resolved <= asOfUtc)
                 {
@@ -140,8 +160,24 @@ public static class CronRunResultFold
                     dto.State = CronRunProblemStates.Cleared;
                     dto.ClosedUtc = clearedBy.ResultUtc;
                     dto.ClearedByRunId = clearedBy.RunId;
-                    dto.StateText = "cleared - the next run of this schedule reported ok";
+                    dto.StateText = clearedBy.Result == CronRunResults.NothingToDo
+                        ? "cleared - the next run of this schedule ran its check, which found nothing to do"
+                        : "cleared - the next run of this schedule reported ok";
                 }
+                if (!includeClosed && dto.State != CronRunProblemStates.Open) continue;
+                if (dto.State == CronRunProblemStates.Open)
+                    dto.OpenForText = OpenFor(asOfUtc - dto.RaisedAtUtc);
+                problems.Add(dto);
+            }
+        }
+
+        foreach (var (trigger, triggerRuns) in definitionTriggerRuns)
+        {
+            if (!trigger.IsDefinitionCheck)
+                throw new ArgumentException($"trigger {trigger.Name} runs a command, and a command trigger's failures are not problems", nameof(definitionTriggerRuns));
+            if (wanted is not null && !string.Equals(trigger.Factory, wanted, StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var dto in TriggerProblems(trigger, triggerRuns, zone, asOfUtc))
+            {
                 if (!includeClosed && dto.State != CronRunProblemStates.Open) continue;
                 if (dto.State == CronRunProblemStates.Open)
                     dto.OpenForText = OpenFor(asOfUtc - dto.RaisedAtUtc);
@@ -164,6 +200,122 @@ public static class CronRunResultFold
             Problems = problems,
         };
     }
+
+    /// <summary>
+    /// Whether a run is a problem, naming EVERY result (Factory Definition, phase 5b): a run waiting on its check and a
+    /// run whose check found nothing to do are neither pending nor problems, and a result this does not know is an
+    /// error rather than a run quietly left off the list.
+    /// </summary>
+    public static bool IsProblem(CronRunRecord run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        return run.Result switch
+        {
+            CronRunResults.Problem => true,
+            CronRunResults.Ok or CronRunResults.Pending or CronRunResults.Untracked
+                or CronRunResults.Checking or CronRunResults.NothingToDo => false,
+            _ => throw new InvalidOperationException(
+                $"Run {run.RunId} has the result '{run.Result}', which is not one of the results CronRunResults defines. Add it to CronRunResultFold.IsProblem."),
+        };
+    }
+
+    /// <summary>Whether a later run of the same schedule clears <paramref name="problem"/>: an ok run clears any
+    /// problem; a run whose check found nothing to do clears a problem a check raised (the check works again).</summary>
+    public static bool Clears(CronRunRecord later, CronRunRecord problem)
+        => later.Result == CronRunResults.Ok
+           || (later.Result == CronRunResults.NothingToDo && CronRunProblems.IsCheckProblem(problem.Problem));
+
+    /// <summary>
+    /// A definition trigger's failed checks as problems (Factory Definition, phase 5b, design 3.5), in the shape a run's
+    /// problem has. Failures in a row are ONE problem - the first failed check of the run of failures names it, and
+    /// <see cref="CronRunProblemDto.Occurrences"/> counts them - so a check that fails every ten minutes for a day is
+    /// one line, not a hundred and forty. The problem is cleared by the trigger's next check that did not fail,
+    /// whatever it came to; resolved by hand, it stays resolved, and a check failing after the resolve starts a new one.
+    /// Only checks recorded by <paramref name="asOfUtc"/> are read, and a clear or resolve after it has not happened yet.
+    /// </summary>
+    public static IReadOnlyList<CronRunProblemDto> TriggerProblems(TriggerEntity trigger, IReadOnlyList<TriggerRunEntity> runsNewestFirst,
+        TimeZoneInfo zone, DateTime asOfUtc)
+    {
+        ArgumentNullException.ThrowIfNull(trigger);
+        ArgumentNullException.ThrowIfNull(runsNewestFirst);
+        ArgumentNullException.ThrowIfNull(zone);
+        var found = new List<CronRunProblemDto>();
+        var oldestFirst = runsNewestFirst.Where(r => AsUtc(r.RecordedUtc) <= asOfUtc).Reverse().ToList();
+        List<TriggerRunEntity>? failures = null;
+        foreach (var run in oldestFirst)
+        {
+            if (run.Outcome == TriggerRunOutcome.Failed)
+            {
+                var head = failures?[0];
+                if (head is not null && head.ResolvedUtc is { } resolved && AsUtc(resolved) <= asOfUtc && AsUtc(run.RecordedUtc) > AsUtc(resolved))
+                {
+                    found.Add(TriggerProblemOf(trigger, failures!, clearedBy: null, zone, asOfUtc));
+                    failures = null;
+                }
+                (failures ??= new List<TriggerRunEntity>()).Add(run);
+            }
+            else if (failures is not null)
+            {
+                found.Add(TriggerProblemOf(trigger, failures, clearedBy: run, zone, asOfUtc));
+                failures = null;
+            }
+        }
+        if (failures is not null)
+            found.Add(TriggerProblemOf(trigger, failures, clearedBy: null, zone, asOfUtc));
+        return found;
+    }
+
+    private static CronRunProblemDto TriggerProblemOf(TriggerEntity trigger, List<TriggerRunEntity> failures,
+        TriggerRunEntity? clearedBy, TimeZoneInfo zone, DateTime asOfUtc)
+    {
+        var head = failures[0];
+        var newest = failures[^1];
+        var checkedUtc = AsUtc(head.CheckedUtc);
+        var shift = WorkShifts.ShiftOf(checkedUtc, zone);
+        var whenLocal = TimeZoneInfo.ConvertTimeFromUtc(checkedUtc, zone).ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
+        var reason = string.IsNullOrWhiteSpace(newest.Reason) ? "no reason was recorded" : newest.Reason!;
+        var dto = new CronRunProblemDto
+        {
+            RunId = head.Id.ToString("D"),
+            JobId = trigger.Id.ToString("D"),
+            JobName = trigger.Name,
+            Factory = trigger.Factory,
+            Seat = trigger.Seat ?? trigger.FactoryAgent,
+            ScheduledUtc = checkedUtc,
+            StartedUtc = null,
+            Shift = shift.Name,
+            ShiftText = shift.Text,
+            Kind = CronRunProblems.CheckFailed,
+            KindText = CronRunProblems.Words(CronRunProblems.CheckFailed),
+            Reason = reason,
+            Sentence = SentenceOf(CronRunProblems.CheckFailed, failures.Count == 1
+                ? reason
+                : $"{reason} ({failures.Count.ToString(CultureInfo.InvariantCulture)} checks in a row failed)"),
+            WhenText = "Checked " + whenLocal,
+            RaisedAtUtc = AsUtc(head.RecordedUtc),
+            Occurrences = failures.Count,
+            SessionId = null,
+            State = CronRunProblemStates.Open,
+        };
+        if (head.ResolvedUtc is { } resolved && AsUtc(resolved) <= asOfUtc)
+        {
+            dto.State = CronRunProblemStates.Resolved;
+            dto.ClosedUtc = AsUtc(resolved);
+            dto.ResolvedBy = head.ResolvedBy;
+            dto.ResolvedReason = head.ResolvedReason;
+            dto.StateText = $"resolved by {head.ResolvedBy}: {head.ResolvedReason}";
+        }
+        else if (clearedBy is not null)
+        {
+            dto.State = CronRunProblemStates.Cleared;
+            dto.ClosedUtc = AsUtc(clearedBy.RecordedUtc);
+            dto.ClearedByRunId = clearedBy.Id.ToString("D");
+            dto.StateText = "cleared - the next check of this trigger did not fail";
+        }
+        return dto;
+    }
+
+    private static DateTime AsUtc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
     /// <summary>The infrastructure status of a run that was due and never fired.</summary>
     public const string DidNotRunStatus = "did-not-run";
@@ -242,11 +394,29 @@ public static class CronRunResultFold
 
             foreach (var run in runs)
             {
-                if (run.Result == CronRunResults.Ok && InWindow(run.FiredUtc, fromUtc, toUtc))
-                    day.Done++;
-                // The last row of a long outage also stands for the due times past the row limit.
-                if (run.Problem == CronRunProblems.DidNotRun && InWindow(run.ScheduledUtc, fromUtc, toUtc))
-                    day.DidNotRun += 1 + run.MissedNotListed;
+                // EVERY RESULT IS NAMED (Factory Definition, phase 5b): a run whose check found nothing to do is
+                // counted as such - never as did not run - and a run still waiting on its check counts as nothing yet.
+                switch (run.Result)
+                {
+                    case CronRunResults.Ok:
+                        if (InWindow(run.FiredUtc, fromUtc, toUtc)) day.Done++;
+                        break;
+                    case CronRunResults.NothingToDo:
+                        if (InWindow(run.FiredUtc, fromUtc, toUtc)) day.NothingToDo++;
+                        break;
+                    case CronRunResults.Problem:
+                        // The last row of a long outage also stands for the due times past the row limit.
+                        if (run.Problem == CronRunProblems.DidNotRun && InWindow(run.ScheduledUtc, fromUtc, toUtc))
+                            day.DidNotRun += 1 + run.MissedNotListed;
+                        break;
+                    case CronRunResults.Pending:
+                    case CronRunResults.Untracked:
+                    case CronRunResults.Checking:
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Run {run.RunId} has the result '{run.Result}', which is not one of the results CronRunResults defines. Add it to CronRunResultFold.FactoryDays.");
+                }
                 if (!string.IsNullOrWhiteSpace(run.SessionId) && endingOf(run) == CronRunEndings.StillOpen)
                     openSeats[factory].Add(string.IsNullOrWhiteSpace(job.Seat) ? job.Id : job.Seat);
             }

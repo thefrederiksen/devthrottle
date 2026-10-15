@@ -61,7 +61,11 @@ public sealed class FactoryEmailTests : IDisposable
         endingsOf: ids => _endings.Where(e => ids.Contains(e.Key)).ToDictionary(e => e.Key, e => e.Value, StringComparer.Ordinal),
         zoneOf: _ => Toronto,
         writeActivity: (tenant, run, row, correction) => Runs.WriteActivityRow(tenant, run, row, correction),
-        nowUtc: () => _now);
+        nowUtc: () => _now,
+        triggers: Triggers);
+
+    private CcDirector.Gateway.Factory.Triggers.TriggerStore? _triggers;
+    private CcDirector.Gateway.Factory.Triggers.TriggerStore Triggers => _triggers ??= new(Db);
 
     private FactoryEmailStore? _store;
     private FactoryEmailStore Store => _store ??= new FactoryEmailStore(Db);
@@ -187,6 +191,178 @@ public sealed class FactoryEmailTests : IDisposable
     public void AtBoundary_NotAShiftBoundary_Throws()
     {
         Assert.Throws<ArgumentException>(() => FactoryEmailSlots.AtBoundary(TorontoTime(2026, 10, 11, 9), Toronto));
+    }
+
+    // ---- phase 5b: a failed check is a problem, from either source; nothing to do is never "did not run" ----------
+
+    private CcDirector.Gateway.Data.Entities.TriggerEntity Trigger(string name, string factory, string seat, bool definition)
+    {
+        using var ctx = Db.CreateContext(TenantId.Local);
+        var t = new CcDirector.Gateway.Data.Entities.TriggerEntity
+        {
+            Name = name, Factory = factory, FactoryAgent = seat, Machine = "SOREN_NORTH", IntervalSeconds = 600, Prompt = "Go.",
+            CreatedBy = "test", CreatedUtc = TorontoTime(2026, 10, 1, 0),
+            // A definition trigger carries its check's path; a command trigger, a command line.
+            Seat = definition ? seat : null,
+            CheckPath = definition ? "checks/new_mail.py" : null,
+            CheckCommand = definition ? "" : "python check.py",
+            RepoPath = definition ? "" : @"D:\factories\research",
+        };
+        t.TenantId = ctx.ActiveTenant!;
+        ctx.Triggers.Add(t);
+        ctx.SaveChanges();
+        return t;
+    }
+
+    private Guid TriggerCheck(CcDirector.Gateway.Data.Entities.TriggerEntity t, DateTime at, string outcome, string? reason = null)
+    {
+        using var ctx = Db.CreateContext(TenantId.Local);
+        var run = new CcDirector.Gateway.Data.Entities.TriggerRunEntity
+        {
+            TriggerId = t.Id, CheckedUtc = at, RecordedUtc = at, Outcome = outcome, Reason = reason, DirectorId = "dir-1",
+            Count = outcome == TriggerRunOutcome.Failed ? null : 0,
+        };
+        run.TenantId = ctx.ActiveTenant!;
+        ctx.TriggerRuns.Add(run);
+        ctx.SaveChanges();
+        return run.Id;
+    }
+
+    private static RegisteredFactoryDto Outreach() => new()
+    {
+        Factory = "outreach",
+        Title = "Outreach",
+        Folder = @"D:\factories\outreach",
+        Computer = "SOREN_NORTH",
+        Seats = { new RegisteredFactorySeatDto { Id = "sender", Name = "Sender", Role = "Sender", BriefFile = "seats/sender.yaml", Computer = "SOREN_NORTH" } },
+    };
+
+    [Fact]
+    public void Compose_MorningWithAFailedTimedCheckAndAFailedIntervalCheck_ListsBoth_OnTheEmailAndTheOpenProblemsCard()
+    {
+        // Arrange: the timed start's check broke its contract at 02:00; the interval start's check failed twice in a row.
+        Job("cj_mail", "Mail desk", "outreach", "sender");
+        AppendRun("cj_mail", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.CheckFailed,
+            "the output is not JSON: oops"));
+        var interval = Trigger("outreach-sender-start-2", "outreach", "sender", definition: true);
+        TriggerCheck(interval, TorontoTime(2026, 10, 11, 6), TriggerRunOutcome.Failed, "the check exited with code 1");
+        TriggerCheck(interval, TorontoTime(2026, 10, 11, 6, 10), TriggerRunOutcome.Failed, "the check exited with code 1");
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
+
+        // Act
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), "https://gateway.example.test"));
+        var card = FactoryProblemsFold.Card(Outreach(), Service().Problems(TenantId.Local, "outreach", includeClosed: false));
+
+        // Assert
+        Assert.Equal("Factories: 2 problems still open - Sunday 11 October", email.Subject);
+        Assert.Contains("Check failed: the output is not JSON: oops.", email.Html);
+        Assert.Contains("Check failed: the check exited with code 1 (2 checks in a row failed).", email.Html);
+        Assert.Equal(new[] { "Check failed: the check exited with code 1 (2 checks in a row failed).", "Check failed: the output is not JSON: oops." },
+            card.Items.Select(i => i.What));
+        Assert.All(problems.Problems, p => Assert.Equal(CronRunProblems.CheckFailed, p.Kind));
+        Assert.Equal(3, problems.Occurrences);
+        // No checked start found nothing to do, so the factory line reads as it always has.
+        Assert.Contains("LAST 24 HOURS (done / did not run / left open)", email.Text);
+        Assert.DoesNotContain("nothing to do", email.Text);
+    }
+
+    [Fact]
+    public void Problems_ACommandTriggersFailedCheck_IsNotAProblem()
+    {
+        // Goal 14: a trigger a person wrote with a command line keeps today's behaviour - its failures are its own.
+        var command = Trigger("research-scout-check", "research", "scout", definition: false);
+        TriggerCheck(command, TorontoTime(2026, 10, 11, 6), TriggerRunOutcome.Failed, "the check exited with code 2");
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        Assert.Empty(Service().Problems(TenantId.Local, null, includeClosed: true).Problems);
+    }
+
+    [Fact]
+    public void Problems_AnIntervalChecksFailure_IsClearedByItsNextCheckThatDidNotFail()
+    {
+        var interval = Trigger("outreach-sender-start-2", "outreach", "sender", definition: true);
+        var failed = TriggerCheck(interval, TorontoTime(2026, 10, 11, 6), TriggerRunOutcome.Failed, "the check exited with code 1");
+        var quiet = TriggerCheck(interval, TorontoTime(2026, 10, 11, 6, 10), TriggerRunOutcome.NothingToDo);
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        var all = Service().Problems(TenantId.Local, null, includeClosed: true).Problems;
+
+        var p = Assert.Single(all);
+        Assert.Equal((failed.ToString("D"), CronRunProblemStates.Cleared, quiet.ToString("D")), (p.RunId, p.State, p.ClearedByRunId));
+        Assert.Empty(Service().Problems(TenantId.Local, null, includeClosed: false).Problems);
+    }
+
+    [Fact]
+    public void Resolve_AnIntervalChecksFailure_ResolvesItByTheFirstFailedCheck_AndRefusesALaterOneOfTheSameRun()
+    {
+        var interval = Trigger("outreach-sender-start-2", "outreach", "sender", definition: true);
+        var first = TriggerCheck(interval, TorontoTime(2026, 10, 11, 6), TriggerRunOutcome.Failed, "the check exited with code 1");
+        var second = TriggerCheck(interval, TorontoTime(2026, 10, 11, 6, 10), TriggerRunOutcome.Failed, "the check exited with code 1");
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        var service = Service();
+
+        var later = service.Resolve(TenantId.Local, second.ToString("D"), CronRunResultService.ResolvedByYou, "fixed the parser");
+        var resolved = service.Resolve(TenantId.Local, first.ToString("D"), CronRunResultService.ResolvedByYou, "fixed the parser");
+
+        Assert.Equal(409, later.StatusCode);
+        Assert.StartsWith($"Check {second:D} of trigger outreach-sender-start-2 failed as part of a problem raised by an earlier check", later.Refusal);
+        Assert.Equal((CronRunProblemStates.Resolved, "resolved by you: fixed the parser"), (resolved.Answer!.State, resolved.Answer.StateText));
+        Assert.Empty(service.Problems(TenantId.Local, null, includeClosed: false).Problems);
+    }
+
+    [Fact]
+    public void Compose_MorningAfterATimedCheckFoundNothing_ReadsNothingToDo_NeverDidNotRun_AndTheEarlierFailureIsCleared()
+    {
+        // Arrange: the timed start's 02:00 check failed; its 03:00 check found nothing to do, so the check works again.
+        Job("cj_mail", "Mail desk", "outreach", "sender");
+        AppendRun("cj_mail", Run(null, TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.CheckFailed,
+            "the output is not JSON: oops"));
+        AppendRun("cj_mail", Run(null, TorontoTime(2026, 10, 11, 3), CronRunResults.NothingToDo));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
+
+        // Act
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), "https://gateway.example.test"));
+
+        // Assert
+        Assert.Empty(problems.Problems);
+        var day = Assert.Single(days);
+        Assert.Equal((0, 1, 0), (day.Done, day.NothingToDo, day.DidNotRun));
+        Assert.Equal("Factories: all clear - Sunday 11 October", email.Subject);
+        Assert.Contains("1 factory, 0 runs done, 1 run with nothing to do, 0 runs did not run.", email.Text);
+        Assert.Contains("Outreach: 0 / 1 / 0 / 0", email.Text);
+        Assert.Contains("Nothing to do", email.Html);
+    }
+
+    [Fact]
+    public void Problems_ARunWhoseCheckFoundNothing_DoesNotClearAProblemTheSessionReported()
+    {
+        // A quiet check means the CHECK works again - not that the work a session reported trouble with was done.
+        Job("cj_mail", "Mail desk", "outreach", "sender");
+        AppendRun("cj_mail", Run("s1", TorontoTime(2026, 10, 11, 2), CronRunResults.Problem, CronRunProblems.Reported, "the inbox would not load"));
+        AppendRun("cj_mail", Run(null, TorontoTime(2026, 10, 11, 3), CronRunResults.NothingToDo));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+
+        var open = Assert.Single(Service().Problems(TenantId.Local, null, includeClosed: false).Problems);
+
+        Assert.Equal(CronRunProblems.Reported, open.Kind);
+    }
+
+    [Fact]
+    public void Problems_ARunStillWaitingOnItsCheck_IsNeitherAProblemNorDidNotRun()
+    {
+        Job("cj_mail", "Mail desk", "outreach", "sender");
+        AppendRun("cj_mail", Run(null, TorontoTime(2026, 10, 11, 7), CronRunResults.Checking));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
+
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+
+        Assert.Empty(problems.Problems);
+        Assert.Equal((0, 0, 0), (days.Single().Done, days.Single().NothingToDo, days.Single().DidNotRun));
     }
 
     // ---- the 08:00 report, through the real problems fold -------------------------------------------------------------

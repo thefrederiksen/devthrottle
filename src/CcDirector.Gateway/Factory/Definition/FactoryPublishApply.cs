@@ -184,23 +184,33 @@ public sealed class FactoryPublishApply
                     switch (s.Action)
                     {
                         case PlannedScheduleAction.Keep:
-                            applied.Add(s.Sentence());
+                            // A kept schedule with a check reads it from the version this publish makes the published
+                            // one (phase 5b), exactly as a kept definition trigger does; nothing else is written.
+                            if (s.Job!.HasCheck)
+                            {
+                                step = $"writing schedule {s.Id}'s check version for seat '{s.Seat}'";
+                                byId[s.Id!].DefinitionVersion = publishedVersion;
+                                ctx.SaveChanges();
+                            }
+                            applied.Add(s.Sentence(version: publishedVersion));
                             break;
                         case PlannedScheduleAction.Update:
                             step = $"writing schedule {s.Id} for seat '{s.Seat}'";
                             var entity = byId[s.Id!];
                             CronJobStore.ApplyDefinition(entity, s.Job!);
+                            CronJobStore.ApplyCheck(entity, s.Job!, publishedVersion);
                             entity.NotifyOn = CronNotify.Normalize(s.Job!.NotifyOn);
                             entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(CronJobStore.ToDto(entity), nowUtc);
                             ctx.SaveChanges();
-                            applied.Add(s.Sentence());
+                            applied.Add(s.Sentence(version: publishedVersion));
                             break;
                         case PlannedScheduleAction.Create:
                             var created = CronJobStore.NewEntity(ctx, s.Job!, nowUtc);
+                            CronJobStore.ApplyCheck(created, s.Job!, publishedVersion);
                             step = $"writing schedule {created.Id} for seat '{s.Seat}'";
                             ctx.CronJobs.Add(created);
                             ctx.SaveChanges();
-                            applied.Add(s.Sentence(created.Id));
+                            applied.Add(s.Sentence(created.Id, publishedVersion));
                             break;
                         case PlannedScheduleAction.Delete:
                             step = $"deleting schedule {s.Id}";

@@ -56,7 +56,8 @@ public sealed class TriggerRunsOfADeletedTriggerTests : IDisposable
             ctx => ctx.Request.Headers.TryGetValue(AccountHeader, out var v) ? new TenantId(v.ToString()) : null,
             service, directorMachine: (_, _) => "SOREN_NORTH", nowUtc: () => Now,
             sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            dueChecks: DueCheckTestParts.NoDueChecks(_db, _h.LegacyPath("due.runs.json")));
     }
 
     public void Dispose()

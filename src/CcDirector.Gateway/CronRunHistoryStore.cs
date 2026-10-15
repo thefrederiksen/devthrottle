@@ -438,9 +438,203 @@ public sealed class CronRunHistoryStore
         }
     }
 
+    // ---------------------------------------------------------------------------------------------------------
+    // Factory Definition, phase 5b: the due check of a schedule with a check. A fire of such a schedule records a run
+    // whose result is "checking"; that row IS the due check. Every write below is conditional on the row still being
+    // in the state the caller read, under this store's lock, so two reports of one check can never both land.
+
+    /// <summary>The newest run of this schedule still waiting on its check, or null.</summary>
+    public JobRun? NewestChecking(Core.Tenancy.TenantId tenant, string jobId)
+    {
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(jobId)) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.AsNoTracking()
+                .Where(e => e.JobId == jobId && e.Result == CronRunResults.Checking)
+                .OrderByDescending(e => e.Sequence)
+                .FirstOrDefault();
+            return row is null ? null : ToJobRun(row);
+        }
+    }
+
+    /// <summary>A run still waiting on its check, with who holds its claim.</summary>
+    public sealed record DueCheck(string JobId, CronRunRecord Run, string? ClaimedByDirectorId, DateTime? ClaimedUtc);
+
+    /// <summary>
+    /// Every run of this account on <paramref name="machine"/> still waiting on its check and not yet decided, that is
+    /// unclaimed, claimed by <paramref name="directorId"/>, or whose claim is older than <paramref name="claimLapse"/> -
+    /// and CLAIMS each for that Director, in one write. A run whose check is already being decided (its report was read
+    /// and its session is being started) is never handed out again. Oldest first.
+    /// </summary>
+    public IReadOnlyList<DueCheck> ClaimDueChecks(Core.Tenancy.TenantId tenant, string directorId, string machine,
+        DateTime nowUtc, TimeSpan claimLapse)
+    {
+        if (string.IsNullOrWhiteSpace(directorId)) throw new ArgumentException("a Director id is required", nameof(directorId));
+        if (!tenant.IsValid) return Array.Empty<DueCheck>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var lapsedBefore = nowUtc - claimLapse;
+            var rows = ctx.CronRuns
+                .Where(e => e.Result == CronRunResults.Checking && e.CheckedUtc == null && e.Machine == machine)
+                .OrderBy(e => e.Sequence)
+                .ToList()
+                .Where(e => e.ClaimedByDirectorId is null || e.ClaimedByDirectorId == directorId
+                            || e.ClaimedUtc is null || e.ClaimedUtc.Value < lapsedBefore)
+                .ToList();
+            foreach (var row in rows)
+            {
+                if (row.ClaimedByDirectorId != directorId)
+                    FileLog.Write($"[CronRunHistoryStore] ClaimDueChecks: run={row.Id}, job={row.JobId}, claimed by {directorId}" +
+                                  (row.ClaimedByDirectorId is null ? "" : $" (the claim of {row.ClaimedByDirectorId} lapsed)"));
+                row.ClaimedByDirectorId = directorId;
+                row.ClaimedUtc = nowUtc;
+            }
+            if (rows.Count > 0) ctx.SaveChanges();
+            return rows.Select(r => new DueCheck(r.JobId, ToRecord(r), r.ClaimedByDirectorId, SpecifyUtc(r.ClaimedUtc))).ToList();
+        }
+    }
+
+    /// <summary>A run with its claim, by id, or null when this account has no such run.</summary>
+    public DueCheck? FindDueCheck(Core.Tenancy.TenantId tenant, Guid runId)
+    {
+        if (!tenant.IsValid) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.AsNoTracking().FirstOrDefault(e => e.Id == runId);
+            return row is null ? null : new DueCheck(row.JobId, ToRecord(row), row.ClaimedByDirectorId, SpecifyUtc(row.ClaimedUtc));
+        }
+    }
+
+    /// <summary>What a conditional write to a due check found.</summary>
+    public enum DueCheckWrite
+    {
+        /// <summary>Written.</summary>
+        Applied,
+        /// <summary>No such run in this account.</summary>
+        NoSuchRun,
+        /// <summary>The run is no longer waiting on its check, or its check was already decided.</summary>
+        AlreadyRecorded,
+        /// <summary>Another Director holds the run's check.</summary>
+        HeldByAnother,
+    }
+
+    /// <summary>
+    /// Record what a due check's report came to when it starts no session: <c>nothing-to-do</c>, or a problem
+    /// (<c>check-failed</c>). Applied only while the run is still waiting on its check, undecided, and held by
+    /// <paramref name="directorId"/>. The same write marks the run as owing its factory activity row.
+    /// </summary>
+    public DueCheckWrite RecordDueCheck(Core.Tenancy.TenantId tenant, Guid runId, string directorId, string result,
+        string? problem, string? reason, int? count, string infraStatus, DateTime nowUtc)
+    {
+        if (result is not (CronRunResults.NothingToDo or CronRunResults.Problem))
+            throw new ArgumentException($"a due check's report records nothing-to-do or a problem, not '{result}'", nameof(result));
+        if (result == CronRunResults.Problem && string.IsNullOrWhiteSpace(problem))
+            throw new ArgumentException("a problem needs its kind", nameof(problem));
+        return WriteUndecidedDueCheck(tenant, runId, directorId, row =>
+        {
+            row.Result = result;
+            row.Problem = result == CronRunResults.Problem ? problem : null;
+            row.ResultReason = string.IsNullOrWhiteSpace(reason) ? null : TruncateReason(reason.Trim());
+            row.ResultUtc = nowUtc;
+            row.CheckCount = count;
+            row.CheckedUtc = nowUtc;
+            row.InfraStatus = infraStatus;
+            row.TargetDirectorId = directorId;
+            row.ActivityDue = true;
+        });
+    }
+
+    /// <summary>The infrastructure status of a due check whose check counted work while its session is being started.</summary>
+    public const string CheckStartingStatus = "check-starting";
+
+    /// <summary>
+    /// Mark a due check DECIDED: its check counted work and a session start is beginning. The run stays
+    /// <c>checking</c> until the start returns (<see cref="FinishDueStart"/>), but it is no longer handed out and a
+    /// second report of it is refused as already recorded.
+    /// </summary>
+    public DueCheckWrite BeginDueStart(Core.Tenancy.TenantId tenant, Guid runId, string directorId, int count, DateTime nowUtc)
+        => WriteUndecidedDueCheck(tenant, runId, directorId, row =>
+        {
+            row.CheckCount = count;
+            row.CheckedUtc = nowUtc;
+            row.TargetDirectorId = directorId;
+            row.InfraStatus = CheckStartingStatus;
+        });
+
+    /// <summary>
+    /// Record how a decided due check's session start came out: <c>pending</c> with its session (the run now owes its
+    /// report, as every started run does), or a <c>did-not-run</c> problem with <paramref name="failure"/>. Returns the
+    /// run as it now stands, or null when the row is gone or is no longer a decided due check.
+    /// </summary>
+    public CronRunRecord? FinishDueStart(Core.Tenancy.TenantId tenant, Guid runId, string directorId, Running.CronRunStart start,
+        string? failure, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        if (!tenant.IsValid) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null || row.Result != CronRunResults.Checking || row.CheckedUtc is null)
+            {
+                FileLog.Write($"[CronRunHistoryStore] FinishDueStart NOT APPLIED: run={runId}, found={row?.Result ?? "no row"}");
+                return null;
+            }
+            row.TargetDirectorId = start.DirectorId ?? directorId;
+            row.FiredUtc = nowUtc;
+            if (!string.IsNullOrEmpty(start.SessionId))
+            {
+                row.Result = CronRunResults.Pending;
+                row.SessionId = start.SessionId;
+                row.InfraStatus = "started";
+                row.BriefVersion = start.BriefVersion;
+                row.BriefVersionKind = start.BriefVersionKind;
+            }
+            else
+            {
+                row.Result = CronRunResults.Problem;
+                row.Problem = CronRunProblems.DidNotRun;
+                row.ResultReason = TruncateReason(failure ?? "it did not start a session");
+                row.ResultUtc = nowUtc;
+                row.InfraStatus = "not-started";
+                row.ActivityDue = true;
+            }
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] FinishDueStart: run={runId}, job={row.JobId}, result={row.Result}, session={row.SessionId ?? "none"}");
+            return ToRecord(row);
+        }
+    }
+
+    private DueCheckWrite WriteUndecidedDueCheck(Core.Tenancy.TenantId tenant, Guid runId, string directorId,
+        Action<CronRunEntity> write)
+    {
+        if (!tenant.IsValid) return DueCheckWrite.NoSuchRun;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null) return DueCheckWrite.NoSuchRun;
+            if (row.Result != CronRunResults.Checking || row.CheckedUtc is not null)
+                return DueCheckWrite.AlreadyRecorded;
+            // Only the Director the check was handed to reports it: a report from any other is refused, as a trigger's is.
+            if (row.ClaimedByDirectorId != directorId)
+                return DueCheckWrite.HeldByAnother;
+            write(row);
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] WriteUndecidedDueCheck: run={runId}, job={row.JobId}, director={directorId}, result={row.Result}, count={row.CheckCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "-"}");
+            return DueCheckWrite.Applied;
+        }
+    }
+
+    private static string TruncateReason(string text) =>
+        text.Length <= Running.CronRunResultFold.MaxReasonChars ? text : text[..(Running.CronRunResultFold.MaxReasonChars - 3)] + "...";
+
     // A run still owes a row while its result row, or - once resolved - its correcting row, is unwritten.
     private static bool OwesActivity(CronRunEntity row) =>
-        ((row.Result is CronRunResults.Ok or CronRunResults.Problem) && row.ActivityId is null)
+        ((row.Result is CronRunResults.Ok or CronRunResults.Problem or CronRunResults.NothingToDo) && row.ActivityId is null)
         || (row.ResolvedUtc is not null && row.ResolveActivityId is null);
 
     /// <summary>The task status a fire writes, before anything is known about how the work ended.</summary>
@@ -507,7 +701,7 @@ public sealed class CronRunHistoryStore
         ResultReason = r.ResultReason,
         ResultUtc = r.ResultUtc,
         // A run recorded WITH its result (a run that did not run) owes its factory activity row from the start.
-        ActivityDue = r.Result is CronRunResults.Ok or CronRunResults.Problem,
+        ActivityDue = r.Result is CronRunResults.Ok or CronRunResults.Problem or CronRunResults.NothingToDo,
         Factory = r.Factory,
         Seat = r.Seat,
         JobName = r.JobName,
@@ -543,6 +737,8 @@ public sealed class CronRunHistoryStore
         MissedNotListed = e.MissedNotListed,
         BriefVersion = e.BriefVersion,
         BriefVersionKind = e.BriefVersionKind,
+        CheckCount = e.CheckCount,
+        CheckedUtc = SpecifyUtc(e.CheckedUtc),
     };
 
     private static DateTime? SpecifyUtc(DateTime? value) =>

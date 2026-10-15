@@ -56,10 +56,28 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         return (start.SessionId, start.DirectorId, start.Error);
     }
 
-    public async Task<CronRunStart> StartRunAsync(CronJobDto job, CancellationToken ct)
+    public Task<CronRunStart> StartRunAsync(CronJobDto job, CancellationToken ct)
     {
         if (job is null)
             throw new ArgumentNullException(nameof(job));
+        return StartRunCoreAsync(job, job.Action.Seed, director: null, ct);
+    }
+
+    /// <summary>
+    /// The session a schedule's check asked for (Factory Definition, phase 5b): the same request a scheduled run makes,
+    /// pinned to the Director that ran the check and seeded with the prompt the check's findings were put into.
+    /// </summary>
+    public Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, CancellationToken ct)
+    {
+        if (job is null)
+            throw new ArgumentNullException(nameof(job));
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("the Director that ran the check is required", nameof(directorId));
+        return StartRunCoreAsync(job, seed ?? "", directorId, ct);
+    }
+
+    private async Task<CronRunStart> StartRunCoreAsync(CronJobDto job, string seed, string? director, CancellationToken ct)
+    {
 
         // NO FACTORY WORK WITHOUT A REGISTERED SEAT (issue #3650). A write is already refused, but a link can stop
         // validating afterwards - a seat dropped while its schedules were off, then switched back on. Such a job does
@@ -120,7 +138,9 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             // through this method (its own time, a late catch-up, run-now), so this is the one place that adds it.
             // A seat with a published brief is also told who it is and given that brief, ahead of the schedule's
             // own prompt; every other run's text is the closing instruction's alone, as before.
-            PrePrompt = ScheduledRunOpening.PromptFor(job.Action.Seed, job.Name, job.Id, seat),
+            PrePrompt = ScheduledRunOpening.PromptFor(seed, job.Name, job.Id, seat),
+            // A checked run starts on the Director that ran its check; every other run is left to the machine.
+            Director = director,
             // Scheduled-run auto-dismiss (issue #1200): a seed run defaults to closing itself when it
             // finishes with nothing needing a human, so an hourly job stops piling leftover sessions into
             // the rail. The job can opt out (AutoDismiss=false) to keep the run open like a normal session.
@@ -140,7 +160,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             Factory = job.Factory,
         };
 
-        FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, repo={job.Action.RepoPath}, seed={job.Action.Seed}, "
+        FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, director={director ?? "the machine's"}, repo={job.Action.RepoPath}, seed={seed}, "
                       + (seat is null ? "brief=none given" : $"opened as {seat.Factory.Factory}/{seat.Seat.Id} with brief {seat.Brief.VersionWords}"));
 
         var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(job.Target.Machine, req, ct);

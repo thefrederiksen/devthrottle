@@ -69,6 +69,11 @@ public static class CronRunEndingFold
         ArgumentNullException.ThrowIfNull(endings);
         if (string.IsNullOrWhiteSpace(run.SessionId))
         {
+            // A schedule with a check (Factory Definition, phase 5b) starts its session only when its check counts
+            // work: a run still waiting on its check, and one whose check found nothing to do, started none ON PURPOSE.
+            // Neither is a fire that did not run.
+            if (run.Result == CronRunResults.Checking) return (CronRunEndings.Checking, null);
+            if (run.Result == CronRunResults.NothingToDo) return (CronRunEndings.NothingToDo, null);
             // A work-list fire records no session BY DESIGN (CronEngine: a drain starts many), so a drain that started -
             // or found its list empty, which starts nothing on purpose - is not a failed start. Every other work-list
             // outcome (no such list, no Director, the machine busy, already claimed) is a fire that did not run.
@@ -103,6 +108,8 @@ public static class CronRunEndingFold
         return ending switch
         {
             CronRunEndings.NoSession => "did not start a session",
+            CronRunEndings.Checking => "checking - its check has not reported yet",
+            CronRunEndings.NothingToDo => "nothing to do - its check found no work, so no session was needed",
             CronRunEndings.WorkList => "a work-list drain - its sessions are not tracked here",
             CronRunEndings.StillOpen => nowUtc - firedUtc >= LeftOpenAfter
                 ? $"left open - {Duration(nowUtc - firedUtc)} so far"
@@ -152,6 +159,8 @@ public static class CronRunEndingFold
             CronRunEndings.StillOpen when nowUtc - run.FiredUtc >= LeftOpenAfter => RunJudgement.LeftOpen,
             CronRunEndings.StillOpen => RunJudgement.NotJudged,
             CronRunEndings.NoSession => RunJudgement.DidNotStart,
+            // A run waiting on its check, or whose check found nothing to do, opened nothing to close.
+            CronRunEndings.Checking or CronRunEndings.NothingToDo => RunJudgement.NotJudged,
             CronRunEndings.WorkList or CronRunEndings.ClosedNotRecorded or CronRunEndings.DirectorStopped
                 or CronRunEndings.Interrupted or CronRunEndings.Unknown => RunJudgement.NotJudged,
             _ => throw new InvalidOperationException(

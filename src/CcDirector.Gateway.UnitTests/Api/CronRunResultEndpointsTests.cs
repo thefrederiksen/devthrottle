@@ -48,7 +48,8 @@ public sealed class CronRunResultEndpointsTests : IDisposable
             endingsOf: _ => new Dictionary<string, SessionEndingFact>(StringComparer.Ordinal),
             zoneOf: _ => TimeZoneInfo.FindSystemTimeZoneById("America/Toronto"),
             writeActivity: (tenant, run, row, correction) => _runs.WriteActivityRow(tenant, run, row, correction),
-            nowUtc: () => new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc));
+            nowUtc: () => new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
+            triggers: new CcDirector.Gateway.Factory.Triggers.TriggerStore(db));
         _jobs["cj_mail"] = new CronJobDto { Id = "cj_mail", Name = "Mail Desk", Factory = "mail", Seat = "mail-desk" };
         _runs.Append("cj_mail", new CronRunRecord
         {

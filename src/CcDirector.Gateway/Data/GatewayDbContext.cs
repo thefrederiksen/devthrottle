@@ -608,6 +608,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Seat).HasMaxLength(128);
             b.Property(e => e.JobName).HasMaxLength(256);
             b.Property(e => e.BriefVersionKind).HasMaxLength(16);
+            b.Property(e => e.ClaimedByDirectorId).HasMaxLength(64);
             // The sweep reads the runs still waiting on a report; the session lookup finds a session's own run.
             b.HasIndex(e => e.Result);
             b.HasIndex(e => e.SessionId);
@@ -1155,6 +1156,8 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.SessionId).HasMaxLength(64);
             b.Property(e => e.Reason).HasMaxLength(1024);
             b.Property(e => e.DirectorId).HasMaxLength(64);
+            b.Property(e => e.ResolvedBy).HasMaxLength(256);
+            b.Property(e => e.ResolvedReason).HasMaxLength(500);
             // The history is read per trigger, newest first.
             b.HasIndex(e => new { e.TenantId, e.TriggerId, e.RecordedUtc });
         });

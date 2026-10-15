@@ -194,7 +194,8 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
         TriggerEndpoints.Map(app, _ => TenantId.Local, _triggers,
             directorMachine: (_, _) => Machine, nowUtc: () => DateTime.UtcNow, sessionFactoryOf: _history.FactoryOf,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            dueChecks: DueCheckTestParts.NoDueChecks(_db.Open(), Path.Combine(_dir, "due.runs.json")));
 
         await app.StartAsync();
         _app = app;

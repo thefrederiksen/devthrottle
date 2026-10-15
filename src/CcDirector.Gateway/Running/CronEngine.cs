@@ -220,9 +220,13 @@ public sealed class CronEngine
 
         try
         {
-            // A work-list action (#484) drains a named list via the runner; a seed action starts a
-            // single session. Either way a run is recorded and the schedule advances below.
+            // A WORK-LIST action (#484) drains a named list via the runner; a seed action starts a single session. A
+            // seed schedule WITH A CHECK (Factory Definition, phase 5b) starts neither: it records the due check and
+            // returns, so nothing in the sweep ever waits on a Director.
             var isWorkList = !string.IsNullOrWhiteSpace(job.Action.WorkListName);
+            if (job.HasCheck && !isWorkList)
+                return FireCheck(tenant, job, scheduledUtc, isManual);
+
             string? sessionId;
             string? error;
             string? resolvedDirectorId = null;   // the Director the machine resolved to (#503)
@@ -323,6 +327,61 @@ public sealed class CronEngine
             if (job.PreventOverlap)
                 ExitFlight(tenant, job.Id);
         }
+    }
+
+    /// <summary>The infrastructure status of a run whose check is due and has not reported.</summary>
+    public const string CheckDueStatus = "check-due";
+
+    /// <summary>
+    /// THE FIRE OF A SCHEDULE WITH A CHECK (Factory Definition, phase 5b, design 3.3). It starts no session and calls no
+    /// Director: it appends the run row with result <c>checking</c> - that row IS the due check, handed to a Director on
+    /// the schedule's machine by its next trigger pull - and moves the schedule on, exactly as any fire does. The
+    /// Gateway decides whether a session starts when the check reports (<c>DueCheckService</c>).
+    ///
+    /// SUPERSEDED: when the schedule's previous run is still <c>checking</c> at this fire, no Director ran its check
+    /// before its next time. That row becomes a <c>check-not-run</c> problem first, so a machine that is off for days
+    /// shows one problem per missed time, never a pile of rows still waiting.
+    /// </summary>
+    private CronRunNowResult FireCheck(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual)
+    {
+        var firedUtc = _clock.UtcNow;
+        if (_history.NewestChecking(tenant, job.Id) is { } previous)
+        {
+            var reason = previous.Run.CheckedUtc is null
+                ? $"no Director on {job.Target.Machine} ran the check of {job.Name} before its next time"
+                : $"its check counted {previous.Run.CheckCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "work"}, and the session it asked for had not started by the schedule's next time";
+            var superseded = _history.RecordResult(tenant, Guid.Parse(previous.Run.RunId), CronRunResults.Checking, null,
+                CronRunResults.Problem, CronRunProblems.CheckNotRun, reason, firedUtc);
+            if (superseded.Applied && superseded.Run is not null)
+            {
+                FileLog.Write($"[CronEngine] check not run: job={job.Id}, run={previous.Run.RunId}: {reason}");
+                _onResultRecorded?.Invoke(tenant, job, superseded.Run);
+            }
+        }
+
+        var record = new CronRunRecord
+        {
+            ScheduledUtc = scheduledUtc,
+            FiredUtc = firedUtc,
+            Machine = job.Target.Machine,
+            TargetDirectorId = "",
+            SessionId = null,
+            InfraStatus = CheckDueStatus,
+            TaskStatus = TaskStatusUnknown,
+            Result = CronRunResults.Checking,
+        };
+        CronRunResultFold.StampFactoryLink(record, job);
+        _history.Append(job.Id, record);
+
+        if (isManual)
+            _store.MarkFired(job.Id, firedUtc, CheckDueStatus, job.NextRunUtc, job.Enabled);
+        else if (CronSchedule.KindOneOff.Equals(job.ScheduleKind?.Trim(), StringComparison.OrdinalIgnoreCase))
+            _store.MarkFired(job.Id, firedUtc, CheckDueStatus, nextRunUtc: null, enabled: false);
+        else
+            _store.MarkFired(job.Id, firedUtc, CheckDueStatus, CronSchedule.ComputeNextRunUtc(job, firedUtc), enabled: true);
+
+        FileLog.Write($"[CronEngine] fired a due check: job={job.Id}, manual={isManual}, run={record.RunId}, check={job.CheckPath}, machine={job.Target.Machine}");
+        return new CronRunNowResult(CronFireOutcome.Fired, record);
     }
 
     /// <summary>

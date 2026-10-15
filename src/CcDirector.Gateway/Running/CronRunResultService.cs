@@ -41,6 +41,7 @@ public sealed class CronRunResultService
     private readonly Func<TenantId, TimeZoneInfo> _zoneOf;
     private readonly Func<TenantId, Guid, AppendFactoryActivityRequest, bool, Guid> _writeActivity;
     private readonly Func<DateTime> _nowUtc;
+    private readonly Factory.Triggers.TriggerStore _triggers;
 
     /// <param name="runs">The run history.</param>
     /// <param name="jobById">A schedule of the ambient account by id, or null.</param>
@@ -51,6 +52,9 @@ public sealed class CronRunResultService
     /// row) - in the same write that notes it on the run (<see cref="CronRunHistoryStore.WriteActivityRow"/>); returns
     /// the row's id.</param>
     /// <param name="nowUtc">The clock.</param>
+    /// <param name="triggers">The triggers, whose DEFINITION triggers' failed checks are the problems list's second
+    /// source (Factory Definition, phase 5b, design 3.5). REQUIRED, so a wiring line that forgot it fails to compile
+    /// rather than leaving every failed interval check off the Open problems card and the 08:00 email.</param>
     public CronRunResultService(
         CronRunHistoryStore runs,
         Func<string, CronJobDto?> jobById,
@@ -58,8 +62,10 @@ public sealed class CronRunResultService
         Func<IReadOnlyCollection<string>, IReadOnlyDictionary<string, SessionEndingFact>> endingsOf,
         Func<TenantId, TimeZoneInfo> zoneOf,
         Func<TenantId, Guid, AppendFactoryActivityRequest, bool, Guid> writeActivity,
-        Func<DateTime> nowUtc)
+        Func<DateTime> nowUtc,
+        Factory.Triggers.TriggerStore triggers)
     {
+        _triggers = triggers ?? throw new ArgumentNullException(nameof(triggers));
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
         _jobById = jobById ?? throw new ArgumentNullException(nameof(jobById));
         _allJobs = allJobs ?? throw new ArgumentNullException(nameof(allJobs));
@@ -291,6 +297,16 @@ public sealed class CronRunResultService
         TryWriteOwedActivity(tenant, Guid.Parse(run.RunId));
     }
 
+    /// <summary>
+    /// A due check's report recorded a result on its run (Factory Definition, phase 5b): nothing to do, a failed check,
+    /// or a session that did not start. Its factory activity row is owed from that moment; write it now.
+    /// </summary>
+    public void WriteOwedActivityFor(TenantId tenant, CronRunRecord run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        TryWriteOwedActivity(tenant, Guid.Parse(run.RunId));
+    }
+
     // ---------------------------------------------------------------------------------------------------------
     // Clearing by hand: cc-devthrottle run resolve
 
@@ -310,8 +326,13 @@ public sealed class CronRunResultService
 
         var found = _runs.Find(tenant, id);
         if (found is null)
+        {
+            // The problems list's second source: a definition trigger's failed check is resolved by its check's id.
+            if (_triggers.FindRun(tenant, id) is { } check)
+                return ResolveTriggerCheck(tenant, id, check.Run, check.Trigger, resolvedBy, reason!.Trim());
             return CronRunResultOutcome<CronRunProblemDto>.Refused(
                 $"There is no run {id} in this account. Copy the run id from cc-devthrottle run problems.", 404);
+        }
         if (found.Run.Result != CronRunResults.Problem)
             return CronRunResultOutcome<CronRunProblemDto>.Refused(
                 $"Run {id} has no problem to resolve: its result is '{found.Run.Result}'.", 409);
@@ -333,6 +354,44 @@ public sealed class CronRunResultService
         return CronRunResultOutcome<CronRunProblemDto>.Ok(ProblemOf(tenant, found.JobId, id));
     }
 
+    /// <summary>
+    /// Resolve the problem a definition trigger's failed checks raised (Factory Definition, phase 5b, design 3.5). A
+    /// run of failures is one problem, named by its FIRST failed check, so only that id resolves it; a command
+    /// trigger's check is never a problem, and a cleared one is already closed.
+    /// </summary>
+    private CronRunResultOutcome<CronRunProblemDto> ResolveTriggerCheck(TenantId tenant, Guid id,
+        Data.Entities.TriggerRunEntity check, Data.Entities.TriggerEntity? trigger, string resolvedBy, string reason)
+    {
+        if (trigger is null || !trigger.IsDefinitionCheck)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"{id} is a check of a trigger that runs a command, or of a trigger that is gone, and such a check is never a problem. Copy the run id from cc-devthrottle run problems.", 409);
+        if (check.Outcome != TriggerRunOutcome.Failed)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id} of trigger {trigger.Name} has no problem to resolve: it came to '{check.Outcome}'.", 409);
+
+        var problem = TriggerProblemOf(tenant, trigger, id);
+        if (problem is null)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id} of trigger {trigger.Name} failed as part of a problem raised by an earlier check of the same run of failures. Resolve that one: copy its run id from cc-devthrottle run problems.", 409);
+        if (problem.State == CronRunProblemStates.Cleared)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id}'s problem is already cleared: check {problem.ClearedByRunId}, the next check of trigger {trigger.Name}, did not fail.", 409);
+        if (!_triggers.ResolveRun(tenant, id, resolvedBy, reason, _nowUtc()))
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id}'s problem is already resolved - {problem.StateText}.", 409);
+
+        FileLog.Write($"[CronRunResultService] Resolve: trigger check={id}, trigger={trigger.Name}, by={resolvedBy}");
+        return CronRunResultOutcome<CronRunProblemDto>.Ok(TriggerProblemOf(tenant, trigger, id)!);
+    }
+
+    private CronRunProblemDto? TriggerProblemOf(TenantId tenant, Data.Entities.TriggerEntity trigger, Guid headId)
+    {
+        var runs = _triggers.DefinitionTriggerRuns(tenant).FirstOrDefault(t => t.Trigger.Id == trigger.Id).Runs
+                   ?? Array.Empty<Data.Entities.TriggerRunEntity>();
+        return CronRunResultFold.TriggerProblems(trigger, runs, _zoneOf(tenant), _nowUtc())
+            .FirstOrDefault(p => p.RunId == headId.ToString("D"));
+    }
+
     // ---------------------------------------------------------------------------------------------------------
     // Reading: the one fold
 
@@ -342,7 +401,8 @@ public sealed class CronRunResultService
     {
         var jobs = _allJobs().ToDictionary(j => j.Id, StringComparer.Ordinal);
         var asOf = asOfUtc ?? _nowUtc();
-        var dto = CronRunResultFold.Problems(_runs.AllByJob(tenant), jobs, _zoneOf(tenant), factory, includeClosed, asOf);
+        var dto = CronRunResultFold.Problems(_runs.AllByJob(tenant), jobs, _zoneOf(tenant), factory, includeClosed, asOf,
+            _triggers.DefinitionTriggerRuns(tenant));
         FileLog.Write($"[CronRunResultService] Problems: tenant={tenant.ToLogString()}, factory={factory ?? "-"}, state={dto.State}, asOf={asOf:O}, count={dto.Count}");
         return dto;
     }
@@ -360,7 +420,8 @@ public sealed class CronRunResultService
     {
         var jobs = _allJobs().ToDictionary(j => j.Id, StringComparer.Ordinal);
         var runsByJob = _runs.AllByJob(tenant);
-        var problems = CronRunResultFold.Problems(runsByJob, jobs, _zoneOf(tenant), factory: null, includeClosed: false, asOfUtc);
+        var problems = CronRunResultFold.Problems(runsByJob, jobs, _zoneOf(tenant), factory: null, includeClosed: false, asOfUtc,
+            _triggers.DefinitionTriggerRuns(tenant));
 
         var sessionIds = runsByJob.Values.SelectMany(r => r).Select(r => r.SessionId)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct(StringComparer.Ordinal).ToList();
@@ -382,7 +443,8 @@ public sealed class CronRunResultService
             ? new Dictionary<string, CronJobDto>(StringComparer.Ordinal)
             : new Dictionary<string, CronJobDto>(StringComparer.Ordinal) { [jobId] = job };
         var folded = CronRunResultFold.Problems(new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal) { [jobId] = runs },
-            jobs, _zoneOf(tenant), factory: null, includeClosed: true, _nowUtc());
+            jobs, _zoneOf(tenant), factory: null, includeClosed: true, _nowUtc(),
+            Array.Empty<(Data.Entities.TriggerEntity, IReadOnlyList<Data.Entities.TriggerRunEntity>)>());
         return folded.Problems.Single(p => p.RunId == runId.ToString("D"));
     }
 
@@ -402,9 +464,12 @@ public sealed class CronRunResultService
         if (!IsFactoryLinked(run)) return null;
         var name = run.JobName ?? jobId;
         var ok = run.Result == CronRunResults.Ok;
+        var nothing = run.Result == CronRunResults.NothingToDo;
         var what = ok
             ? $"The scheduled run of {name} reported ok" + (string.IsNullOrWhiteSpace(run.ResultReason) ? "." : $": {run.ResultReason}")
-            : $"The scheduled run of {name} {CronRunProblems.Words(run.Problem)}: {run.ResultReason}";
+            : nothing
+                ? $"The scheduled run of {name} checked - nothing to do, so no session was started."
+                : $"The scheduled run of {name} {CronRunProblems.Words(run.Problem)}: {run.ResultReason}";
         return new AppendFactoryActivityRequest
         {
             Factory = run.Factory,
@@ -415,7 +480,7 @@ public sealed class CronRunResultService
                 : new Factory.Talk.FactoryGivenBrief(given, "", run.BriefVersionKind ?? Contracts.FactoryBriefVersionKinds.Brief).Recorded,
             SessionId = string.IsNullOrWhiteSpace(run.SessionId) ? null : run.SessionId,
             What = Truncate(what),
-            Outcome = ok ? FactoryActivityOutcome.Done : FactoryActivityOutcome.Failed,
+            Outcome = ok ? FactoryActivityOutcome.Done : nothing ? FactoryActivityOutcome.NothingToDo : FactoryActivityOutcome.Failed,
             Subject = name,
             Actor = ActorPrefix + jobId,
             OccurredUtc = run.ResultUtc ?? run.FiredUtc,
@@ -475,7 +540,7 @@ public sealed class CronRunResultService
         }
 
         var resultRow = owed.ActivityId;
-        if (resultRow is null && owed.Run.Result is CronRunResults.Ok or CronRunResults.Problem)
+        if (resultRow is null && owed.Run.Result is CronRunResults.Ok or CronRunResults.Problem or CronRunResults.NothingToDo)
         {
             resultRow = _writeActivity(tenant, runId, ActivityFor(owed.JobId, owed.Run)!, false);
             FileLog.Write($"[CronRunResultService] activity row written: run={runId}, factory={owed.Run.Factory}, row={resultRow}");

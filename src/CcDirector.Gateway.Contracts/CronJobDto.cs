@@ -210,6 +210,25 @@ public sealed class CronJobDto
     /// Gateway on every answer so a client offers only what is allowed instead of working it out. Read-only.
     /// </summary>
     public bool DefinedByDefinition { get; set; }
+
+    // ---------- A timed start WITH A CHECK (Factory Definition, phase 5b) ----------
+    // Written only by a factory definition's publish, never from a request body: a write through the schedule routes
+    // leaves them as they are. Null on every schedule without a check, which fires exactly as before.
+
+    /// <summary>The check this schedule runs when it is due, <c>checks/&lt;name&gt;.py</c> in its factory's published
+    /// definition. When set, a fire starts no session: it records a run waiting on the check, a Director runs the
+    /// check, and the Gateway starts the session only when the check counts work. Read-only.</summary>
+    public string? CheckPath { get; set; }
+
+    /// <summary>The cc-secrets entry names the check declares, in declared order. Null when it declares none. Read-only.</summary>
+    public List<string>? CheckSecrets { get; set; }
+
+    /// <summary>The published definition version the check is downloaded from. Read-only.</summary>
+    public int? DefinitionVersion { get; set; }
+
+    /// <summary>True when this schedule runs a check before it starts a session.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasCheck => !string.IsNullOrEmpty(CheckPath);
 }
 
 /// <summary>

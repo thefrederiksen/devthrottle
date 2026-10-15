@@ -281,6 +281,19 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
 
+                    b.Property<int?>("CheckCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CheckedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClaimedByDirectorId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("ClaimedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Factory")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
@@ -4762,6 +4775,17 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(1024)");
 
                     b.Property<DateTime>("RecordedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ResolvedUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SessionId")

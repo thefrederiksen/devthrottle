@@ -131,8 +131,10 @@ internal static class FactoryDefinitionEndpoints
         FileLog.Write($"[FactoryDefinitionEndpoints] mapped {factoryRoute} and its draft, history, versions, diff, publish, restore, export and check-state routes, {ImportRoute} and {SchemasRoute}");
     }
 
-    /// <summary>What the check-state routes read and write: the state store, and the account's triggers.</summary>
-    internal sealed record CheckStateParts(FactoryCheckStateStore Store, Func<TenantId, IReadOnlyList<TriggerEntity>> TriggersOf);
+    /// <summary>What the check-state routes read and write: the state store, the account's triggers, and its schedules
+    /// (a timed start's check keeps its state under its schedule, phase 5b).</summary>
+    internal sealed record CheckStateParts(FactoryCheckStateStore Store, Func<TenantId, IReadOnlyList<TriggerEntity>> TriggersOf,
+        Func<TenantId, IReadOnlyList<CronJobDto>> SchedulesOf);
 
     /// <summary>The refusal a session's reset gets: only a person resets a check's state, and what the session can do.</summary>
     public const string OnlyAPersonResets =
@@ -211,7 +213,7 @@ internal static class FactoryDefinitionEndpoints
         var published = store.Standing(tenant, folded).Published;
         var definition = published is null ? null
             : FactoryDefinitionCheck.Read(store.Find(tenant, folded, published.Version)!.Files).Definition;
-        return FactoryCheckStateFold.List(definition, checkStates.TriggersOf(tenant),
+        return FactoryCheckStateFold.List(definition, checkStates.TriggersOf(tenant), checkStates.SchedulesOf(tenant),
             ownerKey => checkStates.Store.Newest(tenant, folded, ownerKey));
     }
 

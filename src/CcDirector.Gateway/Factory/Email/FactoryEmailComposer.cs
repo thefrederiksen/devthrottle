@@ -91,7 +91,12 @@ public static class FactoryEmailComposer
 
         var done = days.Sum(d => d.Done);
         var didNotRun = days.Sum(d => d.DidNotRun);
-        var summary = $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(didNotRun, "run")} did not run.";
+        // A timed start whose check found nothing reads "nothing to do" (Factory Definition, phase 5b) - never "did not
+        // run". Said only when there was one, so an email with no checked starts reads exactly as it always has.
+        var nothingToDo = days.Sum(d => d.NothingToDo);
+        var summary = nothingToDo == 0
+            ? $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(didNotRun, "run")} did not run."
+            : $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(nothingToDo, "run")} with nothing to do, {Count(didNotRun, "run")} did not run.";
         var headline = problems.Count == 0 ? "All clear" : $"{Count(problems.Count, "problem")} still open";
 
         var html = new StringBuilder();
@@ -130,9 +135,18 @@ public static class FactoryEmailComposer
         }
         if (days.Count > 0)
         {
-            text.AppendLine("LAST 24 HOURS (done / did not run / left open)");
-            foreach (var d in OrderedDays(input, days))
-                text.AppendLine($"{TitleOf(input, d.Factory)}: {d.Done} / {d.DidNotRun} / {d.LeftOpen}");
+            if (nothingToDo == 0)
+            {
+                text.AppendLine("LAST 24 HOURS (done / did not run / left open)");
+                foreach (var d in OrderedDays(input, days))
+                    text.AppendLine($"{TitleOf(input, d.Factory)}: {d.Done} / {d.DidNotRun} / {d.LeftOpen}");
+            }
+            else
+            {
+                text.AppendLine("LAST 24 HOURS (done / nothing to do / did not run / left open)");
+                foreach (var d in OrderedDays(input, days))
+                    text.AppendLine($"{TitleOf(input, d.Factory)}: {d.Done} / {d.NothingToDo} / {d.DidNotRun} / {d.LeftOpen}");
+            }
             text.AppendLine();
         }
         text.AppendLine(footer.ToString());
@@ -269,6 +283,10 @@ public static class FactoryEmailComposer
         html.Append("<tr>\n");
         html.Append($"<td style=\"padding:6px 0;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\">Factory</td>\n");
         html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"44\">Done</td>\n");
+        // The column is there only when a check found nothing to do (phase 5b): every other email is unchanged.
+        var showNothingToDo = days.Any(d => d.NothingToDo > 0);
+        if (showNothingToDo)
+            html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"64\">Nothing to do</td>\n");
         html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"58\">Did not run</td>\n");
         html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"50\">Left open</td>\n");
         html.Append("</tr>\n");
@@ -283,6 +301,7 @@ public static class FactoryEmailComposer
             html.Append("<tr>\n");
             html.Append($"<td style=\"padding:9px 0;font-size:14px;color:{Ink};{rule}\">{name}</td>\n");
             html.Append(NumberCell(d.Done, alarming: false, rule));
+            if (showNothingToDo) html.Append(NumberCell(d.NothingToDo, alarming: false, rule));
             html.Append(NumberCell(d.DidNotRun, alarming: true, rule));
             html.Append(NumberCell(d.LeftOpen, alarming: true, rule));
             html.Append("</tr>\n");

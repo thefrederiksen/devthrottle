@@ -20,6 +20,13 @@ public static class CronRunEndings
     /// </summary>
     public const string WorkList = "work-list";
 
+    /// <summary>The run of a schedule with a check fired and its check has not reported yet: no session yet, and none
+    /// owed until the check counts work (Factory Definition, phase 5b).</summary>
+    public const string Checking = "checking";
+
+    /// <summary>The run's check counted nothing, so no session was started - on purpose.</summary>
+    public const string NothingToDo = "nothing-to-do";
+
     /// <summary>The session is still open.</summary>
     public const string StillOpen = "still-open";
 

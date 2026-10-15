@@ -273,6 +273,19 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("CheckCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CheckedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimedByDirectorId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClaimedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Factory")
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
@@ -4659,6 +4672,17 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("RecordedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("SessionId")

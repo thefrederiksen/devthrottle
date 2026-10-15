@@ -292,6 +292,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// says, so the database shape does not depend on it; only the routes do.</summary>
     internal Factory.Triggers.TriggerService Triggers { get; }
 
+    /// <summary>A timed start's due check (Factory Definition, phase 5b): handed out, reported and decided.</summary>
+    internal Factory.Triggers.DueCheckService DueChecks { get; }
+
     /// <summary>
     /// What the owner's Factory Agents pages read, each in the account the route resolved. The triggers, their
     /// status, and Pause and Resume all go through the trigger service, the same one <c>cc-devthrottle trigger</c> uses.
@@ -2624,6 +2627,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // Factory Control, step 1 and 6: every run says how it went, and a factory-linked run leaves an activity row.
         // The schedules and the work history are read in the ambient scope the route or the sweep entered; the run
         // history and the activity record are told the account explicitly.
+        // The trigger store is read by the problems fold too: a definition trigger's failed check is a problem (phase 5b).
+        var triggerStore = new Factory.Triggers.TriggerStore(_gatewayDb);
         _cronRunResults = new Running.CronRunResultService(
             _cronRuns,
             jobById: id => _cronJobs.Get(id),
@@ -2632,10 +2637,12 @@ public sealed class GatewayHost : IAsyncDisposable
             endingsOf: ids => _sessionHistory!.EndingsOf(ids),
             zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             writeActivity: (tenant, run, row, correction) => _cronRuns.WriteActivityRow(tenant, run, row, correction),
-            nowUtc: () => cronClock.UtcNow);
+            nowUtc: () => cronClock.UtcNow,
+            triggers: triggerStore);
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
-        _cronEngine = new Running.CronEngine(
-            _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock,
+        // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check
+        // when its check counts work (phase 5b), so a checked run is given exactly what a scheduled run is.
+        var cronStarter = new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock,
                 // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
                 // the job's account's scope, so the ambient tenant is the account the job belongs to.
                 refuseFactoryWork: job => Factory.Registry.FactoryScheduleLink.Check(job.Factory, job.Seat,
@@ -2647,7 +2654,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     (factory, seat) => _factorySeatBriefs.GivenTo(_tenantContext.Current, factory, seat)),
                 // Factory Definition mission, phase 5: a defined factory's run is built from its published definition.
                 // Read in the same scope as the two above.
-                definitionOf: job => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, _tenantContext.Current, job.Factory)),
+                definitionOf: job => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, _tenantContext.Current, job.Factory));
+        _cronEngine = new Running.CronEngine(
+            _cronJobs, _cronRuns, cronStarter,
             cronWorkListRunner, cronNotifier, cronClock,
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
@@ -2694,7 +2703,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // SAME single resolve-then-create method a schedule's does, stamped with its own origin surface; whether
         // its last session is still alive is read from the same session list the roster serves.
         Triggers = new Factory.Triggers.TriggerService(
-            new Factory.Triggers.TriggerStore(_gatewayDb),
+            triggerStore,
             FactoryActivity,
             async (machine, request, ct) =>
             {
@@ -2713,6 +2722,17 @@ public sealed class GatewayHost : IAsyncDisposable
             startLifetime: _triggerStartLifetime.Token,
             directorRunsDefinitionChecks: _definitionCheckCapabilities.RunsDefinitionChecks,
             machineRunsDefinitionChecks: MachineRunsDefinitionChecks);
+        // A timed start's due check (phase 5b): handed out and reported through the same Director routes as a
+        // trigger's, decided here, its session started through the schedule's own starter.
+        DueChecks = new Factory.Triggers.DueCheckService(
+            _cronRuns,
+            jobOf: (tenant, id) => _cronJobs.Get(tenant, id),
+            triggerStore.CheckStates,
+            cronStarter,
+            directorRunsDefinitionChecks: _definitionCheckCapabilities.RunsDefinitionChecks,
+            resultRecorded: (tenant, run) => _cronRunResults.WriteOwedActivityFor(tenant, run),
+            nowUtc: () => DateTime.UtcNow,
+            startLifetime: _triggerStartLifetime.Token);
 
         // The activity ledger's 30-day retention, on the same per-tenant worker seam.
         _activityRetentionSweep = new Activity.ActivityRetentionSweep(_tenantBoundary, TenantRegistry, _activityEvents);
@@ -6006,7 +6026,8 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow,
             askMachines: AskFactoryMachinesAsync,
             // Phase 5b: the state each definition check keeps, listed per checked start and reset by a person.
-            checkStates: new Api.FactoryDefinitionEndpoints.CheckStateParts(Triggers.Store.CheckStates, Triggers.Store.List));
+            checkStates: new Api.FactoryDefinitionEndpoints.CheckStateParts(Triggers.Store.CheckStates, Triggers.Store.List,
+                _cronJobs.ListAll));
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
         // held here beside its memory so that no factory depends on one machine's disk (the owner's decision F2).
@@ -6065,7 +6086,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // trigger's factory - the sessions it starts are born into it.
             sessionFactoryOf: _sessionHistory.FactoryOf,
             // Factory Definition, phase 4: a defined factory's triggers are its definition's to write.
-            isDefined: FactoryDefinitions.IsDefined);
+            isDefined: FactoryDefinitions.IsDefined,
+            // Phase 5b: a timed start's due checks, handed out and reported on the same Director routes.
+            dueChecks: DueChecks);
 
         // Factory Definition, phase 5b: a Director downloads the checks of a PUBLISHED version of a factory whose seat
         // runs on its machine. Behind the same switch as the triggers that name them.

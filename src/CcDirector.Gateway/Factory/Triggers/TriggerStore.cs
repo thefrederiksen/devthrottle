@@ -195,6 +195,55 @@ public sealed class TriggerStore
         }
     }
 
+    /// <summary>
+    /// Every DEFINITION trigger of the account with its checks, newest first - the second source of the problems list
+    /// (Factory Definition, phase 5b, design 3.5). A command trigger is never in it: its failures are not problems.
+    /// </summary>
+    public IReadOnlyList<(TriggerEntity Trigger, IReadOnlyList<TriggerRunEntity> Runs)> DefinitionTriggerRuns(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var triggers = ctx.Triggers.AsNoTracking().ToList().Where(t => t.IsDefinitionCheck).ToList();
+        if (triggers.Count == 0) return Array.Empty<(TriggerEntity, IReadOnlyList<TriggerRunEntity>)>();
+        var ids = triggers.Select(t => t.Id).ToList();
+        var runs = ctx.TriggerRuns.AsNoTracking().Where(r => ids.Contains(r.TriggerId)).ToList()
+            .GroupBy(r => r.TriggerId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<TriggerRunEntity>)g.OrderByDescending(r => r.RecordedUtc).ThenByDescending(r => r.Id).ToList());
+        return triggers
+            .Select(t => (t, runs.TryGetValue(t.Id, out var r) ? r : (IReadOnlyList<TriggerRunEntity>)Array.Empty<TriggerRunEntity>()))
+            .ToList();
+    }
+
+    /// <summary>One check of a trigger by the check's id, with its trigger (null when the trigger is gone), or null.</summary>
+    public (TriggerRunEntity Run, TriggerEntity? Trigger)? FindRun(TenantId tenant, Guid runId)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var run = ctx.TriggerRuns.AsNoTracking().FirstOrDefault(r => r.Id == runId);
+        if (run is null) return null;
+        return (run, ctx.Triggers.AsNoTracking().FirstOrDefault(t => t.Id == run.TriggerId));
+    }
+
+    /// <summary>
+    /// Mark a failed check's problem resolved by hand, keeping who and why - only while the check is a failure not
+    /// already resolved. Returns whether it was written.
+    /// </summary>
+    public bool ResolveRun(TenantId tenant, Guid runId, string resolvedBy, string reason, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedBy)) throw new ArgumentException("who resolved it is required", nameof(resolvedBy));
+        if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("a reason is required", nameof(reason));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.TriggerRuns.FirstOrDefault(r => r.Id == runId);
+            if (row is null || row.Outcome != TriggerRunOutcome.Failed || row.ResolvedUtc is not null) return false;
+            row.ResolvedUtc = Utc(nowUtc);
+            row.ResolvedBy = resolvedBy.Trim();
+            row.ResolvedReason = reason.Trim();
+            ctx.SaveChanges();
+            FileLog.Write($"[TriggerStore] ResolveRun: tenant={tenant.ToLogString()}, run={runId}, trigger={row.TriggerId}, by={row.ResolvedBy}");
+            return true;
+        }
+    }
+
     /// <summary>A trigger's checks, newest first, at most <paramref name="limit"/>.</summary>
     public IReadOnlyList<TriggerRunEntity> ListRuns(TenantId tenant, Guid triggerId, int limit)
     {

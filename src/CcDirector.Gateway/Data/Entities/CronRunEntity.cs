@@ -90,4 +90,21 @@ public sealed class CronRunEntity : GatewayMintedKeyEntity
     /// (<see cref="Contracts.CronRunRecord.BriefVersionKind"/>). Rows recorded before this column existed read null,
     /// and every one of them was a brief version.</summary>
     public string? BriefVersionKind { get; set; }
+
+    // ---- Factory Definition, phase 5b: the due check of a schedule with a check. Null on every other run. ----
+
+    /// <summary>The Director that holds this run's check, while the run is <c>checking</c>: it was handed the check and
+    /// only it may report it. The claim lapses after <c>DueCheckService.ClaimLapse</c>, and another Director on the
+    /// machine may take it.</summary>
+    public string? ClaimedByDirectorId { get; set; }
+
+    /// <summary>When the claim was taken (UTC).</summary>
+    public DateTime? ClaimedUtc { get; set; }
+
+    /// <summary>What the check counted, once it reported a count.</summary>
+    public int? CheckCount { get; set; }
+
+    /// <summary>When the check's report was recorded (UTC). Set the moment the Gateway decides on it, so a second report
+    /// of the same check is refused even while the session it counted is still being started.</summary>
+    public DateTime? CheckedUtc { get; set; }
 }
