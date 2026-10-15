@@ -196,13 +196,13 @@ public sealed class LinuxResourceProbeTests : IDisposable
         Assert.True(second.Processes.CouldRead);
         Assert.Equal(6, second.Processes.Processes.Count);
 
-        var claude = Assert.Single(second.Processes.Processes, p => p.Pid == 3766989);
-        Assert.Equal(2916256, claude.ParentPid);
+        var agent = Assert.Single(second.Processes.Processes, p => p.Pid == 3766989);
+        Assert.Equal(2916256, agent.ParentPid);
         // 7 ticks in 5 seconds at 100 ticks per second, across 32 cores.
-        Assert.Equal(0.04375, claude.CpuPercent, 5);
-        Assert.Equal(101977UL * 4096, claude.MemoryBytes);
-        Assert.Equal(0, claude.DiskReadBytesPerSecond);
-        Assert.Equal(0, claude.DiskWriteBytesPerSecond);
+        Assert.Equal(0.04375, agent.CpuPercent, 5);
+        Assert.Equal(101977UL * 4096, agent.MemoryBytes);
+        Assert.Equal(0, agent.DiskReadBytesPerSecond);
+        Assert.Equal(0, agent.DiskWriteBytesPerSecond);
 
         var dotnet = Assert.Single(second.Processes.Processes, p => p.Pid == 3911504);
         // Started 21491067 ticks (214910.67 seconds) after boot at 1791851717.
