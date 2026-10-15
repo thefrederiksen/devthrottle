@@ -270,6 +270,27 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_TheDirectorsDefinitionChecksOnTheWire_IsTheNameTheGatewayReads()
+    {
+        // Arrange: the hello as the Director's stream client sends it, through SignalR's JSON (web defaults): the wire
+        // name is definitionChecks, the one the Director's hello carries in GatewayStreamClient.
+        var wire = System.Text.Json.JsonSerializer.Serialize(
+            new DirectorStreamHello { DirectorId = "dir-wire", Version = "test", DefinitionChecks = true },
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.Contains("\"definitionChecks\":true", wire);
+        var received = System.Text.Json.JsonSerializer.Deserialize<DirectorStreamHello>("""{"directorId":"dir-wire","version":"test","definitionChecks":true}""",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var caps = new CcDirector.Gateway.Streaming.DefinitionCheckCapabilityRegistry();
+        var hub = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), definitionChecks: caps) { Context = new FakeHubCallerContext("conn-1") };
+
+        // Act
+        hub.Hello(received);
+
+        // Assert
+        Assert.True(caps.RunsDefinitionChecks(TenantId.Local, "dir-wire"));
+    }
+
+    [Fact]
     public void Hello_RecordsWhetherThisDirectorChangesASessionsOwnerOnlyIfExpected()
     {
         // The Fleet Manager mission, step 8: the Gateway refuses a hand over on a Director that did not say this, because
