@@ -107,6 +107,18 @@ public sealed class SessionHistoryStore
             // out of its factory because of which build happened to report it last.
             if (string.IsNullOrEmpty(entity.Factory) && !string.IsNullOrWhiteSpace(session.Factory))
                 entity.Factory = session.Factory;
+            // The seat, its definition version and its kit kind (Factory Definition mission, phase 5), on the same
+            // write-once terms and as ONE fact: a child's seat is read from these columns, so a row that has a seat
+            // never takes a second one, and a push that lost them never blanks them.
+            if (string.IsNullOrEmpty(entity.FactorySeat) && entity.FactoryDefinitionVersion is null && string.IsNullOrEmpty(entity.FactoryKit)
+                && (!string.IsNullOrWhiteSpace(session.FactorySeat) || session.FactoryDefinitionVersion is not null || !string.IsNullOrWhiteSpace(session.FactoryKit)))
+            {
+                entity.FactorySeat = string.IsNullOrWhiteSpace(session.FactorySeat) ? null : session.FactorySeat;
+                entity.FactoryDefinitionVersion = session.FactoryDefinitionVersion;
+                entity.FactoryKit = string.IsNullOrWhiteSpace(session.FactoryKit) ? null : session.FactoryKit;
+            }
+            if (string.IsNullOrEmpty(entity.FactoryStartOverride) && !string.IsNullOrWhiteSpace(session.FactoryStartOverride))
+                entity.FactoryStartOverride = session.FactoryStartOverride;
             // The person a team session belongs to (devthrottle_internal#2305), on the same write-once terms: a
             // Director is bound to one person in a team, so the first person the resolver names is the session's
             // person for good, and an unknown answer (the Director gone before the push was observed) never blanks
@@ -459,12 +471,14 @@ public sealed class SessionHistoryStore
             using var ctx = _db.CreateContext();
             var row = ctx.SessionHistory.AsNoTracking()
                 .Where(e => e.SessionId == sessionId)
-                .Select(e => new { e.Factory })
+                .Select(e => new { e.Factory, e.FactorySeat, e.FactoryDefinitionVersion })
                 .FirstOrDefault();
             if (row is null) return SessionFactoryLookup.NotKnown;
+            // The seat and its version come with the factory (Factory Definition mission, phase 5): read in the
+            // same one query, from the same row, so a child's seat is settled from the same answer as its factory.
             return string.IsNullOrWhiteSpace(row.Factory)
                 ? SessionFactoryLookup.InNoFactory
-                : SessionFactoryLookup.In(row.Factory!);
+                : SessionFactoryLookup.In(row.Factory!, row.FactorySeat, row.FactoryDefinitionVersion);
         }
     }
 

@@ -144,6 +144,26 @@ public sealed class SessionHistoryEntity : TenantScopedEntity
     public string? Factory { get; set; }
 
     /// <summary>
+    /// THE SEAT of a defined factory this session was started as, or whose kit it inherited (Factory Definition
+    /// mission, phase 5), or null. With <see cref="FactoryDefinitionVersion"/> it is what a child inherits: the spawn
+    /// door reads the CALLER'S seat and version from this row, for the reason <see cref="Factory"/> is read from it -
+    /// the pushed roster is empty for a moment after a Gateway restart. WRITE-ONCE, like the factory.
+    /// </summary>
+    public string? FactorySeat { get; set; }
+
+    /// <summary>The published definition version the session's kit was built from, or null. Write-once, beside
+    /// <see cref="FactorySeat"/>.</summary>
+    public int? FactoryDefinitionVersion { get; set; }
+
+    /// <summary>Which kit the session was given - <c>"seat"</c> or <c>"rules-only"</c> - or null. Write-once, beside
+    /// <see cref="FactorySeat"/>.</summary>
+    public string? FactoryKit { get; set; }
+
+    /// <summary>A person's override of a talk with a seat, in words ("agent Codex, model x, machine Y, chosen by the
+    /// person"), or null (Factory Definition mission, phase 5). Write-once.</summary>
+    public string? FactoryStartOverride { get; set; }
+
+    /// <summary>
     /// In a TEAM's tenant, the account subject of the person whose Director ran this session
     /// (devthrottle_internal#2305), stamped by the Gateway from the Director's key through the team caller resolver
     /// (devthrottle_internal#2311) - never taken from the pushed session. Null in a personal tenant, where the tenant

@@ -914,6 +914,11 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 ChangesOwnerIfExpected = true,    // ...and makes the change only while the owner is still the expected one
                 AnswersFactoryMachineQuestion = true, // this build answers the factory-machine-question verb
                 DefinitionChecks = true,          // this build runs checks from a factory's definition (phase 5b)
+                // FALSE ON PURPOSE (Factory Definition mission, phase 5). This build stamps the seat-start fields it is
+                // sent but does not yet build the seat's kit, so it must not be sent a seat start. The LAST Director
+                // pull request of phase 5 - whichever of the kit, the launch and the machine question merges last -
+                // turns this on, so a Director built from main never advertises a half-built kit.
+                BuildsFactoryKit = false,
             });
             awaitGateway += DateTime.UtcNow - helloStarted;
             helloAnswered = true;

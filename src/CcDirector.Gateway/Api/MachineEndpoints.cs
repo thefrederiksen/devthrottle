@@ -191,7 +191,10 @@ internal static class MachineEndpoints
         // busy Director idle, or a behind one current.
         DirectorRegistry? directors = null,
         Streaming.PushedSessionStore? pushedSessions = null,
-        NewestReleaseWatch? newestRelease = null)
+        NewestReleaseWatch? newestRelease = null,
+        // Factory Definition mission, phase 5: whether a seat carries rules in a definition version, for one account -
+        // read when a seat's child runs an agent that cannot take rules. Null refuses such a child; it never lets one by.
+        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
@@ -200,7 +203,7 @@ internal static class MachineEndpoints
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
         MapMachineRoutes(outer.MapGroup(MachinePrefix), hosted, launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
-            directors, pushedSessions, newestRelease, sessionFactoryOf);
+            directors, pushedSessions, newestRelease, sessionFactoryOf, seatRulesFor);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -288,7 +291,8 @@ internal static class MachineEndpoints
         DirectorRegistry? directors,
         Streaming.PushedSessionStore? pushedSessions,
         NewestReleaseWatch? newestRelease,
-        Func<string, History.SessionFactoryLookup> sessionFactoryOf)
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf,
+        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
@@ -469,7 +473,7 @@ internal static class MachineEndpoints
             // WHICH FACTORY the new session belongs to, settled from the same credential in the same one place
             // (Factory Memory mission, phase 1). It sits beside the origin stamp because it is the same rule
             // about the same thing: a fact that decides access may not be chosen by the caller.
-            if (!SpawnFactory.TryEstablish(req, ctx, route, sessionFactoryOf, out var factoryError))
+            if (!SpawnFactory.TryEstablish(req, ctx, route, sessionFactoryOf, out var factoryError, seatRulesFor?.Invoke(tenant)))
                 return factoryError!;
 
             // The mission NAME and the workflow SEAT, resolved in the ONE place both spawn doors share
@@ -483,9 +487,14 @@ internal static class MachineEndpoints
             // spawner's refusal hook and runs before the create is sent - the same check the Director door makes. A
             // refusal is the caller's to act on (update that Director), so it answers 409, never the 502 of a machine
             // that could not be reached.
+            //
+            // A SEAT START rides the same hook (Factory Definition mission, phase 5): the spawner refuses one for a
+            // Director that does not build the kit, and asking it here as well is what makes that refusal a 409 the
+            // caller acts on rather than the 502 of a machine that could not be reached.
             string? tooOld = null;
-            Func<string, string?>? refuseDirector = req.Factory is null ? null : directorId =>
-                tooOld = SpawnFactory.DirectorCannotCarry(req, directorId, directors is null ? null : id => directors.Get(tenant, id));
+            Func<string, string?>? refuseDirector = req.Factory is null && !req.CarriesSeatStartFields() ? null : directorId =>
+                tooOld = SpawnFactory.RefuseAtMachineDoor(req, directorId,
+                    directors is null ? null : id => directors.Get(tenant, id), spawner.RefuseSeatStart);
 
             var (ok, dto, error, _) = await spawner.SpawnOnMachineAsync(machine, req, ct, refuseDirector);
             if (tooOld is not null)

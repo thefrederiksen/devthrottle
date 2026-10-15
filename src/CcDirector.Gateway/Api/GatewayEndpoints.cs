@@ -358,7 +358,13 @@ internal static partial class GatewayEndpoints
         // schedule started is written onto that run as who ended it - the session itself, another session, or a
         // person - because only these routes know who asked. Null (tests, older callers) records no ending, and the
         // Schedule page then reads such a run as closed with its closer not recorded.
-        CronRunHistoryStore? scheduledRuns = null)
+        CronRunHistoryStore? scheduledRuns = null,
+        // Factory Definition mission, phase 5: which Directors build a seat's kit (read before a seat start is sent),
+        // and whether a seat carries rules in a definition version, for one account (read when a seat's child runs an
+        // agent that cannot take rules). Null (tests, older callers) refuses every seat start and every such child -
+        // never lets one by - and changes nothing for a create that carries no seat.
+        Streaming.FactoryKitCapabilityRegistry? factoryKitCapabilities = null,
+        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
@@ -1924,6 +1930,10 @@ internal static partial class GatewayEndpoints
                             ClaudeSessionId = s.ClaudeSessionId,
                             CreatedAtUtc = s.CreatedAtUtc,
                             Factory = s.Factory,
+                            FactorySeat = s.FactorySeat,
+                            FactoryDefinitionVersion = s.FactoryDefinitionVersion,
+                            FactoryKit = s.FactoryKit,
+                            LaunchModel = s.LaunchModel,
                             DeadDirectorId = j.DirectorId,
                             DeadPid = j.Pid,
                             MachineName = j.MachineName,
@@ -2031,27 +2041,13 @@ internal static partial class GatewayEndpoints
             // Create the continuation over the tunnel (create verb, director-level so SessionId is "").
             // The tunnel unary has no 2s aggregate timeout - keep-alive sustains a multi-second spawn - so
             // the orphan risk the old dedicated 20s HttpClient guarded against does not apply.
-            var spawnReq = new NewSessionRequest
-            {
-                RepoPath = row.RepoPath,
-                Agent = row.Agent,
-                PrePrompt = context,
-                // Session origin (devthrottle_internal issue #982). The SURFACE is certain - this is a
-                // direct Gateway API route, not the command line and not a schedule - so it is stated.
-                // The KIND is the INTERRUPTED session's: the restore continues its work, so it keeps the
-                // starter the journal recorded, and a session the owner started is still his after a crash
-                // (Your Throttle, 2026-09-27). Who asked for the restore is a different question this handler
-                // cannot answer. A journal written before the field existed says nothing, and the restore
-                // records "unknown", which is exactly what is known.
-                Origin = Core.Sessions.SessionOriginKinds.Normalize(row.OriginKind),
-                OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
-                // The dead session's factory, from the dead Director's own journal (Factory Memory phase 1 review,
-                // finding 3). A continuation is the same seat carrying on, like a restore or a reopen, so it keeps
-                // the seat's membership rather than coming back outside its factory. Taken from the journal and
-                // never from the request body, and a session key cannot reach this route at all (SessionKeyGuard
-                // lists no /interrupted route), so only a person or a Director can continue a factory's session.
-                Factory = string.IsNullOrWhiteSpace(row.Factory) ? null : row.Factory.Trim(),
-            };
+            var spawnReq = ContinuationRequest(row, context);
+            // A seat continued on a Director that cannot build its kit would run with none of its limits: refused here,
+            // before the create is sent, as every other door refuses it.
+            if (SpawnFactory.DirectorCannotBuildKit(spawnReq, target,
+                    ResolveReadTenant(ctx, tenantBoundary) is { } restoreTenant
+                    && (factoryKitCapabilities?.BuildsFactoryKit(restoreTenant, target.DirectorId) ?? false)) is { } noKit)
+                return Results.Json(new { error = noKit }, statusCode: StatusCodes.Status409Conflict);
             var createSr = await DirectorCommandRouter.TrySendAsync(sendCommand, target.DirectorId, "create", "", spawnReq, CancellationToken.None, machineName: target.MachineName);
             if (createSr is null)
                 return Results.Problem("target director is not connected to the tunnel", statusCode: StatusCodes.Status502BadGateway);
@@ -4817,7 +4813,7 @@ internal static partial class GatewayEndpoints
         // THE PERSON'S NEW SESSION DOOR. Its whole body is StartSessionOnDirectorAsync, so the Factories screen's Talk
         // button starts its session down exactly this path rather than a copy of it (Factories screen mission, phase C).
         var directorSpawnDoor = new DirectorSpawnDoor(tenantBoundary, registry, sessionFactoryOf, sendCommand,
-            missions, workflowRuns, workspaces);
+            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor);
         app.MapPost("/directors/{id}/sessions", async (HttpContext ctx, string id, NewSessionRequest req) =>
         {
             var outcome = await StartSessionOnDirectorAsync(ctx, id, req, directorSpawnDoor);
@@ -6161,6 +6157,42 @@ internal static partial class GatewayEndpoints
                 $"{ctx.Request.Method} {ctx.Request.Path} was allowed inside a team, but this Gateway gave the endpoint no way to cut its answer to the caller's own.");
         return null;
     }
+
+    /// <summary>
+    /// The create that continues an interrupted session, built from the dead Director's own journal row and never from
+    /// the request: the same agent in the same folder, the same starter, the same factory, and - for a seat of a
+    /// defined factory (Factory Definition mission, phase 5) - the same seat, version, kit and model. Its own method so
+    /// a test can read what a continuation carries without standing a host up.
+    /// </summary>
+    internal static NewSessionRequest ContinuationRequest(CrashJournalSessionDto row, string context)
+        => new()
+        {
+            RepoPath = row.RepoPath,
+            Agent = row.Agent,
+            PrePrompt = context,
+            // Session origin (devthrottle_internal issue #982). The SURFACE is certain - this is a
+            // direct Gateway API route, not the command line and not a schedule - so it is stated.
+            // The KIND is the INTERRUPTED session's: the restore continues its work, so it keeps the
+            // starter the journal recorded, and a session the owner started is still his after a crash
+            // (Your Throttle, 2026-09-27). Who asked for the restore is a different question this handler
+            // cannot answer. A journal written before the field existed says nothing, and the restore
+            // records "unknown", which is exactly what is known.
+            Origin = Core.Sessions.SessionOriginKinds.Normalize(row.OriginKind),
+            OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
+            // The dead session's factory, from the dead Director's own journal (Factory Memory phase 1 review,
+            // finding 3). A continuation is the same seat carrying on, like a restore or a reopen, so it keeps
+            // the seat's membership rather than coming back outside its factory. Taken from the journal and
+            // never from the request body, and a session key cannot reach this route at all (SessionKeyGuard
+            // lists no /interrupted route), so only a person or a Director can continue a factory's session.
+            Factory = string.IsNullOrWhiteSpace(row.Factory) ? null : row.Factory.Trim(),
+            // And the seat it was started as (Factory Definition mission, phase 5), from the same journal on the
+            // same terms: a continuation is the same seat carrying on, under the same rules.
+            FactorySeat = string.IsNullOrWhiteSpace(row.FactorySeat) ? null : row.FactorySeat.Trim(),
+            FactoryDefinitionVersion = row.FactoryDefinitionVersion,
+            FactoryKit = string.IsNullOrWhiteSpace(row.FactoryKit) ? null : row.FactoryKit.Trim(),
+            // The model it was started on, so the continuation relaunches on it.
+            Model = string.IsNullOrWhiteSpace(row.LaunchModel) ? null : row.LaunchModel.Trim(),
+        };
 
     /// <summary>
     /// Resolve a request's tenant for a session READ (Hosted Multi-Tenancy, session-serving PR1). Null means

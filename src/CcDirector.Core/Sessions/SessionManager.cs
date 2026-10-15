@@ -311,6 +311,10 @@ public sealed class SessionManager : IDisposable
         ControllerSessionId = s.ControllerSessionId?.ToString(),
         OriginKind = s.OriginKind,
         Factory = s.Factory,
+        FactorySeat = s.FactorySeat,
+        FactoryDefinitionVersion = s.FactoryDefinitionVersion,
+        FactoryKit = s.FactoryKit,
+        LaunchModel = s.LaunchModel,
     };
 
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)
@@ -1926,6 +1930,12 @@ public sealed class SessionManager : IDisposable
                 // The factory is a birth fact on the same terms (Factory Memory mission, phase 1): lose it in a
                 // snapshot and the seat comes back unable to read the memory it was written to serve.
                 Factory = s.Factory,
+                // The seat beside it (Factory Definition mission, phase 5), on the same terms.
+                FactorySeat = s.FactorySeat,
+                FactoryDefinitionVersion = s.FactoryDefinitionVersion,
+                FactoryKit = s.FactoryKit,
+                FactoryStartOverride = s.FactoryStartOverride,
+                LaunchModel = s.LaunchModel,
                 IsAutoNamed = s.IsAutoNamed,
                 MissionId = s.MissionId,
                 MissionName = s.MissionName,
@@ -2022,6 +2032,10 @@ public sealed class SessionManager : IDisposable
         // The factory comes back with the seat, so a plain Director restart keeps a factory agent inside its
         // factory. A snapshot written before the field existed carries null, which restores as no factory.
         session.StampFactory(ps.Factory);
+        // And the seat it was started as (Factory Definition mission, phase 5): a restored seat is still that seat.
+        session.StampFactorySeat(ps.FactorySeat, ps.FactoryDefinitionVersion, ps.FactoryKit);
+        session.StampFactoryStartOverride(ps.FactoryStartOverride);
+        session.StampLaunchModel(ps.LaunchModel);
         session.IsAutoNamed = ps.IsAutoNamed;
         session.MissionId = ps.MissionId;
         session.MissionName = ps.MissionName;

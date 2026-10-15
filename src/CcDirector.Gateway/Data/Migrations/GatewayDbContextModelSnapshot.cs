@@ -2983,6 +2983,18 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("Factory")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("FactoryDefinitionVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FactoryKit")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FactorySeat")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FactoryStartOverride")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("FirstPromptLine")
                         .HasColumnType("TEXT");
 

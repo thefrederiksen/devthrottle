@@ -37,6 +37,22 @@ public sealed class MachineSessionSpawner
     private readonly IDirectorTargetResolver _resolver;
     private readonly CreateSessionWithOutcomeDelegate _create;
 
+    /// <summary>
+    /// The refusal for a SEAT START (a create carrying any of the six seat-start fields) going to the resolved
+    /// Director, or null when it may go (Factory Definition mission, phase 5) - <c>SpawnFactory.DirectorCannotBuildKit</c>
+    /// read against what that Director said on Hello. Asked here, once, so every caller of this one path - the cron
+    /// starter, the machine door, the Fleet Manager's placement - refuses an older Director the same way.
+    ///
+    /// When it is not set, a seat start is REFUSED rather than sent: a spawner that cannot ask cannot vouch for the
+    /// Director, and a seat started on an older one runs with none of its limits. A create with none of the fields is
+    /// untouched either way.
+    /// </summary>
+    internal Func<NewSessionRequest, string, string?>? RefuseSeatStart { get; init; }
+
+    /// <summary>The refusal a spawner with no <see cref="RefuseSeatStart"/> gives a seat start.</summary>
+    internal const string CannotTellKit =
+        "The Gateway cannot tell whether that Director can build a seat's kit, so no session was started.";
+
     /// <param name="resolver">Resolves the target machine to a Director, launching one on demand.</param>
     /// <param name="sendCommand">The send-a-command-down-the-stream hook.</param>
     internal MachineSessionSpawner(IDirectorTargetResolver resolver,
@@ -119,6 +135,13 @@ public sealed class MachineSessionSpawner
         {
             FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync REFUSED before the create: machine={machine}, director={target.DirectorId}: {refusal}");
             return MachineSpawnResult.Failed(refusal, target.DirectorId, outcomeUnknown: false);
+        }
+
+        if (req.CarriesSeatStartFields()
+            && (RefuseSeatStart is null ? CannotTellKit : RefuseSeatStart(req, target.DirectorId)) is { } kitRefusal)
+        {
+            FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync REFUSED a seat start before the create: machine={machine}, director={target.DirectorId}: {kitRefusal}");
+            return MachineSpawnResult.Failed(kitRefusal, target.DirectorId, outcomeUnknown: false);
         }
 
         FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync: machine={machine}, director={target.DirectorId}, repo={req.RepoPath}");

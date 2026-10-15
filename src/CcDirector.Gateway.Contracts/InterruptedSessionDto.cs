@@ -18,6 +18,13 @@ public sealed class CrashJournalSessionDto
     public string? OriginKind { get; set; }
     /// <summary>The factory the session belonged to when the Director died, or null when it was in none.</summary>
     public string? Factory { get; set; }
+    /// <summary>The seat, definition version and kit kind the session was born with (Factory Definition mission,
+    /// phase 5), or null - in a journal written before the fields existed too.</summary>
+    public string? FactorySeat { get; set; }
+    public int? FactoryDefinitionVersion { get; set; }
+    public string? FactoryKit { get; set; }
+    /// <summary>The model the create asked for, or null (Factory Definition mission, phase 5).</summary>
+    public string? LaunchModel { get; set; }
 }
 
 /// <summary>
@@ -53,6 +60,14 @@ public sealed class InterruptedSessionDto
     /// <summary>The factory the session belonged to, from the dead Director's journal, or null when it was in none
     /// (Factory Memory mission). A continuation is created back into it.</summary>
     public string? Factory { get; set; }
+
+    /// <summary>The seat, definition version and kit kind the session was born with, from the dead Director's journal,
+    /// or null (Factory Definition mission, phase 5). A continuation is created back as the same seat.</summary>
+    public string? FactorySeat { get; set; }
+    public int? FactoryDefinitionVersion { get; set; }
+    public string? FactoryKit { get; set; }
+    /// <summary>The model the create asked for, or null (Factory Definition mission, phase 5).</summary>
+    public string? LaunchModel { get; set; }
 
     /// <summary>The Director that died holding this session.</summary>
     public string DeadDirectorId { get; set; } = "";

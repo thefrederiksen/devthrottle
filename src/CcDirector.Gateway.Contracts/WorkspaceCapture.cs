@@ -146,6 +146,11 @@ public static class WorkspaceCapture
 
             // The factory, captured so the restore can give it back (Factory Memory mission, phase 1).
             Factory = string.IsNullOrWhiteSpace(s.Factory) ? null : s.Factory,
+            // The seat a defined factory started it as, handed back the same way (Factory Definition mission, phase 5).
+            FactorySeat = string.IsNullOrWhiteSpace(s.FactorySeat) ? null : s.FactorySeat,
+            FactoryDefinitionVersion = s.FactoryDefinitionVersion,
+            FactoryKit = string.IsNullOrWhiteSpace(s.FactoryKit) ? null : s.FactoryKit,
+            LaunchModel = string.IsNullOrWhiteSpace(s.LaunchModel) ? null : s.LaunchModel,
 
             // A live session does not carry the prompt it was started with, so a captured seat has no
             // opening prompt. Left null rather than filled with something plausible: a restart seeds each

@@ -836,6 +836,31 @@ public sealed class SessionDto
     public string? Factory { get; set; }
 
     /// <summary>
+    /// RAW FACT: the seat of a defined factory this session was started as, or the seat its kit was inherited from
+    /// (Factory Definition mission, phase 5); null otherwise. Mirrors <c>Session.FactorySeat</c>. A birth fact like
+    /// <see cref="Factory"/>, on the same terms: stamped before launch, persisted, handed back by every restore, and
+    /// kept WRITE-ONCE on the Gateway's history row, which is where a child's seat is read from.
+    /// </summary>
+    public string? FactorySeat { get; set; }
+
+    /// <summary>RAW FACT: the published definition version the session's kit was built from, or null. A birth fact
+    /// beside <see cref="FactorySeat"/>.</summary>
+    public int? FactoryDefinitionVersion { get; set; }
+
+    /// <summary>RAW FACT: which kit the session was given - <c>"seat"</c> or <c>"rules-only"</c> - or null. A birth
+    /// fact beside <see cref="FactorySeat"/>.</summary>
+    public string? FactoryKit { get; set; }
+
+    /// <summary>RAW FACT: a person's override of a talk with a seat, in words, or null (Factory Definition mission,
+    /// phase 5). Stamped once at birth and recorded on the history row.</summary>
+    public string? FactoryStartOverride { get; set; }
+
+    /// <summary>RAW FACT: the model the create ASKED for (<c>NewSessionRequest.Model</c>), or null for the agent's
+    /// default (Factory Definition mission, phase 5). Not <see cref="CurrentModel"/>, which is what the agent last
+    /// reported. Mirrors <c>Session.LaunchModel</c>, and carried so a workspace capture can hand it back on restore.</summary>
+    public string? LaunchModel { get; set; }
+
+    /// <summary>
     /// RAW FACT: the sticky EXPLICIT role a human/session declared for this session (mirrors
     /// <c>Session.ExplicitRole</c>), or null when none was set. When present it WINS over auto-derivation in
     /// the aggregation's role resolution (so an explicit <see cref="SessionRoles.Architect"/> - which can

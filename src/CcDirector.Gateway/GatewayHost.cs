@@ -1250,6 +1250,14 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Streaming.FleetManagerHomeCapabilityRegistry _fleetManagerHomeCapabilities = new();
     // Factory Definition, phase 5: which Directors answer the factory-machine-question verb, recorded at Hello.
     private readonly Streaming.FactoryMachineQuestionCapabilityRegistry _factoryMachineQuestionCapabilities = new();
+    /// <summary>Which Directors build a seat's kit (Factory Definition mission, phase 5), recorded at Hello and read by
+    /// every door that sends a seat start.</summary>
+    private readonly Streaming.FactoryKitCapabilityRegistry _factoryKitCapabilities = new();
+
+    /// <summary>Whether a seat carries rules in a definition version, read from this Gateway's definition store for one
+    /// account (Factory Definition mission, phase 5). Handed to every spawn door.</summary>
+    private Factory.Definition.SeatRulesReader SeatRulesFor(TenantId tenant)
+        => (factory, version, seat) => Factory.Definition.FactorySeatRules.Read(FactoryDefinitions, tenant, factory, version, seat);
     /// <summary>The machines that can receive a secret (the Secret Handoff mission), from each Director's Hello.
     /// Exposed for the host tests, which stand in for a Director's Hello without connecting one.</summary>
     internal Secrets.SecretMachineRegistry SecretMachines { get; } = new();
@@ -2540,7 +2548,17 @@ public sealed class GatewayHost : IAsyncDisposable
         // Phase 2 (PR E-B2): both the spawner and the work-list drain driver ride the tunnel. Tunnel-only:
         // an unconnected Director yields an error, never an HTTP dial.
         Api.DirectorCommandRouter.SendDirectorCommandAsync? spawnSendCommand = SendCommandAsync;
-        _machineSessionSpawner = new Running.MachineSessionSpawner(cronTargetResolver, spawnSendCommand);
+        _machineSessionSpawner = new Running.MachineSessionSpawner(cronTargetResolver, spawnSendCommand)
+        {
+            // A SEAT START GOES ONLY TO A DIRECTOR THAT BUILDS THE KIT (Factory Definition mission, phase 5). Asked of
+            // the resolved Director before the create is sent, in the fire's or the request's own tenant - the same
+            // seam the resolver lists Directors in - so the cron starter, the machine door and the Fleet Manager's
+            // placement all refuse an older Director in one place.
+            RefuseSeatStart = (req, directorId) => _tenantPass.Current is { } tenant
+                ? Api.SpawnFactory.DirectorCannotBuildKit(req, Registry.Get(tenant, directorId),
+                    _factoryKitCapabilities.BuildsFactoryKit(tenant, directorId))
+                : Api.SpawnFactory.DirectorCannotBuildKit(req, null, buildsFactoryKit: false),
+        };
         // A work-list cron job (#484) drains a named list via the shipped #274 runner on the resolved
         // Director, launching the drain in the background on the shared runner manager. The tunnel-aware
         // driver factory closes over the stream hook so a cron drain creates + reads sessions down the tunnel.
@@ -4369,6 +4387,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
         builder.Services.AddSingleton(_factoryMachineQuestionCapabilities);
+        builder.Services.AddSingleton(_factoryKitCapabilities);
         builder.Services.AddSingleton(SecretMachines);
         // License Switching: DirectorHub.PushLicenseUsage hands each report to the ingest.
         builder.Services.AddSingleton(LicenseUsage);
@@ -4820,6 +4839,10 @@ public sealed class GatewayHost : IAsyncDisposable
             directorChecksBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
             // Who ended a scheduled run's session is written onto its run by the stop and deletion routes (the owner, 2026-10-09).
             scheduledRuns: _cronRuns,
+            // Factory Definition mission, phase 5: the seat start goes only to a Director that builds the kit, and a
+            // seat's child on an agent that cannot take rules is refused when the seat carries them.
+            factoryKitCapabilities: _factoryKitCapabilities,
+            seatRulesFor: SeatRulesFor,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -5347,7 +5370,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Talk button (Factories screen mission, phase C): a session seated as one seat, started down the same
         // path a person's New Session takes, built from the same stores GatewayEndpoints.Map was handed above.
         var talkSpawnDoor = new Api.DirectorSpawnDoor(_tenantBoundary, Registry, _sessionHistory.FactoryOf, SendCommandAsync,
-            Missions, _workflowRuns, _workspaces);
+            Missions, _workflowRuns, _workspaces, _factoryKitCapabilities, SeatRulesFor);
         // Mapped OUTSIDE the gate's group on purpose: it asks the same switch question itself, after proving the owner
         // is calling, so its switch-off refusal can carry a sentence (phase C review, finding 2).
         var factoryManagerSources = new Api.FactoryManagerSources(
@@ -6059,7 +6082,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // and pushed-session store the roster serves from, and the newest release this Gateway has read.
             directors: Registry,
             pushedSessions: PushedSessions,
-            newestRelease: _newestRelease);
+            newestRelease: _newestRelease,
+            // Factory Definition mission, phase 5: a seat's child on an agent that cannot take rules is refused when the
+            // seat carries them, read from the definition version the seat was started from.
+            seatRulesFor: SeatRulesFor);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,

@@ -78,6 +78,20 @@ public class PersistedSession
     /// before this field existed restore as null, which is the truth about them - they were in no factory.</summary>
     public string? Factory { get; set; }
 
+    /// <summary>The seat, definition version and kit kind this session was born with (Factory Definition mission,
+    /// phase 5), or null. Persisted for the reason <see cref="Factory"/> is: a birth fact the restored seat must come
+    /// back with. A snapshot written before the fields existed restores as null - a session that was no seat.</summary>
+    public string? FactorySeat { get; set; }
+    public int? FactoryDefinitionVersion { get; set; }
+    public string? FactoryKit { get; set; }
+
+    /// <summary>A person's override of a talk with a seat, in words, or null (Factory Definition mission, phase 5).</summary>
+    public string? FactoryStartOverride { get; set; }
+
+    /// <summary>The model the create asked for, or null (Factory Definition mission, phase 5). Persisted so a restored
+    /// session relaunches on the model it was started with.</summary>
+    public string? LaunchModel { get; set; }
+
     /// <summary>True when the name was auto-composed at birth (automatic session roles, chunk 3). Persisted
     /// so an explicit human/self rename is never re-auto-named after a restart.</summary>
     public bool IsAutoNamed { get; set; }
