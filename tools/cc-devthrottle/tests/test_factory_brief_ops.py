@@ -617,6 +617,27 @@ def test_history_DefinedFactory_PrintsTheGatewaysDefinitionLineVerbatim(gateway)
     assert DEFINITION_LINE in result.stdout.splitlines()
 
 
+def test_history_DefinedFactory_PublishedAfterAnotherFilesEdit_MarksTheLiveRowTheGatewayNames(gateway):
+    # Review of 4008, finding 1: definition v3 is published and changed only factory.yaml, so it is not a row; v2 holds
+    # the brief talks and runs are given, and the Gateway names it in liveVersion.
+    gateway((200, {"factory": FACTORY, "seat": SEAT, "publishedVersion": 3, "newestVersion": 3, "total": 2,
+                   "liveVersion": 2,
+                   "versions": [{"version": 2, "state": "draft", "authorKind": "session", "authorId": "s1",
+                                 "writtenAtUtc": "2026-10-15T12:00:00Z", "textBytes": 9},
+                                {"version": 1, "state": "published", "authorKind": "person", "authorId": None,
+                                 "writtenAtUtc": "2026-10-14T12:00:00Z", "textBytes": 10}],
+                   "nextBefore": None, "versionKind": "definition", "definition": DEFINITION_LINE}))
+
+    result = runner.invoke(app, ["factory", "brief", "history", *WHERE])
+
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert lines[0] == ("count: 2 of 2. Definition version 3 is published. Its brief is the one written in definition "
+                        "version 2, the newest version that changed it.")
+    assert lines[2].startswith("v2  PUBLISHED NOW  ")
+    assert lines[3].startswith("v1  published  ")
+
+
 def test_set_DefinedFactory_PrintsTheDefinitionLine_AndEachNoticeOfTheCheck(gateway, brief_file):
     answer = defined(2, "Run it.\n", published=1, author_kind="session")
     answer["findings"] = [{"severity": "notice", "file": "seats/outreach.yaml", "line": 5,

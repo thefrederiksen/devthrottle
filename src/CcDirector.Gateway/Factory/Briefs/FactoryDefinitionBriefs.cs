@@ -122,11 +122,17 @@ public sealed class FactoryDefinitionBriefs
         }
         changed.Reverse();
 
+        // THE LIVE ROW (review of 4008, finding 1): the published definition version is a row only when it changed this
+        // brief. When it changed only other files, the text it gives is the one written by the newest version at or
+        // below it that changed the brief, and that is the row a reader must see as published.
+        var published = _definitions.Standing(tenant, factory).Published?.Version;
+        var live = published is { } p ? changed.FirstOrDefault(v => v.Version <= p)?.Version : null;
+
         var below = before is { } b ? changed.Where(v => v.Version < b).ToList() : changed;
         var page = below.Take(limit).ToList();
         var next = below.Count > limit ? page[^1].Version : (int?)null;
-        FileLog.Write($"[FactoryDefinitionBriefs] History {factory}/{folded}: {changed.Count} versions changed the brief, page of {page.Count}");
-        return new FactoryBriefHistoryPage(page, changed.Count, next);
+        FileLog.Write($"[FactoryDefinitionBriefs] History {factory}/{folded}: {changed.Count} versions changed the brief, page of {page.Count}, published definition {published?.ToString() ?? "(none)"}, live brief row {live?.ToString() ?? "(none)"}");
+        return new FactoryBriefHistoryPage(page, changed.Count, next, live);
     }
 
     /// <summary>

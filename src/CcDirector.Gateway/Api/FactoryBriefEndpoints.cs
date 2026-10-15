@@ -335,6 +335,7 @@ internal static class FactoryBriefEndpoints
             NextBefore = page.NextBefore,
             VersionKind = FactoryBriefVersionKinds.Definition,
             Definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
+            LiveVersion = page.LiveVersion,
         });
     }
 
@@ -370,24 +371,33 @@ internal static class FactoryBriefEndpoints
         var factoryId = newest.Factory;
         var seatId = draft.Seat!;
         FactoryDefinitionCheckResult? check = null;
-        if (body.ExpectedVersion == newest.Version)
+        FactoryDefinitionWrite write;
+        if (body.ExpectedVersion != newest.Version)
+        {
+            // THE EDIT WAS MADE ON THE NEWEST VERSION, which is not the one the writer read, so it is never offered to the
+            // store: refused here with the store's own stale sentence, the check never run on content the writer did not
+            // see (review of 4008, the note on DefinedSave).
+            write = FactoryDefinitionStore.StaleWrite(factoryId, body.ExpectedVersion, newest);
+        }
+        else
         {
             check = FactoryDefinitionCheck.Check(draft.Content!, factoryId, defined.Account.FleetSkillsOf(tenant),
                 defined.Account.ConnectedMachinesOf(tenant));
             if (check.HasErrors)
                 return FactoryDefinitionEndpoints.CheckRefused(factoryId, check, $"The brief of '{seatId}' was not saved");
-        }
 
-        // The store decides staleness against what is newest NOW, so a writer who read an older version, or lost a race
-        // since the edit was made, is refused with the newest version - never saved over it.
-        var write = defined.Briefs.Definitions.SaveDraft(tenant, factoryId, draft.Content, body.ExpectedVersion, caller.Kind,
-            caller.Id, $"The brief of '{seatId}' was edited.", nowUtc);
+            // The store decides staleness again against what is newest NOW, so a writer who lost a race since the edit
+            // was made is refused with the newest version - never saved over it.
+            write = defined.Briefs.Definitions.SaveDraft(tenant, factoryId, draft.Content, body.ExpectedVersion, caller.Kind,
+                caller.Id, $"The brief of '{seatId}' was edited.", nowUtc);
+        }
         var standing = defined.Briefs.Definitions.Standing(tenant, factoryId);
         if (write.Ok)
         {
             var saved = defined.Briefs.InVersion(tenant, factoryId, seatId, write.Version!.Version)!;
             var dto = DefinedDto(saved, standing);
-            dto.Findings = check!.Findings.Select(FactoryDefinitionEndpoints.ToDto).ToList();
+            // A save reaches the store only after the check ran (the branch above), so the check is set here.
+            dto.Findings = check!.Findings.Select(f => FactoryDefinitionEndpoints.ToDto(f)).ToList();
             FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{seatId}: defined factory, brief saved as definition version {write.Version.Version} by {caller.Kind}");
             return Results.Json(dto);
         }

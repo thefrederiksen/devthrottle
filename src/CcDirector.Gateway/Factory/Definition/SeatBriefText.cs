@@ -81,7 +81,10 @@ public static class SeatBriefText
             onHeaderLine = header[indicator..];
             before = seatFileText[..found.Start];
             // The blank lines that trail the block are kept, so only up to the end of its last line with text goes.
-            after = seatFileText[ContentEnd(seatFileText, headerEnd, found.End)..];
+            // They are still inside the old value, so any spaces on them go with it: kept, a blank line indented deeper
+            // than the new block's text would be read as a line of it (review of 4008, finding 2).
+            var contentEnd = ContentEnd(seatFileText, headerEnd, found.End);
+            after = EmptyLines(seatFileText[contentEnd..found.End]) + seatFileText[found.End..];
         }
         else
         {
@@ -92,7 +95,7 @@ public static class SeatBriefText
         }
 
         var sb = new StringBuilder(seatFileText.Length + wanted.Length + 16);
-        sb.Append(before).Append(Header(wanted, indent.Length)).Append(onHeaderLine).Append(newLine);
+        sb.Append(before).Append(Header(wanted, indent.Length - found.KeyColumn)).Append(onHeaderLine).Append(newLine);
         var lines = wanted.Split('\n');
         // The text's own final line feeds are said by the header's chomping indicator; the lines before them are written.
         var count = lines.Length;
@@ -120,7 +123,8 @@ public static class SeatBriefText
     }
 
     /// <summary>
-    /// The literal block's header: <c>|</c>, with an indentation indicator when the text's first line with text starts
+    /// The literal block's header: <c>|</c>, with an indentation indicator (<paramref name="indent"/>, counted from the
+    /// key's own column as YAML counts it, never from the start of the line) when the text's first line with text starts
     /// with a space or a blank line leads it (YAML could not tell the indentation otherwise), and the chomping
     /// indicator that keeps the text's own final line feeds: none (one), <c>-</c> (none) or <c>+</c> (more than one).
     /// </summary>
@@ -200,6 +204,27 @@ public static class SeatBriefText
         if (at < text.Length && text[at] == '\r') at++;
         if (at < text.Length && text[at] == '\n') at++;
         return at;
+    }
+
+    /// <summary>Blank lines with every space taken off and their line breaks kept. A last piece with no line break is
+    /// not a whole line of the value and is kept as it is.</summary>
+    private static string EmptyLines(string blankLines)
+    {
+        var sb = new StringBuilder(blankLines.Length);
+        var at = 0;
+        while (at < blankLines.Length)
+        {
+            var n = blankLines.IndexOf('\n', at);
+            if (n < 0)
+            {
+                sb.Append(blankLines[at..]);
+                break;
+            }
+            if (n > at && blankLines[n - 1] == '\r') sb.Append('\r');
+            sb.Append('\n');
+            at = n + 1;
+        }
+        return sb.ToString();
     }
 
     /// <summary>

@@ -257,7 +257,10 @@ public static class FactoryBriefPanelFold
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(zone);
         var name = SeatName(factory, seat);
-        var published = brief.Published?.Version;
+        // A DEFINED factory's rows are judged against the row whose brief is live (FactoryBriefHistoryPage.LiveVersion),
+        // never against the published definition version, which is not a row when it changed only other files.
+        var defined = definition is not null;
+        var published = defined ? page.LiveVersion : brief.Published?.Version;
         var newest = brief.Newest?.Version ?? 0;
 
         var view = new FactoryBriefHistoryViewDto
@@ -274,7 +277,7 @@ public static class FactoryBriefPanelFold
                     : $"Versions {page.Versions[0].Version} to {page.Versions[^1].Version} of {page.Total}.",
             WaitingText = Waiting(brief),
             Columns = new List<string> { "Version", "State", "Written by", "When", "Size" },
-            Rows = page.Versions.Select(v => Row(name, v, published, newest, zone, nowUtc)).ToList(),
+            Rows = page.Versions.Select(v => Row(name, v, published, newest, zone, nowUtc, defined)).ToList(),
             EmptyText = page.Total == 0
                 ? "This seat has no brief on the Gateway, so it has no history."
                 : page.Versions.Count == 0 ? "There is no older version." : null,
@@ -291,6 +294,9 @@ public static class FactoryBriefPanelFold
             ? "No version of the definition holds a brief for this seat."
             : $"{FactoriesScreenFold.Count(page.Total, "version")} of the definition changed this brief. " +
               (publishedDefinition is { } live ? $"Definition version {live} is published." : "None is published.") +
+              (published is { } liveRow && liveRow != publishedDefinition
+                  ? $" Its brief is the one written in definition version {liveRow}, the newest version that changed it."
+                  : "") +
               " " + definition;
         view.EmptyText = page.Total == 0
             ? "No version of the definition holds a brief for this seat, so it has no history."
@@ -303,12 +309,16 @@ public static class FactoryBriefPanelFold
         return view;
     }
 
+    /// <param name="defined">For a defined factory: <paramref name="published"/> is the live brief row, which reads
+    /// "Published" even when that definition version is a draft passed over by a later publish that changed only other
+    /// files - its brief is the one talks and runs are given.</param>
     private static FactoryBriefHistoryRowDto Row(string name, FactoryBriefVersionSummary v, int? published, int newest,
-        TimeZoneInfo zone, DateTime nowUtc)
+        TimeZoneInfo zone, DateTime nowUtc, bool defined = false)
     {
         var isDraft = v.State == FactoryBriefStates.Draft;
         var (word, tone) = (isDraft, published) switch
         {
+            (_, { } p) when defined && p == v.Version => ("Published", FactoryTone.Ok),
             (false, { } p) when p == v.Version => ("Published", FactoryTone.Ok),
             (false, _) => ("Published earlier", FactoryTone.Grey),
             (true, { } p) when v.Version < p => ("Draft, passed over", FactoryTone.Grey),
@@ -317,7 +327,7 @@ public static class FactoryBriefPanelFold
         return new FactoryBriefHistoryRowDto
         {
             Version = v.Version,
-            Title = $"Version {v.Version}",
+            Title = defined ? $"Definition version {v.Version}" : $"Version {v.Version}",
             StateWord = word,
             StateTone = tone,
             WhoText = Who(v.AuthorKind, v.AuthorId),

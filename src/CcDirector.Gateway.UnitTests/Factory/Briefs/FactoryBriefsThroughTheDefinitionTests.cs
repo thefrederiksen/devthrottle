@@ -277,6 +277,41 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
     }
 
     [Fact]
+    public async Task History_DefinedFactory_PublishedAfterAnEditToAnotherFile_MarksTheRowWhoseBriefIsLive()
+    {
+        // Review of 4008, finding 1, the sequence as written there: v1 published (brief A); a session saves v2 changing
+        // the brief to B; a person saves v3 changing only factory.yaml and publishes v3. Talks and runs are given B, so
+        // v2 - which never was published itself - is the row that reads Published, and nothing reads "passed over".
+        Define();
+        await Send("PUT", Boss + "/draft", AsASessionOfTheFactory, new { text = "BRIEF B.\n", expectedVersion = 1 });
+        var content = new Dictionary<string, string>(_definitions.Find(A, TheFactory, 2)!.Files);
+        Assert.Contains("title: DevThrottle\n", content["factory.yaml"]);
+        content["factory.yaml"] = content["factory.yaml"].Replace("title: DevThrottle\n", "title: DevThrottle Factory\n", StringComparison.Ordinal);
+        Assert.True(_definitions.SaveDraft(A, TheFactory, content, 2, FactoryMemoryAuthorKinds.Person, "owner", null, Now.AddMinutes(-40)).Ok);
+        PublishDefinition(3);
+
+        var (status, body) = await Send("GET", Boss + "/history");
+        var (viewStatus, view) = await Send("GET", BossView + "/brief/history");
+
+        Assert.Equal("BRIEF B.\n", new FactoryDefinitionBriefs(_definitions, _briefs).GivenTo(A, TheFactory, "boss")!.Text);
+        Assert.Equal(200, status);
+        Assert.Equal(new[] { 2, 1 }, body.GetProperty("versions").EnumerateArray().Select(v => v.GetProperty("version").GetInt32()));
+        Assert.Equal(3, body.GetProperty("publishedVersion").GetInt32());
+        Assert.Equal(2, body.GetProperty("liveVersion").GetInt32());
+
+        Assert.Equal(200, viewStatus);
+        var rows = view.GetProperty("rows").EnumerateArray().ToList();
+        Assert.Equal(("Definition version 2", "Published", "ok"),
+            (Text(rows[0], "title"), Text(rows[0], "stateWord"), Text(rows[0], "stateTone")));
+        Assert.Equal(("Definition version 1", "Published earlier"), (Text(rows[1], "title"), Text(rows[1], "stateWord")));
+        Assert.Equal(JsonValueKind.Null, rows[0].GetProperty("bringBack").ValueKind);
+        Assert.Equal(1, rows[1].GetProperty("bringBack").GetProperty("version").GetInt32());
+        Assert.Equal("2 versions of the definition changed this brief. Definition version 3 is published. Its brief is the one " +
+                     "written in definition version 2, the newest version that changed it. " + ViewLine,
+            Text(view, "summaryText"));
+    }
+
+    [Fact]
     public async Task History_DefinedFactory_IsPagedAsTheBriefsHistoryIs()
     {
         Define();
@@ -396,6 +431,21 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
         Assert.Equal("Someone else's text.\n", Text(body.GetProperty("current"), "text"));
         Assert.Equal(2, body.GetProperty("current").GetProperty("version").GetInt32());
         Assert.Equal(2, _definitions.Standing(A, TheFactory).Newest!.Version);
+    }
+
+    [Fact]
+    public async Task SaveDraft_DefinedFactory_AnExpectedVersionAheadOfTheNewest_IsRefusedStale_AndNothingIsSaved()
+    {
+        // Review of 4008, the note on DefinedSave: an edit made on version 1 is never offered to the store under a
+        // version the writer names but did not read, so no save can go through without the check having run.
+        Define();
+
+        var (status, body) = await Send("PUT", Boss + "/draft", AsAPerson, new { text = "Mine.\n", expectedVersion = 2 });
+
+        Assert.Equal(409, status);
+        Assert.Equal("Stale", Text(body, "outcome"));
+        Assert.Equal("the definition of devthrottle is at version 1, not 2; read it again, merge, and save once more", Text(body, "error"));
+        Assert.Equal(1, _definitions.Standing(A, TheFactory).Newest!.Version);
     }
 
     [Fact]

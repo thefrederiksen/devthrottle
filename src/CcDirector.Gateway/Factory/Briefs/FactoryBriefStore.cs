@@ -492,8 +492,15 @@ public sealed record FactoryBriefVersionSummary(string Factory, string Seat, int
 /// One page of a seat's history, newest first. <see cref="Total"/> is how many versions the seat has in all, and
 /// <see cref="NextBefore"/> is the version to ask for the next page below, or null when this page reaches the
 /// oldest version.
+///
+/// <see cref="LiveVersion"/> is set only for a DEFINED factory's history (<see cref="FactoryDefinitionBriefs.History"/>):
+/// the listed version whose brief talks and runs are given now, which is the newest version that changed the brief at
+/// or below the published definition version. It is not the published definition version itself whenever that version
+/// changed only other files, so the rows are judged against it. Null for every other history, which is judged against
+/// the published brief version as before.
 /// </summary>
-public sealed record FactoryBriefHistoryPage(IReadOnlyList<FactoryBriefVersionSummary> Versions, int Total, int? NextBefore)
+public sealed record FactoryBriefHistoryPage(IReadOnlyList<FactoryBriefVersionSummary> Versions, int Total, int? NextBefore,
+    int? LiveVersion = null)
 {
     public static readonly FactoryBriefHistoryPage Empty = new(Array.Empty<FactoryBriefVersionSummary>(), 0, null);
 }

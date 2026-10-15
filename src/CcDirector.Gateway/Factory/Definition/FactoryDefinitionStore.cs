@@ -503,7 +503,7 @@ public sealed class FactoryDefinitionStore
     /// THE TWO-WRITER REFUSAL: the writer expected another newest version. The newest version rides the refusal so the
     /// caller can merge rather than read again and race again.
     /// </summary>
-    private static FactoryDefinitionWrite StaleWrite(string factory, int expectedVersion, FactoryDefinitionVersionSummary? head)
+    internal static FactoryDefinitionWrite StaleWrite(string factory, int expectedVersion, FactoryDefinitionVersionSummary? head)
     {
         var current = head?.Version ?? 0;
         FileLog.Write($"[FactoryDefinitionStore] {factory}: REFUSED a stale write (expected {expectedVersion}, newest {current})");

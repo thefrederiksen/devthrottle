@@ -190,12 +190,26 @@ def history(factory: str, seat: str, json_output: bool, count: Optional[int] = N
         return
     published = page.get("publishedVersion")
     next_before = page.get("nextBefore")
-    lines = [f"count: {len(versions)} of {total}. " + ("No version is published." if published is None
-                                                      else f"Version {published} is the published brief.")]
+    # A defined factory's history names the row whose brief is live (`liveVersion`), which is not the published
+    # definition version when that version changed only other files; the row marked is the one the Gateway names.
+    defined = page.get("versionKind") == "definition"
+    live = page.get("liveVersion") if defined else published
+    if not defined:
+        summary = "No version is published." if published is None else f"Version {published} is the published brief."
+    elif published is None:
+        summary = "No version of the definition is published."
+    elif live is None:
+        summary = f"Definition version {published} is published and holds no brief for this seat."
+    elif live == published:
+        summary = f"Definition version {published} is published."
+    else:
+        summary = (f"Definition version {published} is published. Its brief is the one written in definition "
+                   f"version {live}, the newest version that changed it.")
+    lines = [f"count: {len(versions)} of {total}. " + summary]
     lines.extend(_definition_lines(page))
     for v in versions:
         mark = "published" if v.get("state") == "published" else "draft"
-        if v.get("version") == published:
+        if v.get("version") == live:
             mark = "PUBLISHED NOW"
         lines.append(f"v{v.get('version')}  {mark}  {axi_output.format_value(v.get('writtenAtUtc'))}  {_by(v)}  "
                      f"{v.get('textBytes')} bytes")

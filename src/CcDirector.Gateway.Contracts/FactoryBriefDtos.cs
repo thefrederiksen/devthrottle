@@ -137,6 +137,14 @@ public sealed class FactoryBriefHistoryResponse
 
     /// <summary>For a defined factory, the Gateway's sentence that the brief is part of the definition; null otherwise.</summary>
     public string? Definition { get; set; }
+
+    /// <summary>
+    /// For a defined factory, the version in this history whose brief talks and runs are given now: the newest version
+    /// that changed the brief at or below <see cref="PublishedVersion"/>, which is not itself a row of the history when
+    /// it changed only other files. The row a reader marks published. Null otherwise, and when no published version
+    /// holds this seat's brief.
+    /// </summary>
+    public int? LiveVersion { get; set; }
 }
 
 /// <summary>

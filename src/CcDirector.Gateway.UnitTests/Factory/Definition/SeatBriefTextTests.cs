@@ -105,6 +105,38 @@ public sealed class SeatBriefTextTests
     }
 
     [Fact]
+    public void Replace_ABlankLineAfterTheBlockIndentedDeeperThanItsText_IsWrittenEmpty_AndTheBriefReadsBack()
+    {
+        // Review of 4008, finding 2: the four spaces were part of the old block's span; kept, YAML read them as a line
+        // of the new block, and the edit was refused with a sentence about the brief's own blank lines.
+        var file = "seat: writer\nbrief: |\n  old\n    \nname: Writer\n";
+
+        var edit = SeatBriefText.Replace(Path, file, "new text\n");
+
+        Assert.True(edit.Ok, edit.Refusal);
+        Assert.Equal("seat: writer\nbrief: |\n  new text\n\nname: Writer\n", edit.Text);
+        Assert.Equal("new text\n", SeatBriefText.Read(Path, edit.Text!));
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(8)]
+    [InlineData(12)]
+    public void Replace_AnIndentedTopLevelMapping_ATextStartingWithSpaces_TakesAnIndicatorCountedFromTheKey(int column)
+    {
+        // Review of 4008, finding 2: the indicator counts from the key's own column, so it is always 2 here - never the
+        // absolute column, which past 9 is not an indicator YAML allows.
+        var pad = new string(' ', column);
+        var file = $"{pad}seat: writer\n{pad}brief: old\n{pad}name: Writer\n";
+
+        var edit = SeatBriefText.Replace(Path, file, "  Starts with spaces\n");
+
+        Assert.True(edit.Ok, edit.Refusal);
+        Assert.Equal($"{pad}seat: writer\n{pad}brief: |2\n{pad}    Starts with spaces\n{pad}name: Writer\n", edit.Text);
+        Assert.Equal("  Starts with spaces\n", SeatBriefText.Read(Path, edit.Text!));
+    }
+
+    [Fact]
     public void Replace_AFileWrittenWithCarriageReturns_WritesItsLinesWithThem()
     {
         var file = "seat: writer\r\nbrief: |\r\n  old\r\nname: Writer\r\n";
