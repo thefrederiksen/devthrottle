@@ -28,19 +28,25 @@ briefs folder). Branch: `factory-definition/p1-routes-cli`, rebased onto `origin
 
 ## The check, as run
 
-Run on Windows on 2026-10-14, from this worktree, rebased onto `origin/main` at `de6b5e8be`. The code for these runs
-is commit `97dd6e9cc` (the seven lines) and `3f1103bef` (the whole command line suite, after its one fix). Every
-command ran in the foreground, one after another.
+Run on Windows on 2026-10-15, from this worktree, after `origin/main` was merged in at `1d3149902` (pull request
+4003, the phase 0 refusals, on top of phase 2's records, #4000). Every command ran in the foreground, one after
+another. The local gate ran at `b0156c25d`; the other lines ran at that commit plus the one endpoint test fix
+described below the table, which touches only `CcDirector.Gateway.UnitTests`, a suite the local gate does not run.
 
 | Command | Result |
 |---|---|
-| `.\scripts\test-local.ps1` | GREEN at `97dd6e9cc`, tree clean: ten suites, 4,495 tests, every TRX `outcome=Completed`. It names the three parked suites as a coverage gap; the three lines below are those suites' factory tests |
-| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Trigger"` | Passed: 1,671, failed: 0, skipped: 0 |
+| `.\scripts\test-local.ps1` | GREEN at `b0156c25d`, tree clean: ten suites, 4,495 tests, every TRX `outcome=Completed`. It names the three parked suites as a coverage gap; the three lines below are those suites' factory tests |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~Cron\|FullyQualifiedName~Trigger"` | First run: 1 failed, 1,781 passed. After the fix: passed 1,782, failed 0, skipped 0 |
 | `dotnet test src/CcDirector.Gateway.Tests --filter "FullyQualifiedName~Factory"` | Passed: 28, failed: 0, skipped: 0 |
 | `dotnet test src/CcDirector.Core.Tests --filter "FullyQualifiedName~Factory\|FullyQualifiedName~InheritedSessionEnvironment"` | Passed: 16, failed: 0, skipped: 0 |
 | `npm run typecheck` | Exit 0 |
 | `npm test --workspace @devthrottle/client-core` | 167 files, 2,068 tests passed |
-| `uv run --no-project --with "typer>=0.16.1" --with "click>=8.2.1" --with "rich>=13.0.0" --with "requests>=2.31.0" --with pytest python -m pytest tools/cc-devthrottle/tests -q -k "factory or schedule or trigger"` | 1,051 passed, 3,425 deselected |
+| `uv run --no-project --with "typer>=0.16.1" --with "click>=8.2.1" --with "rich>=13.0.0" --with "requests>=2.31.0" --with pytest python -m pytest tools/cc-devthrottle/tests -q -k "factory or schedule or trigger"` | 1,136 passed, 3,425 deselected |
+
+The one failure was this branch's own `A_FACTORY_SKILL_ON_AN_AGENT_THAT_CANNOT_LOAD_ONE_IS_REFUSED_WITH_THE_REASON`.
+It relied on the fixture's outreach seat running Codex; 4003 moved that seat to Claude Code, which can now load a
+factory skill, so the save was accepted (200, not 422). The test now moves the seat to Codex itself and drops its
+rule sets (a Codex seat with rules is its own refusal), and asserts Codex's reason on the `factory:` line.
 
 The Python line is run through `uv` because the machine's own Python has click 8.1.8, below the tool's floor of
 8.2.1, and fails 548 of those tests for that reason alone. That exact line is the one above.
@@ -49,7 +55,7 @@ Also run, beyond the check:
 
 | Command | Result | Why |
 |---|---|---|
-| the same `uv run ... python -m pytest tools/cc-devthrottle/tests -q` (the whole command line suite) | First run: 1 failed, 4,472 passed, 3 skipped. After the fix: `test_help_and_errors_axi.py` and `test_factory_definition_ops.py` 403 passed | The help of every command is checked there. The first run failed `test_shortHelp_EveryCoveredCommandAndGroupHasAOneLineSummary`: four of the new summaries were 81 to 100 characters and the limit is 80. They were shortened and those two files run again |
+| the same `uv run ... python -m pytest tools/cc-devthrottle/tests -q` (the whole command line suite) | 4,558 passed, 3 skipped, 0 failed | The help of every command is checked there. Before this run, main itself failed `test_shortHelp_EveryCoveredCommandAndGroupHasAOneLineSummary` after #4000: ten of the record commands' summaries were 84 to 112 characters and the limit is 80. This branch shortens them |
 
 **Not run, and why.** `scripts/test-database.ps1`: this branch adds no migration and no table, so the PostgreSQL
 proofs have nothing new to apply; issue 4001 (a timed-out database test leaving later ones on "cannot connect to

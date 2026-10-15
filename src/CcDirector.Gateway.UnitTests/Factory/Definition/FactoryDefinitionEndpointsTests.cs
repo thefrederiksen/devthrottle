@@ -486,13 +486,17 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_FACTORY_SKILL_ON_AN_AGENT_THAT_CANNOT_LOAD_ONE_IS_REFUSED_WITH_THE_REASON()
     {
-        // The outreach seat runs Codex; line 21 becomes "  factory: [mail-voice]".
-        var content = DefinitionFixture.Edit("seats/outreach.yaml", "  fleet: [browsers]\n", "  fleet: [browsers]\n  factory: [mail-voice]\n");
+        // The outreach seat moves to Codex and gives up its rule sets (a Codex seat cannot carry rules either, and
+        // that is its own refusal). With line 17 gone, line 20 becomes "  factory: [mail-voice]".
+        var content = DefinitionFixture.Valid();
+        content["seats/outreach.yaml"] = content["seats/outreach.yaml"]
+            .Replace("agent: ClaudeCode\n", "agent: Codex\n", StringComparison.Ordinal)
+            .Replace("rules: [base, outreach]\n", "", StringComparison.Ordinal)
+            .Replace("  fleet: [browsers]\n", "  fleet: [browsers]\n  factory: [mail-voice]\n", StringComparison.Ordinal);
 
         var refused = Save(Person(), content, expect: 0);
 
-        var reason = FactorySkillSupport.For(AgentKind.Codex).Reason!;
-        AssertRefusedByTheCheck(refused, "seats/outreach.yaml", 21, reason);
+        AssertRefusedByTheCheck(refused, "seats/outreach.yaml", 20, FactorySkillSupport.CodexReason);
         Assert.Equal(0, VersionsKept());
     }
 
