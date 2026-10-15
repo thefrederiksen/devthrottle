@@ -5321,7 +5321,7 @@ public sealed class GatewayHost : IAsyncDisposable
             apply: FactoryDefinitionPublish,
             liveOf: FactoryLivePartsOf,
             sessionFactoryOf: _sessionHistory.FactoryOf,
-            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf),
+            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
             nowUtc: () => DateTime.UtcNow);
         // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
         // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
