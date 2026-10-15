@@ -29,7 +29,7 @@ internal static class DefinitionFixture
 
     /// <summary>The replies a publish of <paramref name="content"/> would get when no machine has a Director to ask.</summary>
     public static IReadOnlyDictionary<string, MachineReply> NotConnected(IReadOnlyDictionary<string, string> content)
-        => NotConnected(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition));
+        => NotConnected(FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(content).Definition, content));
 
     // 1  factory: devthrottle
     // 2  title: DevThrottle

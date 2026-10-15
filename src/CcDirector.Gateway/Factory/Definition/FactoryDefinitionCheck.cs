@@ -161,6 +161,8 @@ public static class FactoryDefinitionCheck
         public SortedDictionary<string, ParsedFile> RuleSets { get; } = new(StringComparer.Ordinal);
         public SortedSet<string> Files { get; } = new(StringComparer.Ordinal);
         public SortedSet<string> Checks { get; } = new(StringComparer.Ordinal);
+        /// <summary>Each check's text, for the program it runs under (phase 5b).</summary>
+        public Dictionary<string, string> CheckTexts { get; } = new(StringComparer.Ordinal);
         public SortedDictionary<string, SkillFront> Skills { get; } = new(StringComparer.Ordinal);
         public SortedDictionary<string, List<string>> SkillFiles { get; } = new(StringComparer.Ordinal);
     }
@@ -242,6 +244,7 @@ public static class FactoryDefinitionCheck
 
                 case DefinitionPlace.Check:
                     parsed.Checks.Add(path);
+                    parsed.CheckTexts[path] = text;
                     break;
 
                 case DefinitionPlace.SkillMain:
@@ -664,6 +667,7 @@ public static class FactoryDefinitionCheck
                 if (preventOverlap?.Value is DefinitionScalar { Value: "false" })
                     Error(_findings, path, preventOverlap.KeyLine,
                         "A start with a check always prevents overlap, so preventOverlap cannot be false here. Remove it.");
+                ProgramNotice(path, check.KeyLine, machine, checkPath);
             }
 
             if (secrets is not null)
@@ -672,7 +676,7 @@ public static class FactoryDefinitionCheck
                     Error(_findings, path, secrets.KeyLine,
                         "secrets on a start go to its check, and this start has none. Add a check, or move the names to the seat's secrets.");
                 foreach (var (secret, line) in Items(secrets))
-                    SecretNotice(path, line, machine, secret);
+                    SecretNotice(path, line, machine, secret, StartSecret);
             }
         }
 
@@ -734,38 +738,85 @@ public static class FactoryDefinitionCheck
                 Notice(_findings, path, line, $"No Director on {machine} is connected now, so it could not be confirmed.");
         }
 
+        /// <summary>Who uses a secret, and so where a missing one is refused.</summary>
+        private sealed record SecretUser(string Who, string BindsAt);
+
+        /// <summary>A seat's own secret: its start refuses without it (phase 5).</summary>
+        private static readonly SecretUser SeatSecret = new("a seat", "the seat's start");
+
+        /// <summary>A start's secret goes to its check: the check's run refuses without it (phase 5b, design 2.4).</summary>
+        private static readonly SecretUser StartSecret = new("the check", "the check's run");
+
         // THE MACHINE QUESTION (mission 5.5 step 5; phase 5, design section 6). A publish has asked the seat's machine
         // before this check ran, and words each notice from its answer: held and allowed for run, or registered, is no
         // notice; anything else is a notice naming the machine and the name - never an error, because the seat's start
-        // is the check that binds. A save asks nothing and keeps the phase 1 wording.
-        private void SecretNotice(string path, int line, string machine, string secret)
+        // (or, for a start's secret, the check's run) is the check that binds. A save asks nothing and keeps the phase 1
+        // wording.
+        private void SecretNotice(string path, int line, string machine, string secret, SecretUser? user = null)
         {
+            user ??= SeatSecret;
             if (_purpose != DefinitionCheckPurpose.Publish)
             {
                 Notice(_findings, path, line, $"Whether {machine} holds '{secret}' is not checked yet.");
                 return;
             }
+            var bindsAt = Capitalised(user.BindsAt);
             var reply = ReplyFrom(machine);
             if (reply.NotAsked is { } why)
             {
-                Notice(_findings, path, line, $"Whether {machine} holds '{secret}' could not be asked: {why} The seat's start will check it.");
+                Notice(_findings, path, line, $"Whether {machine} holds '{secret}' could not be asked: {why} {bindsAt} will check it.");
                 return;
             }
             var answer = reply.Answer!;
             if (answer.SecretsUnavailable is { } unavailable)
             {
-                Notice(_findings, path, line, $"Whether {machine} holds '{secret}' could not be answered: {unavailable} The seat's start will check it.");
+                Notice(_findings, path, line, $"Whether {machine} holds '{secret}' could not be answered: {unavailable} {bindsAt} will check it.");
                 return;
             }
             var held = answer.Secrets.FirstOrDefault(s => string.Equals(s.Name, secret, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"{machine} answered the machine question without the secret '{secret}' it was asked about.");
             if (!held.Held)
                 Notice(_findings, path, line,
-                    $"{machine} does not hold the secret '{secret}'. Add it there with cc-secrets; the seat's start will refuse without it.");
+                    $"{machine} does not hold the secret '{secret}'. Add it there with cc-secrets; {user.BindsAt} will refuse without it.");
             else if (!held.AllowedForRun)
                 Notice(_findings, path, line,
-                    $"{machine} holds '{secret}', but cc-secrets will not let a seat use it: {held.NotAllowedReason} The seat's start will refuse it.");
+                    $"{machine} holds '{secret}', but cc-secrets will not let {user.Who} use it: {held.NotAllowedReason} {bindsAt} will refuse it.");
         }
+
+        // THE PROGRAM A CHECK RUNS UNDER (phase 5b, design section 4): the publish asked the seat's machine for the
+        // Python or the uv the Director's check runner would use for this check, read from its header exactly as the
+        // runner reads it. Found is no notice; anything else is a notice on the start's check line - never an error,
+        // because the check's run is where it binds. A save asks nothing and says nothing about it.
+        private void ProgramNotice(string path, int line, string machine, string checkPath)
+        {
+            if (_purpose != DefinitionCheckPurpose.Publish || !_p.CheckTexts.ContainsKey(checkPath)) return;
+            var program = FactoryMachineQuestionAsker.ProgramFor(checkPath, _p.CheckTexts);
+            if (program == CheckProgram.None) return;
+            var what = program == CheckProgram.Uv
+                ? $"the uv the check '{checkPath}' runs under (it declares packages)"
+                : $"the Python the check '{checkPath}' runs under";
+
+            var reply = ReplyFrom(machine);
+            if (reply.NotAsked is { } why)
+            {
+                Notice(_findings, path, line, $"Whether {machine} has {what} could not be asked: {why} The check's run will check it.");
+                return;
+            }
+            if (reply.ChecksNotAnswered is { } tooOld)
+            {
+                Notice(_findings, path, line, $"Whether {machine} has {what} could not be asked: {tooOld} The check's run will check it.");
+                return;
+            }
+            var answer = reply.Answer!;
+            var found = (program == CheckProgram.Uv ? answer.Uv : answer.Python)
+                ?? throw new InvalidOperationException($"{machine} answered the machine question without the {program} it was asked about.");
+            if (found.Found) return;
+            Notice(_findings, path, line, program == CheckProgram.Uv
+                ? $"{machine} has no uv (looked for {found.LookedFor} on PATH), and the check '{checkPath}' declares packages, so it runs under uv. Install uv there; the check's run will fail without it."
+                : $"{machine} has no Python (looked for {found.LookedFor} on PATH), and the check '{checkPath}' runs under it. Install Python there; the check's run will fail without it.");
+        }
+
+        private static string Capitalised(string text) => char.ToUpperInvariant(text[0]) + text[1..];
 
         private void RepositoryNotice(string path, int line, string machine, string repository)
         {

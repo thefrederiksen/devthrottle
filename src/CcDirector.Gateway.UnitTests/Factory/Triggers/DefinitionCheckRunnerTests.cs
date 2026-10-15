@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using CcDirector.ControlApi.Triggers;
+using CcDirector.Core.Factory;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 

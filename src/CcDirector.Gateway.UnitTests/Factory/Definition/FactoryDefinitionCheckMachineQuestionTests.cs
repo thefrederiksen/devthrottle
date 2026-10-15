@@ -53,7 +53,7 @@ public sealed class FactoryDefinitionCheckMachineQuestionTests
     [Fact]
     public void Check_TheMachineQuestion_TheQuestionsAPublishableDefinitionRaises()
     {
-        var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(DefinitionFixture.Publishable()).Definition);
+        var questions = FactoryMachineQuestionAsker.QuestionsFor(FactoryDefinitionCheck.Read(DefinitionFixture.Publishable()).Definition, DefinitionFixture.Publishable());
 
         var question = Assert.Single(questions);
         Assert.Equal("SOREN_SOUTH", question.Machine);

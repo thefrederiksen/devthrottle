@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CcDirector.Core.Factory;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Api;
@@ -6,8 +7,26 @@ using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Factory.Definition;
 
-/// <summary>What a publish asks one machine: the secret names and repository names of the seats that run there.</summary>
-public sealed record MachineQuestion(string Machine, IReadOnlyList<string> Secrets, IReadOnlyList<string> Repositories);
+/// <summary>
+/// What a publish asks one machine: the secret names and repository names of the seats that run there, and (phase 5b)
+/// whether the Python or the uv a start's check runs under is there - <paramref name="AskPython"/> when a check there
+/// declares no packages, <paramref name="AskUv"/> when one does, exactly as the Director's check runner chooses.
+/// </summary>
+public sealed record MachineQuestion(string Machine, IReadOnlyList<string> Secrets, IReadOnlyList<string> Repositories,
+    bool AskPython = false, bool AskUv = false);
+
+/// <summary>What a start's check runs under, as the Director's check runner chooses it.</summary>
+public enum CheckProgram
+{
+    /// <summary>No program to ask about: no check, a missing check, or a header that cannot be read.</summary>
+    None,
+
+    /// <summary>The check declares no packages and runs under plain Python.</summary>
+    Python,
+
+    /// <summary>The check declares packages and runs under <c>uv run --script</c>.</summary>
+    Uv,
+}
 
 /// <summary>
 /// What a publish learned from one machine: its <see cref="Answer"/>, or the sentence saying why it could not be asked
@@ -16,6 +35,12 @@ public sealed record MachineQuestion(string Machine, IReadOnlyList<string> Secre
 /// </summary>
 public sealed record MachineReply(FactoryMachineAnswer? Answer, string? NotAsked)
 {
+    /// <summary>
+    /// Phase 5b: set when the machine was asked and answered, but its Director is too old to answer about Python or
+    /// uv - the sentence saying so. The secrets and repositories in <see cref="Answer"/> still stand.
+    /// </summary>
+    public string? ChecksNotAnswered { get; init; }
+
     public static MachineReply Answered(FactoryMachineAnswer answer) => new(answer ?? throw new ArgumentNullException(nameof(answer)), null);
 
     public static MachineReply CouldNotAsk(string why) => new(null, why ?? throw new ArgumentNullException(nameof(why)));
@@ -46,42 +71,80 @@ internal sealed class FactoryMachineQuestionAsker
 
     private readonly Func<TenantId, IReadOnlyList<DirectorDto>> _connectedDirectorsOf;
     private readonly Func<TenantId, string, bool> _answers;
+    private readonly Func<TenantId, string, bool> _answersChecks;
     private readonly DirectorCommandRouter.SendDirectorCommandAsync _send;
 
     /// <param name="connectedDirectorsOf">The account's running Directors whose tunnel is connected now.</param>
     /// <param name="answers">Whether a Director said on Hello that it answers the question.</param>
+    /// <param name="answersChecks">Whether a Director said on Hello that it also answers the Python and uv parts.</param>
     /// <param name="send">Sends a command down a Director's tunnel.</param>
     public FactoryMachineQuestionAsker(Func<TenantId, IReadOnlyList<DirectorDto>> connectedDirectorsOf,
-        Func<TenantId, string, bool> answers, DirectorCommandRouter.SendDirectorCommandAsync send)
+        Func<TenantId, string, bool> answers, Func<TenantId, string, bool> answersChecks, DirectorCommandRouter.SendDirectorCommandAsync send)
     {
         _connectedDirectorsOf = connectedDirectorsOf ?? throw new ArgumentNullException(nameof(connectedDirectorsOf));
         _answers = answers ?? throw new ArgumentNullException(nameof(answers));
+        _answersChecks = answersChecks ?? throw new ArgumentNullException(nameof(answersChecks));
         _send = send ?? throw new ArgumentNullException(nameof(send));
     }
 
     /// <summary>
     /// The questions a definition raises: for each machine a seat runs on (its own, else the factory default), the
-    /// seats' secret names (seat and start secrets) and repository names, each once, in the order first named. A
-    /// machine with nothing to ask is not asked. Null (a definition that does not parse) raises none.
+    /// seats' secret names (seat and start secrets) and repository names, each once, in the order first named; and
+    /// (phase 5b) for each start with a check, Python or uv as <see cref="ProgramFor"/> says. A machine with nothing to
+    /// ask is not asked. Null (a definition that does not parse) raises none.
     /// </summary>
-    public static IReadOnlyList<MachineQuestion> QuestionsFor(FactoryDefinition? definition)
+    /// <param name="content">The definition's files, for the text of each check.</param>
+    public static IReadOnlyList<MachineQuestion> QuestionsFor(FactoryDefinition? definition, IReadOnlyDictionary<string, string> content)
     {
+        ArgumentNullException.ThrowIfNull(content);
         if (definition is null) return Array.Empty<MachineQuestion>();
-        var byMachine = new Dictionary<string, (string Machine, List<string> Secrets, List<string> Repositories)>(StringComparer.OrdinalIgnoreCase);
+        var byMachine = new Dictionary<string, Asked>(StringComparer.OrdinalIgnoreCase);
         foreach (var seat in definition.Seats)
         {
             var machine = seat.Machine ?? definition.Defaults.Machine;
             if (!byMachine.TryGetValue(machine, out var question))
-                byMachine[machine] = question = (machine, new List<string>(), new List<string>());
+                byMachine[machine] = question = new Asked(machine);
             foreach (var secret in seat.Secrets.Concat(seat.Starts.SelectMany(s => s.Secrets)))
                 if (!question.Secrets.Contains(secret, StringComparer.Ordinal)) question.Secrets.Add(secret);
             if (seat.Repository is { } repository && !question.Repositories.Contains(repository, StringComparer.Ordinal))
                 question.Repositories.Add(repository);
+            foreach (var start in seat.Starts)
+            {
+                switch (ProgramFor(start.Check, content))
+                {
+                    case CheckProgram.Python: question.AskPython = true; break;
+                    case CheckProgram.Uv: question.AskUv = true; break;
+                }
+            }
         }
         return byMachine.Values
-            .Where(q => q.Secrets.Count > 0 || q.Repositories.Count > 0)
-            .Select(q => new MachineQuestion(q.Machine, q.Secrets, q.Repositories))
+            .Where(q => q.Secrets.Count > 0 || q.Repositories.Count > 0 || q.AskPython || q.AskUv)
+            .Select(q => new MachineQuestion(q.Machine, q.Secrets, q.Repositories, q.AskPython, q.AskUv))
             .ToList();
+    }
+
+    private sealed class Asked(string machine)
+    {
+        public string Machine { get; } = machine;
+        public List<string> Secrets { get; } = new();
+        public List<string> Repositories { get; } = new();
+        public bool AskPython { get; set; }
+        public bool AskUv { get; set; }
+    }
+
+    /// <summary>
+    /// What a start's check runs under, read from its script header with the Director's own reader
+    /// (<see cref="CheckScriptHeader"/>), so the question asked is the program the run will look for: uv when it
+    /// declares packages, else Python. <see cref="CheckProgram.None"/> for a start with no check, a check that is not in
+    /// the definition (its own error) or a header that cannot be read (the run fails on the header, not on a program).
+    /// </summary>
+    public static CheckProgram ProgramFor(string? checkPath, IReadOnlyDictionary<string, string> content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (checkPath is null || !content.TryGetValue(checkPath, out var text)) return CheckProgram.None;
+        var header = CheckScriptHeader.Read(text);
+        if (header.Error is not null) return CheckProgram.None;
+        return header.DeclaresPackages ? CheckProgram.Uv : CheckProgram.Python;
     }
 
     /// <summary>Ask every machine at once. The answer has one reply per question, keyed by machine name (any case).</summary>
@@ -108,7 +171,10 @@ internal sealed class FactoryMachineQuestionAsker
         if (onMachine.Count == 0)
             return NotAsked(machine, $"no Director on {machine} is connected now.");
 
-        var director = onMachine.FirstOrDefault(d => _answers(tenant, d.DirectorId));
+        // A machine with a check to answer for prefers a Director that can answer about Python and uv.
+        var asksChecks = question.AskPython || question.AskUv;
+        var director = (asksChecks ? onMachine.FirstOrDefault(d => _answersChecks(tenant, d.DirectorId)) : null)
+            ?? onMachine.FirstOrDefault(d => _answers(tenant, d.DirectorId));
         if (director is null)
         {
             var version = onMachine[0].Version;
@@ -117,8 +183,15 @@ internal sealed class FactoryMachineQuestionAsker
                 : $"the Director on {machine} is version {version}, which is too old to be asked. Update it.");
         }
 
+        var checksAnswered = asksChecks && _answersChecks(tenant, director.DirectorId);
         var result = await DirectorCommandRouter.TrySendAsync(_send, director.DirectorId, FactoryMachineQuestionContract.Verb, "",
-            new FactoryMachineQuestionRequest { Secrets = question.Secrets.ToList(), Repositories = question.Repositories.ToList() },
+            new FactoryMachineQuestionRequest
+            {
+                Secrets = question.Secrets.ToList(),
+                Repositories = question.Repositories.ToList(),
+                AskPython = checksAnswered && question.AskPython,
+                AskUv = checksAnswered && question.AskUv,
+            },
             ct, Timeout, machine);
         if (result is null)
             return NotAsked(machine, $"no Director on {machine} is connected now.");
@@ -128,9 +201,18 @@ internal sealed class FactoryMachineQuestionAsker
             return NotAsked(machine, $"the Director on {machine} did not answer the question ({result.Error}).");
 
         var answer = Read(result.BodyJson);
-        if (answer is null)
+        // A Director that said it answers the check parts and then left one out answered in a shape not read here.
+        if (answer is null || (checksAnswered && ((question.AskPython && answer.Python is null) || (question.AskUv && answer.Uv is null))))
             return NotAsked(machine, $"the Director on {machine} answered in a shape the Gateway does not read.");
-        FileLog.Write($"[FactoryMachineQuestionAsker] {machine}: answered by director={director.DirectorId}");
+        FileLog.Write($"[FactoryMachineQuestionAsker] {machine}: answered by director={director.DirectorId}, checksAnswered={checksAnswered}");
+        if (asksChecks && !checksAnswered)
+        {
+            var why = string.IsNullOrWhiteSpace(director.Version)
+                ? $"the Director on {machine} is too old to answer about Python or uv. Update it."
+                : $"the Director on {machine} is version {director.Version}, which cannot answer about Python or uv yet. Update it.";
+            FileLog.Write($"[FactoryMachineQuestionAsker] {machine}: check parts not answered - {why}");
+            return MachineReply.Answered(answer) with { ChecksNotAnswered = why };
+        }
         return MachineReply.Answered(answer);
     }
 

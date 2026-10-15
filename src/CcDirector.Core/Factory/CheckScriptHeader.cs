@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace CcDirector.ControlApi.Triggers;
+namespace CcDirector.Core.Factory;
 
 /// <summary>
 /// READS A CHECK'S INLINE SCRIPT HEADER (PEP 723) for the one thing the Director needs from it: does the check
@@ -10,6 +10,9 @@ namespace CcDirector.ControlApi.Triggers;
 /// The header is the block that opens with a line <c># /// script</c> and closes with a line <c># ///</c>; each line in
 /// between is a comment holding one line of TOML. Packages are declared when its <c>dependencies</c> array holds at
 /// least one entry. A block that opens and never closes is a broken header, said so, never guessed at.
+///
+/// It lives in Core because two places read one header and must read it alike: the Director's check runner, which
+/// chooses the interpreter, and the Gateway's publish, which asks the seat's machine for Python or for uv by it.
 /// </summary>
 public static partial class CheckScriptHeader
 {

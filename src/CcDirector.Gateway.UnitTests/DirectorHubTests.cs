@@ -252,6 +252,25 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_RecordsWhetherThisDirectorAnswersTheCheckPartsOfTheFactoryMachineQuestion()
+    {
+        // Factory Definition, phase 5b: a phase 5 Director answers secrets and repositories but not Python or uv, so a
+        // publish words that machine's check questions as "cannot answer yet" rather than reading its silence.
+        var caps = new CcDirector.Gateway.Streaming.FactoryMachineQuestionCapabilityRegistry();
+        DirectorHub Hub(string conn) => new(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), factoryMachineQuestionCapabilities: caps) { Context = new FakeHubCallerContext(conn) };
+
+        Hub("conn-1").Hello(new DirectorStreamHello { DirectorId = "dir-5b", Version = "test", AnswersFactoryMachineQuestion = true, AnswersFactoryCheckMachineQuestion = true });
+        Hub("conn-2").Hello(new DirectorStreamHello { DirectorId = "dir-5", Version = "test", AnswersFactoryMachineQuestion = true });
+        Hub("conn-3").Hello(new DirectorStreamHello { DirectorId = "dir-odd", Version = "test", AnswersFactoryCheckMachineQuestion = true });
+
+        Assert.True(caps.AnswersChecks(TenantId.Local, "dir-5b"));
+        Assert.True(caps.Answers(TenantId.Local, "dir-5"));
+        Assert.False(caps.AnswersChecks(TenantId.Local, "dir-5"));
+        Assert.False(caps.AnswersChecks(TenantId.Local, "dir-odd"));
+        Assert.False(caps.AnswersChecks(TenantId.Local, "dir-never-seen"));
+    }
+
+    [Fact]
     public void Hello_RecordsWhetherThisDirectorRunsChecksFromADefinition()
     {
         // Factory Definition, phase 5b: a definition trigger is handed only to a Director that said this, because an

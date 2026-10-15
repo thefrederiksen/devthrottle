@@ -359,6 +359,7 @@ public sealed class GatewayHost : IAsyncDisposable
                     .Where(d => d.StoppedAtUtc is null && PushedSessions.GetActiveConnectionId(t, d.DirectorId) is not null)
                     .ToList(),
                 _factoryMachineQuestionCapabilities.Answers,
+                _factoryMachineQuestionCapabilities.AnswersChecks,
                 SendCommandAsync)
             .AskAsync(tenant, questions, ct);
 

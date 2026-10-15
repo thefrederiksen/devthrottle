@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CcDirector.ControlApi;
+using CcDirector.ControlApi.Triggers;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
@@ -27,9 +28,27 @@ public sealed class FactoryMachineQuestionExecutorTests
         PayloadJson = payload,
     };
 
-    private static FactoryMachineQuestionExecutor Executor(string stdout = Listed)
+    private static FactoryMachineQuestionExecutor Executor(string stdout = Listed, FakeProcesses? processes = null, bool isWindows = true)
         => new(new FactoryMachineQuestion(_ => Task.FromResult(new ProcessRunner.Result(0, stdout, "", Started: true)),
-            TimeSpan.FromSeconds(10)), "SOREN_SOUTH");
+            TimeSpan.FromSeconds(10)), "SOREN_SOUTH", processes ?? new FakeProcesses(), isWindows);
+
+    /// <summary>The check runner's seam with programs "on PATH" by name. It starts nothing: a run is a test defect.</summary>
+    private sealed class FakeProcesses : ICheckProcesses
+    {
+        public Dictionary<string, string> OnPath { get; } = new(StringComparer.Ordinal);
+        public List<string> LookedFor { get; } = new();
+
+        public string? FindOnPath(string name)
+        {
+            LookedFor.Add(name);
+            return OnPath.TryGetValue(name, out var path) ? path : null;
+        }
+
+        public string? FindCcSecrets() => throw new InvalidOperationException("the machine question finds cc-secrets its own way");
+
+        public Task<CheckProcessResult> RunAsync(CheckProcessStart start, CancellationToken ct)
+            => throw new InvalidOperationException("the machine question never runs Python or uv, it only looks for them");
+    }
 
     private static FactoryMachineAnswer Answer(DirectorCommandResult result)
     {
@@ -59,6 +78,56 @@ public sealed class FactoryMachineQuestionExecutorTests
         Assert.Equal("Secret 'portal-login' is not allowed for 'run'. It may be used for: login.", answer.Secrets[0].NotAllowedReason);
         Assert.Equal(new[] { true, false }, answer.Repositories.Select(r => r.Registered));
         Assert.Equal(@"D:\repos\devthrottle", answer.Repositories[0].Path);
+    }
+
+    [Fact]
+    public async Task AnswerAsync_PythonAndUvNotAsked_AnswersNeitherAndLooksForNothing()
+    {
+        var processes = new FakeProcesses();
+
+        var answer = Answer(await Executor(processes: processes).AnswerAsync(
+            Command("""{"secrets": [], "repositories": ["devthrottle"]}"""), Array.Empty<RepositoryConfig>(), CancellationToken.None));
+
+        Assert.Null(answer.Python);
+        Assert.Null(answer.Uv);
+        Assert.Empty(processes.LookedFor);
+    }
+
+    [Fact]
+    public async Task AnswerAsync_PythonAndUvAskedAndHeld_AnswersWhereTheRunnerWouldFindThem()
+    {
+        var processes = new FakeProcesses();
+        processes.OnPath["python.exe"] = @"C:\Python313\python.exe";
+        processes.OnPath["uv.exe"] = @"C:\tools\uv.exe";
+
+        var answer = Answer(await Executor(processes: processes).AnswerAsync(
+            Command("""{"secrets": [], "repositories": [], "askPython": true, "askUv": true}"""), Array.Empty<RepositoryConfig>(), CancellationToken.None));
+
+        Assert.Equal("python.exe", answer.Python!.LookedFor);
+        Assert.True(answer.Python.Found);
+        Assert.Equal(@"C:\Python313\python.exe", answer.Python.Path);
+        Assert.Equal("uv.exe", answer.Uv!.LookedFor);
+        Assert.True(answer.Uv.Found);
+        Assert.Equal(@"C:\tools\uv.exe", answer.Uv.Path);
+    }
+
+    [Fact]
+    public async Task AnswerAsync_PythonAndUvAskedAndMissingOffWindows_SaysTheRunnersOwnNamesWereNotFound()
+    {
+        var processes = new FakeProcesses();
+        // The Windows names on PATH do not count off Windows: the runner looks for python3 and uv there.
+        processes.OnPath["python.exe"] = "/wrong/python.exe";
+        processes.OnPath["uv.exe"] = "/wrong/uv.exe";
+
+        var answer = Answer(await Executor(processes: processes, isWindows: false).AnswerAsync(
+            Command("""{"secrets": [], "repositories": [], "askPython": true, "askUv": true}"""), Array.Empty<RepositoryConfig>(), CancellationToken.None));
+
+        Assert.Equal("python3", answer.Python!.LookedFor);
+        Assert.False(answer.Python.Found);
+        Assert.Null(answer.Python.Path);
+        Assert.Equal("uv", answer.Uv!.LookedFor);
+        Assert.False(answer.Uv.Found);
+        Assert.Equal(new[] { "python3", "uv" }, processes.LookedFor);
     }
 
     [Fact]
