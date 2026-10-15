@@ -5,6 +5,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Fleet;
 
 namespace CcDirector.Gateway.Factory.Triggers;
@@ -108,6 +109,7 @@ public sealed class TriggerService
     private readonly CancellationToken _startLifetime;
     private readonly Func<TenantId, string, bool> _directorRunsDefinitionChecks;
     private readonly Func<TenantId, string, bool> _machineRunsDefinitionChecks;
+    private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
     // The triggers whose start is running right now on this Gateway. A lock with no session that is NOT in here is a
     // start that ended with its outcome unknown (or one a stopped Gateway left behind): the check looks for its session.
@@ -125,12 +127,18 @@ public sealed class TriggerService
     /// Director only (Factory Definition, phase 5b, design 2.6).</param>
     /// <param name="machineRunsDefinitionChecks">Whether any connected Director of this account on the machine (by
     /// name) said so - when none has, a definition trigger's status says so instead of going silent.</param>
+    /// <param name="definitionOf">The published definition of a factory (by id) in the account, or null when none is
+    /// published; throws <see cref="InvalidOperationException"/> with the reason when the published version cannot be
+    /// read (<see cref="FactorySeatStart.ReadPublished"/>). A definition trigger's session is built from it (phase 5b,
+    /// brief D item 8); a command trigger never reads it.</param>
     public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
-        Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks)
+        Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks,
+        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf)
     {
         _startLifetime = startLifetime;
+        _definitionOf = definitionOf ?? throw new ArgumentNullException(nameof(definitionOf));
         _directorRunsDefinitionChecks = directorRunsDefinitionChecks ?? throw new ArgumentNullException(nameof(directorRunsDefinitionChecks));
         _machineRunsDefinitionChecks = machineRunsDefinitionChecks ?? throw new ArgumentNullException(nameof(machineRunsDefinitionChecks));
         _findSessionByName = findSessionByName ?? throw new ArgumentNullException(nameof(findSessionByName));
@@ -543,16 +551,24 @@ public sealed class TriggerService
         if (IsLastSessionAlive(tenant, trigger, now))
             return new Decision(TriggerRunOutcome.SkippedRunning, count, trigger.LastSessionId, null, null);
 
+        var name = SessionName(trigger, _timeZone(tenant), now);
+        if (trigger.IsDefinitionCheck)
+        {
+            // A definition trigger's prompt also carries what its check found (design 3.2).
+            var prompt = TriggerDefinition.PromptFor(trigger.Prompt, count, reading.Context);
+            var (defined, refusal) = DefinedStart(tenant, trigger, name, prompt, directorId);
+            return refusal is null
+                ? new Decision(null, count, null, null, defined)
+                : new Decision(TriggerRunOutcome.Failed, count, null, TriggerStatusFold.StartFailedPrefix + refusal, null);
+        }
+
+        // A command trigger's create is built from its own row, exactly as it always was.
         return new Decision(null, count, null, null, new NewSessionRequest
         {
             RepoPath = trigger.RepoPath,
             Agent = "ClaudeCode",
-            Name = SessionName(trigger, _timeZone(tenant), now),
-            // A definition trigger's prompt also carries what its check found (design 3.2); a command trigger's
-            // prompt is replaced exactly as it always was.
-            PrePrompt = trigger.IsDefinitionCheck
-                ? TriggerDefinition.PromptFor(trigger.Prompt, count, reading.Context)
-                : TriggerDefinition.PromptFor(trigger.Prompt, count),
+            Name = name,
+            PrePrompt = TriggerDefinition.PromptFor(trigger.Prompt, count),
             // The Director that ran the check is on the trigger's machine and was alive a moment ago; starting the
             // session there names ONE Director instead of leaving it to whichever the machine resolves to first.
             Director = directorId,
@@ -568,6 +584,49 @@ public sealed class TriggerService
             // session already in that factory: without that limit, writing a trigger would BE joining a factory.
             Factory = trigger.Factory,
         });
+    }
+
+    /// <summary>
+    /// A DEFINITION TRIGGER'S SESSION IS A SEAT START (Factory Definition, phase 5b, brief D item 8): built by
+    /// <see cref="FactorySeatStart.Build"/> from the factory's PUBLISHED version - the seat's agent, model, repository by
+    /// name or its home, and a seat kit, never the trigger's folder, which a factory a publish registered does not have.
+    /// The trigger's own settings are kept: the Director that ran the check, the prompt with what it counted, closing
+    /// itself when done, and the trigger origin. A factory with no published version, one that cannot be read, or a
+    /// version without the trigger's seat starts nothing, and the reason is returned instead.
+    /// </summary>
+    private (NewSessionRequest? Request, string? Refusal) DefinedStart(TenantId tenant, TriggerEntity trigger, string name,
+        string prompt, string directorId)
+    {
+        PublishedFactoryDefinition? published;
+        try
+        {
+            published = _definitionOf(tenant, trigger.Factory);
+        }
+        catch (InvalidOperationException ex)
+        {
+            FileLog.Write($"[TriggerService] DefinedStart REFUSED: trigger={trigger.Name}: {ex.Message}");
+            return (null, ex.Message);
+        }
+        if (published is null)
+        {
+            var none = $"'{trigger.Factory}' has no published definition, so its trigger '{trigger.Name}' cannot start its seat. Publish the definition again.";
+            FileLog.Write($"[TriggerService] DefinedStart REFUSED: trigger={trigger.Name}: {none}");
+            return (null, none);
+        }
+        if (published.Seat(trigger.Seat) is not { } seat)
+        {
+            var notHeld = FactorySeatStart.SeatNotInVersion(published, trigger.Seat ?? "");
+            FileLog.Write($"[TriggerService] DefinedStart REFUSED: trigger={trigger.Name}: {notHeld}");
+            return (null, notHeld);
+        }
+
+        var request = FactorySeatStart.Build(published, seat, name, prompt).Request;
+        request.Director = directorId;
+        request.AutoDismiss = true;
+        request.Origin = SessionOriginKinds.Schedule;
+        request.OriginSurface = SessionOriginSurfaces.Trigger;
+        FileLog.Write($"[TriggerService] DefinedStart: trigger={trigger.Name}, {trigger.Factory}/{seat.Seat} v{published.Version}, director={directorId}");
+        return (request, null);
     }
 
     /// <summary>

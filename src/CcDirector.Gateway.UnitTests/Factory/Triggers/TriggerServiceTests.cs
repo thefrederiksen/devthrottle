@@ -63,7 +63,7 @@ public sealed class TriggerServiceTests : IDisposable
             timeZone: _ => TimeZoneInfo.Utc,
             nowUtc: () => _now,
             startLifetime: _lifetime.Token,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
     }
 
     private static TriggerEntityRef Add(TriggerService service, bool paused = false, TenantId? tenant = null)

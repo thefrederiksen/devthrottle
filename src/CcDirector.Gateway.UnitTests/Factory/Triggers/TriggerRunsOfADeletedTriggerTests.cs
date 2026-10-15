@@ -51,7 +51,7 @@ public sealed class TriggerRunsOfADeletedTriggerTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
         TriggerEndpoints.Map(_routes,
             ctx => ctx.Request.Headers.TryGetValue(AccountHeader, out var v) ? new TenantId(v.ToString()) : null,
             service, directorMachine: (_, _) => "SOREN_NORTH", nowUtc: () => Now,

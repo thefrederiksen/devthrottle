@@ -62,7 +62,7 @@ public static class FactoryDefinitionCheck
     /// <paramref name="fleetSkillIds"/> the skill ids in the account's skill store; <paramref name="connectedMachines"/>
     /// the machine names the account's Directors report now. The result carries the parsed definition when there is no
     /// error. <paramref name="purpose"/> says what the check is for: a publish or a restore drives the factory (phase
-    /// 4), so it also refuses a start with a check and words the secret and repository questions from
+    /// 4), so it also words the secret and repository questions from
     /// <paramref name="machineReplies"/> - what each seat's machine answered when the publish asked it (phase 5,
     /// <see cref="FactoryMachineQuestionAsker"/>), keyed by machine name. The check never asks a machine itself: the
     /// caller asks first, then checks. A publish must pass the replies; a save ignores them.

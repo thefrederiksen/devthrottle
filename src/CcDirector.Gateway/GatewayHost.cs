@@ -2721,7 +2721,9 @@ public sealed class GatewayHost : IAsyncDisposable
             nowUtc: () => DateTime.UtcNow,
             startLifetime: _triggerStartLifetime.Token,
             directorRunsDefinitionChecks: _definitionCheckCapabilities.RunsDefinitionChecks,
-            machineRunsDefinitionChecks: MachineRunsDefinitionChecks);
+            machineRunsDefinitionChecks: MachineRunsDefinitionChecks,
+            // Phase 5b, brief D item 8: a definition trigger's session is a seat start built from the published version.
+            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory));
         // A timed start's due check (phase 5b): handed out and reported through the same Director routes as a
         // trigger's, decided here, its session started through the schedule's own starter.
         DueChecks = new Factory.Triggers.DueCheckService(

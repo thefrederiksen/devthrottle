@@ -4,7 +4,9 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Triggers;
+using CcDirector.Gateway.Tests.Factory.Definition;
 using CcDirector.Gateway.Tests.Data;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -36,9 +38,15 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
     // Which Directors said on Hello that they run checks from a definition, and the machines that have one.
     private readonly HashSet<string> _definitionDirectors = new(StringComparer.Ordinal) { Director };
     private readonly HashSet<string> _definitionMachines = new(StringComparer.OrdinalIgnoreCase) { "SOREN_NORTH" };
+    // The published definition of each factory, as FactorySeatStart.ReadPublished reads it: warmforward's version 4
+    // holds the seat frontdesk (the fixture's outreach seat: repository devthrottle, model claude-sonnet-5-5).
+    private readonly Dictionary<string, PublishedFactoryDefinition> _published = new(StringComparer.Ordinal);
     public DefinitionTriggerServiceTests()
     {
         _db = _harness.Open();
+        var d = FactoryDefinitionCheck.Read(DefinitionFixture.Valid()).Definition!;
+        var frontdesk = d.Seats.Single(s => s.Seat == "outreach") with { Seat = "frontdesk", Name = "Front Desk" };
+        _published[Factory] = new PublishedFactoryDefinition(4, d with { Factory = Factory, BossSeat = "frontdesk", Seats = new[] { frontdesk } });
     }
 
     public void Dispose() => _harness.Dispose();
@@ -59,7 +67,8 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             nowUtc: () => _now,
             startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, director) => _definitionDirectors.Contains(director),
-            machineRunsDefinitionChecks: (_, machine) => _definitionMachines.Contains(machine));
+            machineRunsDefinitionChecks: (_, machine) => _definitionMachines.Contains(machine),
+            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null);
 
     /// <summary>A definition trigger as a publish writes it: a check path and no command.</summary>
     private Guid AddDefinitionTrigger(bool paused = false, string prompt = "New mail: {count}. {context}")
@@ -71,6 +80,8 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             Factory = Factory,
             FactoryAgent = "frontdesk",
             Machine = "SOREN_NORTH",
+            // A factory a publish registered has no folder; a trigger written before that carries the old one, to show
+            // it is not where the session starts.
             RepoPath = @"D:\ReposFred\warmforward",
             CheckCommand = "",
             IntervalSeconds = 600,
@@ -130,7 +141,40 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
         Assert.Equal("New mail: 2. from ada@example.com, bo@example.com", request.PrePrompt);
         Assert.Equal(Director, request.Director);
         Assert.Equal(Factory, request.Factory);
-        Assert.Equal(@"D:\ReposFred\warmforward", request.RepoPath);
+    }
+
+    [Fact]
+    public async Task ADefinitionCheckThatCountsWork_StartsTheSeatFromThePublishedVersion_NeverFromTheTriggersFolder()
+    {
+        // Brief D item 8: the session is a seat start built by FactorySeatStart - folder, model and seat as the
+        // published definition says - keeping the trigger's own pinned Director, prompt, closing and origin.
+        var service = Service();
+        var t = AddDefinitionTrigger();
+
+        await Send(service, t, Report("""{"count": 2, "context": "from ada@example.com"}"""));
+
+        var request = Assert.Single(_starts).request;
+        Assert.Equal(("", "devthrottle", (bool?)null), (request.RepoPath, request.FactoryWorktree, request.FactoryHome));
+        Assert.Equal(("frontdesk", 4, FactoryKits.Seat), (request.FactorySeat, request.FactoryDefinitionVersion, request.FactoryKit));
+        Assert.Equal(("ClaudeCode", "claude-sonnet-5-5"), (request.Agent, request.Model));
+        Assert.Equal((Director, true), (request.Director, request.AutoDismiss));
+        Assert.Equal((SessionOriginKinds.Schedule, SessionOriginSurfaces.Trigger), (request.Origin, request.OriginSurface));
+        Assert.Equal("New mail: 2. from ada@example.com", request.PrePrompt);
+        Assert.Null(request.FactoryStartOverride);
+    }
+
+    [Fact]
+    public async Task ADefinitionCheckThatCountsWork_OfAFactoryWithNothingPublished_StartsNothing_AndSaysWhy()
+    {
+        _published.Clear();
+        var service = Service();
+        var t = AddDefinitionTrigger();
+
+        var run = await Send(service, t, Report("""{"count": 2}"""));
+
+        Assert.Empty(_starts);
+        Assert.Equal(TriggerRunOutcome.Failed, run.Outcome);
+        Assert.Equal(TriggerStatusFold.StartFailedPrefix + "'warmforward' has no published definition, so its trigger 'warmforward-frontdesk' cannot start its seat. Publish the definition again.", run.Reason);
     }
 
     [Fact]

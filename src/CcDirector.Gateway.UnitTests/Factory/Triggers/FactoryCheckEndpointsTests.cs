@@ -67,7 +67,7 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
         TriggerEndpoints.Map(_routes, _ => T, service, directorMachine: (_, id) => Directors.GetValueOrDefault(id),
             nowUtc: () => Now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: _definitions.IsDefined,
             dueChecks: new DueCheckService(_runs, (tenant, id) => _jobs.Get(tenant, id), _triggers.CheckStates, _starter,
