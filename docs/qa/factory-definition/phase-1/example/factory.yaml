@@ -1,0 +1,11 @@
+factory: qa-outreach
+title: QA Outreach
+purpose: Shows a factory definition held on the Gateway
+goalText: |
+  Two posts a week, every week.
+goalApprovedOn: 2026-10-14
+bossSeat: boss
+defaults:
+  machine: SOREN_NORTH
+  agent: ClaudeCode
+  model: claude-opus-5-5

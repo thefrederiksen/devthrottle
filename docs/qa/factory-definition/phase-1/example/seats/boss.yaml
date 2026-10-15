@@ -1,0 +1,10 @@
+seat: boss
+name: Boss
+role: Boss
+brief: |
+  Run the factory. Read what the writer made and decide what is next.
+starts:
+  - cron: "0 8 * * 1-5"
+    timeZone: Europe/Copenhagen
+    prompt: Morning round.
+rules: [base]

@@ -316,6 +316,26 @@ public sealed class GatewayHost : IAsyncDisposable
             ? TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant))
             : null;
 
+    /// <summary>The ids of every skill in one account's skill store, built-in or its own, on or off: the fleet skills a
+    /// factory's definition may name (Factory Definition, phase 1).</summary>
+    private IReadOnlyCollection<string> FleetSkillIdsOf(Core.Tenancy.TenantId tenant)
+    {
+        using var scope = _tenantBoundary.EnterScope(tenant);
+        return _skills.ListPublished().Select(s => s.Id).ToList();
+    }
+
+    /// <summary>
+    /// The machines one account's Directors report NOW: every registered Director that has not said goodbye
+    /// (<see cref="Contracts.DirectorDto.StoppedAtUtc"/>). The Gateway keeps no stored register of machines, so a
+    /// machine missing from this list is only "not confirmed", never an error (Factory Definition, phase 1).
+    /// </summary>
+    private IReadOnlyCollection<string> ConnectedMachinesOf(Core.Tenancy.TenantId tenant)
+        => Registry.ListDirectors(tenant)
+            .Where(d => d.StoppedAtUtc is null && !string.IsNullOrWhiteSpace(d.MachineName))
+            .Select(d => d.MachineName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     private IReadOnlySet<string> LiveSessionIdsFor(Core.Tenancy.TenantId tenant)
     {
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -5838,6 +5858,17 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             store: _factoryBriefs,
             sessionFactoryOf: _sessionHistory.FactoryOf,
+            nowUtc: () => DateTime.UtcNow);
+
+        // A factory's whole DEFINITION, held on the Gateway (Factory Definition mission, phase 1): saved as a draft by a
+        // person or a session of the factory, published and restored by a person, every write checked first against
+        // the account's fleet skills and the machines its Directors report now. Nothing else reads it until phase 4.
+        Api.FactoryDefinitionEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: FactoryDefinitions,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            fleetSkillsOf: FleetSkillIdsOf,
+            connectedMachinesOf: ConnectedMachinesOf,
             nowUtc: () => DateTime.UtcNow);
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
