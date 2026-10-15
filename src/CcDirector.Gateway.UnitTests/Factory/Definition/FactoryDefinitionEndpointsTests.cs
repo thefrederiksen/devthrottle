@@ -38,6 +38,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
     private readonly GatewayDbTestHarness _h = new();
     private readonly FactoryDefinitionStore _store;
+    private readonly FactoryPublishApply _apply;
 
     /// <summary>The account's fleet skills as the check is told them; a test may take one away.</summary>
     private readonly List<string> _fleetSkills = DefinitionFixture.FleetSkills.ToList();
@@ -46,7 +47,11 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
     public FactoryDefinitionEndpointsTests()
     {
-        _store = new FactoryDefinitionStore(_h.Open());
+        var db = _h.Open();
+        _store = new FactoryDefinitionStore(db);
+        _apply = new FactoryPublishApply(db);
+        // A publish drives the factory from phase 4, and until phase 5 it must be registered (it runs in its folder).
+        new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(db).Register(A, DefinitionFixture.Registration(), "test", Now);
         _account = new FactoryDefinitionEndpoints.Account(_ => _fleetSkills.ToList(), _ => DefinitionFixture.Machines);
     }
 
@@ -102,11 +107,11 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
     private IResult Publish(HttpContext ctx, int version) =>
         FactoryDefinitionEndpoints.Publish(ctx, TheFactory, new PublishFactoryDefinitionRequest { Version = version },
-            _store, InA, FactoryOf, _account, () => Now.AddMinutes(5));
+            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(5));
 
     private IResult Restore(HttpContext ctx, int version, int expect = 0) =>
         FactoryDefinitionEndpoints.Restore(ctx, TheFactory, new RestoreFactoryDefinitionRequest { Version = version, ExpectedVersion = expect },
-            _store, InA, FactoryOf, _account, () => Now.AddMinutes(10));
+            _store, _apply, InA, FactoryOf, _account, () => Now.AddMinutes(10));
 
     private IResult Published(HttpContext ctx, Func<HttpContext, TenantId?>? tenant = null) =>
         FactoryDefinitionEndpoints.ReadPublished(ctx, TheFactory, _store, tenant ?? InA, FactoryOf);
@@ -167,7 +172,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     public void THE_WHOLE_FLOW_a_draft_is_saved_published_replaced_and_the_first_is_restored()
     {
         // A session of the factory proposes the definition. The check's notices ride along on the success.
-        var draft = Version(Save(Session(FactorySession), DefinitionFixture.Valid(), expect: 0, note: "the first definition"));
+        var draft = Version(Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: 0, note: "the first definition"));
         Assert.Equal(1, draft.Version);
         Assert.Equal("draft", draft.State);
         Assert.Equal("session", draft.AuthorKind);
@@ -192,10 +197,10 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal(Now.AddMinutes(5), first.PublishedAtUtc);
         Assert.Equal(1, first.PublishedVersion);
         var read = Version(Published(Session(FactorySession)));
-        Assert.Equal(DefinitionFixture.Valid(), read.Files);
+        Assert.Equal(DefinitionFixture.Publishable(), read.Files);
 
         // A second version, written and published by the owner.
-        var changed = DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "Write the posts every day.");
+        var changed = DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "Write the posts every day.");
         var saved = Version(Save(Person(), changed, expect: 1));
         Assert.Equal(2, saved.Version);
         Assert.Null(saved.Changes);
@@ -215,7 +220,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal(1, back.RestoredFrom);
         Assert.Equal(3, back.PublishedVersion);
         Assert.Equal("writer", Assert.Single(back.Changes!.Seats).Seat);
-        Assert.Equal(DefinitionFixture.Valid(), Version(Published(Person())).Files);
+        Assert.Equal(DefinitionFixture.Publishable(), Version(Published(Person())).Files);
 
         var history = Page(History(Person()));
         Assert.Equal(TheFactory, history.Factory);
@@ -226,9 +231,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void The_newest_version_is_what_an_editor_reads_with_its_files_and_it_says_which_is_published()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
-        var changed = DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "Write fewer posts.");
+        var changed = DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "Write fewer posts.");
         Save(Session(FactorySession), changed, expect: 1);
 
         var newest = Version(Newest(Person()));
@@ -260,7 +265,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     private IResult Diff(HttpContext ctx, string? query = null)
     {
         if (query is not null) ctx.Request.QueryString = new QueryString("?" + query);
-        return FactoryDefinitionEndpoints.Diff(ctx, TheFactory, _store, InA, FactoryOf);
+        return FactoryDefinitionEndpoints.Diff(ctx, TheFactory, _store, _apply, InA, FactoryOf);
     }
 
     private static FactoryDefinitionDiffResponse DiffOf(IResult result) =>
@@ -269,9 +274,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void THE_DIFF_DEFAULTS_FROM_THE_PUBLISHED_VERSION_TO_THE_NEWEST()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
-        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "name: Writer", "name: Author"), expect: 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "name: Writer", "name: Author"), expect: 1);
 
         var diff = DiffOf(Diff(Session(FactorySession)));
 
@@ -286,7 +291,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void BEFORE_THE_FIRST_PUBLISH_THE_DIFF_IS_FROM_NOTHING_and_lists_everything_as_added()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
 
         var diff = DiffOf(Diff(Person()));
 
@@ -299,9 +304,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void THE_DIFF_BETWEEN_TWO_NAMED_VERSIONS_and_between_two_with_the_same_content_says_nothing_changes()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
-        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "name: Writer", "name: Author"), expect: 1);
-        Save(Person(), DefinitionFixture.Valid(), expect: 2);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "name: Writer", "name: Author"), expect: 1);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 2);
 
         Assert.True(DiffOf(Diff(Person(), "from=1&to=3")).Changes.NothingChanges);
         var oneToTwo = DiffOf(Diff(Person(), "from=1&to=2"));
@@ -314,7 +319,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     {
         Assert.Equal(404, Status(Diff(Person())));
 
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
 
         var missing = Diff(Person(), "from=7");
         Assert.Equal(404, Status(missing));
@@ -331,7 +336,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_SESSIONS_PUBLISH_IS_REFUSED_BY_THE_STORE_WITH_ITS_SENTENCE()
     {
-        Save(Session(FactorySession), DefinitionFixture.Valid(), expect: 0);
+        Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: 0);
 
         var refused = Publish(Session(FactorySession), 1);
 
@@ -344,7 +349,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_SESSIONS_PUBLISH_OF_A_VERSION_THE_CHECK_WOULD_REFUSE_is_still_told_only_a_person_publishes()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         _fleetSkills.Remove("browsers");
 
         var refused = Publish(Session(FactorySession), 1);
@@ -357,9 +362,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_SESSIONS_RESTORE_IS_REFUSED_too_because_it_publishes()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
-        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
         Publish(Person(), 2);
 
         var refused = Restore(Session(FactorySession), 1, expect: 2);
@@ -375,7 +380,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_SESSION_OF_ANOTHER_FACTORY_MAY_NOT_READ_OR_WRITE_THIS_FACTORYS_DEFINITION()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
         var outside = OtherFactorySession;
 
@@ -383,7 +388,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
                  {
                      Published(Session(outside)), Newest(Session(outside)), History(Session(outside)),
                      OneVersion(Session(outside), "1"), Diff(Session(outside)),
-                     Save(Session(outside), DefinitionFixture.Valid(), expect: 1),
+                     Save(Session(outside), DefinitionFixture.Publishable(), expect: 1),
                      Publish(Session(outside), 1), Restore(Session(outside), 1),
                  })
         {
@@ -396,7 +401,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_session_in_no_factory_is_refused_the_same_way()
     {
-        var refused = Save(Session(NoFactorySession), DefinitionFixture.Valid(), expect: 0);
+        var refused = Save(Session(NoFactorySession), DefinitionFixture.Publishable(), expect: 0);
 
         Assert.Equal(403, Status(refused));
         Assert.Equal(FactoryNaming.ActRefusal("definition", TheFactory), ErrorOf(refused));
@@ -406,7 +411,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_session_the_Gateway_has_no_record_of_yet_is_told_to_try_again_not_judged()
     {
-        var refused = Save(Session(UnknownSession), DefinitionFixture.Valid(), expect: 0);
+        var refused = Save(Session(UnknownSession), DefinitionFixture.Publishable(), expect: 0);
 
         Assert.Equal(409, Status(refused));
         Assert.Equal(SpawnFactory.NotYetKnown, ErrorOf(refused));
@@ -416,12 +421,12 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void THE_MACHINE_TOKEN_MAY_READ_AND_MAY_NOT_WRITE_because_a_version_records_who_wrote_it()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
 
         Assert.Equal(1, Version(Published(Machine())).Version);
 
-        foreach (var refused in new[] { Save(Machine(), DefinitionFixture.Valid(), expect: 1), Publish(Machine(), 1), Restore(Machine(), 1) })
+        foreach (var refused in new[] { Save(Machine(), DefinitionFixture.Publishable(), expect: 1), Publish(Machine(), 1), Restore(Machine(), 1) })
         {
             Assert.Equal(403, Status(refused));
             Assert.Equal("a factory's definition is written by a person, or by a session of that factory", ErrorOf(refused));
@@ -434,10 +439,10 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_STALE_SAVE_IS_REFUSED_AND_THE_ANSWER_CARRIES_THE_CURRENT_VERSION()
     {
-        Save(Session(FactorySession), DefinitionFixture.Valid(), expect: 0);
-        Save(Session(FactorySession), DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "first change"), expect: 1);
+        Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: 0);
+        Save(Session(FactorySession), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "first change"), expect: 1);
 
-        var refused = Save(Session(SecondFactorySession), DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "second change"), expect: 1);
+        var refused = Save(Session(SecondFactorySession), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "second change"), expect: 1);
 
         Assert.Equal(409, Status(refused));
         Assert.Equal("Stale", Field(refused, "outcome"));
@@ -453,7 +458,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void AN_UNKNOWN_KEY_IS_REFUSED_WITH_ITS_FILE_AND_LINE_and_nothing_is_stored()
     {
-        var refused = Save(Person(), DefinitionFixture.With("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red"), expect: 0);
+        var refused = Save(Person(), DefinitionFixture.PublishableWith("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red"), expect: 0);
 
         AssertRefusedByTheCheck(refused, "seats/writer.yaml", 5, "'colour' is not a key");
         Assert.Equal($"The definition was not saved: the check found 1 error in the definition of {TheFactory}. Fix each one where it is and try again.",
@@ -464,7 +469,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_DANGLING_REFERENCE_IS_REFUSED_ON_THE_LINE_THAT_MAKES_IT()
     {
-        var refused = Save(Person(), DefinitionFixture.With("seats/writer.yaml", DefinitionFixture.Writer + "\nfiles: [files/nowhere.py]"), expect: 0);
+        var refused = Save(Person(), DefinitionFixture.PublishableWith("seats/writer.yaml", DefinitionFixture.Writer + "\nfiles: [files/nowhere.py]"), expect: 0);
 
         AssertRefusedByTheCheck(refused, "seats/writer.yaml", 5, "files/nowhere.py", "not in this definition");
         Assert.Equal(0, VersionsKept());
@@ -473,7 +478,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_FACTORY_SKILL_AND_A_FLEET_SKILL_WITH_THE_SAME_NAME_ARE_REFUSED_on_the_line_naming_the_fleet_one()
     {
-        var content = DefinitionFixture.Valid();
+        var content = DefinitionFixture.Publishable();
         content["skills/browsers/SKILL.md"] = "---\nname: browsers\ndescription: Our own browsers.\n---\nUse ours.\n";
 
         var refused = Save(Person(), content, expect: 0);
@@ -488,7 +493,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     {
         // The outreach seat moves to Codex and gives up its rule sets (a Codex seat cannot carry rules either, and
         // that is its own refusal). With line 17 gone, line 20 becomes "  factory: [mail-voice]".
-        var content = DefinitionFixture.Valid();
+        var content = DefinitionFixture.Publishable();
         content["seats/outreach.yaml"] = content["seats/outreach.yaml"]
             .Replace("agent: ClaudeCode\n", "agent: Codex\n", StringComparison.Ordinal)
             .Replace("rules: [base, outreach]\n", "", StringComparison.Ordinal)
@@ -503,7 +508,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_FILE_OVER_ITS_CAP_IS_REFUSED_BY_THE_CHECK_and_nothing_is_stored()
     {
-        var content = DefinitionFixture.Valid();
+        var content = DefinitionFixture.Publishable();
         content["files/huge.txt"] = new string('x', DefinitionPaths.MaxFileBytes + 1);
 
         var refused = Save(Person(), content, expect: 0);
@@ -526,7 +531,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_PUBLISH_CHECKS_AGAIN_with_the_accounts_skills_as_they_are_NOW_and_publishes_nothing_on_an_error()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         // Between the save and the publish, the account loses the fleet skill a seat names.
         _fleetSkills.Remove("browsers");
 
@@ -541,9 +546,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_RESTORE_CHECKS_TOO_and_restores_nothing_on_an_error()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
-        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
         Publish(Person(), 2);
         _fleetSkills.Remove("browsers");
 
@@ -560,7 +565,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     /// STRAIGHT THROUGH THE STORE, as one published before the rules tightened would be. The store holds paths and
     /// caps only, so it takes it.</summary>
     private static Dictionary<string, string> RefusedByTodaysRules() =>
-        DefinitionFixture.With("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red");
+        DefinitionFixture.PublishableWith("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red");
 
     private void PublishStraightThroughTheStore(IReadOnlyDictionary<string, string> content)
     {
@@ -573,7 +578,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     public void A_PUBLISH_OVER_A_VERSION_THAT_NO_LONGER_PARSES_SUCCEEDS_and_lists_what_changes_from_nothing_with_a_notice_saying_why()
     {
         PublishStraightThroughTheStore(RefusedByTodaysRules());
-        Assert.Equal(200, Status(Save(Person(), DefinitionFixture.Valid(), expect: 1)));
+        Assert.Equal(200, Status(Save(Person(), DefinitionFixture.Publishable(), expect: 1)));
 
         var published = Publish(Person(), 2);
 
@@ -593,7 +598,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_RESTORE_OVER_A_VERSION_THAT_NO_LONGER_PARSES_SUCCEEDS_with_the_same_notice()
     {
-        PublishStraightThroughTheStore(DefinitionFixture.Valid());
+        PublishStraightThroughTheStore(DefinitionFixture.Publishable());
         PublishStraightThroughTheStore(RefusedByTodaysRules());
 
         var restored = Restore(Person(), 1, expect: 2);
@@ -610,7 +615,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     public void A_DIFF_FROM_OR_TO_A_VERSION_THAT_NO_LONGER_PARSES_IS_422_IN_WORDS_naming_the_version_and_where()
     {
         PublishStraightThroughTheStore(RefusedByTodaysRules());
-        Assert.Equal(200, Status(Save(Person(), DefinitionFixture.Valid(), expect: 1)));
+        Assert.Equal(200, Status(Save(Person(), DefinitionFixture.Publishable(), expect: 1)));
 
         var fromIt = Diff(Person());
         Assert.Equal(422, Status(fromIt));
@@ -628,7 +633,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void PUBLISHING_THE_VERSION_THAT_IS_ALREADY_PUBLISHED_SAYS_SO_even_when_the_account_changed_since()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
         _fleetSkills.Remove("browsers");
 
@@ -642,8 +647,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void PUBLISHING_A_VERSION_OLDER_THAN_THE_PUBLISHED_ONE_SAYS_SO_even_when_the_account_changed_since()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
-        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
         Publish(Person(), 2);
         _fleetSkills.Remove("browsers");
 
@@ -656,7 +661,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void RESTORING_THE_PUBLISHED_VERSION_SAYS_SO_even_when_the_account_changed_since()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
         _fleetSkills.Remove("browsers");
 
@@ -669,7 +674,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_publish_of_a_version_that_does_not_exist_is_NOT_FOUND_in_the_stores_words()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
 
         var refused = Publish(Person(), 9);
 
@@ -680,8 +685,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void Publishing_backwards_is_a_CONFLICT_that_carries_the_published_version()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
-        Save(Person(), DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        Save(Person(), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1);
         Publish(Person(), 2);
 
         var refused = Publish(Person(), 1);
@@ -694,7 +699,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void A_change_note_over_its_cap_is_a_BAD_REQUEST_that_says_the_cap()
     {
-        var refused = Save(Person(), DefinitionFixture.Valid(), expect: 0, note: new string('n', FactoryDefinitionStore.MaxChangeNoteLength + 1));
+        var refused = Save(Person(), DefinitionFixture.Publishable(), expect: 0, note: new string('n', FactoryDefinitionStore.MaxChangeNoteLength + 1));
 
         Assert.Equal(400, Status(refused));
         Assert.Equal("ChangeNoteTooLong", Field(refused, "outcome"));
@@ -705,9 +710,9 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     public void A_SESSIONS_DRAFT_PAST_THE_LIMIT_IS_A_CONFLICT_THAT_SAYS_TO_ASK_THE_OWNER_TO_PUBLISH()
     {
         for (var i = 0; i < FactoryDefinitionStore.MaxWaitingDrafts; i++)
-            Assert.Equal(200, Status(Save(Session(FactorySession), DefinitionFixture.Valid(), expect: i)));
+            Assert.Equal(200, Status(Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: i)));
 
-        var refused = Save(Session(FactorySession), DefinitionFixture.Valid(), expect: FactoryDefinitionStore.MaxWaitingDrafts);
+        var refused = Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: FactoryDefinitionStore.MaxWaitingDrafts);
 
         Assert.Equal(409, Status(refused));
         Assert.Equal("TooManyDrafts", Field(refused, "outcome"));
@@ -720,8 +725,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     public void A_write_with_no_body_is_a_BAD_REQUEST()
     {
         Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.SaveDraft(Person(), TheFactory, null, _store, InA, FactoryOf, _account, () => Now)));
-        Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.Publish(Person(), TheFactory, null, _store, InA, FactoryOf, _account, () => Now)));
-        Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.Restore(Person(), TheFactory, null, _store, InA, FactoryOf, _account, () => Now)));
+        Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.Publish(Person(), TheFactory, null, _store, _apply, InA, FactoryOf, _account, () => Now)));
+        Assert.Equal("a body is required", ErrorOf(FactoryDefinitionEndpoints.Restore(Person(), TheFactory, null, _store, _apply, InA, FactoryOf, _account, () => Now)));
     }
 
     [Fact]
@@ -736,7 +741,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void ANOTHER_ACCOUNT_NEVER_SEES_A_DEFINITION_through_any_read()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
 
         Assert.Equal(404, Status(Published(Person(), InB)));
@@ -759,14 +764,14 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void THE_HISTORY_IS_ONE_PAGE_newest_first_that_says_how_many_there_are_and_where_the_next_starts()
     {
-        for (var i = 0; i < 7; i++) Save(Person(), DefinitionFixture.Valid(), expect: i);
+        for (var i = 0; i < 7; i++) Save(Person(), DefinitionFixture.Publishable(), expect: i);
 
         var page = Page(History(Person(), query: "limit=3"));
 
         Assert.Equal(7, page.Total);
         Assert.Equal(new[] { 7, 6, 5 }, page.Versions.Select(v => v.Version).ToArray());
         Assert.Equal(5, page.NextBefore);
-        Assert.All(page.Versions, v => Assert.Equal(DefinitionFixture.Valid().Count, v.FileCount));
+        Assert.All(page.Versions, v => Assert.Equal(DefinitionFixture.Publishable().Count, v.FileCount));
 
         var last = Page(History(Person(), query: "limit=3&before=2"));
         Assert.Equal(new[] { 1 }, last.Versions.Select(v => v.Version).ToArray());
@@ -788,11 +793,11 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     [Fact]
     public void ONE_VERSIONS_CONTENT_IS_READ_BY_ITS_NUMBER_and_a_missing_one_says_which_is_newest()
     {
-        Save(Person(), DefinitionFixture.Valid(), expect: 0);
-        var changed = DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "v2");
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+        var changed = DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2");
         Save(Person(), changed, expect: 1);
 
-        Assert.Equal(DefinitionFixture.Valid(), Version(OneVersion(Person(), "1")).Files);
+        Assert.Equal(DefinitionFixture.Publishable(), Version(OneVersion(Person(), "1")).Files);
         Assert.Equal(changed, Version(OneVersion(Person(), "2")).Files);
 
         var missing = OneVersion(Person(), "9");

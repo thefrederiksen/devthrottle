@@ -56,6 +56,10 @@
     <Compile Include="..\CcDirector.Gateway.Tests\ConcurrencyStoreScenarios.cs" Link="ConcurrencyStoreScenarios.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbEnvironmentGate.cs" Link="Data/GatewayDbEnvironmentGate.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbTestHarness.cs" Link="Data/GatewayDbTestHarness.cs" />
+    <!-- The factory definition publish (phase 4): ONE failure scenario run on SQLite in the unit tests and on
+         PostgreSQL here, so the two can never disagree about what "changes nothing" means. -->
+    <Compile Include="..\CcDirector.Gateway.UnitTests\Factory\Definition\DefinitionFixture.cs" Link="Factory/Definition/DefinitionFixture.cs" />
+    <Compile Include="..\CcDirector.Gateway.UnitTests\Factory\Definition\FactoryPublishScenario.cs" Link="Factory/Definition/FactoryPublishScenario.cs" />
   </ItemGroup>
 
 </Project>

@@ -2005,8 +2005,10 @@ Which version a run or a talk was given is kept:
 
 A factory's whole definition held on the Gateway (Factory Definition mission, phase 1): `factory.yaml`, one
 file per seat under `seats/`, `grants.yaml`, rule sets under `rules/`, files under `files/`, checks under
-`checks/` and the factory's own skills under `skills/`. The Gateway keeps every version. The factory need not
-be registered. Nothing reads the definition yet: until phase 4 of the mission a factory runs exactly as before.
+`checks/` and the factory's own skills under `skills/`. The Gateway keeps every version. A draft needs no
+registration. From phase 4 a person's `publish` and `restore` DRIVE the factory: its registry row, its schedules
+and its triggers are written from the definition in one transaction. A factory with no published definition runs
+exactly as before.
 
 ```
 USAGE: cc-devthrottle factory definition COMMAND FACTORY [OPTIONS]
@@ -2018,9 +2020,13 @@ COMMANDS:
   history FACTORY [--count N] [--before N]            one page of the versions, newest first, without their content
   save FACTORY --dir FOLDER --expected-version N [--note TEXT]
                                                       save every file under FOLDER as a new draft
-  publish FACTORY --version N                         publish one version and print what changes - a person only
-  restore FACTORY --version N [--expected-version N]  publish a copy of an older version as the newest - a person only
-  diff FACTORY [--from N] [--to M]                    what changes: by default from the published version to the newest
+  publish FACTORY --version N [--replaces N]          publish one version, drive the factory to it, and print what
+                                                      changes and what it applied - a person only
+  restore FACTORY --version N [--expected-version N] [--replaces N]
+                                                      publish a copy of an older version as the newest, and drive
+                                                      the factory to it - a person only
+  diff FACTORY [--from N] [--to M]                    what changes: by default from the published version to the
+                                                      newest; also the published version and what a publish would do
   schemas [--out FOLDER]                              the JSON Schemas the check enforces, one per file type
 ```
 
@@ -2049,6 +2055,28 @@ session is refused another draft while 20 wait above the published version.
 **What changes.** `publish` and `restore` print what changes against the version that was published before,
 and `diff` prints it between any two versions. Every sentence, detail and line difference is composed on the
 Gateway and printed as it is; the command decides nothing.
+
+**A publish drives the factory (phase 4).** A person's `publish` or `restore` writes the publish mark, the
+factory's registry row, its schedules and its triggers in ONE database transaction. The registry row takes the
+title, boss, goal and purpose from `factory.yaml`, the computer from `defaults.machine`, one seat per seat file
+(each seat's brief file is now `seats/<seat>.yaml`), and keeps its folder. Each `cron` start of a seat becomes a
+schedule named "<factory title> - <seat name>" (" (2)", " (3)" for a seat's further starts), running in the
+registered folder; a live schedule paired with a start is changed in place and keeps its id, its on or off
+switch, its notifications and its run history; a live schedule no start names is deleted (its runs are kept);
+every trigger of the factory is deleted (its run history is kept). The answer prints `applied:` - one sentence
+per step, as the Gateway wrote it. If any write fails, nothing is changed: the command exits 1 with "The publish
+changed nothing: <step> failed: <reason>." Refused before anything is written: a factory that is not registered
+or is archived (exit 1, the Gateway's sentence), a row the registry or schedule rules would refuse (every one as
+`file:line: message`), and a start with a check ("Checks from a definition run from phase 5b...", on its
+`check:` line - a draft may hold one).
+
+**What it replaces.** `diff` prints `published version: N` - the published version it compared against - and
+`plan`: what publishing the compared version would do to the live factory now, step by step, or why it would be
+refused. Pass that number to `publish --replaces N` (0 when none is published): if another publish got there
+first, nothing is written and the command exits 1 with "Not published: version M is the published definition
+now, not N. Read what changes again and publish once more." Without `--replaces` there is no such check. Either
+way, what changes is computed inside the transaction against the version really replaced. `--json` prints the
+Gateway's answer unchanged: `applied` on a publish and a restore, `publishedVersion` and `plan` on a diff.
 
 **Two writers on one definition.** `save` sends the newest version its caller read, which `get --draft`
 shows; `--expected-version` is required, and 0 means "this factory has no definition here yet". The command

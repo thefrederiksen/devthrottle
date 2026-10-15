@@ -522,6 +522,141 @@ def test_diff_AnAnswerWithNoChanges_IsNeverReportedAsNothingChanging(gateway):
 
 
 # ---------------------------------------------------------------------------------------------------
+# phase 4: a publish drives the factory - replaces, applied and plan
+# ---------------------------------------------------------------------------------------------------
+
+APPLIED = [
+    "Definition: version 4 published.",
+    "Registry: seat writer renamed Writer -> Author.",
+    "Schedule cj_123abc (WarmForward - Author) moved: Weekdays 08:00 Europe/Copenhagen -> Weekdays 09:00 Europe/Copenhagen.",
+    "Trigger inbox-watch deleted: checks from a definition run from phase 5b, so until then a defined factory has no "
+    "triggers; its run history is kept.",
+]
+
+PLAN = {
+    "version": 5,
+    "heading": "What publishing version 5 would do to the live factory now:",
+    "steps": ["Registry: seat writer renamed Writer -> Author.",
+              "Schedule cj_old (WarmForward - Writer) deleted: no start in the definition names it; its runs are kept."],
+    "refused": None,
+    "findings": [],
+}
+
+
+def test_publish_Replaces_SendsThePublishedVersionTheCallerRead_AndPrintsAppliedVerbatim(gateway):
+    gw = gateway((200, {**version(4, state="published", published=4, changes=CHANGES), "applied": APPLIED}))
+
+    result = run("publish", FACTORY, "--version", "4", "--replaces", "3")
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 4, "replaces": 3}
+    out = result.stdout
+    assert "applied:" in out
+    for step in APPLIED:
+        assert f"  {step}" in out
+    assert out.index("what changes:") < out.index("applied:")
+
+
+def test_publish_ReplacesZero_IsSent_BecauseNothingPublishedIsAnAnswer(gateway):
+    gw = gateway((200, {**version(1, state="published", published=1, changes=CHANGES), "applied": APPLIED}))
+
+    result = run("publish", FACTORY, "--version", "1", "--replaces", "0")
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 1, "replaces": 0}
+
+
+def test_publish_Json_KeepsTheAnswersShape_WithAppliedAdded(gateway):
+    answer = {**version(4, state="published", published=4, changes=CHANGES), "applied": APPLIED}
+    gateway((200, answer))
+
+    result = run("publish", FACTORY, "--version", "4", "--json")
+
+    assert json.loads(result.stdout) == answer
+
+
+def test_publish_ReplacingAVersionNoLongerPublished_PrintsTheGatewaysSentence_AndPointsAtDiff(gateway):
+    sentence = "Not published: version 4 is the published definition now, not 3. Read what changes again and publish once more."
+    gateway((409, {"error": sentence, "outcome": "Stale", "current": None}))
+
+    result = run("publish", FACTORY, "--version", "5", "--replaces", "3")
+
+    assert result.exit_code == 1
+    assert sentence in result.stderr
+    assert "factory definition diff warmforward" in result.stderr
+
+
+def test_publish_ThatFailedInTheTransaction_PrintsThe500SentenceVerbatim(gateway):
+    sentence = ("The publish changed nothing: writing schedule cj_123abc for seat 'writer' failed: "
+                "database is locked")
+    gateway((500, {"error": sentence, "outcome": "WriteFailed", "current": None}))
+
+    result = run("publish", FACTORY, "--version", "5")
+
+    assert result.exit_code == 1
+    assert sentence in result.stderr
+    assert "applied:" not in result.stdout
+
+
+def test_restore_Replaces_IsSentBesideTheExpectedVersion_AndAppliedIsPrinted(gateway):
+    gw = gateway((200, {**version(6, state="published", published=6, restored_from=1, changes=CHANGES), "applied": APPLIED}))
+
+    result = run("restore", FACTORY, "--version", "1", "--expected-version", "5", "--replaces", "5")
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"version": 1, "expectedVersion": 5, "replaces": 5}
+    assert f"  {APPLIED[2]}" in result.stdout
+
+
+def test_diff_PrintsThePublishedVersionItComparedAgainst_AndThePlanVerbatim(gateway):
+    gateway((200, {"factory": FACTORY, "from": 4, "to": 5, "changes": CHANGES, "publishedVersion": 4, "plan": PLAN}))
+
+    result = run("diff", FACTORY)
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert "published version: 4" in out
+    assert "What publishing version 5 would do to the live factory now:" in out
+    for step in PLAN["steps"]:
+        assert f"  {step}" in out
+    assert "factory definition publish warmforward --version 5 --replaces 4" in out
+
+
+def test_diff_WithNothingPublished_TellsThePersonToPassReplacesZero(gateway):
+    gateway((200, {"factory": FACTORY, "from": None, "to": 1, "publishedVersion": None, "plan": {**PLAN, "version": 1},
+                   "changes": {**CHANGES, "summary": "Everything is new.", "seats": [], "firstPublish": True}}))
+
+    result = run("diff", FACTORY)
+
+    assert "published version: none" in result.stdout
+    assert "factory definition publish warmforward --version 1 --replaces 0" in result.stdout
+
+
+def test_diff_APlanThatWouldBeRefused_PrintsTheSentenceAndEveryFinding(gateway):
+    refused = {**PLAN, "steps": [],
+               "refused": "The live factory cannot take this definition: 1 row would break its rule in the registry or "
+                          "the schedules of warmforward. Fix each one where it is and try again; nothing was written.",
+               "findings": [{"severity": "error", "file": "seats/scout.yaml", "line": 0,
+                             "message": "This start has a check."}]}
+    gateway((200, {"factory": FACTORY, "from": 4, "to": 5, "changes": CHANGES, "publishedVersion": 4, "plan": refused}))
+
+    result = run("diff", FACTORY)
+
+    assert result.exit_code == 0, result.output
+    assert f"  Refused: {refused['refused']}" in result.stdout
+    assert "seats/scout.yaml" in result.stdout and "This start has a check." in result.stdout
+
+
+def test_diff_Json_KeepsTheAnswersShape_WithPlanAndPublishedVersionAdded(gateway):
+    answer = {"factory": FACTORY, "from": 4, "to": 5, "changes": CHANGES, "publishedVersion": 4, "plan": PLAN}
+    gateway((200, answer))
+
+    result = run("diff", FACTORY, "--json")
+
+    assert json.loads(result.stdout) == answer
+
+
+# ---------------------------------------------------------------------------------------------------
 # every command carries this session's key, and an unknown flag fails
 # ---------------------------------------------------------------------------------------------------
 

@@ -171,42 +171,11 @@ public static class FactoryDefinitionChanges
 
     private static void CompareStarts(IReadOnlyList<SeatStartDefinition> oldStarts, SeatDefinition seat, FactoryDefinitionChangesDto dto)
     {
-        // A start written the same in both versions is unchanged wherever it sits.
-        var removed = oldStarts.ToList();
-        var added = new List<SeatStartDefinition>();
-        foreach (var start in seat.Starts)
+        var pairing = PairStarts(oldStarts, seat.Starts);
+        foreach (var pair in pairing.Pairs.Where(p => !p.Exact))
         {
-            var same = removed.FindIndex(s => SameStart(s, start));
-            if (same >= 0) removed.RemoveAt(same);
-            else added.Add(start);
-        }
-
-        // The rest are paired by closeness, never by position, so where a person wrote a start in the list never
-        // changes the account. Both sides are first put in one fixed order (what the start is, not where it sits);
-        // then each published start takes the closest unpaired start of the SAME kind - a time with a time, an
-        // interval with an interval - preferring the same prompt, then the same check, then the same time zone.
-        // A start whose kind changes is honestly a start switched off and another created, never "moved".
-        removed.Sort(CompareStartsCanonically);
-        added.Sort(CompareStartsCanonically);
-        var pairs = new List<(SeatStartDefinition Old, SeatStartDefinition New)>();
-        var switchedOff = new List<SeatStartDefinition>();
-        foreach (var o in removed)
-        {
-            var best = -1;
-            var bestScore = -1;
-            for (var i = 0; i < added.Count; i++)
-            {
-                if ((added[i].Cron is null) != (o.Cron is null)) continue;
-                var score = (added[i].Prompt == o.Prompt ? 4 : 0) + (added[i].Check == o.Check ? 2 : 0) + (added[i].TimeZone == o.TimeZone ? 1 : 0);
-                if (score > bestScore) { best = i; bestScore = score; }
-            }
-            if (best < 0) { switchedOff.Add(o); continue; }
-            pairs.Add((o, added[best]));
-            added.RemoveAt(best);
-        }
-
-        foreach (var (o, n) in pairs)
-        {
+            var o = oldStarts[pair.Old];
+            var n = seat.Starts[pair.New];
             var details = StartDetails(o, n);
             var oldWhen = When(o);
             var newWhen = When(n);
@@ -214,11 +183,68 @@ public static class FactoryDefinitionChanges
                 ? StartEntry(seat, "moved", $"{seat.Name}: start moved, {oldWhen} -> {newWhen}.", details)
                 : StartEntry(seat, "changed", $"{seat.Name}: start {newWhen} changed.", details));
         }
-        foreach (var o in switchedOff)
-            dto.Starts.Add(StartEntry(seat, "switched off", $"{seat.Name}: start switched off, {When(o)}.", new List<string>()));
-        foreach (var n in added)
-            dto.Starts.Add(StartEntry(seat, "created", $"{seat.Name}: start created, {When(n)}.", StartDetails(null, n)));
+        foreach (var o in pairing.UnpairedOld)
+            dto.Starts.Add(StartEntry(seat, "switched off", $"{seat.Name}: start switched off, {When(oldStarts[o])}.", new List<string>()));
+        foreach (var n in pairing.UnpairedNew)
+            dto.Starts.Add(StartEntry(seat, "created", $"{seat.Name}: start created, {When(seat.Starts[n])}.", StartDetails(null, seat.Starts[n])));
     }
+
+    /// <summary>
+    /// THE ONE PAIRING OF STARTS, shared by "what changes" and by the publish plan (phase 4), which pairs a seat's
+    /// starts with the schedules that run it today so a publish moves a schedule rather than deleting and recreating
+    /// it. Positions in the two lists go in; pairs of positions come out, and the positions left on either side.
+    ///
+    /// A start written the same in both is paired exactly, wherever it sits. The rest are paired by closeness, never
+    /// by position, so where a person wrote a start in the list never changes the account. Both sides are first put
+    /// in one fixed order (what the start is, not where it sits); then each old start takes the closest unpaired new
+    /// start of the SAME kind - a time with a time, an interval with an interval - preferring the same prompt, then
+    /// the same check, then the same time zone. A start whose kind changes is honestly a start switched off and
+    /// another created, never "moved". Deterministic: ties keep list order.
+    /// </summary>
+    internal static StartPairing PairStarts(IReadOnlyList<SeatStartDefinition> oldStarts, IReadOnlyList<SeatStartDefinition> newStarts)
+    {
+        ArgumentNullException.ThrowIfNull(oldStarts);
+        ArgumentNullException.ThrowIfNull(newStarts);
+        var pairs = new List<StartPair>();
+        var removed = Enumerable.Range(0, oldStarts.Count).ToList();
+        var added = new List<int>();
+        for (var n = 0; n < newStarts.Count; n++)
+        {
+            var same = removed.FindIndex(o => SameStart(oldStarts[o], newStarts[n]));
+            if (same >= 0)
+            {
+                pairs.Add(new StartPair(removed[same], n, Exact: true));
+                removed.RemoveAt(same);
+            }
+            else added.Add(n);
+        }
+
+        removed = Canonical(removed, oldStarts);
+        added = Canonical(added, newStarts);
+        var unpairedOld = new List<int>();
+        foreach (var o in removed)
+        {
+            var old = oldStarts[o];
+            var best = -1;
+            var bestScore = -1;
+            for (var i = 0; i < added.Count; i++)
+            {
+                var candidate = newStarts[added[i]];
+                if ((candidate.Cron is null) != (old.Cron is null)) continue;
+                var score = (candidate.Prompt == old.Prompt ? 4 : 0) + (candidate.Check == old.Check ? 2 : 0) + (candidate.TimeZone == old.TimeZone ? 1 : 0);
+                if (score > bestScore) { best = i; bestScore = score; }
+            }
+            if (best < 0) { unpairedOld.Add(o); continue; }
+            pairs.Add(new StartPair(o, added[best], Exact: false));
+            added.RemoveAt(best);
+        }
+        return new StartPairing(pairs, unpairedOld, added);
+    }
+
+    // Positions in the one fixed order of what the starts are; equal starts keep their list order.
+    private static List<int> Canonical(List<int> positions, IReadOnlyList<SeatStartDefinition> starts)
+        => positions.OrderBy(i => starts[i], Comparer<SeatStartDefinition>.Create(CompareStartsCanonically))
+            .ThenBy(i => i).ToList();
 
     // One fixed order for starts, from what they are: kind, when, then every other part.
     private static int CompareStartsCanonically(SeatStartDefinition a, SeatStartDefinition b)
@@ -497,3 +523,12 @@ public static class FactoryDefinitionChanges
         _ => string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1],
     };
 }
+
+/// <summary>One old start paired with one new start, by their positions; <see cref="Exact"/> when written the same.</summary>
+internal sealed record StartPair(int Old, int New, bool Exact);
+
+/// <summary>
+/// How two lists of starts pair (<see cref="FactoryDefinitionChanges.PairStarts"/>): the pairs, then the old positions
+/// left unpaired (in the fixed order of what they are), then the new positions left unpaired (in that order too).
+/// </summary>
+internal sealed record StartPairing(IReadOnlyList<StartPair> Pairs, IReadOnlyList<int> UnpairedOld, IReadOnlyList<int> UnpairedNew);

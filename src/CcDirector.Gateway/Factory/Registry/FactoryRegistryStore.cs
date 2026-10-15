@@ -354,33 +354,9 @@ public sealed partial class FactoryRegistryStore
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var s in m.Seats)
         {
-            if (s is null) throw Refuse("A seat is empty.");
-            if (!FactoryNames.TrySeat(s.Id, out var seatId, out var why))
-                throw Refuse($"The seat '{s.Id}' is refused: {why}.");
-            if (!ids.Add(seatId)) throw Refuse($"Two seats are called '{seatId}'.");
-            var schedules = new List<string>();
-            foreach (var raw in s.Schedules ?? new List<string>())
-            {
-                var schedule = Required(raw, $"schedule id of seat '{seatId}'", MaxScheduleIdChars);
-                if (schedules.Contains(schedule, StringComparer.Ordinal))
-                    throw Refuse($"Seat '{seatId}' names the schedule '{schedule}' twice.");
-                schedules.Add(schedule);
-            }
-            if (schedules.Count > MaxSchedulesPerSeat)
-                throw Refuse($"Seat '{seatId}' names {schedules.Count} schedules; a seat names at most {MaxSchedulesPerSeat}.");
-            seats.Add(new RegisteredFactorySeatDto
-            {
-                Id = seatId,
-                Name = Required(s.Name, $"name of seat '{seatId}'", MaxTitleChars),
-                Role = Required(s.Role, $"role of seat '{seatId}'", MaxTitleChars),
-                BriefFile = RelativePath(s.BriefFile, $"brief file of seat '{seatId}'"),
-                Line = SeatLine(s.Line, seatId),
-                // What the manifest SAYS runs the seat. Checked against the schedules' own links at registration
-                // (CheckAgainstSchedules) and never stored: the seat's list is derived from those links (#3650).
-                Schedules = schedules,
-                // A seat registered without a computer runs on the factory's: written down here, once.
-                Computer = s.Computer is null ? computer : Required(s.Computer, $"computer of seat '{seatId}'", MaxComputerChars),
-            });
+            var seat = ValidateSeat(s, computer);
+            if (!ids.Add(seat.Id)) throw Refuse($"Two seats are called '{seat.Id}'.");
+            seats.Add(seat);
         }
 
         string? boss = null;
@@ -414,6 +390,47 @@ public sealed partial class FactoryRegistryStore
             Purpose = purpose,
             // Stored WITHOUT their schedules: a seat's schedules are the ones that point at it (issue #3650).
             SeatsJson = JsonSerializer.Serialize(seats.Select(WithoutSchedules).ToList(), Json),
+        };
+    }
+
+    /// <summary>A stored row's seats as they were registered (without schedules: those are derived from the links).</summary>
+    internal static List<RegisteredFactorySeatDto> SeatsOf(FactoryRegistryEntity e) =>
+        JsonSerializer.Deserialize<List<RegisteredFactorySeatDto>>(e.SeatsJson, Json)
+        ?? throw new InvalidOperationException($"The seats of factory '{e.Factory}' are stored as something other than a list.");
+
+    /// <summary>
+    /// Every rule ONE seat of a manifest must meet on its own (the rules across seats - two seats with one id, the
+    /// boss - are <see cref="Validate"/>'s). Returns the seat to store, with the factory's computer written in when it
+    /// names none, or throws with the first rule it breaks. A factory definition's publish (phase 4) runs it per seat,
+    /// so a refusal can be said of that seat's own file.
+    /// </summary>
+    internal static RegisteredFactorySeatDto ValidateSeat(FactorySeatManifest? s, string computer)
+    {
+        if (s is null) throw Refuse("A seat is empty.");
+        if (!FactoryNames.TrySeat(s.Id, out var seatId, out var why))
+            throw Refuse($"The seat '{s.Id}' is refused: {why}.");
+        var schedules = new List<string>();
+        foreach (var raw in s.Schedules ?? new List<string>())
+        {
+            var schedule = Required(raw, $"schedule id of seat '{seatId}'", MaxScheduleIdChars);
+            if (schedules.Contains(schedule, StringComparer.Ordinal))
+                throw Refuse($"Seat '{seatId}' names the schedule '{schedule}' twice.");
+            schedules.Add(schedule);
+        }
+        if (schedules.Count > MaxSchedulesPerSeat)
+            throw Refuse($"Seat '{seatId}' names {schedules.Count} schedules; a seat names at most {MaxSchedulesPerSeat}.");
+        return new RegisteredFactorySeatDto
+        {
+            Id = seatId,
+            Name = Required(s.Name, $"name of seat '{seatId}'", MaxTitleChars),
+            Role = Required(s.Role, $"role of seat '{seatId}'", MaxTitleChars),
+            BriefFile = RelativePath(s.BriefFile, $"brief file of seat '{seatId}'"),
+            Line = SeatLine(s.Line, seatId),
+            // What the manifest SAYS runs the seat. Checked against the schedules' own links at registration
+            // (CheckAgainstSchedules) and never stored: the seat's list is derived from those links (#3650).
+            Schedules = schedules,
+            // A seat registered without a computer runs on the factory's: written down here, once.
+            Computer = s.Computer is null ? computer : Required(s.Computer, $"computer of seat '{seatId}'", MaxComputerChars),
         };
     }
 

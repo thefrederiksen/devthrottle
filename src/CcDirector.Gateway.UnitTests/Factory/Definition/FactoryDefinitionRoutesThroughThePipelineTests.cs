@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
@@ -12,6 +13,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Template;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -39,21 +42,31 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
 
     private readonly GatewayDbTestHarness _h = new();
     private readonly ServiceProvider _services;
-    private readonly Routes _routes;
+    private readonly GatewayDatabase _db;
+    private Routes _routes;
 
     public FactoryDefinitionRoutesThroughThePipelineTests()
     {
-        var db = _h.Open();
+        _db = _h.Open();
         _services = new ServiceCollection().AddRouting().AddLogging().BuildServiceProvider();
-        _routes = new Routes(_services);
-        FactoryDefinitionEndpoints.Map(_routes,
+        _routes = MapThrough(new FactoryPublishApply(_db));
+        new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(_db).Register(A, DefinitionFixture.Registration(), "test", Now);
+    }
+
+    /// <summary>The definition routes mapped over this test's database, publishing through <paramref name="apply"/>.</summary>
+    private Routes MapThrough(FactoryPublishApply apply)
+    {
+        var routes = new Routes(_services);
+        FactoryDefinitionEndpoints.Map(routes,
             resolveTenant: _ => A,
-            store: new FactoryDefinitionStore(db),
+            store: new FactoryDefinitionStore(_db),
             sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
             fleetSkillsOf: _ => DefinitionFixture.FleetSkills,
             connectedMachinesOf: _ => DefinitionFixture.Machines,
             liveOf: (_, _) => null,
+            apply: apply,
             nowUtc: () => Now);
+        return routes;
     }
 
     public void Dispose()
@@ -132,7 +145,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task A_DEFINITION_SENT_AS_JSON_IS_SAVED_PUBLISHED_AND_READ_BACK_UNDER_THE_NAMES_THE_COMMAND_LINE_USES()
     {
-        var saved = await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Valid(), 0, "first"));
+        var saved = await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Publishable(), 0, "first"));
 
         Assert.Equal(200, saved.Status);
         Assert.Equal(1, saved.Body.GetProperty("version").GetInt32());
@@ -140,7 +153,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.Equal("session", saved.Body.GetProperty("authorKind").GetString());
         Assert.Equal(FactorySession, saved.Body.GetProperty("authorId").GetString());
         Assert.Equal("first", saved.Body.GetProperty("changeNote").GetString());
-        Assert.Equal(DefinitionFixture.Valid().Count, saved.Body.GetProperty("fileCount").GetInt32());
+        Assert.Equal(DefinitionFixture.Publishable().Count, saved.Body.GetProperty("fileCount").GetInt32());
         Assert.Equal(1, saved.Body.GetProperty("newestVersion").GetInt32());
         Assert.Equal(JsonValueKind.Null, saved.Body.GetProperty("publishedVersion").ValueKind);
         var notice = saved.Body.GetProperty("findings")[0];
@@ -161,13 +174,13 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         var read = await Send("GET", FactoryPath, AsASessionOfTheFactory);
         Assert.Equal(200, read.Status);
         Assert.Equal(TheFactory, read.Body.GetProperty("factory").GetString());
-        Assert.Equal(DefinitionFixture.Valid()["seats/boss.yaml"], read.Body.GetProperty("files").GetProperty("seats/boss.yaml").GetString());
+        Assert.Equal(DefinitionFixture.Publishable()["seats/boss.yaml"], read.Body.GetProperty("files").GetProperty("seats/boss.yaml").GetString());
 
         var newest = await Send("GET", FactoryPath + "/draft", AsAPerson);
         Assert.Equal(1, newest.Body.GetProperty("version").GetInt32());
 
         var one = await Send("GET", FactoryPath + "/versions/1", AsAPerson);
-        Assert.Equal(DefinitionFixture.Valid().Count, one.Body.GetProperty("files").EnumerateObject().Count());
+        Assert.Equal(DefinitionFixture.Publishable().Count, one.Body.GetProperty("files").EnumerateObject().Count());
 
         var history = await Send("GET", FactoryPath + "/history?limit=5", AsAPerson);
         Assert.Equal(1, history.Body.GetProperty("publishedVersion").GetInt32());
@@ -181,7 +194,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task THE_CHECKS_REFUSAL_COMES_BACK_AS_422_WITH_EVERY_FINDING_BY_FILE_AND_LINE()
     {
-        var broken = DefinitionFixture.With("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red");
+        var broken = DefinitionFixture.PublishableWith("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red");
 
         var refused = await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(broken, 0));
 
@@ -197,7 +210,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task A_SESSIONS_PUBLISH_AND_RESTORE_COME_BACK_AS_403_WITH_THE_SENTENCE_AND_THE_OUTCOME_BY_NAME()
     {
-        await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Valid(), 0));
+        await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Publishable(), 0));
 
         var refused = await Send("POST", FactoryPath + "/publish", AsASessionOfTheFactory, """{"version":1}""");
         Assert.Equal(403, refused.Status);
@@ -212,10 +225,10 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task A_STALE_SAVE_COMES_BACK_AS_409_WITH_THE_CURRENT_VERSION_UNDER_current()
     {
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 1));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 1));
 
-        var refused = await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Valid(), 1));
+        var refused = await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Publishable(), 1));
 
         Assert.Equal(409, refused.Status);
         Assert.Equal("Stale", refused.Body.GetProperty("outcome").GetString());
@@ -225,10 +238,10 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task A_RESTORE_SENT_AS_JSON_PUBLISHES_A_COPY_AS_THE_NEWEST_VERSION()
     {
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
         await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
         await Send("PUT", FactoryPath + "/draft", AsAPerson,
-            SaveBody(DefinitionFixture.Edit("seats/writer.yaml", "Write the posts.", "v2"), 1));
+            SaveBody(DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), 1));
         await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":2}""");
 
         var back = await Send("POST", FactoryPath + "/restore", AsAPerson, """{"version":1,"expectedVersion":2}""");
@@ -243,12 +256,12 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task A_PUBLISH_ANSWERS_WITH_WHAT_CHANGES_and_the_diff_route_answers_it_between_any_two_versions()
     {
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
         var first = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
         Assert.True(first.Body.GetProperty("changes").GetProperty("firstPublish").GetBoolean());
 
         await Send("PUT", FactoryPath + "/draft", AsAPerson,
-            SaveBody(DefinitionFixture.Edit("seats/writer.yaml", "name: Writer", "name: Author"), 1));
+            SaveBody(DefinitionFixture.PublishableEdit("seats/writer.yaml", "name: Writer", "name: Author"), 1));
         var diff = await Send("GET", FactoryPath + "/diff", AsASessionOfTheFactory);
 
         Assert.Equal(200, diff.Status);
@@ -267,10 +280,153 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.True(none.Body.GetProperty("changes").GetProperty("nothingChanges").GetBoolean());
     }
 
+    // ---------- phase 4: the publish drives the factory ----------
+
+    [Fact]
+    public async Task A_PUBLISH_AND_A_RESTORE_SENT_AS_JSON_ANSWER_WITH_applied_ONE_SENTENCE_PER_STEP()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+
+        var published = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1,"replaces":0}""");
+
+        Assert.Equal(200, published.Status);
+        var applied = published.Body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()!).ToList();
+        Assert.Equal("Definition: version 1 published.", applied[0]);
+        Assert.Contains("Registry: seat writer brief file briefs/writer.md -> seats/writer.yaml.", applied);
+        Assert.Contains(applied, a => a.StartsWith("Schedule cj_", StringComparison.Ordinal)
+                                      && a.EndsWith(" (DevThrottle - Boss) created for seat boss: Weekdays 08:00 Europe/Copenhagen.", StringComparison.Ordinal));
+        Assert.True(published.Body.GetProperty("changes").GetProperty("firstPublish").GetBoolean());
+
+        await Send("PUT", FactoryPath + "/draft", AsAPerson,
+            SaveBody(DefinitionFixture.PublishableEdit("seats/writer.yaml", "name: Writer", "name: Author"), 1));
+        await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":2,"replaces":1}""");
+
+        var restored = await Send("POST", FactoryPath + "/restore", AsAPerson, """{"version":1,"expectedVersion":2,"replaces":2}""");
+
+        Assert.Equal(200, restored.Status);
+        var steps = restored.Body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()!).ToList();
+        Assert.Equal("Definition: version 3 written, a copy of version 1, and published.", steps[0]);
+        Assert.Contains("Registry: seat writer renamed Author -> Writer.", steps);
+        Assert.Contains(restored.Body.GetProperty("changes").GetProperty("seats").EnumerateArray(),
+            c => c.GetProperty("seat").GetString() == "writer");
+    }
+
+    [Fact]
+    public async Task THE_DIFF_CARRIES_plan_AND_THE_PUBLISHED_VERSION_IT_READ()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+
+        var before = await Send("GET", FactoryPath + "/diff", AsAPerson);
+
+        Assert.Equal(200, before.Status);
+        Assert.Equal(JsonValueKind.Null, before.Body.GetProperty("publishedVersion").ValueKind);
+        var plan = before.Body.GetProperty("plan");
+        Assert.Equal(1, plan.GetProperty("version").GetInt32());
+        Assert.Equal("What publishing version 1 would do to the live factory now:", plan.GetProperty("heading").GetString());
+        Assert.Equal(JsonValueKind.Null, plan.GetProperty("refused").ValueKind);
+        var steps = plan.GetProperty("steps").EnumerateArray().Select(a => a.GetString()!).ToList();
+        Assert.Contains("A new schedule (DevThrottle - Boss) for seat boss: Weekdays 08:00 Europe/Copenhagen.", steps);
+        Assert.DoesNotContain(steps, s => s.StartsWith("Definition:", StringComparison.Ordinal));
+
+        await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        await Send("PUT", FactoryPath + "/draft", AsAPerson,
+            SaveBody(DefinitionFixture.PublishableEdit("seats/writer.yaml", "name: Writer", "name: Author"), 1));
+        var after = await Send("GET", FactoryPath + "/diff", AsAPerson);
+
+        Assert.Equal(1, after.Body.GetProperty("publishedVersion").GetInt32());
+        Assert.Contains("Registry: seat writer renamed Writer -> Author.",
+            after.Body.GetProperty("plan").GetProperty("steps").EnumerateArray().Select(a => a.GetString()));
+    }
+
+    [Fact]
+    public async Task THE_DIFF_PLAN_SAYS_WHY_A_PUBLISH_WOULD_BE_REFUSED()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+
+        var diff = await Send("GET", FactoryPath + "/diff", AsAPerson);
+
+        var plan = diff.Body.GetProperty("plan");
+        Assert.Empty(plan.GetProperty("steps").EnumerateArray());
+        Assert.StartsWith("The live factory cannot take this definition", plan.GetProperty("refused").GetString());
+        var finding = plan.GetProperty("findings")[0];
+        Assert.Equal("seats/outreach.yaml", finding.GetProperty("file").GetString());
+        Assert.Equal(FactoryDefinitionCheck.CheckStartNotYet, finding.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_STATING_A_VERSION_IT_NO_LONGER_REPLACES_IS_409_IN_WORDS()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+        await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        await Send("PUT", FactoryPath + "/draft", AsAPerson,
+            SaveBody(DefinitionFixture.PublishableEdit("seats/writer.yaml", "name: Writer", "name: Author"), 1));
+
+        var refused = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":2,"replaces":0}""");
+
+        Assert.Equal(409, refused.Status);
+        Assert.Equal("Stale", refused.Body.GetProperty("outcome").GetString());
+        Assert.Equal("Not published: version 1 is the published definition now, not 0. Read what changes again and publish once more.",
+            refused.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_WITH_A_START_THAT_HAS_A_CHECK_IS_422_ON_THE_CHECK_LINE()
+    {
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+
+        var refused = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+
+        Assert.Equal(422, refused.Status);
+        Assert.Equal("CheckFailed", refused.Body.GetProperty("outcome").GetString());
+        var error = refused.Body.GetProperty("findings").EnumerateArray().Single(f => f.GetProperty("severity").GetString() == "error");
+        Assert.Equal("seats/outreach.yaml", error.GetProperty("file").GetString());
+        Assert.Equal(13, error.GetProperty("line").GetInt32());
+        Assert.Equal(FactoryDefinitionCheck.CheckStartNotYet, error.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_OF_A_FACTORY_THE_REGISTRY_DOES_NOT_HOLD_IS_409_IN_WORDS()
+    {
+        using (var ctx = _db.CreateContext(A))
+        {
+            ctx.FactoryRegistry.Remove(ctx.FactoryRegistry.Single(f => f.Factory == TheFactory));
+            ctx.SaveChanges();
+        }
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+
+        var refused = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+
+        Assert.Equal(409, refused.Status);
+        Assert.Equal("NotRegistered", refused.Body.GetProperty("outcome").GetString());
+        Assert.Equal("devthrottle is not registered, and until phase 5 a defined factory runs in its registered folder. Register it first, then publish.",
+            refused.Body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_WHOSE_SCHEDULE_WRITE_FAILS_IS_500_NAMING_THE_STEP_AND_THE_ROW()
+    {
+        _routes = MapThrough(FactoryPublishScenario.Failing(b => b.UseSqlite(new SqliteConnectionStringBuilder
+        {
+            DataSource = _h.DbPath,
+            ForeignKeys = true,
+        }.ToString())));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
+
+        var failed = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+
+        Assert.Equal(500, failed.Status);
+        Assert.Equal("WriteFailed", failed.Body.GetProperty("outcome").GetString());
+        var sentence = failed.Body.GetProperty("error").GetString()!;
+        Assert.StartsWith("The publish changed nothing: writing schedule cj_", sentence);
+        Assert.EndsWith($" for seat 'boss' failed: {FailTheScheduleWrite.Message}", sentence);
+        var read = await Send("GET", FactoryPath, AsAPerson);
+        Assert.Equal(404, read.Status);
+    }
+
     [Fact]
     public async Task The_factory_in_the_path_is_folded_to_its_one_spelling()
     {
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
 
         var read = await Send("GET", "/factory-definitions/DevThrottle/draft", AsAPerson);
 

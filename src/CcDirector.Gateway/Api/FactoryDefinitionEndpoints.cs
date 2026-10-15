@@ -49,10 +49,12 @@ namespace CcDirector.Gateway.Api;
 /// next. A session's publish goes straight to the store, so it is told that rather than what the check thinks of a
 /// version it may not publish anyway.
 ///
-/// A PUBLISH AND A RESTORE ANSWER WITH WHAT CHANGES against the version that was published just before, so the person
-/// sees what they just did; <c>/diff</c> answers the same between any two versions.
-///
-/// NOTHING ELSE READS THE DEFINITION YET: these routes are the only reader until phase 4.
+/// A PUBLISH AND A RESTORE DRIVE THE FACTORY (phase 4): a person's publish or restore goes through
+/// <see cref="FactoryPublishApply"/>, which writes the publish mark, the registry row, the schedules and the triggers in
+/// one transaction. A caller may state the published version it saw (<c>replaces</c>) and is refused when another
+/// publish got there first. The answer carries what changes against the version it really replaced, and
+/// <c>applied</c>: one sentence per step the transaction took. <c>/diff</c> answers what changes between any two
+/// versions, and <c>plan</c>: what a publish of the version compared to WOULD do to the live factory now.
 /// </summary>
 internal static class FactoryDefinitionEndpoints
 {
@@ -74,10 +76,12 @@ internal static class FactoryDefinitionEndpoints
         Func<TenantId, IReadOnlyCollection<string>> fleetSkillsOf,
         Func<TenantId, IReadOnlyCollection<string>> connectedMachinesOf,
         Func<TenantId, string, FactoryLiveParts?> liveOf,
+        FactoryPublishApply apply,
         Func<DateTime> nowUtc)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(fleetSkillsOf);
         ArgumentNullException.ThrowIfNull(connectedMachinesOf);
@@ -95,13 +99,13 @@ internal static class FactoryDefinitionEndpoints
         app.MapGet(factoryRoute + "/versions/{version}", (HttpContext ctx, string factory, string version) =>
             ReadVersion(ctx, factory, version, store, resolveTenant, sessionFactoryOf));
         app.MapGet(factoryRoute + "/diff", (HttpContext ctx, string factory) =>
-            Diff(ctx, factory, store, resolveTenant, sessionFactoryOf));
+            Diff(ctx, factory, store, apply, resolveTenant, sessionFactoryOf));
         app.MapPut(factoryRoute + "/draft", (HttpContext ctx, string factory, SaveFactoryDefinitionDraftRequest? body) =>
             SaveDraft(ctx, factory, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
         app.MapPost(factoryRoute + "/publish", (HttpContext ctx, string factory, PublishFactoryDefinitionRequest? body) =>
-            Publish(ctx, factory, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
+            Publish(ctx, factory, body, store, apply, resolveTenant, sessionFactoryOf, account, nowUtc));
         app.MapPost(factoryRoute + "/restore", (HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body) =>
-            Restore(ctx, factory, body, store, resolveTenant, sessionFactoryOf, account, nowUtc));
+            Restore(ctx, factory, body, store, apply, resolveTenant, sessionFactoryOf, account, nowUtc));
         app.MapGet(factoryRoute + "/export", (HttpContext ctx, string factory) =>
             Export(ctx, factory, store, resolveTenant, sessionFactoryOf, liveOf));
         app.MapPost(ImportRoute, (HttpContext ctx, ImportFactoryDefinitionRequest? body) =>
@@ -241,7 +245,7 @@ internal static class FactoryDefinitionEndpoints
     /// defaults to the published version - nothing, before the first publish, so everything is listed as added - and
     /// <c>to</c> to the newest. Every sentence is composed here; the command line and the Cockpit print it as it is.
     /// </summary>
-    internal static IResult Diff(HttpContext ctx, string factory, FactoryDefinitionStore store,
+    internal static IResult Diff(HttpContext ctx, string factory, FactoryDefinitionStore store, FactoryPublishApply apply,
         Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
@@ -274,14 +278,36 @@ internal static class FactoryDefinitionEndpoints
             return DoesNotParse(folded, published.Summary.Version, badFrom);
 
         var changes = FactoryDefinitionChanges.Compare(published?.Files, compared.Files);
-        FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: diff {fromVersion?.ToString() ?? "nothing"} -> {compared.Summary.Version}: {changes.Summary}");
+        var plan = PlanOf(apply, tenant, compared);
+        FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: diff {fromVersion?.ToString() ?? "nothing"} -> {compared.Summary.Version}: {changes.Summary}; plan: {plan.Steps.Count} steps{(plan.Refused is null ? "" : ", refused")}");
         return Results.Json(new FactoryDefinitionDiffResponse
         {
             Factory = folded,
             From = fromVersion,
             To = compared.Summary.Version,
             Changes = changes,
+            PublishedVersion = standing.Published?.Version,
+            Plan = plan,
         });
+    }
+
+    /// <summary>
+    /// What a publish of <paramref name="compared"/> WOULD do to the live factory now (design section 6), composed by
+    /// the same plan a publish applies. The version already parses (the diff checked it above).
+    /// </summary>
+    private static FactoryDefinitionPlanDto PlanOf(FactoryPublishApply apply, TenantId tenant, FactoryDefinitionVersion compared)
+    {
+        var version = compared.Summary.Version;
+        var definition = FactoryDefinitionCheck.Read(compared.Files).Definition!;
+        var composed = apply.Plan(tenant, definition);
+        return new FactoryDefinitionPlanDto
+        {
+            Version = version,
+            Heading = $"What publishing version {version} would do to the live factory now:",
+            Steps = composed.Plan?.Sentences().ToList() ?? new List<string>(),
+            Refused = composed.Refusal?.Sentence,
+            Findings = composed.Refusal?.Findings.Select(ToDto).ToList() ?? new List<FactoryDefinitionFindingDto>(),
+        };
     }
 
     /// <summary>PUT a draft: a person, or a session of the factory, saves the next version - once the check finds no error.</summary>
@@ -504,7 +530,7 @@ internal static class FactoryDefinitionEndpoints
 
     /// <summary>POST a publish: a person makes one version the factory's definition - once the check finds no error in it.</summary>
     internal static IResult Publish(HttpContext ctx, string factory, PublishFactoryDefinitionRequest? body,
-        FactoryDefinitionStore store, Func<HttpContext, TenantId?> resolveTenant,
+        FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
@@ -527,49 +553,25 @@ internal static class FactoryDefinitionEndpoints
             || standing.Published is { } live && live.Version > body.Version)
             return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
 
-        var check = Check(wanted.Files, folded, tenant, account);
+        var check = Check(wanted.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {body.Version} was not published");
 
-        // WHAT CHANGES IS WORKED OUT BEFORE THE WRITE (finding 1), so a publish that succeeds is never answered with a
-        // failure to describe it.
-        var (changes, notice) = ChangesAgainstPublished(store, tenant, folded, wanted.Files);
-        var write = store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc());
-        return Answer(write, store, tenant, folded, check, write.Ok ? changes : null, write.Ok ? notice : null);
+        // THE PUBLISH DRIVES THE FACTORY, in one transaction; what changes is worked out inside it, against the
+        // version it really replaces.
+        var result = apply.Publish(tenant, folded, body.Version, check.Definition!, wanted.Files, body.Replaces, caller.Id, nowUtc());
+        return Answer(result, store, tenant, folded, check);
     }
 
-    /// <summary>
-    /// What publishing <paramref name="content"/> changes against the version published now - everything, listed as
-    /// added, when none is. A published version that no longer passes the format check (the rules tightened since it
-    /// was published) cannot be read for a comparison, so the changes are listed against nothing and a notice says
-    /// which version, where, and why. It never refuses: the content being published has just passed the whole check.
-    /// </summary>
-    private static (FactoryDefinitionChangesDto Changes, DefinitionFinding? Notice) ChangesAgainstPublished(
-        FactoryDefinitionStore store, TenantId tenant, string factory, IReadOnlyDictionary<string, string> content)
-    {
-        if (store.Standing(tenant, factory).Published is not { } published)
-            return (FactoryDefinitionChanges.Compare(null, content), null);
-        var before = store.Find(tenant, factory, published.Version)!.Files;
-        if (FirstFormatError(before) is not { } problem)
-            return (FactoryDefinitionChanges.Compare(before, content), null);
+    private static string Where(DefinitionFinding f) => FactoryPublishApply.Where(f);
 
-        FileLog.Write($"[FactoryDefinitionEndpoints] {factory}: version {published.Version} no longer passes the format check at {Where(problem)}; what changes is listed from nothing");
-        return (FactoryDefinitionChanges.Compare(null, content), new DefinitionFinding(DefinitionSeverity.Notice, problem.File, problem.Line,
-            $"Version {published.Version}, published until now, no longer passes the format check at {Where(problem)} " +
-            $"({problem.Message}), so what changes is listed as if nothing had been published before."));
-    }
-
-    /// <summary>The first error of the format stage alone, or null when the content parses: whether a stored version
-    /// can be read for "what changes".</summary>
     private static DefinitionFinding? FirstFormatError(IReadOnlyDictionary<string, string> content)
-        => FactoryDefinitionCheck.Read(content).Findings.FirstOrDefault(f => f.IsError);
-
-    private static string Where(DefinitionFinding f) => f.Line > 0 ? $"{f.File}:{f.Line}" : f.File;
+        => FactoryPublishApply.FirstFormatError(content);
 
     /// <summary>POST a restore: a person publishes a copy of an older version as the newest version - once the check
     /// finds no error in it.</summary>
     internal static IResult Restore(HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body,
-        FactoryDefinitionStore store, Func<HttpContext, TenantId?> resolveTenant,
+        FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
@@ -591,14 +593,14 @@ internal static class FactoryDefinitionEndpoints
             return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
                 store, tenant, folded, null);
 
-        var check = Check(wanted.Files, folded, tenant, account);
+        var check = Check(wanted.Files, folded, tenant, account, DefinitionCheckPurpose.Publish);
         if (check.HasErrors)
             return CheckRefused(folded, check, $"Version {body.Version} was not restored");
 
-        var (changes, notice) = ChangesAgainstPublished(store, tenant, folded, wanted.Files);
         // The copy records the version it came from (restoredFrom), so it carries no change note of its own.
-        var write = store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion);
-        return Answer(write, store, tenant, folded, check, write.Ok ? changes : null, write.Ok ? notice : null);
+        var result = apply.Restore(tenant, folded, body.Version, check.Definition!, wanted.Files, body.Replaces,
+            body.ExpectedVersion, caller.Id, nowUtc());
+        return Answer(result, store, tenant, folded, check);
     }
 
     /// <summary>422 for a diff naming a version the format check now refuses: which version, where, and what to do.</summary>
@@ -617,8 +619,8 @@ internal static class FactoryDefinitionEndpoints
     // ---------- the check ----------
 
     private static FactoryDefinitionCheckResult Check(IReadOnlyDictionary<string, string> content, string factory,
-        TenantId tenant, Account account)
-        => FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant));
+        TenantId tenant, Account account, DefinitionCheckPurpose purpose = DefinitionCheckPurpose.Save)
+        => FactoryDefinitionCheck.Check(content, factory, account.FleetSkillsOf(tenant), account.ConnectedMachinesOf(tenant), purpose);
 
     /// <summary>
     /// THE CHECK'S REFUSAL: 422, one sentence, and every finding with its file and line, so a writer can fix each one
@@ -710,9 +712,17 @@ internal static class FactoryDefinitionEndpoints
 
     // ---------- answers ----------
 
+    /// <summary>The answer to a publish or a restore that drove the factory: the write's answer, with what changes and
+    /// what the transaction applied on success, and a plan refusal's findings on a refusal.</summary>
+    private static IResult Answer(FactoryPublishResult result, FactoryDefinitionStore store, TenantId tenant, string factory,
+        FactoryDefinitionCheckResult check)
+        => Answer(result.Write, store, tenant, factory, check, result.Changes, result.ChangesNotice,
+            applied: result.Applied, refusalFindings: result.RefusalFindings);
+
     private static IResult Answer(FactoryDefinitionWrite write, FactoryDefinitionStore store, TenantId tenant, string factory,
         FactoryDefinitionCheckResult? check, FactoryDefinitionChangesDto? changes = null, DefinitionFinding? notice = null,
-        bool? created = null)
+        bool? created = null,
+        IReadOnlyList<string>? applied = null, IReadOnlyList<DefinitionFinding>? refusalFindings = null)
     {
         // Read after the write, so the answer says how the factory stands now: which version is newest and which is published.
         var standing = store.Standing(tenant, factory);
@@ -723,6 +733,7 @@ internal static class FactoryDefinitionEndpoints
             if (notice is not null) dto.Findings.Add(ToDto(notice));
             dto.Changes = changes;
             dto.Created = created;
+            dto.Applied = applied?.ToList();
             return Results.Json(dto);
         }
         var status = write.Outcome switch
@@ -734,6 +745,7 @@ internal static class FactoryDefinitionEndpoints
                 or FactoryDefinitionOutcome.VersionTooLarge or FactoryDefinitionOutcome.ChangeNoteTooLong
                 => StatusCodes.Status400BadRequest,
             FactoryDefinitionOutcome.WriteFailed => StatusCodes.Status500InternalServerError,
+            FactoryDefinitionOutcome.PlanRefused => StatusCodes.Status422UnprocessableEntity,
             // Stale, too many drafts waiting, already published, older than the published one: "not as things stand".
             _ => StatusCodes.Status409Conflict,
         };
@@ -745,6 +757,8 @@ internal static class FactoryDefinitionEndpoints
             // THE VERSION THE CALLER NEEDS RIDES THE REFUSAL, without its content: a stale writer reads it with
             // GET .../draft, which is one read it would make anyway.
             current = write.Version is null ? null : ToDto(write.Version, standing),
+            // A plan refused by a row rule says which rows, file and line, as the check's refusal does.
+            findings = refusalFindings is { Count: > 0 } ? refusalFindings.Select(ToDto).ToList() : null,
         }, statusCode: status);
     }
 

@@ -115,17 +115,7 @@ public sealed class CronJobStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            var now = _time.GetUtcNow().UtcDateTime;
-            var id = NewId(ctx);
-
-            var entity = new CronJobEntity { Id = id, TenantId = ctx.ActiveTenant! };
-            ApplyDefinition(entity, job);
-            entity.CreatedUtc = now;
-            entity.LastFiredUtc = null;
-            entity.LastStatus = null;
-            entity.NotifyOn = CronNotify.Normalize(job.NotifyOn);
-            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), now);
-
+            var entity = NewEntity(ctx, job, _time.GetUtcNow().UtcDateTime);
             ctx.CronJobs.Add(entity);
             ctx.SaveChanges();
 
@@ -443,6 +433,23 @@ public sealed class CronJobStore
         return times.Count + more;
     }
 
+    /// <summary>
+    /// A new job's row, not yet added to <paramref name="ctx"/>: an id minted, the definition copied, created now, never
+    /// fired, its next run computed. The one way a schedule row is born - <see cref="Create"/> and a factory
+    /// definition's publish (phase 4, which writes inside its own transaction) both use it.
+    /// </summary>
+    internal static CronJobEntity NewEntity(GatewayDbContext ctx, CronJobDto job, DateTime nowUtc)
+    {
+        var entity = new CronJobEntity { Id = NewId(ctx), TenantId = ctx.ActiveTenant! };
+        ApplyDefinition(entity, job);
+        entity.CreatedUtc = nowUtc;
+        entity.LastFiredUtc = null;
+        entity.LastStatus = null;
+        entity.NotifyOn = CronNotify.Normalize(job.NotifyOn);
+        entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), nowUtc);
+        return entity;
+    }
+
     /// <summary>Mint an id not already in use. Short and human-quotable, like <c>cj_7fa3b1</c>.</summary>
     private static string NewId(GatewayDbContext ctx)
     {
@@ -456,7 +463,7 @@ public sealed class CronJobStore
     }
 
     /// <summary>Copy the editable definition fields from a DTO onto an entity (identity/run metadata untouched).</summary>
-    private static void ApplyDefinition(CronJobEntity entity, CronJobDto job)
+    internal static void ApplyDefinition(CronJobEntity entity, CronJobDto job)
     {
         entity.Name = job.Name;
         entity.Enabled = job.Enabled;
@@ -479,7 +486,7 @@ public sealed class CronJobStore
         entity.NotifyWebhookUrl = job.NotifyWebhookUrl;
     }
 
-    private static CronJobDto ToDto(CronJobEntity e) => new()
+    internal static CronJobDto ToDto(CronJobEntity e) => new()
     {
         Id = e.Id,
         Name = e.Name,
