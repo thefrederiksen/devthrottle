@@ -39,7 +39,24 @@ public static class CronSchedule
     /// (true, null) when the job is well-formed, otherwise (false, reason) with a single
     /// human-readable reason suitable for a 400 response. Does not mutate the job.
     /// </summary>
-    public static (bool Ok, string? Error) Validate(CronJobDto job)
+    public static (bool Ok, string? Error) Validate(CronJobDto job) => Validate(job, factoryIsDefined: false);
+
+    /// <summary>
+    /// <see cref="Validate(CronJobDto)"/>, told whether the job's factory is DEFINED (Factory Definition mission, phase
+    /// 5). A defined factory's schedule carries no folder - its run is built from the definition when it fires, and the
+    /// seat works in the repository it names or in its kit - so an empty <see cref="CronJobAction.RepoPath"/> is accepted
+    /// on such a schedule, and only on one: every other schedule still needs its folder.
+    /// </summary>
+    /// <param name="factoryIsDefined">True when <see cref="CronJobDto.Factory"/> names a factory with a published
+    /// definition, as the caller read it.</param>
+    public static (bool Ok, string? Error) Validate(CronJobDto job, bool factoryIsDefined)
+        => ValidateCore(job, folderRequired: !(factoryIsDefined && !string.IsNullOrWhiteSpace(job?.Factory)));
+
+    /// <summary>
+    /// The rules, with the folder asked for or not. Without it, these are what WHEN a job fires depends on: the next run
+    /// of a job is computed from them alone, because a defined factory's schedule has no folder and still fires.
+    /// </summary>
+    private static (bool Ok, string? Error) ValidateCore(CronJobDto job, bool folderRequired)
     {
         if (job is null)
             return (false, "job body is required");
@@ -51,7 +68,7 @@ public static class CronSchedule
             return (false, $"unknown timeZoneId: {job.TimeZoneId}");
         if (job.Target is null || string.IsNullOrWhiteSpace(job.Target.Machine))
             return (false, "target.machine is required");
-        if (job.Action is null || string.IsNullOrWhiteSpace(job.Action.RepoPath))
+        if (job.Action is null || (folderRequired && string.IsNullOrWhiteSpace(job.Action.RepoPath)))
             return (false, "action.repoPath is required");
         // The action is EITHER a seed (a prompt/skill) OR a work-list drain (#484). At least one is
         // required; a work-list job may omit the seed.
@@ -100,7 +117,8 @@ public static class CronSchedule
     /// </summary>
     public static DateTime? ComputeNextRunUtc(CronJobDto job, DateTime fromUtc)
     {
-        var (ok, _) = Validate(job);
+        // When it fires, not where: a defined factory's schedule has no folder and must still have a next run.
+        var (ok, _) = ValidateCore(job, folderRequired: false);
         if (!ok)
             return null;
 

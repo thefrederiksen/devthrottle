@@ -48,7 +48,9 @@ internal static partial class GatewayEndpoints
     {
         if (!TryResolveOwnedDirector(ctx, door.TenantBoundary, door.Registry, id, out var d, out var ownerErr))
             return DirectorSpawnOutcome.Refused(ownerErr);
-        if (req is null || string.IsNullOrWhiteSpace(req.RepoPath))
+        // A SEAT START HAS NO FOLDER (Factory Definition mission, phase 5): the Director runs it in the repository it
+        // names or in its kit. Whether this caller may start a seat at all is settled below, from its credential.
+        if (req is null || (string.IsNullOrWhiteSpace(req.RepoPath) && !SpawnFactory.StartsWithoutAFolder(req)))
             return DirectorSpawnOutcome.Refused(Results.BadRequest(new { error = "repoPath is required" }));
 
         FileLog.Write($"[GatewayEndpoints] POST /directors/{id}/sessions: repo={req.RepoPath}, agent={req.Agent}");

@@ -35,8 +35,11 @@ public sealed class FactoryPublishPlanTests
         return row;
     }
 
+    /// <summary>A live schedule of the factory. By default it is as a publish writes it since phase 5: with no folder.
+    /// <paramref name="folder"/> gives it one, as a schedule written before the factory was defined has.</summary>
     private static CronJobEntity Live(string id, string? seat, string cron = "0 8 * * 1-5", string prompt = "Morning round.",
-        string factory = TheFactory, bool enabled = true, string zone = "Europe/Copenhagen", string? name = null) => new()
+        string factory = TheFactory, bool enabled = true, string zone = "Europe/Copenhagen", string? name = null,
+        string folder = "") => new()
     {
         Id = id,
         TenantId = "acct-a",
@@ -48,7 +51,7 @@ public sealed class FactoryPublishPlanTests
         Factory = factory,
         Seat = seat,
         Target = new CronJobTarget { Machine = "SOREN_NORTH" },
-        Action = new CronJobAction { RepoPath = Folder, Seed = prompt },
+        Action = new CronJobAction { RepoPath = folder, Seed = prompt },
         PreventOverlap = true,
         NotifyOn = CronNotify.None,
     };
@@ -169,7 +172,8 @@ public sealed class FactoryPublishPlanTests
         Assert.Equal("boss", job.Seat);
         Assert.Equal("SOREN_NORTH", job.Target.Machine);
         Assert.Equal("Morning round.", job.Action.Seed);
-        Assert.Equal(Folder, job.Action.RepoPath);
+        // No folder (phase 5): the run is built from the definition when it fires.
+        Assert.Equal("", job.Action.RepoPath);
         Assert.True(job.PreventOverlap);
         Assert.Equal("A new schedule (DevThrottle - Boss) for seat boss: Weekdays 08:00 Europe/Copenhagen.", boss.Sentence());
         Assert.Equal("Schedule cj_abc (DevThrottle - Boss) created for seat boss: Weekdays 08:00 Europe/Copenhagen.", boss.Sentence("cj_abc"));
@@ -564,14 +568,51 @@ public sealed class FactoryPublishPlanTests
 
     // ---------- refusals (design section 4) ----------
 
-    [Fact]
-    public void Compose_AFactoryTheRegistryDoesNotHold_IsRefused_409()
-    {
-        var refusal = Refusal(noRegistry: true);
+    // ---------- a defined factory has no folder (Factory Definition, phase 5) ----------
 
-        Assert.Equal(FactoryDefinitionOutcome.NotRegistered, refusal.Outcome);
-        Assert.Equal("devthrottle is not registered, and until phase 5 a defined factory runs in its registered folder. Register it first, then publish.",
-            refusal.Sentence);
+    [Fact]
+    public void Compose_AFactoryTheRegistryDoesNotHold_IsRegisteredByThePublish_WithNoFolder()
+    {
+        var composed = FactoryPublishPlan.Compose(Definition(), null, Array.Empty<CronJobEntity>(), Array.Empty<TriggerEntity>());
+
+        Assert.Null(composed.Refusal);
+        var plan = composed.Plan!;
+        Assert.Equal(TheFactory, plan.Registry.Factory);
+        Assert.Equal("", plan.Registry.Folder);
+        Assert.Equal("SOREN_NORTH", plan.Registry.Computer);
+        Assert.Equal(new[] { "boss", "outreach", "writer" }, FactoryRegistryStore.SeatsOf(plan.Registry).Select(s => s.Id));
+        Assert.Equal(new[] { "Registry: devthrottle registered from its definition, in no folder: each seat runs where the definition says." },
+            plan.RegistrySentences);
+        Assert.All(plan.Schedules, s => Assert.Equal("", s.Job!.Action.RepoPath));
+    }
+
+    [Fact]
+    public void Compose_OverAFactoryWithAFolder_KeepsTheFolderOnTheRow_ButNoScheduleRunsInIt()
+    {
+        var live = Live("cj_boss", "boss", name: "DevThrottle - Boss", folder: Folder);
+
+        var plan = Plan(schedules: new[] { live });
+
+        Assert.Equal(Folder, plan.Registry.Folder);
+        var boss = Assert.Single(plan.Schedules, s => s.Seat == "boss");
+        Assert.Equal(PlannedScheduleAction.Update, boss.Action);
+        Assert.Equal("", boss.Job!.Action.RepoPath);
+        Assert.Equal(@"Schedule cj_boss (DevThrottle - Boss) changed: folder D:\ReposFred\devthrottle no longer used: the run starts where the definition says.",
+            boss.Sentence());
+        Assert.All(plan.Schedules, s => Assert.Equal("", s.Job!.Action.RepoPath));
+    }
+
+    [Fact]
+    public void Compose_ASchedulePublishedSincePhase5_PassesTheScheduleRules_WithNoFolder()
+    {
+        var plan = Plan();
+
+        foreach (var s in plan.Schedules)
+        {
+            Assert.Equal((true, (string?)null), CronSchedule.Validate(s.Job!, factoryIsDefined: true));
+            // The same row is refused a folderless write anywhere else: only a defined factory's schedule has none.
+            Assert.Equal((false, "action.repoPath is required"), CronSchedule.Validate(s.Job!));
+        }
     }
 
     [Fact]

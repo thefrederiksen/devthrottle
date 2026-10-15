@@ -59,12 +59,10 @@ public static class FactoryPublishPlan
         var factory = definition.Factory;
         FileLog.Write($"[FactoryPublishPlan] Compose: factory={factory}, seats={definition.Seats.Count}, registered={registry is not null}, liveSchedules={liveSchedules.Count}, liveTriggers={liveTriggers.Count}");
 
-        // UNTIL PHASE 5 A DEFINED FACTORY RUNS IN ITS REGISTERED FOLDER, so a factory the registry does not hold has
-        // nowhere to run, and an archived one is the owner's to bring back first.
-        if (registry is null)
-            return Refused(FactoryDefinitionOutcome.NotRegistered,
-                $"{factory} is not registered, and until phase 5 a defined factory runs in its registered folder. Register it first, then publish.");
-        if (registry.ArchivedAtUtc is not null)
+        // A DEFINED FACTORY RUNS WHERE ITS DEFINITION SAYS (Factory Definition mission, phase 5): each seat in the
+        // repository it names, or in its kit - never in a registered folder. So a factory the registry does not hold yet
+        // is registered by its first publish, with no folder. An archived one is the owner's to bring back first.
+        if (registry?.ArchivedAtUtc is not null)
             return Refused(FactoryDefinitionOutcome.Archived, $"{factory} is archived. Restore it, then publish.");
 
         var findings = new List<DefinitionFinding>();
@@ -104,7 +102,7 @@ public static class FactoryPublishPlan
             foreach (var pair in pairing.Pairs)
             {
                 var row = live[pair.Old];
-                var job = Kept(Job(definition, registry, seat, timed[pair.New], pair.New), row);
+                var job = Kept(Job(definition, seat, timed[pair.New], pair.New), row);
                 var action = SameDefinition(row, job) ? PlannedScheduleAction.Keep : PlannedScheduleAction.Update;
                 ofSeat.Add(new PlannedSchedule(action, row.Id, seat.Seat, timed[pair.New], job, CronJobStore.ToDto(row)));
                 ids.Add(row.Id);
@@ -112,7 +110,7 @@ public static class FactoryPublishPlan
             foreach (var n in pairing.UnpairedNew)
             {
                 ofSeat.Add(new PlannedSchedule(PlannedScheduleAction.Create, null, seat.Seat, timed[n],
-                    Job(definition, registry, seat, timed[n], n), null));
+                    Job(definition, seat, timed[n], n), null));
                 ids.Add($"(new schedule {++placeholder})");
             }
             foreach (var o in pairing.UnpairedOld)
@@ -141,7 +139,7 @@ public static class FactoryPublishPlan
         {
             try
             {
-                row2 = FactoryRegistryStore.Validate(request);
+                row2 = FactoryRegistryStore.Validate(request, writtenByAPublish: true);
             }
             catch (FactoryViewValidationException ex)
             {
@@ -155,7 +153,7 @@ public static class FactoryPublishPlan
         foreach (var p in planned.Where(p => p.Action != PlannedScheduleAction.Keep))
         {
             var file = $"seats/{p.Seat}.yaml";
-            var (ok, error) = CronSchedule.Validate(p.Job!);
+            var (ok, error) = CronSchedule.Validate(p.Job!, factoryIsDefined: true);
             if (!ok)
             {
                 findings.Add(Error(file, $"The schedule this start makes is refused: {error}."));
@@ -184,12 +182,12 @@ public static class FactoryPublishPlan
     // -------------------------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// The schedule one start makes (design section 3): the seat's machine or the default, the start's prompt, the
-    /// registry's folder (where today's run starts; phase 5 replaces it), named "title - seat name", with " (2)",
-    /// " (3)" in start order when the seat has more than one start, so a rename shows on every schedule.
+    /// The schedule one start makes (design section 3): the seat's machine or the default, the start's prompt, NO
+    /// folder (phase 5: the run is built from the definition when it fires, and the seat works in the repository it
+    /// names or in its kit), named "title - seat name", with " (2)", " (3)" in start order when the seat has more than
+    /// one start, so a rename shows on every schedule.
     /// </summary>
-    private static CronJobDto Job(FactoryDefinition d, FactoryRegistryEntity registry, SeatDefinition seat, int startIndex,
-        int ordinal)
+    private static CronJobDto Job(FactoryDefinition d, SeatDefinition seat, int startIndex, int ordinal)
     {
         var start = seat.Starts[startIndex];
         return new CronJobDto
@@ -204,7 +202,7 @@ public static class FactoryPublishPlan
             Factory = d.Factory,
             Seat = seat.Seat,
             Target = new CronJobTarget { Machine = seat.MachineOrDefault(d.Defaults) },
-            Action = new CronJobAction { RepoPath = registry.Folder, Seed = start.Prompt },
+            Action = new CronJobAction { RepoPath = "", Seed = start.Prompt },
             PreventOverlap = start.PreventOverlap,
             NotifyOn = CronNotify.None,
         };
@@ -243,15 +241,16 @@ public static class FactoryPublishPlan
 
     /// <summary>
     /// The manifest the registry's own rules are run on (design section 3): factory.yaml's fields, the default machine
-    /// as the computer, the folder KEPT from the registered row, no goal file (the goal text is in the definition), and
+    /// as the computer, the folder KEPT from the registered row (none for a factory its first publish registers, and
+    /// never what a run starts in: phase 5), no goal file (the goal text is in the definition), and
     /// one seat per seat file in seat id order, its brief file the seat file where the brief now lives.
     /// </summary>
-    private static RegisterFactoryRequest Manifest(FactoryDefinition d, FactoryRegistryEntity registry,
+    private static RegisterFactoryRequest Manifest(FactoryDefinition d, FactoryRegistryEntity? registry,
         IReadOnlyDictionary<string, List<string>> scheduleIdsOfSeat) => new()
     {
         Factory = d.Factory,
         Title = d.Title,
-        Folder = registry.Folder,
+        Folder = registry?.Folder ?? "",
         Computer = d.Defaults.Machine,
         BossSeat = d.BossSeat,
         GoalText = d.GoalText,
@@ -287,7 +286,7 @@ public static class FactoryPublishPlan
     /// another factory's trigger (or a factory-less one) already holds, is a refusal on the seat's file, in words;
     /// nothing is renamed to make room.
     /// </summary>
-    private static List<PlannedTrigger> PlanTriggers(FactoryDefinition d, FactoryRegistryEntity registry,
+    private static List<PlannedTrigger> PlanTriggers(FactoryDefinition d, FactoryRegistryEntity? registry,
         IReadOnlyList<TriggerEntity> liveTriggers, List<DefinitionFinding> findings)
     {
         var factory = d.Factory;
@@ -370,14 +369,15 @@ public static class FactoryPublishPlan
     /// <summary>
     /// The trigger an interval start makes: named, on the seat's machine (or the default), its factory agent the seat
     /// id - the key a seat page finds its triggers by - every interval of the start, its prompt, its check and its
-    /// declared secrets. Its folder is the registry's, where today's run starts, as a schedule's is (phase 5 replaces
-    /// both); the Director is never handed it for the check, which runs outside any checkout.
+    /// declared secrets. Its folder is the registry's, or none for a factory its first publish registers (phase 5: a
+    /// defined factory's seat runs where its definition says, and its check start is built by FactorySeatStart); the
+    /// Director is never handed it for the check, which runs outside any checkout.
     /// </summary>
-    private static TriggerRow TriggerFor(FactoryDefinition d, FactoryRegistryEntity registry, SeatDefinition seat,
+    private static TriggerRow TriggerFor(FactoryDefinition d, FactoryRegistryEntity? registry, SeatDefinition seat,
         int startIndex, string name)
     {
         var start = seat.Starts[startIndex];
-        return new TriggerRow(name, seat.Seat, seat.MachineOrDefault(d.Defaults), registry.Folder,
+        return new TriggerRow(name, seat.Seat, seat.MachineOrDefault(d.Defaults), registry?.Folder ?? "",
             checked((int)start.EverySeconds!.Value), start.Prompt, start.Check!, start.Secrets.ToList());
     }
 
@@ -408,9 +408,14 @@ public static class FactoryPublishPlan
     // The registry's sentences
     // -------------------------------------------------------------------------------------------------------------
 
-    private static List<string> RegistrySentences(FactoryRegistryEntity old, FactoryRegistryEntity now)
+    private static List<string> RegistrySentences(FactoryRegistryEntity? old, FactoryRegistryEntity now)
     {
         var said = new List<string>();
+        if (old is null)
+        {
+            said.Add($"Registry: {now.Factory} registered from its definition, in no folder: each seat runs where the definition says.");
+            return said;
+        }
         void Field(string what, string? before, string? after)
         {
             if (string.Equals(before, after, StringComparison.Ordinal)) return;
@@ -534,7 +539,10 @@ public sealed record PlannedSchedule(PlannedScheduleAction Action, string? Id, s
                 if (Live.Target.Machine != Job.Target.Machine) details.Add($"machine {Live.Target.Machine} -> {Job.Target.Machine}");
                 if (Live.Action.Seed != Job.Action.Seed) details.Add("prompt changed");
                 if (Live.PreventOverlap != Job.PreventOverlap) details.Add($"prevent overlap {(Live.PreventOverlap ? "on" : "off")} -> {(Job.PreventOverlap ? "on" : "off")}");
-                if (Live.Action.RepoPath != Job.Action.RepoPath) details.Add($"folder {Live.Action.RepoPath} -> {Job.Action.RepoPath}");
+                if (Live.Action.RepoPath != Job.Action.RepoPath)
+                    details.Add(string.IsNullOrEmpty(Job.Action.RepoPath)
+                        ? $"folder {Live.Action.RepoPath} no longer used: the run starts where the definition says"
+                        : $"folder {Live.Action.RepoPath} -> {Job.Action.RepoPath}");
                 if (Live.ScheduleKind != Job.ScheduleKind) details.Add($"kind {Live.ScheduleKind} -> {Job.ScheduleKind}");
                 if (Live.CronExpression != Job.CronExpression && oldWhen == newWhen) details.Add($"cron \"{Live.CronExpression}\" -> \"{Job.CronExpression}\"");
                 var tail = details.Count == 0 ? "" : $"; {string.Join("; ", details)}";

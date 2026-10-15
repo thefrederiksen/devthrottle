@@ -2643,7 +2643,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 // brief by the Gateway. Read in the same scope as the check above.
                 seatWithABrief: job => Running.ScheduledRunOpening.SeatFor(job,
                     id => FactoryRegistry.Find(_tenantContext.Current, id),
-                    (factory, seat) => _factorySeatBriefs.GivenTo(_tenantContext.Current, factory, seat))),
+                    (factory, seat) => _factorySeatBriefs.GivenTo(_tenantContext.Current, factory, seat)),
+                // Factory Definition mission, phase 5: a defined factory's run is built from its published definition.
+                // Read in the same scope as the two above.
+                definitionOf: job => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, _tenantContext.Current, job.Factory)),
             cronWorkListRunner, cronNotifier, cronClock,
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier
@@ -5413,7 +5416,9 @@ public sealed class GatewayHost : IAsyncDisposable
             problems: (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
             timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             factoryManager: factoryManagerSources,
-            publishedBrief: (tenant, factory, seat) => _factorySeatBriefs.GivenTo(tenant, factory, seat));
+            publishedBrief: (tenant, factory, seat) => _factorySeatBriefs.GivenTo(tenant, factory, seat),
+            // Factory Definition mission, phase 5: a defined factory's talk is built from its published definition.
+            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory));
         // The Factory Manager seat (Factory Control, step 5): its binding, the name check, the screen's card and its talk.
         Api.FactoryManagerEndpoints.Map(_app, factoryGate, FactoryAgentsSwitch,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),

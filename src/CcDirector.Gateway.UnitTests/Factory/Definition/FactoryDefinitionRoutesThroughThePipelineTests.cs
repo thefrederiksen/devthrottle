@@ -608,7 +608,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task A_PUBLISH_OF_A_FACTORY_THE_REGISTRY_DOES_NOT_HOLD_IS_409_IN_WORDS()
+    public async Task A_PUBLISH_OF_A_FACTORY_THE_REGISTRY_DOES_NOT_HOLD_REGISTERS_IT_WITH_NO_FOLDER()
     {
         using (var ctx = _db.CreateContext(A))
         {
@@ -617,12 +617,12 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         }
         await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Publishable(), 0));
 
-        var refused = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        var published = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
 
-        Assert.Equal(409, refused.Status);
-        Assert.Equal("NotRegistered", refused.Body.GetProperty("outcome").GetString());
-        Assert.Equal("devthrottle is not registered, and until phase 5 a defined factory runs in its registered folder. Register it first, then publish.",
-            refused.Body.GetProperty("error").GetString());
+        // Phase 5: a defined factory runs where its definition says, so its first publish registers it, in no folder.
+        Assert.Equal(200, published.Status);
+        using var read = _db.CreateContext(A);
+        Assert.Equal("", read.FactoryRegistry.Single(f => f.Factory == TheFactory).Folder);
     }
 
     [Fact]

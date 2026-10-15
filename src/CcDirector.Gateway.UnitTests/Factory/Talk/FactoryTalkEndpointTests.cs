@@ -52,6 +52,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     private WebApplication? _app;
     private HttpClient? _http;
     private DirectorRegistry? _directors;
+
+    /// <summary>Which Directors build a seat's kit (Factory Definition mission, phase 5): the north one does.</summary>
+    private readonly CcDirector.Gateway.Streaming.FactoryKitCapabilityRegistry _kit = new();
     private FactoryRegistryStore? _registry;
     private FactoryBriefStore? _briefs;
     private FactoryBriefStore Briefs => _briefs ??= new FactoryBriefStore(Db, _registry ?? throw new InvalidOperationException("start the route first"));
@@ -185,8 +188,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         };
 
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
+        _kit.Record(TenantId.Local, NorthDirector, buildsFactoryKit: true);
         var door = new DirectorSpawnDoor(boundary, _directors, _ => SessionFactoryLookup.InNoFactory, send,
-            Missions: null, WorkflowRuns: null, Workspaces: null);
+            Missions: null, WorkflowRuns: null, Workspaces: null, KitCapabilities: _kit);
 
         var factorySwitch = new FactoryAgentsSwitch(switchOn, new TenantSettingsStore(Db));
         var directors = _directors;
@@ -217,7 +221,9 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
             factoryManager: factoryManager,
             // The real brief store, read the way the host reads it.
             // As the host wires it: from the definition for a defined factory, else from the brief store.
-            publishedBrief: (tenant, factory, seat) => new FactoryDefinitionBriefs(new FactoryDefinitionStore(Db), Briefs).GivenTo(tenant, factory, seat));
+            publishedBrief: (tenant, factory, seat) => new FactoryDefinitionBriefs(new FactoryDefinitionStore(Db), Briefs).GivenTo(tenant, factory, seat),
+            // As the host wires it: a defined factory's talk is built from its published definition.
+            definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(new FactoryDefinitionStore(Db), tenant, factory));
 
         await app.StartAsync();
         _app = app;
@@ -304,15 +310,20 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     }
 
     /// <summary>WarmForward's definition, published as version 1: the boss seat's file holds this brief, and the
-    /// savings engineer has a file only when told so. The store holds what it is given; only the seat files matter here.</summary>
-    private void PublishADefinition(string bossBrief, bool withEngineer = false)
+    /// savings engineer has a file only when told so. A whole definition: since phase 5 a defined factory's talk is built
+    /// from it. <paramref name="bossExtra"/> is added to the boss seat's file, and <paramref name="extraFiles"/> to the
+    /// definition (a rule set, a skill).</summary>
+    private void PublishADefinition(string bossBrief, bool withEngineer = false, string bossExtra = "",
+        IReadOnlyDictionary<string, string>? extraFiles = null)
     {
         var definitions = new FactoryDefinitionStore(Db);
         var content = new Dictionary<string, string>
         {
-            ["factory.yaml"] = "factory: warmforward\ntitle: WarmForward\nbossSeat: nora-hale\n",
-            ["seats/nora-hale.yaml"] = $"seat: nora-hale\nname: Boss\nrole: Boss\nbrief: |\n  {bossBrief}\n",
+            ["factory.yaml"] = "factory: warmforward\ntitle: WarmForward\ngoalText: A cash engine that runs without your time.\n"
+                               + "bossSeat: nora-hale\ndefaults:\n  machine: SOREN_NORTH\n  agent: ClaudeCode\n  model: claude-opus-5-5\n",
+            ["seats/nora-hale.yaml"] = $"seat: nora-hale\nname: Boss\nrole: Boss\nbrief: |\n  {bossBrief}\n{bossExtra}",
         };
+        foreach (var (path, text) in extraFiles ?? new Dictionary<string, string>()) content[path] = text;
         if (withEngineer) content["seats/savings-engineer.yaml"] = "seat: savings-engineer\nname: Savings Engineer\nrole: Savings Engineer\nbrief: Save.\n";
         Assert.True(definitions.SaveDraft(TenantId.Local, "warmforward", content, 0, FactoryMemoryAuthorKinds.Person, "device-1", null, BriefAt).Ok);
         Assert.True(definitions.Publish(TenantId.Local, "warmforward", 1, FactoryMemoryAuthorKinds.Person, "device-1", BriefAt).Ok);
@@ -349,7 +360,217 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         var response = await Talk("warmforward", "savings-engineer");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("The talk was not started: " + FactoryDefinitionBriefs.NotInVersion("warmforward", "savings-engineer", 1, "published"),
+        Assert.Equal("The talk was not started: the seat 'savings-engineer' is not in version 1 of the definition of 'warmforward', "
+                     + "the published one, so no session was started. Publish a definition that holds it, or use one of its seats: nora-hale.",
+            await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    // ---- a defined factory's talk is built from its definition (Factory Definition mission, phase 5) -------------
+
+    private Task<HttpResponseMessage> TalkWith(string factory, string seat, string json) =>
+        _http!.PostAsync($"gateway/factory-agents/factories/{factory}/seats/{seat}/talk",
+            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+    /// <summary>A rule set for the boss seat, so an agent that cannot take rules is refused it.</summary>
+    private static readonly IReadOnlyDictionary<string, string> BaseRules = new Dictionary<string, string>
+    {
+        ["rules/base.json"] = "{\n  \"permissions\": {\n    \"deny\": [\"Bash(git push:*)\"]\n  }\n}\n",
+    };
+
+    [Fact]
+    public async Task Talk_DefinedFactory_TheCreateCarriesTheSeatFromTheDefinition_AndNoFolder()
+    {
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await Talk("warmforward", "nora-hale");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var (directorId, sent) = Assert.Single(_sent);
+        Assert.Equal(NorthDirector, directorId);
+        Assert.Equal("", sent.RepoPath);
+        Assert.True(sent.FactoryHome);
+        Assert.Null(sent.FactoryWorktree);
+        Assert.Equal("nora-hale", sent.FactorySeat);
+        Assert.Equal(1, sent.FactoryDefinitionVersion);
+        Assert.Equal(FactoryKits.Seat, sent.FactoryKit);
+        Assert.Equal("ClaudeCode", sent.Agent);
+        Assert.Equal("claude-opus-5-5", sent.Model);
+        Assert.Equal("warmforward", sent.Factory);
+        Assert.Null(sent.FactoryStartOverride);
+        Assert.Equal("WarmForward - Boss - talk with the owner", sent.Name);
+        // Still the person's own session: no controller, no parent, a person's origin.
+        Assert.Null(sent.ControllerSessionId);
+        Assert.Null(sent.ParentSessionId);
+        Assert.Equal(SessionOriginKinds.Human, sent.Origin);
+        var started = await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web);
+        Assert.Equal("SOREN_NORTH", started!.Computer);
+    }
+
+    [Fact]
+    public async Task Talk_DefinedFactory_TheFirstPromptSaysWhereTheKitIs_AndAGoalChangeIsADraftOfTheDefinition()
+    {
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.");
+
+        await Talk("warmforward", "nora-hale");
+
+        var prompt = Assert.Single(_sent).Request.PrePrompt!;
+        Assert.Contains("- " + FactorySeatOpening.KitSentence, prompt);
+        Assert.Contains("- save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.", prompt);
+        Assert.Contains("--- your brief, definition version 1 ---", prompt);
+        // Never a goal file, never a registration, never a folder.
+        Assert.DoesNotContain("GOAL.md", prompt);
+        Assert.DoesNotContain("factory register", prompt);
+        Assert.DoesNotContain(@"D:\ReposFred", prompt);
+    }
+
+    [Fact]
+    public async Task Handle_DefinedFactory_TheTalkAboutAProblem_IsASeatStartFromTheDefinitionToo()
+    {
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.");
+        var problem = ScoutProblem();
+        _problems.Add(problem);
+
+        var response = await Handle("warmforward", problem.RunId);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var (_, sent) = Assert.Single(_sent);
+        Assert.Equal("nora-hale", sent.FactorySeat);
+        Assert.Equal(FactoryKits.Seat, sent.FactoryKit);
+        Assert.Equal("", sent.RepoPath);
+        Assert.Contains("THIS TALK IS ABOUT ONE PROBLEM", sent.PrePrompt);
+        Assert.Contains(FactorySeatOpening.KitSentence, sent.PrePrompt);
+    }
+
+    [Fact]
+    public async Task Talk_DefinedFactory_WithAnOverride_StartsWhatThePersonChose_AndRecordsItInWords()
+    {
+        await StartAsync();
+        _directors!.RegisterFromStream("dir-south", "SOREN_SOUTH", "test", "2.16.0", pid: 3, startedAt: BriefAt, tenant: TenantId.Local);
+        _kit.Record(TenantId.Local, "dir-south", buildsFactoryKit: true);
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"agent":"codex","model":"gpt-6","machine":"SOREN_SOUTH"}""");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var (directorId, sent) = Assert.Single(_sent);
+        Assert.Equal("dir-south", directorId);
+        Assert.Equal("Codex", sent.Agent);
+        Assert.Equal("gpt-6", sent.Model);
+        Assert.Equal("agent Codex, model gpt-6, machine SOREN_SOUTH, chosen by the person", sent.FactoryStartOverride);
+        Assert.Equal("nora-hale", sent.FactorySeat);
+        Assert.Equal("SOREN_SOUTH", (await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web))!.Computer);
+    }
+
+    [Fact]
+    public async Task Talk_DefinedFactory_AnOverrideAgentThatCannotTakeTheSeatsRules_IsRefusedWithItsReason_AndNothingIsSent()
+    {
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.", bossExtra: "rules: [base]\n", extraFiles: BaseRules);
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"agent":"Codex"}""");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("The talk was not started: " + FactoryRulesSupport.CodexReason, await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task Talk_DefinedFactory_AnOverrideAgentNoSeatCanRun_IsRefusedByName()
+    {
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"agent":"Clippy"}""");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("The talk was not started: 'Clippy' is not an agent a seat can run. Choose one of: "
+                     + string.Join(", ", FactorySkillSupport.SupportedAgents) + ".", await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task Talk_DefinedFactory_AnOverrideMachineWithNoDirector_Is409NamingIt_AndNothingIsSent()
+    {
+        await StartAsync();
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"machine":"NOWHERE"}""");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("No Director is running on NOWHERE, the computer chosen for this talk, so the talk was not started. Start the Director on NOWHERE and press Talk again.",
+            await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task Talk_DefinedFactory_ToADirectorThatDoesNotBuildTheKit_IsRefusedWithTheReason()
+    {
+        await StartAsync();
+        _kit.Record(TenantId.Local, NorthDirector, buildsFactoryKit: false);
+        PublishADefinition("DEFINED: be careful with money.");
+
+        var response = await Talk("warmforward", "nora-hale");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("The Director on SOREN_NORTH is version 2.16.0, which cannot start a seat of a defined factory (it cannot build the seat's kit), so no session was started. Update this Director and try again.",
+            await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task Talk_UNDEFINED_FACTORY_TheCreateIsAsItWas_InTheFactorysFolder_WithNoSeatField()
+    {
+        await StartAsync();
+
+        await Talk("warmforward", "nora-hale");
+
+        var (directorId, sent) = Assert.Single(_sent);
+        Assert.Equal(NorthDirector, directorId);
+        Assert.Equal(@"D:\ReposFred\cc-consult\ideas\warmforward-factory", sent.RepoPath);
+        Assert.Equal("ClaudeCode", sent.Agent);
+        Assert.False(sent.CarriesSeatStartFields());
+        Assert.Null(sent.FactoryStartOverride);
+        Assert.Equal(FactoryTalkSeed.Compose(_registry!.Find(TenantId.Local, "warmforward")!,
+            _registry.Find(TenantId.Local, "warmforward")!.Seats[0], "cj_a721e6", MorningRun), sent.PrePrompt);
+    }
+
+    [Fact]
+    public async Task Talk_UNDEFINED_FACTORY_WithAnOverride_IsRefused_AndNothingIsSent()
+    {
+        await StartAsync();
+
+        var response = await TalkWith("warmforward", "nora-hale", """{"agent":"Codex"}""");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("WarmForward has no published definition, so a talk with it runs as it is registered: an agent, a model or a machine can be chosen only for a seat of a defined factory. Press Talk without choosing them.",
+            await ErrorOf(response));
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task Talk_UNDEFINED_FACTORY_AnEmptyBody_StartsAsBefore()
+    {
+        await StartAsync();
+
+        var response = await TalkWith("warmforward", "nora-hale", "{}");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.False(Assert.Single(_sent).Request.CarriesSeatStartFields());
+    }
+
+    [Fact]
+    public async Task Talk_ABodyThatIsNotJson_Is400InWords_AndNothingIsSent()
+    {
+        await StartAsync();
+
+        var response = await TalkWith("warmforward", "nora-hale", "agent=Codex");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("The talk's body is not JSON the talk reads. Send nothing, or an object with agent, model and machine to choose them for this talk.",
             await ErrorOf(response));
         Assert.Empty(_sent);
     }

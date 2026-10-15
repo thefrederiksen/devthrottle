@@ -195,6 +195,24 @@ public sealed class GoalNumbersDto
 }
 
 /// <summary>
+/// The optional body of a talk (<c>POST .../seats/{seat}/talk</c> and <c>POST .../problems/{runId}/handle</c>) with a
+/// seat of a DEFINED factory (Factory Definition mission, phase 5): the person's choice of agent, model and machine for
+/// this one talk, in place of what the definition says. Each is optional; a blank one means "as the definition says".
+/// The choice is recorded in words on the session's history row. A factory with no published definition takes none.
+/// </summary>
+public sealed class FactoryTalkOverrideDto
+{
+    /// <summary>The agent, spelled as a definition spells one (ClaudeCode, Codex, ...).</summary>
+    public string? Agent { get; set; }
+
+    /// <summary>The model.</summary>
+    public string? Model { get; set; }
+
+    /// <summary>The machine: a Director must be running there.</summary>
+    public string? Machine { get; set; }
+}
+
+/// <summary>
 /// The answer of <c>POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk</c> (Factories screen mission,
 /// phase C): the top-level session the owner's Talk button started, seated as that seat, and where the Cockpit opens it.
 /// </summary>
@@ -212,7 +230,7 @@ public sealed class FactoryTalkStartedDto
     public string Factory { get; set; } = "";
     public string Seat { get; set; } = "";
 
-    /// <summary>The computer it was started on: the seat's.</summary>
+    /// <summary>The computer it was started on: the seat's, or the one the person chose for this talk.</summary>
     public string Computer { get; set; } = "";
 
     /// <summary>The Director on that computer that started it.</summary>

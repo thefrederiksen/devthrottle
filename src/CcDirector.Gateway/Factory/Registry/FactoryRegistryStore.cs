@@ -314,7 +314,15 @@ public sealed partial class FactoryRegistryStore
 
     /// <summary>Every rule a manifest must meet. Returns the row to store (without tenant and registrar) or
     /// throws with the first rule it breaks.</summary>
-    internal static FactoryRegistryEntity Validate(RegisterFactoryRequest? m)
+    internal static FactoryRegistryEntity Validate(RegisterFactoryRequest? m) => Validate(m, writtenByAPublish: false);
+
+    /// <summary>
+    /// <see cref="Validate(RegisterFactoryRequest?)"/> for the row a PUBLISH writes (Factory Definition mission, phase 5):
+    /// a defined factory runs where its definition says - each seat in the repository it names, or in its kit - never
+    /// in a registered folder, so the row a publish writes may have none. A folder it does carry (kept from before the
+    /// factory was defined) is still held to the folder rules. Every other registration still needs its folder.
+    /// </summary>
+    internal static FactoryRegistryEntity Validate(RegisterFactoryRequest? m, bool writtenByAPublish)
     {
         if (m is null) throw Refuse("A factory manifest body is required.");
         if (m.UnknownKeys is { Count: > 0 })
@@ -328,8 +336,8 @@ public sealed partial class FactoryRegistryStore
         }
         var factory = FactoryId(m.Factory);
         var title = Required(m.Title, "title", MaxTitleChars);
-        var folder = Required(m.Folder, "folder", MaxFolderChars);
-        if (!AbsolutePath().IsMatch(folder))
+        var folder = writtenByAPublish && string.IsNullOrWhiteSpace(m.Folder) ? "" : Required(m.Folder, "folder", MaxFolderChars);
+        if (folder.Length > 0 && !AbsolutePath().IsMatch(folder))
             throw Refuse($"The folder '{folder}' must be an absolute path on the factory's computer, for example D:\\ReposFred\\cc-consult.");
         var computer = Required(m.Computer, "computer", MaxComputerChars);
 

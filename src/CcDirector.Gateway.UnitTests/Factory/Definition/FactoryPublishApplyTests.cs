@@ -105,14 +105,16 @@ public sealed class FactoryPublishApplyTests : IDisposable
         var boss = schedules.Single(j => j.Seat == "boss");
         Assert.Equal("cj_boss", boss.Id);
         Assert.Equal("DevThrottle - Boss", boss.Name);
-        Assert.Equal(@"D:\ReposFred\devthrottle", boss.Action.RepoPath);
+        // The schedule keeps its id, and no longer a folder: a defined factory's run starts where the definition says.
+        Assert.Equal("", boss.Action.RepoPath);
+        Assert.Equal(@"D:\ReposFred\devthrottle", _s.RegistryRow(TheFactory).Folder);
         Assert.DoesNotContain(schedules, j => j.Id == "cj_old");
         var outreach = schedules.Single(j => j.Seat == "outreach");
         Assert.Equal("SOREN_SOUTH", outreach.Target.Machine);
         Assert.Empty(_s.Triggers(TheFactory));
 
         Assert.Equal("Definition: version 1 published.", result.Applied[0]);
-        Assert.Contains(@"Schedule cj_boss (DevThrottle - Boss) changed: name ""devthrottle - boss"" -> ""DevThrottle - Boss""; folder D:\somewhere -> D:\ReposFred\devthrottle.", result.Applied);
+        Assert.Contains(@"Schedule cj_boss (DevThrottle - Boss) changed: name ""devthrottle - boss"" -> ""DevThrottle - Boss""; folder D:\somewhere no longer used: the run starts where the definition says.", result.Applied);
         Assert.Contains($"Schedule {outreach.Id} (DevThrottle - Outreach) created for seat outreach: Weekdays 09:00 Europe/Copenhagen.", result.Applied);
         Assert.Contains("Schedule cj_old (devthrottle - writer) deleted: no start in the definition names it; its runs are kept.", result.Applied);
         Assert.Equal("Trigger inbox-watch deleted: its check is a command, and a defined factory's triggers come from its definition; its run history is kept.",
@@ -359,7 +361,7 @@ public sealed class FactoryPublishApplyTests : IDisposable
     // ---------- refusals before any write ----------
 
     [Fact]
-    public void Publish_OfAFactoryTheRegistryDoesNotHold_IsRefused_AndWritesNothing()
+    public void Publish_OfAFactoryTheRegistryDoesNotHold_RegistersIt_WithNoFolder_AndItsSchedulesWithNone()
     {
         using (var ctx = _s.Db.CreateContext(_s.Tenant))
         {
@@ -367,14 +369,21 @@ public sealed class FactoryPublishApplyTests : IDisposable
             ctx.SaveChanges();
         }
         var v1 = _s.Save(DefinitionFixture.Publishable());
-        var before = _s.Snapshot();
 
-        var refused = _s.Publish(v1);
+        var published = _s.Publish(v1);
 
-        Assert.Equal(FactoryDefinitionOutcome.NotRegistered, refused.Write.Outcome);
-        Assert.Equal("devthrottle is not registered, and until phase 5 a defined factory runs in its registered folder. Register it first, then publish.",
-            refused.Write.Refusal);
-        Assert.Equal(before, _s.Snapshot());
+        Assert.Equal(FactoryDefinitionOutcome.Published, published.Write.Outcome);
+        var row = _s.RegistryRow(TheFactory);
+        Assert.Equal("", row.Folder);
+        Assert.Equal("DevThrottle", row.Title);
+        Assert.Equal("SOREN_NORTH", row.Computer);
+        Assert.Equal(_s.Tenant.Value, row.TenantId);
+        Assert.Equal("definition v1 published by the owner (device dev-1)", row.RegisteredBy);
+        Assert.Contains("Registry: devthrottle registered from its definition, in no folder: each seat runs where the definition says.", published.Applied);
+        Assert.All(_s.Schedules(TheFactory), j => Assert.Equal("", j.Action.RepoPath));
+        Assert.NotEmpty(_s.Schedules(TheFactory));
+        // A schedule with no folder still has its next run: when it fires does not depend on where.
+        Assert.All(_s.Schedules(TheFactory), j => Assert.NotNull(j.NextRunUtc));
     }
 
     [Fact]

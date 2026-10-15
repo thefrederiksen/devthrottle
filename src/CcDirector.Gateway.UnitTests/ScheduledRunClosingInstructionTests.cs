@@ -193,7 +193,7 @@ public sealed class ScheduledRunClosingInstructionTests : IDisposable
             _handedToTheDirector = req;
             return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = $"sid-{_creates}" }, null));
         });
-        var starter = new DirectorCronSessionStarter(spawner, clock, refuseFactoryWork: _ => null, seatWithABrief: _ => null);
+        var starter = new DirectorCronSessionStarter(spawner, clock, refuseFactoryWork: _ => null, seatWithABrief: _ => null, definitionOf: _ => null);
         return new CronEngine(store, history, starter, new UnusedWorkListRunner(), new NullCronNotifier(), clock);
     }
 

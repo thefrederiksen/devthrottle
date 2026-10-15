@@ -309,6 +309,17 @@ internal static class SpawnFactory
         req.FactoryKit = null;
     }
 
+    /// <summary>
+    /// True for a SEAT START that names where it runs without a folder (Factory Definition mission, phase 5): a seat kit
+    /// with the repository name it works in, or a home in its kit. Such a create carries an empty
+    /// <see cref="NewSessionRequest.RepoPath"/> on purpose, and a door's "a folder is required" does not apply to it.
+    /// Who may send one is still settled by <see cref="TryEstablish"/>, from the credential.
+    /// </summary>
+    internal static bool StartsWithoutAFolder(NewSessionRequest req)
+        => req is not null
+           && string.Equals(req.FactoryKit?.Trim(), FactoryKits.Seat, StringComparison.Ordinal)
+           && (!string.IsNullOrWhiteSpace(req.FactoryWorktree) || req.FactoryHome == true);
+
     /// <summary>The <see cref="HttpContext.Items"/> key that marks a request the GATEWAY built as a seat start and sent
     /// through a person's door (the talk). Only Gateway code can set it; a body cannot.</summary>
     internal const string GatewaySeatStartItemKey = "cc.factory.gateway-seat-start";

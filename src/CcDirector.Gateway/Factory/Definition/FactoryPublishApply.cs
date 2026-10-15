@@ -159,7 +159,10 @@ public sealed class FactoryPublishApply
 
                 // 3. The registry row: every field the definition owns; the archive fields and goal numbers untouched.
                 step = $"writing the registry row of {factory}";
-                var row = registry!;
+                // A FIRST PUBLISH REGISTERS THE FACTORY (phase 5): a defined factory runs where its definition says, so
+                // it needs no registration made by hand first, and its row has no folder.
+                var row = registry ?? new FactoryRegistryEntity { TenantId = ctx.ActiveTenant!, Factory = factory };
+                if (registry is null) ctx.FactoryRegistry.Add(row);
                 row.Title = plan.Registry.Title;
                 row.Folder = plan.Registry.Folder;
                 row.Computer = plan.Registry.Computer;
