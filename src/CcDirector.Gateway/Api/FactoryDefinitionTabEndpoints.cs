@@ -84,8 +84,20 @@ internal static class FactoryDefinitionTabEndpoints
                 }
                 var standing = store.Standing(tenant, registered.Factory);
                 var page = store.History(tenant, registered.Factory, before, FactoryDefinitionTabFold.HistoryPage);
+                // Each Restore confirm names what the restore changes in the published version, which is read and
+                // checked once for the whole page.
+                Func<int, string>? restoreMakes = null;
+                if (standing.Published is { } live)
+                {
+                    var liveFiles = (store.Find(tenant, registered.Factory, live.Version)
+                                     ?? throw new InvalidOperationException($"{registered.Factory} names definition version {live.Version} as published, and the store has no such version")).Files;
+                    var liveReadable = FactoryPublishApply.FirstFormatError(liveFiles) is null;
+                    restoreMakes = version => FactoryDefinitionTabFold.RestoreMakes(version, live.Version, liveFiles, liveReadable,
+                        (store.Find(tenant, registered.Factory, version)
+                         ?? throw new InvalidOperationException($"{registered.Factory} has no definition version {version}, which its history listed")).Files);
+                }
                 var dto = FactoryDefinitionTabFold.History(registered.Factory, registered.Title, standing, page,
-                    firstPage: before is null, sources.Activity.TimeZone(tenant), nowUtc());
+                    firstPage: before is null, sources.Activity.TimeZone(tenant), nowUtc(), restoreMakes);
                 FileLog.Write($"[FactoryDefinitionTabEndpoints] GET history: {registered.Factory} before={before?.ToString() ?? "none"}, rows={dto.Rows.Count} of {page.Total}");
                 return Results.Json(dto);
             }));
