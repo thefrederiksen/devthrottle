@@ -63,7 +63,7 @@ public sealed class FactoryEmailTests : IDisposable
         writeActivity: (tenant, run, row, correction) => Runs.WriteActivityRow(tenant, run, row, correction),
         nowUtc: () => _now,
         triggers: Triggers,
-        scheduleSessionByName: (_, _) => null,
+        scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
         settleLastStatus: (_, _, _) => false);
 
     private CcDirector.Gateway.Factory.Triggers.TriggerStore? _triggers;

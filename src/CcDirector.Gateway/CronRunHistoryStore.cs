@@ -301,8 +301,10 @@ public sealed class CronRunHistoryStore
     /// <summary>
     /// A start whose outcome was not known turned out to have started <paramref name="sessionId"/>: the run takes the
     /// session, its status becomes <c>started</c> and its result <c>pending</c> - the run now owes its report like every
-    /// started run. Applied only while the run is still start-unknown with no session. Returns the run as it now
-    /// stands, or null when it is not.
+    /// started run. Applied only while the run is still start-unknown with no session, and only when no run of the
+    /// account already holds <paramref name="sessionId"/> - checked under the same lock as the write, so two callers
+    /// settling at once (the minute sweep and a refused report) cannot both give one session to two runs. Returns the
+    /// run as it now stands, or null when it is not applied.
     /// </summary>
     public CronRunRecord? AdoptStartUnknown(Core.Tenancy.TenantId tenant, Guid runId, string sessionId, string? directorId)
     {
@@ -314,6 +316,11 @@ public sealed class CronRunHistoryStore
             if (row is null || row.Result != CronRunResults.StartUnknown || row.SessionId is not null)
             {
                 FileLog.Write($"[CronRunHistoryStore] AdoptStartUnknown NOT APPLIED: run={runId}, found={row?.Result ?? "no row"}");
+                return null;
+            }
+            if (ctx.CronRuns.AsNoTracking().Any(e => e.SessionId == sessionId))
+            {
+                FileLog.Write($"[CronRunHistoryStore] AdoptStartUnknown NOT APPLIED: run={runId}: session {sessionId} is already another run's");
                 return null;
             }
             row.SessionId = sessionId;

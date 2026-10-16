@@ -5,9 +5,6 @@ using CcDirector.Gateway.History;
 
 namespace CcDirector.Gateway.Running;
 
-/// <summary>A session a Director reports under a scheduled run's exact name: its id, and the Director that holds it.</summary>
-public sealed record NamedScheduleSession(string SessionId, string? DirectorId);
-
 /// <summary>What a report or a resolve came to: the answer, or the refusal and its status code.</summary>
 public sealed record CronRunResultOutcome<T>(T? Answer, string? Refusal, int StatusCode) where T : class
 {
@@ -45,7 +42,7 @@ public sealed class CronRunResultService
     private readonly Func<TenantId, Guid, AppendFactoryActivityRequest, bool, Guid> _writeActivity;
     private readonly Func<DateTime> _nowUtc;
     private readonly Factory.Triggers.TriggerStore _triggers;
-    private readonly Func<TenantId, string, NamedScheduleSession?> _scheduleSessionByName;
+    private readonly Func<TenantId, string, string, IReadOnlyList<string>> _scheduleSessionsByName;
     private readonly Func<string, DateTime, string, bool> _settleLastStatus;
 
     /// <summary>
@@ -66,10 +63,10 @@ public sealed class CronRunResultService
     /// <param name="triggers">The triggers, whose DEFINITION triggers' failed checks are the problems list's second
     /// source (Factory Definition, phase 5b, design 3.5). REQUIRED, so a wiring line that forgot it fails to compile
     /// rather than leaving every failed interval check off the Open problems card and the 08:00 email.</param>
-    /// <param name="scheduleSessionByName">The session any Director of the account reports under exactly this name with a
-    /// schedule's origin, or null - how a start whose outcome was not known finds the session the Director created anyway
-    /// (review of P10). REQUIRED, so a wiring line that forgot it fails to compile rather than leaving every such run
-    /// unknown and its session's report refused.</param>
+    /// <param name="scheduleSessionsByName">Every session one Director (account, Director id, name) reports under exactly
+    /// this name with a schedule's origin - how a start whose outcome was not known finds the session the Director it was
+    /// sent to created anyway (review of P10). REQUIRED, so a wiring line that forgot it fails to compile rather than
+    /// leaving every such run unknown and its session's report refused.</param>
     /// <param name="settleLastStatus">Correct a schedule's last status, in the ambient account, when it is still the
     /// last fire at that time (<see cref="CronJobStore.SettleLastStatus"/>).</param>
     public CronRunResultService(
@@ -81,10 +78,10 @@ public sealed class CronRunResultService
         Func<TenantId, Guid, AppendFactoryActivityRequest, bool, Guid> writeActivity,
         Func<DateTime> nowUtc,
         Factory.Triggers.TriggerStore triggers,
-        Func<TenantId, string, NamedScheduleSession?> scheduleSessionByName,
+        Func<TenantId, string, string, IReadOnlyList<string>> scheduleSessionsByName,
         Func<string, DateTime, string, bool> settleLastStatus)
     {
-        _scheduleSessionByName = scheduleSessionByName ?? throw new ArgumentNullException(nameof(scheduleSessionByName));
+        _scheduleSessionsByName = scheduleSessionsByName ?? throw new ArgumentNullException(nameof(scheduleSessionsByName));
         _settleLastStatus = settleLastStatus ?? throw new ArgumentNullException(nameof(settleLastStatus));
         _triggers = triggers ?? throw new ArgumentNullException(nameof(triggers));
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
@@ -278,14 +275,15 @@ public sealed class CronRunResultService
     }
 
     /// <summary>
-    /// THE HEAL BY NAME (review of P10). A run whose start's outcome was not known is matched to the session a Director
-    /// reports under the run's exact recorded name, with a schedule's origin, that no other run already names. Found, the
+    /// THE HEAL BY NAME (review of P10). A run whose start's outcome was not known is matched to a session the Director
+    /// its create went to reports under the run's exact recorded name, with a schedule's origin, that no other run
+    /// already holds - the first such in the roster, so two runs of one name in one minute each take their own. Found, the
     /// run takes it: its status becomes <c>started</c>, its result <c>pending</c>, and the schedule's last status follows
     /// when it is still that fire. The match is looked for until the run's WINDOW closes - the end of the shift it fired
     /// in, and never less than <see cref="MinimumNameWindow"/> after it fired. When no session of that name has appeared
     /// by then, the run did not run, with a reason saying so, and its factory hears of it as of any run that did not run.
-    /// A run that recorded no name has nothing to look for and lapses when its window closes. Returns how many runs were
-    /// settled either way.
+    /// A run that recorded no name, or no Director, has nothing to look for and lapses when its window closes. Returns how
+    /// many runs were settled either way.
     /// </summary>
     public int SettleUnknownStarts(TenantId tenant)
     {
@@ -299,17 +297,27 @@ public sealed class CronRunResultService
         {
             var runId = Guid.Parse(u.Run.RunId);
             var name = u.Run.SessionName;
-            var found = string.IsNullOrWhiteSpace(name) ? null : _scheduleSessionByName(tenant, name);
-            if (found is not null && _runs.StartedSession(tenant, found.SessionId))
+            var director = u.Run.TargetDirectorId;
+            string? taken = null;
+            if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(director))
             {
-                FileLog.Write($"[CronRunResultService] SettleUnknownStarts: run={runId}: session {found.SessionId}, named {name}, is already another run's; not taken");
-                found = null;
+                foreach (var sessionId in _scheduleSessionsByName(tenant, director, name))
+                {
+                    if (_runs.StartedSession(tenant, sessionId))
+                    {
+                        FileLog.Write($"[CronRunResultService] SettleUnknownStarts: run={runId}: session {sessionId}, named {name}, is already another run's; not taken");
+                        continue;
+                    }
+                    // The store checks again under its own lock: a second caller may have taken it since.
+                    if (_runs.AdoptStartUnknown(tenant, runId, sessionId, director) is null) continue;
+                    taken = sessionId;
+                    break;
+                }
             }
-            if (found is not null)
+            if (taken is not null)
             {
-                if (_runs.AdoptStartUnknown(tenant, runId, found.SessionId, found.DirectorId) is null) continue;
                 _settleLastStatus(u.JobId, u.Run.FiredUtc, "started");
-                FileLog.Write($"[CronRunResultService] SettleUnknownStarts: run={runId}, job={u.JobId} took session {found.SessionId}, named {name}");
+                FileLog.Write($"[CronRunResultService] SettleUnknownStarts: run={runId}, job={u.JobId} took session {taken}, named {name}, on Director {director}");
                 settled++;
                 continue;
             }
@@ -318,7 +326,9 @@ public sealed class CronRunResultService
             if (now < closes) continue;
             var reason = string.IsNullOrWhiteSpace(name)
                 ? $"whether it started a session was not known, and it recorded no session name to look for by {closes:yyyy-MM-dd HH:mm} UTC, when its window closed"
-                : $"whether it started a session was not known, and no session named '{name}' appeared by {closes:yyyy-MM-dd HH:mm} UTC, when its window closed";
+                : string.IsNullOrWhiteSpace(director)
+                    ? $"whether it started a session was not known, and it recorded no Director to look on for a session named '{name}' by {closes:yyyy-MM-dd HH:mm} UTC, when its window closed"
+                    : $"whether it started a session was not known, and no session named '{name}' appeared on its Director by {closes:yyyy-MM-dd HH:mm} UTC, when its window closed";
             if (_runs.LapseStartUnknown(tenant, runId, reason, now) is null) continue;
             _settleLastStatus(u.JobId, u.Run.FiredUtc, "not-started");
             TryWriteOwedActivity(tenant, runId);

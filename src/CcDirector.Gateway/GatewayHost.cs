@@ -2644,8 +2644,8 @@ public sealed class GatewayHost : IAsyncDisposable
             triggers: triggerStore,
             // Review of P10: a run whose start's outcome was not known is matched by its exact name to the session a
             // Director reports. Assigned further down this constructor, before the first sweep or request can call this.
-            scheduleSessionByName: (tenant, name) =>
-                Api.GatewayEndpoints.LastKnownScheduleSessionByName(Registry, PushedSessions, tenant, name),
+            scheduleSessionsByName: (tenant, directorId, name) =>
+                Api.GatewayEndpoints.LastKnownScheduleSessionsByName(PushedSessions, tenant, directorId, name),
             settleLastStatus: (jobId, firedUtc, status) => _cronJobs.SettleLastStatus(jobId, firedUtc, status));
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check

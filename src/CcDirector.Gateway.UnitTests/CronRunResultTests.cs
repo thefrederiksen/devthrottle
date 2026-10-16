@@ -36,8 +36,8 @@ public sealed class CronRunResultTests : IDisposable
     private int _activityFailures;
     // How many factory activity writes still fail AFTER their write committed (the process stopped on the way back).
     private int _failuresAfterTheWrite;
-    // The sessions the account's Directors report, by exact name, with a schedule's origin (the heal by name).
-    private readonly Dictionary<string, NamedScheduleSession> _named = new(StringComparer.Ordinal);
+    // The sessions each Director reports, by exact name, with a schedule's origin, in roster order (the heal by name).
+    private readonly Dictionary<(string Director, string Name), List<string>> _named = new();
     // Every schedule last status the service corrected: (schedule, its fire, the status).
     private readonly List<(string JobId, DateTime FiredUtc, string Status)> _settled = new();
 
@@ -77,7 +77,8 @@ public sealed class CronRunResultTests : IDisposable
             },
             nowUtc: () => _now,
             triggers: Triggers,
-            scheduleSessionByName: (_, name) => _named.TryGetValue(name, out var s) ? s : null,
+            scheduleSessionsByName: (_, director, name) =>
+                _named.TryGetValue((director, name), out var s) ? s : (IReadOnlyList<string>)Array.Empty<string>(),
             settleLastStatus: (jobId, firedUtc, status) =>
             {
                 _settled.Add((jobId, firedUtc, status));
@@ -1303,13 +1304,13 @@ public sealed class CronRunResultTests : IDisposable
     private const string RunName = "Eric - Mail Desk - 2026-10-16 09:09";
     private const string Unknown30 = "whether it started a session is not known: The Director did not answer within 30 seconds. It is not known whether the command was carried out.";
 
-    // A run whose create was sent and whose outcome the Gateway never learned, as the engine records it.
-    private static CronRunRecord StartUnknown(DateTime firedUtc, string? name = RunName) => new()
+    // A run whose create was sent to a Director and whose outcome the Gateway never learned, as the engine records it.
+    private static CronRunRecord StartUnknown(DateTime firedUtc, string? name = RunName, string director = "dir-7") => new()
     {
         ScheduledUtc = firedUtc,
         FiredUtc = firedUtc,
         Machine = "SOREN_NORTH",
-        TargetDirectorId = "",
+        TargetDirectorId = director,
         SessionId = null,
         InfraStatus = CronEngine.StartUnknownStatus,
         TaskStatus = CronRunHistoryStore.TaskStatusUnknown,
@@ -1328,7 +1329,7 @@ public sealed class CronRunResultTests : IDisposable
         runs.Append("cj_mail", Linked("cj_mail", StartUnknown(fired)));
         // Phase 7: the Director answered the create eight minutes after it was sent.
         _now = fired.AddMinutes(8);
-        _named[RunName] = new NamedScheduleSession("sid-eric", "dir-7");
+        _named[("dir-7", RunName)] = new() { "sid-eric" };
 
         var settled = service.SettleUnknownStarts(TenantId.Local);
 
@@ -1349,7 +1350,7 @@ public sealed class CronRunResultTests : IDisposable
         var fired = TorontoTime(2026, 10, 16, 9, 9);
         runs.Append("cj_mail", Linked("cj_mail", StartUnknown(fired)));
         _now = fired.AddMinutes(20);
-        _named[RunName] = new NamedScheduleSession("sid-eric", "dir-7");
+        _named[("dir-7", RunName)] = new() { "sid-eric" };
 
         var outcome = service.Report(TenantId.Local, "sid-eric", "ok", "inbox read, two replies drafted");
 
@@ -1391,7 +1392,7 @@ public sealed class CronRunResultTests : IDisposable
 
         var run = Assert.Single(runs.List("cj_mail"));
         Assert.Equal(("not-started", CronRunResults.Problem, CronRunProblems.DidNotRun), (run.InfraStatus, run.Result, run.Problem));
-        Assert.Equal($"whether it started a session was not known, and no session named '{RunName}' appeared by 2026-10-16 20:00 UTC, when its window closed", run.ResultReason);
+        Assert.Equal($"whether it started a session was not known, and no session named '{RunName}' appeared on its Director by 2026-10-16 20:00 UTC, when its window closed", run.ResultReason);
         Assert.Null(run.SessionId);
         Assert.Equal(("cj_mail", fired, "not-started"), Assert.Single(_settled));
     }
@@ -1422,7 +1423,7 @@ public sealed class CronRunResultTests : IDisposable
         runs.Append("cj_other", Started("sid-eric", fired));
         runs.Append("cj_mail", StartUnknown(fired));
         _now = fired.AddMinutes(8);
-        _named[RunName] = new NamedScheduleSession("sid-eric", "dir-7");
+        _named[("dir-7", RunName)] = new() { "sid-eric" };
 
         Assert.Equal(0, service.SettleUnknownStarts(TenantId.Local));
 
@@ -1445,5 +1446,99 @@ public sealed class CronRunResultTests : IDisposable
 
         Assert.Equal("whether it started a session was not known, and it recorded no session name to look for by 2026-10-16 20:00 UTC, when its window closed",
             Assert.Single(runs.List("cj_mail")).ResultReason);
+    }
+
+    // ---- the heal by name, follow-up review of 4073 -------------------------------------------------------------
+
+    [Fact]
+    public void SettleUnknownStarts_TwoRunsOfOneNameInOneMinute_EachTakesItsOwnSession_AndBothReportsAreAccepted()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail", "eric", "mail-desk");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        // The scheduled fire and a run now in the same minute: one name, two creates, two sessions on the Director.
+        runs.Append("cj_mail", Linked("cj_mail", StartUnknown(fired)));
+        runs.Append("cj_mail", Linked("cj_mail", StartUnknown(fired.AddSeconds(20))));
+        _now = fired.AddMinutes(8);
+        _named[("dir-7", RunName)] = new() { "sid-1", "sid-2" };
+
+        Assert.Equal(2, service.SettleUnknownStarts(TenantId.Local));
+
+        var sessions = runs.List("cj_mail").Select(r => (r.SessionId, r.Result)).OrderBy(r => r.SessionId).ToList();
+        Assert.Equal(new (string?, string)[] { ("sid-1", CronRunResults.Pending), ("sid-2", CronRunResults.Pending) }, sessions);
+        Assert.Null(service.Report(TenantId.Local, "sid-1", "ok", null).Refusal);
+        Assert.Null(service.Report(TenantId.Local, "sid-2", "ok", null).Refusal);
+    }
+
+    [Fact]
+    public void Report_TheSecondSessionOfOneName_HealsItsOwnRun_WhenTheFirstIsAlreadyTaken()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail", "eric", "mail-desk");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_mail", Linked("cj_mail", Started("sid-1", fired)));
+        runs.Append("cj_mail", Linked("cj_mail", StartUnknown(fired.AddSeconds(20))));
+        _now = fired.AddMinutes(8);
+        _named[("dir-7", RunName)] = new() { "sid-1", "sid-2" };
+
+        var outcome = service.Report(TenantId.Local, "sid-2", "ok", null);
+
+        Assert.Null(outcome.Refusal);
+        Assert.Contains(runs.List("cj_mail"), r => r.SessionId == "sid-2" && r.Result == CronRunResults.Ok);
+    }
+
+    [Fact]
+    public void SettleUnknownStarts_UNDEFINED_FACTORY_ASessionOfThatNameOnAnotherDirector_IsNotTaken_AndEachRunTakesItsOwnDirectorsSession()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_north");
+        Job("cj_south");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        // Two schedules of one name on two machines, firing in the same minute.
+        runs.Append("cj_north", StartUnknown(fired, director: "dir-north"));
+        runs.Append("cj_south", StartUnknown(fired, director: "dir-south"));
+        _now = fired.AddMinutes(8);
+        _named[("dir-south", RunName)] = new() { "sid-south" };
+
+        Assert.Equal(1, service.SettleUnknownStarts(TenantId.Local));
+        Assert.Equal(("sid-south", "dir-south"), (Assert.Single(runs.List("cj_south")).SessionId, Assert.Single(runs.List("cj_south")).TargetDirectorId));
+        var north = Assert.Single(runs.List("cj_north"));
+        Assert.Equal((null, CronRunResults.StartUnknown), (north.SessionId, north.Result));
+
+        _named[("dir-north", RunName)] = new() { "sid-north" };
+        Assert.Equal(1, service.SettleUnknownStarts(TenantId.Local));
+        Assert.Equal(("sid-north", "dir-north"), (Assert.Single(runs.List("cj_north")).SessionId, Assert.Single(runs.List("cj_north")).TargetDirectorId));
+    }
+
+    [Fact]
+    public void SettleUnknownStarts_ARunThatRecordedNoDirector_LapsesWhenItsWindowCloses_SayingItHadNoDirectorToLookOn()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_mail", StartUnknown(fired, director: ""));
+        _now = TorontoTime(2026, 10, 16, 16, 0);
+
+        Assert.Equal(1, service.SettleUnknownStarts(TenantId.Local));
+
+        Assert.Equal($"whether it started a session was not known, and it recorded no Director to look on for a session named '{RunName}' by 2026-10-16 20:00 UTC, when its window closed",
+            Assert.Single(runs.List("cj_mail")).ResultReason);
+    }
+
+    [Fact]
+    public void AdoptStartUnknown_ASessionAnotherRunAlreadyHolds_IsRefused_AndTheRunStaysUnknown()
+    {
+        var (_, runs, _) = Build();
+        Job("cj_mail");
+        Job("cj_other");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_other", Started("sid-eric", fired));
+        runs.Append("cj_mail", StartUnknown(fired));
+        var runId = Guid.Parse(Assert.Single(runs.List("cj_mail")).RunId);
+
+        Assert.Null(runs.AdoptStartUnknown(TenantId.Local, runId, "sid-eric", "dir-7"));
+
+        var run = Assert.Single(runs.List("cj_mail"));
+        Assert.Equal((null, CronRunResults.StartUnknown), (run.SessionId, run.Result));
     }
 }

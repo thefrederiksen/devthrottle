@@ -6128,23 +6128,24 @@ internal static partial class GatewayEndpoints
     }
 
     /// <summary>
-    /// The session any Director of the account reports under exactly this name with a SCHEDULE's origin, and the
-    /// Director that reports it, or null (review of P10). How a scheduled run whose start's outcome was not known finds
-    /// the session the Director created anyway: the name carries the schedule and the minute of the run, and the origin
-    /// surface narrows it to schedule starts, as <see cref="LastKnownTriggerSessionByName"/> does for triggers.
+    /// Every session ONE Director of the account reports under exactly this name with a SCHEDULE's origin, in the
+    /// roster's order (review of P10, and its follow-up findings 1 and 2). How a scheduled run whose start's outcome was
+    /// not known finds the session the Director created anyway: the name carries the schedule and the minute of the run,
+    /// the origin surface narrows it to schedule starts, as <see cref="LastKnownTriggerSessionByName"/> does for
+    /// triggers, and the Director is the one the create went to, so a schedule of the same name on another machine is
+    /// never looked at. ALL of them, not the first: two runs in one minute share a name, and the caller skips the
+    /// sessions another run already holds.
     /// </summary>
-    internal static Running.NamedScheduleSession? LastKnownScheduleSessionByName(
-        DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string name)
+    internal static IReadOnlyList<string> LastKnownScheduleSessionsByName(
+        Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string directorId, string name)
     {
-        if (pushedSessions is null || string.IsNullOrEmpty(name)) return null;
-        foreach (var d in registry.ListDirectors(tenant))
-        {
-            var row = pushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions
-                .FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.Ordinal)
-                                     && string.Equals(s.OriginSurface, CcDirector.Core.Sessions.SessionOriginSurfaces.Cron, StringComparison.Ordinal));
-            if (row is not null && !string.IsNullOrEmpty(row.SessionId)) return new Running.NamedScheduleSession(row.SessionId, d.DirectorId);
-        }
-        return null;
+        if (pushedSessions is null || string.IsNullOrEmpty(directorId) || string.IsNullOrEmpty(name)) return Array.Empty<string>();
+        return pushedSessions.GetLastKnown(tenant, directorId).Sessions
+            .Where(s => string.Equals(s.Name, name, StringComparison.Ordinal)
+                        && string.Equals(s.OriginSurface, CcDirector.Core.Sessions.SessionOriginSurfaces.Cron, StringComparison.Ordinal)
+                        && !string.IsNullOrEmpty(s.SessionId))
+            .Select(s => s.SessionId)
+            .ToList();
     }
 
     /// <summary>
