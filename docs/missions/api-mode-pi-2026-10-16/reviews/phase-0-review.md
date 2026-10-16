@@ -155,7 +155,7 @@ all of them (`{"type":"extension_ui_response","id":<theirs>,"cancelled":true}`).
 ### Finding 3 (private text): the model's display name carries the owner's company and deployment name
 
 The redactor replaces the provider's address with `https://model-provider.invalid` but leaves the
-model object's `name` as recorded: `"Azure GPT-5.6 Sol (mindzie dev)"`. It appears once in each of
+model object's `name` as recorded: the provider, the model, and the owner's company and deployment label in brackets (quoted here originally; replaced by the Developer so the name does not reach main). It appears once in each of
 `plain`, `refusal` and `resume` (both the stdout and the transcript file, six files in all), inside
 the `get_state` response.
 
@@ -248,6 +248,10 @@ answered.
 | Note: a non-JSON line would hang the recorder | **Accepted.** | The reader keeps such a line in the transcript and fails the scenario at once with the line, instead of timing out 180 seconds later. |
 | Note: replay "emits at once" | **Accepted.** | The fixture README says a fake emits each command's records at once, and that the test writes the same commands in the same order. |
 | Note: `get_commands` names every fleet skill | **No change, on purpose.** | The names and locations are the evidence that the fleet's skills load in API mode (the `StudioBackend` lesson in the mission document). The fixture README now says this is deliberate. |
+
+**Edit to this review:** finding 3 quoted the model display name verbatim. The Delivery Lead ruled
+that the name must not reach main, so the quote is replaced by a description of what it contained.
+Nothing else in the Reviewer's text is changed.
 
 **Checks after the changes:** every line of all fourteen wire-log files parses as JSON.
 `--redact-existing` run a second time changes nothing. A search for the company name across the
