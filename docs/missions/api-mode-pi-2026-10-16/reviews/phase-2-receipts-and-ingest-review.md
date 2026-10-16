@@ -188,9 +188,10 @@ not be proven here. Whether it is needed depends on a fact this pull request can
 registers a session key row (Pi runs with no `CC_*` variables, so it may not). If it does, the key row decides and
 there is no gap; if it does not, the claim should read the receipts' Directors. That question went to the Tech Lead
 with this answer, with the recommendation that the Director register the session key for an API-mode session exactly
-as for a terminal one (which closes the gap with no Gateway change). **No answer came by the deadline, so this stays
-OPEN:** the phase that builds the Director side of API mode must settle it, and if API-mode sessions get no key row,
-the team claim must read the receipts' Directors, with a team-key test.
+as for a terminal one (which closes the gap with no Gateway change). No answer came by the first deadline, and it was
+recorded here as open. **CLOSED by the Delivery Lead's ruling:** pull request #4088 registers the session key row for
+an API-mode session exactly as for a terminal one, with a test, so the key row decides whose an API-mode session is and
+no Gateway change is needed.
 
 ### Finding 3. The batch contract omits the "refused for now" answer the hub gives
 
@@ -253,3 +254,17 @@ These are things I checked and want on the record. None proves a harm in this pu
   with no replay must start from the durable receipts, never from empty, and names the two things it will see after a
   restart.
 - **E.** Agreed: the existing pattern, and contained by the gate script's own temporary folder.
+
+**A note raised after this review, by the display fold Reviewer** (observation A in `phase-2-display-fold-review.md`,
+branch `api-mode-p2-display-fold`): `PushApiModeEventsHubTests` built its tenant boundary over `DeviceRegistry` with its
+parameterless constructor, which opens the machine's default registry. Beside other tests in one process it failed on
+`UNIQUE constraint failed: device_import_markers.SourcePath`; alone it passed. That breaks the test standard.
+
+Developer's answer: **Accepted, fixed in commit `16032d194`** (found in the same way while merging `origin/main`). The
+test now builds its registry over its own harness database (`new DeviceRegistry(_harness.Open(), <harness path>)`, the
+pattern of the existing route tests). I checked every other new test in `ApiModeEvents/` and `Receipts/`: none uses a
+parameterless registry or a default machine path. Their only files are per-test folders (`GatewayDbTestHarness`, and a
+`Path.GetTempPath()` folder named with a fresh identifier for the Director registry and the statistics file), which the
+gate script places inside its own run folder. The same collision exists in two tests that are not mine,
+`DirectorHubTests` and `ApiModeVerbEndpointTests`, both on `origin/main`; reproduced with only those two classes, and
+reported to the Tech Lead rather than changed here.
