@@ -333,16 +333,6 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         Assert.Equal(_clock, Only(store).UpdatedAtUtc);
     }
 
-    [Fact]
-    public void DirectorsOf_NamesEveryDirectorThatReportedAReceipt()
-    {
-        var store = Store();
-        store.RecordQueued("dir-a", Sid, "p1", "turnRunning", At(1), T0);
-        store.RecordQueued("dir-b", Sid, "p2", "turnRunning", At(2), T0);
-
-        Assert.Equal(new[] { "dir-a", "dir-b" }, store.DirectorsOf(Sid).OrderBy(d => d));
-    }
-
     // ----- tenant isolation -----
 
     [Fact]
@@ -354,7 +344,6 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         var theirs = Store(new FixedTenantContext(new TenantId("11111111-1111-1111-1111-111111111111")));
 
         Assert.Empty(theirs.Read(Sid));
-        Assert.Empty(theirs.DirectorsOf(Sid));
     }
 
     [Fact]

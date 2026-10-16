@@ -77,7 +77,6 @@ public sealed class PushApiModeEventsHubTests : IDisposable
         var receipt = Assert.Single(_receipts.Read(Sid));
         Assert.Equal("cancelled", receipt.TurnOutcome);
         Assert.Equal(5, _buffer.Read(TenantId.Local, Sid).Events.Count);
-        Assert.Equal(Director, Assert.Single(_receipts.DirectorsOf(Sid)));
     }
 
     [Fact]

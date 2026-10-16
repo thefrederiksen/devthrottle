@@ -289,22 +289,6 @@ public sealed class ApiModeReceiptStore
         }
     }
 
-    /// <summary>Every Director that reported a receipt of the session in the ambient tenant, distinct. The ingest asks
-    /// it before accepting a team's events into a session (the <c>PushTurns</c> ownership rule).</summary>
-    public IReadOnlyList<string> DirectorsOf(string sessionId)
-    {
-        RequireId(sessionId, nameof(sessionId));
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            return ctx.ApiModeReceipts.AsNoTracking()
-                .Where(r => r.SessionId == sessionId)
-                .Select(r => r.DirectorId)
-                .Distinct()
-                .ToList();
-        }
-    }
-
     /// <summary>Retention: every receipt in the ambient tenant the Gateway last changed before the cutoff is removed.
     /// Answers how many.</summary>
     public int PurgeOlderThan(DateTime cutoffUtc)

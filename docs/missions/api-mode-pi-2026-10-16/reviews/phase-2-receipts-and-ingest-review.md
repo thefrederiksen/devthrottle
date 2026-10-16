@@ -138,7 +138,24 @@ first sequence it held in the current generation and answer `Complete` only when
 above both `EvictedThrough` and that first sequence minus one (and, with no cursor, only when the first
 held sequence is 1).
 
-Developer's answer:
+Developer's answer: **Accepted, fixed in commit `ddb83d2f0`.** The reviewer is right, and the restart case is
+the common one, not an edge. `ApiModeEventBuffer` now records, per session, the first sequence THIS process held in
+the current generation (`FirstHeldSequence`, reset on a generation switch and on a session that was let go and came
+back). A replay is `Complete` only when:
+
+- with a cursor of the current generation: the cursor is at or above both the last evicted sequence and
+  `FirstHeldSequence - 1`;
+- with no cursor: this process holds the generation from its first sequence and has let nothing go;
+- never when the session has nothing held here (`Read` and `Subscribe` alike), because after a restart "nothing yet"
+  and "missed everything" look the same.
+
+The fix leans on the start of a generation being known, so the contract now says it: every generation starts at
+sequence 1 (`ApiModeEventBatch.FirstSequence`; the Director's `SessionEventNumbering` already starts there), and the
+ingest refuses a sequence below it. The tests use the reviewer's exact case (held 50 to 52, cursor 30: not complete),
+plus no cursor after a mid-generation start, a cursor exactly one below the first held (complete), a subscription's
+replay, an empty session, and a later generation starting from 1 (complete again). `PiFixtureIngestTests` also asserts
+that the real dialect's first event is sequence 1 and that a whole recording reads back complete. The interface's
+`Complete` sentence was rewritten to list every case in which it is false.
 
 ### Finding 2. `ApiModeReceiptStore.DirectorsOf` is never called, and its comment says it is
 
@@ -162,7 +179,15 @@ request whether API-mode sessions get a key row, because the Director side is no
 claim should read `DirectorsOf` as the comment promises, or the method and the sentence should go; a
 comment that names a caller that does not exist will mislead the next seat.
 
-Developer's answer:
+Developer's answer: **Accepted in part: the dead method and its false sentence are removed; wiring the receipts into
+the team claim is NOT done here, and is raised with the Tech Lead.** `DirectorsOf` and its test are gone, so no comment
+names a caller that does not exist. I did not add the receipts to `TeamCallerOwnership.ClaimOf`, because that method
+also decides who may READ a session in a team (two call sites), the change would alter team access for every
+reader, and no test in the repository drives either path with a team key (the reviewer's note A), so the change could
+not be proven here. Whether it is needed depends on a fact this pull request cannot know: whether an API-mode session
+registers a session key row (Pi runs with no `CC_*` variables, so it may not). If it does, the key row decides and
+there is no gap; if it does not, the claim should read the receipts' Directors. That question went to the Tech Lead
+with this answer.
 
 ### Finding 3. The batch contract omits the "refused for now" answer the hub gives
 
@@ -178,7 +203,10 @@ generation and sequence as the Gateway's watermark would send its next batch fro
 log that the Gateway refused nothing, when in fact nothing was stored and the whole batch must be sent
 again. Two sentences in the batch summary, matching the hub's, close it.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed in commit `ddb83d2f0`.** The batch summary now lists the three answers a
+Director must tell apart: a watermark with a generation (stored); a watermark with an EMPTY generation and sequence -1
+(refused for now, nothing stored, not a watermark to adopt, send the same batch again); and `null` (refused for good).
+`ApiModeEventWatermark` carries the same warning on its fields.
 
 ## 4. Notes, not findings
 
@@ -207,3 +235,18 @@ These are things I checked and want on the record. None proves a harm in this pu
   (`Path.GetTempPath()`) and delete them on dispose. The local gate script gives every test process its
   own temporary folder inside the run folder (`scripts/test-local.ps1`, the block at line 580), so under
   the gate this lands in the run folder, not the machine's; it is the existing pattern, not a new leak.
+
+**Developer's answers to the notes:**
+
+- **A.** Agreed that it predates this branch and that the method shares the turn push's code rather than proving it.
+  Not changed here; it is the gap that made me decline the team-claim change in finding 2.
+- **B. Accepted, fixed in commit `ddb83d2f0`.** `ApiModeEventBatch.MaxCharacters` (4,000,000 characters of event JSON
+  per batch) is refused whole by the ingest with the reason, and the summary tells a Director to size its batches by
+  characters as well as by count, because a message past the tunnel's limit closes the connection instead of being
+  answered. Tested (`too-many-characters`).
+- **C.** Agreed, and left as it is: the store's one lock keeps its writes simple and correct, and the stall needs a
+  slow database plus many API-mode sessions. Worth revisiting when the fleet is large.
+- **D. Accepted, fixed in commit `ddb83d2f0`.** `SubscribeAll`'s summary now says, in its own sentences, that a reader
+  with no replay must start from the durable receipts, never from empty, and names the two things it will see after a
+  restart.
+- **E.** Agreed: the existing pattern, and contained by the gate script's own temporary folder.
