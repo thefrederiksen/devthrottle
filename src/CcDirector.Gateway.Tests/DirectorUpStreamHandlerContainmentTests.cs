@@ -87,7 +87,9 @@ public sealed class DirectorUpStreamHandlerContainmentTests : IDisposable
         var result = OpenFile(_session.Id.ToString(), secret);
 
         Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
-        Assert.Contains("outside the session's working directory", result.Error);
+        // Issue #4078: the refusal now says why in the Director's own sentence. This file is both outside the
+        // working folder AND on the secrets list (gateway-token.txt), and the secrets list answers first.
+        Assert.Equal(SessionFileAccess.SecretSentence, result.Error);
         Assert.Equal(0, _handler.ActiveStreamCount);
         lock (_frames) Assert.Empty(_frames);
     }
@@ -124,7 +126,7 @@ public sealed class DirectorUpStreamHandlerContainmentTests : IDisposable
     {
         var result = OpenFile(_session.Id.ToString(), Path.Combine(_sessionDir, "no-such.txt"));
         Assert.Equal(DirectorCommandStatus.NotFound, result.Status);
-        Assert.Contains("file not found", result.Error);
+        Assert.Equal(SessionFileAccess.NotOnDiskSentence, result.Error);
     }
 
     // -------------------------------------------------------------- the resolver, pinned directly ----

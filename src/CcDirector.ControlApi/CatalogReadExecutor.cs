@@ -48,6 +48,9 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
         "claude-sessions",
         "interrupted-list",
         "fs-list",
+        // Issue #4078: what each path the Chat shows is for this session - file, folder, not on disk, or not
+        // allowed - so a path that is not on disk is greyed out before anyone clicks it.
+        "path-status",
         "facts",
         "repos-list",
         // Issue #1497: the machine's configured, enabled agents (one per kind) for the Cockpit New
@@ -75,6 +78,7 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
             "claude-sessions" => ClaudeSessions(command),
             "interrupted-list" => InterruptedList(),
             "fs-list" => FsList(context.SessionManager, command),
+            "path-status" => PathStatus(context.SessionManager, command),
             "facts" => Facts(context.DirectorId, context.Services?.DirectorVersion),
             "repos-list" => ReposList(context.Services?.Repositories),
             "agents-list" => AgentsList(context.SessionManager.Options),
@@ -445,7 +449,15 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
     {
         var request = SessionCommandExecutor.Deserialize<FsListRequest>(command.PayloadJson);
         var path = request?.Path;
-        FileLog.Write($"[CatalogReadExecutor] fs-list: path={path}");
+        FileLog.Write($"[CatalogReadExecutor] fs-list: path={path}, session={command.SessionId}");
+
+        // Issue #4078: sent FOR A SESSION, the same verb lists one folder that session may see - a folder in its
+        // working folder or one its conversation names - with the files in it, so the file viewer can open a
+        // named folder and each file inside it. Sent with no session it is the Director-wide folder browser,
+        // exactly as before.
+        if (!string.IsNullOrEmpty(command.SessionId))
+            return SessionFolderList(sessionManager, command, path, SessionNamedPathsCache.Shared.For, SessionFileSecrets.ForThisMachine());
+
         try
         {
             var allowedRoots = sessionManager.ListSessions().Select(s => s.WorkingDirectory);
@@ -456,6 +468,81 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
             FileLog.Write($"[CatalogReadExecutor] fs-list FAILED: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// The session form of <c>fs-list</c> (issue #4078): one folder this session may list, files included, decided
+    /// by <see cref="SessionFileAccess.ListFolder"/>. A refusal is a <see cref="DirectorCommandStatus.BadRequest"/>
+    /// carrying the Director's own sentence; a path that is not a folder is a
+    /// <see cref="DirectorCommandStatus.NotFound"/>.
+    /// </summary>
+    internal static DirectorCommandResult SessionFolderList(
+        SessionManager sessionManager,
+        DirectorCommand command,
+        string? path,
+        Func<Session, SessionNamedPaths> namedPaths,
+        SessionFileSecrets secrets)
+    {
+        if (!Guid.TryParse(command.SessionId, out var guid))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
+        var session = sessionManager.GetSession(guid);
+        if (session is null)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+        try
+        {
+            var listing = SessionFileAccess.ListFolder(session.WorkingDirectory, path, namedPaths(session), secrets);
+            return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(listing));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            FileLog.Write($"[CatalogReadExecutor] fs-list (session) REFUSED: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            FileLog.Write($"[CatalogReadExecutor] fs-list (session) not a folder: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, ex.Message);
+        }
+    }
+
+    /// <summary>The most paths one <c>path-status</c> call may ask about - a long conversation's links, not a disk scan.</summary>
+    internal const int MaxPathStatusPaths = 500;
+
+    /// <summary>
+    /// The <c>path-status</c> verb (issue #4078, session-scoped): for each path the Chat shows as a link, what it
+    /// is for this session, decided by <see cref="SessionFileAccess.Decide"/> - the same rule the file read uses,
+    /// so the hint and the click can never disagree. Returns a serialized <see cref="PathStatusResponse"/>.
+    /// </summary>
+    internal static DirectorCommandResult PathStatus(SessionManager sessionManager, DirectorCommand command) =>
+        PathStatus(sessionManager, command, SessionNamedPathsCache.Shared.For, SessionFileSecrets.ForThisMachine());
+
+    /// <summary>The testable form of <see cref="PathStatus(SessionManager, DirectorCommand)"/>.</summary>
+    internal static DirectorCommandResult PathStatus(
+        SessionManager sessionManager,
+        DirectorCommand command,
+        Func<Session, SessionNamedPaths> namedPaths,
+        SessionFileSecrets secrets)
+    {
+        var request = SessionCommandExecutor.Deserialize<PathStatusRequest>(command.PayloadJson);
+        if (request is null)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "paths are required");
+        if (request.Paths.Count > MaxPathStatusPaths)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"at most {MaxPathStatusPaths} paths may be asked about at once; this asked about {request.Paths.Count}");
+        if (!Guid.TryParse(command.SessionId, out var guid))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
+        var session = sessionManager.GetSession(guid);
+        if (session is null)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+
+        FileLog.Write($"[CatalogReadExecutor] path-status: session={guid}, paths={request.Paths.Count}");
+        var named = namedPaths(session);
+        var response = new PathStatusResponse
+        {
+            Paths = request.Paths
+                .Select(p => SessionFileAccess.Decide(session.WorkingDirectory, p, named, secrets).ToDto(p))
+                .ToList(),
+        };
+        return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(response));
     }
 
     /// <summary>

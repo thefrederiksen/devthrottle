@@ -11,6 +11,7 @@ import {
   sessionFileUrl,
 } from "@devthrottle/client-core/api/client";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
+import { isFolder, refusalSentence, usePathStatus } from "@devthrottle/client-core/history/usePathStatus";
 import { reportShownError } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "mobile-file-view";
@@ -29,6 +30,12 @@ const IMAGE_FAILED = "Could not load image. The file may be missing (404) or the
 //   markdown -> fetch the text, render with the shared sanitized markdownToHtml()
 //   text     -> fetch the text, show in a <pre> (covers code files too; horizontal scroll on a phone)
 //   download -> unknown/binary: no guessed render; show the file name and a plain Download link.
+//
+// Issue #4078: before rendering, the page asks the session's Director what the path IS (the shared
+// usePathStatus, the same question the Cockpit viewer asks). A path that is not on disk, not allowed for this
+// session, or a folder shows the Director's own sentence and nothing else - never "Could not load file: 400",
+// and never the Gateway's error JSON drawn inside a PDF frame. Every other failure also shows the Director's
+// sentence when the Gateway carried one. (Opening a folder as a listing on the phone is follow-up work.)
 //
 // The absolute file path rides as a ?path= query param so a hard reload / deep link resolves it too
 // (route state would be lost on refresh). The shell shows immediately; the text-fetching modes show
@@ -51,6 +58,9 @@ function fileLoadMessage(err: unknown, action: string, sessionId: string): strin
 
 function fileLoadSentence(err: unknown): string {
   if (err instanceof GatewayError) {
+    // The Director's own sentence wins: it says WHY (not on disk, not allowed, a folder). The client never
+    // rewrites a verdict the server already wrote.
+    if (err.serverReason) return err.serverReason;
     if (err.status === 404) return "Could not load file: not found (404). It may have been moved or deleted.";
     if (err.status === 503) return "Could not load file: the session's machine is offline (503).";
     return `Could not load file: ${err.status}`;
@@ -98,19 +108,34 @@ export function FileView() {
     );
   }
 
+  return <FileViewFor sessionId={sessionId} path={path} goBack={goBack} />;
+}
+
+// The page once there is a session and a path: ask the Director what the path is, then render accordingly.
+function FileViewFor({ sessionId, path, goBack }: { sessionId: string; path: string; goBack: () => void }) {
+  const state = usePathStatus(sessionId, path, SURFACE);
   const type = classifyFile(path);
   const url = sessionFileUrl(sessionId, path);
   const name = baseName(path);
+  const refusal = refusalSentence(state);
+  const folder = isFolder(state);
+  const shown = refusal ?? (folder && state.kind === "known" ? state.status.sentence : null);
 
   return (
     <div className="terminal-screen">
       <header className="app-bar">
         <button type="button" className="file-view-back" onClick={goBack}>Back</button>
         <h1 className="term-title" title={path}>{name}</h1>
-        <DownloadButton url={url} name={name} sessionId={sessionId} />
+        {state.kind !== "loading" && shown === null && <DownloadButton url={url} name={name} sessionId={sessionId} />}
       </header>
       <div className="file-view-body">
-        <FileViewContent type={type} url={url} name={name} sessionId={sessionId} path={path} />
+        {state.kind === "loading" ? (
+          <div className="file-view-loading">Loading...</div>
+        ) : shown !== null ? (
+          <div className="file-view-error">{shown}</div>
+        ) : (
+          <FileViewContent type={type} url={url} name={name} sessionId={sessionId} path={path} />
+        )}
       </div>
     </div>
   );
@@ -131,7 +156,8 @@ function DownloadButton({ url, name, sessionId }: { url: string; name: string; s
     setNote(`Saving ${name}...`);
     try {
       const res = await fetch(url, { headers: authHeaders() });
-      if (!res.ok) throw new GatewayError(res.status, `download failed: ${res.status}`);
+      // GatewayError.from reads the Director's sentence out of the body, so a refusal says why.
+      if (!res.ok) throw await GatewayError.from(res, "download the file");
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -228,7 +254,8 @@ function DownloadPanel({
       <p className="file-view-download-note">This file type has no in-app preview.</p>
       <p className="file-view-download-name">{name}</p>
       {sizeLabel ? <p className="file-view-download-size">{sizeLabel}</p> : null}
-      <a className="file-view-download-btn" href={url} download={name}>Download</a>
+      {/* Fetches first, like the header button, so a refusal says why instead of a silent failed save. */}
+      <DownloadButton url={url} name={name} sessionId={sessionId} />
     </div>
   );
 }

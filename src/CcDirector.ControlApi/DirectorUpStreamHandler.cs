@@ -27,16 +27,29 @@ internal sealed class DirectorUpStreamHandler
     private readonly SessionManager _sessionManager;
     private readonly Func<string, IAsyncEnumerable<DirectorStreamFrame>, Task> _sendUp;
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _streams = new();
+    private readonly Func<Session, SessionNamedPaths> _namedPaths;
+    private readonly SessionFileSecrets _secrets;
 
     /// <param name="sendUp">
     /// Sends the producer's frames UP the tunnel under a stream id - in production this wraps
     /// <c>connection.SendAsync("StreamUp", streamId, frames)</c>. Injected (not the connection itself) so the
     /// handler and its producers stay unit-testable without a live SignalR connection.
     /// </param>
-    public DirectorUpStreamHandler(SessionManager sessionManager, Func<string, IAsyncEnumerable<DirectorStreamFrame>, Task> sendUp)
+    /// <param name="namedPaths">
+    /// The paths a session's conversation names (issue #4078). Defaults to the shared per-session cache; a
+    /// test passes its own so no transcript has to exist on disk.
+    /// </param>
+    /// <param name="secrets">The secrets list. Defaults to this machine's.</param>
+    public DirectorUpStreamHandler(
+        SessionManager sessionManager,
+        Func<string, IAsyncEnumerable<DirectorStreamFrame>, Task> sendUp,
+        Func<Session, SessionNamedPaths>? namedPaths = null,
+        SessionFileSecrets? secrets = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _sendUp = sendUp ?? throw new ArgumentNullException(nameof(sendUp));
+        _namedPaths = namedPaths ?? SessionNamedPathsCache.Shared.For;
+        _secrets = secrets ?? SessionFileSecrets.ForThisMachine();
     }
 
     /// <summary>The number of streams this handler currently has producing. For diagnostics and tests.</summary>
@@ -92,22 +105,22 @@ internal sealed class DirectorUpStreamHandler
         if (string.IsNullOrEmpty(request.Path))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "path is required");
 
-        // The file read is SESSION-SCOPED: resolve the session exactly as OpenTerminal does, and refuse any
-        // path outside its working directory through ResolveSessionFile (ResolveScreenshot's twin - resolve
-        // fully, then refuse anything outside the allowed root). The pre-hardening version served ANY path
-        // after only File.Exists, so on a hosted Gateway any active device key could read gateway-token.txt,
-        // .ssh keys, or .env files on any machine in the account.
+        // The file read is SESSION-SCOPED: resolve the session exactly as OpenTerminal does, then ask the one
+        // access rule (issue #4078) whether this session may open the path. The pre-hardening version served ANY
+        // path after only File.Exists, so on a hosted Gateway any active device key could read gateway-token.txt,
+        // .ssh keys, or .env files on any machine in the account. The July rule then confined it to the working
+        // folder; the owner's rule widens that to the files the session's own conversation names, while the
+        // real-path, hard-link and secrets refusals hold for every path however it was admitted.
         if (!Guid.TryParse(command.SessionId, out var guid))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
         var session = _sessionManager.GetSession(guid);
         if (session is null)
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
 
-        var path = ControlEndpoints.ResolveSessionFile(session.WorkingDirectory, request.Path);
-        if (path is null)
-            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "path is outside the session's working directory");
-        if (!File.Exists(path))
-            return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "file not found");
+        var decision = SessionFileAccess.Decide(session.WorkingDirectory, request.Path, _namedPaths(session), _secrets);
+        if (decision.Code != PathStatusCodes.File || decision.FullPath is null)
+            return RefuseRead(decision, request.Path);
+        var path = decision.FullPath;
 
         var streamId = request.StreamId;
         StartProducer(streamId, ct => DirectorStreamProducers.ProduceFileAsync(path, streamId, ct));
@@ -140,6 +153,25 @@ internal sealed class DirectorUpStreamHandler
         // Idempotent (ruling 3): closing a stream that already finished or never started is a safe no-op Ok.
         CancelStream(request.StreamId);
         return DirectorCommandResult.Success();
+    }
+
+    /// <summary>
+    /// A refused file read, carrying the Director's own sentence as the error and the whole decision as the
+    /// body, so the Gateway can hand the viewer both the sentence and its code (issue #4078). Each case has its
+    /// own status: not on disk is 404, a folder is 409 (a conflict between "read a file" and what is there),
+    /// and anything not allowed stays 400, as the July rule answered it.
+    /// </summary>
+    private static DirectorCommandResult RefuseRead(SessionFileAccess.Decision decision, string requested)
+    {
+        var status = decision.Code switch
+        {
+            PathStatusCodes.NotOnDisk => DirectorCommandStatus.NotFound,
+            PathStatusCodes.Folder => DirectorCommandStatus.Conflict,
+            _ => DirectorCommandStatus.BadRequest,
+        };
+        var result = DirectorCommandResult.Fail(status, decision.Sentence);
+        result.BodyJson = SessionCommandExecutor.Serialize(decision.ToDto(requested));
+        return result;
     }
 
     private static OpenReadResponse BuildReadResponse(string path, string? contentType)
