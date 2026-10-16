@@ -7,6 +7,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.UnitTests.ApiMode;
@@ -20,6 +21,8 @@ namespace CcDirector.Gateway.UnitTests.ApiMode;
 /// </summary>
 public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
 {
+    private static readonly DateTimeOffset Now = new(2026, 10, 16, 13, 0, 0, TimeSpan.Zero);
+
     private readonly List<Session> _sessions = [];
 
     public void Dispose()
@@ -32,8 +35,8 @@ public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
     {
         var id = Guid.NewGuid();
         var backend = new ApiModeSessionBackend(id.ToString(), "pi-conversation", resuming: false,
-            new SessionEventStream(id.ToString(), new LoggingSessionEventSink(), TimeProvider.System),
-            () => throw new InvalidOperationException("No process is started in these tests."), TimeProvider.System);
+            new SessionEventStream(id.ToString(), new LoggingSessionEventSink(), new FakeTimeProvider(Now)),
+            () => throw new InvalidOperationException("No process is started in these tests."), new FakeTimeProvider(Now));
         var session = new Session(id, Path.GetTempPath(), Path.GetTempPath(), null, backend, SessionBackendType.ConPty) { AgentKind = AgentKind.Pi };
         _sessions.Add(session);
         return session;
@@ -101,7 +104,7 @@ public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
         // Arrange
         var seat = WorkspaceCapture.CaptureSeat(ControlEndpoints.Map(ApiModeSession(), "dir-1"), sortOrder: 0);
         seat.ClaudeSessionId = "pi-conversation";
-        var doc = new WorkspaceDocument { Id = "w-1", Name = "Smart Restart", Origin = WorkspaceOrigins.Captured, CreatedUtc = DateTime.UtcNow };
+        var doc = new WorkspaceDocument { Id = "w-1", Name = "Smart Restart", Origin = WorkspaceOrigins.Captured, CreatedUtc = Now.UtcDateTime };
 
         // Act
         var request = DirectorWayUp.BuildReopen(doc, seat);
