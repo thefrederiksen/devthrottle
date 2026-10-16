@@ -86,7 +86,15 @@ one place both sides compile against, so the rule belongs there, with a test tha
 `type` is not first. How (a shared options object, or a ruling that events are never stored in a
 key-reordering column, with a test that holds the ruling) is the Developer's call.
 
-Developer's answer:
+Developer's answer: **Accepted.** The rule now lives in the Contracts project, not in a comment. New
+`SessionEventJson.Options` (`src/CcDirector.Gateway.Contracts/ApiMode/SessionEventJson.cs`) is the one
+read-only set of serializer options, with `AllowOutOfOrderMetadataProperties` on; the summary of
+`SessionEvent` tells both sides to use it, and every test in `SessionEventJsonTests` now does. Two new
+tests: `Deserialize_KeysInTheOrderJsonbReturnsThem_ReadsBackEveryEvent` rewrites one of every event into
+the order `jsonb` returns keys (shortest first, then bytewise, at every level, so `at` comes ahead of
+`type`) and reads them all back as the same events; `Deserialize_DiscriminatorNotFirstWithoutTheSharedOptions_Throws`
+pins your exact failure (`NotSupportedException` with default options) beside the same document read
+correctly with the shared options. `Options_AreReadOnly` pins that no caller can change them for the others.
 
 ### 2. Three fields may be null, and the note that phase 2 and phase 3 build from does not say so
 
@@ -107,7 +115,15 @@ Why it must change: one sentence in section 2 of the note, naming the three fiel
 when, keeps the note the single contract. Which document moves (the note, or the types) is the
 Developer's call; they must agree.
 
-Developer's answer:
+Developer's answer: **Accepted, in the types; the note is the Tech Lead's to move.** The summary of
+`SessionEvent` now names the three fields that may be null and when (`reason` on a done turn,
+`agentStopReason` when the agent exited mid-turn, `durationMilliseconds` when the dialect closed a tool
+the agent never finished), names `toolCallId` on `PermissionRequested` as the one optional field, and says
+every other field is always present. Per the Tech Lead's instruction I did not edit event-model.md.
+Recommended line for section 2 of the note, after the table: "Three fields may be null, each when there
+is honestly no value: `reason` on a `done` turn, `agentStopReason` when the agent exited mid-turn, and
+`durationMilliseconds` when the dialect closed a tool the agent never finished. `toolCallId` on
+`PermissionRequested` is optional. Every other field is always present."
 
 ## Observations (no finding: nothing shown to break today)
 
@@ -129,3 +145,16 @@ Developer's answer:
   stands in the Director's queue" and the test uses 1. Whether the first held prompt is position 0 or 1
   is undefined until the dialect writes one; the Gateway reader needs to know. A word in the note or the
   summary settles it.
+
+Developer's answer to the observations:
+
+- **Integers: accepted.** Every enumeration now uses `SessionEventWordConverter<T>`, a
+  `JsonStringEnumConverter<T>` with `allowIntegerValues: false`, so a number is refused on reading.
+  `Deserialize_NumberInPlaceOfAnEnumerationWord_Throws` pins it with your `"outcome":7`.
+- **Equality: accepted as documentation.** The summary of `SessionEvent` now says the three list-carrying
+  events compare lists by reference and that events are compared by `sequence` or by their JSON, never
+  with `==`. Overriding equality on three records would be code nobody calls; the note already says to
+  de-duplicate by `sequence`.
+- **Position: accepted, in the type.** `PromptQueued.Position` now says it counts from 1, and that
+  position 1 is the next prompt to be written. The note does not say this either; the recommended words
+  for it are the same sentence, and it goes to the Tech Lead with the line for finding 2.

@@ -5,10 +5,15 @@ namespace CcDirector.Gateway.Contracts.ApiMode;
 // The enumerations of the session event model (docs/missions/api-mode-pi-2026-10-16/event-model.md,
 // section 2). On the wire each value is the word the event model writes, never the enum's number: the
 // numbers are positional, and a client or a stored record reading a digit would have to hold its own copy
-// of the ordering.
+// of the ordering. A number is refused on reading too (SessionEventWordConverter), so a value no word names
+// can never reach the Gateway's fold and be rendered as something plausible.
+
+/// <summary>Writes and reads an enumeration of the event model as its word only; a number is refused.</summary>
+public sealed class SessionEventWordConverter<TEnum>() : JsonStringEnumConverter<TEnum>(namingPolicy: null, allowIntegerValues: false)
+    where TEnum : struct, Enum;
 
 /// <summary>Why the Director is holding a prompt instead of writing it to the agent.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<PromptQueuedReason>))]
+[JsonConverter(typeof(SessionEventWordConverter<PromptQueuedReason>))]
 public enum PromptQueuedReason
 {
     /// <summary>The user has taken the wheel: the agent's terminal holds the conversation.</summary>
@@ -25,7 +30,7 @@ public enum PromptQueuedReason
 }
 
 /// <summary>How the agent said it took a prompt.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<PromptDisposition>))]
+[JsonConverter(typeof(SessionEventWordConverter<PromptDisposition>))]
 public enum PromptDisposition
 {
     /// <summary>The agent started a turn on it.</summary>
@@ -42,7 +47,7 @@ public enum PromptDisposition
 }
 
 /// <summary>Who refused a prompt.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<PromptRefusedBy>))]
+[JsonConverter(typeof(SessionEventWordConverter<PromptRefusedBy>))]
 public enum PromptRefusedBy
 {
     /// <summary>The agent answered with a refusal; the reason is its own words.</summary>
@@ -55,7 +60,7 @@ public enum PromptRefusedBy
 }
 
 /// <summary>Which stream of agent text a <see cref="MessageText"/> belongs to.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<MessageTextChannel>))]
+[JsonConverter(typeof(SessionEventWordConverter<MessageTextChannel>))]
 public enum MessageTextChannel
 {
     /// <summary>The agent's reply.</summary>
@@ -68,7 +73,7 @@ public enum MessageTextChannel
 }
 
 /// <summary>Whether a <see cref="MessageText"/> is a piece to append or the whole text of the message.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<MessageTextKind>))]
+[JsonConverter(typeof(SessionEventWordConverter<MessageTextKind>))]
 public enum MessageTextKind
 {
     /// <summary>Appended to what has streamed so far, for a live view.</summary>
@@ -81,7 +86,7 @@ public enum MessageTextKind
 }
 
 /// <summary>What sort of work a tool does, for the card's icon and wording.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ToolCallKind>))]
+[JsonConverter(typeof(SessionEventWordConverter<ToolCallKind>))]
 public enum ToolCallKind
 {
     [JsonStringEnumMemberName("read")]
@@ -104,7 +109,7 @@ public enum ToolCallKind
 }
 
 /// <summary>How a tool call ended.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ToolCallOutcome>))]
+[JsonConverter(typeof(SessionEventWordConverter<ToolCallOutcome>))]
 public enum ToolCallOutcome
 {
     [JsonStringEnumMemberName("succeeded")]
@@ -119,7 +124,7 @@ public enum ToolCallOutcome
 }
 
 /// <summary>How a turn ended.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<TurnOutcome>))]
+[JsonConverter(typeof(SessionEventWordConverter<TurnOutcome>))]
 public enum TurnOutcome
 {
     [JsonStringEnumMemberName("done")]
@@ -133,7 +138,7 @@ public enum TurnOutcome
 }
 
 /// <summary>What choosing a permission option means.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<PermissionOptionKind>))]
+[JsonConverter(typeof(SessionEventWordConverter<PermissionOptionKind>))]
 public enum PermissionOptionKind
 {
     [JsonStringEnumMemberName("allowOnce")]

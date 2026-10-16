@@ -10,8 +10,18 @@ namespace CcDirector.Gateway.Contracts.ApiMode;
 ///
 /// On the wire every event is one JSON object whose <c>type</c> property names the event, exactly as the
 /// event model does (<c>PromptQueued</c>, <c>TurnEnded</c>, ...), so a list of mixed events round-trips
-/// through <see cref="SessionEvent"/>. The discriminator is written first; a reader of another origin must
-/// keep it first, or set <c>AllowOutOfOrderMetadataProperties</c> on its serializer options.
+/// through <see cref="SessionEvent"/>. Serialise and read them with <see cref="SessionEventJson.Options"/>,
+/// which reads the discriminator wherever it stands (a store may reorder keys).
+///
+/// Three fields may be null, each when there is honestly no value: <see cref="TurnEnded.Reason"/> on a
+/// <c>done</c> turn, <see cref="TurnEnded.AgentStopReason"/> when the agent exited mid-turn and never gave
+/// one, and <see cref="ToolCallFinished.DurationMilliseconds"/> when the dialect closed a tool the agent never
+/// finished. <see cref="PermissionRequested.ToolCallId"/> is optional and may be absent. Every other field is
+/// always present.
+///
+/// Events with a list field (<see cref="TurnStarted"/>, <see cref="PermissionRequested"/>,
+/// <see cref="ConnectionEnded"/>) compare lists by reference, as every C# record does: compare events by
+/// <c>sequence</c> or by their JSON, never with <c>==</c>.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type", UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FailSerialization)]
 [JsonDerivedType(typeof(PromptQueued), nameof(PromptQueued))]
@@ -56,7 +66,8 @@ public sealed record PromptQueued : SessionEvent
     [JsonPropertyName("reason")]
     public required PromptQueuedReason Reason { get; init; }
 
-    /// <summary>Where the prompt stands in the Director's queue.</summary>
+    /// <summary>Where the prompt stands in the Director's queue, counted from 1: position 1 is the next prompt
+    /// to be written.</summary>
     [JsonPropertyName("position")]
     public required int Position { get; init; }
 }

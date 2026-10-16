@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using CcDirector.Gateway.Contracts.ApiMode;
@@ -14,6 +15,7 @@ namespace CcDirector.Core.UnitTests.Contracts;
 /// </summary>
 public sealed class SessionEventJsonTests
 {
+    private static readonly JsonSerializerOptions Json = SessionEventJson.Options;
     private static readonly DateTimeOffset At = new(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>One of every event, with every optional field filled, in the order a real session could
@@ -57,13 +59,13 @@ public sealed class SessionEventJsonTests
         var events = OneOfEach();
 
         // Act
-        var json = JsonSerializer.Serialize(events);
-        var back = JsonSerializer.Deserialize<List<SessionEvent>>(json)!;
+        var json = JsonSerializer.Serialize(events, Json);
+        var back = JsonSerializer.Deserialize<List<SessionEvent>>(json, Json)!;
 
         // Assert: the same concrete type in the same place, and the same JSON when written again. Records with
         // list fields compare lists by reference, so the JSON is the equality that covers every field.
         Assert.Equal(events.Select(e => e.GetType()), back.Select(e => e.GetType()));
-        Assert.Equal(json, JsonSerializer.Serialize(back));
+        Assert.Equal(json, JsonSerializer.Serialize(back, Json));
         var permission = Assert.IsType<PermissionRequested>(back[6]);
         Assert.Equal(PermissionOptionKind.RejectAlways, permission.Options[1].Kind);
         Assert.Equal(At, back[0].At);
@@ -87,7 +89,7 @@ public sealed class SessionEventJsonTests
         SessionEvent e = OneOfEach()[index];
 
         // Act
-        var node = JsonNode.Parse(JsonSerializer.Serialize(e))!.AsObject();
+        var node = JsonNode.Parse(JsonSerializer.Serialize(e, Json))!.AsObject();
 
         // Assert
         var names = node.Select(p => p.Key).ToList();
@@ -103,7 +105,7 @@ public sealed class SessionEventJsonTests
         var events = OneOfEach();
 
         // Act
-        var nodes = events.Select(e => JsonNode.Parse(JsonSerializer.Serialize(e))!.AsObject()).ToList();
+        var nodes = events.Select(e => JsonNode.Parse(JsonSerializer.Serialize(e, Json))!.AsObject()).ToList();
 
         // Assert
         Assert.Equal("agentStarting", (string)nodes[1]["reason"]!);
@@ -136,7 +138,7 @@ public sealed class SessionEventJsonTests
     {
         // Act
         var written = Enum.GetValues(enumType).Cast<object>()
-            .Select(v => JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(v, enumType))!)
+            .Select(v => JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(v, enumType, Json))!)
             .ToList();
 
         // Assert
@@ -150,7 +152,7 @@ public sealed class SessionEventJsonTests
         const string json = """{"type":"TurnPaused","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00"}""";
 
         // Act + Assert
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json, Json));
     }
 
     [Fact]
@@ -160,7 +162,7 @@ public sealed class SessionEventJsonTests
         const string json = """{"type":"PromptRefused","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00","promptId":"p1","refusedBy":"agent"}""";
 
         // Act + Assert
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json, Json));
     }
 
     [Fact]
@@ -170,6 +172,62 @@ public sealed class SessionEventJsonTests
         const string json = """{"type":"TurnEnded","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00","turnId":"t1","outcome":"paused","reason":null,"agentStopReason":null,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}}""";
 
         // Act + Assert
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json, Json));
+    }
+
+    /// <summary>Rewrites an object's keys the way PostgreSQL <c>jsonb</c> returns them: shortest first, then
+    /// bytewise, at every level. That puts <c>at</c> ahead of <c>type</c> on every event.</summary>
+    private static JsonNode? JsonbOrder(JsonNode? node) => node switch
+    {
+        JsonObject o => new JsonObject(o.OrderBy(p => Encoding.UTF8.GetByteCount(p.Key)).ThenBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => KeyValuePair.Create(p.Key, JsonbOrder(p.Value?.DeepClone())))),
+        JsonArray a => new JsonArray(a.Select(i => JsonbOrder(i?.DeepClone())).ToArray()),
+        _ => node?.DeepClone(),
+    };
+
+    [Fact]
+    public void Deserialize_KeysInTheOrderJsonbReturnsThem_ReadsBackEveryEvent()
+    {
+        // Arrange: the events as the Gateway's jsonb storage hands them back, with "type" no longer first.
+        var events = OneOfEach();
+        var json = JsonSerializer.Serialize(events, Json);
+        var stored = JsonbOrder(JsonNode.Parse(json))!.ToJsonString();
+        Assert.StartsWith("""[{"at":""", stored);
+
+        // Act
+        var back = JsonSerializer.Deserialize<List<SessionEvent>>(stored, Json)!;
+
+        // Assert
+        Assert.Equal(events.Select(e => e.GetType()), back.Select(e => e.GetType()));
+        Assert.Equal(json, JsonSerializer.Serialize(back, Json));
+    }
+
+    [Fact]
+    public void Deserialize_DiscriminatorNotFirstWithoutTheSharedOptions_Throws()
+    {
+        // Arrange: why SessionEventJson.Options exists - a reader with default options cannot read a stored event.
+        const string json = """{"at":"2026-10-16T12:00:00+00:00","type":"PromptRefused","reason":"busy","sequence":1,"promptId":"p1","refusedBy":"agent","sessionId":"s1"}""";
+
+        // Act + Assert
+        Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize<SessionEvent>(json));
+        Assert.IsType<PromptRefused>(JsonSerializer.Deserialize<SessionEvent>(json, Json));
+    }
+
+    [Fact]
+    public void Deserialize_NumberInPlaceOfAnEnumerationWord_Throws()
+    {
+        // Arrange: 7 names no outcome; read as a number it would reach the Gateway's fold as an undefined value.
+        const string json = """{"type":"TurnEnded","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00","turnId":"t1","outcome":7,"reason":null,"agentStopReason":null,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}}""";
+
+        // Act + Assert
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json, Json));
+    }
+
+    [Fact]
+    public void Options_AreReadOnly()
+    {
+        // Act + Assert: one caller cannot change how every other caller reads.
+        Assert.True(Json.IsReadOnly);
+        Assert.Throws<InvalidOperationException>(() => Json.WriteIndented = true);
     }
 }
