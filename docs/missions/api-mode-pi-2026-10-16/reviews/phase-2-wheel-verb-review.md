@@ -98,3 +98,70 @@ The two other options were weighed and not chosen. A Gateway-side "rule only whe
 
   Developer's answer: Accepted, fixed in the pull request description: `Timeout` is 504, and anything else is 502.
 - The pull request lists a reviewed count of "502 passed" for new and touched tests; confirmed on this machine.
+
+## Second round
+
+Reviewed: pull request #4079 at commit `d0db3c7b2`, the two commits since the first round (`244b4d37a` and `d0db3c7b2`). Same reviewer seat, a different agent family from the Developer, reading only.
+
+### Verdict
+
+Approve. No finding proves harm. Three notes follow, none of which blocks the merge; the Developer decides whether to act on any of them.
+
+### Scope: what was read, what was run, what was not reached
+
+**Read, in full, on the pull request head:**
+- `src/CcDirector.Gateway/Api/GatewayEndpoints.ApiModeVerbs.cs` (the renamed handler, now `RunApiModeVerbAsync`, with the `StopTurn` verb, the ownership check, and the `not_your_session` refusal).
+- `src/CcDirector.Gateway/Util/SessionKeyGuard.cs`, the diff since the first round: `IsWheelMove` becomes `IsApiModeVerb`, the unraised answer changes from a refusal to `Allow`, and `AgentInputRefusal.Wheel` becomes `ApiModeNotYourSession`.
+- `src/CcDirector.Gateway/Api/GatewayEndpoints.cs`, the three route lines.
+- `src/CcDirector.Gateway/Util/OwnedSessionInput.cs`, the whole class, to confirm what `OwnsDirectly` requires: the target's controller names the caller, and the target is not the caller itself.
+- `src/CcDirector.Gateway/Util/AuthMiddleware.cs`: `AuthenticateSession`, `AcceptSession`, `RaisedGrantOf` and `CallingSession`, to confirm that every verified session key reaches the route with its identity recorded and with a raised grant recorded only when the session is raised and raising changes the answer. This is the same path the prompt route has relied on since Parent Control, fix 1.
+- The prompt route's own ownership branch in `GatewayEndpoints.cs` (around `DeliverOwnedPromptAsync`), to compare the two rules side by side.
+- `FleetManagerHandOverEndpoints.cs` and `SpawnOrigin.cs`, to answer whether any route open to a session key can make it the controller of a session it did not start.
+- `src/CcDirector.Gateway.UnitTests/Api/ApiModeVerbEndpointTests.cs` (the renamed test file, all of it) and the `SessionKeyGuardRaisedTests.cs` diff.
+- On origin/main, for the finding 3 contract: `DirectorHub.PushDelta`, `DirectorHubCalls.PushDeltaAsync`, `GatewayStreamClient` line 1177, and `GatewayHost` line 7410.
+
+**Run, on this machine (Linux, .NET 10):**
+- `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~ApiModeVerb|FullyQualifiedName~Wheel|FullyQualifiedName~TurnStop|FullyQualifiedName~SessionKeyGuard"`: 529 passed, 0 failed, 0 skipped.
+- A search of the pull request head for the retired names (`AgentInputRefusal.Wheel`, `IsWheelMove`, `MoveSessionWheelAsync`): they survive only in the first-round text of this review file, which is history and is right to keep them.
+
+**Not reached:**
+- `scripts/test-local.ps1`: not run, as the brief asks.
+- The hosted tenant boundary: every handler test uses the self-host boundary. The locate step is unchanged from the first round and from interrupt.
+- No live Gateway, Director or Pi. The two `SessionDto` fields were not reviewed here; they belong to pull request #4077.
+
+### What was checked and found correct
+
+**The ownership check cannot be bypassed.** I traced every way a request reaches `RunApiModeVerbAsync`:
+- The owner's device (a device key or the shared machine token): `CallingSession` is null, so the check is skipped. That is the owner, and the owner's grant is not held to ownership.
+- An unraised session key: the guard now answers `Allow` with `RaisedGrant.None`, `AcceptSession` records the identity and no grant, and the route refuses unless `OwnsDirectly` holds. `AcceptSession` is the one place a session key is admitted, so there is no session-key request without a recorded identity.
+- A raised session key: `AuthenticateSession` asks the guard a second time as raised; the raised answer carries `AgentInput`, which differs from `None`, so raising changes the answer and the grant is recorded. The route then skips the ownership check, exactly as the prompt route does. The raised action is recorded by the middleware before the route runs.
+- Becoming the controller of a session one did not start: the hand-over route lets an ordinary session key hand a session it controls *to the owner* only; `me` is accepted only from the account's Fleet Manager, and no session can name a third session. `PATCH /sessions/{sid}` accepts a name and nothing else. So an ordinary session key cannot promote itself into the rule. The Fleet Manager can take an owner-run session and then use these verbs on it; that is the ruling's own "or was handed" and the owner's standing grant to that seat.
+- The three shapes the guard lets through are literal: `GET`, `/wheel/steal`, `/turn/start`, `/turn` and `/wheel` fall to the allow list and are refused even to a raised key, and the tests prove it.
+
+**Nothing about another session is revealed.** The ownership check runs before `SessionWheelState.Read`, so a refused caller is answered `not_your_session` whether the session is terminal, API mode, or unreadable, and the test for the terminal case proves the order. The refusal body carries the code and the sentence and nothing else; the prompt route's refusal, by comparison, includes the target's `ActivityState`, so this route is the stricter of the two. What a refused caller does learn is that the session exists in its account and whether its Director is stale (the 404 and 503 from the locate step come first). That is nothing new: `GET /sessions/{sid}` and `GET /sessions` are open to every session key in the same account.
+
+**Stop's refusals.** A terminal session, including a row from a Director that pushes no mode, is refused 409 `not_api_mode` with a sentence that names interrupt and sends nothing. An unknown mode is refused 502 and sends nothing. An API-mode session with a holder the Gateway cannot read is *sent*, by design, because Stop needs only the mode; the test proves it. Every Director refusal passes through with its words and status. The route is on the real route map and reaches the Director with `turn-stop`.
+
+**Both sides of the key rule are tested.** Allowed: a key on a session it controls, for all three verbs, with the right command sent once. Refused with nothing sent: a key on a session another session controls (three verbs), on a session the owner runs (three verbs), and on itself. Allowed: a raised key on a session it does not control. The guard tests prove the unraised shape reaches the route and the raised shape carries the grant.
+
+**The finding 3 contract holds by construction, with one wording note below.** On origin/main, `DirectorHub.PushDelta` is a synchronous `void` hub method that applies the delta to the pushed store before it returns, and `DirectorHubCalls.PushDeltaAsync` sends it with `InvokeAsync`, which does not complete until the Gateway has returned from the method. So a Director that awaits `PushDeltaAsync` before replying cannot reply until the store already holds the new holder, whatever the hub's dispatch order. `MaximumParallelInvocationsPerClient` is not set anywhere, so the default of one applies, as the Developer said. The fire-and-forget form is `GatewayStreamClient.NotifyDelta`, which wraps the same call in an unawaited `SendAsync(...)` at line 1177.
+
+**The answer to finding 2 is as described.** A hand back is refused at the Gateway only while the holder is `protocol`; `none` goes to the Director, and the test asserts 200 and one `wheel-hand-back` sent.
+
+### Findings
+
+None. Numbering would have continued from 4.
+
+### Notes, not findings
+
+- **The Stop refusal on a terminal session points every caller at interrupt, including a session key that cannot use it.** `StopNotApiModeReason` says "interrupt it instead (cc-devthrottle session interrupt, or Ctrl+C in its terminal)". Interrupt is refused to every session key, even on a session it controls (the brief and `OwnedSessionInput` both keep it the owner's). An agent that controls a terminal-mode child and calls Stop is therefore sent to a verb that answers 403 with the Typing sentence, which then tells it to message the session instead. The end state is correct and it costs one extra request, which is why this is a note. The Gateway may choose the sentence by caller without breaking rule 7, since the ruling stays on the Gateway.
+
+  Developer's answer:
+
+- **The ordering test asserts the code only.** `RunApiModeVerbAsync_NotControlled_IsRefusedBeforeTheSessionsStateIsSaid` checks that the body's code is `not_your_session`, but not the 403 status and not that nothing was sent. The other refusal tests assert all three through `AssertRefused`; this one could too, at no cost.
+
+  Developer's answer:
+
+- **The contract's words say "finished sending"; the guarantee comes from awaiting the completion.** The phase 4 contract reads "finished sending `PushDelta` ... (awaited, not the fire-and-forget `NotifyDelta`)". What makes the window zero by construction is that `DirectorHubCalls.PushDeltaAsync` uses `InvokeAsync`, whose task completes only after the Gateway's hub method has returned, and that method applies the store synchronously. "Finished sending" could be read as satisfied by an awaited `SendAsync`, which completes when the bytes leave and would make the ordering rest on the hub's dispatch internals instead. Naming the call (await `PushDeltaAsync`, the existing method) where the contract is carried to phase 4 removes the ambiguity.
+
+  Developer's answer:
