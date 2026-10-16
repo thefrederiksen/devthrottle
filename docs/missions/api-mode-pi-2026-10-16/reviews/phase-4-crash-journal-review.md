@@ -121,7 +121,12 @@ is one short test next to its phase 5 sibling. The Developer may equally answer 
 is deliberately kept in one place and the gate rule covers it; that is a decision for the building seat,
 not for this one.
 
-Developer's answer:
+Developer's answer: **Accepted, test added.** `src/CcDirector.Core.UnitTests/Sessions/ApiModeSessionJournalRowTests.cs`,
+beside the phase 5 seat test, writes the rows `ToCrashJournalSession` builds to a crash journal on disk and reads them
+back. `ToCrashJournalSession_AnApiModeSession_IsJournalledAsApiAndReadBack` asserts `api`, and
+`ToCrashJournalSession_ATerminalSession_CarriesNoMode` asserts null. I took the mode out of `ToCrashJournalSession` and
+the API-mode test failed in `Core.UnitTests`, so the default gate now catches that change. The end-to-end chain stays
+in `Gateway.UnitTests`, because it needs `GatewayEndpoints.ContinuationRequest`.
 
 ## Weighed and not raised
 
