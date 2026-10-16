@@ -17,10 +17,15 @@ by a line feed (byte 0x0A)**.
   but it **does** split on a lone carriage return, which is also legal inside a JSON string. So
   phase 1 reads bytes and splits on 0x0A itself.
 - Read standard output continuously; Pi stalls when the pipe fills. Records can be large: the first
-  turn of a new session carries a 17 kilobyte system message, so no line-length limit below a few
-  megabytes.
-- Standard error is diagnostics, never protocol. Keep its last lines for the failure reason. Seen:
-  `Warning: No project session found with id '<id>'; creating a new session with that id.`
+  turn of a new session carries the whole system prompt (about 10 kilobytes in the redacted
+  fixtures, 17 before the skill descriptions were redacted), and a run's `agent_end` repeats every
+  message of the run, so no line-length limit below a few megabytes.
+- Standard error is diagnostics, never protocol. For a failure reason, keep **only the lines
+  written since the current turn started** (or since the prompt was written, when no turn started).
+  Every new session writes a start-up line that has nothing to do with a later failure: `Warning:
+  No project session found with id '<id>'; creating a new session with that id.` In the `exit`
+  fixture that warning is the only standard error line, written 3.2 seconds before the kill, so
+  "the last lines" would blame the wrong thing.
 - Close standard input to ask Pi to exit; it exited 0 in every recorded run.
 
 ## 2. The session event model
@@ -75,7 +80,7 @@ after it is written, long before a turn can be cut short, so the case splits in 
 
 | Case | What the model emits | Fixture |
 |---|---|---|
-| Pi exits **after** acknowledging (mid-turn) | `PromptDelivered` stays: Delivered means Pi acknowledged it (section 3 of the mission document). The turn ends `TurnEnded`, `failed`, reason = the exit code and the last standard error lines. Rule 5: the receipt shows that failed turn beside Delivered, so it never reads as a plain success. Then `ConnectionEnded`. | `exit` (real) |
+| Pi exits **after** acknowledging (mid-turn) | `PromptDelivered` stays: Delivered means Pi acknowledged it (section 3 of the mission document). The turn ends `TurnEnded`, `failed`, reason = the exit code and the standard error lines written since the turn started. Rule 5: the receipt shows that failed turn beside Delivered, so it never reads as a plain success. Then `ConnectionEnded`. | `exit` (real) |
 | Pi exits **before** acknowledging | `PromptRefused`, `refusedBy: director`, reason "Pi exited before acknowledging". No turn. Then `ConnectionEnded`. | `exit-before-ack` (real: Pi killed 50 milliseconds after the prompt was written; it wrote nothing) |
 
 ## 3. The Pi mapping
@@ -89,10 +94,18 @@ id.
 | Command | When | What we use from the response |
 |---|---|---|
 | `get_state` | Right after start, and after resume | `sessionId` and `sessionFile` (for `ConnectionReady` and take the wheel), `model`, `isStreaming`, `pendingMessageCount`, `messageCount` (a resume that found nothing shows 0; Pi also writes the "No project session found" warning) |
-| `prompt` | To deliver a prompt. Never while a turn is running: the Director's own queue holds it (`PromptQueued`, `turnRunning`). | The acknowledgement, below |
+| `prompt` | To deliver a prompt. Never while another prompt is **in flight** (below): the Director's own queue holds it (`PromptQueued`, `turnRunning`). Never with `streamingBehavior`. | The acknowledgement, below |
 | `abort` | Stop | `success: true`; see 3.4 |
 | `get_session_stats` | After each turn | `tokens` for the spend record (`cost` is 0: the model has no price) |
 | `get_last_assistant_text` | Optional check after a turn | `data.text`; **absent** (not `null`, despite the documentation) after an aborted turn with no text |
+
+**In flight.** A prompt is in flight from the moment its line is written to Pi until its turn's
+`agent_settled`, or until its refusal, or until a `handled` acknowledgement (no turn follows). While
+one prompt is in flight, the Director's queue holds every other prompt; `turnRunning` begins at the
+write, not at `agent_start`. The `refusal` fixture shows why: Pi **refuses** a second prompt that
+arrives while it is busy ("Agent is already processing"), it does not queue it, and between the
+write and `agent_start` there is a window of 0.3 to 0.4 seconds (longer under load) in which a
+Director that waited for `agent_start` would send a second prompt straight into that refusal.
 
 `steer`, `follow_up`, `clear_queue`, `bash`, `compact`, `new_session`, `switch_session`, `fork` and
 the rest are **not used**: steering is out of scope, and the Director owns the queue.
@@ -104,7 +117,7 @@ fleet's skills and Pi's extensions load in API mode (a lesson from `StudioBacken
 | Pi record | Model event |
 |---|---|
 | `{"id":<ours>,"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}` | `PromptDelivered`, `started`. **This is the proof of Delivered.** It arrives before `agent_start`. |
-| same, `"disposition":"queued"` (seen in `refusal`: a prompt sent with `streamingBehavior: followUp` during a turn) | `PromptDelivered`, `queuedByAgent`. Pi also emits `queue_update` first. Only reachable in a race, since we do not send during a turn. |
+| same, `"disposition":"queued"` (seen in `refusal`: a prompt sent with `streamingBehavior: followUp` during a turn) | `PromptDelivered`, `queuedByAgent`. Pi also emits `queue_update` first. Unreachable for our dialect, which never sends `streamingBehavior` (a busy Pi refuses a prompt without it, row below); mapped so a later dialect that steers needs no new design. |
 | same, `"disposition":"handled"` (**documented only**: an extension command consumed it) | `PromptDelivered`, `handled`. No turn follows; do not wait for `agent_settled`. |
 | `{"id":<ours>,"type":"response","command":"prompt","success":false,"error":"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."}` (seen in `refusal`) | `PromptRefused`, `refusedBy: agent`, `reason` = `error` verbatim. |
 | `{"id":<ours>,"type":"response","command":"no_such_command","success":false,"error":"Unknown command: no_such_command"}` (seen) | Not a prompt: a dialect defect. Logged and raised as an error, never shown as a receipt. |
@@ -121,7 +134,7 @@ so they are **not** our turn.
 |---|---|
 | `agent_start` | `TurnStarted` (the first since the last `agent_settled`), `promptIds` = the delivered prompt(s). |
 | `turn_start`, `turn_end` | Ignored: one model call inside our turn. `turn_end.toolResults` duplicates `tool_execution_end`. |
-| `message_start` / `message_end` with `role: "system"` | Ignored. Pi 1.2.0 puts its whole system prompt on the wire at the first turn of a new session (17 kilobytes, not in Pi's own event documentation). It is not conversation. |
+| `message_start` / `message_end` with `role: "system"` | Ignored. Pi 1.2.0 puts its whole system prompt on the wire at the first turn of a new session (about 10 kilobytes redacted; not in Pi's own event documentation). It is not conversation. |
 | `message_start` / `message_end` with `role: "user"` | Ignored as display (the Chat shows the prompt from our own record). For a prompt Pi queued, this is the moment it starts, and it is attached to the current turn's `promptIds`. |
 | `message_start` with `role: "assistant"` | Opens `messageId` for the following `MessageText` (Director-assigned, one per assistant message). |
 | `message_update`, `assistantMessageEvent.type` = `text_delta` | `MessageText`, `reply`, `delta`, `text` = `delta`. |
@@ -157,19 +170,25 @@ when nothing runs is harmless and emits nothing.
 
 Seen in `exit` (the recorder sent SIGKILL during the reply): standard output simply ends after a
 `message_update`. There is no `message_end`, `turn_end`, `agent_end` or `agent_settled`, and the
-exit code is -9 (137 from a shell). The model emits `TurnEnded`, `failed`, reason "Pi exited during
-the turn (exit code -9)" plus the last standard error lines, then `ConnectionEnded`. The prompt
-stays `PromptDelivered`, and its receipt shows the failed turn (the ruling in section 2). Resuming the same session afterwards works:
-Pi had saved nothing of the cut-off reply, and its stats report 0 tokens for it.
+fixture records exit code -9. That number is the recorder's: Python reports a child ended by a
+signal as minus the signal number. A .NET `Process` on Linux reports 128 plus the signal, 137, so
+phase 1's real path and its replay tests must agree on which they assert. The model emits
+`TurnEnded`, `failed`, reason "Pi exited during the turn (exit code 137)" plus the standard error
+lines written since the turn started (section 1; in this fixture there are none, so the reason is
+the exit alone), then `ConnectionEnded`. The prompt stays `PromptDelivered`, and its receipt shows
+the failed turn (the ruling in section 2). Resuming the same session afterwards works: Pi had saved
+nothing of the cut-off reply, and its stats report 0 tokens for it.
 
 ### 3.6 Permission requests
 
 Pi never asks permission for a tool. The nearest Pi record is an extension's dialog,
-`extension_ui_request` with `method` `select` or `confirm` (**documented only**; none of the
-extensions loaded here raised one). It blocks Pi until the client answers with an
-`extension_ui_response`, unless the request carries a `timeout`. **Recommendation for phase 1:**
-the Pi dialect answers every dialog `cancelled: true` at once and logs it, so an extension can never
-hang an API-mode turn; mapping dialogs to `PermissionRequested` waits for an agent that needs it.
+`extension_ui_request` with one of the four dialog methods, `select`, `confirm`, `input` or
+`editor` (**documented only**; none of the extensions loaded here raised one). Each blocks Pi until
+the client answers with an `extension_ui_response`, unless the request carries a `timeout` (it is
+optional). **Recommendation for phase 1:** the Pi dialect answers all four at once with the one
+cancellation shape Pi accepts for any dialog,
+`{"type":"extension_ui_response","id":<the request's id>,"cancelled":true}`, and logs it, so an
+extension can never hang an API-mode turn; mapping dialogs to `PermissionRequested` waits for an agent that needs it.
 The fire-and-forget methods (`notify`, `setStatus`, `setWidget`, `setTitle`, `set_editor_text`)
 are logged and ignored.
 

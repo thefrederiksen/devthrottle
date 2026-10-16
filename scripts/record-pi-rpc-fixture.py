@@ -20,8 +20,17 @@ protocol and writes, per scenario, two files into the fixture folder:
 Redaction, applied to every recorded line (a plain text replacement inside JSON strings, so the
 JSON stays valid): the work folder becomes /work (and "work" where Pi encodes it into a session
 folder name), the user's home folder becomes /home/fixture, the model provider's base address
-becomes https://model-provider.invalid, and each skill's description text is replaced (the skill
-names and locations stay). Nothing else changes.
+becomes https://model-provider.invalid, the model's display name is replaced (its id stays), and
+each skill's description text is replaced (the skill names and locations stay). Nothing else
+changes. The provider address and model name are learned before any scenario runs, from a
+get_state-only Pi process that calls no model, so a run of only some scenarios is redacted too.
+After every run the written files are checked for each real value, and the run fails if one is
+left.
+
+  python3 scripts/record-pi-rpc-fixture.py --redact-existing <fixture-dir> <work-dir>
+applies the current redaction to fixtures already recorded (and checks them), without calling Pi's
+model. It was used once, on 16 October 2026, to redact the model display name from the reviewed
+recordings (phase 0 review, finding 3).
 
 Spend: every scenario that calls the model ends with get_session_stats, and the summary printed
 at the end lists the tokens per run for the mission's spend record. Pi reports cost 0 because the
@@ -52,6 +61,18 @@ TIMEOUT_SECONDS = 180
 SKILL_DESCRIPTION = re.compile(r"<description>[^<]*</description>")
 JSON_DESCRIPTION = re.compile(r'"description":"(?:[^"\\]|\\.)*"')
 REDACTED = "redacted by the fixture recorder"
+MODEL_NAME_REDACTED = "model display name " + REDACTED
+REDACTION_NOTE = ("work folder -> /work, home folder -> /home/fixture, "
+                  "model base address -> https://model-provider.invalid, "
+                  "skill descriptions -> " + REDACTED + ", model display name -> " + MODEL_NAME_REDACTED)
+OLD_REDACTION_NOTE = ("work folder -> /work, home folder -> /home/fixture, "
+                      "model base address -> https://model-provider.invalid, "
+                      "skill descriptions -> " + REDACTED)
+
+
+def pi_env() -> dict:
+    # CC_* variables would make Pi join the fleet as a session.
+    return {k: v for k, v in os.environ.items() if not k.startswith("CC_")}
 
 
 class Redactor:
@@ -60,16 +81,22 @@ class Redactor:
         encoded_work = str(work_dir).lstrip("/").replace("/", "-")
         self.pairs = [(str(work_dir), "/work"), (encoded_work, "work"),
                       (str(pathlib.Path.home()), "/home/fixture")]
-        self.base_url = None
+        self.learn_model(work_dir)
 
-    def learn_base_url(self, record: dict):
-        model = (record.get("data") or {}).get("model") if record.get("type") == "response" else None
-        if isinstance(model, dict) and model.get("baseUrl"):
-            self.base_url = model["baseUrl"]
+    def learn_model(self, work_dir: pathlib.Path):
+        # A get_state-only process with no session: it calls no model and leaves no session file.
+        out = subprocess.run(["pi", "--mode", "rpc", "--no-session"], cwd=work_dir, env=pi_env(),
+                             input=b'{"id":"learn","type":"get_state"}\n', capture_output=True, timeout=60)
+        state = next(json.loads(l) for l in out.stdout.splitlines() if b'"id":"learn"' in l)
+        model = state["data"]["model"]
+        # The display name is JSON-escaped here exactly as Pi writes it on the wire.
+        self.pairs = [(model["baseUrl"], "https://model-provider.invalid"),
+                      (json.dumps(model["name"])[1:-1], MODEL_NAME_REDACTED)] + self.pairs
+
+    def real_values(self) -> list:
+        return [real for real, _ in self.pairs]
 
     def apply(self, text: str) -> str:
-        if self.base_url:
-            text = text.replace(self.base_url, "https://model-provider.invalid")
         for real, fake in self.pairs:
             text = text.replace(real, fake)
         # The fleet's skill descriptions (in the system message and in get_commands) are not this
@@ -99,11 +126,8 @@ class PiRun:
         self._log({"dir": "meta", "scenario": name, "purpose": purpose,
                    "argv": argv, "piVersion": pi_version(),
                    "recorded": time.strftime("%Y-%m-%d"), "recorder": "scripts/record-pi-rpc-fixture.py",
-                   "redaction": "work folder -> /work, home folder -> /home/fixture, "
-                                "model base address -> https://model-provider.invalid, "
-                                "skill descriptions -> " + REDACTED})
-        env = {k: v for k, v in os.environ.items() if not k.startswith("CC_")}
-        self.proc = subprocess.Popen(argv, cwd=work_dir, env=env, stdin=subprocess.PIPE,
+                   "redaction": REDACTION_NOTE})
+        self.proc = subprocess.Popen(argv, cwd=work_dir, env=pi_env(), stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         threading.Thread(target=self._read_stdout, daemon=True).start()
         threading.Thread(target=self._read_stderr, daemon=True).start()
@@ -118,9 +142,15 @@ class PiRun:
     def _read_stdout(self):
         # Binary readline splits on LF only, which is the framing rule Pi's rpc.md requires.
         while line := self.proc.stdout.readline():
-            record = json.loads(line)
-            self.redactor.learn_base_url(record)
             text = self.redactor.apply(line.decode("utf-8").rstrip("\n"))
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                # Pi reserves standard output for JSON records; anything else is a protocol fault.
+                # Keep it in the transcript and fail the scenario now, rather than time out later.
+                self._log({"dir": "stdout", "line": text})
+                self.events.put({"type": "_not_json", "line": text})
+                continue
             self.stdout_raw.write(text.encode("utf-8") + b"\n")
             self.stdout_raw.flush()
             self._log({"dir": "stdout", "line": text})
@@ -152,6 +182,8 @@ class PiRun:
                 continue
             if record["type"] == "_eof":
                 raise RuntimeError(f"[{self.name}] Pi exited while waiting for {what}")
+            if record["type"] == "_not_json":
+                raise RuntimeError(f"[{self.name}] Pi wrote a line that is not JSON: {record['line'][:200]}")
             if predicate(record):
                 return record
         raise RuntimeError(f"[{self.name}] timed out waiting for {what}")
@@ -286,8 +318,7 @@ def scenario_exit(ctx):
     code = run.finish(close_stdin=False)
     # Read the session's stats from a second process (no model call) for the spend record. This
     # second process is not a fixture.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("CC_")}
-    out = subprocess.run(["pi", "--mode", "rpc", "--session-id", session_id], cwd=ctx["work"], env=env,
+    out = subprocess.run(["pi", "--mode", "rpc", "--session-id", session_id], cwd=ctx["work"], env=pi_env(),
                          input=b'{"id":"s","type":"get_session_stats"}\n', capture_output=True, timeout=60)
     stats = next(json.loads(l) for l in out.stdout.splitlines() if b'"id":"s"' in l)["data"]["tokens"]
     return None, {"exitCode": code, "tokens": stats}
@@ -316,7 +347,36 @@ SCENARIOS = {"plain": scenario_plain, "tool": scenario_tool, "abort": scenario_a
              "exit-before-ack": scenario_exit_before_ack}
 
 
+def check_redacted(fixtures: pathlib.Path, redactor: Redactor):
+    """Fail if any real value the redaction replaces is still in a fixture file."""
+    leaks = [(f.name, real) for f in sorted(fixtures.glob("*.jsonl"))
+             for real in redactor.real_values() if real in f.read_text(encoding="utf-8")]
+    if leaks:
+        raise SystemExit(f"redaction check FAILED, real values left in fixtures: {leaks}")
+    print(f"redaction check passed: {len(list(fixtures.glob('*.jsonl')))} files, "
+          f"{len(redactor.real_values())} real values absent")
+
+
+def redact_existing(fixtures: pathlib.Path, work: pathlib.Path):
+    redactor = Redactor(work)
+    for f in sorted(fixtures.glob("*.jsonl")):
+        raw = f.read_bytes()
+        # Line by line, exactly as recording applies it: some rules depend on the record they are in.
+        lines = raw.decode("utf-8").split("\n")
+        text = "\n".join(redactor.apply(line) for line in lines)
+        text = text.replace(OLD_REDACTION_NOTE + '"', REDACTION_NOTE + '"')
+        if text.encode("utf-8") != raw:
+            f.write_bytes(text.encode("utf-8"))
+            print(f"redacted {f.name}")
+    check_redacted(fixtures, redactor)
+
+
 def main():
+    if len(sys.argv) == 4 and sys.argv[1] == "--redact-existing":
+        work = pathlib.Path(sys.argv[3]).resolve()
+        work.mkdir(parents=True, exist_ok=True)
+        redact_existing(pathlib.Path(sys.argv[2]).resolve(), work)
+        return
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
     fixtures = pathlib.Path(sys.argv[1]).resolve()
@@ -340,6 +400,7 @@ def main():
             result["events"] = run.counts
         summary[name] = result
         print(json.dumps(result, indent=1)[:2000], flush=True)
+    check_redacted(fixtures, ctx["redactor"])
     print("SUMMARY " + json.dumps({n: {"tokens": s["tokens"], "exitCode": s["exitCode"]}
                                    for n, s in summary.items()}))
 

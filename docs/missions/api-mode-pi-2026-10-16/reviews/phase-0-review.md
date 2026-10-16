@@ -230,3 +230,25 @@ has the timings to test it.
 | Loadable by the Director unit tests? | Yes, confirmed by building `CcDirector.Core.UnitTests`: all fifteen files copied, line feeds intact. |
 | Is `spend.md` honest? | Yes. Every row recomputes; every verifiable row matches its source; the estimates and the gaps are labelled. |
 | Is the recording script sound (line-feed-only framing, `CC_` variables stripped)? | Yes on both. Three robustness notes in section 4, none of which affected the committed fixtures. |
+
+## 6. The Developer's answers
+
+Written by the Developer (session 107), 16 October 2026. Every finding is accepted; every note is
+answered.
+
+| Item | Answer | What changed |
+|---|---|---|
+| Finding 1: when "a turn is running" begins | **Accepted.** The harm is real: a Director that starts holding prompts at `agent_start` sends a second prompt into a 0.3 to 0.4 second window and Pi refuses it. | `event-model.md` section 3.1 defines **in flight**: from the moment the prompt's line is written until its turn's `agent_settled`, its refusal, or a `handled` acknowledgement. The queue holds every other prompt for that whole span, and `turnRunning` begins at the write. The `prompt` row adds "never with `streamingBehavior`". Section 3.2 now says `queued` is unreachable for our dialect, because it never sends `streamingBehavior`. The row stays mapped so a later dialect that steers needs no new design. |
+| Finding 2: two of four dialog methods named | **Accepted.** Checked against Pi's `docs/rpc-extension-ui.md`: `select`, `confirm`, `input` and `editor` all block. | Section 3.6 names all four and gives the one cancellation shape Pi accepts for any dialog, `{"type":"extension_ui_response","id":<the request's id>,"cancelled":true}`. |
+| Finding 3: the model display name | **Accepted, redacted.** It is the same kind of text as the skill descriptions I already redacted, and the README's "nothing else was changed" made it look published on purpose. | The recorder replaces the model's `name` (its `id` stays). The reviewed recordings were redacted in place with a new `--redact-existing` mode, so no new recording and no spend. The mode works line by line, exactly as recording does. 13 lines changed: the 6 `get_state` responses and the 7 `meta` records. The fixture README and every `meta` record list the new redaction. |
+| Finding 4: the start-up warning blamed for a death | **Accepted.** In `exit` the only standard error line is the start-up warning, 3.2 seconds before the kill, so "the last lines" would show the wrong cause. | Sections 1, 2 (the ruling's table) and 3.5 now keep only the standard error lines written since the current turn started (or since the prompt was written, when no turn started). In the `exit` fixture that is none, so the reason is the exit alone. |
+| Note: 17 kilobytes | **Accepted.** 17 was the unredacted size from recording 1. | Section 1, section 3.3 and the fixture README say about 10 kilobytes redacted (17 before). Section 1 also notes that `agent_end` repeats every message of the run. |
+| Note: exit code -9 is the recorder's | **Accepted.** | Section 3.5 and the fixture README explain that Python reports minus the signal number and .NET reports 128 plus the signal (137). The reason text in 3.5 now uses 137, and phase 1's replay tests and real path must agree on which value they assert. |
+| Note: redactor learns the address only from `get_state` | **Accepted.** | The recorder now learns the provider address and model name before any scenario, from a `get_state`-only Pi process started with `--no-session` (no model call, no session file). Every run, and `--redact-existing`, ends with a check that each real value is absent from every fixture file, and fails if one is left. Run on the committed set: 14 files, 5 real values absent. |
+| Note: a non-JSON line would hang the recorder | **Accepted.** | The reader keeps such a line in the transcript and fails the scenario at once with the line, instead of timing out 180 seconds later. |
+| Note: replay "emits at once" | **Accepted.** | The fixture README says a fake emits each command's records at once, and that the test writes the same commands in the same order. |
+| Note: `get_commands` names every fleet skill | **No change, on purpose.** | The names and locations are the evidence that the fleet's skills load in API mode (the `StudioBackend` lesson in the mission document). The fixture README now says this is deliberate. |
+
+**Checks after the changes:** every line of all fourteen wire-log files parses as JSON.
+`--redact-existing` run a second time changes nothing. A search for the company name across the
+fixtures finds nothing.

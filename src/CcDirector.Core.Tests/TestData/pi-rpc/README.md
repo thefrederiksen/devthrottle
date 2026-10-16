@@ -10,12 +10,16 @@ Each scenario has two files:
   tests: split on line feed only.
 - `<scenario>.transcript.jsonl` - both directions in order, with milliseconds since start: a `meta`
   record first, then `stdin` (what we wrote), `stdout` (what Pi wrote), `stderr`, `kill` and `exit`
-  (Pi's exit code). A fake process replays it by answering each `stdin` record with the `stdout`
-  records that follow it.
+  (Pi's exit code, as Python reports it: a child ended by a signal is minus the signal number, so
+  SIGKILL is -9; a .NET `Process` on Linux reports 128 plus the signal, 137). A fake process replays
+  it by answering each `stdin` record with the `stdout` records that follow it, **emitted at once**:
+  a fake that waited for the next `stdin` before emitting would deadlock on `refusal`, where the
+  first turn's deltas sit between the follow-up prompt and the next command. The test must write
+  the same commands in the same order as the recording.
 
 | Scenario | What it shows |
 |---|---|
-| `plain` | A prompt acknowledged (`disposition: started`), the reply `PONG` streamed, `agent_settled`; then `get_last_assistant_text`, `get_state`, `get_commands` (the fleet's skills loaded) and `get_session_stats`. The 17 kilobyte system message of a new session is on the wire. |
+| `plain` | A prompt acknowledged (`disposition: started`), the reply `PONG` streamed, `agent_settled`; then `get_last_assistant_text`, `get_state`, `get_commands` (the fleet's skills loaded) and `get_session_stats`. The system message of a new session (about 10 kilobytes redacted) is on the wire. |
 | `tool` | A prompt that runs the bash tool: `tool_execution_start`, two `tool_execution_update`, `tool_execution_end` (`isError: false`), two Pi turns inside one run. |
 | `abort` | A long prompt stopped with `abort` while thinking streamed: `stopReason: "aborted"`, `agent_settled` with `aborted: true`, and the abort's response last. |
 | `resume` | A new Pi process on the `plain` session's id answering from that conversation (`PONG`); no system message, no "No project session found" warning. |
@@ -24,7 +28,12 @@ Each scenario has two files:
 | `exit-before-ack` | Pi killed (SIGKILL, exit code -9) 50 milliseconds after the prompt was written, before it acknowledged: standard output is empty, so the prompt has no response. Made no model call. |
 
 Redaction: the work folder is `/work` (and `work` inside Pi's session folder name), the home folder
-is `/home/fixture`, the model provider's address is `https://model-provider.invalid`, and skill
-descriptions read "redacted by the fixture recorder". Nothing else was changed.
+is `/home/fixture`, the model provider's address is `https://model-provider.invalid`, the model's
+display name reads "model display name redacted by the fixture recorder" (its id, `gpt-5.6-sol`,
+stays), and skill descriptions read "redacted by the fixture recorder". The skill names and their
+locations stay on purpose: they show the fleet's skills load in API mode. Nothing else was changed.
+The model display name was redacted after review, with the recorder's `--redact-existing` mode, so
+the reviewed recordings did not have to be made again; the recorder checks every file for each real
+value and fails if one is left.
 
 This folder is marked `-text` in `.gitattributes` so line endings are never converted.
