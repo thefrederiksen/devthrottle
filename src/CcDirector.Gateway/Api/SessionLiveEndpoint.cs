@@ -39,12 +39,18 @@ public delegate object? ApiModeLiveRuling(TenantId tenant, ApiModeHeldEvent held
 /// the address still carries whatever <c>after</c> the page first opened with. No cursor means everything the Gateway
 /// holds. A client using <c>EventSource</c> should open the stream with no <c>after</c> and let the header carry it.</para>
 ///
-/// <para><b>Never a silent gap.</b> When the Gateway cannot hand over every event after the cursor - the buffer let
-/// the oldest go, the Gateway restarted, or the Director restarted (a new generation, whose sequence starts again) -
-/// the client is sent one explicit <c>reset</c> (<see cref="ApiModeLiveResetDto"/>) telling it to rebuild from the
-/// receipts and the stored conversation, and then the items continue. On the stream the reset carries an empty
-/// <c>id</c>, which clears the browser's <c>Last-Event-ID</c>, so a reconnect after it does not resend the cursor that
-/// could not be honoured.</para>
+/// <para><b>Starting.</b> A client with no cursor holds nothing of the session yet, so it always starts from durable
+/// state - the receipts and the stored conversation - and then follows the items. It is never sent a reset on
+/// attaching: there is nothing it holds that could be continued wrongly. That is also why a brand-new session, which
+/// has nothing held yet (the feed answers such a replay as not complete), streams cleanly and does not look broken.</para>
+///
+/// <para><b>Never a silent gap.</b> When a client that DID send a cursor cannot be handed every event after it - the
+/// buffer let them go, this Gateway process never held them (it restarted mid-generation), or the Director restarted
+/// (a new generation, whose sequence starts again at 1) - it is sent one explicit <c>reset</c>
+/// (<see cref="ApiModeLiveResetDto"/>) telling it to rebuild from the receipts and the stored conversation, and then
+/// the items continue. A client following the stream when the Director restarts gets the same reset. On the stream the
+/// reset carries an empty <c>id</c>, which clears the browser's <c>Last-Event-ID</c>, so a reconnect after it does not
+/// resend the cursor that could not be honoured.</para>
 ///
 /// <para><b>A slow client never holds up the feed.</b> The feed calls each subscriber synchronously under the
 /// session's lock, so the handler here only offers the event to a bounded channel and returns. The channel has room
@@ -153,9 +159,9 @@ public static class SessionLiveEndpoint
 
         var replay = feed.Read(tenant, sid, after);
         var page = new ApiModeLivePageDto { SessionId = sid };
-        if (!replay.Complete)
+        if (!replay.Complete && after is not null)
         {
-            page.Reset = ResetFor(sid, ResetCodeFor(after, replay.Generation));
+            page.Reset = ResetFor(sid, ResetCodeFor(after.Value, replay.Generation));
             FileLog.Write($"[SessionLive] items sid={sid} tenant={tenant.ToLogString()} after={Format(after)}: RESET {page.Reset.Code} (held generation={replay.Generation ?? "(none)"}, {replay.Events.Count} event(s))");
         }
         foreach (var held in replay.Events)
@@ -211,9 +217,9 @@ public static class SessionLiveEndpoint
         try
         {
             // The reset goes BEFORE the replayed events, which the feed has already queued: what follows it is the
-            // part the client may append once it has rebuilt.
-            if (!subscription.Replay.Complete)
-                await WriteResetAsync(ctx, sid, ResetCodeFor(after, subscription.Replay.Generation), options, ct);
+            // part the client may append once it has rebuilt. Only a client with a cursor holds anything to reset.
+            if (!subscription.Replay.Complete && after is not null)
+                await WriteResetAsync(ctx, sid, ResetCodeFor(after.Value, subscription.Replay.Generation), options, ct);
 
             // Flush the response start now even when there was nothing to send (the /events convention): a client
             // may treat "headers received" as "attached".
@@ -389,8 +395,8 @@ public static class SessionLiveEndpoint
     private static string Format(ApiModeEventCursor? cursor) => cursor is { } c ? Format(c) : "(none)";
 
     /// <summary>A cursor of another generation than the one held is a Director restart; anything else is a gap.</summary>
-    private static string ResetCodeFor(ApiModeEventCursor? after, string? heldGeneration) =>
-        after is { } cursor && heldGeneration is not null && !string.Equals(cursor.Generation, heldGeneration, StringComparison.Ordinal)
+    private static string ResetCodeFor(ApiModeEventCursor after, string? heldGeneration) =>
+        heldGeneration is not null && !string.Equals(after.Generation, heldGeneration, StringComparison.Ordinal)
             ? ApiModeLiveResetCodes.NewGeneration
             : ApiModeLiveResetCodes.MissedEvents;
 

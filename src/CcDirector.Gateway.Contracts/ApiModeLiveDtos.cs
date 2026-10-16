@@ -36,8 +36,8 @@ public sealed class ApiModeLiveResetDto
 /// <summary>The values of <see cref="ApiModeLiveResetDto.Code"/>.</summary>
 public static class ApiModeLiveResetCodes
 {
-    /// <summary>The Gateway no longer holds every event after the client's cursor (the buffer let the oldest go, or the
-    /// Gateway restarted), or the client had no cursor and the buffer no longer holds the session from its start.</summary>
+    /// <summary>The Gateway cannot hand over every event after the client's cursor: the buffer let them go, or this
+    /// Gateway process never held them (it restarted since).</summary>
     public const string MissedEvents = "missed_events";
 
     /// <summary>The Director restarted (a new generation): the sequence started again, and the client's cursor names

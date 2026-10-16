@@ -84,19 +84,19 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     public async Task Stream_NoCursor_ReplaysWhatIsHeldThenFollowsLive()
     {
         await StartAsync();
-        PushA(Ready(0), Delivered(1, "p1"), Started(2));
+        PushA(Ready(1), Delivered(2, "p1"), Started(3));
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession);
         var first = await stream.NextAsync();
         var second = await stream.NextAsync();
-        PushA(Text(3, "PONG"));
+        PushA(Text(4, "PONG"));
         var live = await stream.NextAsync();
 
-        // ConnectionReady (sequence 0) was ruled to nothing, so it is not sent; every other event is, in order, and
+        // ConnectionReady (sequence 1) was ruled to nothing, so it is not sent; every other event is, in order, and
         // each event's id is its cursor.
-        Assert.Equal(("item", "gen-a:1", "PromptDelivered", 1L), (first!.Event, first.Id, Kind(first), Sequence(first)));
-        Assert.Equal(("item", "gen-a:2", "TurnStarted"), (second!.Event, second.Id, Kind(second)));
-        Assert.Equal(("item", "gen-a:3", "MessageText"), (live!.Event, live.Id, Kind(live)));
+        Assert.Equal(("item", "gen-a:2", "PromptDelivered", 2L), (first!.Event, first.Id, Kind(first), Sequence(first)));
+        Assert.Equal(("item", "gen-a:3", "TurnStarted"), (second!.Event, second.Id, Kind(second)));
+        Assert.Equal(("item", "gen-a:4", "MessageText"), (live!.Event, live.Id, Kind(live)));
         Assert.Equal(1, _feed.Active);
     }
 
@@ -143,7 +143,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     {
         await StartAsync();
         PushA(Delivered(1, "p1"), Started(2));
-        PushB(Ready(0), Delivered(1, "p2"));   // the Director restarted: a new generation, its sequence starting again
+        PushB(Ready(1), Delivered(2, "p2"));   // the Director restarted: a new generation, its sequence starting again
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
         var reset = await stream.NextAsync();
@@ -155,22 +155,22 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         Assert.Equal(ApiModeLiveResetCodes.NewGeneration, body.Code);
         Assert.Equal(new[] { $"/sessions/{ApiSession}/receipts", $"/sessions/{ApiSession}/history" }, body.RebuildFrom);
         Assert.False(string.IsNullOrWhiteSpace(body.Message));
-        Assert.Equal(("item", "gen-b:1"), (next!.Event, next.Id));
+        Assert.Equal(("item", "gen-b:2"), (next!.Event, next.Id));   // gen-b:1 is ConnectionReady, ruled to nothing
     }
 
     [Fact]
     public async Task Stream_CursorTheBufferHasLetGo_SendsAMissedEventsResetThenWhatIsHeld()
     {
         await StartAsync();
-        // Five more than the buffer holds: sequences 0 to 4 are let go.
-        PushA(Enumerable.Range(0, ApiModeEventBuffer.MaxEventsPerSession + 5).Select(i => (SessionEvent)Text(i, "x")).ToArray());
+        // Five more than the buffer holds: sequences 1 to 5 are let go.
+        PushA(Enumerable.Range(1, ApiModeEventBuffer.MaxEventsPerSession + 5).Select(i => (SessionEvent)Text(i, "x")).ToArray());
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:1");
         var reset = await stream.NextAsync();
         var first = await stream.NextAsync();
 
         Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
-        Assert.Equal("gen-a:5", first!.Id);
+        Assert.Equal("gen-a:6", first!.Id);
     }
 
     [Fact]
@@ -203,6 +203,51 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         Assert.Equal(("reset", "", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, reset.Id, Reset(reset).Code));
         Assert.Equal(("item", "gen-b:1"), (next!.Event, next.Id));
+    }
+
+    [Fact]
+    public async Task Stream_CursorBeforeWhatThisGatewayHeld_SendsAMissedEventsReset()
+    {
+        // This Gateway began holding the generation at sequence 5 (it restarted mid-generation): it never held 3 and 4,
+        // so a client at 2 cannot be continued, even though nothing was let go.
+        await StartAsync();
+        PushA(Text(5, "a"), Text(6, "b"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
+        var reset = await stream.NextAsync();
+        var first = await stream.NextAsync();
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
+        Assert.Equal("gen-a:5", first!.Id);
+    }
+
+    [Fact]
+    public async Task Stream_NoCursorWhileTheGenerationIsHeldFromTheMiddle_SendsNoReset()
+    {
+        // A client with no cursor holds nothing, so it starts from durable state whatever the feed holds: the held
+        // items follow with no reset in front of them.
+        await StartAsync();
+        PushA(Text(5, "a"), Text(6, "b"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        var first = await stream.NextAsync();
+
+        Assert.Equal(("item", "gen-a:5"), (first!.Event, first.Id));
+    }
+
+    [Fact]
+    public async Task Stream_ABrandNewSessionWithNothingHeld_StreamsCleanlyFromItsFirstEvent()
+    {
+        // The feed answers a session with nothing held as not complete. To a client with no cursor that is not a gap:
+        // it is sent no reset, and the first event arrives as an ordinary item.
+        await StartAsync();
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        Assert.Equal(1, _feed.Active);
+        PushA(Delivered(1, "p1"));
+        var first = await stream.NextAsync();
+
+        Assert.Equal(("item", "gen-a:1", "PromptDelivered"), (first!.Event, first.Id, Kind(first)));
     }
 
     // ----- the stream: the client's side -----
@@ -271,14 +316,26 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     public async Task Items_NoCursor_ListsWhatIsHeldWithTheNextCursor()
     {
         await StartAsync();
-        PushA(Ready(0), Delivered(1, "p1"), Started(2));
+        PushA(Ready(1), Delivered(2, "p1"), Started(3));
 
         var page = await GetPageAsync(Alice, ApiSession);
 
         Assert.Null(page.Reset);
-        Assert.Equal(new[] { "gen-a:1", "gen-a:2" }, page.Items.Select(i => i.Cursor));
+        Assert.Equal(new[] { "gen-a:2", "gen-a:3" }, page.Items.Select(i => i.Cursor));
         Assert.Equal("PromptDelivered", ((JsonElement)page.Items[0].Item!).GetProperty("kind").GetString());
-        Assert.Equal("gen-a:2", page.Next);
+        Assert.Equal("gen-a:3", page.Next);
+    }
+
+    [Fact]
+    public async Task Items_ABrandNewSessionWithNothingHeld_AnswersEmptyWithNoReset()
+    {
+        await StartAsync();
+
+        var page = await GetPageAsync(Alice, ApiSession);
+
+        Assert.Null(page.Reset);
+        Assert.Empty(page.Items);
+        Assert.Null(page.Next);
     }
 
     [Fact]
