@@ -12326,6 +12326,8 @@ export interface components {
             triageBucket?: null | string;
             stateLabel?: null | string;
             backendType?: string;
+            connectionMode?: string;
+            wheelHolder?: string;
             driverCapabilities?: string[];
             /** Format: date-time */
             lastActivityAt?: null | string;
