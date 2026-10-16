@@ -167,7 +167,24 @@ the ring with a reason that says the session is in API mode and let phase 2 anno
 protocol. Either way, add a test that rings an API-mode session, and correct the sentence in the creation
 test.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** The finding is right, and so is its diagnosis: my test comment claimed the
+doorbell used the guarded send, and that wrong belief is why my hunt skipped `FleetDoorbellRinger`. The fix takes the
+first of the two routes the finding offers. `FleetDoorbellRinger.RingAsync(Session, ...)` now sends an API-mode session to
+a new `RingApiModeAsync`, which never reads a screen. The one doorbell line goes through the session's guarded send, whose
+API-mode branch sends it to Pi only if Pi can take a prompt now (its conversation named, nothing in flight, nothing
+queued). It is an agent-origin line with the same fleet-message provenance the terminal ring records. The answer is `rung`
+only when Pi acknowledged the line. Otherwise it is `exited` for an ended session, or `working` for a busy or starting one
+or a line Pi refused (Pi's words in the detail), and nothing is sent. The one-ring-at-a-time rule applies as for a
+terminal. A terminal session's ring is unchanged. The sentence in `ApiModeSessionCreationTests` now says what the code
+does: the guarded send is the prompt verb's "only when waiting" mode, and the API-mode doorbell rides on it.
+
+Tests (`ApiModeSessionTests`, scripted Pi):
+- `RingAsync_ApiModeSessionWaiting_SendsTheDoorbellLineToPiAndIsRung`: rung, and Pi was written exactly the doorbell line
+  as a prompt and acknowledged it.
+- `RingAsync_ApiModeSessionBusy_IsDeferredWorkingAndSendsNothing`: deferred, and nothing more written.
+- `RingAsync_ApiModeSessionThatEnded_IsDeferredExited`.
+
+With the new branch removed, the first two fail (the ring defers `screen-unreadable`, as the finding describes).
 
 ### 2. A spawned API-mode session's first prompt waits the whole pre-prompt wait, thirty seconds by default, before it is sent
 
@@ -201,7 +218,27 @@ API-mode session `DeliverPrePromptAsync` can hand the text to `SendTextAsync` st
 does the rest. One branch, next to the `CanGateFirstPrompt` one, and a test on the scripted Pi that the
 first prompt is written right after `get_state`'s answer.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** `DeliverPrePromptAsync` now has one branch ahead of the `CanGateFirstPrompt`
+one: an API-mode session hands the first prompt to `SendTextAsync` at once. The host's queue holds it (`PromptQueued`,
+`agentStarting`) and writes it the moment Pi names its conversation, so there is no wait for terminal output that never
+comes. A resume that finds nothing still refuses it with the stated reason, through the same queue.
+
+Test (`ApiModeSessionTests`, scripted Pi that answers only when told):
+- `DeliverPrePromptAsync_ApiModeSession_IsQueuedAtOnceAndWrittenRightAfterPiNamesItsConversation`: the prompt is queued
+  `agentStarting` before `get_state` is answered, written right after it, and delivered.
+
+The test gives a wait of ten minutes, far beyond the tests' 30 second hang guard. With the branch removed it fails
+("Waited 30 seconds for a PromptQueued event"), rather than passing late.
+
+From the weighed list, also done on the Tech Lead's instruction:
+- The age rule: a comment at the API-mode branch of `SendTextAsync` says that the first-keystroke age check does not
+  apply, and that a prompt waiting in the host's queue is written however long it waited, by design.
+- The environment sentence in `event-model.md` section 3 now matches the code. Every inherited `CC_*` variable is
+  stripped first; terminal mode strips only those it stamps, so an inherited `CC_DIRECTOR_ROOT` or `CC_WORKTREES_HOME`
+  reaches a terminal Pi and not an API-mode one. Then the session's own stamped set is applied, the same set terminal
+  mode stamps.
+- Weighed item (c), the Gateway delivery id, was already addressed by the Delivery Lead's ruling in commit 782a15d85,
+  after the reviewed head. (a), the crash journal, is left for an issue or phase 5's scope, as the review suggests.
 
 ## Weighed and not raised
 
