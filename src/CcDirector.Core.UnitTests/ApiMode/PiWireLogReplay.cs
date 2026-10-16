@@ -94,6 +94,17 @@ internal sealed class PiWireLogReplay
         return replay;
     }
 
+    /// <summary>How many prompt commands the recording wrote, read the way <see cref="Run"/> reads them.</summary>
+    public static int WrittenPromptCount(string scenario) =>
+        File.ReadAllLines(FixturePath(scenario)).Skip(1)
+            .Select(raw => JsonDocument.Parse(raw).RootElement)
+            .Where(r => r.GetProperty("dir").GetString() == "stdin")
+            .Count(r =>
+            {
+                try { return JsonDocument.Parse(r.GetProperty("line").GetString()!).RootElement.GetProperty("type").GetString() == "prompt"; }
+                catch (JsonException) { return false; }
+            });
+
     public void Take(PiDialectStep step)
     {
         Events.AddRange(step.Events);

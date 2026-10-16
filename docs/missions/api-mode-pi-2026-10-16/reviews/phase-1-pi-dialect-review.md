@@ -143,7 +143,20 @@ dialect could support by exposing the waiting prompts. What I can say is that to
 output for this case contradicts the note's rule 5, and that a test should pin whichever answer is
 chosen.
 
-Developer's answer:
+Developer's answer: **Accepted in part; the rest goes to the Delivery Lead with a recommendation.**
+What changed: `OnProcessExited` now names every acknowledged prompt whose turn never began in the
+`ConnectionEnded` reason ("Pi acknowledged prompt(s) p1 and exited before starting their turn"), so the
+wire says the prompt never ran. A new property, `PromptsAwaitingTurn`, lists those prompts so the transport
+can bound how long a `started` prompt waits for `agent_start`; that bound is the answer to the wedge
+with no exit, and it belongs in the transport. Pinned by
+`OnProcessExited_AfterAcknowledgementBeforeTheTurnStarted_ReasonNamesThePromptThatNeverRan`.
+What I did not change: rule 5 still has no turn to read for such a prompt. Closing that means either
+making up a turn Pi never ran, or adding a row to the ruling, and either one changes the event model,
+which my brief forbids. Recommendation to the Delivery Lead: add a third row to the ruling, "Pi
+acknowledged, then exited (or the transport's bound ran out) before `agent_start`". For that row the
+dialect would emit `TurnStarted` with the waiting prompts, then `TurnEnded` `failed` with the reason "Pi
+acknowledged the prompt but never started it". That uses only the existing events and keeps rule 5. The
+queued-disposition observation below is the same question and gets the same answer.
 
 ### 2. A prompt acknowledgement in a shape the dialect does not expect throws after the command is forgotten, so the prompt gets neither receipt and stays in flight
 
@@ -174,7 +187,13 @@ about thirty `GetProperty` calls that throw on a missing key, and the pull reque
 transport does with an exception from `OnStdoutRecord`; this prompt path is the one where the throw
 leaves a receipt owed. The rest are observations, below.
 
-Developer's answer:
+Developer's answer: **Accepted.** The disposition is now read without throwing
+(`TryGetProperty`). A missing disposition takes the unknown-disposition path: it is reported as a
+defect, the prompt is refused by the Director, and it leaves flight. Rule 1 holds:
+`OnStdoutRecord_PromptAcknowledgementWithNoDisposition_RefusedByTheDirectorAndOutOfFlight` feeds your
+exact record and then the exit, and asserts one `PromptRefused` and nothing owed. For the general
+question in your second observation, the class summary now says what an exception from
+`OnStdoutRecord` means and what the transport does with it.
 
 ### 3. On a resume, `CanWritePrompt` is true before Pi has named its conversation, so a prompt can be written into a session the dialect is about to condemn
 
@@ -202,7 +221,15 @@ Developer holds that the transport must hold prompts until `ConnectionReady` reg
 property's summary should say so, and the pull request's claim that it alone says when the next prompt
 may go should be withdrawn.
 
-Developer's answer:
+Developer's answer: **Accepted, for every session, not only a resume.** `CanWritePrompt` is now
+false until `ConnectionReady`, and the summary calls it the one gate the queue consults. This also
+gives every receipt a named conversation, and matches section 3.1, which has `get_state` written
+right after start. A resume that answers `messageCount` 0 or writes the warning never opens the gate.
+Tests: `CanWritePrompt_BeforePiHasNamedItsConversation_IsFalse`,
+`CanWritePrompt_ResumeThatFoundNoConversation_NeverOpens` and
+`CanWritePrompt_ResumeThatFoundTheConversation_Opens`. The in-flight tests now name the conversation
+first. Writing a prompt before the gate opens is not reported as a defect, because the recordings were
+made that way and the dialect only advises the queue.
 
 ### 4. A refusal with no error text is reported with an empty reason and no defect
 
@@ -219,7 +246,9 @@ Why it must change: the project rule is to fail explicitly, not to substitute a 
 problem, and every other missing-field path in this file either reports a defect or names the absence
 in words ("Pi ended the turn with an error and gave no message", line 613). One line, same pattern.
 
-Developer's answer:
+Developer's answer: **Accepted.** A refusal with no error text now reads "Pi refused the prompt and gave
+no reason", and it is reported as a defect ("Pi refused prompt p1 and gave no error text").
+`OnStdoutRecord_RefusalWithNoErrorText_SaysSoAndReportsADefect` pins both.
 
 ## Observations (no finding: nothing shown to break on a path the dialect can reach)
 
@@ -246,3 +275,17 @@ Developer's answer:
   followed by another assistant message before settle, so it cannot be the last stop reason on a settled
   turn except through abort or exit, where it is carried verbatim as `agentStopReason`. `deferred` is
   undocumented in Pi's notes on `--mode rpc`; the defect branch is the right answer for it until it is seen.
+
+Developer's answer to the observations:
+
+- **Queued disposition and rule 5: same question as finding 1.** I recommend the same answer to the
+  Delivery Lead. It is unreachable while the dialect never sends `streamingBehavior`.
+- **Exceptions from Pi's shape: accepted as a stated contract.** The class summary now says that a
+  record missing a field the dialect must read throws, and that this is a dialect defect. The transport
+  logs it, stops the Pi process and calls `OnProcessExited`, which still refuses every prompt with no
+  receipt and ends any running turn. With finding 2 fixed, the one path where a throw left a receipt
+  owed is gone.
+- **Prompt count by text search: accepted.** The rules test now counts prompts with
+  `PiWireLogReplay.WrittenPromptCount`, which parses each line the same way the replay does.
+- **Stop reasons: no change.** I agree that `deferred` and any other unseen reason stay on the defect
+  path until one is seen.

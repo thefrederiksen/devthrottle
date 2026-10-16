@@ -243,7 +243,7 @@ public sealed class PiDialectReplayTests
         var events = replay.Events;
 
         // Assert rule 1: one PromptDelivered or one PromptRefused per prompt written, never both, never neither.
-        var written = File.ReadAllLines(PiWireLogReplay.FixturePath(scenario)).Count(l => l.Contains("\"dir\": \"stdin\"") && l.Contains("\\\"type\\\": \\\"prompt\\\""));
+        var written = PiWireLogReplay.WrittenPromptCount(scenario);
         var receipts = events.Where(e => e is PromptDelivered or PromptRefused)
             .Select(e => e is PromptDelivered d ? d.PromptId : ((PromptRefused)e).PromptId).ToList();
         Assert.Equal(written, receipts.Count);

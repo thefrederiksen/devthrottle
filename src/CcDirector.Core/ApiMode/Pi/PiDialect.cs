@@ -20,6 +20,11 @@ namespace CcDirector.Core.ApiMode.Pi;
 /// Each returns a <see cref="PiDialectStep"/>: the events to report, any line to write back, and any defect.
 /// The commands themselves are built by the <c>Build*</c> methods. The Director's prompt queue lives outside;
 /// <see cref="CanWritePrompt"/> says when the next prompt may go.
+///
+/// The dialect reads Pi's documented record shapes as they are. A record missing a field it must read throws
+/// out of <see cref="OnStdoutRecord"/>: that is a dialect defect (Pi's shape changed). The transport logs it,
+/// stops this Pi process and calls <see cref="OnProcessExited"/>, which still refuses every prompt that has no
+/// receipt and ends any running turn, so rules 1 to 3 hold for everything the dialect knew.
 /// </summary>
 public sealed class PiDialect
 {
@@ -91,11 +96,18 @@ public sealed class PiDialect
     }
 
     /// <summary>
-    /// Whether the next prompt may be written now: the process is up, nothing says it must stop, and no
-    /// prompt is in flight. A busy Pi refuses a second prompt rather than queueing it, and the in-flight
-    /// window starts at the write, not at <c>agent_start</c> (event model, section 3.1).
+    /// Whether the next prompt may be written now: Pi has named its conversation (<see cref="ConnectionReady"/>,
+    /// from the <c>get_state</c> written right after start), nothing says the process must stop, and no prompt
+    /// is in flight. Waiting for the conversation's name means a resume that found nothing is condemned before
+    /// any prompt can run in the empty conversation Pi made instead. A busy Pi refuses a second prompt rather
+    /// than queueing it, and the in-flight window starts at the write, not at <c>agent_start</c> (event model,
+    /// section 3.1). This is the one gate: the Director's queue consults it and keeps no other.
     /// </summary>
-    public bool CanWritePrompt => !_exited && _stopReason is null && _inFlight.Count == 0;
+    public bool CanWritePrompt => _connectionReadySent && !_exited && _stopReason is null && _inFlight.Count == 0;
+
+    /// <summary>Prompts Pi acknowledged as <c>started</c> whose turn has not begun, oldest first. Pi does not
+    /// promise a turn after the acknowledgement, so the transport may bound how long these wait.</summary>
+    public IReadOnlyList<string> PromptsAwaitingTurn => _deliveredAwaitingTurn;
 
     /// <summary>True while a turn is running (from <c>agent_start</c> to <c>agent_settled</c>).</summary>
     public bool TurnRunning => _turn is not null;
@@ -260,6 +272,8 @@ public sealed class PiDialect
         var reason = _stopReason
             ?? turnReason
             ?? (unacknowledged.Count > 0 ? ExitedBeforeAcknowledgingReason : $"Pi exited (exit code {exitCode})");
+        if (_deliveredAwaitingTurn.Count > 0)
+            reason += $". Pi acknowledged prompt(s) {string.Join(", ", _deliveredAwaitingTurn)} and exited before starting their turn";
         step.Events.Add(new ConnectionEnded
         {
             SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
@@ -328,11 +342,16 @@ public sealed class PiDialect
         if (!success)
         {
             _inFlight.Remove(promptId);
-            Refuse(step, promptId, error ?? "", PromptRefusedBy.Agent);
+            if (error is null)
+                Defect(step, $"Pi refused prompt {promptId} and gave no error text");
+            Refuse(step, promptId, error ?? "Pi refused the prompt and gave no reason", PromptRefusedBy.Agent);
             return;
         }
 
-        var disposition = record.GetProperty("data").GetProperty("disposition").GetString();
+        // Read without throwing: the command is already forgotten, so a throw here would leave the prompt owing
+        // its receipt (rule 1). A missing disposition is handled like an unknown one, below.
+        string? disposition = record.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty("disposition", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
         PromptDisposition mapped;
         switch (disposition)
         {
@@ -351,9 +370,9 @@ public sealed class PiDialect
                 break;
             default:
                 // Pi accepted the prompt in a way this dialect does not understand; a receipt cannot claim it.
-                Defect(step, $"Pi acknowledged prompt {promptId} with a disposition the dialect does not know: {disposition}");
+                Defect(step, $"Pi acknowledged prompt {promptId} with a disposition the dialect does not know: {disposition ?? "(none)"}");
                 _inFlight.Remove(promptId);
-                Refuse(step, promptId, $"Pi acknowledged the prompt with a disposition the Director does not know: {disposition}", PromptRefusedBy.Director);
+                Refuse(step, promptId, $"Pi acknowledged the prompt with a disposition the Director does not know: {disposition ?? "(none)"}", PromptRefusedBy.Director);
                 return;
         }
 

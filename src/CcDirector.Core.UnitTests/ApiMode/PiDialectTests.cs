@@ -33,6 +33,19 @@ public sealed class PiDialectTests
 
     private void Pi(string json) => Take(_dialect.OnStdoutRecord(JsonDocument.Parse(json).RootElement));
 
+    private static string StateResponse(string commandId, int messageCount) =>
+        $$$"""{"id":"{{{commandId}}}","type":"response","command":"get_state","success":true,"data":{"sessionId":"agent-1","model":{"id":"model-1"},"messageCount":{{{messageCount}}}}}""";
+
+    /// <summary>Pi has answered get_state, so the conversation is named; the ConnectionReady is set aside.</summary>
+    private void Ready(PiDialect? dialect = null, int messageCount = 3)
+    {
+        dialect ??= _dialect;
+        var getState = dialect.BuildGetState();
+        Take(dialect.OnCommandWritten(getState));
+        Take(dialect.OnStdoutRecord(JsonDocument.Parse(StateResponse(getState.Id, messageCount)).RootElement));
+        _events.Clear();
+    }
+
     private PiCommand WritePrompt(string promptId)
     {
         var command = _dialect.BuildPrompt(promptId, "hello");
@@ -57,6 +70,7 @@ public sealed class PiDialectTests
     public void CanWritePrompt_FromTheWriteUntilTheTurnSettles_IsFalse()
     {
         // Arrange + Act + Assert, step by step: the in-flight window starts at the write, not at agent_start.
+        Ready();
         Assert.True(_dialect.CanWritePrompt);
         var command = WritePrompt("p1");
         Assert.False(_dialect.CanWritePrompt);
@@ -76,6 +90,7 @@ public sealed class PiDialectTests
     public void CanWritePrompt_AfterPiRefusedThePrompt_IsTrue()
     {
         // Arrange
+        Ready();
         var command = WritePrompt("p1");
 
         // Act
@@ -92,6 +107,7 @@ public sealed class PiDialectTests
     public void OnStdoutRecord_HandledDisposition_DeliveredWithNoTurnAndNoLongerInFlight()
     {
         // Arrange
+        Ready();
         var command = WritePrompt("p1");
 
         // Act: documented only - an extension command consumed the prompt.
@@ -124,6 +140,7 @@ public sealed class PiDialectTests
     public void OnStdoutRecord_ParseErrorWhileAPromptAwaitsItsAcknowledgement_RefusesItAsTheDirector()
     {
         // Arrange
+        Ready();
         WritePrompt("p1");
 
         // Act
@@ -228,9 +245,9 @@ public sealed class PiDialectTests
     public void OnProcessExited_MidTurn_ReasonCarriesOnlyTheStandardErrorWrittenSinceTheTurnStarted()
     {
         // Arrange
-        WritePrompt("p1");
+        var command = WritePrompt("p1");
         Take(_dialect.OnStderrLine("Warning: No project session found with id 'agent-1'; creating a new session with that id."));
-        Pi("""{"id":"dt-1","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""");
+        Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""");
         Pi("""{"type":"agent_start"}""");
         Take(_dialect.OnStderrLine("Error: out of memory"));
 
@@ -376,5 +393,98 @@ public sealed class PiDialectTests
     {
         // Act + Assert
         Assert.Equal(expected, PiDialect.ToolKind(toolName));
+    }
+
+    [Fact]
+    public void CanWritePrompt_BeforePiHasNamedItsConversation_IsFalse()
+    {
+        // Act + Assert: get_state is written right after start, and no prompt goes before its answer.
+        Assert.False(_dialect.CanWritePrompt);
+        Ready();
+        Assert.True(_dialect.CanWritePrompt);
+    }
+
+    [Fact]
+    public void CanWritePrompt_ResumeThatFoundNoConversation_NeverOpens()
+    {
+        // Arrange: review finding 3 - a prompt held for hand back must not run in the empty conversation Pi made.
+        var resuming = new PiDialect("s1", "agent-1", resuming: true, _clock, _numbering);
+        Assert.False(resuming.CanWritePrompt);
+
+        // Act
+        Ready(resuming, messageCount: 0);
+
+        // Assert
+        Assert.False(resuming.CanWritePrompt);
+        Assert.NotNull(resuming.StopReason);
+    }
+
+    [Fact]
+    public void CanWritePrompt_ResumeThatFoundTheConversation_Opens()
+    {
+        // Arrange
+        var resuming = new PiDialect("s1", "agent-1", resuming: true, _clock, _numbering);
+
+        // Act
+        Ready(resuming, messageCount: 5);
+
+        // Assert
+        Assert.True(resuming.CanWritePrompt);
+    }
+
+    [Fact]
+    public void OnProcessExited_AfterAcknowledgementBeforeTheTurnStarted_ReasonNamesThePromptThatNeverRan()
+    {
+        // Arrange: review finding 1 - Pi promises no turn after 'started'.
+        Ready();
+        var command = WritePrompt("p1");
+        Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""");
+        Assert.Equal(["p1"], _dialect.PromptsAwaitingTurn);
+
+        // Act
+        Take(_dialect.OnProcessExited(137));
+
+        // Assert
+        Assert.Equal(
+        [
+            "PromptDelivered p1 Started",
+            "ConnectionEnded 137: Pi exited (exit code 137). Pi acknowledged prompt(s) p1 and exited before starting their turn []",
+        ], _events.Select(PiWireLogReplay.Describe));
+    }
+
+    [Fact]
+    public void OnStdoutRecord_PromptAcknowledgementWithNoDisposition_RefusedByTheDirectorAndOutOfFlight()
+    {
+        // Arrange: review finding 2 - this shape used to throw after the command was forgotten.
+        Ready();
+        var command = WritePrompt("p1");
+
+        // Act
+        Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":true}""");
+        Take(_dialect.OnProcessExited(0));
+
+        // Assert: rule 1, exactly one receipt.
+        Assert.Equal(
+        [
+            "PromptRefused p1 Director: Pi acknowledged the prompt with a disposition the Director does not know: (none)",
+            "ConnectionEnded 0: Pi exited (exit code 0) []",
+        ], _events.Select(PiWireLogReplay.Describe));
+        Assert.Single(_defects);
+    }
+
+    [Fact]
+    public void OnStdoutRecord_RefusalWithNoErrorText_SaysSoAndReportsADefect()
+    {
+        // Arrange: review finding 4.
+        Ready();
+        var command = WritePrompt("p1");
+
+        // Act
+        Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":false}""");
+
+        // Assert
+        Assert.Equal("Pi refused the prompt and gave no reason", Assert.IsType<PromptRefused>(Assert.Single(_events)).Reason);
+        Assert.Equal(["Pi refused prompt p1 and gave no error text"], _defects);
+        Assert.True(_dialect.CanWritePrompt);
     }
 }
