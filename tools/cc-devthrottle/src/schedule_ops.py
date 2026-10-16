@@ -24,6 +24,16 @@ from . import axi_cli  # noqa: E402
 from . import secret_guard  # noqa: E402
 
 TIMEOUT_SECONDS = 10
+#: How long the Gateway waits for a Director to answer one command: DirectorCommandRouter.DefaultCommandTimeout in
+#: src/CcDirector.Gateway/Api/DirectorCommandRouter.cs. A run now is bounded by it (the session create is that
+#: command), so this tool waits for it rather than guessing. A test reads the C# number, so the two cannot drift.
+GATEWAY_DIRECTOR_COMMAND_SECONDS = 30
+#: The time a run now spends on the Gateway around that command: reading the schedule, its seat and its definition,
+#: and writing the run's record.
+RUN_NOW_MARGIN_SECONDS = 15
+#: How long `schedule run` waits for its answer (Factory Definition, phase 5, QA finding 9). It used to be the 10
+#: seconds every other call waits, while a seat's start takes longer than that.
+RUN_NOW_TIMEOUT_SECONDS = GATEWAY_DIRECTOR_COMMAND_SECONDS + RUN_NOW_MARGIN_SECONDS
 SCHEDULE_RECURRING = "recurring"
 SCHEDULE_ONE_OFF = "oneOff"
 SCHEDULE_RANDOM = "random"
@@ -52,6 +62,15 @@ gateway_override: Optional[str] = None
 #: Aliasing rather than catching both is deliberate: two names for one idea is what caused this, and a
 #: second except clause on every handler would leave the trap in place for the next handler written.
 GatewayError = gateway.GatewayError
+
+
+class GatewayTimeout(GatewayError):
+    """The Gateway did not answer within the wait. Its own failure, so a caller that knows the Gateway goes on
+    working after this tool stops waiting (a run now) can say so instead of reporting a failure."""
+
+    def __init__(self, message: str, seconds: int) -> None:
+        super().__init__(message)
+        self.seconds = seconds
 
 
 def set_gateway_override(value: Optional[str]) -> None:
@@ -87,7 +106,8 @@ class ScheduleClient:
         return headers
 
     def _request(
-        self, method: str, path: str, json_body: Optional[Dict[str, Any]] = None
+        self, method: str, path: str, json_body: Optional[Dict[str, Any]] = None,
+        timeout_seconds: int = TIMEOUT_SECONDS,
     ) -> requests.Response:
         url = f"{self.base_url}{path}"
         try:
@@ -96,7 +116,7 @@ class ScheduleClient:
                 url,
                 json=json_body,
                 headers=self._headers(),
-                timeout=TIMEOUT_SECONDS,
+                timeout=timeout_seconds,
             )
         except requests.exceptions.ConnectionError as exc:
             raise GatewayError(
@@ -105,8 +125,8 @@ class ScheduleClient:
                 "'cc-devthrottle schedule --gateway <url> ...'."
             ) from exc
         except requests.exceptions.Timeout as exc:
-            raise GatewayError(
-                f"Gateway at {self.base_url} did not respond within {TIMEOUT_SECONDS}s."
+            raise GatewayTimeout(
+                f"Gateway at {self.base_url} did not respond within {timeout_seconds}s.", timeout_seconds
             ) from exc
 
     @staticmethod
@@ -154,7 +174,8 @@ class ScheduleClient:
         return self._ok_or_raise(self._request("DELETE", f"/cron/jobs/{job_id}"))
 
     def run_now(self, job_id: str) -> Dict[str, Any]:
-        return self._ok_or_raise(self._request("POST", f"/cron/jobs/{job_id}/run"))
+        return self._ok_or_raise(
+            self._request("POST", f"/cron/jobs/{job_id}/run", timeout_seconds=RUN_NOW_TIMEOUT_SECONDS))
 
     def list_runs(self, job_id: str) -> List[Dict[str, Any]]:
         data = self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}/runs"))
@@ -192,6 +213,11 @@ _CREATE_RANDOM_USAGE = (
 def _fail(message: str, next_commands: List[str]) -> None:
     """Report a failure on standard error with what to run next, and exit 1."""
     axi_cli.fail(message, next_commands)
+
+
+def _fail_unknown(message: str, next_commands: List[str]) -> None:
+    """Report an outcome this tool could not learn - not a failure - on standard error, and exit 1."""
+    axi_cli.fail(message, next_commands, label="Not known yet:")
 
 
 def _create_usage_error(message: str) -> None:
@@ -798,9 +824,21 @@ def show_plan(job_id: str, days: int, json_output: bool) -> None:
     axi_output.write_blocks(sys.stdout, *blocks)
 
 
+def run_now_gave_up(seconds: int) -> str:
+    """What `schedule run` says when it stops waiting. Never that the run failed: the Gateway goes on starting it
+    once it has decided to run (QA finding 9), and only the schedule's runs can say how that went."""
+    return (f"the Gateway did not answer within {seconds} seconds, so whether the run started is not known yet. "
+            "It may still be starting: the Gateway goes on with it after this command stops waiting. "
+            "The schedule's runs show how it went.")
+
+
 def run_now(job_id: str, json_output: bool) -> None:
     try:
         record = _client().run_now(job_id)
+    except GatewayTimeout as ex:
+        _fail_unknown(run_now_gave_up(ex.seconds),
+                      [f"cc-devthrottle schedule runs {axi_cli.bare(job_id, '<schedule-id>')}"])
+        return
     except GatewayError as ex:
         _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return

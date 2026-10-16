@@ -185,7 +185,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
                 : null,
             runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), accountZoneOf: _ => TimeZoneInfo.Utc,
             isDefined: (_, _) => false);
-        CronRunEndpoints.Map(app, engine, new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf, accountZoneOf: _ => TimeZoneInfo.Utc);
+        CronRunEndpoints.Map(app, engine, new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf, accountZoneOf: _ => TimeZoneInfo.Utc, runLifetime: CancellationToken.None);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),

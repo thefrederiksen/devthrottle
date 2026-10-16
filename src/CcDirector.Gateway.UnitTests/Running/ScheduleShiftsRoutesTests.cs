@@ -46,7 +46,7 @@ public sealed class ScheduleShiftsRoutesTests : IAsyncLifetime
         var engine = new CronEngine(_store, history, new RecordingStarter(), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FakeClock(EngineNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,
-            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, accountZoneOf: _ => _zone);
+            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, accountZoneOf: _ => _zone, runLifetime: CancellationToken.None);
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First() + "/") };
     }

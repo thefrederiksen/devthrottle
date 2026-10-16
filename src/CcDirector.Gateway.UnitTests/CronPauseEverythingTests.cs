@@ -106,7 +106,7 @@ public sealed class CronPauseEverythingTests : IAsyncDisposable
             new CronRunRecordReader(History, _ => new Dictionary<string, SessionEndingFact>()),
             jobById: id => Store.Get(id),
             sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
-            accountZoneOf: _ => TimeZoneInfo.Utc);
+            accountZoneOf: _ => TimeZoneInfo.Utc, runLifetime: CancellationToken.None);
         await app.StartAsync();
         _app = app;
         _http = new HttpClient { BaseAddress = new Uri(app.Urls.First() + "/") };

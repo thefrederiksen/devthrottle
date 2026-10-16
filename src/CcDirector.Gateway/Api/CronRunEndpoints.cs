@@ -34,7 +34,11 @@ internal static class CronRunEndpoints
         // Factory Control, step 3: the calling account's display time zone, which every run's shift is counted in.
         // Null when the request has no account to read it from; the runs are then listed without a shift. REQUIRED
         // for the same reason as the two above.
-        Func<HttpContext, TimeZoneInfo?> accountZoneOf)
+        Func<HttpContext, TimeZoneInfo?> accountZoneOf,
+        // Factory Definition, phase 5 (QA finding 9): the lifetime a run now runs on once the Gateway has decided to
+        // make it - the Gateway's own, cancelled only when the host stops, never by the request. REQUIRED, so a wiring
+        // line that forgot it fails to compile rather than handing the run the request's abort again.
+        CancellationToken runLifetime)
     {
         ArgumentNullException.ThrowIfNull(jobById);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
@@ -47,7 +51,16 @@ internal static class CronRunEndpoints
             if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, jobById(id)?.Factory, "schedule",
                     $"POST /cron/jobs/{id}/run", out var actError))
                 return actError!;
-            var result = await engine.RunNowAsync(id, ctx.RequestAborted);
+            // THE PERSON GOING AWAY DOES NOT CANCEL THE RUN (QA finding 9). A seat's start takes longer than a caller
+            // may wait (its kit, its secrets, a pooled folder, the folder's trust). It used to run on ctx.RequestAborted:
+            // `schedule run` gave up at 10 seconds, the create to the Director was cancelled, the router read SignalR's
+            // cancelled invocation as a dropped connection, and the run was recorded as never started - while the
+            // Director carried the create on and the seat ran. The run is bounded instead by the Gateway's own limit
+            // for the create (DirectorCommandRouter.DefaultCommandTimeout) and by the host stopping, so its record
+            // says what happened: started, refused with the Director's sentence, or a Director fault.
+            var result = await engine.RunNowAsync(id, runLifetime);
+            if (ctx.RequestAborted.IsCancellationRequested)
+                FileLog.Write($"[CronRunEndpoints] POST /cron/jobs/{id}/run: the caller went away before the answer; the run was recorded as {result.Record?.InfraStatus ?? result.Outcome.ToString()}");
             // The fire is answered with the task status its read would carry: a run now of a schedule with a check
             // reads "checking", not "unknown" (CronRunEndingFold.TaskStatusOf).
             if (result.Record is { } fired)
