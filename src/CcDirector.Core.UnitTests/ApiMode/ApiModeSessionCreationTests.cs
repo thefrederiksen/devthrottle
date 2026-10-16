@@ -129,7 +129,8 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         // Assert: Pi was started as terminal mode would start it - same executable, same folder, same --session-id
         // and preamble file - with --mode rpc ahead, the inherited CC_ variables removed and the session's own applied.
         var started = pi.Process.StartedWith!;
-        Assert.Equal(Path.GetFullPath(_piResolved), started.Executable);
+        // Windows paths are not case-sensitive, and the resolver takes the extension's casing from PATHEXT (pi.CMD).
+        Assert.Equal(Path.GetFullPath(_piResolved), started.Executable, ignoreCase: OperatingSystem.IsWindows());
         Assert.Equal(_repo, started.WorkingDirectory);
         Assert.Equal(["--mode", "rpc", "--session-id"], started.Arguments.Take(3));
         Assert.Equal(session.ClaudeSessionId, started.Arguments[3]);
