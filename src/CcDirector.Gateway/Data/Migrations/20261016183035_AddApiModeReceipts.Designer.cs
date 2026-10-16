@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261016143141_AddApiModeReceipts")]
+    [Migration("20261016183035_AddApiModeReceipts")]
     partial class AddApiModeReceipts
     {
         /// <inheritdoc />
@@ -457,6 +457,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("SessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(320)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TargetDirectorId")

@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261016143241_AddApiModeReceipts")]
+    [Migration("20261016183115_AddApiModeReceipts")]
     partial class AddApiModeReceipts
     {
         /// <inheritdoc />
@@ -469,6 +469,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<string>("SessionId")
                         .HasColumnType("text");
+
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
 
                     b.Property<string>("TargetDirectorId")
                         .IsRequired()
