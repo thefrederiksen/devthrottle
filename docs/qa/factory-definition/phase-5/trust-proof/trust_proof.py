@@ -2,8 +2,15 @@
 
 Runs the REAL Claude Code on this machine, interactively, in a pseudo-terminal, in scratch folders under the
 temporary directory, and reads its first screen: either the folder-trust question ("Quick safety check") or the
-ready prompt. No prompt is ever sent to the agent, so no model is called. Every scratch folder is deleted afterwards
-and every entry this run put in ~/.claude.json - or Claude Code put there for a scratch folder - is removed.
+ready prompt. No prompt is ever sent to the agent, so no model is called.
+
+CLEAN-UP DELETES ONLY WHAT THIS RUN MADE, BY EXACT PATH - NEVER BY A NAME PATTERN (the Ledger below). It records the
+scratch root it made, every folder it made or had git make inside it, and every folder it started Claude Code in, and
+it snapshots the ~/.claude.json project keys and the ~/.claude/projects folders that existed before it started. It then
+deletes: a project key only when it is exactly the key of a folder in the ledger AND was absent before the run; a
+~/.claude/projects folder only when it is exactly the one Claude Code names for a folder the agent ran in AND was absent
+before the run; the scratch root only by its recorded path, directly under the temporary directory; and the lock only
+when this run made it. Anything else is left alone and reported.
 
 Every write to ~/.claude.json takes Claude Code's own lock first (the directory ~/.claude.json.lock, the
 proper-lockfile protocol Claude Code uses), re-reads the file under it, changes only the one entry, and replaces the
@@ -33,7 +40,7 @@ from winpty import PtyProcess
 CLAUDE = shutil.which("claude") or str(Path.home() / ".local" / "bin" / "claude.exe")
 CONFIG = Path.home() / ".claude.json"
 LOCK = Path(str(CONFIG) + ".lock")
-STALE_SECONDS = 10.0  # proper-lockfile's default stale age, which Claude Code keeps
+PROJECTS = Path.home() / ".claude" / "projects"
 OUT = Path(__file__).with_name("trust-proof-output.txt")
 HOME_MARK = str(Path.home())
 CLAUDE_ARGS: list[str] = []  # the trust cases launch the bare command; the prompt-file proof sets its own
@@ -55,31 +62,23 @@ def key(folder: Path) -> str:
 # ---------------------------------------------------------------- the lock-respecting writer
 
 
-def take_lock(timeout: float = 10.0) -> None:
+def take_lock(timeout: float = 30.0) -> None:
+    """Make the lock, or wait for its holder to remove it. A lock this run did not make is NEVER removed here, stale or
+    not: a running Claude Code clears a stale one on its own next write."""
     deadline = time.monotonic() + timeout
     while True:
         try:
             os.mkdir(LOCK)
             return
         except FileExistsError:
-            try:
-                age = time.time() - LOCK.stat().st_mtime
-            except FileNotFoundError:
-                continue
-            if age > STALE_SECONDS:
-                say(f"  (a lock {age:.0f}s old is stale by Claude Code's own rule; removing it)")
-                try:
-                    os.rmdir(LOCK)
-                except OSError:
-                    pass
-                continue
             if time.monotonic() > deadline:
-                raise SystemExit(f"{LOCK} stayed held for {timeout}s; nothing was written.")
+                raise SystemExit(f"{LOCK} stayed held for {timeout}s and is not this run's to remove; nothing was written.")
             time.sleep(0.05)
 
 
 def edit_config(change) -> None:
     take_lock()
+    # From here the lock is this run's own: it is removed below, and by this function only.
     try:
         data = json.loads(CONFIG.read_text(encoding="utf-8"))
         change(data.setdefault("projects", {}))
@@ -100,7 +99,102 @@ def trust(folder: Path) -> None:
     say(f"  wrote projects['{k}'].hasTrustDialogAccepted = true")
 
 
+def project_keys() -> set[str]:
+    return set(json.loads(CONFIG.read_text(encoding="utf-8")).get("projects", {}))
+
+
+def claude_project_folder(folder: Path) -> Path:
+    """The folder Claude Code keeps a session's transcript in: the working folder's full path with every character that
+    is not a letter or digit replaced by '-' (as ~/.claude/projects shows, e.g. D--ReposFred--wt-fd-p5-p7)."""
+    return PROJECTS / "".join(c if c.isascii() and c.isalnum() else "-" for c in str(folder.resolve()))
+
+
+class Ledger:
+    """Everything this run made, by exact path. Clean-up deletes what is in here and nothing else."""
+
+    def __init__(self, prefix: str):
+        self.temp = Path(tempfile.gettempdir()).resolve()
+        self.keys_before = project_keys()
+        self.project_folders_before = {d.name for d in PROJECTS.iterdir()} if PROJECTS.exists() else set()
+        self.root = self.temp / f"{prefix}-{uuid.uuid4().hex[:8]}"
+        self.root.mkdir()  # fails if it exists: the root is always new
+        self.folders: list[Path] = [self.root]
+        self.agent_folders: list[Path] = []
+
+    def make(self, folder: Path) -> Path:
+        """Make a folder inside the root, recording it and every parent it had to make."""
+        folder = folder.resolve()
+        self._inside(folder)
+        missing = []
+        p = folder
+        while not p.exists():
+            missing.append(p)
+            p = p.parent
+        folder.mkdir(parents=True)
+        self.folders.extend(reversed(missing))
+        return folder
+
+    def made_by_git(self, folder: Path) -> Path:
+        """Record a folder git made at a path this run named."""
+        folder = folder.resolve()
+        self._inside(folder)
+        self.folders.append(folder)
+        return folder
+
+    def agent_ran_in(self, folder: Path) -> None:
+        self.agent_folders.append(folder.resolve())
+
+    def _inside(self, folder: Path) -> None:
+        if self.root not in folder.parents and folder != self.root:
+            raise SystemExit(f"{folder} is not inside this run's scratch root {self.root}; refused.")
+
+    def clean_up(self) -> None:
+        say("")
+        say("CLEAN-UP (only what the ledger holds, by exact path)")
+        # 1. Project keys: exactly a ledger folder's key, and absent before the run.
+        ours = {key(f) for f in self.folders} - self.keys_before
+        removed: list[str] = []
+
+        def drop(projects):
+            for k in sorted(ours & set(projects)):
+                removed.append(k)
+                del projects[k]
+
+        edit_config(drop)
+        for k in removed:
+            say(f"  removed projects['{k}']")
+        say(f"  project keys of ledger folders left: {len(ours & project_keys())}")
+        # 2. Claude Code's transcript folders: exactly the one named for a folder the agent ran in, absent before.
+        for folder in dict.fromkeys(self.agent_folders):
+            named = claude_project_folder(folder)
+            if named.name in self.project_folders_before:
+                say(f"  KEPT {named.name}: it existed before this run")
+                continue
+            if named.is_dir():
+                shutil.rmtree(named)
+                say(f"  removed Claude Code's folder for {key(folder)}: {not named.exists()}")
+        # 3. The scratch root, by its recorded path, only directly under the temporary directory.
+        if self.root.parent != self.temp:
+            raise SystemExit(f"{self.root} is not directly under {self.temp}; refused.")
+
+        def writable_then_delete(func, path, _exc):  # git writes its objects read-only
+            os.chmod(path, 0o666)
+            func(path)
+
+        for _ in range(20):  # a killed agent's child processes can hold a folder open for a few seconds
+            try:
+                shutil.rmtree(self.root, onexc=writable_then_delete)
+            except OSError:
+                pass
+            if not self.root.exists():
+                break
+            time.sleep(1.0)
+        say(f"  scratch root exists afterwards: {self.root.exists()}")
+        say(f"  {LOCK.name} exists afterwards: {LOCK.exists()}")
+
+
 def entries_under(prefix: str) -> dict:
+    """READ ONLY, for the report: the project entries under the scratch root. Never used to choose a delete."""
     projects = json.loads(CONFIG.read_text(encoding="utf-8")).get("projects", {})
     p = prefix.lower().replace("\\", "/")
     return {k: v for k, v in projects.items() if k.lower().replace("\\", "/").startswith(p)}
@@ -117,6 +211,7 @@ class Seat:
         # The agent starts as a person's would: none of the variables of the session running this proof (a Claude Code
         # child-session marker, this session's fleet identity and pointer file) reach it.
         env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("CLAUDE", "CC_"))}
+        LEDGER.agent_ran_in(folder)
         self.proc = PtyProcess.spawn([CLAUDE, *CLAUDE_ARGS], cwd=str(folder), dimensions=(32, 120), env=env)
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -195,7 +290,7 @@ def git(*args, cwd: Path):
 
 
 def make_repo(path: Path) -> None:
-    path.mkdir(parents=True)
+    LEDGER.make(path)
     git("init", "-q", cwd=path)
     (path / "readme.txt").write_text("scratch\n", encoding="ascii")
     git("add", ".", cwd=path)
@@ -204,15 +299,20 @@ def make_repo(path: Path) -> None:
 
 def add_worktree(repo: Path, slot: Path) -> None:
     git("worktree", "add", "-q", "--detach", str(slot), cwd=repo)
+    LEDGER.made_by_git(slot)
 
 
 # ---------------------------------------------------------------- the cases
 
 
+LEDGER: Ledger  # set by the script that runs: main() here, or prompt_file_proof.py
+
+
 def main() -> int:
+    global LEDGER
     v = subprocess.run([CLAUDE, "--version"], capture_output=True, text=True).stdout.strip()
-    scratch = Path(tempfile.gettempdir()) / f"fd-p7-trust-{uuid.uuid4().hex[:8]}"
-    scratch.mkdir()
+    LEDGER = Ledger("fd-p7-trust")
+    scratch = LEDGER.root
     sk = key(scratch)
     say(f"Claude Code: {v}")
     say(f"Configuration file: {CONFIG}")
@@ -226,8 +326,7 @@ def main() -> int:
     try:
         say("")
         say("CASE A - a new plain folder, nothing trusted. Accept the question, then read what was recorded.")
-        a = scratch / "plain-a"
-        a.mkdir()
+        a = LEDGER.make(scratch / "plain-a")
         first_screen(a, accept=True, recorded=lambda: any(v.get("hasTrustDialogAccepted") for v in entries_under(sk).values()))
         for k2, v2 in entries_under(sk).items():
             say(f"  recorded: projects['{k2}'].hasTrustDialogAccepted = {v2.get('hasTrustDialogAccepted')}")
@@ -237,21 +336,18 @@ def main() -> int:
         say("")
         say("CASE B - a trusted PARENT (not a git repository): a new folder two levels beneath it.")
         parent = scratch / "factory-run"
-        child = parent / "11111111-2222-3333-4444-555555555555" / "work"
-        child.mkdir(parents=True)
+        child = LEDGER.make(parent / "11111111-2222-3333-4444-555555555555" / "work")
         trust(parent)
         first_screen(child)
         say("  a sibling of the trusted parent, for contrast:")
-        sib = scratch / "factory-run-sibling" / "work"
-        sib.mkdir(parents=True)
+        sib = LEDGER.make(scratch / "factory-run-sibling" / "work")
         first_screen(sib)
 
         say("")
         say("CASE C - a git worktree (a pooled slot) of an untrusted repository. Accept, then read what was recorded.")
         repo = scratch / "repo"
         make_repo(repo)
-        pool = scratch / "repo.worktrees"
-        pool.mkdir()
+        pool = LEDGER.make(scratch / "repo.worktrees")
         wt01 = pool / "wt01"
         add_worktree(repo, wt01)
         before = set(entries_under(sk))
@@ -266,8 +362,7 @@ def main() -> int:
         say("CASE D - the POOL ROOT (repo3.worktrees, not itself a repository) trusted: a new slot beneath it.")
         repo3 = scratch / "repo3"
         make_repo(repo3)
-        pool3 = scratch / "repo3.worktrees"
-        pool3.mkdir()
+        pool3 = LEDGER.make(scratch / "repo3.worktrees")
         add_worktree(repo3, pool3 / "wt01")
         say("  control, before the pool root is trusted:")
         first_screen(pool3 / "wt01")
@@ -279,8 +374,7 @@ def main() -> int:
         say("CASE E - the slot's OWN folder trusted, written before Claude Code ever opened it (repository untrusted).")
         repo4 = scratch / "repo4"
         make_repo(repo4)
-        pool4 = scratch / "repo4.worktrees"
-        pool4.mkdir()
+        pool4 = LEDGER.make(scratch / "repo4.worktrees")
         add_worktree(repo4, pool4 / "wt01")
         add_worktree(repo4, pool4 / "wt02")
         trust(pool4 / "wt01")
@@ -294,45 +388,11 @@ def main() -> int:
         make_repo(repo2)
         trust(repo2)
         r2wt = scratch / "repo2.worktrees" / "wt01"
-        r2wt.parent.mkdir()
+        LEDGER.make(r2wt.parent)
         add_worktree(repo2, r2wt)
         first_screen(r2wt)
     finally:
-        say("")
-        say("CLEAN-UP")
-        removed: list[str] = []
-
-        def drop(projects):
-            p2 = sk.lower()
-            for k2 in [k3 for k3 in projects if k3.lower().replace("\\", "/").startswith(p2)]:
-                removed.append(k2)
-                del projects[k2]
-
-        edit_config(drop)
-        for k2 in sorted(removed):
-            say(f"  removed projects['{k2}']")
-        say(f"  entries left under the scratch root: {len(entries_under(sk))}")
-        # The folders Claude Code made for the scratch sessions in its own projects folder go too.
-        projects_dir = Path.home() / ".claude" / "projects"
-        for folder in [d for d in projects_dir.iterdir() if scratch.name in d.name] if projects_dir.exists() else []:
-            shutil.rmtree(folder, ignore_errors=True)
-            say(f"  removed Claude Code's folder for a scratch session: {not folder.exists()}")
-        # A killed agent's child processes can hold a folder open for a few seconds.
-        # Git writes its objects read-only, which a plain delete on Windows refuses.
-        def writable_then_delete(func, path, _exc):
-            os.chmod(path, 0o666)
-            func(path)
-
-        for _ in range(20):
-            try:
-                shutil.rmtree(scratch, onexc=writable_then_delete)
-            except OSError:
-                pass
-            if not scratch.exists():
-                break
-            time.sleep(1.0)
-        say(f"  scratch root exists afterwards: {scratch.exists()}")
-        say(f"  {LOCK.name} exists afterwards: {LOCK.exists()}")
+        LEDGER.clean_up()
         OUT.write_text("\n".join(lines) + "\n", encoding="ascii", errors="replace")
     return 0
 

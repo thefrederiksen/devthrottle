@@ -18,18 +18,14 @@ Output: prompt-file-proof-output.txt beside this script.
 from __future__ import annotations
 
 import json
-import shutil
 import sys
-import tempfile
 import time
-import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import trust_proof as tp  # noqa: E402  (the lock-respecting writer and the pseudo-terminal seat)
 
 OUT = Path(__file__).with_name("prompt-file-proof-output.txt")
-PROJECTS = Path.home() / ".claude" / "projects"
 
 
 def loose(text: str) -> str:
@@ -37,13 +33,18 @@ def loose(text: str) -> str:
     return "".join(c for c in text if c.isalnum())
 
 
-def transcript_check(scratch_id: str, typed: str, file_name: str) -> None:
-    """Find the scratch session's own transcript and say whether its user line holds what the Director typed, the way
+def transcripts(cwd: Path) -> list[Path]:
+    """The scratch session's own transcripts: only the one folder Claude Code names for the exact working folder."""
+    folder = tp.claude_project_folder(cwd)
+    return sorted(folder.glob("*.jsonl")) if folder.is_dir() else []
+
+
+def transcript_check(cwd: Path, typed: str, file_name: str) -> None:
+    """Read the scratch session's own transcript and say whether its user line holds what the Director typed, the way
     PromptArrival looks for it (the first 80 letters and digits)."""
-    folders = [d for d in PROJECTS.iterdir() if scratch_id in d.name] if PROJECTS.exists() else []
+    files = transcripts(cwd)
     needle = loose(typed)[:80]
-    for folder in folders:
-        for f in folder.glob("*.jsonl"):
+    for f in files:
             for raw in f.read_text(encoding="utf-8", errors="replace").splitlines():
                 try:
                     line = json.loads(raw)
@@ -59,8 +60,7 @@ def transcript_check(scratch_id: str, typed: str, file_name: str) -> None:
                     tp.say(f"  holds what was typed, as PromptArrival matches it: {needle in loose(text)}")
                     return
     tp.say(f"  NO transcript user line found for {typed}; the user lines were:")
-    for folder in folders:
-        for f in folder.glob("*.jsonl"):
+    for f in files:
             for raw in f.read_text(encoding="utf-8", errors="replace").splitlines():
                 if '"type":"user"' in raw.replace(" ", ""):
                     tp.say(f"    | {raw[:600]}")
@@ -73,7 +73,7 @@ def reference(path: Path) -> str:
 
 
 def ask(cwd: Path, prompt_file: Path, marker: str) -> None:
-    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    tp.LEDGER.make(prompt_file.parent)
     prompt_file.write_text(
         "This is a test of reading a prompt from a file.\n"
         f"Reply with exactly this one word and nothing else: {marker}\n", encoding="ascii")
@@ -98,10 +98,9 @@ def ask(cwd: Path, prompt_file: Path, marker: str) -> None:
                 tp.say(f"  answer on screen: {answered[-1].strip()}")
                 deadline2 = time.monotonic() + 30.0
                 while time.monotonic() < deadline2 and not any(
-                        prompt_file.name in f.read_text(encoding="utf-8", errors="replace")
-                        for d in PROJECTS.iterdir() if cwd.parent.name in d.name for f in d.glob("*.jsonl")):
+                        prompt_file.name in f.read_text(encoding="utf-8", errors="replace") for f in transcripts(cwd)):
                     time.sleep(0.5)
-                transcript_check(cwd.parent.name, ref, prompt_file.name)
+                transcript_check(cwd, ref, prompt_file.name)
                 return
             time.sleep(0.5)
         tp.say("  NO ANSWER within 120s. The screen:")
@@ -113,9 +112,10 @@ def ask(cwd: Path, prompt_file: Path, marker: str) -> None:
 
 
 def main() -> int:
-    scratch = Path(tempfile.gettempdir()) / f"fd-p7-prompt-{uuid.uuid4().hex[:8]}"
-    cwd = scratch / "slot"
-    cwd.mkdir(parents=True)
+    # Every folder this run makes, and every delete its clean-up does, goes through the ledger (trust_proof.Ledger).
+    tp.LEDGER = tp.Ledger("fd-p7-prompt")
+    scratch = tp.LEDGER.root
+    cwd = tp.LEDGER.make(scratch / "slot")
     tp.say(f"Scratch root: {tp.key(scratch)}")
     try:
         tp.trust(cwd)
@@ -130,28 +130,7 @@ def main() -> int:
         tp.say("The working folder afterwards (it must hold no .temp folder):")
         tp.say(f"  .temp exists: {(cwd / '.temp').exists()}")
     finally:
-        tp.say("")
-        tp.say("CLEAN-UP")
-        removed: list[str] = []
-        prefix = tp.key(scratch).lower()
-
-        def drop(projects):
-            for k in [k for k in projects if k.lower().replace("\\", "/").startswith(prefix)]:
-                removed.append(k)
-                del projects[k]
-
-        tp.edit_config(drop)
-        for k in sorted(removed):
-            tp.say(f"  removed projects['{k}']")
-        for folder in [d for d in PROJECTS.iterdir() if scratch.name in d.name] if PROJECTS.exists() else []:
-            shutil.rmtree(folder, ignore_errors=True)
-            tp.say(f"  removed the scratch session's transcript folder: {not folder.exists()}")
-        for _ in range(20):
-            shutil.rmtree(scratch, ignore_errors=True)
-            if not scratch.exists():
-                break
-            time.sleep(1.0)
-        tp.say(f"  scratch root exists afterwards: {scratch.exists()}")
+        tp.LEDGER.clean_up()
         OUT.write_text("\n".join(tp.lines) + "\n", encoding="ascii", errors="replace")
     return 0
 

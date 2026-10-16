@@ -27,12 +27,16 @@ namespace CcDirector.Core.Claude;
 ///
 /// THE WRITE IS SAFE AGAINST THE CLAUDE CODE PROCESSES THAT REWRITE THE SAME FILE WHILE THEY RUN. Claude Code takes
 /// the lock <c>&lt;file&gt;.lock</c> - a directory, by the proper-lockfile protocol: made with a call that fails when it
-/// exists, renewed while held, and stale after <see cref="StaleAfter"/> without renewal - then re-reads the file, changes
+/// exists, and renewed while held - then re-reads the file, changes
 /// it, writes a temporary file beside it and renames it over the file. This does the same, in the same order: it takes
 /// THAT lock, re-reads the file under it, changes only the one entry's <c>hasTrustDialogAccepted</c> (every other key,
 /// and every other field of that entry, is kept as read), writes <c>&lt;file&gt;.tmp.&lt;pid&gt;.&lt;random&gt;</c> and
 /// renames it over the file, then removes the lock. A Claude Code process waits for the lock, so it never writes between
 /// this read and this rename, and its own next write starts from a file that already carries the entry.
+///
+/// IT DELETES ONLY WHAT IT MADE: the lock it made itself, and its own temporary file if the rename fails. A lock it did
+/// not make is never removed, however old - not even one the protocol would call stale; it is waited for, then the start
+/// is refused.
 ///
 /// NOTHING IS WRITTEN WHEN THE FOLDER IS ALREADY TRUSTED, so most starts do not take the lock at all. A file that cannot
 /// be read, a lock that stays held, or a write that fails REFUSES the seat start in words, rather than starting a seat
@@ -40,9 +44,6 @@ namespace CcDirector.Core.Claude;
 /// </summary>
 public sealed class ClaudeFolderTrust
 {
-    /// <summary>proper-lockfile's default, which Claude Code keeps: a lock not renewed for this long is abandoned.</summary>
-    public static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(10);
-
     /// <summary>How long a start waits for a held lock before it refuses.</summary>
     public static readonly TimeSpan LockWait = TimeSpan.FromSeconds(10);
 
@@ -220,57 +221,31 @@ public sealed class ClaudeFolderTrust
 
     private void TakeLock(string folder)
     {
+        // A LOCK THIS DIRECTOR DID NOT MAKE IS NEVER REMOVED, however old it looks. It is waited for, and when it is still
+        // there after LockWait the start is refused. A lock left by a Claude Code that died is cleared by the next
+        // running Claude Code's own write, so starting the seat again is the remedy.
         var started = _clock.GetUtcNow();
         while (true)
         {
             if (MakeDirectoryExclusive(LockPath))
                 return;
-
-            DateTimeOffset renewed;
-            try
-            {
-                renewed = new DateTimeOffset(Directory.GetLastWriteTimeUtc(LockPath), TimeSpan.Zero);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                continue; // released between the two calls: take it on the next pass
-            }
-            if (!Directory.Exists(LockPath))
-                continue;
-
-            var now = _clock.GetUtcNow();
-            if (now - renewed > StaleAfter)
-            {
-                // The protocol's own rule: a lock nobody renewed for that long belongs to a process that is gone.
-                FileLog.Write($"[ClaudeFolderTrust] TakeLock: {LockPath} was last renewed {(now - renewed).TotalSeconds:F0}s ago; removing it as stale");
-                try
-                {
-                    Directory.Delete(LockPath, recursive: false);
-                    continue;
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    // Taken over or not removable: it is waited for like a held lock, so this never spins.
-                    // not-an-error: another process may take a stale lock over first; the wait below decides
-                    FileLog.Write($"[ClaudeFolderTrust] TakeLock: the stale {LockPath} could not be removed: {ex.Message}");
-                }
-            }
-            if (now - started >= LockWait)
+            if (_clock.GetUtcNow() - started >= LockWait)
                 throw new ClaudeFolderTrustException(
-                    $"No seat was started: the folder {folder} could not be marked trusted, because another Claude Code " +
-                    $"process held the lock on {ConfigPath} for the {LockWait.TotalSeconds:F0} seconds this Director " +
-                    "waited, and the seat would wait at Claude Code's folder-trust question with nobody to answer it. " +
-                    "Start the seat again in a moment.");
+                    $"No seat was started: the folder {folder} could not be marked trusted, because the lock on {ConfigPath} " +
+                    $"that Claude Code takes to write it stayed in place for the {LockWait.TotalSeconds:F0} seconds this " +
+                    "Director waited, and the seat would wait at Claude Code's folder-trust question with nobody to answer " +
+                    "it. Start the seat again in a moment.");
             _pause(PollInterval);
         }
     }
 
+    /// <summary>Remove the lock - only ever called after <see cref="TakeLock"/> made it, so it is this Director's own.</summary>
     private void ReleaseLock()
     {
         try { Directory.Delete(LockPath, recursive: false); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Logged, not thrown: the entry is written; the lock goes stale and the next taker removes it.
+            // Logged, not thrown: the entry is written; a lock left behind is waited for by every taker.
             FileLog.Write($"[ClaudeFolderTrust] ReleaseLock FAILED: {LockPath}: {ex.Message}");
         }
     }

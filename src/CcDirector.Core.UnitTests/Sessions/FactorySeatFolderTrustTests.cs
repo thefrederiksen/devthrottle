@@ -227,7 +227,7 @@ public sealed class FactorySeatFolderTrustTests : IDisposable
 
         var error = Assert.Throws<ClaudeFolderTrustException>(() => Create(manager, ClaudeCode(), Seat(home: true)));
 
-        Assert.Contains($"another Claude Code process held the lock on {Config} for the 10 seconds this Director waited", error.Message);
+        Assert.Contains($"the lock on {Config} that Claude Code takes to write it stayed in place for the 10 seconds this Director waited", error.Message);
         Assert.Empty(manager.ListSessions());
     }
 

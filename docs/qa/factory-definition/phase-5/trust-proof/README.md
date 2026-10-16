@@ -32,8 +32,19 @@ gained no `.temp`.
 ## How the writes to `~/.claude.json` are made safe
 
 The same way in these scripts and in the Director (`ClaudeFolderTrust`): take Claude Code's own lock, the directory
-`~/.claude.json.lock` (proper-lockfile; a lock not renewed for 10 seconds is stale), re-read the file under it, change
-only the one entry, write a temporary file beside it and rename it over the file, remove the lock.
+`~/.claude.json.lock` (proper-lockfile), re-read the file under it, change only the one entry, write a temporary file
+beside it and rename it over the file, remove the lock. A lock neither made is never removed, however old: it is
+waited for, then the write is refused.
+
+## What the clean-up deletes
+
+Only what the run made, by exact path, never by a name pattern (`Ledger` in `trust_proof.py`, used by both scripts):
+
+- a `~/.claude.json` project key only when it is exactly the key of a folder the run made AND was absent before the run;
+- a `~/.claude/projects` folder only when it is exactly the one Claude Code names for a folder the agent ran in AND was
+  absent before the run;
+- the scratch root, by its recorded path, only when it is directly under the temporary directory;
+- the lock, only when the run made it.
 
 ## Run
 

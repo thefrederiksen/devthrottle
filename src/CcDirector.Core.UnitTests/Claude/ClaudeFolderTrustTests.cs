@@ -174,9 +174,10 @@ public sealed class ClaudeFolderTrustTests : IDisposable
 
         var error = Assert.Throws<ClaudeFolderTrustException>(() => Trust(onPause: Renew).Trust(Folder("work")));
 
-        Assert.Equal($"No seat was started: the folder {Folder("work")} could not be marked trusted, because another Claude Code " +
-                     $"process held the lock on {Config} for the 10 seconds this Director waited, and the seat would wait at " +
-                     "Claude Code's folder-trust question with nobody to answer it. Start the seat again in a moment.", error.Message);
+        Assert.Equal($"No seat was started: the folder {Folder("work")} could not be marked trusted, because the lock on {Config} " +
+                     "that Claude Code takes to write it stayed in place for the 10 seconds this Director waited, and the seat " +
+                     "would wait at Claude Code's folder-trust question with nobody to answer it. Start the seat again in a moment.",
+            error.Message);
         Assert.Equal(bytes, File.ReadAllBytes(Config));
         Assert.True(Directory.Exists(lockDir), "a lock another process holds is never removed");
         Assert.Equal(TimeSpan.FromSeconds(10), _pauses.Aggregate(TimeSpan.Zero, (a, b) => a + b));
@@ -199,19 +200,19 @@ public sealed class ClaudeFolderTrustTests : IDisposable
     }
 
     [Fact]
-    public void Trust_ALockNobodyRenewedForOverTenSeconds_IsRemovedAsStaleAndTheWriteGoesAhead()
+    public void Trust_ALockItDidNotMake_IsNeverRemovedHoweverOldAndTheStartRefuses()
     {
         WriteTypicalConfig();
+        var bytes = File.ReadAllBytes(Config);
         var lockDir = Config + ".lock";
         Directory.CreateDirectory(lockDir);
-        Directory.SetLastWriteTimeUtc(lockDir, _clock.GetUtcNow().UtcDateTime - TimeSpan.FromSeconds(11));
-        var folder = Folder("work");
+        Directory.SetLastWriteTimeUtc(lockDir, _clock.GetUtcNow().UtcDateTime - TimeSpan.FromHours(3));
 
-        Trust().Trust(folder);
+        var error = Assert.Throws<ClaudeFolderTrustException>(() => Trust().Trust(Folder("work")));
 
-        Assert.Empty(_pauses);
-        Assert.True(Projects()[ClaudeFolderTrust.KeyFor(folder)]!["hasTrustDialogAccepted"]!.GetValue<bool>());
-        Assert.False(Directory.Exists(lockDir));
+        Assert.Contains("stayed in place for the 10 seconds this Director waited", error.Message);
+        Assert.True(Directory.Exists(lockDir), "a lock this Director did not make is never removed");
+        Assert.Equal(bytes, File.ReadAllBytes(Config));
     }
 
     [Fact]
