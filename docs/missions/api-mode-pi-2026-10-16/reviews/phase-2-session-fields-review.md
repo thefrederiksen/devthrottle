@@ -105,7 +105,13 @@ code: say that the wheel is an API-mode fact, that in terminal mode the row alwa
 there is no wheel to hold, and that `none` on an API-mode row means the protocol process has stopped and
 no terminal has taken over. The values themselves need not change.
 
-Developer's answer:
+Developer's answer: **Accepted.** The finding is right: in terminal mode the agent's terminal process holds the
+conversation, so "no agent process holds it" was false for every terminal-mode row and every older Director's
+row, and phase 4's ownership lock could read it as permission to start the protocol process. The values are
+unchanged; only the words are fixed, in `SessionDto.WheelHolder` and `WheelHolders.None`: the wheel is an
+API-mode fact; a terminal-mode row always reads `none` because there is no wheel to hold, and that `none` does
+not mean nothing holds the conversation; `none` on an API-mode row means the protocol process has stopped and no
+terminal has taken over; and `none` is read only together with `ConnectionMode` `api`, never alone.
 
 ## Observations (not findings)
 

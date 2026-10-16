@@ -413,10 +413,17 @@ public sealed class SessionDto
     public string ConnectionMode { get; set; } = ConnectionModes.Terminal;
 
     /// <summary>
-    /// WHO HOLDS THE CONVERSATION RIGHT NOW - one of <see cref="WheelHolders"/>: <c>none</c> (no agent process holds
-    /// it), <c>protocol</c> (the API-mode protocol process) or <c>user</c> (the user in the agent's real terminal,
-    /// who took the wheel). Exactly one process holds a conversation at any moment (mission #4070). Reported by the
-    /// owning Director. A Director too old to report it sends nothing, and the row reads <c>none</c>.
+    /// WHO HOLDS THE WHEEL OF AN API-MODE CONVERSATION RIGHT NOW - one of <see cref="WheelHolders"/>. The wheel is an
+    /// API-mode fact: <c>protocol</c> (the API-mode protocol process holds the conversation), <c>user</c> (the user
+    /// took the wheel and the agent's real terminal holds it), or <c>none</c> (the protocol process has stopped and
+    /// no terminal has taken over, so no process holds it). Exactly one process holds a conversation at any moment
+    /// (mission #4070).
+    ///
+    /// A terminal-mode row ALWAYS reads <c>none</c>, because there is no wheel to hold - and that <c>none</c> does
+    /// NOT mean nothing holds the conversation: the agent's terminal process does. So <c>none</c> says "no process
+    /// holds it" only together with <see cref="ConnectionMode"/> <c>api</c>; never read it alone. Reported by the
+    /// owning Director. A Director too old to report it sends nothing, and the row reads <c>none</c>, as every
+    /// terminal-mode row does.
     /// </summary>
     public string WheelHolder { get; set; } = WheelHolders.None;
 
@@ -1255,7 +1262,11 @@ public static class ConnectionModes
 /// <summary>The values of <see cref="SessionDto.WheelHolder"/>.</summary>
 public static class WheelHolders
 {
-    /// <summary>Nobody: no agent process holds the conversation. What an older Director's row reads.</summary>
+    /// <summary>
+    /// No wheel is held. On an API-mode row: the protocol process has stopped and no terminal has taken over, so no
+    /// process holds the conversation. On a terminal-mode row (and every older Director's row) it is always this
+    /// value, because terminal mode has no wheel - the agent's terminal process holds the conversation there.
+    /// </summary>
     public const string None = "none";
 
     /// <summary>The API-mode protocol process holds the conversation.</summary>
