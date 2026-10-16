@@ -187,7 +187,10 @@ reader, and no test in the repository drives either path with a team key (the re
 not be proven here. Whether it is needed depends on a fact this pull request cannot know: whether an API-mode session
 registers a session key row (Pi runs with no `CC_*` variables, so it may not). If it does, the key row decides and
 there is no gap; if it does not, the claim should read the receipts' Directors. That question went to the Tech Lead
-with this answer.
+with this answer, with the recommendation that the Director register the session key for an API-mode session exactly
+as for a terminal one (which closes the gap with no Gateway change). **No answer came by the deadline, so this stays
+OPEN:** the phase that builds the Director side of API mode must settle it, and if API-mode sessions get no key row,
+the team claim must read the receipts' Directors, with a team-key test.
 
 ### Finding 3. The batch contract omits the "refused for now" answer the hub gives
 
