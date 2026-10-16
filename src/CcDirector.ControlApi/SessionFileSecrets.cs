@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using CcDirector.Core.Storage;
+using CcDirector.Core.Utilities;
 
 namespace CcDirector.ControlApi;
 
@@ -53,6 +55,7 @@ internal sealed class SessionFileSecrets
         (".config", "rclone"),    // rclone's remotes and their keys
         (".cargo", "credentials.toml"),
         (".cargo", "credentials"),
+        ("Library", "Keychains"), // macOS keychains: ~/Library/Keychains and /Library/Keychains
     };
 
     /// <summary>A file with exactly one of these names is a secret.</summary>
@@ -115,7 +118,7 @@ internal sealed class SessionFileSecrets
     };
 
     private readonly Func<IEnumerable<string>> _protectedRoots;
-    private readonly string? _homeFolder;
+    private readonly IReadOnlyList<string> _homeFolders;
 
     /// <param name="protectedRoots">
     /// The protected roots, read at the moment of each decision. Production passes
@@ -126,19 +129,30 @@ internal sealed class SessionFileSecrets
     /// rules alone); production always passes the real one.
     /// </param>
     public SessionFileSecrets(Func<IEnumerable<string>> protectedRoots, string? homeFolder = null)
+        : this(protectedRoots, string.IsNullOrWhiteSpace(homeFolder) ? Array.Empty<string>() : new[] { homeFolder })
+    {
+    }
+
+    /// <param name="protectedRoots">As above.</param>
+    /// <param name="homeFolders">
+    /// Every folder that is the user's home by any account (issue #4087): the HOME or USERPROFILE variable can
+    /// point somewhere other than the real profile folder, and the hidden-files rule must guard all of them.
+    /// </param>
+    public SessionFileSecrets(Func<IEnumerable<string>> protectedRoots, IReadOnlyList<string> homeFolders)
     {
         _protectedRoots = protectedRoots ?? throw new ArgumentNullException(nameof(protectedRoots));
-        _homeFolder = string.IsNullOrWhiteSpace(homeFolder) ? null : homeFolder;
+        ArgumentNullException.ThrowIfNull(homeFolders);
+        _homeFolders = homeFolders.Where(h => !string.IsNullOrWhiteSpace(h)).ToList();
     }
 
     /// <summary>
     /// The list for this machine: the name rules, every path in <see cref="CcStorage.ProtectedPaths"/>, the
-    /// Windows credential stores, and the hidden-files-under-home rule for this user's home folder.
+    /// Windows credential stores, and the hidden-files-under-home rule for every home folder this user has.
     /// </summary>
     public static SessionFileSecrets ForThisMachine()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrWhiteSpace(home))
+        var homes = MachineHomeFolders();
+        if (homes.Count == 0)
             throw new InvalidOperationException("The user's home folder is not known, so the files under it cannot be protected.");
         var credentialRoots = OperatingSystem.IsWindows()
             ? WindowsCredentialRoots(
@@ -147,7 +161,106 @@ internal sealed class SessionFileSecrets
             : Array.Empty<string>();
         return new SessionFileSecrets(
             () => CcStorage.ProtectedPaths().Select(p => p.Path).Concat(credentialRoots),
-            home);
+            homes);
+    }
+
+    /// <summary>
+    /// Every home folder of the user this process runs as: the one .NET reports, the HOME and USERPROFILE
+    /// variables, and the REAL one - the home in the password file on Linux and macOS, the profile folder
+    /// Windows records for the account. A variable can be changed by whoever started the process; the real
+    /// home is where the user's credentials actually are, so it is guarded whatever the variables say.
+    /// </summary>
+    internal static IReadOnlyList<string> MachineHomeFolders() =>
+        MachineHomeFolders(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetEnvironmentVariable("HOME"),
+            Environment.GetEnvironmentVariable("USERPROFILE"));
+
+    /// <summary>
+    /// <see cref="MachineHomeFolders()"/> with the reported folder and the two variables given, so a test can
+    /// point all three somewhere else and see that the real home is still among the result.
+    /// </summary>
+    internal static IReadOnlyList<string> MachineHomeFolders(string? reportedProfile, string? homeVariable, string? userProfileVariable)
+    {
+        var realHome = OperatingSystem.IsWindows() ? WindowsProfileFolder() : PasswordFileHome();
+        var homes = HomeFolders(reportedProfile, homeVariable, userProfileVariable, realHome);
+        FileLog.Write($"[SessionFileSecrets] MachineHomeFolders: real={realHome ?? "(unknown)"}, homes={string.Join(";", homes)}");
+        return homes;
+    }
+
+    /// <summary>
+    /// The distinct, fully qualified home folders among <paramref name="candidates"/>. Pure, so the rule that
+    /// the real home is guarded alongside a redirected HOME is testable on any machine.
+    /// </summary>
+    internal static IReadOnlyList<string> HomeFolders(params string?[] candidates)
+    {
+        var homes = new List<string>();
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate) || !Path.IsPathFullyQualified(candidate))
+                continue;
+            var full = ControlEndpoints.NormalizeDirectoryPath(Path.GetFullPath(candidate));
+            if (!homes.Contains(full, StringComparer.OrdinalIgnoreCase))
+                homes.Add(full);
+        }
+        return homes;
+    }
+
+    /// <summary>
+    /// The home folder the password file gives this process's user (getpwuid_r), which HOME does not change.
+    /// Linux and macOS only; the layout of <c>struct passwd</c> differs between them, so each is read by its
+    /// own offset. Null on any other system or when the account has no entry.
+    /// </summary>
+    internal static string? PasswordFileHome()
+    {
+        // Both begin: char* name, char* passwd, uint uid, uint gid.
+        int homeOffset;
+        if (OperatingSystem.IsLinux())
+            homeOffset = 2 * IntPtr.Size + 8 + IntPtr.Size;          // ... char* gecos, char* DIR
+        else if (OperatingSystem.IsMacOS())
+            homeOffset = 2 * IntPtr.Size + 8 + 8 + 2 * IntPtr.Size;  // ... long change, char* class, char* gecos, char* DIR
+        else
+            return null;
+
+        var entry = Marshal.AllocHGlobal(256);       // larger than either struct passwd
+        var buffer = Marshal.AllocHGlobal(16384);
+        try
+        {
+            var error = GetPasswordEntry(GetUserId(), entry, buffer, 16384, out var result);
+            if (error != 0 || result == IntPtr.Zero)
+            {
+                FileLog.Write($"[SessionFileSecrets] PasswordFileHome: no entry, error={error}");
+                return null;
+            }
+            return Marshal.PtrToStringUTF8(Marshal.ReadIntPtr(result, homeOffset));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+            Marshal.FreeHGlobal(entry);
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "getuid")]
+    private static extern uint GetUserId();
+
+    [DllImport("libc", EntryPoint = "getpwuid_r")]
+    private static extern int GetPasswordEntry(uint uid, IntPtr entry, IntPtr buffer, nuint bufferSize, out IntPtr result);
+
+    /// <summary>
+    /// The profile folder Windows records for this account (the ProfileList entry for the user's security
+    /// identifier), which the USERPROFILE and HOME variables do not change. Null off Windows or when absent.
+    /// </summary>
+    internal static string? WindowsProfileFolder()
+    {
+        if (!OperatingSystem.IsWindows())
+            return null;
+        var sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value;
+        if (sid is null)
+            return null;
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+            @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\" + sid);
+        return key?.GetValue("ProfileImagePath") is string path ? Environment.ExpandEnvironmentVariables(path) : null;
     }
 
     /// <summary>
@@ -180,20 +293,25 @@ internal sealed class SessionFileSecrets
     }
 
     /// <summary>
-    /// True when <paramref name="path"/> is a hidden (dot) file or folder DIRECTLY under the home folder, or lies
+    /// True when <paramref name="path"/> is a hidden (dot) file or folder DIRECTLY under a home folder, or lies
     /// anywhere inside one: ~/.config, ~/.cargo, ~/.bash_history, ~/.anything. Most tools keep their tokens in
-    /// such a place, and a list of names will always miss one. The caller applies this OUTSIDE the session's
-    /// working folder only. Compared against the home folder as named and its real identity.
+    /// such a place, and a list of names will always miss one. Compared against every home folder, as named and
+    /// by its real identity.
+    ///
+    /// <paramref name="workingFolder"/> is the session's working folder when <paramref name="path"/> lies inside
+    /// it, and null otherwise. The rule then stands aside only when that working folder is itself inside the
+    /// same hidden folder (a session that works IN ~/.something reads its own files). A working folder that IS
+    /// the home folder, or holds it, gets the rule like any path outside (issue #4087).
     /// </summary>
-    public bool IsHiddenUnderHome(string path)
+    public bool IsHiddenUnderHome(string path, string? workingFolder = null)
     {
-        if (_homeFolder is null || string.IsNullOrEmpty(path))
+        if (_homeFolders.Count == 0 || string.IsNullOrEmpty(path))
             return false;
         string full;
         try { full = ControlEndpoints.NormalizeDirectoryPath(Path.GetFullPath(path)); }
         catch (ArgumentException) { return true; } // not a path that can be shown to be safe - refuse
 
-        foreach (var home in new[] { _homeFolder, ControlEndpoints.ResolveRealPath(_homeFolder) })
+        foreach (var home in _homeFolders.Concat<string?>(_homeFolders.Select(ControlEndpoints.ResolveRealPath)))
         {
             if (home is null)
                 continue;
@@ -202,7 +320,27 @@ internal sealed class SessionFileSecrets
             if (!full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 continue;
             var firstSegment = full[prefix.Length..].Split(new[] { '/', '\\' }, 2)[0];
-            if (firstSegment.StartsWith('.'))
+            if (!firstSegment.StartsWith('.'))
+                continue;
+            if (workingFolder is not null && IsWithin(workingFolder, prefix + firstSegment))
+                continue;
+            return true;
+        }
+        return false;
+    }
+
+    // True when the folder, as named or by its real identity, is the hidden entry or lies inside it.
+    private static bool IsWithin(string folder, string hiddenEntry)
+    {
+        foreach (var candidate in new[] { folder, ControlEndpoints.ResolveRealPath(folder) })
+        {
+            if (candidate is null)
+                continue;
+            string candidateFull;
+            try { candidateFull = ControlEndpoints.NormalizeDirectoryPath(Path.GetFullPath(candidate)); }
+            catch (ArgumentException) { continue; }
+            if (string.Equals(candidateFull, hiddenEntry, StringComparison.OrdinalIgnoreCase)
+                || candidateFull.StartsWith(ControlEndpoints.ContainmentPrefix(hiddenEntry), StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;
