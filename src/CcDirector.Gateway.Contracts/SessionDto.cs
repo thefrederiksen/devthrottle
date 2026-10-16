@@ -428,6 +428,17 @@ public sealed class SessionDto
     public string WheelHolder { get; set; } = WheelHolders.None;
 
     /// <summary>
+    /// THE GATEWAY'S VERDICT ON AN API-MODE SESSION (mission #4070, phase 2): connection mode and the wheel, working or
+    /// idle with the turn number, the queue, the last turn's stopped or failed ending, and whether the agent process is
+    /// connected - finished words and booleans, folded once on the Gateway (<c>ApiModeSessionFold</c>) and rendered
+    /// verbatim. Null on every row that is not in API mode, and then NOT WRITTEN AT ALL, so a terminal-mode row is
+    /// byte-for-byte what it was before API mode existed. Assigned by the Gateway on every fold, in both directions;
+    /// replaced wholesale, never mutated. Null in Director-local responses.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ApiModeSessionDisplay? ApiMode { get; set; }
+
+    /// <summary>
     /// The session's agent-driver capability names (e.g. "Cancel", "Interrupt",
     /// "ClearContext", "History", "TranscriptRead"). UIs render action buttons from
     /// this list verbatim - a verb a tool lacks is simply absent, never guessed.

@@ -30,7 +30,8 @@ public sealed class ApiModeLiveItem
     /// every other kind.</summary>
     public string? Status { get; set; }
 
-    /// <summary>A tool card's input, the agent's own text verbatim; null on every other kind.</summary>
+    /// <summary>A tool card's input, the agent's own text verbatim; on a connection line that ended, the exit code and the
+    /// standard error lines; null otherwise.</summary>
     public string? Detail { get; set; }
 
     /// <summary>Render hint for the colour ONLY: <c>green</c>, <c>yellow</c>, <c>red</c> or <c>neutral</c>. The

@@ -332,6 +332,9 @@ internal static partial class GatewayEndpoints
         // The Website Business Factory, Screen 6: the "started" rows the roster fold stamps the factory agent chip
         // from. Null while the Factory Agents switch is off, and then no row carries a chip.
         Factory.FactorySessionStarts.Reader? factoryStarts = null,
+        // API mode (mission #4070, phase 2): where the roster and GET /sessions/{sid} read each API-mode session's
+        // receipts and held events from, to fold its verdict. Null stamps no verdict on any row.
+        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null,
         // Voice Delivery mission, phase 1: the door onto the dictation uploads, so the prompt route can check that a
         // recording a client names ("Send anyway") is an upload of the caller's own tenant for that session before it
         // becomes the prompt's delivery id. Null (tests, older callers) means no claim can be honoured - every one is
@@ -1787,7 +1790,8 @@ internal static partial class GatewayEndpoints
                 inboxLines: inboxLines,
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
                 raisedSessions: raisedIdsFor,
-                factoryStarts: factoryStarts);
+                factoryStarts: factoryStarts,
+                apiModeFacts: apiModeFacts);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -2148,7 +2152,8 @@ internal static partial class GatewayEndpoints
                 inboxLines: inboxLines,
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId,
                 raisedSessions: raisedIdsFor,
-                factoryStarts: factoryStarts);
+                factoryStarts: factoryStarts,
+                apiModeFacts: apiModeFacts);
             return Results.Json(session);
         });
 
@@ -6432,7 +6437,10 @@ internal static partial class GatewayEndpoints
         // The Website Business Factory, Screen 6: which of these sessions a factory agent started, read from the
         // factory activity record's "started" rows for exactly the ids given. Null (the Factory Agents switch off,
         // or no tenant) stamps a null chip on every row: nothing was read, so nothing is claimed.
-        Factory.FactorySessionStarts.Reader? factoryStarts = null)
+        Factory.FactorySessionStarts.Reader? factoryStarts = null,
+        // API mode (mission #4070, phase 2): where each API-mode row's receipts and held events are read, to fold its
+        // verdict. Null (or no tenant) stamps a null verdict on every row: nothing was read, so nothing is claimed.
+        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -6535,6 +6543,11 @@ internal static partial class GatewayEndpoints
             Factory.FactoryAgentsFold.StampChips(all, factoryStarts(factoryTenant, all.Select(s => s.SessionId).ToList()));
         else
             foreach (var s in all) s.FactoryAgent = null;
+        // THE API-MODE VERDICT (mission #4070, phase 2): connection mode and the wheel, working or idle, the queue, the
+        // last turn's ending, the agent process. Assigned on every row either way; a terminal-mode row reads nothing and
+        // stays null, so it is unchanged on the wire. It reads nothing the colour, the label or the bucket read, and they
+        // do not read it.
+        ApiModeDisplay.ApiModeRowStamp.Stamp(all, apiModeFacts, tenant);
 
         // VOICE: A SESSION A LIVE SESSION OWNS IS NOT THE USER'S TO BE READ ALOUD, and now the screen says so.
         //

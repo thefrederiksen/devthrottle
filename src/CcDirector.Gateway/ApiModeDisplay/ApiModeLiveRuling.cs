@@ -121,8 +121,9 @@ public sealed class ApiModeLiveRuling
                 ItemId = "connection:" + c.Sequence,
                 Kind = ApiModeLiveItemKinds.Connection,
                 Mode = ApiModeLiveItemModes.Replace,
-                Text = DisconnectedWords(c.Reason, c.ExitCode),
-                Detail = c.StderrTail.Count > 0 ? string.Join("\n", c.StderrTail) : null,
+                Text = DisconnectedWords(c.Reason),
+                // The exit code and the standard error lines, as the Director gave them: the reason itself is verbatim.
+                Detail = string.Join("\n", c.StderrTail.Prepend($"Exit code {c.ExitCode}")),
                 Tone = c.ExitCode == 0 ? "neutral" : "red",
                 Sequence = c.Sequence,
             }),
@@ -201,9 +202,8 @@ public sealed class ApiModeLiveRuling
         var unknown => Unknown($"the Director gave a reason this Gateway does not know ({unknown})", "queue reason", unknown),
     };
 
-    /// <summary>The agent process is gone, in words.</summary>
-    public static string DisconnectedWords(string reason, int exitCode)
-        => $"Agent disconnected: {reason} (exit code {exitCode})";
+    /// <summary>The agent process is gone, in words; the reason is the Director's, verbatim.</summary>
+    public static string DisconnectedWords(string reason) => "Agent disconnected: " + reason;
 
     // ----- the rest of the ruling -----
 
