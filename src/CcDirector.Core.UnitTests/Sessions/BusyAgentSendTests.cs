@@ -117,22 +117,24 @@ public sealed class BusyAgentSendTests : IDisposable
     }
 
     [Fact]
-    public async Task SendTextAsync_ComposerHeldTextBeforeThePaste_EnterWaitsForThePasteToBeDrawn()
+    public async Task SendTextAsync_ComposerHeldAnOldDraftBeforeThePaste_RefusesAndPastesNothing()
     {
-        // Arrange: the composer already holds text, and the agent draws the paste only after two seconds. The text that
-        // was there before is not the paste, so it must not release the Enter.
+        // Arrange: the composer already holds a draft nobody sent. This test used to paste onto the end of it and check
+        // only the Enter's timing; the owner's ruling of 16 October 2026 (the Prompt Delivery mission: never type unless the
+        // composer is drawn AND empty) makes that the weld it is, so the send is refused before anything is written.
         var (session, terminal) = NewWorkingSession(AgentKind.ClaudeCode, composer: "an old draft");
         terminal.PasteDrawDelay = TimeSpan.FromSeconds(2);
         var text = Paragraph("PASTE2");
 
         // Act
-        await VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor));
+        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => VirtualTime.RunAsync(_clock, () => session.SendTextAsync(text, SessionTestDoors.TestDoor)));
 
-        // Assert
-        Assert.NotNull(terminal.PasteDrawnAt);
-        Assert.NotNull(terminal.FirstEnterAt);
-        Assert.True(terminal.FirstEnterAt >= terminal.PasteDrawnAt,
-            $"Enter at {terminal.FirstEnterAt:HH:mm:ss.fff} came before the paste was drawn at {terminal.PasteDrawnAt:HH:mm:ss.fff}");
+        // Assert: refused with the reason, the draft left exactly as it was, no paste and no Enter.
+        Assert.Contains("never sent", ex.Message);
+        Assert.Equal("an old draft", terminal.Composer);
+        Assert.Null(terminal.PasteDrawnAt);
+        Assert.Null(terminal.FirstEnterAt);
     }
 
     [Fact]
