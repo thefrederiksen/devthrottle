@@ -2647,6 +2647,13 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, outcome={outcome}");
         if (outcome != Drivers.DoorbellSubmitOutcome.Verified && ActivityState is not (ActivityState.Working or ActivityState.Starting))
             WorkingOrigin = priorOrigin;
+        // A DOORBELL LINE LEFT IN THE COMPOSER IS THIS PRODUCT'S OWN TEXT (the Prompt Delivery mission, 16 October 2026).
+        // On 15 October a line whose submit could not be verified stayed in the composer, and the owner's next prompt was
+        // typed onto its end: the agent received "...run: cc-devthrottle message inbox@.temp/input_...txt" as one prompt.
+        // Marked, the next send clears the line as the product's own leftover before it types, instead of welding onto it
+        // or - now that a send refuses a composer holding text it cannot account for - being refused by it.
+        if (outcome == Drivers.DoorbellSubmitOutcome.NotVerified && composerShowsLine())
+            Drivers.ComposerRetention.MarkMayHoldText(_backend, Driver.Kind.ToString(), line);
         if (outcome == Drivers.DoorbellSubmitOutcome.Verified)
         {
             IsBrandNew = false;
