@@ -1,0 +1,26 @@
+{
+  "about": "Issue #4085. Lines and the links BOTH detectors must find in them: the Chat's (historyLinks.ts, extractLinks) and the Director's (LinkDetector.FindAllLinkMatches with no repository root, no existence check, on Linux or macOS). A path the Chat links but the Director does not count as named is refused when clicked, so every case here is asserted on both sides: historyLinks.test.ts and CcDirector.Core.UnitTests LinkDetectorAgreementTests. Add a case here, never to one side only.",
+  "cases": [
+    { "line": "open /tmp/x now", "paths": ["/tmp/x"], "urls": [] },
+    { "line": "I saved it to /home/soren/report.pdf.", "paths": ["/home/soren/report.pdf"], "urls": [] },
+    { "line": "see /x/briefs.", "paths": ["/x/briefs"], "urls": [] },
+    { "line": "open /x/a.pdf now", "paths": ["/x/a.pdf"], "urls": [] },
+    { "line": "The brief is at `/home/soren/briefs/q3.pdf`.", "paths": ["/home/soren/briefs/q3.pdf"], "urls": [] },
+    { "line": "Wrote \"/home/soren/my report.pdf\" for you", "paths": ["/home/soren/my report.pdf"], "urls": [] },
+    { "line": "Wrote '/var/log/app/out.log' for you", "paths": ["/var/log/app/out.log"], "urls": [] },
+    { "line": "error at /home/soren/repo/src/main.cs:42 here", "paths": ["/home/soren/repo/src/main.cs"], "urls": [] },
+    { "line": "two files: /tmp/a.txt and /tmp/b.txt", "paths": ["/tmp/a.txt", "/tmp/b.txt"], "urls": [] },
+    { "line": "under /mnt/c/Users/soren/notes.md today", "paths": ["/mnt/c/Users/soren/notes.md"], "urls": [] },
+    { "line": "Git Bash wrote /c/Users/soren/notes.md", "paths": ["/c/Users/soren/notes.md"], "urls": [] },
+    { "line": "file:///etc/hosts is the hosts file", "paths": ["/etc/hosts"], "urls": [] },
+    { "line": "see https://example.com/a/b for more", "paths": [], "urls": ["https://example.com/a/b"] },
+    { "line": "run /help for the commands", "paths": [], "urls": [] },
+    { "line": "use /code-review on it", "paths": [], "urls": [] },
+    { "line": "this and/or that", "paths": [], "urls": [] },
+    { "line": "the file src/a/b.cs is relative", "paths": [], "urls": [] },
+    { "line": "a comment //not/a/path here", "paths": [], "urls": [] },
+    { "line": "a home path ~/notes/x.md is not guessed", "paths": [], "urls": [] },
+    { "line": "on 10/16/2026 we met", "paths": [], "urls": [] },
+    { "line": "C:\\Users\\soren\\report.pdf stays a Windows path", "paths": ["C:\\Users\\soren\\report.pdf"], "urls": [] }
+  ]
+}

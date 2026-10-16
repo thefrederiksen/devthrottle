@@ -817,6 +817,31 @@ public sealed class SessionFileAccessTests : IDisposable
         Assert.False(secrets.IsHiddenUnderHome(Path.Combine(home, "Documents", "report.pdf")));
     }
 
+    // ------------------------------------------- issue #4085: plain POSIX paths named in prose ----
+
+    [UnixOnlyFact("a path that starts \"/\" is absolute only on Linux and macOS")]
+    public void Decide_plainPosixPathNamedInProse_isAllowed_andItsNeighbourIsNot()
+    {
+        // The Chat now links /home/x/report.pdf written without quotes; the Director must name it too, or the
+        // click would be refused. Its neighbour, never written, stays refused.
+        var brief = Write(Path.Combine(_outside, "report.pdf"));
+        var neighbour = Write(Path.Combine(_outside, "other.pdf"));
+        var named = SessionNamedPaths.FromTexts(new[] { $"I saved it to {brief}." });
+
+        Assert.Equal(PathStatusCodes.File, Decide(brief, named).Code);
+        Assert.Equal(SessionFileAccess.NotAllowedSentence, Decide(neighbour, named).Sentence);
+    }
+
+    [UnixOnlyFact("a path that starts \"/\" is absolute only on Linux and macOS")]
+    public void Decide_plainPosixPathToASecret_isStillRefused()
+    {
+        // Naming more is safe only because the refusals do not depend on naming.
+        var key = Write(Path.Combine(_outside, "deploy.pem"), "PRIVATE KEY");
+        var named = SessionNamedPaths.FromTexts(new[] { $"the key is {key} now" });
+
+        Assert.Equal(SessionFileAccess.SecretSentence, Decide(key, named).Sentence);
+    }
+
     private static void CreateDirectoryLink(string link, string target)
     {
         try
