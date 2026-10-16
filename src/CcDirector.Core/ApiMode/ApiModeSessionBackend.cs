@@ -1,6 +1,7 @@
 using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts.ApiMode;
 
 namespace CcDirector.Core.ApiMode;
 
@@ -91,6 +92,10 @@ public sealed class ApiModeSessionBackend : ISessionBackend
 
     public event Action<int>? ProcessExited;
 
+    /// <summary>Each batch of the session's events, in order, outside the host's lock (<see cref="ApiModeSessionHost.Published"/>).
+    /// The session reads its activity from it.</summary>
+    public event Action<IReadOnlyList<SessionEvent>>? EventsPublished;
+
     /// <summary>
     /// Start the agent in API mode: the executable and launch line the terminal path would use, with
     /// <see cref="PiApiModeArguments"/> ahead of them, in <paramref name="workingDir"/>, with the session's environment
@@ -116,6 +121,7 @@ public sealed class ApiModeSessionBackend : ISessionBackend
 
         var host = new ApiModeSessionHost(_sessionId, _agentSessionId, _resuming, _processFactory, _stream, _clock);
         host.Exited += OnHostExited;
+        host.Published += OnHostPublished;
         _host = host;
         _workingDirectory = workingDir;
         StartedWith = startInfo;
@@ -158,6 +164,7 @@ public sealed class ApiModeSessionBackend : ISessionBackend
         if (_host is not { } host)
             return;
         host.Exited -= OnHostExited;
+        host.Published -= OnHostPublished;
         // Disposing kills Pi if it still runs and waits for the event loop; never on the caller's thread, which may be
         // the user interface's.
         _ = DisposeHostAsync(host);
@@ -183,6 +190,8 @@ public sealed class ApiModeSessionBackend : ISessionBackend
         SetStatus($"Exited ({exitCode})");
         ProcessExited?.Invoke(exitCode);
     }
+
+    private void OnHostPublished(IReadOnlyList<SessionEvent> events) => EventsPublished?.Invoke(events);
 
     private void SetStatus(string status)
     {

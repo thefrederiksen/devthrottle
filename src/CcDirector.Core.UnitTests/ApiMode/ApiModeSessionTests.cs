@@ -133,6 +133,26 @@ public sealed class ApiModeSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task ActivityState_ApiModeSession_IsStartingUntilPiNamesItsConversation()
+    {
+        // Arrange: Pi answers get_state only when the test says so.
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        var (session, _, _) = StartSession(pi);
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnActivityStateChanged += (_, now) => { if (now == ActivityState.WaitingForInput) waiting.TrySetResult(); };
+        await pi.WaitForWrittenAsync("get_state");
+
+        // Act
+        var before = session.ActivityState;
+        pi.RespondToNext();
+        await waiting.Task;
+
+        // Assert: a session never claims to wait for a prompt its agent cannot take yet.
+        Assert.Equal(ActivityState.Starting, before);
+        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+    }
+
+    [Fact]
     public void Start_ApiModeBackend_StartsPiInRpcModeWithTheSameLaunchLineAndEnvironment()
     {
         // Arrange

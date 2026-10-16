@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 using CcDirector.Core.ApiMode.Pi;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts.ApiMode;
@@ -67,6 +68,13 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     private readonly List<string> _defects = [];
     private readonly List<Task> _loops = [];
     private readonly TaskCompletionSource<ConnectionEnded> _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    // Every published batch, in order, for Published's handlers - run on their own loop, outside the lock, so a
+    // handler that calls back into the host can never wait on the lock it was called under. The session's end is
+    // reported from that loop too, after the last batch.
+    private readonly Channel<IReadOnlyList<SessionEvent>> _observed =
+        Channel.CreateUnbounded<IReadOnlyList<SessionEvent>>(new UnboundedChannelOptions { SingleReader = true });
+    private Task _observer = Task.CompletedTask;
     private ApiModeProcessStartInfo? _startInfo;
     private Connection? _connection;
     private ConnectionEnded? _sessionEnded;
@@ -112,8 +120,13 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// was published. Carries the last <see cref="ConnectionEnded"/>, whose reason says why.</summary>
     public Task<ConnectionEnded> Ended => _ended.Task;
 
-    /// <summary>Raised once, after <see cref="Ended"/>, with the exit code the last process reported.</summary>
+    /// <summary>Raised once, after <see cref="Ended"/> and after the last <see cref="Published"/>, with the exit code the
+    /// last process reported.</summary>
     public event Action<int>? Exited;
+
+    /// <summary>Raised with each batch of events the stream published, in order, on one loop outside the host's lock.
+    /// The session reads its activity from it (a turn running or not).</summary>
+    public event Action<IReadOnlyList<SessionEvent>>? Published;
 
     /// <summary>Dialect defects seen so far (each already logged): our own code or Pi's record shape is wrong.</summary>
     public IReadOnlyList<string> Defects
@@ -133,6 +146,41 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         if (Interlocked.CompareExchange(ref _startInfo, startInfo, null) is not null)
             throw new InvalidOperationException($"The API-mode host of session {_sessionId} was already started.");
         StartConnection(_resuming);
+        _observer = Task.Run(ObserveAsync);
+    }
+
+    /// <summary>
+    /// Send one prompt only if it can be written to Pi now - Pi has named its conversation, no prompt is in flight and
+    /// none is queued - and return its receipt; return null, having sent and queued nothing, when it cannot. For a send
+    /// that must never wait behind other work (a guarded send).
+    /// </summary>
+    public async Task<ApiModePromptReceipt?> TrySendPromptNowAsync(string text, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        FileLog.Write($"[ApiModeSessionHost] TrySendPromptNowAsync: session={_sessionId}, length={text.Length}");
+        TaskCompletionSource<ApiModePromptReceipt> receipt;
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_sessionEnded is not null || _connection is not { Ended: false } connection || _queue.Count > 0 || !connection.CanWritePrompt)
+            {
+                FileLog.Write($"[ApiModeSessionHost] TrySendPromptNowAsync: session={_sessionId}, Pi cannot take a prompt now; nothing sent");
+                return null;
+            }
+            var promptId = _stream.NextPromptId();
+            receipt = new TaskCompletionSource<ApiModePromptReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _awaitingReceipt[promptId] = receipt;
+            await WritePromptLocked(connection, new QueuedPrompt(promptId, text)).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+
+        var result = await receipt.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        FileLog.Write($"[ApiModeSessionHost] TrySendPromptNowAsync: session={_sessionId}, prompt={result.PromptId}, " +
+                      (result.Delivered ? "delivered" : $"REFUSED by {result.RefusedBy}: {result.RefusalReason}"));
+        return result;
     }
 
     /// <summary>
@@ -270,6 +318,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         lock (_loops)
             loops = _loops.ToArray();
         await Task.WhenAll(loops).ConfigureAwait(false);
+        await _observer.ConfigureAwait(false);
     }
 
     // ---------------------------------------------------------------- connections
@@ -362,12 +411,32 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             _lock.Release();
         }
 
-        if (sessionEnded is null)
-            return;
-        _ended.TrySetResult(sessionEnded);
+        // The observer loop reports the end once every batch before it has reached Published's handlers.
+        if (sessionEnded is not null)
+            _observed.Writer.TryComplete();
+    }
+
+    private async Task ObserveAsync()
+    {
+        await foreach (var batch in _observed.Reader.ReadAllAsync().ConfigureAwait(false))
+        {
+            try
+            {
+                Published?.Invoke(batch);
+            }
+            catch (Exception ex)
+            {
+                // An entry point for each handler's work: one that fails must not stop the session's own reporting.
+                FileLog.Write($"[ApiModeSessionHost] Published handler FAILED: session={_sessionId}: {ex.Message}");
+            }
+        }
+
+        var ended = _sessionEnded
+            ?? throw new InvalidOperationException($"The observer of session {_sessionId} finished before the session ended.");
+        _ended.TrySetResult(ended);
         try
         {
-            Exited?.Invoke(sessionEnded.ExitCode);
+            Exited?.Invoke(ended.ExitCode);
         }
         catch (Exception ex)
         {
@@ -512,6 +581,8 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     private void TakeEventsLocked(IReadOnlyList<SessionEvent> events)
     {
         _stream.Publish(events);
+        if (events.Count > 0)
+            _observed.Writer.TryWrite(events);
         foreach (var e in events)
         {
             switch (e)
