@@ -495,11 +495,13 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
         }
         catch (UnauthorizedAccessException ex)
         {
+            // not-an-error: the access rule refused a folder this session may not list, and the caller is told why
             FileLog.Write($"[CatalogReadExecutor] fs-list (session) REFUSED: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
         }
         catch (DirectoryNotFoundException ex)
         {
+            // not-an-error: the path asked for is not a folder on this machine, and the caller is told it was not found
             FileLog.Write($"[CatalogReadExecutor] fs-list (session) not a folder: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, ex.Message);
         }
