@@ -85,7 +85,9 @@ export function DraftFactories({ view }: { view: FactoriesListView }) {
       <h3 className="fa-outside-title">{view.draftTitle}</h3>
       {view.draftRows.map((row) => (
         <div key={row.id} className="fa-draft-row" data-testid={`fa-draft-${row.id}`}>
-          <Link to={row.href}>{row.text}</Link>
+          <Link className="fa-link" to={row.href}>
+            {row.text}
+          </Link>
           <span className="fa-dim">{row.lineText}</span>
         </div>
       ))}

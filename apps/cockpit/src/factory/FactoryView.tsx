@@ -151,7 +151,7 @@ export function FactoryView() {
       {notYet === null && tab === "reports" && <ReportsTab fixedFactory={page.id} />}
       {notYet === null && tab === "memory" && <FactoryMemoryTab factory={page.id} />}
       {notYet === null && tab === "records" && <FactoryRecordsTab factory={page.id} />}
-      {notYet === null && tab === "definition" && <FactoryDefinitionTab factory={page.id} />}
+      {notYet === null && tab === "definition" && <FactoryDefinitionTab factory={page.id} onChanged={view.reload} />}
     </div>
   );
 }

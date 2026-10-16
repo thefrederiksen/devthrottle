@@ -53,9 +53,14 @@ interface Refused {
 
 export interface FactoryDefinitionTabProps {
   factory: string;
+  /**
+   * Called after a publish, a restore or an import went through, so the page around the tab reads itself again: the
+   * first publish of a factory New factory made turns its header from DRAFT into the factory's status (phase 6b).
+   */
+  onChanged?: () => void;
 }
 
-export function FactoryDefinitionTab({ factory }: FactoryDefinitionTabProps) {
+export function FactoryDefinitionTab({ factory, onChanged }: FactoryDefinitionTabProps) {
   const [view, setView] = useState<FactoryDefinitionTabView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
@@ -119,7 +124,8 @@ export function FactoryDefinitionTab({ factory }: FactoryDefinitionTabProps) {
     setOutcome({ text: action.doneText, applied: done.applied ?? [], notices: done.findings });
     setMode({ kind: "main" });
     reload();
-  }, [pending, factory, keepRefusal, reload]);
+    onChanged?.();
+  }, [pending, factory, keepRefusal, reload, onChanged]);
 
   const exportZip = useCallback(async (href: string) => {
     clearMessages();
@@ -143,6 +149,7 @@ export function FactoryDefinitionTab({ factory }: FactoryDefinitionTabProps) {
         setOutcome({ text: imported.doneText, applied: [], notices: imported.findings });
         setMode({ kind: "main" });
         reload();
+        onChanged?.();
       } catch (err) {
         if (!keepRefusal(err, "import the folder")) setActionError(describeAndReport(SURFACE, "import the folder", err));
       } finally {
@@ -150,7 +157,7 @@ export function FactoryDefinitionTab({ factory }: FactoryDefinitionTabProps) {
         if (fileInput.current !== null) fileInput.current.value = "";
       }
     },
-    [view, keepRefusal, reload],
+    [view, keepRefusal, reload, onChanged],
   );
 
   // error-reported-by: describeAndReport above
