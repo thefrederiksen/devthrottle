@@ -72,8 +72,7 @@ public static class FactoryDefinitionTabFold
                 NoteText = $"Choose a zip of a definition folder whose factory.yaml names {factory}. It is checked exactly as a " +
                            "save is and stored as the next draft. It is never published: read what changes here, then publish it.",
             },
-            FootnoteText = "Only a person publishes or restores. A session of this factory may save a draft, which waits " +
-                           "here until a person publishes it. Every version is kept.",
+            FootnoteText = FootnoteText,
         };
 
         if (newest is null)
@@ -167,11 +166,20 @@ public static class FactoryDefinitionTabFold
         OpenLabel = "Open",
     };
 
-    /// <summary>"Published by a person (abc) today 10:53. Written by session 1f3a... today 10:50. 6 files, 1.2 KB."</summary>
+    /// <summary>
+    /// The line under the tab (phase 6c, the owner's ruling of 16 October 2026): who publishes, and where a session's
+    /// drafts come from.
+    /// </summary>
+    internal const string FootnoteText =
+        "You publish here, or a session that is in no factory publishes when you tell it to. A session of this factory " +
+        "may only save a draft, which waits here until it is published. Every version is kept, with who published it.";
+
+    /// <summary>"Published by a person (abc) today 10:53. Written by session 1f3a... today 10:50. 6 files, 1.2 KB." A
+    /// publish by a session in no factory says "Published by session 1f3a... (its name)" (phase 6c).</summary>
     internal static string LineOf(FactoryDefinitionVersionSummary v, TimeZoneInfo zone, DateTime nowUtc)
     {
         var published = v.State == FactoryDefinitionStates.Published && v.PublishedAtUtc is { } at
-            ? $"Published by {FactoryBriefPanelFold.Who(FactoryMemoryAuthorKinds.Person, v.PublishedBy)} {When(at, zone, nowUtc)}. "
+            ? $"Published by {v.PublishedByText} {When(at, zone, nowUtc)}. "
             : "";
         return $"{published}Written by {FactoryBriefPanelFold.Who(v.AuthorKind, v.AuthorId)} {When(v.WrittenAtUtc, zone, nowUtc)}. {SizeOf(v)}.";
     }

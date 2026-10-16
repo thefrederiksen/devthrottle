@@ -1289,6 +1289,16 @@ _ACTIONS = [
         "args": [{"name": "factory", "required": True}],
     },
     {
+        "id": "factory-definition-create",
+        "description": "Create a NEW factory from a folder or a zip: its first draft, checked by the Gateway, which refuses an id that is taken and prints every finding with file and line. Never publishes. A factory's own session is refused.",
+        "command": "cc-devthrottle factory definition create <folder-or-zip>",
+        "mutatesState": True,
+        "args": [
+            {"name": "folder-or-zip", "required": True},
+            {"name": "note", "required": False},
+        ],
+    },
+    {
         "id": "factory-definition-save",
         "description": "Save every file under a folder as a new draft of a factory's definition; the Gateway checks it first and refuses it with every finding, file and line.",
         "command": "cc-devthrottle factory definition save <factory> --dir <folder> --expected-version <n>",
@@ -1302,14 +1312,14 @@ _ACTIONS = [
     },
     {
         "id": "factory-definition-publish",
-        "description": "Publish one version of a factory's definition and see what changes. Only a person publishes: a session is refused and told to save a draft.",
+        "description": "Publish one version of a factory's definition and see what changes. A person, or a session in no factory, publishes; a factory's own session is refused and told to save a draft.",
         "command": "cc-devthrottle factory definition publish <factory> --version <n>",
         "mutatesState": True,
         "args": [{"name": "factory", "required": True}, {"name": "version", "required": True}],
     },
     {
         "id": "factory-definition-restore",
-        "description": "Publish a copy of an older version of a factory's definition as the newest. Only a person does this: a session is refused.",
+        "description": "Publish a copy of an older version of a factory's definition as the newest. A person, or a session in no factory, restores; a factory's own session is refused.",
         "command": "cc-devthrottle factory definition restore <factory> --version <n>",
         "mutatesState": True,
         "args": [
@@ -4660,6 +4670,22 @@ def factory_definition_history(
     factory_definition_ops.history(factory, json_output, count, before)
 
 
+@factory_definition_app.command("create")
+def factory_definition_create(
+    source: str = typer.Argument(..., help="The folder, or a zip of it, holding the whole definition: factory.yaml, seats/ and the rest."),
+    note: Optional[str] = typer.Option(None, "--note", help="A change note, at most 500 characters."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the stored draft as JSON."),
+) -> None:
+    """Create a new factory from a folder or a zip, as a draft. Never publishes.
+
+    The factory is the one factory.yaml names. The Gateway refuses an id that is already a factory or already has a
+    draft, then checks the folder exactly as an import: any error refuses it and every finding is printed with its
+    file and line. Then read what publishing would do with diff, and publish. A person, or a session in no factory,
+    creates and publishes; a factory's own session is refused.
+    """
+    factory_definition_ops.create(source, note, json_output)
+
+
 @factory_definition_app.command("save")
 def factory_definition_save(
     factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
@@ -4692,8 +4718,9 @@ def factory_definition_publish(
 ) -> None:
     """Publish one version, printing what changes and what it applied to the factory.
 
-    Only a person publishes. The publish drives the factory - its registry row, schedules and triggers - in one transaction, and prints
-    each step it took. A session that runs this is refused by the Gateway with the sentence that says so, and exits
+    A person, or a session in no factory, publishes - the owner tells the session to, and that is the approval. The
+    publish drives the factory - its registry row, schedules and triggers - in one transaction, and prints each step it
+    took. A factory's own session that runs this is refused by the Gateway with the sentence that says so, and exits
     non-zero.
     """
     factory_definition_ops.publish(factory, version, json_output, replaces)
@@ -4715,7 +4742,8 @@ def factory_definition_restore(
 ) -> None:
     """Publish a copy of an older version as the newest, and drive the factory to it.
 
-    Only a person restores. The versions in between stay in the history. A session that runs this is refused by the Gateway.
+    A person, or a session in no factory, restores. The versions in between stay in the history. A factory's own session
+    that runs this is refused by the Gateway.
     """
     factory_definition_ops.restore(factory, version, expected_version, json_output, replaces)
 

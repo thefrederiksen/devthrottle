@@ -60,8 +60,8 @@ public sealed class FactoryPublishApply
     /// <paramref name="replaces"/> is the published version the caller saw (0 = none), or null for no staleness check.
     /// </summary>
     public FactoryPublishResult Publish(TenantId tenant, string factory, int version, FactoryDefinition definition,
-        IReadOnlyDictionary<string, string> content, int? replaces, string? authorId, DateTime nowUtc)
-        => Apply(tenant, factory, version, definition, content, replaces, restore: false, expectedVersion: null, authorId, nowUtc);
+        IReadOnlyDictionary<string, string> content, int? replaces, FactoryPublisher by, DateTime nowUtc)
+        => Apply(tenant, factory, version, definition, content, replaces, restore: false, expectedVersion: null, by, nowUtc);
 
     /// <summary>
     /// Restore <paramref name="version"/>: a copy of it becomes the newest version, already published, and the factory
@@ -69,8 +69,8 @@ public sealed class FactoryPublishApply
     /// <see cref="FactoryDefinitionStore.Restore"/>.
     /// </summary>
     public FactoryPublishResult Restore(TenantId tenant, string factory, int version, FactoryDefinition definition,
-        IReadOnlyDictionary<string, string> content, int? replaces, int? expectedVersion, string? authorId, DateTime nowUtc)
-        => Apply(tenant, factory, version, definition, content, replaces, restore: true, expectedVersion, authorId, nowUtc);
+        IReadOnlyDictionary<string, string> content, int? replaces, int? expectedVersion, FactoryPublisher by, DateTime nowUtc)
+        => Apply(tenant, factory, version, definition, content, replaces, restore: true, expectedVersion, by, nowUtc);
 
     /// <summary>
     /// What a publish of <paramref name="definition"/> WOULD do to the live factory now: the plan composed against the
@@ -86,13 +86,14 @@ public sealed class FactoryPublishApply
     }
 
     private FactoryPublishResult Apply(TenantId tenant, string factory, int version, FactoryDefinition definition,
-        IReadOnlyDictionary<string, string> content, int? replaces, bool restore, int? expectedVersion, string? authorId,
+        IReadOnlyDictionary<string, string> content, int? replaces, bool restore, int? expectedVersion, FactoryPublisher by,
         DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(by);
         var act = restore ? "restore" : "publish";
-        FileLog.Write($"[FactoryPublishApply] {act}: factory={factory}, version={version}, replaces={replaces?.ToString() ?? "unstated"}, by={authorId ?? "(unknown)"}");
+        FileLog.Write($"[FactoryPublishApply] {act}: factory={factory}, version={version}, replaces={replaces?.ToString() ?? "unstated"}, by={by.Text}");
         if (!string.Equals(definition.Factory, factory, StringComparison.Ordinal))
             throw new ArgumentException($"The definition is of '{definition.Factory}', not '{factory}'.", nameof(definition));
 
@@ -137,7 +138,7 @@ public sealed class FactoryPublishApply
                 {
                     if (FactoryDefinitionStore.PrepareAppend(ctx, tenant, factory, content,
                             FactoryDefinitionStore.ExpectedForRestore(ctx, factory, expectedVersion), published: true,
-                            restoredFrom: version, FactoryMemoryAuthorKinds.Person, authorId, changeNote: null, nowUtc,
+                            restoredFrom: version, by.Kind, by.Id, by.Name, changeNote: null, nowUtc,
                             out var copy) is { } notAppended)
                         return Refuse(tx, factory, act, notAppended);
                     attemptedVersion = copy!.Version;
@@ -150,7 +151,7 @@ public sealed class FactoryPublishApply
                 else
                 {
                     step = $"writing the publish mark on version {version}";
-                    if (FactoryDefinitionStore.MarkPublished(ctx, factory, version, authorId, nowUtc) == 0)
+                    if (FactoryDefinitionStore.MarkPublished(ctx, factory, version, by, nowUtc) == 0)
                         return Refuse(tx, factory, act, FactoryDefinitionStore.PublishedFirstBySomebodyElse(factory, version,
                             FactoryDefinitionStore.SummaryOf(ctx, factory, version)));
                     publishedVersion = version;
@@ -172,7 +173,7 @@ public sealed class FactoryPublishApply
                 row.GoalApprovedOn = plan.Registry.GoalApprovedOn;
                 row.Purpose = plan.Registry.Purpose;
                 row.SeatsJson = plan.Registry.SeatsJson;
-                row.RegisteredBy = RegisteredBy(publishedVersion, authorId);
+                row.RegisteredBy = RegisteredBy(publishedVersion, by);
                 row.RegisteredAtUtc = nowUtc;
                 ctx.SaveChanges();
                 applied.AddRange(plan.RegistrySentences);
@@ -247,7 +248,7 @@ public sealed class FactoryPublishApply
                         ? $"writing trigger {t.Name} for seat '{t.Seat}'"
                         : $"writing trigger {t.Name} ({t.Id}) for seat '{t.Seat}'";
                     var entity = t.Action == PlannedTriggerAction.Create
-                        ? NewDefinitionTrigger(ctx, factory, authorId, nowUtc)
+                        ? NewDefinitionTrigger(ctx, factory, by, nowUtc)
                         : triggerById[t.Id!.Value];
                     WriteDefinitionTrigger(entity, t, publishedVersion);
                     ctx.SaveChanges();
@@ -288,13 +289,13 @@ public sealed class FactoryPublishApply
 
     /// <summary>A new definition trigger row, added to the context, its fields written next. Running, as a create
     /// through the trigger routes is by default; who created it says it came from the definition.</summary>
-    private static TriggerEntity NewDefinitionTrigger(GatewayDbContext ctx, string factory, string? authorId, DateTime nowUtc)
+    private static TriggerEntity NewDefinitionTrigger(GatewayDbContext ctx, string factory, FactoryPublisher by, DateTime nowUtc)
     {
         var row = new TriggerEntity
         {
             Factory = factory,
             Paused = false,
-            CreatedBy = $"definition of {factory}, published by {authorId ?? "a person"}" is var by && by.Length <= 256 ? by : by[..256],
+            CreatedBy = $"definition of {factory}, published by {by.RowText}" is var created && created.Length <= 256 ? created : created[..256],
             CreatedUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc),
         };
         row.TenantId = ctx.ActiveTenant!;
@@ -338,9 +339,9 @@ public sealed class FactoryPublishApply
                : $"no version is the published definition now, not {stated}.")
            + $" Read what changes again and {(restore ? "restore" : "publish")} once more.";
 
-    private static string RegisteredBy(int version, string? authorId)
+    private static string RegisteredBy(int version, FactoryPublisher publisher)
     {
-        var by = $"definition v{version} published by {authorId ?? "a person"}";
+        var by = $"definition v{version} published by {publisher.RowText}";
         return by.Length <= 256 ? by : by[..256];
     }
 

@@ -6071,6 +6071,15 @@ public sealed class GatewayHost : IAsyncDisposable
             // Phase 5b: the state each definition check keeps, listed per checked start and reset by a person.
             checkStates: new Api.FactoryDefinitionEndpoints.CheckStateParts(Triggers.Store.CheckStates, Triggers.Store.List,
                 _cronJobs.ListAll));
+        // A NEW factory from a folder (phase 6c): what an agent runs when the owner tells it to make one. Refused when the
+        // id is taken - read from the Factories screen's sources, as its New factory is - then the same checked import.
+        Api.FactoryDefinitionEndpoints.MapCreate(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: FactoryDefinitions,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+            nowUtc: () => DateTime.UtcNow,
+            whyNotNew: (tenant, content) => Api.FactoryDefinitionTabEndpoints.CreateRefusal(factoriesScreenSources, tenant, content));
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
         // held here beside its memory so that no factory depends on one machine's disk (the owner's decision F2).

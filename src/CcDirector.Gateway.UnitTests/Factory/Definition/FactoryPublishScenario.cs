@@ -64,13 +64,13 @@ internal sealed class FactoryPublishScenario
     public FactoryPublishResult Publish(int version, int? replaces = null, FactoryPublishApply? through = null)
     {
         var content = Store.Find(Tenant, Factory, version)!.Files;
-        return (through ?? Apply).Publish(Tenant, Factory, version, Parse(content), content, replaces, Owner, Now);
+        return (through ?? Apply).Publish(Tenant, Factory, version, Parse(content), content, replaces, FactoryPublisher.Person(Owner), Now);
     }
 
     public FactoryPublishResult Restore(int version, int? replaces = null, int? expected = null, FactoryPublishApply? through = null)
     {
         var content = Store.Find(Tenant, Factory, version)!.Files;
-        return (through ?? Apply).Restore(Tenant, Factory, version, Parse(content), content, replaces, expected, Owner, Now);
+        return (through ?? Apply).Restore(Tenant, Factory, version, Parse(content), content, replaces, expected, FactoryPublisher.Person(Owner), Now);
     }
 
     /// <summary>Save, publish, and assert it was published.</summary>
