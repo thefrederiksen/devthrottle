@@ -65,6 +65,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The recorded Pi wire logs (API mode, mission #4070), ONE copy shared with the Director's suites: the Gateway's
+         ingest tests replay them through the real Pi dialect, so what the Gateway is proven against is what Pi wrote. -->
+    <None Include="..\CcDirector.Core.Tests\TestData\pi-rpc\**" Link="TestData\pi-rpc\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- SHARED SOURCE, NOT A COPY. TestStorageRootRedirect points CcStorage.Root at a throwaway temporary
          directory before any test runs. Without it a test that resolves the root - directly, or through any
          Core type that resolves it internally - writes into the OWNER'S REAL %LOCALAPPDATA%\cc-director:
