@@ -4690,9 +4690,9 @@ def factory_definition_publish(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the published version as JSON."),
 ) -> None:
-    """Publish one version and print what changes and what it applied to the factory. Only a person publishes.
+    """Publish one version, printing what changes and what it applied to the factory.
 
-    The publish drives the factory - its registry row, schedules and triggers - in one transaction, and prints
+    Only a person publishes. The publish drives the factory - its registry row, schedules and triggers - in one transaction, and prints
     each step it took. A session that runs this is refused by the Gateway with the sentence that says so, and exits
     non-zero.
     """
@@ -4713,9 +4713,9 @@ def factory_definition_restore(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the new version as JSON."),
 ) -> None:
-    """Publish a copy of an older version as the newest version, and drive the factory to it. Only a person does.
+    """Publish a copy of an older version as the newest, and drive the factory to it.
 
-    The versions in between stay in the history. A session that runs this is refused by the Gateway.
+    Only a person restores. The versions in between stay in the history. A session that runs this is refused by the Gateway.
     """
     factory_definition_ops.restore(factory, version, expected_version, json_output, replaces)
 
@@ -4727,8 +4727,9 @@ def factory_definition_diff(
     to_version: Optional[int] = typer.Option(None, "--to", min=1, help="Compare to this version. Default: the newest."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the difference as JSON."),
 ) -> None:
-    """What changes from one version to another, as the Gateway words it, and what a publish would do now.
+    """What changes between two versions, and what a publish would do now.
 
+    The changes are worded by the Gateway.
     Prints the published version it compared against: pass it to publish as --replaces.
     """
     factory_definition_ops.diff(factory, from_version, to_version, json_output)
@@ -4754,8 +4755,9 @@ def factory_check_state_show(
     start: Optional[int] = typer.Option(None, "--start", min=1, help="Show only the start with this number: its place in the seat's starts list, from 1."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the starts as JSON, each state whole."),
 ) -> None:
-    """Every checked start of the published definition, with the newest state its check left.
+    """Every checked start of the published definition, with its newest state.
 
+    The newest state is the one its check left.
     A start is named by its seat and its number: its place in the seat's starts: list, counting every start from 1
     (the number in its trigger's name, <factory>-<seat>-start-<N>).
     A state longer than one line is cut short here; --json gives it whole.
@@ -4774,9 +4776,9 @@ def factory_check_state_reset(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the reset start as JSON."),
 ) -> None:
-    """Empty one checked start's state, so its check's next run is a first run. Only a person resets.
+    """Empty one checked start's state, so its check's next run is a first run.
 
-    The old state is kept in the history; the reset adds an empty state on top. A session that runs this is refused
+    Only a person resets. The old state is kept in the history; the reset adds an empty state on top. A session that runs this is refused
     by the Gateway with the sentence that says so, and exits non-zero.
     """
     factory_check_state_ops.reset(factory, seat, start, json_output)
