@@ -23,7 +23,8 @@ public enum RaisedGrant
     /// <summary>Not a raised grant: a route any session key may call.</summary>
     None,
 
-    /// <summary>Typing into a session: prompt, interrupt, escape, the fan-out, and answering a judged stop.</summary>
+    /// <summary>Typing into a session: prompt, interrupt, escape, the fan-out, answering a judged stop, and the API-mode
+    /// verbs - taking or handing back the wheel, and stopping the turn.</summary>
     AgentInput,
 
     /// <summary>The Fleet Manager routes that are otherwise the owner's alone: where it runs, start, restart and move,
@@ -65,6 +66,14 @@ public static class AgentInputRefusal
     public const string Typing =
         "An agent may not interrupt or escape a session, fan a prompt out, or answer a judged stop: only the owner " +
         "does that, from his own screens. " + OwnedMay + " " + Instead + " " + FleetManagerMay;
+
+    /// <summary>A session key asked to take the wheel of, hand back, or stop the turn of an API-mode session it does not
+    /// control (issue #4070; the owner's ruling on review finding 1). These decide who types into the session, or end
+    /// its turn, so a session key may use them only on a session it controls - the prompt route's owned-session rule.
+    /// The ROUTE says this sentence, not the guard: the guard cannot read an id.</summary>
+    public const string ApiModeNotYourSession =
+        "An agent may take the wheel of, hand back, or stop the turn of only a session it controls - one it started with " +
+        "--controlled-by self, or was handed: this session is not controlled by yours. " + Instead + " " + FleetManagerMay;
 
     /// <summary>A session key asked to type into a session it does not own directly.</summary>
     public const string NotYourSession =
@@ -245,6 +254,10 @@ public static class SessionKeyGuard
             // through, and the ROUTE decides, with the roster in hand, whether the target is the caller's own
             // (OwnedSessionInput). Interrupt, escape, the fan-out and a verdict answer stay refused here.
             if (IsPrompt(verb, segments)) return SessionKeyVerdict.Allow;
+            // THE API-MODE VERBS on a session the caller controls (the owner's ruling on review finding 1 of issue #4070
+            // phase 2). The same split as the prompt: the guard lets the shape through, and the route refuses every
+            // session the caller does not control (OwnedSessionInput.OwnsDirectly) with AgentInputRefusal.ApiModeNotYourSession.
+            if (IsApiModeVerb(verb, segments)) return SessionKeyVerdict.Allow;
             return SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
         }
 
@@ -298,9 +311,17 @@ public static class SessionKeyGuard
     private static bool IsPrompt(string verb, string[] s)
         => verb == "POST" && s.Length == 3 && s[0] == "sessions" && s[2] == "prompt";
 
+    /// <summary><c>POST /sessions/{sid}/wheel/take</c>, <c>POST /sessions/{sid}/wheel/hand-back</c> and
+    /// <c>POST /sessions/{sid}/turn/stop</c> exactly (issue #4070). Agent input: they decide who types into the session,
+    /// or end its turn. Open to a session key only on a session it controls, which the route decides.</summary>
+    private static bool IsApiModeVerb(string verb, string[] s)
+        => verb == "POST" && s.Length == 4 && s[0] == "sessions"
+           && ((s[2] == "wheel" && s[3] is ("take" or "hand-back")) || (s[2] == "turn" && s[3] == "stop"));
+
     private static bool IsAgentInput(string verb, string[] s)
     {
         if (verb != "POST") return false;
+        if (IsApiModeVerb(verb, s)) return true;
         if (s.Length == 3 && s[0] == "sessions" && s[2] is "prompt" or "interrupt" or "escape") return true;
         if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
         return s.Length == 1 && s[0] == "fanout";

@@ -4427,6 +4427,18 @@ internal static partial class GatewayEndpoints
                 : TunnelFailure(streamResult);
         });
 
+        // THE API-MODE VERBS (issue #4070, phase 2): take the wheel, hand it back, and stop the running turn. Located and
+        // tenant-scoped as interrupt is; a session key acts only on a session it controls; the Gateway rules the refusals
+        // it can see, the Director rules the rest. See RunApiModeVerbAsync.
+        app.MapPost("/sessions/{sid}/wheel/take", (HttpContext ctx, string sid) =>
+            RunApiModeVerbAsync(ctx, sid, ApiModeVerb.TakeWheel, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
+        app.MapPost("/sessions/{sid}/wheel/hand-back", (HttpContext ctx, string sid) =>
+            RunApiModeVerbAsync(ctx, sid, ApiModeVerb.HandBackWheel, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
+        app.MapPost("/sessions/{sid}/turn/stop", (HttpContext ctx, string sid) =>
+            RunApiModeVerbAsync(ctx, sid, ApiModeVerb.StopTurn, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
         // Phone image upload: the browser POSTs the image to the Gateway (its origin); we
         // forward the bytes to the owning Director, which files it into its screenshots
         // folder (same machine as the session) and returns the saved absolute path.
