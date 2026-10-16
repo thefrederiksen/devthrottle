@@ -22,9 +22,11 @@ public sealed class FactorySeatStartOnTheCronStarterTests
     private sealed class StubResolver : IDirectorTargetResolver
     {
         public readonly List<string> Machines = new();
+        public readonly List<string?> Directors = new();
         public Task<DirectorTargetResult> ResolveAsync(string machine, string? director, CancellationToken ct)
         {
             Machines.Add(machine);
+            Directors.Add(director);
             return Task.FromResult(new DirectorTargetResult("d-1", null));
         }
     }
@@ -112,6 +114,65 @@ public sealed class FactorySeatStartOnTheCronStarterTests
         Assert.DoesNotContain("Read from the brief reader.", req.PrePrompt);
         Assert.Equal(3, start.BriefVersion);
         Assert.Equal(FactoryBriefVersionKinds.Definition, start.BriefVersionKind);
+    }
+
+    /// <summary>The fixture with the outreach seat's start a timed one with its check, published as version 3.</summary>
+    private static PublishedFactoryDefinition PublishedTimedChecked()
+        => new(3, FactoryDefinitionCheck.Read(DefinitionFixture.TimedChecked()).Definition!);
+
+    /// <summary>The schedule a publish writes for that start: its time, its check and its prompt.</summary>
+    private static CronJobDto CheckedJob() => new()
+    {
+        Id = "cj_outreach",
+        Name = "DevThrottle - Outreach",
+        ScheduleKind = CronSchedule.KindRecurring,
+        CronExpression = "0 9 * * 1-5",
+        TimeZoneId = "Europe/Copenhagen",
+        PreventOverlap = true,
+        Factory = DefinitionFixture.FactoryId,
+        Seat = "outreach",
+        CheckPath = "checks/new_mail.py",
+        DefinitionVersion = 3,
+        Target = new CronJobTarget { Machine = "SOREN_SOUTH" },
+        Action = new CronJobAction { RepoPath = "", Seed = "New mail: {count}. {context}", AutoDismiss = true },
+    };
+
+    private static readonly DueCheckFinding Found = new("checks/new_mail.py", 3, "from ada@example.com", FiredAt, 3);
+
+    [Fact]
+    public async Task StartCheckedRun_ADefinedFactorysTimedStart_GoesToTheDirectorThatRanTheCheck_WithItsCountedPrompt()
+    {
+        // Phase 5b: a timed start with a check is always a defined factory's, so its session is built from the
+        // definition - and still pinned to the Director that ran the check, given the prompt its count was put into.
+        var start = await Starter(_ => PublishedTimedChecked(), j => Registered(j.Seat!, "Outreach"))
+            .StartCheckedRunAsync(CheckedJob(), "dir-south", "New mail: 3. from ada@example.com", Found, CancellationToken.None);
+
+        Assert.Null(start.Error);
+        var req = Assert.Single(_sent);
+        Assert.Equal("dir-south", req.Director);
+        Assert.Equal(new string?[] { "dir-south" }, _resolver.Directors);
+        Assert.Contains("New mail: 3. from ada@example.com", req.PrePrompt);
+        Assert.DoesNotContain("{count}", req.PrePrompt);
+        Assert.Equal("devthrottle", req.FactoryWorktree);
+    }
+
+    [Fact]
+    public async Task StartCheckedRun_ADefinedFactorysTimedStart_CarriesWhatTheCheckFound_ForCheckJsonInTheKit()
+    {
+        await Starter(_ => PublishedTimedChecked(), j => Registered(j.Seat!, "Outreach"))
+            .StartCheckedRunAsync(CheckedJob(), "dir-south", "New mail: 3. from ada@example.com", Found, CancellationToken.None);
+
+        var check = Assert.Single(_sent).FactoryCheck!;
+        Assert.Equal(("checks/new_mail.py", 3, "from ada@example.com"), (check.CheckPath, check.Count, check.Context));
+        Assert.Equal((FiredAt, 3, "outreach", 1), (check.CheckedUtc, check.DefinitionVersion, check.Seat, check.Start));
+    }
+
+    [Fact]
+    public async Task StartRun_AScheduledRunWithNoCheck_CarriesNoFactoryCheck()
+    {
+        await Starter(_ => Published()).StartRunAsync(Job("boss"), CancellationToken.None);
+
+        Assert.Null(Assert.Single(_sent).FactoryCheck);
     }
 
     [Fact]

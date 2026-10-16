@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Xunit;
+using CcDirector.Gateway.Tests.Factory.Triggers;
 
 namespace CcDirector.Gateway.Tests.Factory;
 
@@ -138,7 +139,7 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => _now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
         var sources = new FactoryAgentsSources(
             Query: (tenant, q) => record.Query(tenant, q.Factory, q.Agent, q.Outcome, q.FromUtc, q.ToUtc,
                 q.OldestFirst, q.Offset, q.Limit),
@@ -173,7 +174,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
             isDefined: (_, _) => false);
         TriggerEndpoints.Map(FactoryAgentsGate.Group(app, sw, resolve), resolve, triggers,
             directorMachine: (_, _) => "NORTH", nowUtc: () => _now, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
         return (app, sw);
     }
 

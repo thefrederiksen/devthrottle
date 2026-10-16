@@ -29,7 +29,23 @@ public interface ICronSessionStarter
         var (sessionId, directorId, error) = await StartAsync(job, ct);
         return new CronRunStart(sessionId, directorId, error, BriefVersion: null);
     }
+
+    /// <summary>
+    /// Start the session a schedule's CHECK asked for (Factory Definition, phase 5b, design 3.3): exactly what
+    /// <see cref="StartRunAsync"/> starts for the schedule - its brief, seat, version and kit - but on the Director that
+    /// ran the check (<paramref name="directorId"/>, which is on the schedule's machine and was alive a moment ago), and
+    /// given <paramref name="seed"/>, the schedule's prompt with what the check found put in, and <paramref name="found"/>,
+    /// which the Director writes as check.json in the seat's kit. A starter that cannot pin a Director cannot start a
+    /// checked run: it must say so rather than start the session somewhere else.
+    /// </summary>
+    Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, DueCheckFinding found, CancellationToken ct)
+        => throw new NotSupportedException(
+            $"{GetType().Name} cannot start the session a schedule's check asked for on the Director that ran it.");
 }
+
+/// <summary>What a schedule's check found, as its report said (Factory Definition, phase 5b, design 3.4). The seat and
+/// the start's number are added by the starter, from the published definition the session is built from.</summary>
+public sealed record DueCheckFinding(string CheckPath, int Count, string? Context, DateTime CheckedUtc, int DefinitionVersion);
 
 /// <summary>What starting a scheduled run came to.</summary>
 /// <param name="SessionId">The new session, or null when none started.</param>

@@ -34,15 +34,12 @@ public sealed class FactoryDefinitionCheckPublishTests
     }
 
     [Fact]
-    public void Check_ATimedStartWithACheck_IsAnErrorOnItsCheckLine_AtAPublish()
+    public void Check_ATimedStartWithACheck_IsNoErrorAtAPublish_FromTheDueCheck()
     {
         var result = CheckFor(DefinitionFixture.TimedChecked(), DefinitionCheckPurpose.Publish);
 
-        var error = DefinitionFixture.AssertOneError(result, "seats/outreach.yaml", 13, "This start has a cron time and a check.");
-        Assert.Equal("This start has a cron time and a check. A timed start's check runs when its time is due, which comes in the " +
-                     "next part of phase 5b of the factory definition work, so this version cannot be published yet; give the start " +
-                     "an interval (every) instead, publish it without the check, or wait.",
-            error.Message);
+        Assert.False(result.HasErrors, string.Join("\n", result.Findings.Where(f => f.IsError).Select(f => $"{f.File}:{f.Line} {f.Message}")));
+        Assert.NotNull(result.Definition);
     }
 
     [Fact]

@@ -39,6 +39,12 @@ public sealed class CronRunResultTests : IDisposable
 
     public void Dispose() => _h.Dispose();
 
+    private CcDirector.Gateway.Factory.Triggers.TriggerStore? _triggers;
+    private CcDirector.Gateway.Factory.Triggers.TriggerStore Triggers => _triggers ??= new(Db);
+
+    private static readonly IReadOnlyList<(CcDirector.Gateway.Data.Entities.TriggerEntity, IReadOnlyList<CcDirector.Gateway.Data.Entities.TriggerRunEntity>)> NoTriggers =
+        Array.Empty<(CcDirector.Gateway.Data.Entities.TriggerEntity, IReadOnlyList<CcDirector.Gateway.Data.Entities.TriggerRunEntity>)>();
+
     private CronRunHistoryStore NewRuns() => new(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
 
     private (CronRunResultService Service, CronRunHistoryStore Runs, FactoryActivityRecord Activity) Build()
@@ -65,7 +71,8 @@ public sealed class CronRunResultTests : IDisposable
                 }
                 return written;
             },
-            nowUtc: () => _now);
+            nowUtc: () => _now,
+            triggers: Triggers);
         return (service, runs, activity);
     }
 
@@ -795,7 +802,7 @@ public sealed class CronRunResultTests : IDisposable
         var runs = new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal) { ["cj_a"] = new[] { run } };
 
         var folded = CronRunResultFold.Problems(runs, new Dictionary<string, CronJobDto>(StringComparer.Ordinal), Toronto,
-            factory: null, includeClosed: false, asOfUtc: due.AddHours(6));
+            factory: null, includeClosed: false, asOfUtc: due.AddHours(6), NoTriggers);
 
         var problem = Assert.Single(folded.Problems);
         Assert.Equal("Did not run: its machine was offline when it was due.", problem.Sentence);
@@ -825,7 +832,7 @@ public sealed class CronRunResultTests : IDisposable
         Assert.Throws<ArgumentException>(() => CronRunResultFold.Problems(
             new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal),
             new Dictionary<string, CronJobDto>(StringComparer.Ordinal), Toronto, null, false,
-            new DateTime(2026, 10, 11, 8, 0, 0, DateTimeKind.Local)));
+            new DateTime(2026, 10, 11, 8, 0, 0, DateTimeKind.Local), NoTriggers));
 
     [Fact]
     public void Resolve_WithAReason_ClosesTheProblem_AndKeepsTheReasonAndWhoDidIt()

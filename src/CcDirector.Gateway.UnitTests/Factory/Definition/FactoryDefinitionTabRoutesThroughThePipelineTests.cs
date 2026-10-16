@@ -58,7 +58,7 @@ public sealed class FactoryDefinitionTabRoutesThroughThePipelineTests : IDisposa
         var triggers = new CcDirector.Gateway.Factory.Triggers.TriggerStore(_db);
         FactoryDefinitionEndpoints.Map(_routes, _ => T, store, _ => SessionFactoryLookup.NotKnown,
             account.FleetSkillsOf, account.ConnectedMachinesOf, (_, _) => null, apply, () => Now, DefinitionFixture.AskNobody,
-            new FactoryDefinitionEndpoints.CheckStateParts(triggers.CheckStates, triggers.List));
+            new FactoryDefinitionEndpoints.CheckStateParts(triggers.CheckStates, triggers.List, _ => Array.Empty<CronJobDto>()));
         var sources = new FactoriesScreenSources(
             new FactoryAgentsSources(
                 Query: (tenant, q) => record.Query(tenant, q.Factory, q.Agent, q.Outcome, q.FromUtc, q.ToUtc, q.OldestFirst, q.Offset, q.Limit),

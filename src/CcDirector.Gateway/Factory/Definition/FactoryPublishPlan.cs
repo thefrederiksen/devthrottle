@@ -67,16 +67,13 @@ public static class FactoryPublishPlan
 
         var findings = new List<DefinitionFinding>();
 
-        // A TIMED START WITH A CHECK CANNOT RUN YET: its check is due when its time comes, and the due check is the next
-        // pull request of phase 5b. The whole-definition check refuses it at publish on its check line; refused here
-        // too, because a plan that made it a plain schedule would start its session without its check.
-        // An interval start with no check is refused by the check at every save, so a checked definition never holds
-        // one; a version stored before that rule can, and it is refused in its own words (review of 4006, observation 4).
+        // A TIMED START WITH A CHECK is a schedule that carries its check (phase 5b, design 3.3): its fire starts no
+        // session, and its check decides. An interval start with no check is refused by the check at every save, so a
+        // checked definition never holds one; a version stored before that rule can, and it is refused in its own
+        // words (review of 4006, observation 4).
         foreach (var seat in definition.Seats)
         {
-            if (seat.Starts.Any(s => s.Cron is not null && s.Check is not null))
-                findings.Add(Error(SeatFile(seat), FactoryDefinitionCheck.TimedCheckStartNotYet));
-            else if (seat.Starts.Any(s => s.Cron is null && s.Check is null))
+            if (seat.Starts.Any(s => s.Cron is null && s.Check is null))
                 findings.Add(Error(SeatFile(seat), IntervalStartNotYet));
         }
         if (findings.Count > 0) return RowRulesRefused(factory, findings);
@@ -203,8 +200,12 @@ public static class FactoryPublishPlan
             Seat = seat.Seat,
             Target = new CronJobTarget { Machine = seat.MachineOrDefault(d.Defaults) },
             Action = new CronJobAction { RepoPath = "", Seed = start.Prompt },
-            PreventOverlap = start.PreventOverlap,
+            // A start with a check always prevents overlap (the check refuses preventOverlap: false beside one).
+            PreventOverlap = start.Check is not null || start.PreventOverlap,
             NotifyOn = CronNotify.None,
+            // Phase 5b: a timed start's check rides on its schedule; the version it is read from is the one published.
+            CheckPath = start.Check,
+            CheckSecrets = start.Check is null || start.Secrets.Count == 0 ? null : start.Secrets.ToList(),
         };
     }
 
@@ -236,14 +237,18 @@ public static class FactoryPublishPlan
            && live.Seat == job.Seat && live.Target.Machine == job.Target.Machine
            && live.Action.RepoPath == job.Action.RepoPath && live.Action.Seed == job.Action.Seed
            && live.PreventOverlap == job.PreventOverlap
-           && string.IsNullOrWhiteSpace(live.Action.WorkListName) == string.IsNullOrWhiteSpace(job.Action.WorkListName);
+           && string.IsNullOrWhiteSpace(live.Action.WorkListName) == string.IsNullOrWhiteSpace(job.Action.WorkListName)
+           && (live.CheckPath ?? "") == (job.CheckPath ?? "")
+           && (CronJobStore.CheckSecretsOf(live) ?? new List<string>()).SequenceEqual(job.CheckSecrets ?? new List<string>(), StringComparer.Ordinal);
 
     /// <summary>
     /// A live schedule as a start, so the one pairing can match it: its time (whatever kind it is, it is a time, never
-    /// an interval), its zone, its prompt and its overlap. A schedule has no check and no secrets.
+    /// an interval), its zone, its check and secrets when it has them (phase 5b), its prompt and its overlap.
     /// </summary>
-    private static SeatStartDefinition AsStart(CronJobEntity job)
-        => new(job.CronExpression ?? job.RunAt ?? "", job.TimeZoneId, null, null, null, Array.Empty<string>(),
+    internal static SeatStartDefinition AsStart(CronJobEntity job)
+        => new(job.CronExpression ?? job.RunAt ?? "", job.TimeZoneId, null, null,
+            string.IsNullOrEmpty(job.CheckPath) ? null : job.CheckPath,
+            (IReadOnlyList<string>?)CronJobStore.CheckSecretsOf(job) ?? Array.Empty<string>(),
             job.Action.Seed ?? "", job.PreventOverlap);
 
     /// <summary>
@@ -519,17 +524,20 @@ public sealed record PlannedSchedule(PlannedScheduleAction Action, string? Id, s
     CronJobDto? Job, CronJobDto? Live, DeleteReason Why = DeleteReason.None)
 {
     /// <summary>The step in one sentence. <paramref name="mintedId"/> is the id a create was given when it was written;
-    /// null in a plan that has not been applied.</summary>
-    public string Sentence(string? mintedId = null)
+    /// null in a plan that has not been applied. <paramref name="version"/> is the version the publish makes the
+    /// published one, which a schedule with a check reads its check from; null in a plan that has not been applied.</summary>
+    public string Sentence(string? mintedId = null, int? version = null)
     {
         switch (Action)
         {
             case PlannedScheduleAction.Keep:
-                return $"Schedule {Id} ({Job!.Name}) kept as it is.";
+                return Job!.HasCheck
+                    ? $"Schedule {Id} ({Job.Name}) kept as it is; its check is read from {(version is { } kv ? $"version {kv}" : "the published version")}."
+                    : $"Schedule {Id} ({Job.Name}) kept as it is.";
             case PlannedScheduleAction.Create:
                 return mintedId is null
-                    ? $"A new schedule ({Job!.Name}) for seat {Seat}: {When(Job)}."
-                    : $"Schedule {mintedId} ({Job!.Name}) created for seat {Seat}: {When(Job)}.";
+                    ? $"A new schedule ({Job!.Name}) for seat {Seat}: {When(Job)}{CheckText(Job)}."
+                    : $"Schedule {mintedId} ({Job!.Name}) created for seat {Seat}: {When(Job)}{CheckText(Job)}.";
             case PlannedScheduleAction.Delete:
                 var why = Why switch
                 {
@@ -554,12 +562,26 @@ public sealed record PlannedSchedule(PlannedScheduleAction Action, string? Id, s
                         : $"folder {Live.Action.RepoPath} -> {Job.Action.RepoPath}");
                 if (Live.ScheduleKind != Job.ScheduleKind) details.Add($"kind {Live.ScheduleKind} -> {Job.ScheduleKind}");
                 if (Live.CronExpression != Job.CronExpression && oldWhen == newWhen) details.Add($"cron \"{Live.CronExpression}\" -> \"{Job.CronExpression}\"");
+                if ((Live.CheckPath ?? "") != (Job.CheckPath ?? ""))
+                    details.Add(Live.HasCheck && Job.HasCheck ? $"check {Live.CheckPath} -> {Job.CheckPath}"
+                        : Job.HasCheck ? $"now runs check {Job.CheckPath} first" : $"no longer runs check {Live.CheckPath}");
+                if (!(Live.CheckSecrets ?? new List<string>()).SequenceEqual(Job.CheckSecrets ?? new List<string>(), StringComparer.Ordinal))
+                    details.Add($"secrets {Names(Live.CheckSecrets)} -> {Names(Job.CheckSecrets)}");
                 var tail = details.Count == 0 ? "" : $"; {string.Join("; ", details)}";
                 return oldWhen != newWhen
                     ? $"Schedule {Id} ({Job.Name}) moved: {oldWhen} -> {newWhen}{tail}."
                     : $"Schedule {Id} ({Job.Name}) changed: {string.Join("; ", details)}.";
         }
     }
+
+    /// <summary>A schedule's check in words, after its time: ", check checks/x.py with secret y", or nothing.</summary>
+    private static string CheckText(CronJobDto job)
+        => !job.HasCheck ? ""
+            : $", check {job.CheckPath}" + (job.CheckSecrets is { Count: > 0 } s
+                ? $" with {(s.Count == 1 ? "secret" : "secrets")} {string.Join(", ", s)}"
+                : "");
+
+    private static string Names(List<string>? names) => names is { Count: > 0 } ? string.Join(", ", names) : "none";
 
     /// <summary>When a schedule fires, in the words a start's time is said in ("Weekdays 08:00 Europe/Copenhagen").</summary>
     internal static string When(CronJobDto job)

@@ -9,6 +9,7 @@ using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.History;
+using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Tests.Factory.Definition;
 using Microsoft.AspNetCore.Builder;
@@ -46,6 +47,9 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
     private readonly Routes _routes;
     private readonly FactoryDefinitionStore _definitions;
     private readonly TriggerStore _triggers;
+    private readonly CronJobStore _jobs;
+    private readonly CronRunHistoryStore _runs;
+    private readonly RouteStarter _starter = new();
 
     public FactoryCheckEndpointsTests()
     {
@@ -54,6 +58,8 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
         _routes = new Routes(_services);
         _definitions = new FactoryDefinitionStore(_db);
         _triggers = new TriggerStore(_db);
+        _jobs = new CronJobStore(_db, _h.LegacyPath("jobs.json"));
+        _runs = new CronRunHistoryStore(_db, _h.LegacyPath("runs.json"));
 
         FactoryCheckEndpoints.Map(_routes, _ => T, directorMachine: (_, id) => Directors.GetValueOrDefault(id), _definitions);
 
@@ -61,9 +67,12 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
         TriggerEndpoints.Map(_routes, _ => T, service, directorMachine: (_, id) => Directors.GetValueOrDefault(id),
-            nowUtc: () => Now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: _definitions.IsDefined);
+            nowUtc: () => Now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: _definitions.IsDefined,
+            dueChecks: new DueCheckService(_runs, (tenant, id) => _jobs.Get(tenant, id), _triggers.CheckStates, _starter,
+                directorRunsDefinitionChecks: (_, _) => true, resultRecorded: (_, _) => { }, nowUtc: () => Now,
+                startLifetime: CancellationToken.None));
     }
 
     public void Dispose()
@@ -82,6 +91,114 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
         if (draftVersion2)
             Assert.True(_definitions.SaveDraft(T, Factory, DefinitionFixture.With("checks/new_mail.py", "print('v2')\n"), 1,
                 FactoryMemoryAuthorKinds.Person, "owner", "second", Now).Ok);
+    }
+
+    // ---------- a timed start's due check, on the trigger routes (phase 5b, design 3.3) ----------
+
+    /// <summary>A schedule of the factory with a check on SOREN_NORTH, fired once: its run is waiting on its check.</summary>
+    private async Task<string> ADueCheckOnNorth()
+    {
+        var job = _jobs.Create(new CronJobDto
+        {
+            Name = "DevThrottle - Writer", Enabled = true, ScheduleKind = CronSchedule.KindRecurring, CronExpression = "0 9 * * *",
+            TimeZoneId = "UTC", Factory = Factory, Seat = "writer", Target = new CronJobTarget { Machine = "SOREN_NORTH" },
+            Action = new CronJobAction { RepoPath = @"D:\factories\devthrottle", Seed = "Write {count}." },
+        });
+        using (var ctx = _db.CreateContext(T))
+        {
+            CronJobStore.ApplyCheck(ctx.CronJobs.Single(j => j.Id == job.Id), new CronJobDto { CheckPath = "checks/new_mail.py" }, 1);
+            ctx.SaveChanges();
+        }
+        var fired = await new CronEngine(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(Now))
+            .RunNowAsync(job.Id, CancellationToken.None);
+        return fired.Record!.RunId;
+    }
+
+    [Fact]
+    public async Task Get_TheTriggerPull_HandsTheDirectorOnTheSchedulesMachineItsDueCheck_AndNoOtherDirector()
+    {
+        var runId = await ADueCheckOnNorth();
+
+        var (south, southBody) = await Send("GET", "/directors/dir-south/triggers");
+        var (north, northBody) = await Send("GET", "/directors/dir-north/triggers");
+
+        Assert.Equal((200, 200), (south, north));
+        Assert.Empty(southBody.GetProperty("triggers").EnumerateArray());
+        var handed = Assert.Single(northBody.GetProperty("triggers").EnumerateArray());
+        Assert.Equal((runId, "definition", 300), (handed.GetProperty("dueRunId").GetString(), handed.GetProperty("kind").GetString(),
+            handed.GetProperty("timeoutSeconds").GetInt32()));
+    }
+
+    [Fact]
+    public async Task Post_ADueChecksReport_IsRecordedOnItsRun_AndASecondReportIs409AlreadyRecorded()
+    {
+        var runId = await ADueCheckOnNorth();
+        await Send("GET", "/directors/dir-north/triggers");
+        var report = JsonSerializer.Serialize(new TriggerCheckReport { CheckedAtUtc = Now, ExitCode = 0, Output = """{"count": 0}""" });
+
+        var (first, firstBody) = await Send("POST", $"/directors/dir-north/triggers/{runId}/checks", report);
+        var (second, secondBody) = await Send("POST", $"/directors/dir-north/triggers/{runId}/checks", report);
+
+        Assert.Equal(200, first);
+        Assert.Equal(CronRunResults.NothingToDo, firstBody.GetProperty("result").GetString());
+        Assert.Equal(409, second);
+        Assert.Equal("already_recorded", secondBody.GetProperty("code").GetString());
+        Assert.True(CcDirector.ControlApi.Triggers.DirectorTriggerRunner.IsAlreadyRecorded($"HTTP 409: {secondBody.GetRawText()}"));
+    }
+
+    [Fact]
+    public async Task Post_ADueChecksReportFromADirectorNotHandedIt_Is409()
+    {
+        var runId = await ADueCheckOnNorth();
+        await Send("GET", "/directors/dir-north/triggers");
+        var report = JsonSerializer.Serialize(new TriggerCheckReport { CheckedAtUtc = Now, ExitCode = 0, Output = """{"count": 0}""" });
+
+        var (status, body) = await Send("POST", $"/directors/dir-south/triggers/{runId}/checks", report);
+
+        Assert.Equal(409, status);
+        Assert.Equal("held_by_another_director", body.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Post_ADueCheckThatCountedWork_Is202_AndItsSessionStartsOnTheDirectorThatRanIt()
+    {
+        var runId = await ADueCheckOnNorth();
+        await Send("GET", "/directors/dir-north/triggers");
+        var report = JsonSerializer.Serialize(new TriggerCheckReport { CheckedAtUtc = Now, ExitCode = 0, Output = """{"count": 3}""" });
+
+        var (status, body) = await Send("POST", $"/directors/dir-north/triggers/{runId}/checks", report);
+        await _starter.Done.Task;
+
+        Assert.Equal(202, status);
+        Assert.Equal(3, body.GetProperty("count").GetInt32());
+        Assert.Equal(("dir-north", "Write 3."), _starter.Pinned.Single());
+    }
+
+    private sealed class RouteStarter : ICronSessionStarter
+    {
+        public List<(string Director, string Seed)> Pinned { get; } = new();
+        public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
+            => throw new InvalidOperationException("a due check's session is started pinned");
+
+        public Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, DueCheckFinding found, CancellationToken ct)
+        {
+            Pinned.Add((directorId, seed));
+            Done.TrySetResult();
+            return Task.FromResult(new CronRunStart("sid-1", directorId, null, BriefVersion: null));
+        }
+    }
+
+    private sealed class FixedClock(DateTime utcNow) : IClock
+    {
+        public DateTime UtcNow { get; } = utcNow;
+    }
+
+    private sealed class NoWorkLists : ICronWorkListRunner
+    {
+        public Task<CronWorkListOutcome> TriggerAsync(CronJobDto job, CancellationToken ct) =>
+            throw new InvalidOperationException("no work list in this test");
     }
 
     // ---------- the download ----------

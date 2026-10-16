@@ -25,6 +25,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Template;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using CcDirector.Gateway.Tests.Factory.Triggers;
 
 namespace CcDirector.Gateway.Tests.Factory.Definition;
 
@@ -99,10 +100,11 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => Now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
         TriggerEndpoints.Map(_routes, _ => T, service, directorMachine: (_, _) => "SOREN_NORTH", nowUtc: () => Now,
             sessionFactoryOf: _ => SessionFactoryLookup.NotKnown,
-            isDefined: _definitions.IsDefined);
+            isDefined: _definitions.IsDefined,
+            dueChecks: DueCheckTestParts.NoDueChecks(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
 
         FactoryRegistryEndpoints.Map(_routes, _ => T, _registry, sessionStart: (_, _) => null, nowUtc: () => Now,
             isDefined: _definitions.IsDefined);

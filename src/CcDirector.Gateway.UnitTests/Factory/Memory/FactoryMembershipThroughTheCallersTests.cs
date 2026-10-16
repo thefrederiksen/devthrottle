@@ -191,10 +191,11 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => DateTime.UtcNow, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
         TriggerEndpoints.Map(app, _ => TenantId.Local, _triggers,
             directorMachine: (_, _) => Machine, nowUtc: () => DateTime.UtcNow, sessionFactoryOf: _history.FactoryOf,
-            isDefined: (_, _) => false);
+            isDefined: (_, _) => false,
+            dueChecks: DueCheckTestParts.NoDueChecks(_db.Open(), Path.Combine(_dir, "due.runs.json")));
 
         await app.StartAsync();
         _app = app;
@@ -579,7 +580,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
             findSession: (_, sid) => reported.Values.FirstOrDefault(s => s.SessionId == sid),
             findSessionByName: (_, name) => reported.TryGetValue(name, out var s) ? s : null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
         var (trigger, error) = service.Store.Create(TenantId.Local, TriggerDefinitionTests.Valid(), "a person", now.AddMinutes(-1));
         Assert.Null(error);
         var triggerId = trigger!.Id.ToString("D");

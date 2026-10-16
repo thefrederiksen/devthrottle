@@ -50,17 +50,6 @@ public static class FactoryDefinitionCheck
     public const string SeatsPlace = "seats/";
 
     /// <summary>
-    /// The error a TIMED start with a check gets at publish and restore (Factory Definition, phase 5b): an interval
-    /// start's check runs from this phase, but a timed start's check is due when its time comes, and the due check is
-    /// the next pull request of phase 5b. Until it lands such a start would start its session without its check, so a
-    /// version holding one cannot drive the factory yet. A draft may hold it.
-    /// </summary>
-    public const string TimedCheckStartNotYet =
-        "This start has a cron time and a check. A timed start's check runs when its time is due, which comes in the " +
-        "next part of phase 5b of the factory definition work, so this version cannot be published yet; give the start " +
-        "an interval (every) instead, publish it without the check, or wait.";
-
-    /// <summary>
     /// The notice on every <c>allow</c> list of a rule set (Factory Definition, phase 5, design section 4). A seat's kit
     /// carries only <c>deny</c> and <c>ask</c>: an <c>allow</c> rule could approve what the repository itself would ask
     /// about, and a definition only ever adds limits (R13). The list stays valid; it is said out loud that it does nothing.
@@ -73,7 +62,7 @@ public static class FactoryDefinitionCheck
     /// <paramref name="fleetSkillIds"/> the skill ids in the account's skill store; <paramref name="connectedMachines"/>
     /// the machine names the account's Directors report now. The result carries the parsed definition when there is no
     /// error. <paramref name="purpose"/> says what the check is for: a publish or a restore drives the factory (phase
-    /// 4), so it also refuses a start with a check and words the secret and repository questions from
+    /// 4), so it also words the secret and repository questions from
     /// <paramref name="machineReplies"/> - what each seat's machine answered when the publish asked it (phase 5,
     /// <see cref="FactoryMachineQuestionAsker"/>), keyed by machine name. The check never asks a machine itself: the
     /// caller asks first, then checks. A publish must pass the replies; a save ignores them.
@@ -676,8 +665,6 @@ public static class FactoryDefinitionCheck
             {
                 var checkPath = Text(check);
                 named.Checks.Add(checkPath);
-                if (_purpose == DefinitionCheckPurpose.Publish && cron is not null)
-                    Error(_findings, path, check.KeyLine, TimedCheckStartNotYet);
                 if (!_p.Checks.Contains(checkPath))
                     Error(_findings, path, check.KeyLine, $"The start names the check '{checkPath}', which is not in this definition.");
                 if (preventOverlap?.Value is DefinitionScalar { Value: "false" })

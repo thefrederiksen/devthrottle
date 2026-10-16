@@ -58,6 +58,7 @@ public sealed class CronEngine
     // CronRunResultService.Announce; a test that does not watch factory rows passes nothing.
     private readonly Action<TenantId, CronJobDto, CronRunRecord>? _onResultRecorded;
     private readonly Func<TenantId, bool> _isPaused;
+    private readonly Func<TenantId, bool> _factoryAgentsOn;
 
     private readonly object _inFlightGate = new();
     // Overlap admission, PARTITIONED BY TENANT (audit MED, gap audit-e). A cron job's id is tenant-relative
@@ -101,9 +102,11 @@ public sealed class CronEngine
         TimeSpan? catchUpThreshold = null,
         Func<TenantId?>? resolveTenant = null,
         Action<TenantId, CronJobDto, CronRunRecord>? onResultRecorded = null,
-        Func<TenantId, bool>? isPaused = null)
+        Func<TenantId, bool>? isPaused = null,
+        Func<TenantId, bool>? factoryAgentsOn = null)
     {
         _onResultRecorded = onResultRecorded;
+        _factoryAgentsOn = factoryAgentsOn ?? (_ => true);
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _history = history ?? throw new ArgumentNullException(nameof(history));
         _starter = starter ?? throw new ArgumentNullException(nameof(starter));
@@ -130,6 +133,7 @@ public sealed class CronEngine
             FileLog.Write($"[CronEngine] EvaluateDueAsync: tenant={sweepTenant.ToLogString()} is paused; nothing fired");
             return Array.Empty<CronRunRecord>();
         }
+        FailStalledDueStarts(now);
         var due = _store.ListAll()
             .Where(j => j.Enabled && j.NextRunUtc is not null && j.NextRunUtc.Value <= now)
             .ToList();
@@ -220,9 +224,13 @@ public sealed class CronEngine
 
         try
         {
-            // A work-list action (#484) drains a named list via the runner; a seed action starts a
-            // single session. Either way a run is recorded and the schedule advances below.
+            // A WORK-LIST action (#484) drains a named list via the runner; a seed action starts a single session. A
+            // seed schedule WITH A CHECK (Factory Definition, phase 5b) starts neither: it records the due check and
+            // returns, so nothing in the sweep ever waits on a Director.
             var isWorkList = !string.IsNullOrWhiteSpace(job.Action.WorkListName);
+            if (job.HasCheck && !isWorkList)
+                return FireCheck(tenant, job, scheduledUtc, isManual);
+
             string? sessionId;
             string? error;
             string? resolvedDirectorId = null;   // the Director the machine resolved to (#503)
@@ -323,6 +331,86 @@ public sealed class CronEngine
             if (job.PreventOverlap)
                 ExitFlight(tenant, job.Id);
         }
+    }
+
+    /// <summary>The infrastructure status of a run whose check is due and has not reported.</summary>
+    public const string CheckDueStatus = "check-due";
+
+    /// <summary>
+    /// A due check whose check counted work and whose session start never returned (phase 5b, review 2, finding 3) is
+    /// recorded as did-not-run once <see cref="CronRunHistoryStore.DueStartGrace"/> has passed - read on every sweep,
+    /// and so also on the first sweep after a Gateway start, never left reading "checking" for good.
+    /// </summary>
+    private void FailStalledDueStarts(DateTime now)
+    {
+        if (_resolveTenant() is not { } tenant) return;
+        foreach (var stalled in _history.FailStalledDueStarts(tenant, now - CronRunHistoryStore.DueStartGrace, now))
+        {
+            FileLog.Write($"[CronEngine] due start never returned: job={stalled.JobId}, run={stalled.Run.RunId}: {stalled.Run.ResultReason}");
+            if (_store.Get(stalled.JobId) is { } job)
+                _onResultRecorded?.Invoke(tenant, job, stalled.Run);
+        }
+    }
+
+    /// <summary>The infrastructure status of a due check fired while the account's Factory Agents switch is off: no
+    /// Director can be handed it.</summary>
+    public const string CheckDueSwitchedOffStatus = "check-due-switched-off";
+
+    /// <summary>Why a due check cannot run on an account whose Factory Agents switch is off.</summary>
+    public const string FactoryAgentsOffSentence =
+        "factory agents are switched off for this account, so no Director is handed the check";
+
+    /// <summary>
+    /// THE FIRE OF A SCHEDULE WITH A CHECK (Factory Definition, phase 5b, design 3.3). It starts no session and calls no
+    /// Director: it appends the run row with result <c>checking</c> - that row IS the due check, handed to a Director on
+    /// the schedule's machine by its next trigger pull - and moves the schedule on, exactly as any fire does. The
+    /// Gateway decides whether a session starts when the check reports (<c>DueCheckService</c>).
+    ///
+    /// SUPERSEDED: when the schedule's previous run is still <c>checking</c> at this fire, no Director ran its check
+    /// before its next time. That row becomes a <c>check-not-run</c> problem first, so a machine that is off for days
+    /// shows one problem per missed time, never a pile of rows still waiting.
+    /// </summary>
+    private CronRunNowResult FireCheck(TenantId tenant, CronJobDto job, DateTime scheduledUtc, bool isManual)
+    {
+        var firedUtc = _clock.UtcNow;
+        // A Director is handed a due check only through the factory routes, which answer nothing while the account's
+        // Factory Agents switch is off - so then the check cannot run, and the run and the schedule say why.
+        var switchedOff = !_factoryAgentsOn(tenant);
+        // The reason is the superseded run's own truth: whether the switch was off when IT fired.
+        var superseded = _history.SupersedeUnreportedCheck(tenant, job.Id, infra => infra == CheckDueSwitchedOffStatus
+            ? $"{FactoryAgentsOffSentence}; the check of {job.Name} did not run before its next time"
+            : $"no Director on {job.Target.Machine} ran the check of {job.Name} before its next time", firedUtc);
+        if (superseded is not null)
+        {
+            FileLog.Write($"[CronEngine] check not run: job={job.Id}, run={superseded.RunId}: {superseded.ResultReason}");
+            _onResultRecorded?.Invoke(tenant, job, superseded);
+        }
+        var infraStatus = switchedOff ? CheckDueSwitchedOffStatus : CheckDueStatus;
+        var lastStatus = switchedOff ? $"{CheckDueStatus}: {FactoryAgentsOffSentence}" : CheckDueStatus;
+
+        var record = new CronRunRecord
+        {
+            ScheduledUtc = scheduledUtc,
+            FiredUtc = firedUtc,
+            Machine = job.Target.Machine,
+            TargetDirectorId = "",
+            SessionId = null,
+            InfraStatus = infraStatus,
+            TaskStatus = TaskStatusUnknown,
+            Result = CronRunResults.Checking,
+        };
+        CronRunResultFold.StampFactoryLink(record, job);
+        _history.Append(job.Id, record);
+
+        if (isManual)
+            _store.MarkFired(job.Id, firedUtc, lastStatus, job.NextRunUtc, job.Enabled);
+        else if (CronSchedule.KindOneOff.Equals(job.ScheduleKind?.Trim(), StringComparison.OrdinalIgnoreCase))
+            _store.MarkFired(job.Id, firedUtc, lastStatus, nextRunUtc: null, enabled: false);
+        else
+            _store.MarkFired(job.Id, firedUtc, lastStatus, CronSchedule.ComputeNextRunUtc(job, firedUtc), enabled: true);
+
+        FileLog.Write($"[CronEngine] fired a due check: job={job.Id}, manual={isManual}, run={record.RunId}, check={job.CheckPath}, machine={job.Target.Machine}, factory agents on={!switchedOff}");
+        return new CronRunNowResult(CronFireOutcome.Fired, record);
     }
 
     /// <summary>

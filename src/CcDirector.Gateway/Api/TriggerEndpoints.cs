@@ -38,6 +38,13 @@ namespace CcDirector.Gateway.Api;
 ///                                                          | 202 TriggerStartAccepted (a session start was begun; its
 ///                                                            run row is written when it returns) | 404 | 409
 ///
+/// A TIMED START'S DUE CHECK rides the same two routes (Factory Definition, phase 5b, design 3.3, see
+/// <see cref="DueCheckService"/>): the pull also hands a Director that runs definition checks the due check of a
+/// schedule on its machine (an assignment carrying DueRunId), and a report whose {id} is that run id is recorded on the
+/// schedule's run - 200 CronRunRecord (check failed, or nothing to do), 202 TriggerStartAccepted (it counted work and
+/// the schedule's session is being started on this Director), 404 no_such_run, or 409 already_recorded /
+/// held_by_another_director / cannot_run_definition_checks.
+///
 /// The Director names itself in the path, and its MACHINE is read from its own registration in the caller's
 /// account - never taken from the request - so a caller cannot ask for another machine's checks.
 ///
@@ -63,8 +70,12 @@ internal static class TriggerEndpoints
         // (FactoryDefinitionStore.IsDefined). A defined factory's triggers are the definition's to write, so the
         // add, the edit and the delete of one are refused (DefinedByDefinition); pause and resume still work.
         // REQUIRED for the same reason as the lookup above.
-        Func<TenantId, string?, bool> isDefined)
+        Func<TenantId, string?, bool> isDefined,
+        // Factory Definition, phase 5b: a timed start's due checks ride the same pull and the same report as a
+        // trigger's (design 3.3). REQUIRED for the same reason as the two above.
+        DueCheckService dueChecks)
     {
+        ArgumentNullException.ThrowIfNull(dueChecks);
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(isDefined);
@@ -226,10 +237,10 @@ internal static class TriggerEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
             if (directorMachine(tenant, directorId) is not { } machine) return NoSuchDirector(directorId);
-            return Results.Json(new TriggerAssignmentResponse
-            {
-                Triggers = service.AssignmentsFor(tenant, directorId, machine).ToList(),
-            });
+            // The interval checks, then the due checks of timed starts on this machine - each claimed for this Director.
+            var assigned = service.AssignmentsFor(tenant, directorId, machine).ToList();
+            assigned.AddRange(dueChecks.AssignmentsFor(tenant, directorId, machine));
+            return Results.Json(new TriggerAssignmentResponse { Triggers = assigned });
         });
 
         app.MapPost("/directors/{directorId}/triggers/{id}/checks", async (string directorId, string id, HttpContext ctx) =>
@@ -244,6 +255,10 @@ internal static class TriggerEndpoints
             if (sizeFeature is { IsReadOnly: false }) sizeFeature.MaxRequestBodySize = TriggerCheckLimits.ReportBodyLimitBytes;
             var (report, bad) = await ReadBody<TriggerCheckReport>(ctx, "a check report");
             if (bad is not null) return bad;
+
+            // A DUE CHECK is reported under its run's id (design 3.3); every other id names a trigger, as always.
+            if (dueChecks.IsRun(tenant, id))
+                return DueCheckAnswer(id, dueChecks.Report(tenant, directorId, Guid.Parse(id), report!));
 
             // The request's cancellation reaches only the decision. A session start the check begins runs on the
             // Gateway's own lifetime, and this answers without waiting for it: a start outlasts the Director's wait.
@@ -264,6 +279,24 @@ internal static class TriggerEndpoints
         });
 
         FileLog.Write("[TriggerEndpoints] mapped /triggers and the Director's /directors/{directorId}/triggers routes");
+    }
+
+    /// <summary>What a due check's report came to, on the wire: the run, 202 while the session it asked for starts, or
+    /// the refusal. "Already recorded" is the Director's word for a final refusal.</summary>
+    private static IResult DueCheckAnswer(string id, DueCheckReportResult result)
+    {
+        if (result is { Refusal: DueCheckRefusal.None, Starting: not null })
+            return Results.Json(new TriggerStartAccepted { TriggerId = id, Count = result.StartingCount!.Value },
+                statusCode: StatusCodes.Status202Accepted);
+        return result.Refusal switch
+        {
+            DueCheckRefusal.None => Results.Json(result.Run!),
+            DueCheckRefusal.NoSuchRun => Refuse(StatusCodes.Status404NotFound, "no_such_run", result.Error!),
+            DueCheckRefusal.AlreadyRecorded => Refuse(StatusCodes.Status409Conflict, "already_recorded", result.Error!),
+            DueCheckRefusal.HeldByAnotherDirector => Refuse(StatusCodes.Status409Conflict, "held_by_another_director", result.Error!),
+            DueCheckRefusal.CannotRunDefinitionChecks => Refuse(StatusCodes.Status409Conflict, "cannot_run_definition_checks", result.Error!),
+            _ => throw new InvalidOperationException($"unhandled due check refusal: {result.Refusal}"),
+        };
     }
 
     /// <summary>Who is calling, in the words the stop route records: "session &lt;id&gt;", "device phone &lt;id&gt;"...</summary>

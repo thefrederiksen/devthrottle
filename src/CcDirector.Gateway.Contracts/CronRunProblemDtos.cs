@@ -184,6 +184,10 @@ public sealed class CronFactoryDayDto
     /// <summary>Runs that were due in the window and never started (problem kind <c>did-not-run</c>).</summary>
     public int DidNotRun { get; set; }
 
+    /// <summary>Runs whose check counted nothing in the window, so no session was needed (Factory Definition, phase
+    /// 5b). Never counted as did not run.</summary>
+    public int NothingToDo { get; set; }
+
     /// <summary>The factory's seats with a run whose session is still open now, whatever the run's age - the same fact
     /// the Factories list's "stayed open" marker shows.</summary>
     public int LeftOpen { get; set; }

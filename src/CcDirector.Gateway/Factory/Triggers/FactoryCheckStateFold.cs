@@ -19,14 +19,16 @@ namespace CcDirector.Gateway.Factory.Triggers;
 public static class FactoryCheckStateFold
 {
     /// <summary>
-    /// One row per definition trigger of <paramref name="definition"/>'s factory, by seat id and start number.
-    /// <paramref name="definition"/> is the published definition, or null when there is none: then there are no checked
-    /// starts and the list is empty.
+    /// One row per checked start of <paramref name="definition"/>'s factory that a live row runs - a definition trigger
+    /// for an interval start, a schedule with a check for a timed one (owner key <c>cron:&lt;schedule id&gt;</c>) - by
+    /// seat id and start number. <paramref name="definition"/> is the published definition, or null when there is none:
+    /// then there are no checked starts and the list is empty.
     /// </summary>
     public static List<FactoryCheckStateDto> List(FactoryDefinition? definition, IReadOnlyList<TriggerEntity> liveTriggers,
-        Func<string, FactoryCheckStateEntity?> newestOf)
+        IReadOnlyList<CronJobDto> liveSchedules, Func<string, FactoryCheckStateEntity?> newestOf)
     {
         ArgumentNullException.ThrowIfNull(liveTriggers);
+        ArgumentNullException.ThrowIfNull(liveSchedules);
         ArgumentNullException.ThrowIfNull(newestOf);
         var rows = new List<FactoryCheckStateDto>();
         if (definition is null) return rows;
@@ -49,10 +51,62 @@ public static class FactoryCheckStateFold
                 var number = interval[pair.New] + 1;
                 rows.Add(Row(trigger, seat.Seat, number, newestOf(FactoryCheckStateStore.TriggerOwner(trigger.Id))));
             }
+
+            // The seat's checked TIMED starts (phase 5b, design 3.3), paired with its schedules the way a publish pairs
+            // them; only a schedule that carries a check keeps a state.
+            var timed = Enumerable.Range(0, seat.Starts.Count)
+                .Where(i => seat.Starts[i].Cron is not null).ToList();
+            var schedules = liveSchedules
+                .Where(j => string.Equals(j.Factory, definition.Factory, StringComparison.Ordinal) && j.Seat == seat.Seat)
+                .OrderBy(j => j.Id, StringComparer.Ordinal).ToList();
+            var timedPairing = FactoryDefinitionChanges.PairStarts(schedules.Select(AsStart).ToList(),
+                timed.Select(i => seat.Starts[i]).ToList());
+            foreach (var pair in timedPairing.Pairs.OrderBy(p => timed[p.New]))
+            {
+                var job = schedules[pair.Old];
+                if (!job.HasCheck || seat.Starts[timed[pair.New]].Check is null) continue;
+                rows.Add(Row(job, seat.Seat, timed[pair.New] + 1, newestOf(FactoryCheckStateStore.ScheduleOwner(job.Id))));
+            }
         }
-        FileLog.Write($"[FactoryCheckStateFold] List: factory={definition.Factory}, checked starts with a trigger={rows.Count}");
+        rows = rows.OrderBy(r => r.Seat, StringComparer.Ordinal).ThenBy(r => r.Start).ToList();
+        FileLog.Write($"[FactoryCheckStateFold] List: factory={definition.Factory}, checked starts with a trigger or a schedule={rows.Count}");
         return rows;
     }
+
+    /// <summary>
+    /// The number of the start a checked trigger or schedule stands for in <paramref name="definition"/> - its place
+    /// among its seat's starts, from 1 - by the same pairing <see cref="List"/> uses; null when the definition has no
+    /// such checked start (phase 5b: the start number a check start's FactoryCheck carries).
+    /// </summary>
+    public static int? StartNumberOf(FactoryDefinition definition, TriggerEntity? trigger, CronJobDto? schedule)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var owner = trigger is not null ? FactoryCheckStateStore.TriggerOwner(trigger.Id)
+            : schedule is not null ? FactoryCheckStateStore.ScheduleOwner(schedule.Id)
+            : throw new ArgumentException("a trigger or a schedule is required");
+        var rows = List(definition, trigger is null ? Array.Empty<TriggerEntity>() : new[] { trigger },
+            schedule is null ? Array.Empty<CronJobDto>() : new[] { schedule }, _ => null);
+        return rows.FirstOrDefault(r => r.OwnerKey == owner)?.Start;
+    }
+
+    // A live schedule as a start, the way the publish plan reads one, so the pairing here is the publish's.
+    private static SeatStartDefinition AsStart(CronJobDto job)
+        => new(job.CronExpression ?? job.RunAt ?? "", job.TimeZoneId, null, null, job.CheckPath,
+            (IReadOnlyList<string>?)job.CheckSecrets ?? Array.Empty<string>(), job.Action.Seed ?? "", job.PreventOverlap);
+
+    private static FactoryCheckStateDto Row(CronJobDto job, string seat, int number, FactoryCheckStateEntity? newest) => new()
+    {
+        OwnerKey = FactoryCheckStateStore.ScheduleOwner(job.Id),
+        Seat = seat,
+        Start = number,
+        Name = job.Name,
+        CheckPath = job.CheckPath!,
+        Content = newest?.Content ?? "",
+        WrittenUtc = newest is null ? null : DateTime.SpecifyKind(newest.WrittenUtc, DateTimeKind.Utc),
+        WrittenBy = newest?.WrittenBy,
+        RunRef = newest?.RunRef,
+        Reset = newest?.Reset ?? false,
+    };
 
     private static FactoryCheckStateDto Row(TriggerEntity trigger, string seat, int number, FactoryCheckStateEntity? newest) => new()
     {

@@ -74,7 +74,8 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             apply: apply,
             nowUtc: () => Now,
             askMachines: askMachines ?? DefinitionFixture.AskNobody,
-            checkStates: new FactoryDefinitionEndpoints.CheckStateParts(_triggers.CheckStates, _triggers.List));
+            checkStates: new FactoryDefinitionEndpoints.CheckStateParts(_triggers.CheckStates, _triggers.List,
+                _ => Array.Empty<CronJobDto>()));
         return routes;
     }
 
@@ -412,16 +413,27 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [Fact]
     public async Task THE_DIFF_PLAN_SAYS_WHY_A_PUBLISH_WOULD_BE_REFUSED()
     {
-        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.TimedChecked(), 0));
+        // Arrange: another factory's trigger already holds the name the outreach seat's interval start would take.
+        var (taken, error) = _triggers.Create(A, new TriggerDefinitionRequest
+        {
+            Name = "devthrottle-outreach-start-1", Factory = "elsewhere", FactoryAgent = "scout",
+            Machine = "SOREN_SOUTH", RepoPath = @"D:\elsewhere",
+            CheckCommand = "python check.py", IntervalSeconds = 300, Prompt = "There are {count} new.",
+        }, "the owner (test)", Now.AddDays(-1));
+        Assert.True(taken is not null, error);
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.Valid(), 0));
 
+        // Act
         var diff = await Send("GET", FactoryPath + "/diff", AsAPerson);
 
+        // Assert
         var plan = diff.Body.GetProperty("plan");
         Assert.Empty(plan.GetProperty("steps").EnumerateArray());
         Assert.StartsWith("The live factory cannot take this definition", plan.GetProperty("refused").GetString());
         var finding = plan.GetProperty("findings")[0];
         Assert.Equal("seats/outreach.yaml", finding.GetProperty("file").GetString());
-        Assert.Equal(FactoryDefinitionCheck.TimedCheckStartNotYet, finding.GetProperty("message").GetString());
+        Assert.StartsWith("The trigger this start makes is named devthrottle-outreach-start-1, and that name is taken",
+            finding.GetProperty("message").GetString());
     }
 
     // ---------- phase 5b: an interval check publishes, and the state its check keeps ----------
@@ -593,18 +605,38 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task A_PUBLISH_WITH_A_TIMED_START_THAT_HAS_A_CHECK_IS_422_ON_THE_CHECK_LINE()
+    public async Task A_PUBLISH_WITH_A_TIMED_START_THAT_HAS_A_CHECK_WRITES_A_SCHEDULE_CARRYING_THE_CHECK_AND_SAYS_SO()
     {
         await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.TimedChecked(), 0));
 
-        var refused = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        var published = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
 
-        Assert.Equal(422, refused.Status);
-        Assert.Equal("CheckFailed", refused.Body.GetProperty("outcome").GetString());
-        var error = refused.Body.GetProperty("findings").EnumerateArray().Single(f => f.GetProperty("severity").GetString() == "error");
-        Assert.Equal("seats/outreach.yaml", error.GetProperty("file").GetString());
-        Assert.Equal(13, error.GetProperty("line").GetInt32());
-        Assert.Equal(FactoryDefinitionCheck.TimedCheckStartNotYet, error.GetProperty("message").GetString());
+        Assert.Equal(200, published.Status);
+        Assert.Contains(published.Body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()),
+            a => a!.Contains("created for seat outreach: Weekdays 09:00 Europe/Copenhagen, check checks/new_mail.py.", StringComparison.Ordinal));
+        using var ctx = _db.CreateContext(A);
+        var job = Assert.Single(ctx.CronJobs.AsNoTracking().ToList(), j => j.Seat == "outreach");
+        Assert.Equal(("checks/new_mail.py", 1, true), (job.CheckPath, job.DefinitionVersion, job.PreventOverlap));
+        Assert.DoesNotContain(_triggers.List(A), t => t.Factory == TheFactory);
+    }
+
+    [Fact]
+    public async Task A_SECOND_PUBLISH_THAT_CHANGES_ONLY_A_TIMED_STARTS_CHECK_MOVES_ITS_SCHEDULE_TO_THE_NEW_VERSION_AND_SAYS_SO()
+    {
+        // The Director downloads the check from the version on the schedule; a version left behind would run the old one.
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.TimedChecked(), 0));
+        await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+        var changed = new Dictionary<string, string>(DefinitionFixture.TimedChecked()) { ["checks/new_mail.py"] = "print('{\"count\": 1}')\n" };
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(changed, 1));
+
+        var second = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":2}""");
+
+        Assert.Equal(200, second.Status);
+        using var ctx = _db.CreateContext(A);
+        var job = Assert.Single(ctx.CronJobs.AsNoTracking().ToList(), j => j.Seat == "outreach");
+        Assert.Equal(("checks/new_mail.py", 2), (job.CheckPath, job.DefinitionVersion));
+        Assert.Contains($"Schedule {job.Id} ({job.Name}) kept as it is; its check is read from version 2.",
+            second.Body.GetProperty("applied").EnumerateArray().Select(a => a.GetString()));
     }
 
     [Fact]

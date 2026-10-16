@@ -112,6 +112,15 @@ public sealed class CronRunRecord
     /// before definitions gave briefs - each of which was a brief version. Read-only: ignored on a write.
     /// </summary>
     public string? BriefVersionKind { get; set; }
+
+    /// <summary>
+    /// What the run's check counted, on a run of a schedule with a check (Factory Definition, phase 5b), once its check
+    /// has reported a count; null on every other run and while the check has not reported. Read-only.
+    /// </summary>
+    public int? CheckCount { get; set; }
+
+    /// <summary>When the run's check reported (UTC), on a run of a schedule with a check; null otherwise. Read-only.</summary>
+    public DateTime? CheckedUtc { get; set; }
 }
 
 /// <summary>
@@ -132,6 +141,16 @@ public static class CronRunResults
 
     /// <summary>Something went wrong; <see cref="CronRunRecord.Problem"/> says what kind.</summary>
     public const string Problem = "problem";
+
+    /// <summary>
+    /// A schedule with a check fired, and its check has not reported yet (Factory Definition, phase 5b). This row IS
+    /// the due check a Director is handed. Neither pending (no session owes a report) nor a problem.
+    /// </summary>
+    public const string Checking = "checking";
+
+    /// <summary>The run's check counted nothing, so no session started. Neither pending nor a problem, and never "did
+    /// not run": the schedule ran, and there was nothing to do.</summary>
+    public const string NothingToDo = "nothing-to-do";
 }
 
 /// <summary>The kinds of problem a scheduled run can have (Factory Control, step 1).</summary>
@@ -149,6 +168,16 @@ public static class CronRunProblems
     /// <summary>The run was due and never started a session.</summary>
     public const string DidNotRun = "did-not-run";
 
+    /// <summary>The run's check broke its contract (Factory Definition, phase 5b); the reason is the contract's, quoted.
+    /// Also the kind of a definition trigger's failed check on the problems list.</summary>
+    public const string CheckFailed = "check-failed";
+
+    /// <summary>The run's check was never reported before the schedule's next time came (Factory Definition, phase 5b).</summary>
+    public const string CheckNotRun = "check-not-run";
+
+    /// <summary>True for the two kinds a check raises, which a later run whose check works again clears.</summary>
+    public static bool IsCheckProblem(string? problem) => problem is CheckFailed or CheckNotRun;
+
     /// <summary>The problem in words, for a list or an email.</summary>
     /// <summary>
     /// The most did-not-run rows one outage of one schedule writes, counting the first missed time - so a schedule due
@@ -163,6 +192,8 @@ public static class CronRunProblems
         DidNotReport => "did not report",
         RanPastShift => "ran past its shift",
         DidNotRun => "did not run",
+        CheckFailed => "check failed",
+        CheckNotRun => "check did not run",
         _ => "a problem",
     };
 }

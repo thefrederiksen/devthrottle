@@ -31,4 +31,15 @@ public sealed class TriggerRunEntity : GatewayMintedKeyEntity
 
     /// <summary>The Director that ran the check.</summary>
     public string DirectorId { get; set; } = "";
+
+    // ---- Factory Definition, phase 5b: a definition trigger's failed check is a problem a person may resolve. ----
+
+    /// <summary>When a person (or a session) resolved this failed check's problem (UTC), or null.</summary>
+    public DateTime? ResolvedUtc { get; set; }
+
+    /// <summary>Who resolved it: "you" for a person, otherwise the session that did.</summary>
+    public string? ResolvedBy { get; set; }
+
+    /// <summary>The one-line reason given when it was resolved.</summary>
+    public string? ResolvedReason { get; set; }
 }
