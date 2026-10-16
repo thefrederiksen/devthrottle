@@ -247,20 +247,51 @@ public static class FactoryDefinitionChanges
         => (candidate.Prompt == old.Prompt ? 4 : 0) + (candidate.Check == old.Check ? 2 : 0) + (candidate.TimeZone == old.TimeZone ? 1 : 0);
 
     /// <summary>
+    /// The most pairings of one seat's starts that <see cref="Undecided"/> tries - every way to pair eight live rows with
+    /// eight starts. A seat with more is refused in words (<see cref="UndecidedStarts.TooMany"/>) rather than judged for a
+    /// very long time.
+    /// </summary>
+    public const long MaxPairingsJudged = 40_320;
+
+    /// <summary>
+    /// How many pairings of <paramref name="olds"/> live rows with <paramref name="news"/> starts make
+    /// <paramref name="pairs"/> pairs: which old starts are paired, times the ordered choice of their new starts. Counted
+    /// up to just past <see cref="MaxPairingsJudged"/>.
+    /// </summary>
+    internal static long PairingsToJudge(int olds, int news, int pairs)
+    {
+        long count = 1;
+        for (var i = 0; i < pairs; i++)
+        {
+            count = count * (olds - i) / (i + 1);
+            if (count > MaxPairingsJudged) return MaxPairingsJudged + 1;
+        }
+        for (var i = 0; i < pairs; i++)
+        {
+            count *= news - i;
+            if (count > MaxPairingsJudged) return MaxPairingsJudged + 1;
+        }
+        return count;
+    }
+
+    /// <summary>
     /// WHERE THE PAIRING GUESSED (issue 4056): the groups of old and new positions whose pairing nothing in the draft
     /// decided, so a different pairing is at least as good and would give a live row - with its switch - to a different
     /// start. Empty when every pairing was decided.
     ///
     /// The pairing's score never weighs time: past the score, its order is the ordinal text of the cron expression, which
-    /// is not closeness. So a choice is judged here by what the draft says, a kept time counting as much as a kept prompt
-    /// (then the check, then the zone): a choice is DECIDED only when it beats every swap. That covers two paired old
-    /// starts (swap their new starts), a paired and an unpaired old start (the unpaired one could have taken the new
-    /// start), and a paired and an unpaired new start (the old start could have taken the unpaired one), at any times.
+    /// is not closeness. So the pairing is judged here by what the draft says, a kept time counting as much as a kept
+    /// prompt (then the check, then the zone), and judged WHOLE (review of 4063, finding 4): every other pairing of the
+    /// same old starts with the same new starts, as many pairs as the pairing made, is scored, and one that scores at
+    /// least as much and gives some start a different live row is a guess. A rotation of three is caught as a swap of
+    /// two is. Every start in which the two pairings differ is named.
+    ///
     /// An exact pair is a guess too when another old start, not paired exactly, is written the same as its new start:
     /// which of the two was kept as it is was the list order.
     ///
-    /// A tie that changes nothing is not a guess: two old starts <paramref name="interchangeable"/> says are alike in
-    /// everything a publish keeps, or two new starts written the same. The pairing itself is not changed.
+    /// A difference that changes nothing is not a guess: two old starts <paramref name="interchangeable"/> says are alike
+    /// in everything a publish keeps, or two new starts written the same. The pairing itself is not changed. More than
+    /// <see cref="MaxPairingsJudged"/> pairings to try is one group marked <see cref="UndecidedStarts.TooMany"/>.
     /// </summary>
     internal static IReadOnlyList<UndecidedStarts> Undecided(StartPairing pairing, IReadOnlyList<SeatStartDefinition> oldStarts,
         IReadOnlyList<SeatStartDefinition> newStarts, Func<int, int, bool> interchangeable)
@@ -270,57 +301,51 @@ public static class FactoryDefinitionChanges
         ArgumentNullException.ThrowIfNull(newStarts);
         ArgumentNullException.ThrowIfNull(interchangeable);
         var pairs = pairing.Pairs.Where(p => !p.Exact).ToList();
-        // One node per old position and one per new position; a guess joins the nodes it could have swapped.
+        var olds = pairs.Select(p => p.Old).Concat(pairing.UnpairedOld).OrderBy(x => x).ToList();
+        var news = pairs.Select(p => p.New).Concat(pairing.UnpairedNew).OrderBy(x => x).ToList();
+        if (PairingsToJudge(olds.Count, news.Count, pairs.Count) > MaxPairingsJudged)
+            return new[] { new UndecidedStarts(olds, news, TooMany: true) };
+
+        // One node per old position and one per new position; a guess joins the nodes it could have paired otherwise.
         var parent = new Dictionary<(bool IsNew, int At), (bool, int)>();
         (bool, int) Root((bool, int) node)
         {
             while (parent.TryGetValue(node, out var up) && up != node) node = up;
             return node;
         }
-        void Join(params (bool, int)[] nodes)
+        void Join(IReadOnlyList<(bool, int)> nodes)
         {
             foreach (var node in nodes) parent.TryAdd(node, node);
-            for (var i = 1; i < nodes.Length; i++) parent[Root(nodes[i])] = Root(nodes[0]);
+            for (var i = 1; i < nodes.Count; i++) parent[Root(nodes[i])] = Root(nodes[0]);
         }
+
         // What the draft says for one choice: a kept time as much as a kept prompt, then the check, then the zone.
         int Said(int o, int n) => Score(oldStarts[o], newStarts[n]) + (SameWhen(oldStarts[o], newStarts[n]) ? 4 : 0);
-        static bool SameKind(SeatStartDefinition a, SeatStartDefinition b) => (a.Cron is null) == (b.Cron is null);
+        bool Pairable(int o, int n) => (oldStarts[o].Cron is null) == (newStarts[n].Cron is null);
+        // The first of the starts a difference would not change anything between: alike in all kept, or written the same.
+        int OldClass(int o) => o < 0 ? -1 : olds.First(x => x == o || interchangeable(x, o));
+        int NewClass(int n) => n < 0 ? -1 : news.First(x => x == n || SameStart(newStarts[x], newStarts[n]));
 
-        for (var i = 0; i < pairs.Count; i++)
-        {
-            var (o1, n1) = (pairs[i].Old, pairs[i].New);
-            var here = Said(o1, n1);
-            for (var j = i + 1; j < pairs.Count; j++)
-            {
-                var (o2, n2) = (pairs[j].Old, pairs[j].New);
-                if (interchangeable(o1, o2) || SameStart(newStarts[n1], newStarts[n2])) continue;
-                if (Said(o1, n2) + Said(o2, n1) < here + Said(o2, n2)) continue;
-                Join((false, o1), (false, o2), (true, n1), (true, n2));
-            }
-            foreach (var o2 in pairing.UnpairedOld)
-            {
-                if (!SameKind(oldStarts[o1], oldStarts[o2]) || interchangeable(o1, o2)) continue;
-                if (Said(o2, n1) < here) continue;
-                Join((false, o1), (false, o2), (true, n1));
-            }
-            foreach (var n2 in pairing.UnpairedNew)
-            {
-                if (!SameKind(newStarts[n1], newStarts[n2]) || SameStart(newStarts[n1], newStarts[n2])) continue;
-                if (Said(o1, n2) < here) continue;
-                Join((false, o1), (true, n1), (true, n2));
-            }
-        }
+        var chosen = olds.ToDictionary(o => o, _ => -1);
+        foreach (var p in pairs) chosen[p.Old] = p.New;
+        var chosenScore = pairs.Sum(p => Said(p.Old, p.New));
+        var chosenKey = Key(chosen);
+
+        // Every pairing of the same size: each old start takes an unused new start of its kind, or none.
+        var alternative = new Dictionary<int, int>();
+        var used = new HashSet<int>();
+        Try(0, 0, 0);
 
         // An exact pair whose new start another old start, not paired exactly, is also written the same as.
         var exactOld = pairing.Pairs.Where(p => p.Exact).Select(p => p.Old).ToHashSet();
-        var partner = pairs.ToDictionary(p => p.Old, p => p.New);
         foreach (var exact in pairing.Pairs.Where(p => p.Exact))
         {
             for (var o2 = 0; o2 < oldStarts.Count; o2++)
             {
                 if (exactOld.Contains(o2) || !SameStart(oldStarts[o2], newStarts[exact.New]) || interchangeable(exact.Old, o2)) continue;
-                Join((false, exact.Old), (false, o2), (true, exact.New));
-                if (partner.TryGetValue(o2, out var n2)) Join((false, o2), (true, n2));
+                var nodes = new List<(bool, int)> { (false, exact.Old), (false, o2), (true, exact.New) };
+                if (chosen.TryGetValue(o2, out var n2) && n2 >= 0) nodes.Add((true, n2));
+                Join(nodes);
             }
         }
 
@@ -330,10 +355,56 @@ public static class FactoryDefinitionChanges
                 g.Where(k => k.IsNew).Select(k => k.At).OrderBy(x => x).ToList()))
             .OrderBy(u => u.New.Count == 0 ? int.MaxValue : u.New[0]).ThenBy(u => u.Old.Count == 0 ? int.MaxValue : u.Old[0])
             .ToList();
+
+        string Key(IReadOnlyDictionary<int, int> assignment)
+            => string.Join(";", assignment.Where(kv => kv.Value >= 0)
+                .Select(kv => $"{NewClass(kv.Value)}:{OldClass(kv.Key)}").OrderBy(x => x, StringComparer.Ordinal));
+
+        void Try(int i, int paired, int score)
+        {
+            if (i == olds.Count)
+            {
+                if (paired != pairs.Count || score < chosenScore || Key(alternative) == chosenKey) return;
+                var nodes = new List<(bool, int)>();
+                foreach (var o in olds)
+                {
+                    var was = chosen[o];
+                    var now = alternative[o];
+                    if (NewClass(was) == NewClass(now)) continue;
+                    nodes.Add((false, o));
+                    if (was >= 0) nodes.Add((true, was));
+                    if (now >= 0) nodes.Add((true, now));
+                }
+                foreach (var n in news)
+                {
+                    var was = chosen.FirstOrDefault(kv => kv.Value == n, new KeyValuePair<int, int>(-1, -1)).Key;
+                    var now = alternative.FirstOrDefault(kv => kv.Value == n, new KeyValuePair<int, int>(-1, -1)).Key;
+                    if (OldClass(was) != OldClass(now)) nodes.Add((true, n));
+                }
+                if (nodes.Count > 0) Join(nodes);
+                return;
+            }
+            var o1 = olds[i];
+            // None: only while enough old starts remain to make as many pairs as the pairing did.
+            if (olds.Count - i - 1 >= pairs.Count - paired)
+            {
+                alternative[o1] = -1;
+                Try(i + 1, paired, score);
+            }
+            if (paired == pairs.Count) return;
+            foreach (var n in news)
+            {
+                if (used.Contains(n) || !Pairable(o1, n)) continue;
+                used.Add(n);
+                alternative[o1] = n;
+                Try(i + 1, paired + 1, score + Said(o1, n));
+                used.Remove(n);
+            }
+        }
     }
 
     // The same kind and the same time: a cron expression and its zone, or an interval.
-    private static bool SameWhen(SeatStartDefinition a, SeatStartDefinition b)
+    internal static bool SameWhen(SeatStartDefinition a, SeatStartDefinition b)
         => (a.Cron is null) == (b.Cron is null) && a.Cron == b.Cron && a.TimeZone == b.TimeZone && a.EverySeconds == b.EverySeconds;
 
     // Positions in the one fixed order of what the starts are; equal starts keep their list order.
@@ -631,6 +702,7 @@ internal sealed record StartPairing(IReadOnlyList<StartPair> Pairs, IReadOnlyLis
 
 /// <summary>
 /// One guess of a pairing (<see cref="FactoryDefinitionChanges.Undecided"/>): the old positions and the new positions,
-/// each in list order, whose pairing nothing but list order decided.
+/// each in list order, whose pairing nothing in the draft decided. <see cref="TooMany"/> when there were more pairings
+/// to try than <see cref="FactoryDefinitionChanges.MaxPairingsJudged"/>, and every start not paired exactly is in it.
 /// </summary>
-internal sealed record UndecidedStarts(IReadOnlyList<int> Old, IReadOnlyList<int> New);
+internal sealed record UndecidedStarts(IReadOnlyList<int> Old, IReadOnlyList<int> New, bool TooMany = false);
