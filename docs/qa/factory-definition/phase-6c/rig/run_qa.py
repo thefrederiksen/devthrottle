@@ -122,7 +122,7 @@ def drive():
 
     p.note("STEP 1 - a session of another factory may not create a factory.")
     refused = p.cli([*d, "create", str(FOLDER)], 1, **other_seat)
-    check("may not create a new factory" in refused.stderr, "a factory's own session is refused create in words",
+    check("may not create a new factory" in refused.stderr, "a session of another factory is refused create in words",
           refused.stderr.strip().splitlines()[0])
 
     p.note("STEP 2 - the builder, a session in no factory, creates Eric's factory from the folder.")

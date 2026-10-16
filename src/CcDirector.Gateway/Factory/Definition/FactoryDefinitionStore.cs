@@ -318,7 +318,7 @@ public sealed class FactoryDefinitionStore
             var changed = MarkPublished(ctx, factory, version, by, nowUtc);
             var now = SummaryOf(ctx, factory, version);
             if (changed == 0) return PublishedFirstBySomebodyElse(factory, version, now);
-            FileLog.Write($"[FactoryDefinitionStore] {factory}: published version {version} by {by.Text}");
+            FileLog.Write($"[FactoryDefinitionStore] {factory}: published version {version} by {by.ForLog}");
             return FactoryDefinitionWrite.Published(now!);
         }
     }

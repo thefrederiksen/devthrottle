@@ -27,12 +27,16 @@ public sealed record FactoryPublisher(string Kind, string? Id, string? Name = nu
     /// <summary>The name a version records: the session's name, never a person's (a person has none here).</summary>
     public string? RecordedName => Kind == FactoryMemoryAuthorKinds.Session && !string.IsNullOrWhiteSpace(Name) ? Name.Trim() : null;
 
-    /// <summary>Who it was, in words, for a log line or the history: "a person (id)", "session id (name)".</summary>
-    public string Text => Words(Kind, Id, Name);
+    /// <summary>Who it was, in words, for the history and a row: "a person (id)", "session id (name)".</summary>
+    public string InWords => Words(Kind, Id, Name);
+
+    /// <summary>Who it was, for a log line: the kind and the identifier only. A session's name is the owner's words,
+    /// so it never goes into a log (SpokenPhraseTests).</summary>
+    public string ForLog => $"{Kind} {Id ?? "(unknown)"}";
 
     /// <summary>Who it was, as a registry row or a trigger records it ("definition v3 published by ..."): a person by
-    /// their identifier, exactly as before phase 6c; a session by <see cref="Text"/>.</summary>
-    public string RowText => Kind == FactoryMemoryAuthorKinds.Session ? Text : Id ?? "a person";
+    /// their identifier, exactly as before phase 6c; a session by <see cref="InWords"/>.</summary>
+    public string RowText => Kind == FactoryMemoryAuthorKinds.Session ? InWords : Id ?? "a person";
 
     /// <summary>
     /// Who published a version, in words, from what the version recorded. A version published before the kind was

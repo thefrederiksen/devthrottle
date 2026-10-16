@@ -482,9 +482,10 @@ def test_restore_SendsTheVersionAndTheVersionTheCallerRead(gateway):
     assert "Restored: version 1 of the definition of warmforward. Version 6 is now the published definition." in result.stdout
 
 
-def test_restore_FromASession_IsRefusedWithTheGatewaysSentence(gateway):
-    sentence = ("Only a person publishes a factory's definition, and restoring an older version publishes a copy of it. "
-                "A session of the factory may save the content it wants as a new draft; the owner publishes it.")
+def test_restore_FromAFactorysOwnSession_IsRefusedWithTheGatewaysSentence(gateway):
+    sentence = ("A session of factory 'warmforward' may not restore a version of a factory's definition, because a "
+                "restore publishes a copy of it. Save the content you want as a new draft. A factory's own sessions save "
+                "drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.")
     gateway((403, {"error": sentence, "outcome": "FactorySessionMayNotPublish", "current": None}))
 
     result = run("restore", FACTORY, "--version", "1")

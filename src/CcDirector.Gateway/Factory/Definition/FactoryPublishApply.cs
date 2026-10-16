@@ -93,7 +93,7 @@ public sealed class FactoryPublishApply
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(by);
         var act = restore ? "restore" : "publish";
-        FileLog.Write($"[FactoryPublishApply] {act}: factory={factory}, version={version}, replaces={replaces?.ToString() ?? "unstated"}, by={by.Text}");
+        FileLog.Write($"[FactoryPublishApply] {act}: factory={factory}, version={version}, replaces={replaces?.ToString() ?? "unstated"}, by={by.ForLog}");
         if (!string.Equals(definition.Factory, factory, StringComparison.Ordinal))
             throw new ArgumentException($"The definition is of '{definition.Factory}', not '{factory}'.", nameof(definition));
 

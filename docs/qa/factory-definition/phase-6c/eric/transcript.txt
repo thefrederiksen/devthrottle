@@ -56,27 +56,27 @@
 
 # STEP 1 - a session of another factory may not create a factory.
 
-$ cc-devthrottle factory definition create <eric folder>      (as session 7b8cdc99-0e1a-4cec-a50b-abcdf0741d00, of factory qa-other)
+$ cc-devthrottle factory definition create <eric folder>      (as session 40b6a08b-0702-4be9-91da-de9c911ec98a, of factory qa-other)
 Error: Not created: A session of factory 'qa-other' may not create a new factory, and 'eric' has no definition yet. The owner creates factories, in the Cockpit with New factory or by telling a session that is in no factory to create one.
 help[1]:
   cc-devthrottle factory definition save <your factory> --dir <folder> --expected-version <newest version>
 [exit 1]
 
-# PASS a factory's own session is refused create in words
+# PASS a session of another factory is refused create in words
   seen: Error: Not created: A session of factory 'qa-other' may not create a new factory, and 'eric' has no definition yet. The owner creates factories, in the Cockpit with New factory or by telling a session that is in no factory to create one.
 
 # STEP 2 - the builder, a session in no factory, creates Eric's factory from the folder.
 
-$ cc-devthrottle factory definition create <eric folder> --note "Eric's factory, made by a session" --json      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
+$ cc-devthrottle factory definition create <eric folder> --note "Eric's factory, made by a session" --json      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
 {
   "factory": "eric",
   "version": 1,
   "state": "draft",
   "authorKind": "session",
-  "authorId": "26e0a4e1-d1f3-4549-bf1b-3bd6562027c7",
+  "authorId": "95c8f9b0-7a40-4f2d-a17d-0335999eabfa",
   "changeNote": "Eric's factory, made by a session",
   "restoredFrom": null,
-  "writtenAtUtc": "2026-10-16T21:55:56.2122936Z",
+  "writtenAtUtc": "2026-10-16T22:27:09.7588231Z",
   "publishedAtUtc": null,
   "publishedBy": null,
   "publishedByKind": null,
@@ -106,7 +106,7 @@ $ cc-devthrottle factory definition create <eric folder> --note "Eric's factory,
 
 # STEP 3 - what publishing it would do.
 
-$ cc-devthrottle factory definition diff eric --to 1      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
+$ cc-devthrottle factory definition diff eric --to 1      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
 eric: from nothing published to version 1.
 published version: none
 what changes: First publish: 5 factory settings set, 1 seat added, 1 start created, 1 file added.
@@ -169,7 +169,7 @@ help[2]:
 
 # STEP 4 - a session of eric may save a draft of its own factory but not publish it.
 
-$ cc-devthrottle factory definition publish eric --version 1 --replaces 0      (as session 5a152247-300b-45da-be6c-81cff5d38bdc, of factory eric)
+$ cc-devthrottle factory definition publish eric --version 1 --replaces 0      (as session 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, of factory eric)
 Error: A session of factory 'eric' may not publish a factory's definition. A factory's own sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.
 help[2]:
   cc-devthrottle factory definition save eric --dir <folder> --expected-version <newest version>
@@ -178,21 +178,21 @@ help[2]:
 
 # STEP 5 - the builder publishes it.
 
-$ cc-devthrottle factory definition publish eric --version 1 --replaces 0 --json      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
+$ cc-devthrottle factory definition publish eric --version 1 --replaces 0 --json      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
 {
   "factory": "eric",
   "version": 1,
   "state": "published",
   "authorKind": "session",
-  "authorId": "26e0a4e1-d1f3-4549-bf1b-3bd6562027c7",
+  "authorId": "95c8f9b0-7a40-4f2d-a17d-0335999eabfa",
   "changeNote": "Eric's factory, made by a session",
   "restoredFrom": null,
-  "writtenAtUtc": "2026-10-16T21:55:56.2122936Z",
-  "publishedAtUtc": "2026-10-16T21:55:59.0485652Z",
-  "publishedBy": "26e0a4e1-d1f3-4549-bf1b-3bd6562027c7",
+  "writtenAtUtc": "2026-10-16T22:27:09.7588231Z",
+  "publishedAtUtc": "2026-10-16T22:27:11.8699023Z",
+  "publishedBy": "95c8f9b0-7a40-4f2d-a17d-0335999eabfa",
   "publishedByKind": "session",
   "publishedByName": "QA - builder, in no factory",
-  "publishedByText": "session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7 (QA - builder, in no factory)",
+  "publishedByText": "session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory)",
   "contentBytes": 2291,
   "fileCount": 3,
   "newestVersion": 1,
@@ -537,33 +537,33 @@ $ cc-devthrottle factory definition publish eric --version 1 --replaces 0 --json
   "applied": [
     "Definition: version 1 published.",
     "Registry: eric registered from its definition, in no folder: each seat runs where the definition says.",
-    "Schedule cj_100d66 (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto."
+    "Schedule cj_f2f1ae (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto."
   ]
 }
 [exit 0]
 
 # PASS version 1 published, recorded as the builder's by its id and name
-  seen: {'publishedVersion': 1, 'publishedByKind': 'session', 'publishedBy': '26e0a4e1-d1f3-4549-bf1b-3bd6562027c7', 'publishedByName': 'QA - builder, in no factory', 'publishedByText': 'session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7 (QA - builder, in no factory)'}
+  seen: {'publishedVersion': 1, 'publishedByKind': 'session', 'publishedBy': '95c8f9b0-7a40-4f2d-a17d-0335999eabfa', 'publishedByName': 'QA - builder, in no factory', 'publishedByText': 'session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory)'}
 
 # what the publish applied, as the Gateway wrote it
   Definition: version 1 published.
   Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
-  Schedule cj_100d66 (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto.
+  Schedule cj_f2f1ae (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto.
 
 # STEP 6 - the history and the published version say who published it.
 
-$ cc-devthrottle factory definition history eric      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
+$ cc-devthrottle factory definition history eric      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
 count: 1 of 1. Version 1 is the published definition.
 versions[1]{version,state,written,by,files,bytes,note,publishedBy}:
-  v1,PUBLISHED NOW,2026-10-16T21:55:56.2122936Z,session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7,3,2291,"Eric's factory, made by a session","session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7 (QA - builder, in no factory)"
+  v1,PUBLISHED NOW,2026-10-16T22:27:09.7588231Z,session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa,3,2291,"Eric's factory, made by a session","session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory)"
 help[2]:
   cc-devthrottle factory definition get eric --version <version>
   cc-devthrottle factory definition diff eric --to <version>
 [exit 0]
 
-$ cc-devthrottle factory definition get eric      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
-eric  version 1  published  written by session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7  2026-10-16T21:55:56.2122936Z  3 files  2291 bytes
-Published by session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7 (QA - builder, in no factory) 2026-10-16T21:55:59.0485652Z.
+$ cc-devthrottle factory definition get eric      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+eric  version 1  published  written by session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa  2026-10-16T22:27:09.7588231Z  3 files  2291 bytes
+Published by session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory) 2026-10-16T22:27:11.8699023Z.
 note: Eric's factory, made by a session
 files[3]{path,bytes}:
   factory.yaml,189
@@ -577,7 +577,7 @@ help[3]:
 
 # STEP 7 - a second create of the same id is refused with what to run instead.
 
-$ cc-devthrottle factory definition create <eric folder>      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
+$ cc-devthrottle factory definition create <eric folder>      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
 Error: Not created: The folder's factory.yaml names 'eric', and that factory already exists: Eric. Nothing was created. To make the folder its next draft, run: cc-devthrottle factory import <folder>
 help[2]:
   cc-devthrottle factory import <eric folder>
@@ -589,7 +589,7 @@ help[2]:
 
 # STEP 8 - a session of eric still saves a draft of its own factory, and still may not publish it.
 
-$ cc-devthrottle factory definition save eric --dir <eric folder> --expected-version 1 --note "a draft from eric's own session"      (as session 5a152247-300b-45da-be6c-81cff5d38bdc, of factory eric)
+$ cc-devthrottle factory definition save eric --dir <eric folder> --expected-version 1 --note "a draft from eric's own session"      (as session 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, of factory eric)
 Saved: version 2 of the definition of eric is a draft (3 files, 2291 bytes).
 Version 1 stays the published definition until a person publishes this draft.
 notices[1]:
@@ -599,7 +599,7 @@ help[2]:
   cc-devthrottle factory definition publish eric --version 2
 [exit 0]
 
-$ cc-devthrottle factory definition publish eric --version 2      (as session 5a152247-300b-45da-be6c-81cff5d38bdc, of factory eric)
+$ cc-devthrottle factory definition publish eric --version 2      (as session 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, of factory eric)
 Error: A session of factory 'eric' may not publish a factory's definition. A factory's own sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.
 help[2]:
   cc-devthrottle factory definition save eric --dir <folder> --expected-version <newest version>
@@ -611,7 +611,7 @@ help[2]:
 
 # STEP 9 - the factory on the list, with its schedule, read by the builder from the command line.
 
-$ cc-devthrottle factory list      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
+$ cc-devthrottle factory list      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
 count: 1
 factories[1]{id,title,boss,seats}:
   eric,Eric,,1
@@ -620,10 +620,10 @@ help[2]:
   cc-devthrottle factory register --manifest <file>
 [exit 0]
 
-$ cc-devthrottle schedule list      (as the builder: session 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, in no factory)
+$ cc-devthrottle schedule list      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
 count: 1 (enabled 1)
 schedules[1]{id,name,enabled,kind,next-run}:
-  cj_100d66,Eric - Mail Desk,yes,recurring,2026-10-17T12:00:00Z
+  cj_f2f1ae,Eric - Mail Desk,yes,recurring,2026-10-17T12:00:00Z
 help[5]:
   cc-devthrottle schedule list --enabled
   cc-devthrottle schedule list --fields id,name,enabled,next-run,machine,kind,cron,run-at,time-zone,work-list,path,last-fired,last-status,notify,created
@@ -707,7 +707,7 @@ help[5]:
   {
     "jobs": [
       {
-        "id": "cj_100d66",
+        "id": "cj_f2f1ae",
         "name": "Eric - Mail Desk",
         "enabled": true,
         "scheduleKind": "recurring",
@@ -728,7 +728,7 @@ help[5]:
         "preventOverlap": true,
         "notifyOn": "none",
         "notifyWebhookUrl": null,
-        "createdUtc": "2026-10-16T21:55:59.0485652Z",
+        "createdUtc": "2026-10-16T22:27:11.8699023Z",
         "lastFiredUtc": null,
         "nextRunUtc": "2026-10-17T12:00:00Z",
         "lastStatus": null,
@@ -770,6 +770,6 @@ help[5]:
 # the definition's versions, as stored (who wrote and who published each)
 #   read from the rig's gateway.db: SELECT Version, State, AuthorKind, AuthorId, PublishedByKind, PublishedBy, PublishedByName FROM factory_definition_versions WHERE Factory = 'eric' ORDER BY Version []
   Version, State, AuthorKind, AuthorId, PublishedByKind, PublishedBy, PublishedByName
-  1, published, session, 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, session, 26e0a4e1-d1f3-4549-bf1b-3bd6562027c7, QA - builder, in no factory
-  2, draft, session, 5a152247-300b-45da-be6c-81cff5d38bdc, None, None, None
+  1, published, session, 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, session, 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, QA - builder, in no factory
+  2, draft, session, 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, None, None, None
   (2 rows)
