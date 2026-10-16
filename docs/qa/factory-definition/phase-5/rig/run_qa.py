@@ -20,8 +20,11 @@ Usage (from the repository root, after building the Gateway, the slot 6 Director
     dotnet build src/CcDirector.Gateway/CcDirector.Gateway.csproj
     powershell -NoProfile -File scripts\\local-build-avalonia.ps1 -Slot 6 -OutputDir "<repo>\\scripts\\local-build"
     dotnet build docs/qa/factory-control/factory-manager/rig/standin-director/StandinDirector.csproj
+    set QA_HELD_SECRET=<the name of a setting-kind cc-secrets entry this machine holds>
     uv run --no-project --with "typer>=0.16.1" --with "click>=8.2.1" --with "rich>=13.0.0" --with "requests>=2.31.0" \\
         python docs/qa/factory-definition/phase-5/rig/run_qa.py <out dir> [--only section,section]
+The held entry's name is given to the rig, not written in it, and the record calls it <held setting>: the report is
+public, and the name of an entry says what this machine holds. Only its name is used; its value is never read.
 Sections, in order: undefined, publish, refusals, worker, home.
 """
 
@@ -55,7 +58,7 @@ OLD_MACHINE = "QA-OLD"
 STANDIN_ID = "qa-standin-director"
 FACTORY = "qa-kit"
 UNDEFINED = "qa-plain"
-HELD_SECRET = "cloudflare-account-id"     # a SETTING-kind entry that exists here; its value is never read
+HELD_SECRET = os.environ.get("QA_HELD_SECRET", "")   # a SETTING-kind entry that exists here; its value is never read
 MISSING_SECRET = "qa-p6-no-such-secret"
 SKILL_WORD = "HERON-5520"
 NOTES_LINE = "NOTES-LINE-7310: the first line of notes.txt"
@@ -99,6 +102,11 @@ def shown(text):
     text = re.sub(re.escape(re.sub(r"[^A-Za-z0-9]", "-", str(USER_HOME))), "<home>", text, flags=re.IGNORECASE)
     text = text.replace(MACHINE, "<machine>").replace(MACHINE.lower(), "<machine>")
     text = re.sub(re.escape(os.environ["USERNAME"]), "<user>", text, flags=re.IGNORECASE)
+    if HELD_SECRET:
+        text = text.replace(HELD_SECRET, "<held setting>")
+    # The owner's own checkout, which the cc-director-launch task points at: only its slot folder is named.
+    text = re.sub(r"[A-Za-z]:[\\/][^\s\"'|]*?[\\/]scripts[\\/]local-build",
+                  lambda m: "<checkout>\\scripts\\local-build", text)
     # The record is ASCII: a terminal's box-drawing and an agent's typographic quotes are written plainly.
     for fancy, plain in (("\u2018", "'"), ("\u2019", "'"), ("\u201c", '"'), ("\u201d", '"'), ("\u2014", "-"),
                          ("\u2013", "-"), ("\u2026", "..."), ("\u276f", ">"), ("\u2192", "->")):
@@ -615,6 +623,19 @@ def stop_session(sid):
 
 
 
+def trust_lines(title):
+    """The Director's own log lines for Claude Code's folder trust (P7), from its log files: what it recorded, what it
+    found already trusted, and any start it refused because the folder could not be marked trusted."""
+    found = []
+    for log in sorted((HOME / "logs" / "director").glob("*.log")):
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "[ClaudeFolderTrust]" in line or "could not be marked trusted" in line:
+                found.append(line)
+    record(f"{title} - the Director's log, lines '[ClaudeFolderTrust]' and any 'could not be marked trusted'",
+           "\n".join(f"  {x}" for x in found) or "  (none)")
+    return found
+
+
 def launch_lines(title, contains):
     """The Director's own launch log lines for agent processes, from its log files."""
     found = []
@@ -807,8 +828,10 @@ def section_publish(since):
 def section_refusals(db):
     note("SECTIONS 4, 5 and 6 - three talks refused before anything starts: a missing secret, a repository this "
          "machine has not registered, and a seat on an older Director.")
+    listing("before the three talks: the folder the stand-in Director writes each create it receives into", [CREATES])
     for seat in ("keeper", "stray", "oldie"):
         raw("POST", f"/gateway/factory-agents/factories/{FACTORY}/seats/{seat}/talk", None, None)
+    listing("after the three talks: the folder the stand-in Director writes each create it receives into", [CREATES])
     rows(db, "every session history row of qa-kit so far (a refused start leaves none)",
          "SELECT SessionId, SessionName, Factory FROM session_history WHERE Factory = ?", (FACTORY,))
 
@@ -957,6 +980,18 @@ def section_home(db, since):
 SECTIONS = ["undefined", "publish", "refusals", "worker", "home", "ask"]   # "second" alone runs only the second session
 
 
+def tree_and_binaries():
+    """The commit and the state of the tree the run is from, and when each executable it runs was last written."""
+    lines = ["  $ git rev-parse HEAD   (in <repo>)", f"  {git(['rev-parse', 'HEAD'], REPO).strip()}",
+             f"  committed {git(['log', '-1', '--format=%cI', 'HEAD'], REPO).strip()}",
+             "  $ git status --short   (in <repo>)"]
+    lines += [f"  {x}" for x in git(["status", "--short"], REPO).splitlines()] or ["  (clean)"]
+    for exe in (EXE, DIRECTOR_EXE, STANDIN):
+        written = datetime.fromtimestamp(exe.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        lines.append(f"  {exe}: last written {written}")
+    record("the tree this run is from, and its executables", "\n".join(lines))
+
+
 def remove_tree(folder):
     """Remove a folder of the rig's own, including git's read-only object files."""
     def writable(func, path, _):
@@ -986,6 +1021,9 @@ def main():
     if "--only" in sys.argv:
         only = sys.argv[sys.argv.index("--only") + 1].split(",")
     out.mkdir(parents=True, exist_ok=True)
+    if not HELD_SECRET:
+        raise SystemExit("QA_HELD_SECRET is not set: set it to the name of a setting-kind entry in `cc-secrets list` "
+                         "(only its name is used), then run again")
     for needed in (EXE, DIRECTOR_EXE, STANDIN):
         if not needed.exists():
             raise SystemExit(f"build it first: {needed} does not exist")
@@ -1041,6 +1079,9 @@ def main():
              f"The slot 6 Director (pid {director}, id {reg['DirectorId']}) was started by the {TASK} scheduled task "
              f"through <rig>\\start-director6.cmd, storage root <rig>\\director-root, and connected on <machine>. "
              f"The stand-in Director '{STANDIN_ID}' is connected on {OLD_MACHINE}.")
+        tree_and_binaries()
+        record(f"the {TASK} scheduled task's action as the rig found it (Execute|Arguments|WorkingDirectory)",
+               f"  {before_task['execute']}|{before_task['arguments']}|{before_task['working']}")
         raw("GET", "/directors", None, 200)
         record("the slot 6 Director's instance configuration (written by the rig before launch)",
                (HOME / "config" / "config.json").read_text(encoding="utf-8").replace(DIRECTOR_KEY, "<director key>"))
@@ -1073,11 +1114,17 @@ def main():
             if director is not None and director in director_processes():
                 wait_for_tool_install(director)
                 stop_director(director)
+            if director is not None:
+                trust_lines("the whole run")
         finally:
             if task_changed:
                 set_task(before_task["execute"], before_task["arguments"], before_task["working"])
                 after = task_action()
                 print(f"cc-director-launch put back: {after}", flush=True)
+                record(f"the {TASK} scheduled task's action after the rig put it back "
+                       "(Execute|Arguments|WorkingDirectory; re-registered with a far-future, on-demand trigger)",
+                       f"  {after['execute']}|{after['arguments']}|{after['working']}\n"
+                       f"  the same as found: {after == before_task}")
                 if after != before_task:
                     print(f"WARNING: the task reads {after}, not {before_task}", flush=True)
             if standin is not None:
