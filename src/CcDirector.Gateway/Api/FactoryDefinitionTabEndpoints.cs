@@ -60,7 +60,7 @@ internal static class FactoryDefinitionTabEndpoints
         app.MapGet(route, (HttpContext ctx, string factory) =>
             FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory definition tab {factory}", tenant =>
             {
-                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                if (SubjectOf(sources, tenant, factory) is not { } registered) return NotRegistered(factory);
                 var dto = Tab(tenant, registered, store, apply, liveOf, sources.Activity.TimeZone(tenant), nowUtc());
                 FileLog.Write($"[FactoryDefinitionTabEndpoints] GET tab: {registered.Factory} published={dto.Published?.Version.ToString() ?? "none"}, draft={dto.Draft?.Version.ToString() ?? "none"}");
                 return Results.Json(dto);
@@ -69,7 +69,7 @@ internal static class FactoryDefinitionTabEndpoints
         app.MapGet(route + "/history", (HttpContext ctx, string factory) =>
             FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory definition history {factory}", tenant =>
             {
-                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                if (SubjectOf(sources, tenant, factory) is not { } registered) return NotRegistered(factory);
                 int? before = null;
                 if (ctx.Request.Query.TryGetValue("before", out var beforeSent))
                 {
@@ -105,7 +105,7 @@ internal static class FactoryDefinitionTabEndpoints
         app.MapGet(route + "/versions/{version}", (HttpContext ctx, string factory, string version) =>
             FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory definition version {factory}/{version}", tenant =>
             {
-                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                if (SubjectOf(sources, tenant, factory) is not { } registered) return NotRegistered(factory);
                 if (!int.TryParse(version, out var wanted) || wanted < 1)
                     return Results.BadRequest(new { error = $"a version is a whole number from 1, not '{version}'" });
                 var found = store.Find(tenant, registered.Factory, wanted);
@@ -121,7 +121,7 @@ internal static class FactoryDefinitionTabEndpoints
         app.MapGet(route + "/export", (HttpContext ctx, string factory) =>
             FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory definition export {factory}", tenant =>
             {
-                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                if (SubjectOf(sources, tenant, factory) is not { } registered) return NotRegistered(factory);
                 int? asked = null;
                 if (ctx.Request.Query.TryGetValue("version", out var versionSent))
                 {
@@ -162,7 +162,7 @@ internal static class FactoryDefinitionTabEndpoints
             var (zip, tooLarge) = await ReadBody(ctx);
             return FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"POST factory definition import {factory}", tenant =>
             {
-                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                if (SubjectOf(sources, tenant, factory) is not { } registered) return NotRegistered(factory);
                 if (tooLarge)
                     return Refused($"The file is larger than {FactoryBriefPanelSize(MaxZipBytes)}, more than a definition can hold. Nothing was imported.");
                 if (!TryUnzip(zip, out var content, out var refusal)) return Refused(refusal!);
@@ -172,8 +172,8 @@ internal static class FactoryDefinitionTabEndpoints
                 if (FactoryNamedIn(content) is { } named && FactoryNames.TryFactory(named, out var namedFolded, out _)
                     && !string.Equals(namedFolded, registered.Factory, StringComparison.Ordinal))
                     return Refused($"This folder's factory.yaml names the factory '{namedFolded}', not '{registered.Factory}'. " +
-                                   $"Import it on the page of '{namedFolded}', or with cc-devthrottle factory import when that factory " +
-                                   "has no page yet. Nothing was imported.");
+                                   $"Import it on the page of '{namedFolded}', or with {FactoryNewFold.NewFactoryLabel} on the Factories screen " +
+                                   "when that factory has no page yet. Nothing was imported.");
 
                 var note = ctx.Request.Query.TryGetValue("note", out var noteSent) && !string.IsNullOrWhiteSpace(noteSent.ToString())
                     ? noteSent.ToString()
@@ -191,11 +191,52 @@ internal static class FactoryDefinitionTabEndpoints
             });
         });
 
-        FileLog.Write($"[FactoryDefinitionTabEndpoints] mapped {route} and its history, versions, export and import");
+        // NEW FACTORY on the Factories screen (phase 6b): the first draft of a factory that has no page yet, through the
+        // SAME unzip and the SAME checked import as the tab's Import. The owner's, like the tab: a session key is refused
+        // here and by SessionKeyGuard, which lets no session post to the Factories screen.
+        app.MapPost(FactoryNewFold.NewFactoryHref, async (HttpContext ctx) =>
+        {
+            var (zip, tooLarge) = await ReadBody(ctx);
+            return FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, "POST new factory", tenant =>
+            {
+                if (tooLarge)
+                    return Refused($"The file is larger than {FactoryBriefPanelSize(MaxZipBytes)}, more than a definition can hold. Nothing was imported.");
+                if (!TryUnzip(zip, out var content, out var refusal)) return Refused(refusal!);
+                if (NewFactoryRefusal(sources, tenant, content) is { } taken) return Refused(taken, StatusCodes.Status409Conflict);
+
+                FileLog.Write($"[FactoryDefinitionTabEndpoints] POST new factory: files={content.Count}, bytes={zip.Length}");
+                // A folder that names no factory, or a spelling that cannot be one, is refused by the import itself,
+                // with the check's findings - the same answer the tab and the command line give.
+                return FactoryDefinitionEndpoints.Import(ctx, new ImportFactoryDefinitionRequest { Content = content, Note = "imported with New factory" },
+                    store, resolveTenant, sessionFactoryOf, account, nowUtc,
+                    saved: dto => Results.Json(new FactoryDefinitionImportedDto
+                    {
+                        Factory = dto.Factory,
+                        Version = dto.Version,
+                        DoneText = FactoryDefinitionTabFold.ImportedText(dto.Factory, dto.Version, dto.FileCount, dto.Created == true),
+                        Findings = dto.Findings,
+                        OpenHref = FactoryDefinitionTabFold.TabHref(dto.Factory),
+                    }));
+            });
+        });
+
+        FileLog.Write($"[FactoryDefinitionTabEndpoints] mapped {route} and its history, versions, export and import, and {FactoryNewFold.NewFactoryHref}");
+    }
+
+    /// <summary>
+    /// WHOSE DEFINITION THE TAB SHOWS: a registered factory, or one New factory made that is not published yet (phase
+    /// 6b), whose title is its newest draft's. Null when the account has neither under that id.
+    /// </summary>
+    internal sealed record Subject(string Factory, string Title);
+
+    internal static Subject? SubjectOf(FactoriesScreenSources sources, TenantId tenant, string factory)
+    {
+        if (sources.Registry.Find(tenant, factory) is { } registered) return new Subject(registered.Factory, registered.Title);
+        return FactoriesScreenEndpoints.UnpublishedOne(sources, tenant, factory) is { } draft ? new Subject(draft.Factory, draft.Title) : null;
     }
 
     /// <summary>The tab, read from the store and folded.</summary>
-    internal static FactoryDefinitionTabViewDto Tab(TenantId tenant, RegisteredFactoryDto registered, FactoryDefinitionStore store,
+    internal static FactoryDefinitionTabViewDto Tab(TenantId tenant, Subject registered, FactoryDefinitionStore store,
         FactoryPublishApply apply, Func<TenantId, string, FactoryLiveParts?> liveOf, TimeZoneInfo zone, DateTime nowUtc)
     {
         var folded = registered.Factory;
@@ -314,12 +355,25 @@ internal static class FactoryDefinitionTabEndpoints
             : null;
     }
 
+    /// <summary>
+    /// WHY NEW FACTORY CANNOT TAKE THIS FOLDER, or null when it can: the id its factory.yaml names is a factory already -
+    /// registered and live, archived, or made by New factory and not published yet. Each says where the folder can go
+    /// instead. A folder that names no factory is the import's to refuse.
+    /// </summary>
+    internal static string? NewFactoryRefusal(FactoriesScreenSources sources, TenantId tenant, IReadOnlyDictionary<string, string> content)
+    {
+        if (FactoryNamedIn(content) is not { } named || !FactoryNames.TryFactory(named, out var folded, out _)) return null;
+        if (sources.Registry.Find(tenant, folded) is { } registered)
+            return registered.ArchivedAtUtc is null ? FactoryNewFold.AlreadyRegistered(registered) : FactoryNewFold.Archived(registered);
+        return FactoriesScreenEndpoints.UnpublishedOne(sources, tenant, folded) is { } draft ? FactoryNewFold.AlreadyDrafted(draft) : null;
+    }
+
     private static string FactoryBriefPanelSize(int bytes) => $"{bytes / (1024 * 1024)} MB";
 
-    private static IResult Refused(string sentence)
+    private static IResult Refused(string sentence, int status = StatusCodes.Status400BadRequest)
     {
-        FileLog.Write($"[FactoryDefinitionTabEndpoints] import REFUSED (400) - {sentence}");
-        return Results.BadRequest(new { error = sentence, outcome = "NotImported" });
+        FileLog.Write($"[FactoryDefinitionTabEndpoints] import REFUSED ({status}) - {sentence}");
+        return Results.Json(new { error = sentence, outcome = "NotImported" }, statusCode: status);
     }
 
     private static IResult NotRegistered(string factory) =>

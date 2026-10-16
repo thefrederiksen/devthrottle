@@ -145,7 +145,7 @@ public static class FactoriesScreenFold
             Rows = rows,
             FooterText = rows.Count == 0 ? null : "Worst first: failing, then needs you, then paused, then running, then talk only.",
             EmptyText = rows.Count == 0
-                ? "No factory is registered yet. A factory appears here when it is registered with cc-devthrottle factory register."
+                ? "No factory is registered yet. New factory imports a definition folder as a draft; publishing it puts the factory here."
                 : null,
             TruncatedText = Truncated(input.Activity),
             ShowArchivedLabel = $"Show archived ({archived.Count})",

@@ -3,6 +3,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Briefs;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Registry;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -18,13 +19,17 @@ namespace CcDirector.Gateway.Api;
 /// the factory page's Open problems card lays out (Factory Control, step 1b).</param>
 /// <param name="Emails">The SENT factory emails that covered one factory, newest first (<c>GET /gateway/factory-emails</c>)
 /// - what the factory page's kept reports card lays out.</param>
+/// <param name="Unpublished">Every factory with a definition and nothing published (Factory Definition, phase 6b), from
+/// the definition store - registered or not; <see cref="FactoriesScreenEndpoints.Unpublished"/> keeps the ones the
+/// registry does not hold. Null where a host has no definition store: then there are none.</param>
 internal sealed record FactoriesScreenSources(
     FactoryAgentsSources Activity,
     FactoryRegistryStore Registry,
     Func<TenantId, IReadOnlyList<CronJobDto>> Schedules,
     Func<TenantId, IReadOnlyCollection<string>, DateTime, IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>>> ScheduleRuns,
     Func<TenantId, string, CronRunProblemsDto> Problems,
-    Func<TenantId, string, FactoryEmailsDto> Emails);
+    Func<TenantId, string, FactoryEmailsDto> Emails,
+    Func<TenantId, IReadOnlyList<UnpublishedFactory>>? Unpublished = null);
 
 /// <summary>
 /// The Factories screen (Factories screen mission, phase B): every view folded once by
@@ -62,14 +67,24 @@ internal static class FactoriesScreenEndpoints
             {
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast24h, factory: null);
                 var dto = FactoriesScreenFold.List(input);
-                FileLog.Write($"[FactoriesScreenEndpoints] GET list: factories={dto.Rows.Count}");
+                // New factory, and the factories it made that are not published yet (Factory Definition, phase 6b).
+                dto.NewFactory = FactoryNewFold.NewFactoryAction();
+                dto.DraftTitle = FactoryNewFold.DraftTitle;
+                dto.DraftRows = FactoryNewFold.DraftRows(Unpublished(sources, tenant, input.Registry));
+                FileLog.Write($"[FactoriesScreenEndpoints] GET list: factories={dto.Rows.Count}, notPublishedYet={dto.DraftRows.Count}");
                 return Results.Json(dto);
             }));
 
         app.MapGet(Prefix + "/{factory}", (HttpContext ctx, string factory) =>
             FactoryAgentsViewEndpoints.OwnerOrSession(ctx, resolveTenant, $"GET factory page {factory}", tenant =>
             {
-                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                if (sources.Registry.Find(tenant, factory) is not { } registered)
+                {
+                    // A factory New factory made, not published yet: its page, with only the Definition tab to show.
+                    if (UnpublishedOne(sources, tenant, factory) is not { } draft) return NotRegistered(factory);
+                    FileLog.Write($"[FactoriesScreenEndpoints] GET page: {draft.Factory} is not published yet (draft version {draft.Version})");
+                    return Results.Json(FactoryNewFold.DraftPage(draft));
+                }
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
                 var dto = FactoriesScreenFold.Page(registered, input);
                 dto.Problems = FactoryProblemsFold.Card(registered, sources.Problems(tenant, registered.Factory));
@@ -341,6 +356,34 @@ internal static class FactoriesScreenEndpoints
 
     /// <summary>Everything a view reads, in one pass. The list reads the last 24 hours (all a status needs); a
     /// factory's page and Seats tab read the last 7 days, so a seat that runs weekly still shows its last run.</summary>
+    /// <summary>
+    /// Every factory with a definition, nothing published, and no registry entry: what New factory made and its first
+    /// publish has not registered yet. A registered factory with only drafts is not one - it is on the list already.
+    /// </summary>
+    internal static IReadOnlyList<UnpublishedFactory> Unpublished(FactoriesScreenSources sources, TenantId tenant,
+        IReadOnlyList<RegisteredFactoryDto> registry)
+    {
+        if (sources.Unpublished is null) return Array.Empty<UnpublishedFactory>();
+        var registered = registry.Select(f => f.Factory).ToHashSet(StringComparer.Ordinal);
+        return sources.Unpublished(tenant).Where(d => !registered.Contains(d.Factory)).ToList();
+    }
+
+    /// <summary>What <see cref="FactoriesScreenSources.Unpublished"/> reads from the definition store: every factory with
+    /// nothing published, each from its newest draft.</summary>
+    internal static Func<TenantId, IReadOnlyList<UnpublishedFactory>> UnpublishedFrom(FactoryDefinitionStore store) =>
+        tenant => store.Unpublished(tenant)
+            .Select(v => FactoryNewFold.Of(store.Find(tenant, v.Factory, v.Version)
+                ?? throw new InvalidOperationException($"{v.Factory} names definition version {v.Version} as its newest, and the store has no such version")))
+            .ToList();
+
+    /// <summary>One factory that is not published yet and not registered, or null.</summary>
+    internal static UnpublishedFactory? UnpublishedOne(FactoriesScreenSources sources, TenantId tenant, string factory)
+    {
+        if (!FactoryNames.TryFactory(factory, out var folded, out _)) return null;
+        if (sources.Registry.Find(tenant, folded) is not null) return null;
+        return sources.Unpublished?.Invoke(tenant).FirstOrDefault(d => d.Factory == folded);
+    }
+
     internal static FactoriesScreenInputs Inputs(FactoriesScreenSources sources, TenantId tenant, string windowKey, string? factory)
     {
         var now = sources.Activity.NowUtc();

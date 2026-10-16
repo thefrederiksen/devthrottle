@@ -278,4 +278,7 @@ public sealed class FactoryDefinitionImportedDto
 
     /// <summary>Notices the check found, each "file:line: message". They never refuse.</summary>
     public List<FactoryDefinitionFindingDto> Findings { get; set; } = new();
+
+    /// <summary>Set by New factory: the new factory's page, on its Definition tab, which the Cockpit opens.</summary>
+    public string? OpenHref { get; set; }
 }

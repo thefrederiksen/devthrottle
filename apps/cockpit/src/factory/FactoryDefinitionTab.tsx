@@ -345,7 +345,7 @@ function VersionCard({ card, onOpen }: { card: FactoryDefinitionVersionCard; onO
 }
 
 /** The check's findings, each where it is: file, line, and the Gateway's sentence. */
-function Findings({ findings }: { findings: FactoryDefinitionFinding[] }) {
+export function Findings({ findings }: { findings: FactoryDefinitionFinding[] }) {
   if (findings.length === 0) return null;
   return (
     <table className="fa-table fa-def-findings" data-testid="fa-def-findings">
