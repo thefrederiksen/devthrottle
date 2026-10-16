@@ -225,6 +225,7 @@ public sealed class SecretTransferMachineKeyTests
         public Task PushSnapshotAsync(long sequence, SessionDto[] sessions) => Task.CompletedTask;
         public Task PushDeltaAsync(long sequence, SessionDto session) => Task.CompletedTask;
         public Task<TurnWatermark?> PushTurnsAsync(long sequence, TurnPushBatch batch, CancellationToken ct) => Task.FromResult<TurnWatermark?>(null);
+        public Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct) => Task.FromResult<ApiModeEventWatermark?>(null);
         public Task RevokeSessionKeyAsync(string sessionId) => Task.CompletedTask;
         public Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories) => Task.CompletedTask;
     }

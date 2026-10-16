@@ -86,8 +86,24 @@ public sealed class SessionEventStream
 }
 
 /// <summary>
-/// The sink the Director uses until the upstream message to the Gateway exists (phase 2): every event is written to the
-/// Director's log as its JSON, so an API-mode session's events are on record and readable. It sends nothing anywhere.
+/// A sink that hands each batch to whichever sink is current when the batch is published. The session manager gives every
+/// session's stream this one, so a Director whose Gateway is configured, changed or removed after a session started sends
+/// that session's later events where the Director's events go now.
+/// </summary>
+public sealed class ForwardingSessionEventSink : ISessionEventSink
+{
+    private readonly Func<ISessionEventSink> _current;
+
+    public ForwardingSessionEventSink(Func<ISessionEventSink> current) =>
+        _current = current ?? throw new ArgumentNullException(nameof(current));
+
+    public void Publish(SessionEventBatch batch) => _current().Publish(batch);
+}
+
+/// <summary>
+/// The Director's sink when there is no Gateway: every event is written to the Director's log as its JSON, so an API-mode
+/// session's events are on record and readable. It sends nothing anywhere. With a Gateway, the control layer's pusher
+/// replaces it.
 /// </summary>
 public sealed class LoggingSessionEventSink : ISessionEventSink
 {

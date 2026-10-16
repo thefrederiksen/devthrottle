@@ -100,9 +100,9 @@ public sealed class SessionManager : IDisposable
     public Func<IApiModeProcess> ApiModeProcessFactory { get; set; } = () => new SystemApiModeProcess();
 
     /// <summary>
-    /// Where API-mode sessions' events go (issue #4070). Until the upstream message to the Gateway exists (phase 2,
-    /// <c>DirectorUpStreamMessages</c>), the Director's log.
-    /// TODO(API mode phase 2): the Director's composition sets the sink that fills the upstream message here.
+    /// Where API-mode sessions' events go (issue #4070): the Director's log when there is no Gateway, and the control
+    /// layer's pusher (<c>ApiModeEventPusher</c>) when there is one, set by the host at start and whenever the Gateway
+    /// setting changes. Read at every publish, so a change reaches sessions that are already running.
     /// </summary>
     public ISessionEventSink SessionEventSink { get; set; } = new LoggingSessionEventSink();
 
@@ -865,7 +865,7 @@ public sealed class SessionManager : IDisposable
             ? new ApiModeSessionBackend(id.ToString(), launchSpec.PreassignedSessionId
                     ?? throw new InvalidOperationException($"{agent.Kind} named no session id for API mode, so its conversation could not be resumed or taken over."),
                 resuming: !string.IsNullOrEmpty(resumeSessionId),
-                new SessionEventStream(id.ToString(), SessionEventSink, ApiModeClock), ApiModeProcessFactory, ApiModeClock)
+                new SessionEventStream(id.ToString(), new ForwardingSessionEventSink(() => SessionEventSink), ApiModeClock), ApiModeProcessFactory, ApiModeClock)
             : backendType switch
         {
             // ConPty on Windows, UnixPty on macOS/Linux - one selection, in PlatformSessionBackend.

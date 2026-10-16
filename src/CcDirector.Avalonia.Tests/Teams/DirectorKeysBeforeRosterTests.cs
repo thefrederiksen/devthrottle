@@ -257,6 +257,35 @@ public sealed class DirectorKeysBeforeRosterTests
         Assert.Equal(new[] { Alpha }, push.SessionIds);
     }
 
+    // ===================== the API-mode event push (issue #4070) =====================
+
+    [Fact]
+    public async Task PushApiModeEventsAsync_BeforeThisConnectionsKeysAreSent_IsRefusedAndNothingIsSent()
+    {
+        var hub = new RecordingHub();
+        var client = NewClient(sessionIds: new[] { Alpha });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.PushApiModeEventsAsync(new ApiModeEventBatch { SessionId = Alpha }, hub, CancellationToken.None));
+
+        Assert.Empty(hub.Calls);
+    }
+
+    [Fact]
+    public async Task PushApiModeEventsAsync_AfterTheReseedSentTheKeys_IsSent()
+    {
+        var hub = new RecordingHub();
+        var client = NewClient(sessionIds: new[] { Alpha });
+        await client.ReseedAsync(hub, client.CurrentConnectionGeneration);
+        hub.Calls.Clear();
+
+        await client.PushApiModeEventsAsync(new ApiModeEventBatch { SessionId = Alpha }, hub, CancellationToken.None);
+
+        var push = Assert.Single(hub.Calls);
+        Assert.Equal("PushApiModeEvents", push.Method);
+        Assert.Equal(new[] { Alpha }, push.SessionIds);
+    }
+
     // ===================== helpers =====================
 
     private static GatewayStreamClient NewClient(
@@ -326,6 +355,12 @@ public sealed class DirectorKeysBeforeRosterTests
         {
             Record("PushTurns", batch.SessionId);
             return Task.FromResult<TurnWatermark?>(null);
+        }
+
+        public Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct)
+        {
+            Record("PushApiModeEvents", batch.SessionId);
+            return Task.FromResult<ApiModeEventWatermark?>(null);
         }
 
         public Task RevokeSessionKeyAsync(string sessionId)

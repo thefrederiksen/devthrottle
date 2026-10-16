@@ -791,6 +791,38 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         return await hub.PushTurnsAsync(seq, batch, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Push one batch of an API-mode session's events (API mode mission, issue #4070) and return the Gateway's answer:
+    /// a watermark (stored), a watermark with an empty generation (refused for now), or null (refused for good). Throws
+    /// when the tunnel is not connected - the caller (<see cref="ApiModeEventPusher"/>) holds the events and sends them
+    /// again at the next trigger.
+    /// </summary>
+    public async Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        return await PushApiModeEventsAsync(batch, new HubConnectionCalls(conn), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <see cref="PushApiModeEventsAsync(ApiModeEventBatch, CancellationToken)"/> over a given hub. Refused, like a
+    /// disconnected tunnel, until this connection's session keys have been sent, for the reason the turn push gives
+    /// (<see cref="SessionIdsMayGoUp"/>): no session id goes up before its key.
+    /// </summary>
+    internal async Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, IDirectorHubCalls hub, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        FileLog.Write($"[GatewayStreamClient] PushApiModeEventsAsync: session={batch.SessionId}, generation={batch.Generation}, events={batch.Events.Count}");
+        if (!hub.IsConnected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        if (!SessionIdsMayGoUp)
+            throw new InvalidOperationException(
+                "the session keys have not been sent on this Gateway connection yet, so no session id may go up before them");
+        return await hub.PushApiModeEventsAsync(batch, ct).ConfigureAwait(false);
+    }
+
     /// <summary>The capability line already reported, so a ten-second reseed does not repeat it forever.</summary>
     private string _lastCapabilityReport = "";
 
