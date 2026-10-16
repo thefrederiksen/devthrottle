@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261016140717_AddApiModeReceipts")]
+    [Migration("20261016143141_AddApiModeReceipts")]
     partial class AddApiModeReceipts
     {
         /// <inheritdoc />
@@ -214,8 +214,19 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime>("FirstGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("FirstSequence")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastGeneration")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastGenerationStartedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<long>("LastSequence")
                         .HasColumnType("INTEGER");

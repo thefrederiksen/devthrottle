@@ -923,6 +923,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.RefusedBy).HasMaxLength(16);
             b.Property(e => e.TurnId).HasMaxLength(64);
             b.Property(e => e.TurnOutcome).HasMaxLength(16);
+            b.Property(e => e.LastGeneration).HasMaxLength(64);
             // A turn's end finds the receipts of the prompts it carried by its turn id.
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.TurnId });
             // Retention cuts on updated-at, tenant-leading for the global filter.

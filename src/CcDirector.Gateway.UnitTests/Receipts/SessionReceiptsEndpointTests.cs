@@ -44,6 +44,8 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
 
     public void Dispose() => _harness.Dispose();
 
+    private static ApiModeEventPosition At(long sequence) => new("gen-a", T0, sequence);
+
     private static DefaultHttpContext RequestFrom(TenantId? tenant)
     {
         var ctx = new DefaultHttpContext();
@@ -72,7 +74,7 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
         Assert.True(_pushed.ApplySnapshot(Alice, AliceDirector, "conn-alice", 1,
             new List<SessionDto> { new() { SessionId = AliceSession, Name = "Pi in API mode", Agent = "Pi", ActivityState = "Working", LastActivityAt = T0 } }));
         using (_boundary.EnterScope(Alice))
-            _store.RecordDelivered(AliceDirector, AliceSession, "p1", "started", """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""", 1, T0);
+            _store.RecordDelivered(AliceDirector, AliceSession, "p1", "started", """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""", At(1), T0);
     }
 
     [Fact]
@@ -120,7 +122,7 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
     public void Read_ASessionWithReceiptsButOffTheRoster_StillAnswersItsReceipts()
     {
         using (_boundary.EnterScope(Alice))
-            _store.RecordRefused(AliceDirector, AliceSession, "p1", "Pi exited before acknowledging", "director", 1, T0);
+            _store.RecordRefused(AliceDirector, AliceSession, "p1", "Pi exited before acknowledging", "director", At(1), T0);
 
         var result = Get(Alice, AliceSession);
 

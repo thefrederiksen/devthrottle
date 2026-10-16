@@ -221,8 +221,19 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
 
+                    b.Property<DateTime>("FirstGenerationStartedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<long>("FirstSequence")
                         .HasColumnType("bigint");
+
+                    b.Property<string>("LastGeneration")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("LastGenerationStartedUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long>("LastSequence")
                         .HasColumnType("bigint");

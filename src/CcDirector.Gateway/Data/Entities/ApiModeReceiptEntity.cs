@@ -68,11 +68,24 @@ public sealed class ApiModeReceiptEntity : TenantScopedEntity
     /// <summary>When the Director observed the carrying turn end.</summary>
     public DateTime? TurnEndedAtUtc { get; set; }
 
-    /// <summary>The highest event sequence applied to this row. An event at or below it is a duplicate or a late
-    /// arrival and changes nothing, so a re-sent batch cannot move a receipt backwards.</summary>
+    /// <summary>The Director generation of the last event applied to this row (see
+    /// <see cref="Receipts.ApiModeEventPosition"/>). A Director restart is a new generation, and its sequence starts
+    /// again.</summary>
+    public string LastGeneration { get; set; } = "";
+
+    /// <summary>When <see cref="LastGeneration"/> started, at whole milliseconds.</summary>
+    public DateTime LastGenerationStartedUtc { get; set; }
+
+    /// <summary>The sequence, inside <see cref="LastGeneration"/>, of the last event applied to this row. An event of
+    /// the same generation at or below it, or of an older generation, is a duplicate or a late arrival and changes
+    /// nothing, so a re-sent batch cannot move a receipt backwards.</summary>
     public long LastSequence { get; set; }
 
-    /// <summary>The sequence of the first event that created the row: the order receipts are read in.</summary>
+    /// <summary>When the generation of the event that created the row started: with <see cref="FirstSequence"/>, the
+    /// order receipts are read in.</summary>
+    public DateTime FirstGenerationStartedUtc { get; set; }
+
+    /// <summary>The sequence of the event that created the row, inside its generation.</summary>
     public long FirstSequence { get; set; }
 
     /// <summary>When this Gateway first stored the row (the Gateway's injected clock).</summary>

@@ -211,8 +211,19 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime>("FirstGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<long>("FirstSequence")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastGeneration")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastGenerationStartedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<long>("LastSequence")
                         .HasColumnType("INTEGER");

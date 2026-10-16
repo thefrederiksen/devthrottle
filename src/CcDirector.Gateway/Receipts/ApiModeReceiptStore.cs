@@ -19,8 +19,11 @@ namespace CcDirector.Gateway.Receipts;
 ///
 /// The properties the ingest leans on, and how each is kept:
 ///
-///  - FORWARD ONLY. Each row carries the highest event sequence applied to it. An event at or below that is a
-///    duplicate or a late arrival and changes nothing, so a re-sent batch cannot move a receipt backwards.
+///  - FORWARD ONLY. Each row carries the position of the last event applied to it (<see cref="ApiModeEventPosition"/>:
+///    the Director's generation, when it started, and the sequence inside it). An event of the same generation at or
+///    below that sequence, or of an older generation, is a duplicate or a late arrival and changes nothing, so a
+///    re-sent batch cannot move a receipt backwards; an event of a later generation (a Director restart) is newer
+///    whatever its sequence.
 ///  - ONE ENDING PER PROMPT (rule 1). Delivered and Refused are final; a second ending is a Director defect, logged
 ///    and refused, and the first one stands. A late Queued after either changes nothing.
 ///  - ONE TURN PER PROMPT. A turn start links the delivered prompts it names to its turn id; a turn end writes its
@@ -65,35 +68,35 @@ public sealed class ApiModeReceiptStore
     /// The Director is holding the prompt (<c>PromptQueued</c>). Creates the receipt, or refreshes the reason of one still
     /// queued. True when the store changed.
     /// </summary>
-    public bool RecordQueued(string directorId, string sessionId, string promptId, string reason, long sequence, DateTime atUtc)
+    public bool RecordQueued(string directorId, string sessionId, string promptId, string reason, ApiModeEventPosition position, DateTime atUtc)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
         RequireId(promptId, nameof(promptId));
         RequireWord(reason, nameof(reason));
-        RequireSequence(sequence);
+        RequirePosition(position);
         var at = Utc(atUtc, nameof(atUtc));
 
-        return Write(nameof(RecordQueued), sessionId, promptId, sequence, ctx =>
+        return Write(nameof(RecordQueued), sessionId, promptId, position, ctx =>
         {
             var row = Find(ctx, sessionId, promptId);
             if (row is null)
             {
-                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Queued, sequence, r =>
+                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Queued, position, r =>
                 {
                     r.QueueReason = reason;
                     r.QueuedAtUtc = at;
                 }));
                 return "queued";
             }
-            if (sequence <= row.LastSequence) return null;
+            if (!IsNewer(position, row)) return null;
             if (row.State != nameof(ApiModeReceiptState.Queued))
             {
-                FileLog.Write($"[ApiModeReceiptStore] RecordQueued session={sessionId} prompt={promptId} seq={sequence}: the receipt is already {row.State}; a prompt that ended cannot be queued again, so nothing changes");
+                FileLog.Write($"[ApiModeReceiptStore] RecordQueued session={sessionId} prompt={promptId} at={position}: the receipt is already {row.State}; a prompt that ended cannot be queued again, so nothing changes");
                 return null;
             }
             row.QueueReason = reason;
-            Touch(row, sequence);
+            Touch(row, position);
             return "queue reason now " + reason;
         });
     }
@@ -102,33 +105,33 @@ public sealed class ApiModeReceiptStore
     /// The agent acknowledged the prompt (<c>PromptDelivered</c>): the receipt. Refused if the prompt was already refused
     /// (rule 1). True when the store changed.
     /// </summary>
-    public bool RecordDelivered(string directorId, string sessionId, string promptId, string disposition, string acknowledgement, long sequence, DateTime atUtc)
+    public bool RecordDelivered(string directorId, string sessionId, string promptId, string disposition, string acknowledgement, ApiModeEventPosition position, DateTime atUtc)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
         RequireId(promptId, nameof(promptId));
         RequireWord(disposition, nameof(disposition));
         RequireVerbatim(acknowledgement, nameof(acknowledgement));
-        RequireSequence(sequence);
+        RequirePosition(position);
         var at = Utc(atUtc, nameof(atUtc));
 
-        return Write(nameof(RecordDelivered), sessionId, promptId, sequence, ctx =>
+        return Write(nameof(RecordDelivered), sessionId, promptId, position, ctx =>
         {
             var row = Find(ctx, sessionId, promptId);
             if (row is null)
             {
-                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Delivered, sequence, r => Deliver(r, disposition, acknowledgement, at)));
+                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Delivered, position, r => Deliver(r, disposition, acknowledgement, at)));
                 return "delivered (" + disposition + ")";
             }
-            if (sequence <= row.LastSequence) return null;
+            if (!IsNewer(position, row)) return null;
             if (row.State != nameof(ApiModeReceiptState.Queued))
             {
-                FileLog.Write($"[ApiModeReceiptStore] RecordDelivered session={sessionId} prompt={promptId} seq={sequence}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1); the first ending stands");
+                FileLog.Write($"[ApiModeReceiptStore] RecordDelivered session={sessionId} prompt={promptId} at={position}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1); the first ending stands");
                 return null;
             }
             row.State = nameof(ApiModeReceiptState.Delivered);
             Deliver(row, disposition, acknowledgement, at);
-            Touch(row, sequence);
+            Touch(row, position);
             return "delivered (" + disposition + ")";
         });
     }
@@ -138,33 +141,33 @@ public sealed class ApiModeReceiptStore
     /// (rule 1). True when the store changed.
     /// </summary>
     /// <param name="refusedBy"><c>agent</c> or <c>director</c>, as the event model words it.</param>
-    public bool RecordRefused(string directorId, string sessionId, string promptId, string reason, string refusedBy, long sequence, DateTime atUtc)
+    public bool RecordRefused(string directorId, string sessionId, string promptId, string reason, string refusedBy, ApiModeEventPosition position, DateTime atUtc)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
         RequireId(promptId, nameof(promptId));
         RequireVerbatim(reason, nameof(reason));
         RequireWord(refusedBy, nameof(refusedBy));
-        RequireSequence(sequence);
+        RequirePosition(position);
         var at = Utc(atUtc, nameof(atUtc));
 
-        return Write(nameof(RecordRefused), sessionId, promptId, sequence, ctx =>
+        return Write(nameof(RecordRefused), sessionId, promptId, position, ctx =>
         {
             var row = Find(ctx, sessionId, promptId);
             if (row is null)
             {
-                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Refused, sequence, r => Refuse(r, reason, refusedBy, at)));
+                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Refused, position, r => Refuse(r, reason, refusedBy, at)));
                 return "refused by " + refusedBy;
             }
-            if (sequence <= row.LastSequence) return null;
+            if (!IsNewer(position, row)) return null;
             if (row.State != nameof(ApiModeReceiptState.Queued))
             {
-                FileLog.Write($"[ApiModeReceiptStore] RecordRefused session={sessionId} prompt={promptId} seq={sequence}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1); the first ending stands");
+                FileLog.Write($"[ApiModeReceiptStore] RecordRefused session={sessionId} prompt={promptId} at={position}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1); the first ending stands");
                 return null;
             }
             row.State = nameof(ApiModeReceiptState.Refused);
             Refuse(row, reason, refusedBy, at);
-            Touch(row, sequence);
+            Touch(row, position);
             return "refused by " + refusedBy;
         });
     }
@@ -174,40 +177,40 @@ public sealed class ApiModeReceiptStore
     /// turn's end can be shown beside its receipt. A prompt with no receipt, not delivered, or already carried by
     /// another turn is a Director defect: logged, and that prompt is left as it was. Answers how many receipts changed.
     /// </summary>
-    public int RecordTurnStarted(string directorId, string sessionId, string turnId, IReadOnlyList<string> promptIds, long sequence)
+    public int RecordTurnStarted(string directorId, string sessionId, string turnId, IReadOnlyList<string> promptIds, ApiModeEventPosition position)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
         RequireId(turnId, nameof(turnId));
         ArgumentNullException.ThrowIfNull(promptIds);
         foreach (var promptId in promptIds) RequireId(promptId, nameof(promptIds));
-        RequireSequence(sequence);
+        RequirePosition(position);
         if (promptIds.Count == 0) return 0;
 
         var changed = 0;
         foreach (var promptId in promptIds.Distinct(StringComparer.Ordinal))
         {
-            var linked = Write(nameof(RecordTurnStarted), sessionId, promptId, sequence, ctx =>
+            var linked = Write(nameof(RecordTurnStarted), sessionId, promptId, position, ctx =>
             {
                 var row = Find(ctx, sessionId, promptId);
                 if (row is null)
                 {
-                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} seq={sequence}: prompt={promptId} has no receipt; a turn can only carry a delivered prompt, so it is not linked");
+                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} has no receipt; a turn can only carry a delivered prompt, so it is not linked");
                     return null;
                 }
-                if (sequence <= row.LastSequence) return null;
+                if (!IsNewer(position, row)) return null;
                 if (row.State != nameof(ApiModeReceiptState.Delivered))
                 {
-                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} seq={sequence}: prompt={promptId} is {row.State}, not Delivered; it is not linked");
+                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} is {row.State}, not Delivered; it is not linked");
                     return null;
                 }
                 if (row.TurnId is not null)
                 {
-                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} seq={sequence}: prompt={promptId} is already carried by turn={row.TurnId}; one turn per prompt, so it stays there");
+                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} is already carried by turn={row.TurnId}; one turn per prompt, so it stays there");
                     return null;
                 }
                 row.TurnId = turnId;
-                Touch(row, sequence);
+                Touch(row, position);
                 return "carried by turn " + turnId;
             });
             if (linked) changed++;
@@ -222,28 +225,28 @@ public sealed class ApiModeReceiptStore
     /// <param name="outcome"><c>done</c>, <c>cancelled</c> or <c>failed</c>, as the event model words it.</param>
     /// <param name="reason">The turn's stated reason, verbatim; the event model requires one for every outcome but
     /// <c>done</c>, and that requirement is the ingest's to enforce on the typed event.</param>
-    public int RecordTurnEnded(string directorId, string sessionId, string turnId, string outcome, string? reason, long sequence, DateTime atUtc)
+    public int RecordTurnEnded(string directorId, string sessionId, string turnId, string outcome, string? reason, ApiModeEventPosition position, DateTime atUtc)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
         RequireId(turnId, nameof(turnId));
         RequireWord(outcome, nameof(outcome));
         if (reason is not null) RequireVerbatim(reason, nameof(reason));
-        RequireSequence(sequence);
+        RequirePosition(position);
         var at = Utc(atUtc, nameof(atUtc));
 
         lock (_gate)
         {
-            try { return EndTurnOnce(sessionId, turnId, outcome, reason, sequence, at); }
+            try { return EndTurnOnce(sessionId, turnId, outcome, reason, position, at); }
             catch (DbUpdateException ex)
             {
                 FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId}: write lost a race with another writer ({ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
-                return EndTurnOnce(sessionId, turnId, outcome, reason, sequence, at);
+                return EndTurnOnce(sessionId, turnId, outcome, reason, position, at);
             }
         }
     }
 
-    private int EndTurnOnce(string sessionId, string turnId, string outcome, string? reason, long sequence, DateTime at)
+    private int EndTurnOnce(string sessionId, string turnId, string outcome, string? reason, ApiModeEventPosition position, DateTime at)
     {
         using var ctx = _db.CreateContext();
         using var tx = ctx.Database.BeginTransaction();
@@ -251,19 +254,19 @@ public sealed class ApiModeReceiptStore
         var changed = 0;
         foreach (var row in rows)
         {
-            if (sequence <= row.LastSequence || row.TurnOutcome is not null) continue;
+            if (!IsNewer(position, row) || row.TurnOutcome is not null) continue;
             row.TurnOutcome = outcome;
             row.TurnOutcomeReason = reason;
             row.TurnEndedAtUtc = at;
-            Touch(row, sequence);
+            Touch(row, position);
             changed++;
         }
         ctx.SaveChanges();
         tx.Commit();
         if (rows.Count == 0)
-            FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId} seq={sequence}: no receipt is carried by this turn; nothing to show its outcome on");
+            FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId} at={position}: no receipt is carried by this turn; nothing to show its outcome on");
         else if (changed > 0)
-            FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId} seq={sequence}: outcome={outcome} written on {changed} receipt(s)");
+            FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId} at={position}: outcome={outcome} written on {changed} receipt(s)");
         return changed;
     }
 
@@ -277,7 +280,8 @@ public sealed class ApiModeReceiptStore
             using var ctx = _db.CreateContext();
             return ctx.ApiModeReceipts.AsNoTracking()
                 .Where(r => r.SessionId == sessionId)
-                .OrderBy(r => r.FirstSequence)
+                .OrderBy(r => r.FirstGenerationStartedUtc)
+                .ThenBy(r => r.FirstSequence)
                 .ThenBy(r => r.PromptId)
                 .AsEnumerable()
                 .Select(ToDto)
@@ -320,20 +324,20 @@ public sealed class ApiModeReceiptStore
 
     /// <summary>Run one change to one receipt. <paramref name="apply"/> answers what it did (for the log), or null when it
     /// changed nothing - a duplicate, a late event, or a refused one it has already logged.</summary>
-    private bool Write(string operation, string sessionId, string promptId, long sequence, Func<GatewayDbContext, string?> apply)
+    private bool Write(string operation, string sessionId, string promptId, ApiModeEventPosition position, Func<GatewayDbContext, string?> apply)
     {
         lock (_gate)
         {
-            try { return WriteOnce(operation, sessionId, promptId, sequence, apply); }
+            try { return WriteOnce(operation, sessionId, promptId, position, apply); }
             catch (DbUpdateException ex)
             {
                 FileLog.Write($"[ApiModeReceiptStore] {operation} session={sessionId} prompt={promptId}: write lost a race with another writer ({ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
-                return WriteOnce(operation, sessionId, promptId, sequence, apply);
+                return WriteOnce(operation, sessionId, promptId, position, apply);
             }
         }
     }
 
-    private bool WriteOnce(string operation, string sessionId, string promptId, long sequence, Func<GatewayDbContext, string?> apply)
+    private bool WriteOnce(string operation, string sessionId, string promptId, ApiModeEventPosition position, Func<GatewayDbContext, string?> apply)
     {
         using var ctx = _db.CreateContext();
         using var tx = ctx.Database.BeginTransaction();
@@ -342,7 +346,7 @@ public sealed class ApiModeReceiptStore
             return false;
         ctx.SaveChanges();
         tx.Commit();
-        FileLog.Write($"[ApiModeReceiptStore] {operation} session={sessionId} prompt={promptId} seq={sequence}: {did}");
+        FileLog.Write($"[ApiModeReceiptStore] {operation} session={sessionId} prompt={promptId} at={position}: {did}");
         return true;
     }
 
@@ -350,7 +354,7 @@ public sealed class ApiModeReceiptStore
         => ctx.ApiModeReceipts.FirstOrDefault(r => r.SessionId == sessionId && r.PromptId == promptId);
 
     private ApiModeReceiptEntity NewRow(GatewayDbContext ctx, string directorId, string sessionId, string promptId,
-        ApiModeReceiptState state, long sequence, Action<ApiModeReceiptEntity> fill)
+        ApiModeReceiptState state, ApiModeEventPosition position, Action<ApiModeReceiptEntity> fill)
     {
         var now = Utc(_utcNow(), "utcNow");
         var row = new ApiModeReceiptEntity
@@ -360,8 +364,11 @@ public sealed class ApiModeReceiptStore
             PromptId = promptId,
             DirectorId = directorId,
             State = state.ToString(),
-            FirstSequence = sequence,
-            LastSequence = sequence,
+            FirstGenerationStartedUtc = position.GenerationStartedUtc,
+            FirstSequence = position.Sequence,
+            LastGeneration = position.Generation,
+            LastGenerationStartedUtc = position.GenerationStartedUtc,
+            LastSequence = position.Sequence,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
         };
@@ -369,9 +376,15 @@ public sealed class ApiModeReceiptStore
         return row;
     }
 
-    private void Touch(ApiModeReceiptEntity row, long sequence)
+    /// <summary>Whether the event at <paramref name="position"/> comes after the last one applied to the row.</summary>
+    private static bool IsNewer(ApiModeEventPosition position, ApiModeReceiptEntity row)
+        => position.IsAfter(row.LastGeneration, row.LastGenerationStartedUtc, row.LastSequence);
+
+    private void Touch(ApiModeReceiptEntity row, ApiModeEventPosition position)
     {
-        row.LastSequence = sequence;
+        row.LastGeneration = position.Generation;
+        row.LastGenerationStartedUtc = position.GenerationStartedUtc;
+        row.LastSequence = position.Sequence;
         row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
     }
 
@@ -431,10 +444,11 @@ public sealed class ApiModeReceiptStore
             throw new ArgumentException($"{name} is {value.Length} characters; at most {MaxVerbatimLength} are stored, and a verbatim field is never cut", name);
     }
 
-    private static void RequireSequence(long sequence)
+    /// <summary>A default position (never constructed) has no generation: a caller defect, refused.</summary>
+    private static void RequirePosition(ApiModeEventPosition position)
     {
-        if (sequence < 0)
-            throw new ArgumentException($"sequence is negative ({sequence})", nameof(sequence));
+        if (string.IsNullOrEmpty(position.Generation))
+            throw new ArgumentException("the event position has no generation", nameof(position));
     }
 
     private static DateTime Utc(DateTime value, string name)

@@ -33,7 +33,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     DeliveredAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     RefusedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     TurnEndedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LastGeneration = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    LastGenerationStartedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     LastSequence = table.Column<long>(type: "bigint", nullable: false),
+                    FirstGenerationStartedUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     FirstSequence = table.Column<long>(type: "bigint", nullable: false),
                     CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)

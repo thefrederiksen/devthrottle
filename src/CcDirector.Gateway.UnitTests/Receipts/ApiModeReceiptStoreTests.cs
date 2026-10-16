@@ -36,6 +36,16 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
 
     private static ApiModeReceiptDto Only(ApiModeReceiptStore store) => Assert.Single(store.Read(Sid));
 
+    /// <summary>The Director's first generation of this session's event stream.</summary>
+    private static readonly DateTime GenAStarted = new(2026, 10, 16, 11, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>The generation after a Director restart: started later, and its sequence starts again.</summary>
+    private static readonly DateTime GenBStarted = new(2026, 10, 16, 12, 30, 0, DateTimeKind.Utc);
+
+    private static ApiModeEventPosition At(long sequence) => new("gen-a", GenAStarted, sequence);
+
+    private static ApiModeEventPosition AfterRestart(long sequence) => new("gen-b", GenBStarted, sequence);
+
     // ----- the five ways a prompt goes, as the recorded Pi fixtures show them -----
 
     [Fact]
@@ -43,9 +53,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         var store = Store();
 
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
-        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, 2);
-        store.RecordTurnEnded(Director, Sid, "t1", "done", null, 9, T0.AddSeconds(2));
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+        store.RecordTurnEnded(Director, Sid, "t1", "done", null, At(9), T0.AddSeconds(2));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);
@@ -64,8 +74,8 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         var store = Store();
 
-        store.RecordQueued(Director, Sid, "p2", "turnRunning", 3, T0);
-        store.RecordRefused(Director, Sid, "p2", BusyRefusal, "agent", 4, T0.AddSeconds(1));
+        store.RecordQueued(Director, Sid, "p2", "turnRunning", At(3), T0);
+        store.RecordRefused(Director, Sid, "p2", BusyRefusal, "agent", At(4), T0.AddSeconds(1));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Refused, r.State);
@@ -83,9 +93,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         var store = Store();
 
-        store.RecordRefused(Director, Sid, "p1", "Pi exited before acknowledging", "director", 1, T0);
+        store.RecordRefused(Director, Sid, "p1", "Pi exited before acknowledging", "director", At(1), T0);
         // No turn ever starts for it; a turn end that names some other turn cannot reach it.
-        store.RecordTurnEnded(Director, Sid, "t-other", "failed", "Pi exited during the turn (exit code 137)", 2, T0);
+        store.RecordTurnEnded(Director, Sid, "t-other", "failed", "Pi exited during the turn (exit code 137)", At(2), T0);
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Refused, r.State);
@@ -100,9 +110,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         var store = Store();
 
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
-        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, 2);
-        store.RecordTurnEnded(Director, Sid, "t1", "failed", "Pi exited during the turn (exit code 137)", 7, T0.AddSeconds(3));
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+        store.RecordTurnEnded(Director, Sid, "t1", "failed", "Pi exited during the turn (exit code 137)", At(7), T0.AddSeconds(3));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);   // Delivered stays: Pi acknowledged it
@@ -115,9 +125,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         var store = Store();
 
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
-        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, 2);
-        store.RecordTurnEnded(Director, Sid, "t1", "cancelled", "stopped by the user", 5, T0.AddSeconds(1));
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+        store.RecordTurnEnded(Director, Sid, "t1", "cancelled", "stopped by the user", At(5), T0.AddSeconds(1));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);
@@ -131,11 +141,11 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordDelivered_SentTwice_ChangesNothingTheSecondTime()
     {
         var store = Store();
-        Assert.True(store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0));
+        Assert.True(store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0));
         var first = Only(store);
 
         _clock = _clock.AddMinutes(1);
-        Assert.False(store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0));
+        Assert.False(store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0));
 
         Assert.Equal(first.UpdatedAtUtc, Only(store).UpdatedAtUtc);
     }
@@ -144,12 +154,12 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordQueued_ArrivingLate_CannotMoveADeliveredReceiptBackwards()
     {
         var store = Store();
-        store.RecordQueued(Director, Sid, "p1", "agentStarting", 1, T0);
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 3, T0.AddSeconds(1));
+        store.RecordQueued(Director, Sid, "p1", "agentStarting", At(1), T0);
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(3), T0.AddSeconds(1));
 
         // The same queued event re-sent, and a queued event with a later sequence (a Director defect): neither moves it.
-        Assert.False(store.RecordQueued(Director, Sid, "p1", "agentStarting", 1, T0));
-        Assert.False(store.RecordQueued(Director, Sid, "p1", "turnRunning", 4, T0.AddSeconds(2)));
+        Assert.False(store.RecordQueued(Director, Sid, "p1", "agentStarting", At(1), T0));
+        Assert.False(store.RecordQueued(Director, Sid, "p1", "turnRunning", At(4), T0.AddSeconds(2)));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);
@@ -160,9 +170,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordQueued_AgainWhileQueued_RefreshesTheReason()
     {
         var store = Store();
-        store.RecordQueued(Director, Sid, "p1", "agentStarting", 1, T0);
+        store.RecordQueued(Director, Sid, "p1", "agentStarting", At(1), T0);
 
-        Assert.True(store.RecordQueued(Director, Sid, "p1", "userHasTheWheel", 2, T0.AddSeconds(1)));
+        Assert.True(store.RecordQueued(Director, Sid, "p1", "userHasTheWheel", At(2), T0.AddSeconds(1)));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Queued, r.State);
@@ -174,9 +184,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordRefused_AfterDelivered_IsRefusedAndTheFirstEndingStands()
     {
         var store = Store();
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
 
-        Assert.False(store.RecordRefused(Director, Sid, "p1", "Pi exited before acknowledging", "director", 2, T0));
+        Assert.False(store.RecordRefused(Director, Sid, "p1", "Pi exited before acknowledging", "director", At(2), T0));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);
@@ -187,9 +197,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordDelivered_AfterRefused_IsRefusedAndTheFirstEndingStands()
     {
         var store = Store();
-        store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", 1, T0);
+        store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", At(1), T0);
 
-        Assert.False(store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 2, T0));
+        Assert.False(store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(2), T0));
 
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Refused, r.State);
@@ -200,11 +210,11 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordTurnEnded_Twice_TheOutcomeIsWrittenOnce()
     {
         var store = Store();
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
-        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, 2);
-        Assert.Equal(1, store.RecordTurnEnded(Director, Sid, "t1", "cancelled", "stopped by the user", 5, T0));
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+        Assert.Equal(1, store.RecordTurnEnded(Director, Sid, "t1", "cancelled", "stopped by the user", At(5), T0));
 
-        Assert.Equal(0, store.RecordTurnEnded(Director, Sid, "t1", "failed", "a later, different ending", 6, T0));
+        Assert.Equal(0, store.RecordTurnEnded(Director, Sid, "t1", "failed", "a later, different ending", At(6), T0));
 
         Assert.Equal("cancelled", Only(store).TurnOutcome);
     }
@@ -213,10 +223,10 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordTurnStarted_NamingAPromptWithNoReceiptOrNotDelivered_LinksNothing()
     {
         var store = Store();
-        store.RecordQueued(Director, Sid, "queued", "userHasTheWheel", 1, T0);
-        store.RecordRefused(Director, Sid, "refused", BusyRefusal, "agent", 2, T0);
+        store.RecordQueued(Director, Sid, "queued", "userHasTheWheel", At(1), T0);
+        store.RecordRefused(Director, Sid, "refused", BusyRefusal, "agent", At(2), T0);
 
-        Assert.Equal(0, store.RecordTurnStarted(Director, Sid, "t1", new[] { "missing", "queued", "refused" }, 3));
+        Assert.Equal(0, store.RecordTurnStarted(Director, Sid, "t1", new[] { "missing", "queued", "refused" }, At(3)));
 
         Assert.All(store.Read(Sid), r => Assert.Null(r.TurnId));
     }
@@ -225,10 +235,10 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordTurnStarted_ForAPromptAnotherTurnCarries_LeavesItWithTheFirstTurn()
     {
         var store = Store();
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
-        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, 2);
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
 
-        Assert.Equal(0, store.RecordTurnStarted(Director, Sid, "t2", new[] { "p1" }, 3));
+        Assert.Equal(0, store.RecordTurnStarted(Director, Sid, "t2", new[] { "p1" }, At(3)));
 
         Assert.Equal("t1", Only(store).TurnId);
     }
@@ -237,13 +247,59 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordTurnEnded_ForATurnCarryingTwoPrompts_WritesTheOutcomeOnBoth()
     {
         var store = Store();
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
-        store.RecordDelivered(Director, Sid, "p2", "queuedByAgent", StartedAck, 2, T0);
-        Assert.Equal(2, store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1", "p2" }, 3));
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordDelivered(Director, Sid, "p2", "queuedByAgent", StartedAck, At(2), T0);
+        Assert.Equal(2, store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1", "p2" }, At(3)));
 
-        Assert.Equal(2, store.RecordTurnEnded(Director, Sid, "t1", "done", null, 4, T0));
+        Assert.Equal(2, store.RecordTurnEnded(Director, Sid, "t1", "done", null, At(4), T0));
 
         Assert.All(store.Read(Sid), r => Assert.Equal("done", r.TurnOutcome));
+    }
+
+    // ----- generations: a Director restart starts the sequence again -----
+
+    [Fact]
+    public void RecordTurnEnded_FromALaterGenerationWithALowerSequence_IsApplied()
+    {
+        var store = Store();
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(40), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(41));
+
+        // The Director restarted mid-turn: its new generation counts from 1 again, and closes the turn as failed.
+        Assert.Equal(1, store.RecordTurnEnded(Director, Sid, "t1", "failed", "the Director restarted during the turn", AfterRestart(1), T0));
+
+        Assert.Equal("failed", Only(store).TurnOutcome);
+    }
+
+    [Fact]
+    public void RecordRefused_FromAnOlderGeneration_IsRefusedWhateverItsSequence()
+    {
+        var store = Store();
+        store.RecordQueued(Director, Sid, "p1", "agentStarting", AfterRestart(1), T0);
+
+        // A late batch from before the restart, with a much higher sequence of its own: it is older, so it moves nothing.
+        Assert.False(store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", At(500), T0));
+
+        Assert.Equal(ApiModeReceiptState.Queued, Only(store).State);
+    }
+
+    [Fact]
+    public void ApiModeEventPosition_TwoGenerationsStartedTogether_AreOrderedByTheirIds()
+    {
+        var b = new ApiModeEventPosition("gen-b", GenAStarted, 1);
+
+        Assert.True(b.IsAfter("gen-a", GenAStarted, 99));
+        Assert.False(new ApiModeEventPosition("gen-a", GenAStarted, 99).IsAfter("gen-b", GenAStarted, 1));
+    }
+
+    [Fact]
+    public void Read_AnswersReceiptsOfALaterGenerationAfterTheEarlierOnes()
+    {
+        var store = Store();
+        store.RecordQueued(Director, Sid, "after-restart", "turnRunning", AfterRestart(1), T0);
+        store.RecordQueued(Director, Sid, "before-restart", "turnRunning", At(30), T0);
+
+        Assert.Equal(new[] { "before-restart", "after-restart" }, store.Read(Sid).Select(r => r.PromptId));
     }
 
     // ----- reading -----
@@ -252,9 +308,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void Read_AnswersOldestPromptFirst_AndOnlyThisSession()
     {
         var store = Store();
-        store.RecordQueued(Director, Sid, "zz-first", "turnRunning", 1, T0);
-        store.RecordQueued(Director, Sid, "aa-second", "turnRunning", 2, T0);
-        store.RecordQueued(Director, "another-session", "p9", "turnRunning", 3, T0);
+        store.RecordQueued(Director, Sid, "zz-first", "turnRunning", At(1), T0);
+        store.RecordQueued(Director, Sid, "aa-second", "turnRunning", At(2), T0);
+        store.RecordQueued(Director, "another-session", "p9", "turnRunning", At(3), T0);
 
         Assert.Equal(new[] { "zz-first", "aa-second" }, store.Read(Sid).Select(r => r.PromptId));
     }
@@ -269,10 +325,10 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void RecordDelivered_StampsTheGatewayTimesFromTheInjectedClock()
     {
         var store = Store();
-        store.RecordQueued(Director, Sid, "p1", "agentStarting", 1, T0);
+        store.RecordQueued(Director, Sid, "p1", "agentStarting", At(1), T0);
         _clock = _clock.AddSeconds(30);
 
-        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 2, T0);
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(2), T0);
 
         Assert.Equal(_clock, Only(store).UpdatedAtUtc);
     }
@@ -281,8 +337,8 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void DirectorsOf_NamesEveryDirectorThatReportedAReceipt()
     {
         var store = Store();
-        store.RecordQueued("dir-a", Sid, "p1", "turnRunning", 1, T0);
-        store.RecordQueued("dir-b", Sid, "p2", "turnRunning", 2, T0);
+        store.RecordQueued("dir-a", Sid, "p1", "turnRunning", At(1), T0);
+        store.RecordQueued("dir-b", Sid, "p2", "turnRunning", At(2), T0);
 
         Assert.Equal(new[] { "dir-a", "dir-b" }, store.DirectorsOf(Sid).OrderBy(d => d));
     }
@@ -293,7 +349,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void Read_AnotherTenant_SeesNoneOfTheReceipts()
     {
         var mine = Store(new FixedTenantContext(TenantId.Local));
-        mine.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
+        mine.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
 
         var theirs = Store(new FixedTenantContext(new TenantId("11111111-1111-1111-1111-111111111111")));
 
@@ -306,11 +362,11 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         var mine = Store(new FixedTenantContext(TenantId.Local));
         var theirs = Store(new FixedTenantContext(new TenantId("11111111-1111-1111-1111-111111111111")));
-        mine.RecordDelivered(Director, Sid, "p1", "started", StartedAck, 1, T0);
+        mine.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
 
         // Same session id, same prompt id, a refusal: in the other account it is a receipt of its own.
-        Assert.True(theirs.RecordRefused("dir-elsewhere", Sid, "p1", BusyRefusal, "agent", 5, T0));
-        Assert.Equal(0, theirs.RecordTurnStarted("dir-elsewhere", Sid, "t1", new[] { "p1" }, 6));
+        Assert.True(theirs.RecordRefused("dir-elsewhere", Sid, "p1", BusyRefusal, "agent", At(5), T0));
+        Assert.Equal(0, theirs.RecordTurnStarted("dir-elsewhere", Sid, "t1", new[] { "p1" }, At(6)));
 
         Assert.Equal(ApiModeReceiptState.Delivered, Only(mine).State);
         Assert.Null(Only(mine).TurnId);
@@ -322,8 +378,8 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         var mine = Store(new FixedTenantContext(TenantId.Local));
         var theirs = Store(new FixedTenantContext(new TenantId("11111111-1111-1111-1111-111111111111")));
-        mine.RecordQueued(Director, Sid, "p1", "turnRunning", 1, T0);
-        theirs.RecordQueued(Director, Sid, "p1", "turnRunning", 1, T0);
+        mine.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0);
+        theirs.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0);
 
         Assert.Equal(1, mine.PurgeOlderThan(_clock.AddDays(1)));
 
@@ -337,9 +393,9 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     public void PurgeOlderThan_RemovesOnlyReceiptsLastChangedBeforeTheCutoff()
     {
         var store = Store();
-        store.RecordQueued(Director, Sid, "old", "turnRunning", 1, T0);
+        store.RecordQueued(Director, Sid, "old", "turnRunning", At(1), T0);
         _clock = _clock.AddDays(100);
-        store.RecordQueued(Director, Sid, "new", "turnRunning", 2, T0);
+        store.RecordQueued(Director, Sid, "new", "turnRunning", At(2), T0);
 
         var removed = store.PurgeOlderThan(_clock - ApiModeReceiptStore.Retention);
 
@@ -353,6 +409,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     [InlineData("empty-session")]
     [InlineData("long-prompt-id")]
     [InlineData("negative-sequence")]
+    [InlineData("no-generation")]
     [InlineData("unset-time")]
     [InlineData("oversized-acknowledgement")]
     [InlineData("long-disposition")]
@@ -361,12 +418,20 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         var store = Store();
         var session = fault == "empty-session" ? "" : Sid;
         var prompt = fault == "long-prompt-id" ? new string('p', ApiModeReceiptStore.MaxIdLength + 1) : "p1";
-        var sequence = fault == "negative-sequence" ? -1 : 1;
         var at = fault == "unset-time" ? default : T0;
         var ack = fault == "oversized-acknowledgement" ? new string('x', ApiModeReceiptStore.MaxVerbatimLength + 1) : StartedAck;
         var disposition = fault == "long-disposition" ? new string('d', ApiModeReceiptStore.MaxWordLength + 1) : "started";
 
-        Assert.ThrowsAny<ArgumentException>(() => store.RecordDelivered(Director, session, prompt, disposition, ack, sequence, at));
+        Assert.ThrowsAny<ArgumentException>(() =>
+        {
+            var position = fault switch
+            {
+                "negative-sequence" => At(-1),
+                "no-generation" => default,
+                _ => At(1),
+            };
+            store.RecordDelivered(Director, session, prompt, disposition, ack, position, at);
+        });
 
         Assert.Empty(store.Read(Sid));
     }
@@ -377,7 +442,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         var store = Store();
         var reason = new string('r', ApiModeReceiptStore.MaxVerbatimLength);
 
-        store.RecordRefused(Director, Sid, "p1", reason, "director", 1, T0);
+        store.RecordRefused(Director, Sid, "p1", reason, "director", At(1), T0);
 
         Assert.Equal(reason, Only(store).RefusalReason);
     }
