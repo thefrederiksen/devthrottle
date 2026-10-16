@@ -182,7 +182,7 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         var (_, session, sink) = CreateApiModeSession(pi);
         await WaitForActivityAsync(session, ActivityState.WaitingForInput);
 
-        // Act: the guarded send the fleet doorbell and the "only when waiting" prompts use.
+        // Act: the guarded send the prompt verb's "only when waiting" mode uses, and the API-mode doorbell rides on.
         var sent = await session.SendTextOnlyWhenWaitingForInputAsync("Reply with exactly the word PONG", Door, SendSource.UserInput, null, appendEnter: true);
 
         // Assert

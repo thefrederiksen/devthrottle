@@ -92,9 +92,11 @@ after it is written, long before a turn can be cut short, so the case splits in 
 ## 3. The Pi mapping
 
 Pi is started as `pi --mode rpc --session-id <id>`, with the same launch arguments (the fleet preamble's
-`--append-system-prompt` among them), folder and environment as terminal mode: the `CC_*` variables Pi would inherit
-from the Director are stripped, and the session's own stamped set (its `CC_SESSION_ID`, its Gateway address and key,
-the fleet text) is applied, exactly as terminal mode does. (Corrected in phase 1, approved by the Delivery Lead, 16
+`--append-system-prompt` among them) and folder as terminal mode. Its environment differs in one way: every `CC_*`
+variable Pi would inherit from the Director is stripped first (terminal mode strips only the variables it then stamps,
+so an inherited `CC_DIRECTOR_ROOT` or `CC_WORKTREES_HOME` reaches a terminal Pi and not an API-mode one), and then the
+session's own stamped set (its `CC_SESSION_ID`, its Gateway address and key, the fleet text) is applied, the same set
+terminal mode stamps. (Corrected in phase 1, approved by the Delivery Lead, 16
 October 2026: "no `CC_*` variables" came from the recorder stripping its own parent's variables.)
 Every command is sent with a unique `id`; Pi repeats it on the `response`. Session events carry no
 id.

@@ -6,6 +6,7 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
@@ -166,6 +167,90 @@ public sealed class ApiModeSessionTests : IDisposable
         // Assert: a session never claims to wait for a prompt its agent cannot take yet.
         Assert.Equal(ActivityState.Starting, before);
         Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+    }
+
+    [Fact]
+    public async Task RingAsync_ApiModeSessionWaiting_SendsTheDoorbellLineToPiAndIsRung()
+    {
+        // Arrange
+        var pi = new ScriptedPi("plain");
+        var (session, _, sink) = StartSession(pi);
+        await sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        var answer = await FleetDoorbellRinger.RingAsync(session, 2);
+
+        // Assert: rung on Pi's own acknowledgement of the one doorbell line, sent as an ordinary prompt.
+        Assert.Equal(FleetRingOutcomes.Rung, answer.Outcome);
+        Assert.Equal(["get_state", "prompt"], pi.WrittenTypes);
+        Assert.Equal(FleetDoorbellLine.For(2), System.Text.Json.JsonDocument.Parse(pi.Written[1]).RootElement.GetProperty("message").GetString());
+        Assert.Single(sink.Events.OfType<PromptDelivered>());
+    }
+
+    [Fact]
+    public async Task RingAsync_ApiModeSessionBusy_IsDeferredWorkingAndSendsNothing()
+    {
+        // Arrange: a prompt is in flight and Pi has not answered it.
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        var (session, _, sink) = StartSession(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await sink.WaitForAsync<ConnectionReady>();
+        var first = session.SendTextAsync("First", Door);
+        await pi.WaitForWrittenAsync("prompt");
+
+        // Act
+        var answer = await FleetDoorbellRinger.RingAsync(session, 1);
+
+        // Assert
+        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
+        Assert.Equal(FleetRingDeferReasons.Working, answer.Reason);
+        Assert.Equal(["get_state", "prompt"], pi.WrittenTypes);
+        pi.RespondToNext();
+        Assert.True((await ScriptedPi.WithinHangGuard(first, "the first prompt's receipt")).Confirmed);
+    }
+
+    [Fact]
+    public async Task RingAsync_ApiModeSessionThatEnded_IsDeferredExited()
+    {
+        // Arrange
+        var pi = new ScriptedPi("exit-before-ack");
+        var (session, _, _) = StartSession(pi);
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExited += code => exited.TrySetResult(code);
+        await session.SendTextAsync("Reply with exactly the word PONG", Door);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Act
+        var answer = await FleetDoorbellRinger.RingAsync(session, 1);
+
+        // Assert
+        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
+        Assert.Equal(FleetRingDeferReasons.Exited, answer.Reason);
+    }
+
+    [Fact]
+    public async Task DeliverPrePromptAsync_ApiModeSession_IsQueuedAtOnceAndWrittenRightAfterPiNamesItsConversation()
+    {
+        // Arrange: Pi answers only when the test says so. The wait given is far longer than the tests' hang guard, so a
+        // session that sat out the wait instead of handing the prompt over fails here rather than passing late.
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        var (session, _, sink) = StartSession(pi);
+        await pi.WaitForWrittenAsync("get_state");
+
+        // Act: the first prompt is handed over before Pi is ready...
+        var delivering = session.DeliverPrePromptAsync("Reply with exactly the word PONG", TimeSpan.FromMinutes(10));
+        var queued = await sink.WaitForAsync<PromptQueued>();
+        // ...and goes the moment Pi names its conversation, not after any wait.
+        pi.RespondToNext();
+        var written = await pi.WaitForWrittenAsync("prompt");
+        pi.RespondToNext();
+        await ScriptedPi.WithinHangGuard(delivering, "the first prompt's delivery");
+
+        // Assert
+        Assert.Equal(PromptQueuedReason.AgentStarting, queued.Reason);
+        Assert.Equal("Reply with exactly the word PONG", System.Text.Json.JsonDocument.Parse(written).RootElement.GetProperty("message").GetString());
+        Assert.Single(sink.Events.OfType<PromptDelivered>());
     }
 
     [Fact]

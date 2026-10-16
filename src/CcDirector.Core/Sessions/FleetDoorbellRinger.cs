@@ -182,9 +182,49 @@ public static class FleetDoorbellRinger
             settledFor);
     }
 
-    /// <summary>Ring one live session. See <see cref="RingAsync(IDoorbellTarget, int, Func{Task}?)"/>.</summary>
-    public static Task<FleetRingResponse> RingAsync(Session session, int unreadCount) =>
-        RingAsync(new SessionDoorbellTarget(session), unreadCount);
+    /// <summary>Ring one live session. See <see cref="RingAsync(IDoorbellTarget, int, Func{Task}?)"/>; an API-mode session
+    /// is rung through its agent's own protocol (<see cref="RingApiModeAsync"/>).</summary>
+    public static Task<FleetRingResponse> RingAsync(Session session, int unreadCount)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return session.ConnectionMode == ApiMode.SessionConnectionMode.Api
+            ? RingApiModeAsync(session, unreadCount)
+            : RingAsync(new SessionDoorbellTarget(session), unreadCount);
+    }
+
+    /// <summary>
+    /// RING AN API-MODE SESSION (issue #4070, phase 1 review finding 1). It has no screen, so the screen checks above
+    /// cannot run; the agent's own protocol is the better check. The one doorbell line goes to the agent only if it can
+    /// take a prompt now - its conversation named, no prompt in flight, none queued - through the session's guarded send,
+    /// as an agent-origin line, the same as the terminal ring records it. <c>rung</c> means the agent acknowledged the
+    /// line; anything else is a deferral with the reason, and nothing was sent: <c>exited</c> for a session that has
+    /// ended, <c>working</c> for one that is busy or starting, or whose agent refused the line (its words in the detail).
+    /// </summary>
+    internal static async Task<FleetRingResponse> RingApiModeAsync(Session session, int unreadCount)
+    {
+        FileLog.Write($"[FleetDoorbellRinger] RingApiModeAsync: session={session.Id}, unread={unreadCount}");
+        if (!Ringing.TryAdd(session.Id, 0))
+            return Deferred(session.Id, FleetRingDeferReasons.Working, "a doorbell is already being sent to this session");
+        try
+        {
+            var line = FleetDoorbellLine.For(unreadCount);
+            var sent = await session.SendTextOnlyWhenWaitingForInputAsync(line,
+                SubmissionProvenance.Typed(SubmissionRoutes.FleetMessage, SubmissionIdentityKinds.Framework),
+                SendSource.Agent, origin: null, appendEnter: true).ConfigureAwait(false);
+            if (sent.Accepted)
+            {
+                FileLog.Write($"[FleetDoorbellRinger] RUNG (API mode): session={session.Id}, unread={unreadCount}, line=\"{line}\"");
+                return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung, Detail = "the agent acknowledged the line" };
+            }
+            return sent.Exited
+                ? Deferred(session.Id, FleetRingDeferReasons.Exited, "the session has exited")
+                : Deferred(session.Id, FleetRingDeferReasons.Working, sent.Reason ?? "the agent could not take the line now");
+        }
+        finally
+        {
+            Ringing.TryRemove(session.Id, out _);
+        }
+    }
 
     /// <summary>
     /// Ring one session: check, look once more, and type the doorbell line when it is safe. Never throws for a
@@ -285,9 +325,12 @@ public static class FleetDoorbellRinger
                 "the line was typed but its submit was not verified; it is left in the composer, nothing erased");
     }
 
-    private static FleetRingResponse Deferred(IDoorbellTarget target, string reason, string detail)
+    private static FleetRingResponse Deferred(IDoorbellTarget target, string reason, string detail) =>
+        Deferred(target.Id, reason, detail);
+
+    private static FleetRingResponse Deferred(Guid sessionId, string reason, string detail)
     {
-        FileLog.Write($"[FleetDoorbellRinger] DEFERRED ({reason}): session={target.Id}: {detail}");
+        FileLog.Write($"[FleetDoorbellRinger] DEFERRED ({reason}): session={sessionId}: {detail}");
         return new FleetRingResponse { Outcome = FleetRingOutcomes.Deferred, Reason = reason, Detail = detail };
     }
 }

@@ -2560,6 +2560,15 @@ public sealed class Session : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
         var provenance = SubmissionProvenance.FrameworkText();
+        // API mode (issue #4070, phase 1 review finding 2): there is no screen to watch for readiness, and no need - the
+        // host's queue holds the prompt (PromptQueued, agentStarting) and writes it the moment the agent names its
+        // conversation. So it is handed over at once rather than after a wait for terminal output that never comes.
+        if (_apiMode is not null)
+        {
+            FileLog.Write($"[Session] PrePrompt: API mode, handed to the agent's queue at once, sid={Id}, len={text.Length}");
+            await SendTextAsync(text, provenance, SendSource.Framework);
+            return;
+        }
         if (CanGateFirstPrompt)
         {
             var limit = wait > Drivers.FirstPromptGate.MinimumWait ? wait : Drivers.FirstPromptGate.MinimumWait;
@@ -3559,7 +3568,10 @@ public sealed class Session : IDisposable
     {
         ArgumentNullException.ThrowIfNull(provenance);
         // API mode (issue #4070): the prompt goes to the agent's own protocol and its receipt is the agent's
-        // acknowledgement, so none of the typing, echo or records checks below runs for it.
+        // acknowledgement, so none of the typing, echo or records checks below runs for it. That includes the age check at
+        // the first keystroke: the prompt verb checked the age at receipt, and a prompt that then waits in the host's
+        // queue - behind a running turn, or while Pi starts - is written however long it waited, by design; the queue IS
+        // where it is meant to wait.
         if (_apiMode is { } apiMode) return await SendApiModePromptAsync(apiMode, text, source, deliveryId);
         // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
