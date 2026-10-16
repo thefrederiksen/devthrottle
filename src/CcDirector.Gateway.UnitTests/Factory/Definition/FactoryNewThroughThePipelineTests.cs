@@ -230,10 +230,50 @@ public sealed class FactoryNewThroughThePipelineTests : IDisposable
         Assert.Single(list.Body.GetProperty("rows").EnumerateArray());
     }
 
+    [Theory]
+    [InlineData("factory: DevThrottle")]
+    [InlineData("factory: \" devthrottle \"")]
+    public async Task A_SPELLING_THAT_FOLDS_TO_A_REGISTERED_ID_is_refused_as_that_factory(string line)
+    {
+        _registry.Register(T, DefinitionFixture.Registration(), "test", Now);
+        var files = DefinitionFixture.Publishable();
+        Assert.Contains("factory: devthrottle", files["factory.yaml"]);
+        files["factory.yaml"] = files["factory.yaml"].Replace("factory: devthrottle", line, StringComparison.Ordinal);
+
+        var refused = await Json("POST", New, Zip(files));
+
+        Assert.Equal(409, refused.Status);
+        Assert.StartsWith("This folder's factory.yaml names 'devthrottle', and that factory already exists", refused.Body.GetProperty("error").GetString());
+        Assert.Null(_store.Standing(T, "devthrottle").Newest);
+    }
+
+    [Fact]
+    public async Task A_FOLDER_THAT_NAMES_NO_FACTORY_answers_422_with_the_checks_finding_on_factory_yaml()
+    {
+        var files = DefinitionFixture.Publishable();
+        files["factory.yaml"] = files["factory.yaml"].Replace("factory: devthrottle", "", StringComparison.Ordinal);
+
+        var refused = await Json("POST", New, Zip(files));
+
+        Assert.Equal(422, refused.Status);
+        Assert.Equal("CheckFailed", refused.Body.GetProperty("outcome").GetString());
+        Assert.Contains(refused.Body.GetProperty("findings").EnumerateArray(), f => f.GetProperty("file").GetString() == "factory.yaml");
+        Assert.Equal(0, (await Json("GET", List)).Body.GetProperty("draftRows").GetArrayLength());
+    }
+
     [Fact]
     public void NEW_FACTORY_IS_THE_OWNERS_a_session_key_is_refused_by_the_guard()
     {
         Assert.False(SessionKeyGuard.Check("POST", New).Allowed);
+    }
+
+    [Fact]
+    public async Task NEW_FACTORY_IS_THE_OWNERS_the_route_itself_refuses_a_session_and_stores_nothing()
+    {
+        var refused = await Send("POST", New, Zip(DefinitionFixture.Publishable()), asSession: true);
+
+        Assert.Equal(403, refused.Status);
+        Assert.Null(_store.Standing(T, "devthrottle").Newest);
     }
 
     // ---------- the in-memory pipeline ----------
@@ -274,7 +314,8 @@ public sealed class FactoryNewThroughThePipelineTests : IDisposable
         return null;
     }
 
-    private async Task<(int Status, byte[] Bytes)> Send(string method, string path, byte[]? body = null, string contentType = "application/zip")
+    private async Task<(int Status, byte[] Bytes)> Send(string method, string path, byte[]? body = null, string contentType = "application/zip",
+        bool asSession = false)
     {
         var query = path.Contains('?') ? path[path.IndexOf('?')..] : "";
         if (query.Length > 0) path = path[..path.IndexOf('?')];
@@ -293,7 +334,10 @@ public sealed class FactoryNewThroughThePipelineTests : IDisposable
             ctx.Features.Set<IHttpRequestBodyDetectionFeature>(new HasABody());
         }
         ctx.Response.Body = new MemoryStream();
-        AsTheOwner(ctx);
+        if (asSession)
+            ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.NewGuid(), T, "dir-a");
+        else
+            AsTheOwner(ctx);
 
         await matched.Value.Endpoint.RequestDelegate!(ctx);
 

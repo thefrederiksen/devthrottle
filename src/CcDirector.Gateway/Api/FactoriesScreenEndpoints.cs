@@ -409,6 +409,6 @@ internal static class FactoriesScreenEndpoints
     }
 
     private static IResult NotRegistered(string factory) =>
-        Results.Json(new { error = $"There is no registered factory '{factory}'. A factory is registered with cc-devthrottle factory register." },
+        Results.Json(new { error = $"There is no registered factory '{factory}'. A new factory starts with New factory on the Factories screen, and its first publish registers it." },
             statusCode: StatusCodes.Status404NotFound);
 }

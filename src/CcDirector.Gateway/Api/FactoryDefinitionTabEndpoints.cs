@@ -202,7 +202,11 @@ internal static class FactoryDefinitionTabEndpoints
                 if (tooLarge)
                     return Refused($"The file is larger than {FactoryBriefPanelSize(MaxZipBytes)}, more than a definition can hold. Nothing was imported.");
                 if (!TryUnzip(zip, out var content, out var refusal)) return Refused(refusal!);
-                if (NewFactoryRefusal(sources, tenant, content) is { } taken) return Refused(taken, StatusCodes.Status409Conflict);
+                if (NewFactoryRefusal(sources, tenant, content) is { } taken)
+                {
+                    FileLog.Write($"[FactoryDefinitionTabEndpoints] POST new factory: the id is taken");
+                    return Refused(taken, StatusCodes.Status409Conflict);
+                }
 
                 FileLog.Write($"[FactoryDefinitionTabEndpoints] POST new factory: files={content.Count}, bytes={zip.Length}");
                 // A folder that names no factory, or a spelling that cannot be one, is refused by the import itself,

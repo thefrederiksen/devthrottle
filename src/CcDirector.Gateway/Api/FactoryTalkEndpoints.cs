@@ -208,7 +208,7 @@ internal static class FactoryTalkEndpoints
         registered = registry.Find(tenant, factory);
         if (registered is null)
             return Refused(StatusCodes.Status404NotFound,
-                $"No factory '{factory}' is registered in this account, so there is nobody to talk to. Register it with cc-devthrottle factory register.");
+                $"No factory '{factory}' is registered in this account, so there is nobody to talk to. Start it with New factory on the Factories screen and publish it.");
         return null;
     }
 

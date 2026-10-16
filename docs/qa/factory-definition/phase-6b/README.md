@@ -72,8 +72,8 @@ PASS), the Publish confirm as worded, and the factory's schedules.
 
 - `FactoryNewThroughThePipelineTests` (Gateway unit tests, in memory, real stores over SQLite): the owner's loop
   from a blank screen to the published factory, with the draft row appearing and then going. Plus each refusal (live,
-  archived, already drafted, the check's findings, not a zip), a registered factory with only drafts that is never a
-  draft row, and the session-key guard. With the refusal check switched off, the three id refusals fail (3 red, 5
+  archived, already drafted, a spelling that folds to a registered id, a folder that names no factory, the check's findings, not a zip), a session refused by the route itself and by the guard, a registered factory with only drafts that is never a
+  draft row. With the refusal check switched off, the three id refusals fail (3 red, 5
   green), so each test fails if its refusal is removed.
 - `FactoryNew.test.tsx` (Cockpit): New factory sends the zip to the Gateway's address and opens the page it names; a
   refusal stays with its findings; the draft rows; a tab with a "not yet" sentence shows it and reads nothing.
