@@ -1,8 +1,11 @@
 # Review: phase 1, the API-mode session (pull request #4088)
 
 Mission: API mode for agent wrappers, proven on Pi (issue #4070). Reviewed on 16 October 2026 against
-commit a65420d8e, the head of pull request #4088, in a detached checkout of that commit, diffed against
-origin/main at d98620643 (`git diff origin/main...HEAD`, 36 files, 3,372 lines added, 7 removed).
+commit a65420d8e, the head of pull request #4088 when the review was opened, in a detached checkout of
+that commit, diffed against origin/main at d98620643 (`git diff origin/main...HEAD`, 36 files, 3,372
+lines added, 7 removed). Extended the same day, at the Tech Lead's request, to the one commit pushed
+after that, 782a15d85 (the Gateway's delivery id as the prompt id; 5 files, 158 lines added, 17
+removed), which is finding 3 and the last run below. This review branch is based on 782a15d85.
 
 ## Scope
 
@@ -54,6 +57,8 @@ What I ran, on devlinux with the .NET 10 toolkit at `$HOME/.dotnet`, on the pull
 - The whole `CcDirector.Core.UnitTests` suite: 2,087 passed, 5 failed, 23 skipped, 2,115 in all, 13 seconds. The five are the Windows drive-path tests that fail on Linux on main too (`CcWorktreesPoolSlotsTests` three times, `RepositorySourceIndexTests`, `WorktreePoolSettingsTests`); the numbers match the pull request description exactly.
 - `dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~ApiModeConnectionThroughTheDirectorTests"`
   (the parked suite, one class): 9 passed, 0 failed, 0 skipped, 63 milliseconds.
+- On 782a15d85, the API-mode filter again: 215 passed, 0 failed, 0 skipped, 533 milliseconds (the five
+  tests the commit adds included).
 
 What I could not reach:
 
@@ -123,12 +128,14 @@ What I checked and found correct, so that an absence here means looked at, not s
 
 ## Verdict
 
-Two findings, both on paths that run for every session and that the pull request's own hunt did not
-reach. Neither touches a terminal session. Neither is inside the host, whose contract, queue, failure
-cases, bound and restart I found correct and proven. The first needs an answer before this is called
-done, because it makes fleet messaging to an API-mode session silently dead; the second is a thirty
-second delay on every first prompt that the host's own queue makes unnecessary. The Developer decides
-what happens to each.
+Three findings. The first two are on paths that run for every session and that the pull request's own
+hunt did not reach; neither touches a terminal session, and neither is inside the host, whose contract,
+queue, failure cases, bound and restart I found correct and proven. The first needs an answer before
+this is called done, because it makes fleet messaging to an API-mode session silently dead; the second
+is a thirty second delay on every first prompt that the host's own queue makes unnecessary. The third
+is in the commit added after the review opened: the `:attempt-N` suffix on a resent delivery id breaks
+the one join the id exists for, and the delivery record already makes an exact match safe. The
+Developer decides what happens to each.
 
 ## Findings
 
@@ -203,6 +210,49 @@ first prompt is written right after `get_state`'s answer.
 
 Developer's answer:
 
+### 3. The `:attempt-N` suffix on a resent delivery id breaks the receipt join; an exact match is safe, and safer
+
+**Where.** Commit 782a15d85, `src/CcDirector.Core/ApiMode/ApiModeSessionHost.cs`, `ResolvePromptIdLocked`
+(the `_usedPromptIds` set and the `for` loop that appends `:attempt-2`, `:attempt-3`, ...), and the test
+`SendPromptAsync_AGatewayIdSentAgain_IsANewAttemptOfThatIdAndNoIdIsUsedTwice`. The join it serves is
+the Delivery Lead's ruling quoted in the method's own comment: a receipt joins to the prompt the user
+sent, which the Gateway knows by its delivery id.
+
+**What happens.** The Gateway sends a prompt with a delivery id (every prompt through its prompt route has one: on
+origin/main `GatewayEndpoints.cs` line 4055 mints one when no claim is verified, so this is not only a
+recording). The Director refuses it, say with Pi's "Agent is already processing", and the record goes
+to not-delivered. The owner presses Send anyway, or the Gateway retries. The record's
+`TryBeginDelivery` lets a not-delivered id begin again under the SAME id (`DeliveryRecord.cs` lines 275
+to 282: delivered, delivering and unconfirmed refuse; unknown and not-delivered begin). The prompt
+reaches the host with that id, the host finds it in `_usedPromptIds`, and every event about the retry
+(`PromptQueued`, `PromptDelivered`, `TurnStarted.promptIds`) carries `<id>:attempt-2`. The Gateway holds
+`<id>`. An exact-id join finds the first attempt's `PromptRefused` and nothing for the retry, so the
+prompt the user resent shows as refused while Pi acknowledged it and ran its turn. The only way the
+Gateway can join it is to know the Director's suffix convention, which exists in one C# comment and in
+no contract: `event-model.md` does not say what a prompt id is, and the pull request description's
+account ("the Gateway sets one only for a recording") does not match the route.
+
+**Why an exact match is safe.** The suffix exists to keep ids unique inside the host, and the delivery
+record already guarantees what the host needs: at most one live attempt per delivery id, and a second
+attempt only after the first was written not-delivered, which in API mode means its `PromptRefused` was
+already published and its `_awaitingReceipt` entry already settled and removed. So when a Gateway id
+reaches the host a second time, nothing in the host, the queue or the dialect holds that id any more,
+and reusing it exactly cannot collide. A delivered id is never resent (the record refuses it), so one id
+never appears in two `TurnStarted` events. What an exact match changes is only the stream: a retried
+prompt has two receipts under one id, in sequence order, the later one standing. That is the Gateway's
+own model of a delivery (a state that moves from not-delivered to delivering to delivered), so a reader
+that keeps the latest receipt per prompt id reads exactly what the record says.
+
+**Why it must change.** Keep `_usedPromptIds` for the one thing it is needed for, a minted `prompt-N`
+skipping a Gateway id that looks like one; for a Gateway id, use it exactly every time. Then write the
+rule where the Gateway reads it: in `event-model.md`, `promptId` is the Gateway's delivery id when the
+prompt had one and a Director id otherwise, ids are unique within a session except that a retry of a
+not-delivered delivery reuses its id and the later receipt stands. Change the test to assert the
+reuse (`upload-1`, `upload-1`, `prompt-2`, `prompt-3` for its four sends). And correct the sentence in
+the pull request description about which prompts carry a delivery id.
+
+Developer's answer:
+
 ## Weighed and not raised
 
 Each of these was looked at and judged not to prove a harm that must change in this pull request. They
@@ -213,10 +263,9 @@ are here so the next seat knows they were seen.
   reopen an API-mode session as a terminal Pi on the same conversation. That is one process on the
   conversation, honest in the row (`terminal`), and recoverable; but it is a silent change of mode, so it
   wants an issue or a line in phase 5's scope rather than only a sentence in a pull request. (b) API-mode
-  prompts are not counted in the turn ledger: phase 2 reads turns from the events. (c) Prompt ids are
-  Director-minted (`prompt-1`, ...) rather than the Gateway's delivery id. Phase 2 will need to attach
-  its receipt to its own prompt; letting the caller pass an id into `SendPromptAsync` is a one-parameter
-  change, better made when the consumer exists than guessed now.
+  prompts are not counted in the turn ledger: phase 2 reads turns from the events. (c) Prompt ids were
+  Director-minted (`prompt-1`, ...) rather than the Gateway's delivery id; commit 782a15d85 closed that
+  gap, and finding 3 is about how.
 - **The age rule at the write.** `SendTextAsync` branches to API mode above the first-keystroke age check,
   while the guarded send branches below its receipt-time check, and the prompt verb checks the age at
   receipt for both. So a prompt that waited in the host's queue behind a long turn is written to Pi
@@ -239,6 +288,9 @@ are here so the next seat knows they were seen.
   after that process's `ConnectionEnded`. Rule 1 holds (one receipt per prompt); `ConnectionEnded` is the
   last event of the process, not of the stream, and the session's own handler is not fed it (the observer
   channel is complete), which is harmless since it is not a state event.
+- **The delivery id on the terminal path.** Commit 782a15d85 adds an optional `deliveryId` to
+  `SendTextAsync` and the guarded send and passes it from the prompt verb. A terminal session never reads
+  it: the parameter is used only inside the two API-mode branches. Terminal mode stays unchanged.
 - **Naming.** The verb answers an API-mode refusal through `TooOldAnswer`, because the outcome's
   `NothingTyped` is true. The answer's shape is the generic not-delivered one with the reason verbatim,
   so the Gateway reads Pi's words unchanged; only the method's name is narrower than its use.
