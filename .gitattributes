@@ -5,3 +5,7 @@
 # rewrote its line endings would make the embedded copy and the file on disk differ by every line,
 # and the test that pins them together would pass on one machine and fail on the next. Pin it.
 src/CcDirector.Core/Wingman/Prompts/*.txt text eol=lf
+
+# Pi wire logs are byte-exact recordings: the framing tests read the line feeds Pi wrote. A checkout
+# that turned them into carriage return plus line feed would test a stream Pi never sends.
+src/CcDirector.Core.Tests/TestData/pi-rpc/*.jsonl -text
