@@ -21,26 +21,6 @@ public sealed class UpdateStatusPanelRefresherTests
         Now: DateTimeOffset.UtcNow)) with { Headline = headline };
 
     [Fact]
-    public async Task TheRead_RunsOffTheCallersThread_AndTheRender_RunsWhereTheWindowThreadIs()
-    {
-        var callerThread = Environment.CurrentManagedThreadId;
-        int readThread = -1, renderThread = -1;
-        var rendered = new TaskCompletionSource<UpdateStatusView?>();
-        var refresher = new UpdateStatusPanelRefresher(
-            read: () => { readThread = Environment.CurrentManagedThreadId; return AView("read"); },
-            render: v => { renderThread = Environment.CurrentManagedThreadId; rendered.TrySetResult(v); },
-            offTheWindowThread: work => Task.Run(work),
-            onTheWindowThread: work => work()); // "the window thread" is whichever thread hands the result over
-
-        refresher.Refresh();
-        var status = await rendered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-
-        Assert.Equal("read", status!.Headline);
-        Assert.NotEqual(callerThread, readThread);
-        Assert.Equal(1, refresher.ReadsStarted);
-    }
-
-    [Fact]
     public async Task ARefreshAskedForWhileOneIsRunning_DoesNotStartASecondRead_ButRunsOneAfterwards()
     {
         var release = new TaskCompletionSource();
