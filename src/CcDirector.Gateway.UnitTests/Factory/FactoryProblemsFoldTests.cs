@@ -147,7 +147,7 @@ public sealed class FactoryProblemsFoldTests
     [InlineData(CronRunProblems.CheckNotRun)]
     public void Card_AFailedCheckListed_NoteSaysHowAFailedCheckClears(string kind)
     {
-        // The phase 5b QA report's finding 4: the note spoke only of schedules while it headed interval starts' failed
+        // The phase 5b quality assurance report's finding 4: the note spoke only of schedules while it headed interval starts' failed
         // checks, which are triggers and clear on the trigger's next check that does not fail.
         var check = Problem(session: null);
         check.Kind = kind;

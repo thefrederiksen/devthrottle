@@ -372,7 +372,7 @@ public static class CronRunResultFold
 
     /// <summary>
     /// Each factory's last day of runs, for the 08:00 email (Factory Control, step 4): runs done and runs that did not
-    /// run in <c>[fromUtc, toUtc)</c>, checks that failed in it, seats whose run session is still open now, and open
+    /// run in <c>[fromUtc, toUtc)</c>, checks that failed or did not run in it, seats whose run session is still open now, and open
     /// problems. Listed by factory id: every factory with a schedule, and a factory with only interval starts when one
     /// of their checks failed in the window or a problem of the factory is still open (Factory Definition, phase 5b) -
     /// so a failed interval check is never in the problem list and missing from the table.

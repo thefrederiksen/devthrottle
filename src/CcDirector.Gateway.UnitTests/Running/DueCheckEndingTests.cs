@@ -47,7 +47,7 @@ public sealed class DueCheckEndingTests
     [InlineData(CronRunResults.Problem, CronRunProblems.CheckNotRun, "check-not-run")]
     public void Stamp_ACheckedRunWithNoSession_ReadsItsTaskStatusAsWhatItsCheckDid_NotUnknown(string result, string? problem, string expected)
     {
-        // Arrange: stored as every fire stores it, "unknown" (the QA report's finding 3: `schedule runs` printed Task
+        // Arrange: stored as every fire stores it, "unknown" (the quality assurance report's finding 3: `schedule runs` printed Task
         // "unknown" for a nothing-to-do run).
         var run = Run(result, 5);
         run.Problem = problem;

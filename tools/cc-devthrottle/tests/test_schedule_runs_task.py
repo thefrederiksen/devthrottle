@@ -1,6 +1,8 @@
-"""`cc-devthrottle schedule runs` prints the task status the Gateway folds (Factory Definition, phase 5b follow-up).
+"""`cc-devthrottle schedule runs` and `schedule run` print the task status the Gateway folds (Factory Definition,
+phase 5b follow-up).
 
-The phase 5b QA report found Task `unknown` printed for a run whose check found nothing to do. The Gateway now answers
+The phase 5b quality assurance report found Task `unknown` printed for a run whose check found nothing to do, and for a
+run now of a schedule with a check. The Gateway now answers
 `checking`, `nothing-to-do` or `check-failed` for such a run (CronRunEndingFold.TaskStatusOf); the command prints that
 word as it comes, never deciding one itself, and `--json` keeps the Gateway's answer byte for byte.
 """
@@ -72,3 +74,27 @@ def test_schedule_runs_Json_IsTheGatewaysRunsUnchanged(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == RUNS
+
+
+def test_schedule_run_ACheckedSchedule_PrintsTheGatewaysTaskWordChecking(monkeypatch):
+    # What POST /cron/jobs/{id}/run answers for a schedule with a check: a due check, no session yet.
+    fired = _run("check-due", "checking")
+    monkeypatch.setattr(schedule_ops.ScheduleClient, "__init__", lambda self, base_url=None: None)
+    monkeypatch.setattr(schedule_ops.ScheduleClient, "run_now", lambda self, job_id: fired)
+
+    result = runner.invoke(app, ["schedule", "run", "cj_03510b"])
+
+    assert result.exit_code == 0, result.output
+    assert "  Task:    checking" in result.output.splitlines()
+    assert "unknown" not in result.output
+
+
+def test_schedule_run_Json_IsTheGatewaysRecordUnchanged(monkeypatch):
+    fired = _run("check-due", "checking")
+    monkeypatch.setattr(schedule_ops.ScheduleClient, "__init__", lambda self, base_url=None: None)
+    monkeypatch.setattr(schedule_ops.ScheduleClient, "run_now", lambda self, job_id: fired)
+
+    result = runner.invoke(app, ["schedule", "run", "cj_03510b", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == fired

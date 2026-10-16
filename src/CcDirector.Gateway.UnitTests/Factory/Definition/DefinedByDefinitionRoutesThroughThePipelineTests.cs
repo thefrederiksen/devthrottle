@@ -729,6 +729,28 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
     }
 
     [Fact]
+    public async Task RunNow_AScheduleWithACheck_AnswersTaskStatusChecking_NotUnknown()
+    {
+        // Arrange: cj_dt as a publish writes a timed start with a check. The quality assurance report's finding 3:
+        // `schedule run` printed Task "unknown" for a run that is waiting on its check.
+        Seed(Standing.Published);
+        using (var ctx = _db.CreateContext(T))
+        {
+            ctx.CronJobs.Single(j => j.Id == "cj_dt").CheckPath = "checks/new_mail.py";
+            ctx.SaveChanges();
+        }
+
+        // Act
+        var answer = await Send("POST", "/cron/jobs/cj_dt/run");
+
+        // Assert: the fire is a due check, so no session started, and the answer says what the run is doing.
+        AssertNotRefusedByTheDefinition(answer, 200);
+        Assert.Equal(0, _starts);
+        Assert.Equal((CronRunResults.Checking, "checking"),
+            (answer.Body.GetProperty("result").GetString(), answer.Body.GetProperty("taskStatus").GetString()));
+    }
+
+    [Fact]
     public async Task ArchiveThenRestore_ADefinedFactory_BothWork()
     {
         Seed(Standing.Published);

@@ -264,11 +264,11 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.All(problems.Problems, p => Assert.Equal(CronRunProblems.CheckFailed, p.Kind));
         Assert.Equal(3, problems.Occurrences);
         // No checked start found nothing to do, so there is no such column; the three failed checks - one timed, two
-        // interval - are counted in the day table as well as listed (the phase 5b QA report's finding 4).
-        Assert.Contains("LAST 24 HOURS (done / did not run / check failed / left open)", email.Text);
+        // interval - are counted in the day table as well as listed (the phase 5b quality assurance report's finding 4).
+        Assert.Contains("LAST 24 HOURS (done / did not run / checks failed or not run / left open)", email.Text);
         Assert.Contains("Outreach: 0 / 0 / 3 / 0", email.Text);
-        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 3 checks failed.", email.Text);
-        Assert.Contains(">Check failed</td>", email.Html);
+        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 3 checks failed or did not run.", email.Text);
+        Assert.Contains(">Checks failed or not run</td>", email.Html);
         Assert.DoesNotContain("with nothing to do", email.Text);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, email.Text);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, card.Note);
@@ -297,9 +297,9 @@ public sealed class FactoryEmailTests : IDisposable
         var day = Assert.Single(days);
         Assert.Equal(("outreach", 0, 0, 0, 2, 1), (day.Factory, day.Done, day.NothingToDo, day.DidNotRun, day.CheckFailed, day.OpenProblems));
         Assert.Equal("Factories: 1 problem still open - Sunday 11 October", email.Subject);
-        Assert.Contains("LAST 24 HOURS (done / did not run / check failed / left open)", email.Text);
+        Assert.Contains("LAST 24 HOURS (done / did not run / checks failed or not run / left open)", email.Text);
         Assert.Contains("Outreach: 0 / 0 / 2 / 0", email.Text);
-        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 2 checks failed.", email.Text);
+        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 2 checks failed or did not run.", email.Text);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, email.Html);
         Assert.Contains(CronRunResultFold.CheckClearsSentence, card.Note);
         Assert.Single(card.Items);
@@ -390,8 +390,8 @@ public sealed class FactoryEmailTests : IDisposable
         // The 02:00 check did fail in the window, so the day counts it, even though the 03:00 check cleared it.
         Assert.Equal((0, 1, 0, 1), (day.Done, day.NothingToDo, day.DidNotRun, day.CheckFailed));
         Assert.Equal("Factories: all clear - Sunday 11 October", email.Subject);
-        Assert.Contains("1 factory, 0 runs done, 1 run with nothing to do, 0 runs did not run, 1 check failed.", email.Text);
-        Assert.Contains("LAST 24 HOURS (done / nothing to do / did not run / check failed / left open)", email.Text);
+        Assert.Contains("1 factory, 0 runs done, 1 run with nothing to do, 0 runs did not run, 1 check failed or did not run.", email.Text);
+        Assert.Contains("LAST 24 HOURS (done / nothing to do / did not run / checks failed or not run / left open)", email.Text);
         Assert.Contains("Outreach: 0 / 1 / 0 / 1 / 0", email.Text);
         Assert.Contains("Nothing to do", email.Html);
     }
@@ -776,7 +776,7 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Contains("Sent at 08:00 Toronto time to the account that set up these factories.", report.Html);
         Assert.Contains(">Docs</td>", report.Html); // no problem: not a link
         // No check anywhere: no check column and no word about how a check clears - the email reads as it always has.
-        Assert.DoesNotContain("Check failed", report.Html);
+        Assert.DoesNotContain("Checks failed", report.Html);
         Assert.DoesNotContain(CronRunResultFold.CheckClearsSentence, report.Html);
 
         var check = FactoryEmailSlots.AtBoundary(TorontoTime(2026, 10, 11, 16), Toronto);

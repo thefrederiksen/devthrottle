@@ -99,7 +99,7 @@ public static class FactoryEmailComposer
         var summary = (nothingToDo == 0
             ? $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(didNotRun, "run")} did not run"
             : $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(nothingToDo, "run")} with nothing to do, {Count(didNotRun, "run")} did not run")
-            + (checkFailed == 0 ? "." : $", {Count(checkFailed, "check")} failed.");
+            + (checkFailed == 0 ? "." : $", {Count(checkFailed, "check")} failed or did not run.");
         var headline = problems.Count == 0 ? "All clear" : $"{Count(problems.Count, "problem")} still open";
 
         var html = new StringBuilder();
@@ -144,7 +144,7 @@ public static class FactoryEmailComposer
             var columns = new List<(string Name, Func<CronFactoryDayDto, int> Of)> { ("done", d => d.Done) };
             if (nothingToDo > 0) columns.Add(("nothing to do", d => d.NothingToDo));
             columns.Add(("did not run", d => d.DidNotRun));
-            if (checkFailed > 0) columns.Add(("check failed", d => d.CheckFailed));
+            if (checkFailed > 0) columns.Add(("checks failed or not run", d => d.CheckFailed));
             columns.Add(("left open", d => d.LeftOpen));
             text.AppendLine($"LAST 24 HOURS ({string.Join(" / ", columns.Select(c => c.Name))})");
             foreach (var d in OrderedDays(input, days))
@@ -290,10 +290,11 @@ public static class FactoryEmailComposer
         if (showNothingToDo)
             html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"64\">Nothing to do</td>\n");
         html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"58\">Did not run</td>\n");
-        // So is the check failed column (phase 5b): a timed or interval start's check that failed in the window.
+        // So is the checks column (phase 5b): a timed start's check that failed or did not run in the window, and an
+        // interval start's check that failed.
         var showCheckFailed = days.Any(d => d.CheckFailed > 0);
         if (showCheckFailed)
-            html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"58\">Check failed</td>\n");
+            html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"72\">Checks failed or not run</td>\n");
         html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"50\">Left open</td>\n");
         html.Append("</tr>\n");
         var ordered = OrderedDays(input, days);
