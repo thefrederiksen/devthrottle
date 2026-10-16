@@ -163,8 +163,8 @@ public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
         // Act
         var verbs = new SessionWriteExecutor().Verbs;
 
-        // Assert: the name pull request #4079 sends.
-        Assert.Contains("turn-stop", verbs);
+        // Assert: the name the Gateway sends (pull request #4079), read from the Gateway itself so the two cannot drift.
+        Assert.Contains(CcDirector.Gateway.Api.GatewayEndpoints.TurnStopCommand, verbs);
     }
 
     private sealed class TerminalStandIn : ISessionBackend
