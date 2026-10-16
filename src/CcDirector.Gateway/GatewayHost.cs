@@ -1219,6 +1219,9 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly History.DiscoveredRepositoryObserver _discoveredRepositories;
     /// <summary>The stored conversation (turn-push mission): what Directors push and every reader reads.</summary>
     private readonly History.SessionTurnStore _sessionTurns;
+    /// <summary>The API-mode prompt receipts (mission #4070, phase 2): queued, delivered with the agent's own
+    /// acknowledgement, or refused with the reason, and the outcome of the turn that carried each prompt.</summary>
+    private readonly Receipts.ApiModeReceiptStore _apiModeReceipts;
     /// <summary>The judged stops (the Wingman-on-every-turn mission): what the Wingman said each turn end
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
@@ -2150,6 +2153,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // who wrote its stored conversation (devthrottle_internal#2311) - and it must be THIS one store, whose cache the
         // hub writes through, never a second instance.
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
+        _apiModeReceipts = new Receipts.ApiModeReceiptStore(_gatewayDb, () => DateTime.UtcNow);
         // The dev report store is built here, before the team gate, because the gate's ownership answer reads a report's
         // author (devthrottle_internal#2309): a report a person published in a team is theirs.
         _devReports = new DevReports.DevReportStore(_gatewayDb);
@@ -2886,7 +2890,7 @@ public sealed class GatewayHost : IAsyncDisposable
             _knownRepositories,
             (tenant, directorId) => Registry.Get(tenant, directorId)?.MachineName);
         _sessionHistorySweep = new History.SessionHistorySweep(
-            _tenantBoundary, TenantRegistry, _sessionHistory, _sessionTurns);
+            _tenantBoundary, TenantRegistry, _sessionHistory, _sessionTurns, _apiModeReceipts);
 
         // Web Push (mobile app-icon "needs you" dot): load (or generate on first run) the VAPID key
         // pair and the set of subscribed devices. The notifier that fans out to these is built and
@@ -5218,6 +5222,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // travels down the tunnel to re-parse a transcript on the user's disk once every 2.5 seconds.
         Api.SessionConversationEndpoint.Map(_app, _sessionTurns, PushedSessions, _turnPushCapabilities,
             _streamStaleAfter, _tenantBoundary);
+        // The API-mode receipts of a session (mission #4070, phase 2), served from THIS Gateway's store. A literal
+        // route, so it outranks the /sessions/{sid}/{**rest} catch-all and never travels to the Director.
+        Api.SessionReceiptsEndpoint.Map(_app, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary);
 
         GatewayWingmanVoiceEndpoint.Map(_app, Hosted, Registry, WingmanBrainAsync, _keyVault, _voiceService, _tenantSettingsResolver,
             // The manual "generate the narration now" route reads the stored conversation too, through the

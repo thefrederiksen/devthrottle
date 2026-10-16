@@ -325,6 +325,10 @@ public sealed class GatewayDbContext : DbContext
     /// watermark, and the per-session facts a history read needs.</summary>
     public DbSet<SessionTurnHeadEntity> SessionTurnHeads => Set<SessionTurnHeadEntity>();
 
+    /// <summary>One receipt per API-mode prompt (<c>api_mode_receipts</c>, mission #4070 phase 2): queued, delivered with
+    /// the agent's own acknowledgement, or refused with the reason, and the outcome of the turn that carried it.</summary>
+    public DbSet<ApiModeReceiptEntity> ApiModeReceipts => Set<ApiModeReceiptEntity>();
+
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
     /// days.</summary>
@@ -900,6 +904,28 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Agent).HasMaxLength(32);
             // Hello asks "every session this Director has pushed"; retention cuts on updated-at.
             b.HasIndex(e => new { e.TenantId, e.DirectorId });
+            b.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+        });
+
+        modelBuilder.Entity<ApiModeReceiptEntity>(b =>
+        {
+            b.ToTable("api_mode_receipts");
+            // COMPOSITE primary key led by tenant_id, like session_turns: the session id and the prompt id both arrive
+            // from the Director, so a key that did not lead with the tenant would let one account squat another's ids.
+            // The key is also what makes a re-sent event idempotent - one row per prompt, however often it arrives.
+            b.HasKey(e => new { e.TenantId, e.SessionId, e.PromptId });
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.PromptId).HasMaxLength(64);
+            b.Property(e => e.DirectorId).HasMaxLength(64);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.QueueReason).HasMaxLength(32);
+            b.Property(e => e.Disposition).HasMaxLength(32);
+            b.Property(e => e.RefusedBy).HasMaxLength(16);
+            b.Property(e => e.TurnId).HasMaxLength(64);
+            b.Property(e => e.TurnOutcome).HasMaxLength(16);
+            // A turn's end finds the receipts of the prompts it carried by its turn id.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.TurnId });
+            // Retention cuts on updated-at, tenant-leading for the global filter.
             b.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
         });
 
@@ -2203,6 +2229,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SessionHistoryRollupEntity>(modelBuilder);
         ApplyTenantScope<SessionTurnEntity>(modelBuilder);
         ApplyTenantScope<SessionTurnHeadEntity>(modelBuilder);
+        ApplyTenantScope<ApiModeReceiptEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
@@ -2300,6 +2327,11 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<SessionTurnEntity>().Property(e => e.Generation).UseCollation("C");
             modelBuilder.Entity<SessionTurnHeadEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<SessionTurnHeadEntity>().Property(e => e.Generation).UseCollation("C");
+            // api_mode_receipts: the session id, the prompt id and the turn id are Director-supplied keys compared
+            // exactly, so both providers must agree on their equality - byte-ordinal, as for session_turns above.
+            modelBuilder.Entity<ApiModeReceiptEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<ApiModeReceiptEntity>().Property(e => e.PromptId).UseCollation("C");
+            modelBuilder.Entity<ApiModeReceiptEntity>().Property(e => e.TurnId).UseCollation("C");
             modelBuilder.Entity<SessionHistoryRollupEntity>().Property(e => e.RepoKey).UseCollation("C");
             // turn_verdicts.SessionId is a caller-supplied natural-key string in a composite primary key,
             // the same byte-ordinal equality/uniqueness requirement as session_turns.SessionId above - pin
