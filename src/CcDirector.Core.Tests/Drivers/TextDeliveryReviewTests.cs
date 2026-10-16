@@ -60,6 +60,44 @@ public sealed class TextDeliveryReviewTests : IDisposable
         Assert.DoesNotContain(backend.WrittenBytes, b => System.Text.Encoding.UTF8.GetString(b).Contains(new string('b', 50)));
     }
 
+    // Issue #4014: Pi's @ is its file-name search, so an "@.temp/input_....txt" line sat unsent - the Enter picked
+    // from the search list. 248 characters on one line, paste off, is the exact send that stuck on 2026-10-15.
+    [Theory]
+    [InlineData("Pi")]
+    [InlineData("PiDriver")]
+    public async Task A_Pi_text_over_the_typing_limit_with_paste_off_goes_as_the_instruction_line_never_an_at_reference(string driverTag)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-pi-nopaste-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
+        backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+        var text = "Token QN. " + new string('c', 238);
+
+        var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, driverTag, bracketedPasteEnabled: false,
+            echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
+
+        Assert.StartsWith("The user's message for this turn is in the file ", typed);
+        Assert.DoesNotContain(backend.WrittenBytes, b => System.Text.Encoding.UTF8.GetString(b).Contains('@'));
+        var file = Directory.GetFiles(Path.Combine(dir, ".temp")).Single();
+        Assert.Equal(text, File.ReadAllText(file));
+    }
+
+    [Fact]
+    public async Task A_multi_line_Pi_text_through_the_drivers_own_route_goes_as_the_instruction_line()
+    {
+        // PiDriver.SubmitAsync tags its sends "PiDriver" and never pastes; before #4014 a line break sent it to @.
+        var dir = Path.Combine(Path.GetTempPath(), "cc-pi-lines-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
+        backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+
+        var typed = await TerminalSubmit.SharedSubmitAsync(backend, "first line\nsecond line", "PiDriver", bracketedPasteEnabled: false,
+            echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
+
+        Assert.StartsWith("The user's message for this turn is in the file ", typed);
+        Assert.DoesNotContain(backend.WrittenBytes, b => System.Text.Encoding.UTF8.GetString(b).Contains('@'));
+    }
+
     [Fact]
     public async Task The_payload_instruction_is_neutral_and_short()
     {
