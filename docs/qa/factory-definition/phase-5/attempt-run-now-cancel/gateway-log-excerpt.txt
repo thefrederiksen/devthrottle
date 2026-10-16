@@ -1,0 +1,190 @@
+# The rig Gateway's log (gateway.out.txt) of the rerun attempt of 2026-10-16 04:05 UTC, the lines from 00:04:50 to
+# 00:05:29 local time (UTC-4). Redacted by the rig's own shown(): <rig>, <home>, <machine>, <user>, <held setting>.
+# Long lines are kept whole. Nothing else is changed.
+2026-10-16 00:04:50.941 [TimeZoneConfig] Get: no persisted value -> machine default America/New_York
+2026-10-16 00:04:50.942 [CronJobEndpoints] shifts: schedules=4, zone=America/New_York, warned=0
+2026-10-16 00:04:50.943 [CronJobEndpoints] defined: schedules=4, of a defined factory=3
+2026-10-16 00:04:50.946 [GatewayHost] GET /cron/jobs?include=random,window -> 200 (9ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:04:51.279 [FactoryTalkEndpoints] POST talk: factory=qa-kit, seat=keeper
+2026-10-16 00:04:51.285 [FactoryDefinitionCheck] Read: files=10
+2026-10-16 00:04:51.288 [FactoryDefinitionCheck] Read: errors=0, parsed=True
+2026-10-16 00:04:51.288 [FactorySeatStart] ReadPublished: qa-kit v1
+2026-10-16 00:04:51.295 [FactorySeatStart] Build: qa-kit/keeper v1 on <machine>, agent=ClaudeCode, model=claude-sonnet-5-5, home (no repository)
+2026-10-16 00:04:51.296 [GatewayEndpoints] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: repo=, agent=ClaudeCode
+2026-10-16 00:04:51.296 [SpawnOrigin] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: origin established from the verified device key: human/cockpit
+2026-10-16 00:04:51.296 [SpawnFactory] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: factory kept from a person's device key: qa-kit
+2026-10-16 00:04:51.296 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=create, sid=, cmdId=66383426b6114989bf33a40cee24a1fa
+2026-10-16 00:04:51.312 [FactoryKitEndpoints] Kit: factory=qa-kit, version=1, seat=keeper, kind=seat
+2026-10-16 00:04:51.313 [FactoryDefinitionCheck] Read: files=10
+2026-10-16 00:04:51.314 [FactoryDefinitionCheck] Read: errors=0, parsed=True
+2026-10-16 00:04:51.388 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unreachable=0 overdue=0 unread=0 sessions=0  took=2ms
+2026-10-16 00:04:51.390 [FactoryKitComposer] Compose: factory=qa-kit, version=1, seat=keeper, kind=seat
+2026-10-16 00:04:51.419 [FactoryKitComposer] Compose: factory=qa-kit, seat=keeper, kind=seat, files=6
+2026-10-16 00:04:51.419 [FactoryKitEndpoints] Kit: factory=qa-kit, version=1, seat=keeper, kind=seat, files=6
+2026-10-16 00:04:51.423 [GatewayHost] GET /factory-definitions/qa-kit/versions/1/kit?seat=keeper&kind=seat -> 200 (116ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:04:53.499 [TriggerService] AssignmentsFor: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, machine=<machine>
+2026-10-16 00:04:53.499 [TriggerStore] ClaimForDirector: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, machine=<machine>, definitionChecks=True, triggers=0
+2026-10-16 00:04:53.499 [CronRunHistoryStore] ClaimDueChecks: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, machine=<machine>
+2026-10-16 00:04:53.500 [GatewayHost] GET /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/triggers -> 200 (2ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:04:53.620 [PushedRepositoryStore] repeated Hello from the current connection - sequence baseline kept: director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:04:53.620 [DefinitionCheckCapabilityRegistry] Record: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, definitionChecks=True
+2026-10-16 00:04:53.620 [DirectorHub] Hello: director=08520f72-c1d3-45ab-924b-c5faa65d74ec bound to conn=MErWVu-o (version=2.21.0, machine=<machine>)
+2026-10-16 00:04:53.621 [DirectorHub] PushRepoSnapshot: director=08520f72-c1d3-45ab-924b-c5faa65d74ec seq=43 repos=2 (measured=0, identity-only=2) accepted=True
+2026-10-16 00:04:54.205 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-10-16 00:04:54.205 [WindowsProtectedTokenStore] Load: blobPath=<rig>\gateway-root\config\gateway\devthrottle-credential.bin, exists=False
+2026-10-16 00:04:54.205 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-10-16 00:04:54.205 [AccountStatusEndpoint] GET /account/status: signedIn=false (no valid credential)
+2026-10-16 00:04:54.205 [GatewayHost] GET /account/status -> 200 (1ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:04:54.348 [DirectorCommandRouter] create sid= director=08520f72-c1d3-45ab-924b-c5faa65d74ec: stream status=Conflict
+2026-10-16 00:04:54.349 [GatewayEndpoints] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: the Director refused the seat start: The seat keeper needs the secret 'qa-p6-no-such-secret', which <machine> does not hold, so no session was started. Add it there with cc-secrets.
+2026-10-16 00:04:54.349 [FactoryTalkEndpoints] the create on 08520f72-c1d3-45ab-924b-c5faa65d74ec was refused for qa-kit/keeper
+2026-10-16 00:04:54.352 [GatewayHost] POST /gateway/factory-agents/factories/qa-kit/seats/keeper/talk -> 409 (3075ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:04:54.356 [FactoryTalkEndpoints] POST talk: factory=qa-kit, seat=stray
+2026-10-16 00:04:54.358 [FactoryDefinitionCheck] Read: files=10
+2026-10-16 00:04:54.359 [FactoryDefinitionCheck] Read: errors=0, parsed=True
+2026-10-16 00:04:54.359 [FactorySeatStart] ReadPublished: qa-kit v1
+2026-10-16 00:04:54.359 [FactorySeatStart] Build: qa-kit/stray v1 on <machine>, agent=ClaudeCode, model=claude-sonnet-5-5, repository qa-not-here
+2026-10-16 00:04:54.359 [GatewayEndpoints] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: repo=, agent=ClaudeCode
+2026-10-16 00:04:54.359 [SpawnOrigin] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: origin established from the verified device key: human/cockpit
+2026-10-16 00:04:54.359 [SpawnFactory] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: factory kept from a person's device key: qa-kit
+2026-10-16 00:04:54.359 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=create, sid=, cmdId=2ac3c5380f824feb8938456f11e5e932
+2026-10-16 00:04:54.362 [DirectorCommandRouter] create sid= director=08520f72-c1d3-45ab-924b-c5faa65d74ec: stream status=BadRequest
+2026-10-16 00:04:54.362 [GatewayEndpoints] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/sessions: the Director refused the seat start: The seat stray works in the repository 'qa-not-here', which is not registered on <machine>, so no session was started. Register it there, or change the seat's repository in the definition.
+2026-10-16 00:04:54.362 [FactoryTalkEndpoints] the create on 08520f72-c1d3-45ab-924b-c5faa65d74ec was refused for qa-kit/stray
+2026-10-16 00:04:54.362 [GatewayHost] POST /gateway/factory-agents/factories/qa-kit/seats/stray/talk -> 409 (6ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:04:54.365 [FactoryTalkEndpoints] POST talk: factory=qa-kit, seat=oldie
+2026-10-16 00:04:54.368 [FactoryDefinitionCheck] Read: files=10
+2026-10-16 00:04:54.369 [FactoryDefinitionCheck] Read: errors=0, parsed=True
+2026-10-16 00:04:54.370 [FactorySeatStart] ReadPublished: qa-kit v1
+2026-10-16 00:04:54.370 [FactorySeatStart] Build: qa-kit/oldie v1 on QA-OLD, agent=ClaudeCode, model=claude-sonnet-5-5, home (no repository)
+2026-10-16 00:04:54.370 [GatewayEndpoints] POST /directors/qa-standin-director/sessions: repo=, agent=ClaudeCode
+2026-10-16 00:04:54.370 [SpawnOrigin] POST /directors/qa-standin-director/sessions: origin established from the verified device key: human/cockpit
+2026-10-16 00:04:54.370 [SpawnFactory] POST /directors/qa-standin-director/sessions: factory kept from a person's device key: qa-kit
+2026-10-16 00:04:54.370 [SpawnFactory] REFUSED a seat start (seat 'oldie', kit seat) to Director qa-standin-director on QA-OLD: it does not build a seat's kit
+2026-10-16 00:04:54.370 [FactoryTalkEndpoints] the create on qa-standin-director was refused for qa-kit/oldie
+2026-10-16 00:04:54.370 [GatewayHost] POST /gateway/factory-agents/factories/qa-kit/seats/oldie/talk -> 409 (5ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:04:58.450 [DirectorErrorEndpoints] recorded 2 report(s): tenant=local device=29b7a219a69a
+2026-10-16 00:04:58.451 [GatewayHost] POST /gateway/director-errors -> 202 (10ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:03.083 [FleetMessageLinkRequestEndpoints] GET requests
+2026-10-16 00:05:03.084 [FleetMessageLinkRequestStore] List: tenant=local, count=0
+2026-10-16 00:05:03.084 [FleetMessageLinkRequestStore] List: tenant=local, count=0
+2026-10-16 00:05:03.085 [GatewayHost] GET /fleet/link-requests -> 200 (3ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:03.627 [PushedRepositoryStore] repeated Hello from the current connection - sequence baseline kept: director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:05:03.627 [DefinitionCheckCapabilityRegistry] Record: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, definitionChecks=True
+2026-10-16 00:05:03.627 [DirectorHub] Hello: director=08520f72-c1d3-45ab-924b-c5faa65d74ec bound to conn=MErWVu-o (version=2.21.0, machine=<machine>)
+2026-10-16 00:05:03.629 [DirectorHub] PushRepoSnapshot: director=08520f72-c1d3-45ab-924b-c5faa65d74ec seq=45 repos=2 (measured=0, identity-only=2) accepted=True
+2026-10-16 00:05:06.385 [CronRunHistoryStore] FailStalledDueStarts: decided before 2026-10-16T04:00:06.3851983Z
+2026-10-16 00:05:06.386 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unreachable=0 overdue=0 unread=0 sessions=0  took=2ms
+2026-10-16 00:05:06.732 [TimeZoneConfig] Get: no persisted value -> machine default America/New_York
+2026-10-16 00:05:06.733 [CronJobEndpoints] shifts: schedules=4, zone=America/New_York, warned=0
+2026-10-16 00:05:06.734 [CronJobEndpoints] defined: schedules=4, of a defined factory=3
+2026-10-16 00:05:06.734 [GatewayHost] GET /cron/jobs -> 200 (5ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:05:07.839 [FactoryDefinitionBriefs] GivenTo qa-kit/worker: definition version 1
+2026-10-16 00:05:07.840 [FactoryDefinitionCheck] Read: files=10
+2026-10-16 00:05:07.841 [FactoryDefinitionCheck] Read: errors=0, parsed=True
+2026-10-16 00:05:07.841 [FactorySeatStart] ReadPublished: qa-kit v1
+2026-10-16 00:05:07.844 [FactorySeatStart] Build: qa-kit/worker v1 on <machine>, agent=ClaudeCode, model=claude-sonnet-5-5, repository qa-scratch
+2026-10-16 00:05:07.844 [DirectorCronSessionStarter] start (defined): job=cj_38f92e, machine=<machine>, director=the machine's, seat=worker, definition v1, seed=QA-P6-WORKER. Do exactly these four steps and nothing else, then stop.
+2026-10-16 00:05:07.844 [MachineSessionSpawner] SpawnOnMachineAsync: machine=<machine>, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, repo=
+2026-10-16 00:05:07.844 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=create, sid=, cmdId=76220872fc9b4f19a14efc5ba5b40abe
+2026-10-16 00:05:07.847 [FactoryKitEndpoints] Kit: factory=qa-kit, version=1, seat=worker, kind=seat
+2026-10-16 00:05:07.847 [FactoryDefinitionCheck] Read: files=10
+2026-10-16 00:05:07.848 [FactoryDefinitionCheck] Read: errors=0, parsed=True
+2026-10-16 00:05:07.851 [FactoryKitComposer] Compose: factory=qa-kit, version=1, seat=worker, kind=seat
+2026-10-16 00:05:07.855 [FactoryKitComposer] Compose: factory=qa-kit, seat=worker, kind=seat, files=8
+2026-10-16 00:05:07.855 [FactoryKitEndpoints] Kit: factory=qa-kit, version=1, seat=worker, kind=seat, files=8
+2026-10-16 00:05:07.856 [GatewayHost] GET /factory-definitions/qa-kit/versions/1/kit?seat=worker&kind=seat -> 200 (9ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:13.621 [PushedRepositoryStore] repeated Hello from the current connection - sequence baseline kept: director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:05:13.621 [DefinitionCheckCapabilityRegistry] Record: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, definitionChecks=True
+2026-10-16 00:05:13.621 [DirectorHub] Hello: director=08520f72-c1d3-45ab-924b-c5faa65d74ec bound to conn=MErWVu-o (version=2.21.0, machine=<machine>)
+2026-10-16 00:05:13.623 [DirectorHub] PushRepoSnapshot: director=08520f72-c1d3-45ab-924b-c5faa65d74ec seq=47 repos=2 (measured=0, identity-only=2) accepted=True
+2026-10-16 00:05:17.854 [DirectorCommandRouter] create sid= director=08520f72-c1d3-45ab-924b-c5faa65d74ec: TUNNEL DROPPED mid-command: Invocation canceled by the server.
+2026-10-16 00:05:17.874 [MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine=<machine>, outcomeUnknown=True, seatStartRefused=False, error=The connection to the Director dropped while the command was being sent. It is not known whether the command was carried out.
+2026-10-16 00:05:17.914 [DirectorCronSessionStarter] start FAILED: job=cj_38f92e, machine=<machine>, The connection to the Director dropped while the command was being sent. It is not known whether the command was carried out.
+2026-10-16 00:05:18.035 [CronRunHistoryStore] Append: job=cj_38f92e, run=72a65bac-f0bf-4533-ace5-8f1e2f57695d, firedUtc=2026-10-16T04:05:17.9148133Z, infra=not-started, task=unknown, result=problem
+2026-10-16 00:05:18.056 [CronJobStore] MarkFired: id=cj_38f92e, status=not-started, enabled=True, nextRunUtc=2027-01-01T05:00:00.0000000Z
+2026-10-16 00:05:18.070 [CronRunHistoryStore] WriteActivityRow: run=72a65bac-f0bf-4533-ace5-8f1e2f57695d, correction=False, row=086c7875-4211-412c-9ae1-d7f54882828b, due=False
+2026-10-16 00:05:18.070 [CronRunResultService] activity row written: run=72a65bac-f0bf-4533-ace5-8f1e2f57695d, factory=qa-kit, row=086c7875-4211-412c-9ae1-d7f54882828b
+2026-10-16 00:05:18.070 [CronEngine] fire start error: job=cj_38f92e: The connection to the Director dropped while the command was being sent. It is not known whether the command was carried out.
+2026-10-16 00:05:18.070 [CronEngine] fired: job=cj_38f92e, manual=True, infra=not-started, sid=
+2026-10-16 00:05:18.099 [GatewayHost] POST /cron/jobs/cj_38f92e/run -> 200 (10264ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:05:18.848 [DirectorErrorEndpoints] recorded 1 report(s): tenant=local device=f8d0f770614d
+2026-10-16 00:05:18.850 [GatewayHost] POST /gateway/director-errors -> 202 (78ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:05:19.223 [GatewayEndpoints] /sessions director=08520f72-c1d3-45ab-924b-c5faa65d74ec state=online sessions=0 asOfAgeSeconds=6
+2026-10-16 00:05:19.223 [GatewayEndpoints] /sessions director=qa-standin-director state=online sessions=0 asOfAgeSeconds=1
+2026-10-16 00:05:19.226 [GatewayHost] GET /sessions -> 200 (3ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:05:21.416 [FactoryMemoryEndpoints] a Director is downloading the memory of 'qa-kit'
+2026-10-16 00:05:21.427 [GatewayHost] GET /factory-memory/notes?factory=qa-kit -> 200 (11ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:21.437 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unreachable=0 overdue=0 unread=0 sessions=0  took=13ms
+2026-10-16 00:05:21.520 [SessionKeyRegistry] Register: session=a960648f-ca7a-4193-ab60-879e526c2146, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, expires=2026-10-16T16:05:21.4829931Z (key value never received)
+2026-10-16 00:05:22.104 [FleetSessionNumberAllocator] Allocate: 100 -> a960648f-ca7a-4193-ab60-879e526c2146 (director=08520f72-c1d3-45ab-924b-c5faa65d74ec, 1 in use, tenant=local)
+2026-10-16 00:05:22.104 [GatewayHost] POST /session-numbers/allocate -> 200 (1ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:22.143 [DirectorEvents] tenant=local director=08520f72-c1d3-45ab-924b-c5faa65d74ec session=a960648f-ca7a-4193-ab60-879e526c2146 event=session-created state=WaitingForInput
+2026-10-16 00:05:22.158 [TurnVerdictService] OnTurnEnd: sid=a960648f-ca7a-4193-ab60-879e526c2146 tenant=local newTurn=False
+2026-10-16 00:05:22.164 [TurnVerdictService] turn-verdict-skipped cause=session-not-live sid=a960648f-ca7a-4193-ab60-879e526c2146 director=08520f72-c1d3-45ab-924b-c5faa65d74ec tenant=local: trigger=turn-end
+2026-10-16 00:05:22.165 [TurnVerdictService] ReReadAboveAStopAsync: sid=a960648f-ca7a-4193-ab60-879e526c2146 tenant=local
+2026-10-16 00:05:22.171 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=screen-grid, sid=a960648f-ca7a-4193-ab60-879e526c2146, cmdId=9096d51fbdda487f831cb1d4fe387f6b
+2026-10-16 00:05:22.172 [RuleEvaluator] no-rules: this account has no rules.
+2026-10-16 00:05:22.172 [RuleTurnEndLauncher] sid=a960648f-ca7a-4193-ab60-879e526c2146 outcome=no-rules
+2026-10-16 00:05:22.185 [GovernanceEventLedger] Append: id=733fde7b-99cc-4787-b8b2-a2ed9891a8e9, subject=session, session=a960648f-ca7a-4193-ab60-879e526c2146, run=-, state=waiting-on-human
+2026-10-16 00:05:22.185 [SessionStateEventEmitter] Append: tenant=local, session=a960648f-ca7a-4193-ab60-879e526c2146, state=waiting-on-human
+2026-10-16 00:05:22.186 [GatewayHost] POST /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/doorbell -> 200 (54ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:22.342 [ActivityEventStore] AppendBatch: wrote 1, duplicates 0
+2026-10-16 00:05:22.356 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=set-resolved-role, sid=a960648f-ca7a-4193-ab60-879e526c2146, cmdId=8de1e7574dd14f4dbe3b2d58413572f0
+2026-10-16 00:05:22.378 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=set-display-state, sid=a960648f-ca7a-4193-ab60-879e526c2146, cmdId=5fdec89dd4e149428ca3a9e65302c639
+2026-10-16 00:05:22.391 [SessionHistoryStore] first sight: session=a960648f-ca7a-4193-ab60-879e526c2146 repo=
+2026-10-16 00:05:22.423 [KnownRepositoryStore] Observe: tenant=local machine=<machine> path=<rig>\repos\qa-scratch changed=True
+2026-10-16 00:05:22.424 [SessionTurnStore] first turns for session=a960648f-ca7a-4193-ab60-879e526c2146 generation=...ion:a960648f-ca7a-4193-ab60-879e526c2146 agent=ClaudeCode
+2026-10-16 00:05:22.431 [FleetDisplayStateObserver] sid=a960648f-ca7a-4193-ab60-879e526c2146: fold 'green'/'Ready' stamped down to director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:05:22.431 [FleetRoleObserver] sid=a960648f-ca7a-4193-ab60-879e526c2146: role 'Standalone' stamped down to director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:05:22.431 [DirectorCommandRouter] screen-grid sid=a960648f-ca7a-4193-ab60-879e526c2146 director=08520f72-c1d3-45ab-924b-c5faa65d74ec: stream status=Ok
+2026-10-16 00:05:22.779 [TurnVerdictService] ReReadAboveAStopAsync: sid=a960648f-ca7a-4193-ab60-879e526c2146 read again=0
+2026-10-16 00:05:23.089 [FleetMessageLinkRequestEndpoints] GET requests
+2026-10-16 00:05:23.089 [FleetMessageLinkRequestStore] List: tenant=local, count=0
+2026-10-16 00:05:23.090 [FleetMessageLinkRequestStore] List: tenant=local, count=0
+2026-10-16 00:05:23.090 [GatewayHost] GET /fleet/link-requests -> 200 (2ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:23.421 [InjectedTextConfig] Get: no persisted value -> DevThrottle text, no custom text
+2026-10-16 00:05:23.422 [GatewayHost] GET /gateway/injected-text -> 304 (18ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:23.447 [WorkflowEndpoints] list workflows: count=4
+2026-10-16 00:05:23.448 [GatewayHost] GET /gateway/workflows -> 304 (17ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:23.472 [SkillEndpoints] list skills: count=12
+2026-10-16 00:05:23.472 [GatewayHost] GET /gateway/skills -> 304 (15ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:23.480 [SkillEndpoints] list skills: count=12
+2026-10-16 00:05:23.488 [GatewayHost] GET /gateway/skills -> 304 (11ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:23.505 [TriggerService] AssignmentsFor: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, machine=<machine>
+2026-10-16 00:05:23.506 [TriggerStore] ClaimForDirector: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, machine=<machine>, definitionChecks=True, triggers=0
+2026-10-16 00:05:23.506 [CronRunHistoryStore] ClaimDueChecks: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, machine=<machine>
+2026-10-16 00:05:23.507 [GatewayHost] GET /directors/08520f72-c1d3-45ab-924b-c5faa65d74ec/triggers -> 200 (2ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:23.507 [SkillPlacementStore] StoreBatch: tenant=local director=08520f72-c1d3-45ab-924b-c5faa65d74ec stored 1 report(s)
+2026-10-16 00:05:23.507 [SkillPlacementEndpoints] POST /gateway/skills/placement: tenant=local director=08520f72-c1d3-45ab-924b-c5faa65d74ec stored=1
+2026-10-16 00:05:23.507 [GatewayHost] POST /gateway/skills/placement -> 200 (10ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:23.629 [SessionTurnStore] session=a960648f-ca7a-4193-ab60-879e526c2146 moved from generation=...ion:a960648f-ca7a-4193-ab60-879e526c2146 to generation=...7d7fa4-bc1e-49f1-b653-2ab79ac80741.jsonl; earlier rows kept until retention
+2026-10-16 00:05:23.640 [PushedRepositoryStore] repeated Hello from the current connection - sequence baseline kept: director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:05:23.640 [DefinitionCheckCapabilityRegistry] Record: tenant=local, director=08520f72-c1d3-45ab-924b-c5faa65d74ec, definitionChecks=True
+2026-10-16 00:05:23.640 [DirectorHub] Hello: director=08520f72-c1d3-45ab-924b-c5faa65d74ec bound to conn=MErWVu-o (version=2.21.0, machine=<machine>)
+2026-10-16 00:05:23.647 [DirectorHub] PushRepoSnapshot: director=08520f72-c1d3-45ab-924b-c5faa65d74ec seq=53 repos=2 (measured=0, identity-only=2) accepted=True
+2026-10-16 00:05:24.111 [GatewayEndpoints] /sessions director=08520f72-c1d3-45ab-924b-c5faa65d74ec state=online sessions=1 asOfAgeSeconds=0
+2026-10-16 00:05:24.112 [GatewayEndpoints] /sessions director=qa-standin-director state=online sessions=0 asOfAgeSeconds=0
+2026-10-16 00:05:24.114 [FactoryActivityRecord] Query: factory=, agent=, outcome=started, from=, to=, oldestFirst=True, offset=0, limit=1000, sessions=1
+2026-10-16 00:05:24.115 [FactoryActivityRecord] Query: returned 0, hasMore=False
+2026-10-16 00:05:24.115 [FactorySessionStarts] Read: sessions=1, started by a factory agent=0
+2026-10-16 00:05:24.119 [GatewayHost] GET /sessions -> 200 (8ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:05:24.127 [GatewayEndpoints] LocateSessionAsync: sid=a960648f-ca7a-4193-ab60-879e526c2146 located=pushed-cache, director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:05:24.128 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=buffer, sid=a960648f-ca7a-4193-ab60-879e526c2146, cmdId=354978f021a246808a16631ed8a751ed
+2026-10-16 00:05:24.130 [DirectorCommandRouter] buffer sid=a960648f-ca7a-4193-ab60-879e526c2146 director=08520f72-c1d3-45ab-924b-c5faa65d74ec: stream status=Ok
+2026-10-16 00:05:24.130 [GatewayHost] GET /sessions/a960648f-ca7a-4193-ab60-879e526c2146/buffer -> 200 (4ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:05:24.968 [DevThrottleAccountService] IsLoggedIn: checking cached credential locally (no network call)
+2026-10-16 00:05:24.968 [WindowsProtectedTokenStore] Load: blobPath=<rig>\gateway-root\config\gateway\devthrottle-credential.bin, exists=False
+2026-10-16 00:05:24.968 [DevThrottleAccountService] IsLoggedIn: no stored credential -> false
+2026-10-16 00:05:24.968 [AccountStatusEndpoint] GET /account/status: signedIn=false (no valid credential)
+2026-10-16 00:05:24.968 [GatewayHost] GET /account/status -> 200 (1ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-director6 type=workstation account=local
+2026-10-16 00:05:29.329 [GatewayEndpoints] /sessions director=08520f72-c1d3-45ab-924b-c5faa65d74ec state=online sessions=1 asOfAgeSeconds=6
+2026-10-16 00:05:29.330 [GatewayEndpoints] /sessions director=qa-standin-director state=online sessions=0 asOfAgeSeconds=1
+2026-10-16 00:05:29.368 [FactoryActivityRecord] Query: factory=, agent=, outcome=started, from=, to=, oldestFirst=True, offset=0, limit=1000, sessions=1
+2026-10-16 00:05:29.370 [FactoryActivityRecord] Query: returned 0, hasMore=False
+2026-10-16 00:05:29.370 [FactorySessionStarts] Read: sessions=1, started by a factory agent=0
+2026-10-16 00:05:29.372 [GatewayHost] GET /sessions -> 200 (55ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
+2026-10-16 00:05:29.402 [GatewayEndpoints] LocateSessionAsync: sid=a960648f-ca7a-4193-ab60-879e526c2146 located=pushed-cache, director=08520f72-c1d3-45ab-924b-c5faa65d74ec
+2026-10-16 00:05:29.402 [GatewayHost] SendCommandAsync: director=08520f72-c1d3-45ab-924b-c5faa65d74ec, verb=buffer, sid=a960648f-ca7a-4193-ab60-879e526c2146, cmdId=cd173bc58c2a4f6fb634804c37af5b75
+2026-10-16 00:05:29.405 [DirectorCommandRouter] buffer sid=a960648f-ca7a-4193-ab60-879e526c2146 director=08520f72-c1d3-45ab-924b-c5faa65d74ec: stream status=Ok
+2026-10-16 00:05:29.406 [GatewayHost] GET /sessions/a960648f-ca7a-4193-ab60-879e526c2146/buffer -> 200 (6ms) client=127.0.0.1 host=127.0.0.1:7996 device=qa-browser type=browser account=local
