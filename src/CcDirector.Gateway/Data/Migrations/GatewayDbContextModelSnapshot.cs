@@ -179,6 +179,105 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("activity_events", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeReceiptEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PromptId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Acknowledgement")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DeliveredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DirectorId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Disposition")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("FirstSequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastGeneration")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("LastSequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("QueueReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("QueuedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RefusalReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RefusedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RefusedBy")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("TurnEndedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TurnId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TurnOutcome")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TurnOutcomeReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "SessionId", "PromptId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "UpdatedAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "TurnId");
+
+                    b.ToTable("api_mode_receipts", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronJobEntity", b =>
                 {
                     b.Property<string>("TenantId")

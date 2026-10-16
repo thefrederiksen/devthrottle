@@ -91,8 +91,10 @@ public sealed class DirectorHub : Hub
         Licenses.LicenseApprovalRelay? licenseApprovals = null,
         FactoryMachineQuestionCapabilityRegistry? factoryMachineQuestionCapabilities = null,
         FactoryKitCapabilityRegistry? factoryKitCapabilities = null,
-        DefinitionCheckCapabilityRegistry? definitionChecks = null)
+        DefinitionCheckCapabilityRegistry? definitionChecks = null,
+        ApiModeEvents.ApiModeEventIngest? apiModeEvents = null)
     {
+        _apiModeEvents = apiModeEvents;
         _factoryMachineQuestionCapabilities = factoryMachineQuestionCapabilities;
         _factoryKitCapabilities = factoryKitCapabilities;
         _definitionChecks = definitionChecks;
@@ -173,6 +175,8 @@ public sealed class DirectorHub : Hub
     private readonly SessionStateObservationSink? _sessionState;
     /// <summary>The stored conversation (turn-push mission). Null only in tests that do not exercise it.</summary>
     private readonly History.SessionTurnStore? _sessionTurns;
+    /// <summary>The API-mode event ingest (mission #4070, phase 2); null on a Gateway built without it.</summary>
+    private readonly ApiModeEvents.ApiModeEventIngest? _apiModeEvents;
     // Whose a Director is inside a team (devthrottle_internal#2311): the one answer the team gate also asks.
     private readonly Teams.TeamCallerOwnership? _teamOwnership;
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
@@ -523,6 +527,10 @@ public sealed class DirectorHub : Hub
         // sign-in that waits for one, so a Gateway that cannot relay must not offer it (contract section 6 rule 5).
         if (_licenseApprovals is null)
             methods = methods.Where(m => m != LicenseContract.RequestApprovalHubMethod).ToList();
+        // The same for API mode (mission #4070): a Director told it may push API-mode events must never be pushing them
+        // into a Gateway that has nowhere to keep them.
+        if (_apiModeEvents is null)
+            methods = methods.Where(m => m != nameof(PushApiModeEvents)).ToList();
         var answer = new GatewayCapabilities { Version = shared.Version, Commit = shared.Commit, HubMethods = methods };
         if (_sessionTurns is null) return answer;
         // ONCE PER CONNECTION (devthrottle_internal#2199). A Director sends Hello on every re-push - every ten
@@ -618,6 +626,50 @@ public sealed class DirectorHub : Hub
     }
 
     /// <summary>
+    /// API mode (mission #4070, phase 2): the Director pushes one session's API-mode events (<see cref="ApiModeEventBatch"/>,
+    /// whose summary is the contract). Bound to the connection's tenant and Director - never to anything the batch
+    /// claims - and to the same session-ownership rule as <see cref="PushTurns"/>: in a team, a session another person's
+    /// Director wrote, or whose key another Director registered, is refused for good; one this Director is not yet the
+    /// only holder of is refused for now.
+    ///
+    /// Answers the watermark the Gateway now holds for the session. NULL means REFUSED for good (malformed, an older
+    /// generation, or not this Director's session): the reason is logged, and re-sending the batch cannot succeed. A
+    /// watermark whose generation is empty means REFUSED FOR NOW: nothing was stored, send it again at the next trigger.
+    /// </summary>
+    public ApiModeEventWatermark? PushApiModeEvents(ApiModeEventBatch batch)
+    {
+        var directorId = RequireBoundDirector();
+        if (_apiModeEvents is null)
+        {
+            FileLog.Write($"[DirectorHub] PushApiModeEvents ignored (this Gateway has no API-mode ingest): director={directorId}");
+            return null;
+        }
+        if (batch is null || string.IsNullOrEmpty(batch.SessionId))
+        {
+            FileLog.Write($"[DirectorHub] PushApiModeEvents ignored (no session id): director={directorId}");
+            return null;
+        }
+        using var tenantScope = EnterBoundTenantScope();
+        switch (TeamTurnPushRefusalFor(directorId, batch.SessionId, nameof(PushApiModeEvents)))
+        {
+            case TeamTurnPushRefusal.AnotherPersonWroteIt:
+            case TeamTurnPushRefusal.AnotherDirectorsSession:
+                return null;
+            case TeamTurnPushRefusal.NotItsOnlyHolder:
+                return new ApiModeEventWatermark { SessionId = batch.SessionId, Generation = "", Sequence = -1 };
+        }
+        try
+        {
+            return _apiModeEvents.Accept(RequireBoundTenant(), directorId, batch);
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[DirectorHub] PushApiModeEvents REFUSED a malformed batch: director={directorId} session={batch.SessionId} generation={batch.Generation}: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// IN A TEAM, A SESSION KEY IS REGISTERED ONLY FOR A SESSION THAT IS NOT ANOTHER DIRECTOR'S (#3552 review, S2-F8).
     /// The key row is the record of whose a session id is (S2-F6), and the first Director to write it keeps it, so it must
     /// not be writable by a colleague's Director for an id it has learned. Refused when ANOTHER Director's roster in the
@@ -682,7 +734,7 @@ public sealed class DirectorHub : Hub
     /// spoiling a colleague's live one. A personal key is never asked: <see cref="TeamKeyHolderItemKey"/> is set only
     /// for a team key. Called inside the bound tenant scope.
     /// </summary>
-    private TeamTurnPushRefusal TeamTurnPushRefusalFor(string directorId, string sessionId)
+    private TeamTurnPushRefusal TeamTurnPushRefusalFor(string directorId, string sessionId, string operation = nameof(PushTurns))
     {
         if (!Context.Items.TryGetValue(TeamKeyHolderItemKey, out var holder))
             return TeamTurnPushRefusal.None;
@@ -690,7 +742,7 @@ public sealed class DirectorHub : Hub
         var tenant = RequireBoundTenant();
         if (string.IsNullOrEmpty(person) || _teamOwnership is null)
         {
-            FileLog.Write($"[DirectorHub] PushTurns REFUSED (a team key, and its person or the ownership answer is missing): director={directorId} session={Short(sessionId)}");
+            FileLog.Write($"[DirectorHub] {operation} REFUSED (a team key, and its person or the ownership answer is missing): director={directorId} session={Short(sessionId)}");
             return TeamTurnPushRefusal.AnotherPersonWroteIt;
         }
 
@@ -702,13 +754,13 @@ public sealed class DirectorHub : Hub
             case Teams.TeamSessionClaim.Its:
                 return TeamTurnPushRefusal.None;
             case Teams.TeamSessionClaim.NotNow:
-                FileLog.Write($"[DirectorHub] PushTurns REFUSED for now (in a team, session {Short(sessionId)} has nothing stored, no key row, and this Director is not its only holder): director={directorId}");
+                FileLog.Write($"[DirectorHub] {operation} REFUSED for now (in a team, session {Short(sessionId)} has nothing stored, no key row, and this Director is not its only holder): director={directorId}");
                 return TeamTurnPushRefusal.NotItsOnlyHolder;
             case Teams.TeamSessionClaim.AnotherDirectorsKey:
-                FileLog.Write($"[DirectorHub] PushTurns REFUSED (in a team, session {Short(sessionId)} has nothing stored and its key was registered by another Director): director={directorId}");
+                FileLog.Write($"[DirectorHub] {operation} REFUSED (in a team, session {Short(sessionId)} has nothing stored and its key was registered by another Director): director={directorId}");
                 return TeamTurnPushRefusal.AnotherDirectorsSession;
             default:
-                FileLog.Write($"[DirectorHub] PushTurns REFUSED (in a team, session {Short(sessionId)} is not this Director's: {claim}): director={directorId}");
+                FileLog.Write($"[DirectorHub] {operation} REFUSED (in a team, session {Short(sessionId)} is not this Director's: {claim}): director={directorId}");
                 return TeamTurnPushRefusal.AnotherPersonWroteIt;
         }
     }
