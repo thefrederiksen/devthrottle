@@ -1104,7 +1104,9 @@ def main():
             section_second()
         record("Claude Code's folder-trust question over the whole run",
                f"  sessions whose screen drew it: {len(TRUST_SEEN)}; answered by the rig: {sum(TENDED.values())}")
-    except SystemExit:
+    except SystemExit as stopped:
+        print(f"the run stopped: {stopped}", flush=True)
+        note(f"the run stopped: {stopped}")
         if LAST_JOB:
             cli(["schedule", "runs", LAST_JOB[0], "--json"], None)
             record_observed("the wait that failed")
