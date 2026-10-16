@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Agents;
@@ -68,6 +69,8 @@ public static class Scenarios
         IReadOnlyList<string> repos)
     {
         Console.WriteLine($"[scenario] {scenario} on {agent}: {All.First(s => s.Name == scenario).What}");
+        var sendBegan = new StrongBox<bool>(false);
+        SendBegan.Value = sendBegan;
         try
         {
             return scenario switch
@@ -89,10 +92,26 @@ public static class Scenarios
         }
         catch (Exception ex)
         {
+            // THE SETUP BOUNDARY IS THE FIRST SEND, NOT THE POSITION OF THIS CATCH (review of pull request 4069, finding 4).
+            // Before any prompt was sent, a failure says nothing about delivery and is left out of every rate. After one
+            // was sent - it may have been lost - the attempt is a counted failure.
+            if (sendBegan.Value)
+            {
+                Console.WriteLine($"[scenario] {scenario} on {agent}: RIG ERROR after the send: {ex}");
+                return new ScenarioResult(scenario, agent, 0, "RIG-ERROR", "UNKNOWN", false, 0, $"{ex.GetType().Name}: {ex.Message}", null);
+            }
             Console.WriteLine($"[scenario] {scenario} on {agent}: SETUP FAILED: {ex}");
             return new ScenarioResult(scenario, agent, 0, "SETUP-FAILED", "-", false, 0, $"{ex.GetType().Name}: {ex.Message}", null);
         }
+        finally
+        {
+            SendBegan.Value = null;
+        }
     }
+
+    /// <summary>Set by <see cref="TimeSendAsync"/> when the scenario's own prompt is sent; the box is shared with the
+    /// scenario's catch, which an async local's own value would not be.</summary>
+    private static readonly AsyncLocal<StrongBox<bool>?> SendBegan = new();
 
     // ===== The scenarios =====
 
@@ -174,6 +193,7 @@ public static class Scenarios
             await Task.Delay(TimeSpan.FromSeconds(2));
             var before = DoorbellSafety.ReadComposer(kind, s.SnapshotLiveFrame());
             var text = TextCatalogue.Named("short").Build(Token());
+            var firstSentAt = DateTime.UtcNow;
             var first = await SendAndJudgeAsync("menu-open", agent, s, text, repos, () => s.SendTextAsync(text, RigTyped));
 
             // A prompt cannot arrive through a menu. What the owner needs is one plain refusal, and then the NEXT prompt,
@@ -187,12 +207,15 @@ public static class Scenarios
             await Task.Delay(TimeSpan.FromSeconds(2));
             var nextText = TextCatalogue.Named("short").Build(Token());
             var next = await SendAndJudgeAsync("menu-open (next prompt)", agent, s, nextText, repos, () => s.SendTextAsync(nextText, RigTyped));
-            var refusedPlainly = first.Truth == "LOST" && first.Director is "FAILED" or "REFUSED";
-            var pass = (first.Pass || refusedPlainly) && next.Pass;
+            // The first prompt is looked for again (review finding 3): one reported failed that reached the agent once the
+            // menu closed is a false alarm.
+            var firstArrivedLate = first.Truth != "ARRIVED" && AgentRecords.Check(agent, firstSentAt, text, repos).Found;
+            var (pass, truth) = PassRules.MenuOpen(first.Truth, first.Director, first.Pass, firstArrivedLate, next.Truth, next.Pass);
             return first with
             {
+                Truth = truth,
                 Pass = pass,
-                Detail = $"composer before the send: {before}. First: director={first.Director} truth={first.Truth}. " +
+                Detail = $"composer before the send: {before}. First: director={first.Director} truth={first.Truth}, arrived late={firstArrivedLate}. " +
                          $"Next prompt after the menu closed: director={next.Director} truth={next.Truth} {next.Detail}. {first.Detail}",
             };
         });
@@ -220,10 +243,7 @@ public static class Scenarios
             var r = await SendAndJudgeAsync(name, agent, s, text, repos, () => s.SendTextAsync(text, RigTyped));
             var leftSubmitted = AgentRecords.Check(agent, sentAt, leftToken, repos).Found || AgentRecords.Check(agent, sentAt, left, repos).Found;
             var leftOnScreen = ScreenHolds(s, leftToken);
-            var welded = r.Truth == "DOUBLED" || (r.Truth == "ARRIVED" && leftSubmitted);
-            var truth = welded ? "WELDED" : r.Truth;
-            // Refused with the unsent text left intact is as right as arriving alone.
-            var pass = (truth == "ARRIVED" && !leftSubmitted) || (truth == "LOST" && r.Director is "REFUSED" or "FAILED" && leftOnScreen && !leftSubmitted);
+            var (pass, truth) = PassRules.LeftInComposer(ownerTyped, r.Truth, r.Director, leftSubmitted, leftOnScreen);
             return r with
             {
                 Truth = truth, Pass = pass,
@@ -290,10 +310,15 @@ public static class Scenarios
         // The on-screen-repeat text is in the records twice by design: once inside the instruction that made the agent
         // print it, once as the prompt itself; only the prompt counts, so the check is "a turn holding it alone".
         var truth = verdict.Found ? (verdict.Doubled && copiesExpected == 1 ? "DOUBLED" : "ARRIVED") : verdict.Partial ? "PARTIAL" : "LOST";
-        if (copiesExpected > 1 && verdict.Found && agent == "claude")
+        if (copiesExpected > 1 && agent == "claude")
         {
-            var alone = ClaudeTurnsExactly(repos[0], sentAt, text);
-            truth = alone == 1 ? "ARRIVED" : alone == 0 ? "WELDED" : "DOUBLED";
+            // The instruction that made the agent print the words was sent BEFORE this send, so only turns since it count;
+            // they are waited for, since the instruction's own copy ends the records wait at once (review note).
+            var (holding, exactly) = (0, 0);
+            while ((holding = ClaudeTurnsHolding(repos[0], sentAt, text)) == 0 && DateTime.UtcNow < deadline)
+                await Task.Delay(1000);
+            exactly = ClaudeTurnsExactly(repos[0], sentAt, text);
+            truth = holding == 0 ? "LOST" : holding > 1 ? "DOUBLED" : exactly == 1 ? "ARRIVED" : "WELDED";
         }
         return Result(scenario, agent, s, text, director, truth, seconds, detail);
     }
@@ -314,6 +339,7 @@ public static class Scenarios
 
     private static async Task<(string Director, string Detail, double Seconds)> TimeSendAsync(Func<Task> send)
     {
+        if (SendBegan.Value is { } began) began.Value = true;
         var sw = Stopwatch.StartNew();
         try
         {
@@ -441,6 +467,13 @@ public static class Scenarios
         return ClaudeUserTurns(repo, sinceUtc).Count(t => AgentRecords.Normalize(UserContent(t)) == needle);
     }
 
+    /// <summary>User turns since <paramref name="sinceUtc"/> whose text holds <paramref name="text"/>.</summary>
+    private static int ClaudeTurnsHolding(string repo, DateTime sinceUtc, string text)
+    {
+        var needle = AgentRecords.Normalize(text);
+        return ClaudeUserTurns(repo, sinceUtc).Count(t => AgentRecords.Normalize(UserContent(t)).Contains(needle, StringComparison.Ordinal));
+    }
+
     /// <summary>Shell-mode inputs since <paramref name="sinceUtc"/> holding <paramref name="token"/>.</summary>
     private static int ClaudeShellInputs(string repo, DateTime sinceUtc, string token) =>
         ClaudeUserTurns(repo, sinceUtc).Count(t => UserContent(t) is var c && c.Contains("<bash-input>", StringComparison.Ordinal)
@@ -452,4 +485,47 @@ public static class Scenarios
             .FirstOrDefault(f => File.ReadAllText(f).Contains(token, StringComparison.Ordinal)) is { } file
             ? Path.GetFileNameWithoutExtension(file)
             : null;
+}
+
+/// <summary>
+/// The scenario pass rules that are more than "arrived once, alone, and not reported failed", kept apart from the
+/// scenarios that drive real agents so they can be tested on their own.
+/// </summary>
+public static class PassRules
+{
+    /// <summary>
+    /// Text sat unsent in the composer when the prompt arrived. WELDED - the prompt and that text in one turn, or the text
+    /// submitted at all - always fails. For the OWNER'S draft the draft must also still be on screen afterwards: a product
+    /// that clears the composer before typing destroys it, which is the outcome issue 2845 asks to detect (review of pull
+    /// request 4069, finding 2). The PRODUCT'S own leftover line may be cleared: the prompt arriving alone passes.
+    /// Refused with the text left exactly where it was passes for both.
+    /// </summary>
+    public static (bool Pass, string Truth) LeftInComposer(bool ownerTyped, string truth, string director, bool leftSubmitted, bool leftOnScreen)
+    {
+        var welded = truth == "DOUBLED" || (truth == "ARRIVED" && leftSubmitted);
+        if (welded) return (false, "WELDED");
+        if (leftSubmitted) return (false, truth);
+        var refusedLeavingIt = truth == "LOST" && director is "REFUSED" or "FAILED" && leftOnScreen;
+        if (ownerTyped)
+        {
+            if (!leftOnScreen) return (false, "DRAFT-DESTROYED");
+            return (refusedLeavingIt || truth == "ARRIVED", truth);
+        }
+        return (truth == "ARRIVED" || refusedLeavingIt, truth);
+    }
+
+    /// <summary>
+    /// A prompt sent while a question menu is open, then the next prompt once the menu is closed. Passes when the first
+    /// either arrived (and was not reported failed) or was refused plainly - lost and reported failed, and it did NOT turn
+    /// up later - and the next prompt passed. The truth word names what failed: LATE for a first prompt that arrived after
+    /// it was reported failed (a false alarm), NEXT-... for a failed next prompt.
+    /// </summary>
+    public static (bool Pass, string Truth) MenuOpen(string firstTruth, string firstDirector, bool firstPass, bool firstArrivedLate, string nextTruth, bool nextPass)
+    {
+        if (firstArrivedLate) return (false, "LATE");
+        var refusedPlainly = firstTruth == "LOST" && firstDirector is "FAILED" or "REFUSED";
+        if (!firstPass && !refusedPlainly) return (false, firstTruth);
+        if (!nextPass) return (false, "NEXT-" + nextTruth);
+        return (true, firstTruth);
+    }
 }

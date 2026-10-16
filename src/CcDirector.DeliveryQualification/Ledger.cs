@@ -36,7 +36,7 @@ public static class Ledger
     public static string Rates(IReadOnlyList<LedgerEntry> entries)
     {
         var sb = new StringBuilder();
-        var counted = entries.Where(e => e.Director != "SETUP-FAILED").ToList();
+        var counted = Counted(entries);
         sb.AppendLine($"{counted.Count} attempts counted ({entries.Count - counted.Count} setup failures not counted).");
         foreach (var commit in counted.GroupBy(e => e.ProductCommit).OrderBy(g => g.Min(e => e.AtUtc)))
         {
@@ -50,6 +50,9 @@ public static class Ledger
         }
         return sb.ToString();
     }
+
+    /// <summary>The attempts a rate counts: every one but a setup failure, which ended before any prompt was sent.</summary>
+    public static List<LedgerEntry> Counted(IEnumerable<LedgerEntry> entries) => entries.Where(e => e.Director != "SETUP-FAILED").ToList();
 
     private static int Order(string scenario)
     {
@@ -77,29 +80,12 @@ public static class Ledger
         return (Math.Max(0, centre - half), Math.Min(1, centre + half));
     }
 
-    /// <summary>The commit the rig was built from, so every attempt names the product code it measured.</summary>
-    public static string ProductCommit()
-    {
-        try
-        {
-            var psi = new ProcessStartInfo("git", "rev-parse --short=12 HEAD")
-            {
-                WorkingDirectory = AppContext.BaseDirectory, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
-            };
-            using var p = Process.Start(psi)!;
-            var head = p.StandardOutput.ReadToEnd().Trim();
-            p.WaitForExit();
-            psi.Arguments = "status --porcelain -- src/CcDirector.Core src/CcDirector.ControlApi";
-            using var q = Process.Start(psi)!;
-            var dirty = q.StandardOutput.ReadToEnd().Trim().Length > 0;
-            q.WaitForExit();
-            return p.ExitCode == 0 && head.Length > 0 ? head + (dirty ? "+local-changes" : "") : "unknown";
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            return "unknown";
-        }
-    }
+    /// <summary>
+    /// The commit the rig was BUILT from, with "+local-changes" when the product's send path (Core or ControlApi) had
+    /// uncommitted changes at build time - stamped by the project file, so checking out another branch after the build
+    /// cannot change what the ledger says was measured (review of pull request 4069, finding 1).
+    /// </summary>
+    public static string ProductCommit() => BuildCommit.Value.Length > 0 ? BuildCommit.Value : "unknown";
 
     /// <summary>The agent's own version line, or "unknown".</summary>
     public static string AgentVersion(string executable)

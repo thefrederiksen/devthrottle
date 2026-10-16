@@ -236,7 +236,7 @@ public static class Program
             for (var i = 0; i < opts.Repeat; i++)
             {
                 var r = await Scenarios.RunAsync(name, manager, agent, a.Kind, string.IsNullOrWhiteSpace(args) ? null : args, repo, opts.RepoRoot, repos);
-                var entry = new LedgerEntry(runId, DateTime.UtcNow, commit, Environment.MachineName, Environment.OSVersion.Platform.ToString(),
+                var entry = new LedgerEntry(runId, DateTime.UtcNow, commit, Environment.MachineName, System.Runtime.InteropServices.RuntimeInformation.OSDescription,
                     agent, version, r.Scenario, r.Length, r.Director, r.Truth, r.Pass, r.Seconds, r.Detail, r.Screen);
                 Ledger.Append(opts.LedgerPath, entry);
                 entries.Add(entry);
@@ -246,7 +246,14 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine(report);
         File.WriteAllText(Path.Combine(opts.Out, "rates.txt"), report);
-        return entries.Where(e => e.Director != "SETUP-FAILED").All(e => e.Pass) ? 0 : 1;
+        // A run that counted nothing measured nothing, and says so (review finding 4): exit 2, never success.
+        var counted = Ledger.Counted(entries);
+        if (counted.Count == 0)
+        {
+            Console.WriteLine("[rig] NOTHING WAS MEASURED: no scenario applied to these agents, or every attempt failed before its prompt was sent.");
+            return 2;
+        }
+        return counted.All(e => e.Pass) ? 0 : 1;
     }
 
     private static async Task<List<SendResult>> RunSessionAsync(
@@ -396,7 +403,13 @@ public sealed class Options
                 case "--parallel": o.Parallel = int.Parse(Next()); break;
                 case "--cpu-load": o.CpuLoadThreads = int.Parse(Next()); break;
                 case "--first-wait": o.FirstWaitSeconds = int.Parse(Next()); break;
-                case "--repo-root": o.RepoRoot = Next(); break;
+                case "--repo-root":
+                    o.RepoRoot = Next();
+                    // The records witness finds the rig's conversations by this word in their folder name, so a root
+                    // without it would record every attempt as lost (review note).
+                    if (!o.RepoRoot.Contains("delivery-qa", StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException($"--repo-root must contain 'delivery-qa' in its path (the records witness finds the rig's conversations by it): {o.RepoRoot}");
+                    break;
                 case "--out": o.Out = Next(); break;
                 case "--keys": o.KeysAgent = Next(); break;
                 case "--chars": o.CharsAgent = Next(); break;

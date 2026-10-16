@@ -279,7 +279,10 @@ $defaultProjects = @(
     # Reclaim the Disk, phase 1. 116 tests in about six seconds, measured 2026-09-19: it builds small
     # trees on disk and walks them, so the cost is real work and not startup. It covers the engine AND
     # the cc-cleanup-storage command line tool, which is why there is one suite here and not two.
-    "src\CcDirector.Reclaim.Tests\CcDirector.Reclaim.Tests.csproj"
+    "src\CcDirector.Reclaim.Tests\CcDirector.Reclaim.Tests.csproj",
+    # The delivery rig's rate arithmetic and scenario pass rules (Prompt Delivery mission, October 2026). Pure
+    # functions, no agent is started; it builds the rig, which is the cost.
+    "src\CcDirector.DeliveryQualification.Tests\CcDirector.DeliveryQualification.Tests.csproj"
 )
 
 # THE INSTALLER, WHICH IS IN THE DEFAULT RUN AND IS NOT IN THE SOLUTION.

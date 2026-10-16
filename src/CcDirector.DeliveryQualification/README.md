@@ -49,7 +49,17 @@ rig was built from. To prove a fix moves a rate: run the same scenarios on main 
 `--rates` - two rates whose intervals do not overlap differ.
 
 The rig's scratch repositories are marked trusted for Claude Code through the product's own writer
-(`ClaudeFolderTrust`), so only `untrusted-folder` meets the trust question. The rig runs in a private
+(`ClaudeFolderTrust`), so only `untrusted-folder` meets the trust question. That is the ONE write the rig makes
+outside its scratch folders: one entry per scratch repository in the owner's `~/.claude.json`. Each
+`untrusted-folder` attempt also leaves a new folder under `<repo-root>/untrusted/`, and, when the question is
+answered, an entry in that file and a project folder under `~/.claude/projects`; the rig removes none of them.
+
+`--repo-root` must contain `delivery-qa` in its path: the records witness finds the rig's conversations by that
+word in their folder name, and refuses any other root rather than record every attempt as lost.
+
+Each ledger row names the commit the rig was BUILT from (stamped at build time), with `+local-changes` when the
+product's send path had uncommitted changes. A run that counted no attempt exits 2. An attempt that fails after
+its prompt was sent is a counted failure (`RIG-ERROR`); only a failure before the prompt is `SETUP-FAILED`. The rig runs in a private
 Director home (`CC_DIRECTOR_ROOT` under the run folder) and removes the launching session's fleet identity,
 so it never touches the owner's live Director. It takes the agent executables from the live Director's
 config.
