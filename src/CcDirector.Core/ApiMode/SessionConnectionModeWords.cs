@@ -34,10 +34,16 @@ public static class SessionConnectionModeWords
     }
 
     /// <summary>
-    /// Who holds the conversation, for a session's row. A terminal session has no wheel (<c>none</c>). An API-mode
-    /// session's protocol process holds it while the session runs (<c>protocol</c>), and nobody once it has ended
-    /// (<c>none</c>). The user taking the wheel (<c>user</c>) is phase 4.
+    /// The contract word for who holds the conversation, for a session's row (<see cref="WheelHolders"/>): <c>protocol</c>
+    /// while Pi's API-mode process holds it, <c>user</c> while the user holds the wheel in Pi's terminal, and <c>none</c>
+    /// when no process does - a terminal session (which has no wheel), an API-mode session that has ended, or one whose
+    /// user's terminal exited while they held the wheel.
     /// </summary>
-    public static string WheelHolderOf(SessionConnectionMode mode, bool processEnded) =>
-        mode == SessionConnectionMode.Api && !processEnded ? WheelHolders.Protocol : WheelHolders.None;
+    public static string WheelHolderWord(SessionWheelHolder holder) => holder switch
+    {
+        SessionWheelHolder.None => WheelHolders.None,
+        SessionWheelHolder.Protocol => WheelHolders.Protocol,
+        SessionWheelHolder.User => WheelHolders.User,
+        _ => throw new ArgumentOutOfRangeException(nameof(holder), holder, "Not a wheel holder."),
+    };
 }

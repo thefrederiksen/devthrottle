@@ -182,6 +182,38 @@ public sealed class ApiModeSessionCreationTests : IDisposable
     }
 
     [Fact]
+    public async Task HandBackWheelAsync_PiWorkingInTheTerminalAsTheDetectorReadsIt_IsRefused()
+    {
+        // Arrange: a real create with the terminal state detector running, and the user's wheel on a fake terminal.
+        var pi = new ScriptedPi("plain");
+        var terminals = new List<FakeTerminalBackend>();
+        var (_, session, sink) = CreateApiModeSession(pi, configure: m => m.ApiModeTerminalFactory = () =>
+        {
+            var terminal = new FakeTerminalBackend();
+            terminals.Add(terminal);
+            return terminal;
+        });
+        await sink.WaitForAsync<ConnectionReady>();
+        // A prompt first, as a user would have sent: it ends "brand new", whose start-up output the detector ignores.
+        Assert.True((await session.SendTextAsync("Reply with exactly the word PONG", Door)).Confirmed);
+        await sink.WaitForAsync<TurnEnded>();
+        Assert.False(session.IsBrandNew);
+        Assert.True((await session.TakeWheelAsync()).Done);
+        var working = WaitForActivityAsync(session, ActivityState.Working);
+
+        // Act: Pi writes to its terminal - a turn running, as the detector reads any terminal - and the user hands back.
+        terminals[0].Draw("Working... reading the files\r\n");
+        await working;
+        var handBack = await session.HandBackWheelAsync();
+
+        // Assert: refused, and the terminal still holds the conversation.
+        Assert.False(handBack.Done);
+        Assert.Equal(ApiModeSessionBackend.TerminalMidTurnReason, handBack.Refusal);
+        Assert.Equal(SessionWheelHolder.User, session.WheelHolder);
+        Assert.False(terminals[0].HasExited);
+    }
+
+    [Fact]
     public async Task CreateSession_ApiModePi_EverySessionMachineryReadsItWithoutATerminal()
     {
         // Arrange
