@@ -26,6 +26,13 @@ public interface ISessionBackend : IDisposable
     /// <summary>The process working directory, when the backend has one.</summary>
     string WorkingDirectory => string.Empty;
 
+    /// <summary>
+    /// The folder a prompt sent as a file is saved in, or empty for <c>&lt;working folder&gt;/.temp/</c>, today's place.
+    /// A seat of a defined factory names its kit's prompts folder (<see cref="Sessions.FactoryRunKit.PromptDirectoryFor"/>),
+    /// so its brief is never written into the checkout it works in.
+    /// </summary>
+    string PromptFileDirectory => string.Empty;
+
     /// <summary>Fires when the status changes.</summary>
     event Action<string>? StatusChanged;
 

@@ -1,0 +1,24 @@
+Scratch root: <home>/AppData/Local/Temp/fd-p7-prompt-4fcc54a9
+  wrote projects['<home>/AppData/Local/Temp/fd-p7-prompt-4fcc54a9/slot'].hasTrustDialogAccepted = true
+
+CASE 1 - the prompt file in a folder outside the working folder, no space in its path.
+  typed: @<home>/AppData/Local/Temp/fd-p7-prompt-4fcc54a9/factory-run/kit-1/prompts/input_20261016_000000_abcdef.txt
+  first screen: READY PROMPT
+  answer on screen: ? OSPREY-4471
+  transcript user line: @<home>/AppData/Local/Temp/fd-p7-prompt-4fcc54a9/factory-run/kit-1/prompts/input_20261016_000000_abcdef.txt
+  holds what was typed, as PromptArrival matches it: True
+
+CASE 2 - the same, through a folder whose name has a space.
+  typed: @"<home>/AppData/Local/Temp/fd-p7-prompt-4fcc54a9/user name/factory-run/kit-2/prompts/input_20261016_000001_ghijkl.txt"
+  first screen: READY PROMPT
+  answer on screen: ? KESTREL-8813
+  transcript user line: @"<home>/AppData/Local/Temp/fd-p7-prompt-4fcc54a9/user name/factory-run/kit-2/prompts/input_20261016_000001_ghijkl.txt"
+  holds what was typed, as PromptArrival matches it: True
+
+The working folder afterwards (it must hold no .temp folder):
+  .temp exists: False
+
+CLEAN-UP
+  removed projects['<home>/AppData/Local/Temp/fd-p7-prompt-4fcc54a9/slot']
+  removed the scratch session's transcript folder: True
+  scratch root exists afterwards: False

@@ -40,17 +40,22 @@ public static class LargeInputHandler
         $"Text over {LargeInputThreshold:N0} chars -- saved to temp file and @filepath sent to {agentName} ({textLength:N0} chars)";
 
     /// <summary>
-    /// Creates a temp file in {workingDir}/.temp/ and returns the full path.
-    /// The file contains the original text and can be referenced via @filepath in Claude Code.
+    /// Creates a temp file and returns the full path. The file contains the original text and can be referenced via
+    /// @filepath in Claude Code.
+    ///
+    /// WHERE IT GOES. In <paramref name="promptDirectory"/> when the session names one - a seat of a defined factory,
+    /// whose kit has a prompts folder (Factory Definition mission, phase 5, P7) - so a seat's prompt, brief included, is
+    /// never written into its checkout and is deleted with its kit. Otherwise in {workingDir}/.temp/, exactly as before.
     /// </summary>
     /// <param name="text">The text content to write.</param>
     /// <param name="workingDir">The working directory (repository root) where .temp will be created.</param>
+    /// <param name="promptDirectory">The session's own folder for prompt files, or empty for {workingDir}/.temp/.</param>
     /// <returns>Full path to the created temp file.</returns>
-    public static string CreateTempFile(string text, string workingDir)
+    public static string CreateTempFile(string text, string workingDir, string? promptDirectory = null)
     {
-        FileLog.Write($"[LargeInputHandler] CreateTempFile: workingDir={workingDir}, textLength={text.Length}");
+        FileLog.Write($"[LargeInputHandler] CreateTempFile: workingDir={workingDir}, promptDirectory={promptDirectory}, textLength={text.Length}");
 
-        var tempDir = Path.Combine(workingDir, TempDirName);
+        var tempDir = string.IsNullOrWhiteSpace(promptDirectory) ? Path.Combine(workingDir, TempDirName) : promptDirectory;
         Directory.CreateDirectory(tempDir);
 
         var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -63,6 +68,16 @@ public static class LargeInputHandler
 
         return filepath;
     }
+
+    /// <summary>
+    /// The @-reference Claude Code is typed for a prompt file: <c>@path</c>, or <c>@"path"</c> when the path has a space,
+    /// which Claude Code reads as one path (proven on Claude Code 2.1.301:
+    /// docs/qa/factory-definition/phase-5/trust-proof/prompt-file-proof-output.txt). A file in .temp/ is referenced
+    /// relative to the working folder and never has a space; a seat's file is in its kit, outside the working folder,
+    /// so its full path is sent, and that path can run through a user folder whose name has a space.
+    /// </summary>
+    public static string AtReference(string reference) =>
+        reference.Contains(' ') ? $"@\"{reference}\"" : $"@{reference}";
 
     /// <summary>
     /// Build an agent-friendly @-reference target. Uses a relative path when the temp file is under

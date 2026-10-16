@@ -77,4 +77,84 @@ public sealed class TextDeliveryReviewTests : IDisposable
         Assert.StartsWith("The user's message for this turn is in the file ", typed);
         Assert.True(typed.Length < 200, $"instruction is {typed.Length} characters, the old one was 367");
     }
+
+    // A SEAT'S PROMPT FILE IS IN ITS KIT, NEVER THE CHECKOUT (Factory Definition mission, phase 5, P7; QA findings 1 and
+    // 2). Every seat's first prompt has line breaks, so it always goes as a file; it used to land in the checkout's .temp/.
+
+    [Fact]
+    public async Task SharedSubmitAsync_ASeatsLongClaudeText_IsSavedInItsKitAndTheWorkingFolderGainsNoTemp()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "cc-kit-ref-" + Guid.NewGuid().ToString("N"));
+        var slot = Path.Combine(root, "repo.worktrees", "wt01");
+        var prompts = Path.Combine(root, "factory-run", "kit", "prompts");
+        Directory.CreateDirectory(slot);
+        try
+        {
+            var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = slot, PromptFileDirectory = prompts };
+            backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+            var text = "You are Worker.\n--- your brief ---\n" + new string('a', TerminalSubmit.PasteLimit + 10);
+
+            var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "ClaudeCode", bracketedPasteEnabled: true,
+                echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
+
+            var saved = Assert.Single(Directory.GetFiles(prompts));
+            Assert.Equal(text, File.ReadAllText(saved));
+            Assert.Equal("@" + saved.Replace('\\', '/'), typed);
+            Assert.False(Directory.Exists(Path.Combine(slot, ".temp")));
+            Assert.Empty(Directory.GetFileSystemEntries(slot));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SharedSubmitAsync_ASeatsLongCodexText_NamesTheFileInItsKitAndTheWorkingFolderGainsNoTemp()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "cc-kit-instr-" + Guid.NewGuid().ToString("N"));
+        var work = Path.Combine(root, "factory-run", "kit", "work");
+        var prompts = Path.Combine(root, "factory-run", "kit", "prompts");
+        Directory.CreateDirectory(work);
+        try
+        {
+            var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = work, PromptFileDirectory = prompts };
+            backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+
+            var typed = await TerminalSubmit.SharedSubmitAsync(backend, "line one\nline two", "CodexDriver",
+                echoTimeout: TimeSpan.FromMilliseconds(50), pollInterval: TimeSpan.FromMilliseconds(5),
+                submitVerifyBeat: TimeSpan.FromMilliseconds(1));
+
+            var saved = Assert.Single(Directory.GetFiles(prompts));
+            Assert.Contains(saved.Replace('\\', '/'), typed);
+            Assert.False(Directory.Exists(Path.Combine(work, ".temp")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SharedSubmitAsync_UNDEFINED_FACTORY_ALongClaudeTextOfASessionWithNoKit_StillGoesToDotTempByARelativeReference()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-nokit-ref-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer(), WorkingDirectory = dir };
+            backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+            var text = "line\n" + new string('c', TerminalSubmit.PasteLimit + 10);
+
+            var typed = await TerminalSubmit.SharedSubmitAsync(backend, text, "ClaudeCode", bracketedPasteEnabled: true,
+                echoTimeout: TimeSpan.FromSeconds(2), pollInterval: TimeSpan.FromMilliseconds(5));
+
+            Assert.StartsWith("@.temp/input_", typed);
+            Assert.Equal(text, File.ReadAllText(Path.Combine(dir, typed[1..])));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

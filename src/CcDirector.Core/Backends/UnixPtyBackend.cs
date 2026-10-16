@@ -30,6 +30,9 @@ public sealed class UnixPtyBackend : ISessionBackend
     /// </summary>
     public string WorkingDirectory => _workingDir;
 
+    /// <inheritdoc />
+    public string PromptFileDirectory { get; private set; } = string.Empty;
+
     public string Status => _status;
     public bool IsRunning => _processHost != null && !HasExited;
     public bool HasExited => _processHost == null || _status.StartsWith("Exited");
@@ -60,6 +63,8 @@ public sealed class UnixPtyBackend : ISessionBackend
             throw new InvalidOperationException("Backend already started.");
 
         _workingDir = workingDir;
+        // The kit this session is started with decides where its prompt files go; no kit, today's .temp/.
+        PromptFileDirectory = CcDirector.Core.Sessions.FactoryRunKit.PromptDirectoryFor(environmentVars);
         SetStatus("Starting...");
 
         // Create Unix PTY with terminal dimensions

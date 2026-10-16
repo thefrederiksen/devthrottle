@@ -171,4 +171,44 @@ public class LargeInputHandlerTests : IDisposable
             Assert.Contains($"sent to {name}", LargeInputHandler.FormatRedirectNotice(name, 1500));
         }
     }
+
+    [Fact]
+    public void CreateTempFile_WithAPromptDirectory_WritesThereAndNothingInTheWorkingFolder()
+    {
+        var work = Path.Combine(_testDir, "slot");
+        var prompts = Path.Combine(_testDir, "kit", "prompts");
+        Directory.CreateDirectory(work);
+
+        var path = LargeInputHandler.CreateTempFile("the brief", work, prompts);
+
+        Assert.Equal(prompts, Path.GetDirectoryName(path));
+        Assert.Equal("the brief", File.ReadAllText(path));
+        Assert.Empty(Directory.GetFileSystemEntries(work));
+    }
+
+    [Fact]
+    public void CreateTempFile_UNDEFINED_FACTORY_NoPromptDirectory_WritesInTheWorkingFoldersDotTemp()
+    {
+        var path = LargeInputHandler.CreateTempFile("text", _testDir, promptDirectory: "");
+
+        Assert.Equal(Path.Combine(_testDir, ".temp"), Path.GetDirectoryName(path));
+    }
+
+    [Fact]
+    public void AtReference_APathWithASpace_IsQuotedAndOneWithoutIsNot()
+    {
+        Assert.Equal("@.temp/input_1.txt", LargeInputHandler.AtReference(".temp/input_1.txt"));
+        Assert.Equal("@C:/Users/a/kit/prompts/input_1.txt", LargeInputHandler.AtReference("C:/Users/a/kit/prompts/input_1.txt"));
+        Assert.Equal("@\"C:/Users/a b/kit/prompts/input_1.txt\"", LargeInputHandler.AtReference("C:/Users/a b/kit/prompts/input_1.txt"));
+    }
+
+    [Fact]
+    public void MakeAtReference_AFileOutsideTheWorkingFolder_IsTheFullPathWithForwardSlashes()
+    {
+        var file = Path.Combine(_testDir, "kit", "prompts", "input_1.txt");
+
+        var reference = LargeInputHandler.MakeAtReference(file, Path.Combine(_testDir, "slot"));
+
+        Assert.Equal(file.Replace('\\', '/'), reference);
+    }
 }

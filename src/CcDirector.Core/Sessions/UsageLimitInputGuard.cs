@@ -63,6 +63,7 @@ internal sealed class UsageLimitInputGuard : ISessionBackend
     public bool HasExited => Inner.HasExited;
     public CircularTerminalBuffer? Buffer => Inner.Buffer;
     public string WorkingDirectory => Inner.WorkingDirectory;
+    public string PromptFileDirectory => Inner.PromptFileDirectory;
     public string? LastShutdownFailure => Inner.LastShutdownFailure;
 
     public event Action<string>? StatusChanged

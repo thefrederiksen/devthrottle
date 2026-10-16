@@ -148,6 +148,16 @@ public sealed class SessionManager : IDisposable
     public string? FactoryRunRoot { get; init; }
 
     /// <summary>
+    /// Marks the folders this Director makes for a Claude Code seat as trusted by Claude Code before the agent starts
+    /// (Factory Definition mission, phase 5, P7): the factory-run root, which covers every kit's work/ folder, and the
+    /// pooled slot a seat took - those and no other. Without it a scheduled seat waits forever at Claude Code's
+    /// folder-trust question. The running app sets the one for the signed-in user (App.axaml.cs), as it opts in to
+    /// <see cref="PlacesSkillsOnLaunch"/>; null - a test, a rig - marks nothing, so no test can write the user's own
+    /// Claude Code configuration. A test hands in one over a scratch file.
+    /// </summary>
+    public Claude.ClaudeFolderTrust? ClaudeFolderTrust { get; init; }
+
+    /// <summary>
     /// Answers, before a seat's agent starts, whether this machine holds the secrets its kit lists and may use them for
     /// run (Factory Definition mission, phase 5, design section 6). The installed cc-secrets by default; it is run only
     /// for a seat that lists a secret. A test hands in one with a faked list.
@@ -896,6 +906,13 @@ public sealed class SessionManager : IDisposable
                 ? PutFactoryMemoryInPlace(session, sessionFactory)
                 : null;
 
+            // A CLAUDE CODE SEAT'S FOLDER IS TRUSTED BEFORE ITS AGENT STARTS (Factory Definition mission, phase 5, P7). It
+            // stops a launch like the memory does: a seat whose folder cannot be marked trusted would wait at the
+            // question with nobody to answer it, so the create ends here with the reason instead. A session that is not
+            // a seat - and a seat of any other agent - writes nothing.
+            if (agent.Kind == AgentKind.ClaudeCode && kitDirectory is not null)
+                TrustSeatFolder(id, home, pooled);
+
             // Inject CC_SESSION_ID so skills (e.g. /handover) can look up the session name, and
             // CC_DIRECTOR_ID so the session knows WHICH Director it belongs to (identity only).
             //
@@ -1305,6 +1322,27 @@ public sealed class SessionManager : IDisposable
             session.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Mark the folder this Director made for a Claude Code seat as trusted (<see cref="ClaudeFolderTrust"/>). A seat
+    /// with no repository works in its kit's work/ folder: the factory-run root is marked once, and covers every kit
+    /// beneath it. A seat in a repository works in the pooled slot it took: the slot itself is marked, because Claude
+    /// Code's walk up the parents stops at the slot's git root, so no folder above it would count. A session in neither
+    /// - a child working in its seat's folder - was given no folder by this start, and nothing is marked.
+    /// </summary>
+    private void TrustSeatFolder(Guid id, bool home, Git.PooledWorktree? pooled)
+    {
+        var folder = home ? Path.GetFullPath(FactoryRunRoot ?? Storage.CcStorage.FactoryRun()) : pooled?.Path;
+        FileLog.Write($"[SessionManager] TrustSeatFolder: session={id}, home={home}, folder={folder ?? "(none made for it)"}");
+        if (folder is null) return;
+        if (ClaudeFolderTrust is not { } trust)
+        {
+            FileLog.Write($"[SessionManager] TrustSeatFolder: session={id}: this manager marks no folder trusted (ClaudeFolderTrust is not set)");
+            return;
+        }
+        trust.Trust(folder);
+        _log?.Invoke($"Marked {folder} trusted for Claude Code, so the seat does not stop at the folder-trust question.");
     }
 
     /// <summary>

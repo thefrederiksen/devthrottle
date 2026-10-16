@@ -1,0 +1,46 @@
+# Phase 5, P7: Claude Code's folder trust and a prompt file outside the folder, proven on the real agent
+
+Date: 2026-10-16. Claude Code 2.1.301 on one Windows machine. Both scripts drive the real `claude` interactively in a
+pseudo-terminal, in scratch folders under the temporary directory, and delete every scratch folder, every
+`~/.claude.json` entry they or Claude Code made for one, and Claude Code's own projects folder for each scratch session.
+
+## What was proven (trust-proof-output.txt)
+
+`trust_proof.py` sends no prompt; it reads only the first screen.
+
+| Case | Folder | Trusted beforehand | First screen |
+|---|---|---|---|
+| A | a new plain folder | nothing | the trust question; answering it records `projects["<that folder>"].hasTrustDialogAccepted = true` |
+| B | `factory-run/<id>/work`, not in git | `factory-run` | ready: a trusted parent covers the folders beneath it |
+| B | a sibling of `factory-run` | nothing | the trust question |
+| C | a git worktree of an untrusted repository | nothing | the trust question; answering it records the MAIN CHECKOUT, not the worktree |
+| D | a new worktree under `repo3.worktrees` | `repo3.worktrees` (the pool root) | the trust question: the walk up the parents stops at the worktree's git root |
+| E | a worktree, recorded by its own path before Claude Code opened it | that worktree | ready; the worktree beside it still asks |
+| F | a worktree of a repository whose main checkout is trusted | the main checkout | ready |
+
+So the Director records the factory-run root once (it covers every kit's `work/` folder) and each pooled slot a seat
+takes by its own path. It never records a main checkout: that folder is not one the Director made for the seat.
+
+## A prompt file outside the working folder (prompt-file-proof-output.txt)
+
+`prompt_file_proof.py` types an `@` reference to a file in a kit-like folder outside the working folder, exactly as the
+Director now composes it, with `--dangerously-skip-permissions --model haiku`. Both the plain path and a path through a
+folder whose name has a space (sent as `@"..."`) were read: the agent answered with the marker word only the file held,
+and the transcript's user line holds what was typed, matched the way `PromptArrival` matches it. The working folder
+gained no `.temp`.
+
+## How the writes to `~/.claude.json` are made safe
+
+The same way in these scripts and in the Director (`ClaudeFolderTrust`): take Claude Code's own lock, the directory
+`~/.claude.json.lock` (proper-lockfile; a lock not renewed for 10 seconds is stale), re-read the file under it, change
+only the one entry, write a temporary file beside it and rename it over the file, remove the lock.
+
+## Run
+
+```
+uv run --no-project --with pywinpty --with pyte python docs/qa/factory-definition/phase-5/trust-proof/trust_proof.py
+uv run --no-project --with pywinpty --with pyte python docs/qa/factory-definition/phase-5/trust-proof/prompt_file_proof.py
+```
+
+The agent is started without the variables of the session running the script (any `CLAUDE*` or `CC_*`): a Claude Code
+child-session marker otherwise stops it writing a transcript, and the fleet variables would name the wrong session.
