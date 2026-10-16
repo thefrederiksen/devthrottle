@@ -143,6 +143,13 @@ public interface IAgentDriver
     /// </summary>
     IReadOnlyCollection<string> SelfDescribingRowMarkers => Array.Empty<string>();
 
+    /// <summary>
+    /// The ways the Director can connect to this agent (API mode mission, issue #4070): terminal, and API mode when
+    /// the wrapper has a dialect for the agent's native protocol. Default terminal only, so a wrapper with no API
+    /// dialect declares nothing and stays exactly as it is.
+    /// </summary>
+    IReadOnlyList<ApiMode.SessionConnectionMode> ConnectionModes => ApiMode.SessionConnectionModes.TerminalOnly;
+
     /// <summary>Slash command metadata for the agent's own composer model. This is
     /// separate from <see cref="Capabilities"/>, which controls Director action buttons.</summary>
     IReadOnlyList<AgentSlashCommand> SlashCommands { get; }

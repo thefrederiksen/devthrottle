@@ -70,6 +70,18 @@ public sealed class TextSendOutcome
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         return new TextSendOutcome(false, reason, null, null, nothingTyped: true);
     }
+
+    /// <summary>
+    /// A prompt to an API-mode session that the agent refused, or that never reached it (issue #4070): the words are
+    /// known not to be in the conversation, so - like <see cref="RefusedBeforeTyping"/> - <see cref="NothingTyped"/> is
+    /// true and no late watch is attached, and the caller answers not-delivered with <paramref name="reason"/>, which is
+    /// the agent's own words or the Director's when the agent never answered.
+    /// </summary>
+    public static TextSendOutcome Refused(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return new TextSendOutcome(false, reason, null, null, nothingTyped: true);
+    }
 }
 
 /// <summary>How the late watch after a still-delivering send ended (<see cref="TextSendOutcome.LateProof"/>).</summary>
