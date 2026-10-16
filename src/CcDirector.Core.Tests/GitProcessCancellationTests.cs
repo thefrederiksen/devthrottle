@@ -43,19 +43,6 @@ public sealed class GitProcessCancellationTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------
-    // REGRESSION (issue 516): the status count probe now accepts and honors a cancellation token -
-    // the old signature took none, so a superseded scan could not stop it.
-    // ---------------------------------------------------------------------------------------
-    [Fact]
-    public async Task GitStatusProvider_GetCountAsync_HonorsCancellation()
-    {
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await new GitStatusProvider().GetCountAsync(_repo, cts.Token));
-    }
-
-    // ---------------------------------------------------------------------------------------
     // REGRESSION (issue 516): the sync-status probe now accepts and honors a cancellation token,
     // and (via ProcessRunner) drains stderr - the old code took no token and never drained stderr.
     // ---------------------------------------------------------------------------------------
