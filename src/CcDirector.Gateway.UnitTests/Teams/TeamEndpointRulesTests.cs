@@ -64,6 +64,8 @@ public sealed class TeamEndpointRulesTests
     [InlineData("GET", "/sessions/{sid}/buffer")]
     [InlineData("GET", "/sessions/{sid}/history")]
     [InlineData("GET", "/sessions/{sid}/receipts")]
+    [InlineData("GET", "/sessions/{sid}/live")]
+    [InlineData("GET", "/sessions/{sid}/live/items")]
     [InlineData("GET", "/history/sessions/{sessionId}")]
     public void Find_ALiveSessionOrTranscript_TouchingSomeoneElsesIsWatchingTheirSession(string method, string pattern)
     {

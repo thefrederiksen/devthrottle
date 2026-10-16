@@ -242,6 +242,129 @@ public sealed class ApiModeLiveRulingTests
         Assert.Empty(items);
     }
 
+    [Fact]
+    public void Rule_TheEndingAStoredReceiptWasBuiltFrom_IsNotLoggedAsASecondEnding()
+    {
+        // Arrange: a reader started from the store, which wrote p1's receipt from the very delivery now replayed to it
+        // (review of pull request #4083, finding 2).
+        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" } });
+
+        // Act
+        var items = ruling.Rule(Delivered(5, "p1", PlainAck));
+
+        // Assert
+        Assert.Empty(items);
+        Assert.Equal(0, ruling.SecondEndingsLogged);
+    }
+
+    [Fact]
+    public void Rule_AnEndingAfterTheOneAStoredReceiptWasBuiltFrom_IsLoggedAsASecondEnding()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" } });
+        ruling.Rule(Delivered(5, "p1", PlainAck));
+
+        // Act: the replay of the stored ending is quiet; a refusal after it is a real second ending.
+        var items = ruling.Rule(Refused(6, "p1", "too late", PromptRefusedBy.Director));
+
+        // Assert
+        Assert.Empty(items);
+        Assert.Equal(1, ruling.SecondEndingsLogged);
+    }
+
+    [Fact]
+    public void Rule_AStoredDeliveryThenAReplayedRefusal_IsLoggedAsASecondEnding()
+    {
+        // Arrange: the store says Delivered, so a refusal is not the event the receipt was built from.
+        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" } });
+
+        // Act
+        ruling.Rule(Refused(5, "p1", "too late", PromptRefusedBy.Director));
+
+        // Assert
+        Assert.Equal(1, ruling.SecondEndingsLogged);
+    }
+
+    [Fact]
+    public void Rule_ASecondEndingWithNoStoredReceipt_IsLogged()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Delivered(1, "p1", PlainAck));
+
+        // Act
+        ruling.Rule(Delivered(2, "p1", PlainAck));
+
+        // Assert
+        Assert.Equal(1, ruling.SecondEndingsLogged);
+    }
+
+    // ----- what the ruling remembers (review of pull request #4083, finding 1) -----
+
+    [Fact]
+    public void Remembers_AToolFinishWhoseStartItSaw_IsTrue()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Tool(3, "t1", "c1"));
+
+        // Act + Assert
+        Assert.True(ruling.Remembers(ToolDone(4, "t1", "c1", ToolCallOutcome.Succeeded)));
+    }
+
+    [Fact]
+    public void Remembers_AToolFinishWhoseStartItNeverSaw_IsFalse()
+    {
+        // Act + Assert
+        Assert.False(new ApiModeLiveRuling().Remembers(ToolDone(4, "t1", "c1", ToolCallOutcome.Succeeded)));
+    }
+
+    [Fact]
+    public void Remembers_ATurnEndWhoseStartAndDeliveriesItSaw_IsTrue()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        RuleAll(ruling, new SessionEvent[] { Delivered(1, "p1", PlainAck), Started(2, "t1", "p1") });
+
+        // Act + Assert
+        Assert.True(ruling.Remembers(Ended(3, "t1", TurnOutcome.Failed, "the model errored", null)));
+    }
+
+    [Fact]
+    public void Remembers_ATurnEndWhoseStartItNeverSaw_IsFalse()
+    {
+        // Act + Assert
+        Assert.False(new ApiModeLiveRuling().Remembers(Ended(3, "t1", TurnOutcome.Failed, "the model errored", null)));
+    }
+
+    [Fact]
+    public void Remembers_ATurnEndWhoseStartItSawButNotADelivery_IsFalse()
+    {
+        // Arrange: the delivery of p1 was let go before the turn's start.
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Started(2, "t1", "p1"));
+
+        // Act + Assert
+        Assert.False(ruling.Remembers(Ended(3, "t1", TurnOutcome.Failed, "the model errored", null)));
+    }
+
+    [Fact]
+    public void Remembers_ATurnEndOfATurnInTheStoredReceipts_IsTrue()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, TurnId = "t1" } });
+
+        // Act + Assert
+        Assert.True(ruling.Remembers(Ended(3, "t1", TurnOutcome.Failed, "the model errored", null)));
+    }
+
+    [Fact]
+    public void Remembers_AnEventThatBuildsOnNothingEarlier_IsTrue()
+    {
+        // Act + Assert
+        Assert.True(new ApiModeLiveRuling().Remembers(Delivered(1, "p1", PlainAck)));
+    }
+
     // ----- the words of a stored receipt -----
 
     [Theory]

@@ -62,6 +62,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06")]
     // The calling session's own message inbox (the Message Load mission).
     [InlineData("GET", "/fleet/inbox")]
+    // An API-mode session's live relay and its poll form (mission #4070): the same class of read as its history.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/live")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/live/items")]
     public void The_read_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -798,6 +801,11 @@ public sealed class SessionKeyGuardTests
     // A route nobody has classified. THE DEFAULT IS DENY - this is the whole point of an allow list.
     [InlineData("GET", "/some/route/invented/next/year")]
     [InlineData("POST", "/some/route/invented/next/year")]
+    // The live relay is two reads and nothing else: no write on it, and no other shape under it.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/live")]
+    [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/live")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/live/items")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/live/other")]
     public void The_account_surface_is_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must NOT be allowed");
 
