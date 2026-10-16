@@ -673,6 +673,16 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
+    public void Seats_AScheduleWhoseStartIsNotKnown_SaysMayHaveStarted_NeverStartedOrDidNotStart()
+    {
+        // Review of P10, finding 1: the create was sent and the Gateway never learned how it came out.
+        var jobs = new[] { Job("cj_save", "0 5 * * *", lastFired: Now.AddHours(-5), lastStatus: "start-unknown") };
+        var row = FactoriesScreenFold.Seats(WarmForward(), Inputs(new[] { WarmForward() }, jobs: jobs)).Rows.Single(r => r.SeatId == "savings-engineer");
+        Assert.Equal("Today 05:00 - may have started", row.LastRunText);
+        Assert.Equal(FactoryTone.Amber, row.LastRunTone);
+    }
+
+    [Fact]
     public void Seats_AMissingScheduleIsNamed_AndASeatWithNoneSaysTalkOnly()
     {
         var f = Factory("x", "X", null, Seat("a", "A", "A", "cj_gone"), Seat("b", "B", "B"));

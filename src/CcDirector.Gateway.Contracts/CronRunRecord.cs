@@ -29,6 +29,12 @@ public sealed class CronRunRecord
     /// <summary>Did the session START? (e.g. <c>started</c> / <c>not-started</c> / <c>catch-up</c>.)</summary>
     public string InfraStatus { get; set; } = "";
 
+    /// <summary>
+    /// How <see cref="InfraStatus"/> is shown - <c>ok</c>, <c>warn</c>, <c>err</c> or <c>dim</c> - folded by the Gateway on
+    /// every read (<c>CronRunEndingFold.ToneOf</c>), so no client decides what a status means (CLAUDE.md rule 7). Read-only.
+    /// </summary>
+    public string? InfraTone { get; set; }
+
     /// <summary>Did the WORK finish? (e.g. <c>completed</c> / <c>needs-human</c> / <c>unknown</c>.)</summary>
     public string TaskStatus { get; set; } = "";
 
@@ -151,6 +157,15 @@ public static class CronRunResults
     /// <summary>The run's check counted nothing, so no session started. Neither pending nor a problem, and never "did
     /// not run": the schedule ran, and there was nothing to do.</summary>
     public const string NothingToDo = "nothing-to-do";
+
+    /// <summary>
+    /// The create was sent to the Director and the Gateway never learned how it came out: it stopped waiting after its
+    /// limit for a Director command, the connection dropped while the command was out, or the Gateway stopped in
+    /// between (Factory Definition, phase 5, review of P10, finding 1). The Director may have started the session, so
+    /// this is never "did not run"; <see cref="CronRunRecord.ResultReason"/> carries the Gateway's sentence. Neither
+    /// pending (no session is known to owe a report) nor a problem.
+    /// </summary>
+    public const string StartUnknown = "start-unknown";
 }
 
 /// <summary>The kinds of problem a scheduled run can have (Factory Control, step 1).</summary>

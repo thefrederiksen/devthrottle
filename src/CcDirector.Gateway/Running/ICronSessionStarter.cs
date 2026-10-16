@@ -57,4 +57,14 @@ public sealed record DueCheckFinding(string CheckPath, int Count, string? Contex
 /// (<see cref="Contracts.FactoryBriefVersionKinds"/>): the seat's own brief version, or the definition version of a
 /// defined factory (Factory Definition, phase 4). Null exactly when <paramref name="BriefVersion"/> is.</param>
 public sealed record CronRunStart(string? SessionId, string? DirectorId, string? Error, int? BriefVersion,
-    string? BriefVersionKind = null);
+    string? BriefVersionKind = null)
+{
+    /// <summary>
+    /// True when no session is known to have started but the create was sent and its outcome is not known: the
+    /// Gateway stopped waiting, the connection dropped while the command was out, or the Gateway stopped in between
+    /// (Factory Definition, phase 5, review of P10). The Director may have started the session, so the run is recorded
+    /// as <see cref="Contracts.CronRunResults.StartUnknown"/>, never as one that did not run. <see cref="Error"/> is the
+    /// sentence saying so. Always false when <see cref="SessionId"/> is set.
+    /// </summary>
+    public bool OutcomeUnknown { get; init; }
+}

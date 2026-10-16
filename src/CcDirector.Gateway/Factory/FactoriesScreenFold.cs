@@ -527,6 +527,8 @@ public static class FactoriesScreenFold
         if (fired is not null && (started is null || fired.LastFiredUtc!.Value > started.OccurredUtc.AddMinutes(5)))
         {
             var when = clock.When(fired.LastFiredUtc!.Value, a.NowUtc, capital: true);
+            if (fired.LastStatus == Running.CronEngine.StartUnknownStatus)
+                return ($"{when} - may have started", FactoryTone.Amber);
             return fired.LastStatus is { } st && ScheduleFailedStatuses.Contains(st)
                 ? ($"{when} - did not start", FactoryTone.Red)
                 : ($"{when} - started", FactoryTone.Blue);

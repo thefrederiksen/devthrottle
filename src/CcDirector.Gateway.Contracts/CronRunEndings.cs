@@ -14,6 +14,10 @@ public static class CronRunEndings
     /// <summary>The fire failed to start a session, so there is nothing to end.</summary>
     public const string NoSession = "no-session";
 
+    /// <summary>The fire sent its create and the Gateway never learned whether a session started
+    /// (<see cref="CronRunResults.StartUnknown"/>).</summary>
+    public const string StartUnknown = "start-unknown";
+
     /// <summary>
     /// The fire drained a work list. A drain starts many sessions and the run records none of them, so how they ended
     /// is not known here.
