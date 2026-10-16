@@ -48,6 +48,10 @@ internal static class CronRunEndpoints
                     $"POST /cron/jobs/{id}/run", out var actError))
                 return actError!;
             var result = await engine.RunNowAsync(id, ctx.RequestAborted);
+            // The fire is answered with the task status its read would carry: a run now of a schedule with a check
+            // reads "checking", not "unknown" (CronRunEndingFold.TaskStatusOf).
+            if (result.Record is { } fired)
+                fired.TaskStatus = Running.CronRunEndingFold.TaskStatusOf(fired);
             return result.Outcome switch
             {
                 CronFireOutcome.Fired => Results.Json(result.Record),

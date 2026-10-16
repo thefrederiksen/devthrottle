@@ -219,6 +219,22 @@ public static class CronRunResultFold
         };
     }
 
+    /// <summary>
+    /// How a failed check leaves the problem list, in one sentence for every surface that explains it - the Open problems
+    /// card and the 08:00 email - said only when a failed check is among the problems shown, so a list with none reads
+    /// as it always has. True to <see cref="Clears"/> and <see cref="TriggerProblems"/>.
+    /// </summary>
+    public const string CheckClearsSentence =
+        "A failed check of a timed start also clears when a later check finds nothing to do, and a failed check of an " +
+        "interval start when its next check does not fail.";
+
+    /// <summary>True when any of <paramref name="problems"/> is one a check raised.</summary>
+    public static bool AnyCheckProblem(IEnumerable<CronRunProblemDto> problems)
+    {
+        ArgumentNullException.ThrowIfNull(problems);
+        return problems.Any(p => CronRunProblems.IsCheckProblem(p.Kind));
+    }
+
     /// <summary>Whether a later run of the same schedule clears <paramref name="problem"/>: an ok run clears any
     /// problem; a run whose check found nothing to do clears a problem a check raised (the check works again).</summary>
     public static bool Clears(CronRunRecord later, CronRunRecord problem)
@@ -356,8 +372,10 @@ public static class CronRunResultFold
 
     /// <summary>
     /// Each factory's last day of runs, for the 08:00 email (Factory Control, step 4): runs done and runs that did not
-    /// run in <c>[fromUtc, toUtc)</c>, seats whose run session is still open now, and open problems. Only factories
-    /// with at least one schedule are listed, by factory id.
+    /// run in <c>[fromUtc, toUtc)</c>, checks that failed in it, seats whose run session is still open now, and open
+    /// problems. Listed by factory id: every factory with a schedule, and a factory with only interval starts when one
+    /// of their checks failed in the window or a problem of the factory is still open (Factory Definition, phase 5b) -
+    /// so a failed interval check is never in the problem list and missing from the table.
     /// </summary>
     /// <param name="runsByJob">Every run of the account, by schedule id, newest first.</param>
     /// <param name="jobs">The account's schedules, by id.</param>
@@ -365,14 +383,18 @@ public static class CronRunResultFold
     /// <param name="openProblems">The account's open problems, from <see cref="Problems"/>.</param>
     /// <param name="fromUtc">The start of the window.</param>
     /// <param name="toUtc">The end of the window (exclusive).</param>
+    /// <param name="definitionTriggerRuns">Every definition trigger of the account with its checks, as
+    /// <see cref="Problems"/> is handed them. Command triggers are never handed in.</param>
     public static IReadOnlyList<CronFactoryDayDto> FactoryDays(
         IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> runsByJob,
         IReadOnlyDictionary<string, CronJobDto> jobs,
         Func<CronRunRecord, string> endingOf,
         IReadOnlyList<CronRunProblemDto> openProblems,
         DateTime fromUtc,
-        DateTime toUtc)
+        DateTime toUtc,
+        IReadOnlyList<(TriggerEntity Trigger, IReadOnlyList<TriggerRunEntity> Runs)> definitionTriggerRuns)
     {
+        ArgumentNullException.ThrowIfNull(definitionTriggerRuns);
         ArgumentNullException.ThrowIfNull(runsByJob);
         ArgumentNullException.ThrowIfNull(jobs);
         ArgumentNullException.ThrowIfNull(endingOf);
@@ -408,6 +430,8 @@ public static class CronRunResultFold
                         // The last row of a long outage also stands for the due times past the row limit.
                         if (run.Problem == CronRunProblems.DidNotRun && InWindow(run.ScheduledUtc, fromUtc, toUtc))
                             day.DidNotRun += 1 + run.MissedNotListed;
+                        else if (CronRunProblems.IsCheckProblem(run.Problem) && InWindow(run.FiredUtc, fromUtc, toUtc))
+                            day.CheckFailed++;
                         break;
                     case CronRunResults.Pending:
                     case CronRunResults.Untracked:
@@ -422,16 +446,42 @@ public static class CronRunResultFold
             }
         }
 
+        // An interval start's failed checks (Factory Definition, phase 5b). Its other checks are not runs of the day:
+        // one that found nothing to do every ten minutes would bury the scheduled runs the table is about.
+        var withIntervalTrouble = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (trigger, checks) in definitionTriggerRuns)
+        {
+            if (string.IsNullOrWhiteSpace(trigger.Factory)) continue;
+            var factory = trigger.Factory.Trim();
+            var failed = checks.Count(c => c.Outcome == TriggerRunOutcome.Failed && InWindow(c.RecordedUtc, fromUtc, toUtc));
+            if (failed == 0) continue;
+            DayOf(days, factory).CheckFailed += failed;
+            withIntervalTrouble.Add(factory);
+        }
         foreach (var problem in openProblems)
         {
             if (problem.State != CronRunProblemStates.Open || string.IsNullOrWhiteSpace(problem.Factory)) continue;
-            if (days.TryGetValue(problem.Factory.Trim(), out var day))
-                day.OpenProblems++;
+            var factory = problem.Factory.Trim();
+            // A factory with no schedule is listed for its interval starts' open problems too.
+            if (!days.ContainsKey(factory) && definitionTriggerRuns.Any(t => string.Equals(t.Trigger.Factory?.Trim(), factory, StringComparison.OrdinalIgnoreCase)))
+                withIntervalTrouble.Add(factory);
+            if (days.ContainsKey(factory) || withIntervalTrouble.Contains(factory))
+                DayOf(days, factory).OpenProblems++;
         }
         foreach (var (factory, seats) in openSeats)
             days[factory].LeftOpen = seats.Count;
 
         return days.Values.OrderBy(d => d.Factory, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static CronFactoryDayDto DayOf(Dictionary<string, CronFactoryDayDto> days, string factory)
+    {
+        if (!days.TryGetValue(factory, out var day))
+        {
+            day = new CronFactoryDayDto { Factory = factory };
+            days[factory] = day;
+        }
+        return day;
     }
 
     private static bool InWindow(DateTime utc, DateTime fromUtc, DateTime toUtc)

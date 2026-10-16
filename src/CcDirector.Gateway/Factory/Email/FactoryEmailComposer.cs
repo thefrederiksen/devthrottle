@@ -94,9 +94,12 @@ public static class FactoryEmailComposer
         // A timed start whose check found nothing reads "nothing to do" (Factory Definition, phase 5b) - never "did not
         // run". Said only when there was one, so an email with no checked starts reads exactly as it always has.
         var nothingToDo = days.Sum(d => d.NothingToDo);
-        var summary = nothingToDo == 0
-            ? $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(didNotRun, "run")} did not run."
-            : $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(nothingToDo, "run")} with nothing to do, {Count(didNotRun, "run")} did not run.";
+        // A failed check, timed or interval, is counted the same way: said only when there was one.
+        var checkFailed = days.Sum(d => d.CheckFailed);
+        var summary = (nothingToDo == 0
+            ? $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(didNotRun, "run")} did not run"
+            : $"{Count(days.Count, "factory", "factories")}, {Count(done, "run")} done, {Count(nothingToDo, "run")} with nothing to do, {Count(didNotRun, "run")} did not run")
+            + (checkFailed == 0 ? "." : $", {Count(checkFailed, "check")} failed.");
         var headline = problems.Count == 0 ? "All clear" : $"{Count(problems.Count, "problem")} still open";
 
         var html = new StringBuilder();
@@ -122,6 +125,8 @@ public static class FactoryEmailComposer
         footer.Append("This email only reports. Each problem is handled on its factory page - ");
         footer.Append(input.BaseUrl is null ? "open DevThrottle, Factories. " : "open the factory name above. ");
         footer.Append("A problem leaves this email when the next run of the same job succeeds, or when it is resolved with a reason.");
+        if (CronRunResultFold.AnyCheckProblem(problems))
+            footer.Append(' ').Append(CronRunResultFold.CheckClearsSentence);
         Close(html, footer.ToString(), $"Sent at {local:HH:mm} {ZoneName(input.Zone)} time to the account that set up these factories.");
 
         var text = new StringBuilder();
@@ -135,18 +140,15 @@ public static class FactoryEmailComposer
         }
         if (days.Count > 0)
         {
-            if (nothingToDo == 0)
-            {
-                text.AppendLine("LAST 24 HOURS (done / did not run / left open)");
-                foreach (var d in OrderedDays(input, days))
-                    text.AppendLine($"{TitleOf(input, d.Factory)}: {d.Done} / {d.DidNotRun} / {d.LeftOpen}");
-            }
-            else
-            {
-                text.AppendLine("LAST 24 HOURS (done / nothing to do / did not run / left open)");
-                foreach (var d in OrderedDays(input, days))
-                    text.AppendLine($"{TitleOf(input, d.Factory)}: {d.Done} / {d.NothingToDo} / {d.DidNotRun} / {d.LeftOpen}");
-            }
+            // The two phase 5b columns are there only when a day has one, as in the HTML table.
+            var columns = new List<(string Name, Func<CronFactoryDayDto, int> Of)> { ("done", d => d.Done) };
+            if (nothingToDo > 0) columns.Add(("nothing to do", d => d.NothingToDo));
+            columns.Add(("did not run", d => d.DidNotRun));
+            if (checkFailed > 0) columns.Add(("check failed", d => d.CheckFailed));
+            columns.Add(("left open", d => d.LeftOpen));
+            text.AppendLine($"LAST 24 HOURS ({string.Join(" / ", columns.Select(c => c.Name))})");
+            foreach (var d in OrderedDays(input, days))
+                text.AppendLine($"{TitleOf(input, d.Factory)}: {string.Join(" / ", columns.Select(c => c.Of(d)))}");
             text.AppendLine();
         }
         text.AppendLine(footer.ToString());
@@ -288,6 +290,10 @@ public static class FactoryEmailComposer
         if (showNothingToDo)
             html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"64\">Nothing to do</td>\n");
         html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"58\">Did not run</td>\n");
+        // So is the check failed column (phase 5b): a timed or interval start's check that failed in the window.
+        var showCheckFailed = days.Any(d => d.CheckFailed > 0);
+        if (showCheckFailed)
+            html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"58\">Check failed</td>\n");
         html.Append($"<td align=\"right\" style=\"padding:6px 0 6px 8px;font-size:11.5px;color:{Faint};border-bottom:1px solid {Line};\" width=\"50\">Left open</td>\n");
         html.Append("</tr>\n");
         var ordered = OrderedDays(input, days);
@@ -303,6 +309,7 @@ public static class FactoryEmailComposer
             html.Append(NumberCell(d.Done, alarming: false, rule));
             if (showNothingToDo) html.Append(NumberCell(d.NothingToDo, alarming: false, rule));
             html.Append(NumberCell(d.DidNotRun, alarming: true, rule));
+            if (showCheckFailed) html.Append(NumberCell(d.CheckFailed, alarming: true, rule));
             html.Append(NumberCell(d.LeftOpen, alarming: true, rule));
             html.Append("</tr>\n");
         }

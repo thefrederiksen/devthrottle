@@ -44,7 +44,24 @@ public static class CronRunEndingFold
             var (ending, endedUtc) = EndingOf(run, endings);
             run.Ending = ending;
             run.EndingText = TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
+            run.TaskStatus = TaskStatusOf(run);
         }
+    }
+
+    /// <summary>
+    /// The task status a run is read with. A fire stores <c>unknown</c> until a route records how its session ended,
+    /// and a run of a schedule with a check (Factory Definition, phase 5b) that started no session never gets one - so
+    /// it would read "unknown" for good, when what happened is known: its check is still running, found nothing to do,
+    /// or failed. Those runs read as the words their run row already carries (<see cref="CronRunResults"/> and
+    /// <see cref="CronRunProblems"/>); every other run keeps its stored status. Folded on the read, never written.
+    /// </summary>
+    public static string TaskStatusOf(CronRunRecord run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        if (!string.IsNullOrWhiteSpace(run.SessionId)) return run.TaskStatus;
+        if (run.Result is CronRunResults.Checking or CronRunResults.NothingToDo) return run.Result;
+        if (run.Result == CronRunResults.Problem && CronRunProblems.IsCheckProblem(run.Problem)) return run.Problem!;
+        return run.TaskStatus;
     }
 
     /// <summary>

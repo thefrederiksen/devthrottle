@@ -263,9 +263,66 @@ public sealed class FactoryEmailTests : IDisposable
             card.Items.Select(i => i.What));
         Assert.All(problems.Problems, p => Assert.Equal(CronRunProblems.CheckFailed, p.Kind));
         Assert.Equal(3, problems.Occurrences);
-        // No checked start found nothing to do, so the factory line reads as it always has.
+        // No checked start found nothing to do, so there is no such column; the three failed checks - one timed, two
+        // interval - are counted in the day table as well as listed (the phase 5b QA report's finding 4).
+        Assert.Contains("LAST 24 HOURS (done / did not run / check failed / left open)", email.Text);
+        Assert.Contains("Outreach: 0 / 0 / 3 / 0", email.Text);
+        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 3 checks failed.", email.Text);
+        Assert.Contains(">Check failed</td>", email.Html);
+        Assert.DoesNotContain("with nothing to do", email.Text);
+        Assert.Contains(CronRunResultFold.CheckClearsSentence, email.Text);
+        Assert.Contains(CronRunResultFold.CheckClearsSentence, card.Note);
+    }
+
+    [Fact]
+    public void ProblemsAndFactoryDays_ADayWithOnlyIntervalCheckProblems_ListsTheFactoryWithItsFailedChecks_OnTheEmailAndTheCard()
+    {
+        // Arrange: a factory with no schedule at all - only an interval start, whose check failed twice in the window
+        // and once the day before (outside it). Before this, the factory had no line in the day table.
+        var interval = Trigger("outreach-sender-start-2", "outreach", "sender", definition: true);
+        TriggerCheck(interval, TorontoTime(2026, 10, 10, 6), TriggerRunOutcome.Failed, "the check exited with code 1");
+        TriggerCheck(interval, TorontoTime(2026, 10, 11, 6), TriggerRunOutcome.Failed, "the check exited with code 1");
+        TriggerCheck(interval, TorontoTime(2026, 10, 11, 6, 10), TriggerRunOutcome.Failed, "the check exited with code 1");
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
+
+        // Act
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), "https://gateway.example.test"));
+        var card = FactoryProblemsFold.Card(Outreach(), Service().Problems(TenantId.Local, "outreach", includeClosed: false));
+
+        // Assert: one problem (failures in a row are one), its factory on the day table with the two failed checks of
+        // the window, and both surfaces saying how a failed check clears.
+        Assert.Equal(1, problems.Count);
+        var day = Assert.Single(days);
+        Assert.Equal(("outreach", 0, 0, 0, 2, 1), (day.Factory, day.Done, day.NothingToDo, day.DidNotRun, day.CheckFailed, day.OpenProblems));
+        Assert.Equal("Factories: 1 problem still open - Sunday 11 October", email.Subject);
+        Assert.Contains("LAST 24 HOURS (done / did not run / check failed / left open)", email.Text);
+        Assert.Contains("Outreach: 0 / 0 / 2 / 0", email.Text);
+        Assert.Contains("1 factory, 0 runs done, 0 runs did not run, 2 checks failed.", email.Text);
+        Assert.Contains(CronRunResultFold.CheckClearsSentence, email.Html);
+        Assert.Contains(CronRunResultFold.CheckClearsSentence, card.Note);
+        Assert.Single(card.Items);
+    }
+
+    [Fact]
+    public void ProblemsAndFactoryDays_ACommandTriggersFailedChecks_AddNoLineAndNoCount()
+    {
+        // Goal 14: a trigger a person wrote with a command line keeps today's behaviour - its failures are its own, so
+        // its factory gets no day line and nothing is counted.
+        var command = Trigger("research-scout-check", "research", "scout", definition: false);
+        TriggerCheck(command, TorontoTime(2026, 10, 11, 6), TriggerRunOutcome.Failed, "the check exited with code 2");
+        Job("cj_send", "Morning send", "outreach", "sender");
+        AppendRun("cj_send", Run("s1", TorontoTime(2026, 10, 10, 9), CronRunResults.Ok));
+        _now = TorontoTime(2026, 10, 11, 8, 5);
+        var slot = FactoryEmailSlots.DueAt(_now, Toronto)!;
+
+        var (problems, days) = Service().ProblemsAndFactoryDays(TenantId.Local, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+        var email = FactoryEmailComposer.Compose(new FactoryEmailInput(slot, Toronto, problems.Problems, days, Factories(), null));
+
+        Assert.Equal(new[] { ("outreach", 0) }, days.Select(d => (d.Factory, d.CheckFailed)));
         Assert.Contains("LAST 24 HOURS (done / did not run / left open)", email.Text);
-        Assert.DoesNotContain("nothing to do", email.Text);
+        Assert.DoesNotContain("check", email.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -330,10 +387,12 @@ public sealed class FactoryEmailTests : IDisposable
         // Assert
         Assert.Empty(problems.Problems);
         var day = Assert.Single(days);
-        Assert.Equal((0, 1, 0), (day.Done, day.NothingToDo, day.DidNotRun));
+        // The 02:00 check did fail in the window, so the day counts it, even though the 03:00 check cleared it.
+        Assert.Equal((0, 1, 0, 1), (day.Done, day.NothingToDo, day.DidNotRun, day.CheckFailed));
         Assert.Equal("Factories: all clear - Sunday 11 October", email.Subject);
-        Assert.Contains("1 factory, 0 runs done, 1 run with nothing to do, 0 runs did not run.", email.Text);
-        Assert.Contains("Outreach: 0 / 1 / 0 / 0", email.Text);
+        Assert.Contains("1 factory, 0 runs done, 1 run with nothing to do, 0 runs did not run, 1 check failed.", email.Text);
+        Assert.Contains("LAST 24 HOURS (done / nothing to do / did not run / check failed / left open)", email.Text);
+        Assert.Contains("Outreach: 0 / 1 / 0 / 1 / 0", email.Text);
         Assert.Contains("Nothing to do", email.Html);
     }
 
@@ -716,6 +775,9 @@ public sealed class FactoryEmailTests : IDisposable
         Assert.Contains("Started Fri 9 Oct 17:05 - evening shift - open 38 hours", report.Html);
         Assert.Contains("Sent at 08:00 Toronto time to the account that set up these factories.", report.Html);
         Assert.Contains(">Docs</td>", report.Html); // no problem: not a link
+        // No check anywhere: no check column and no word about how a check clears - the email reads as it always has.
+        Assert.DoesNotContain("Check failed", report.Html);
+        Assert.DoesNotContain(CronRunResultFold.CheckClearsSentence, report.Html);
 
         var check = FactoryEmailSlots.AtBoundary(TorontoTime(2026, 10, 11, 16), Toronto);
         var fresh = Problem("docs", "writer", "Release notes", TorontoTime(2026, 10, 11, 14, 30), CronRunProblems.RanPastShift,

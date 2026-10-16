@@ -420,8 +420,10 @@ public sealed class CronRunResultService
     {
         var jobs = _allJobs().ToDictionary(j => j.Id, StringComparer.Ordinal);
         var runsByJob = _runs.AllByJob(tenant);
+        // Read once, so the problem list and the day table count the same interval checks.
+        var triggerRuns = _triggers.DefinitionTriggerRuns(tenant);
         var problems = CronRunResultFold.Problems(runsByJob, jobs, _zoneOf(tenant), factory: null, includeClosed: false, asOfUtc,
-            _triggers.DefinitionTriggerRuns(tenant));
+            triggerRuns);
 
         var sessionIds = runsByJob.Values.SelectMany(r => r).Select(r => r.SessionId)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct(StringComparer.Ordinal).ToList();
@@ -429,7 +431,7 @@ public sealed class CronRunResultService
             ? new Dictionary<string, SessionEndingFact>(StringComparer.Ordinal)
             : _endingsOf(sessionIds);
         var days = CronRunResultFold.FactoryDays(runsByJob, jobs, run => CronRunEndingFold.EndingOf(run, endings).Ending,
-            problems.Problems, fromUtc, toUtc);
+            problems.Problems, fromUtc, toUtc, triggerRuns);
         FileLog.Write($"[CronRunResultService] ProblemsAndFactoryDays: tenant={tenant.ToLogString()}, asOf={asOfUtc:O}, open={problems.Count}, factories={days.Count}");
         return (problems, days);
     }

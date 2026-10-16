@@ -132,6 +132,34 @@ public sealed class FactoryProblemsFoldTests
         Assert.EndsWith("Handle the issue opens a talk with the boss, already told about it.", FactoryProblemsFold.Card(Factory("boss"), Answer(Problem())).Note);
     }
 
+    [Fact]
+    public void Card_ARunProblemOnly_KeepsTodaysNote_WordForWord()
+    {
+        // Goal 14: a factory whose problems are runs, not checks, reads exactly as it did before phase 5b.
+        var note = FactoryProblemsFold.Card(Factory("boss"), Answer(Problem())).Note;
+
+        Assert.Equal("A problem stays here until the next run of the same schedule reports ok, or someone resolves it with a " +
+                     "one-line reason. Handle the issue opens a talk with the boss, already told about it.", note);
+    }
+
+    [Theory]
+    [InlineData(CronRunProblems.CheckFailed)]
+    [InlineData(CronRunProblems.CheckNotRun)]
+    public void Card_AFailedCheckListed_NoteSaysHowAFailedCheckClears(string kind)
+    {
+        // The phase 5b QA report's finding 4: the note spoke only of schedules while it headed interval starts' failed
+        // checks, which are triggers and clear on the trigger's next check that does not fail.
+        var check = Problem(session: null);
+        check.Kind = kind;
+
+        var note = FactoryProblemsFold.Card(Factory("boss"), Answer(check)).Note;
+
+        Assert.Equal("A problem stays here until the next run of the same schedule reports ok, or someone resolves it with a " +
+                     "one-line reason. A failed check of a timed start also clears when a later check finds nothing to do, and " +
+                     "a failed check of an interval start when its next check does not fail. Handle the issue opens a talk " +
+                     "with the boss, already told about it.", note);
+    }
+
     // ---- who it goes to ----------------------------------------------------------------------------------------
 
     [Fact]
