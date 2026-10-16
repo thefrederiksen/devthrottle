@@ -312,3 +312,21 @@ def test_run_RulesNameAFakeMailbox_SignsInAndReadsThereOnly(tmp_path, monkeypatc
     assert calls[0] == ("POST", "http://127.0.0.1:7990/sign-in/tenant/oauth2/v2.0/token")
     assert calls[1][1].startswith("http://127.0.0.1:7990/v1.0/users/outreach%40example.com/mailFolders/inbox/messages?")
     assert len(calls) == 2
+
+
+def _rules_file(tmp_path, **extra):
+    rules = {"mailbox": "m", "folders": [], "ledger": "x", "bounceSubjectMarkers": [], "firstRunLookbackHours": 1,
+             "secrets": SECRETS, **extra}
+    path = tmp_path / "mail-rules.json"
+    path.write_text(json.dumps(rules), encoding="utf-8")
+    return str(path)
+
+
+def test_load_rules_GraphIsNotText_FailsNamingTheKey(tmp_path):
+    with pytest.raises(cnm.CheckFailed, match="'graph' must be an address in quotes"):
+        cnm.load_rules(_rules_file(tmp_path, graph=5))
+
+
+def test_load_rules_SignInIsNotText_FailsNamingTheKey(tmp_path):
+    with pytest.raises(cnm.CheckFailed, match="'signIn' must be an address in quotes"):
+        cnm.load_rules(_rules_file(tmp_path, signIn=["http://127.0.0.1:7994"]))

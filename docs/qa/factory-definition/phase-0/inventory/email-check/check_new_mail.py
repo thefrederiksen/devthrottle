@@ -131,6 +131,10 @@ def load_rules(path):
     for part in SECRET_PARTS:
         if not isinstance(rules["secrets"].get(part), str) or not rules["secrets"][part]:
             raise CheckFailed(f"{path} names no entry for '{part}' under 'secrets'")
+    for key in ("graph", "signIn"):
+        if key in rules and (not isinstance(rules[key], str) or not rules[key]):
+            raise CheckFailed(f"{path}: '{key}' must be an address in quotes, such as \"http://127.0.0.1:7994\"; "
+                              "leave it out to use Microsoft's own")
     return rules
 
 

@@ -332,7 +332,18 @@ def unregister_task():
     ps(f"Unregister-ScheduledTask -TaskName '{TASK}' -Confirm:$false")
     left = ps(f"Get-ScheduledTask -TaskName '{TASK}' -ErrorAction SilentlyContinue | ForEach-Object {{ $_.TaskName }}",
               check=False).strip()
+    record(f"{TASK} unregistered", f"  Get-ScheduledTask -TaskName '{TASK}' afterwards answered: "
+           f"{left or '(no task of that name)'}")
     print(f"{TASK} unregistered" if not left else f"WARNING: {TASK} is still registered", flush=True)
+
+
+def shared_task_target(when):
+    """What the shared cc-director-launch task points at, read only; this rig never changes it."""
+    out = ps("$t = Get-ScheduledTask -TaskName 'cc-director-launch' -ErrorAction SilentlyContinue; if ($t) { "
+             "$a = $t.Actions[0]; Write-Output ($a.Execute + ' ' + $a.Arguments + ' (in ' + $a.WorkingDirectory + ')') }",
+             check=False).strip()
+    record(f"the shared cc-director-launch task {when} (read only; this rig never changes it)",
+           f"  {out or '(no task of that name)'}")
 
 
 def processes_named(name):
@@ -421,6 +432,9 @@ def stop_director(pid):
     ps(f"$e = [System.Threading.EventWaitHandle]::OpenExisting('{signal}'); $e.Set() | Out-Null; $e.Dispose()")
     wait_for(f"the slot 7 Director (pid {pid}) did not exit after its shutdown signal",
              lambda: pid not in director_processes(), seconds=90)
+    record("the slot 7 Director stopped by its named shutdown signal",
+           f"  signal set: {signal}\n  pid {pid} still running afterwards: {pid in director_processes()}\n"
+           f"  cc-director7 processes afterwards: {director_processes()}")
     print(f"slot 7 Director {pid} stopped by its named signal", flush=True)
 
 
@@ -1089,6 +1103,7 @@ def main():
         enroll(db)
         wait_for("the rig Gateway did not answer", lambda: get("/factory-definition-schemas") is not None)
 
+        shared_task_target("before this run")
         wrapper = prepare_director(DIRECTOR_KEY)
         set_task("cmd.exe", f'/c "{wrapper}"', str(DIRECTOR_EXE.parent))
         task_changed = True
@@ -1140,6 +1155,7 @@ def main():
         finally:
             if task_changed:
                 unregister_task()
+            shared_task_target("after this run")
             server.shutdown()
             gw.terminate()
             try:

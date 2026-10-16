@@ -8,7 +8,8 @@ check and failed checks as problems), which holds all of phase 5b: 4029 (carried
 
 This branch adds no product code. It adds the rig, its transcript and this report, and makes one change to the phase 0
 email check: two optional rules keys, `graph` and `signIn`, so a rules file can point the check at a fake mailbox (the
-real Microsoft addresses when left out), with two tests (22 pass, `phase-0/inventory/email-check/tests-run.txt`).
+real Microsoft addresses when left out) and a refusal of either when it is not text, with four tests (24 pass,
+`phase-0/inventory/email-check/tests-run.txt`).
 
 ## What is in this folder
 
@@ -35,7 +36,11 @@ Gateway tray. No email was sent."
 its own, `cc-director-launch-p5b`, set up exactly as CLAUDE.md rule 0b sets up `cc-director-launch` (one action, its
 working folder, a far-future trigger, on demand only), started with `Start-ScheduledTask`, and stopped by its named
 shutdown signal (`Local\cc-director-shutdown-<its id>`). The rig registered the task at the start and unregistered it
-at the end. The shared `cc-director-launch` task, which phase 5's QA was using on slot 6 at the same time, was never
+at the end. The stop and the task's removal were printed to the rig's console only, not recorded in `transcript.txt`
+(the console said "slot 7 Director 67076 stopped by its named signal" and "cc-director-launch-p5b unregistered"); the
+separate review session confirmed afterwards on the machine that no `cc-director-launch-p5b` task was registered, no
+`cc-director7` process ran, and `cc-director-launch` still pointed at slot 5. The rig now records the signal, the exit
+and the `Get-ScheduledTask` answers for the next run; that change was not run. The shared `cc-director-launch` task, which phase 5's QA was using on slot 6 at the same time, was never
 touched. The task runs a wrapper that gives the Director its own storage root under the rig, pointed at the rig
 Gateway with the rig's workstation key; the Claude Code executable is copied from the owner's Director configuration.
 
@@ -243,8 +248,9 @@ Director to the run's reason, the card and the email.
 
 ### 6. A check in an unpublished draft is never run
 
-Version 2 adds the seat `drafty` with `checks/draft_only.py` and is saved, not published. The download route, asked
-with the Director's own key:
+Version 2 adds the seat `drafty` with `checks/draft_only.py` and is saved (01:21:07), not published. The proof is the
+download route, asked with the Director's own key: it refuses version 2 with its sentence, and answers 200 for version 1
+to the same key.
 
 ```
 $ GET /directors/fda95749-.../factory-checks/qa-checks/2
@@ -252,8 +258,11 @@ $ GET /directors/fda95749-.../factory-checks/qa-checks/2
   answer: {"code":"version_not_published","error":"version 2 of the definition of qa-checks is a draft, not published; a check is only ever downloaded from a published version"}
 ```
 
-The same route answers 200 for version 1. After 70 seconds (two of the Director's polls): no trigger of `drafty`, no
-check state, and no `draft_only.py` anywhere under the Director's `factory-checks` folder, which held only version 1.
+The Director kept pulling its assignments through the 70 seconds the rig then waited: the trigger list taken after
+the wait has `bigstate` checked at 01:21:38 and `mail` at 01:21:41. After it there was no trigger of `drafty`, no check
+state, and no `draft_only.py` anywhere under the Director's `factory-checks` folder, which held only version 1. Those
+three absences are consistent with the refusal; they are not proof of it, since a seat only in a draft is never made
+into a trigger in the first place.
 
 ### 7. A timed start whose check finds nothing: "nothing to do", not a problem
 
@@ -366,8 +375,9 @@ qa-plain-quiet   2026-10-16T01:15:39.5061127Z  nothing-to-do  count=0
 qa-plain-broken  2026-10-16T01:15:39.5097844Z  failed  count=- reason: exit code 2: cannot reach the shop
 ```
 
-The broken one is red on `trigger list` and appears nowhere among the problems (the card, `/cron/problems` and the
-email name only `qa-checks` starts). Its schedule's run now started a session in the registered folder: the agent's
+The broken one is red on `trigger list` and is not a problem: the 08:00 email covers the whole account
+(`"factories":["qa-checks","qa-plain"]`), counts six problems and names six `qa-checks` starts, and its QA Plain day
+line reads "Left open 0" (transcript line 3858). Its schedule's run now started a session in the registered folder: the agent's
 `pwd -W` printed `<rig>/repos/qa-plain`, and its history row carries no seat or definition version.
 
 ### 14. The live mailbox run: NOT run
@@ -391,7 +401,9 @@ was removed once no assignment named it.
 ## The check, as run
 
 The mission's check (section 7, all seven lines), in this worktree on `b4176aabf` plus this branch, before the rebase
-onto `fddfcaac9` (another mission's change to the sessions filter). This branch changes no product code.
+onto `fddfcaac9` (another mission's change to the sessions filter). This branch changes no product code. The numbers
+below are the Developer's run and their output is not committed; the Tech Lead's own check is in the pull request's
+comments.
 
 | Line | Result |
 |---|---|
@@ -405,13 +417,14 @@ onto `fddfcaac9` (another mission's change to the sessions filter). This branch 
 
 The last line ran under `uv run --no-project --with pytest --with typer ...`: this machine's own Python has a package
 named `tests` in its site-packages, which shadows the suite's `tests` folder and stops collection with "No module named
-'tests.test_factory_definition_ops'". The phase 0 email check's own tests: 22 passed.
+'tests.test_factory_definition_ops'". The phase 0 email check's own tests: 22 passed at the run; 24 after the review added the refusal of a non-text
+`graph` or `signIn`.
 
 ## Findings
 
 1. **A check can read a secret it did not declare, by asking cc-secrets itself.** The Director hands a check only what
    it declared (case 10), but the check runs as the user, and `cc-secrets run <any entry> -- ...` from inside it worked
-   (`exit 0`, `set`). MISSION 5.5a says "a check cannot read a name it did not declare"; that holds for what the
+   (`exit 0`, `set`). MISSION 5.5a said, before this pull request, "a check cannot read a name it did not declare"; that holds for what the
    Director gives it, not for what the check can fetch. A cc-secrets refusal keyed on a check's variables would be no
    barrier (the check can unset them). Ruled by the Delivery Lead: no product change; MISSION 5.5a now reads "the
    Director hands a check only the secrets it declared; a check runs as the user, so publishing a definition is the
@@ -449,6 +462,13 @@ named `tests` in its site-packages, which shadows the suite's `tests` folder and
   Director that does not advertise `definitionChecks` are covered by the pull requests' tests, not here.
 - **Clearing a problem.** No failed check was followed by one that succeeded, and nothing was resolved by a person, so
   a problem leaving the card was not seen. Nor was a state reset (`factory check-state reset`).
+- **A refusal at publish.** Case 12 is refused at save. No test sends an interval start with no check, or
+  `preventOverlap: false` on a checked start, to the publish route itself. The publish runs the same definition check
+  as the save, with purpose Publish (`FactoryDefinitionEndpoints.cs`), and these two rules do not depend on the
+  purpose; `FactoryDefinitionCheckTests.Check_IntervalStartWithNoCheck_IsRefusedOnTheEveryLine` and
+  `Check_StartWithACheckAndPreventOverlapFalse_IsRefusedOnThatLine` prove them on that check, and the route test
+  `A_PUBLISH_WITH_PREVENT_OVERLAP_OFF_ON_A_CHECKED_START_IS_REFUSED_ON_ITS_LINE`, despite its name, sends it to the
+  save route.
 - **SQLite only.** The rig Gateway stores in SQLite; PostgreSQL's migrations are proven by the pull requests'
   database tests.
 - **The hosted Gateway** and its other accounts were not involved; the email was composed, never sent.
