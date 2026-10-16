@@ -77,6 +77,35 @@ public sealed class TunnelStreamLegsTests
         Assert.Equal(0, registry.LiveStreamCount);
     }
 
+    // Issue #4078: a refused read carries the Director's decision - its sentence AND its code - and the Gateway
+    // hands both to the viewer verbatim, so the viewer can say why and, for a folder, open the listing.
+    [Theory]
+    [InlineData(DirectorCommandStatus.Conflict, "folder", "This is a folder, not a file.", StatusCodes.Status409Conflict)]
+    [InlineData(DirectorCommandStatus.BadRequest, "not-allowed", "This file is not allowed for this session.", StatusCodes.Status400BadRequest)]
+    [InlineData(DirectorCommandStatus.NotFound, "not-on-disk", "This file is not on disk.", StatusCodes.Status404NotFound)]
+    public async Task File_leg_passes_the_directors_sentence_and_code_through(
+        DirectorCommandStatus status, string code, string sentence, int expectedHttp)
+    {
+        var registry = new GatewayStreamRegistry();
+        DirectorCommandRouter.SendDirectorCommandAsync send = (d, c, ct) =>
+        {
+            if (c.Verb != "read-file") return Ok();
+            var refused = DirectorCommandResult.Fail(status, sentence);
+            refused.BodyJson = JsonSerializer.Serialize(new PathStatusDto { Path = "/p", Code = code, Sentence = sentence }, Json);
+            return Task.FromResult<DirectorCommandResult?>(refused);
+        };
+        var legs = new TunnelStreamLegs(registry, send);
+        var (ctx, body) = NewHttpContext();
+
+        var handled = await legs.TryServeFileAsync(ctx, Guid.NewGuid().ToString(), TenantId.Local, "dir1", "/p");
+
+        Assert.True(handled);
+        Assert.Equal(expectedHttp, ctx.Response.StatusCode);
+        using var doc = JsonDocument.Parse(body.ToArray());
+        Assert.Equal(sentence, doc.RootElement.GetProperty("error").GetString());
+        Assert.Equal(code, doc.RootElement.GetProperty("code").GetString());
+    }
+
     [Fact]
     public async Task File_leg_returns_false_for_http_fallback_when_the_stream_was_lost()
     {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
-import { chatLinkLabel } from "@devthrottle/client-core/history/chatView";
+import { chatLinkLabel, chatPathLabel } from "@devthrottle/client-core/history/chatView";
+import { isNotOnDisk, usePathStatuses } from "@devthrottle/client-core/history/usePathStatuses";
 import type { RenderedBubble } from "@devthrottle/client-core/history/chatView";
 import { DENSITY_LABELS, filterFlagsFor, setDensity, useDensity } from "@devthrottle/client-core/sessions/density";
 import { FileViewerModal } from "../components/FileViewerModal";
@@ -46,8 +47,13 @@ function turnClock(r: RenderedBubble): string {
   return at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+// The surface name the path-status hint reports a background failure under (issue #4078).
+const SURFACE_PATHS = "cockpit-chat-paths";
+
 export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
   const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(sessionId);
+  // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
+  const pathStatuses = usePathStatuses(sessionId, bubbles, SURFACE_PATHS);
   const [copied, setCopied] = useState<string | null>(null);
   // Which turn's "Copy" was last pressed, by index, so the confirmation shows on that turn alone. Kept
   // apart from `copied` (which keys on a link's text) because two turns can carry identical words.
@@ -229,7 +235,7 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
                   {r.links.length > 0 && (
                     <div className="chat-links">
                       {r.links.map((link, j) => (
-                        <span className={`chat-link ${link.isUrl ? "url" : "path"}`} key={j}>
+                        <span className={`chat-link ${link.isUrl ? "url" : "path"}${!link.isUrl && isNotOnDisk(pathStatuses, link.text) ? " not-on-disk" : ""}`} key={j}>
                           {link.isUrl ? (
                             <a
                               className="chat-link-open"
@@ -249,8 +255,11 @@ export function ChatTab({ sessionId }: { sessionId: string | undefined }) {
                               title={link.text}
                               onClick={() => setViewerPath(link.text)}
                             >
-                              {chatLinkLabel(link.text)}
+                              {chatPathLabel(link.text)}
                             </button>
+                          )}
+                          {!link.isUrl && isNotOnDisk(pathStatuses, link.text) && (
+                            <span className="chat-link-missing">not on disk</span>
                           )}
                           <button type="button" className="chat-link-copy" onClick={() => void copyLink(link.text)}>
                             {link.isUrl ? "Copy URL" : "Copy path"}

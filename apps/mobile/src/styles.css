@@ -2245,6 +2245,18 @@ a.banner-btn {
   font-size: 11px;
 }
 
+/* Issue #4078: a path the session's Director says is not on disk - greyed out and labelled. */
+.chat-link.not-on-disk .chat-link-open {
+  color: #888888;
+  opacity: 0.7;
+}
+
+.chat-link-missing {
+  color: #888888;
+  font-size: 11px;
+  font-style: italic;
+}
+
 /* Local Files (Phase 3): the file-path link in chat is now a button that opens the viewer. It must
    read exactly like the URL anchor (.chat-link-open) - a button carries default padding/background, so
    reset those and keep the monospace accent styling. */

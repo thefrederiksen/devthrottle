@@ -113,6 +113,12 @@ public sealed class DirEntryDto
 
     /// <summary>True when this entry is a drive root (e.g. "C:\").</summary>
     public bool IsDrive { get; set; }
+
+    /// <summary>
+    /// True when this entry is a FILE rather than a folder. Only a session's folder listing (issue #4078)
+    /// carries files; the Director-wide folder browser lists folders alone, so its entries leave this false.
+    /// </summary>
+    public bool IsFile { get; set; }
 }
 
 /// <summary>

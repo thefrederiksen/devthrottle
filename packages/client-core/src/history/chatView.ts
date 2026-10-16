@@ -92,9 +92,20 @@ export function buildChatSignature(
   return `${bubbles.length}|${total}|${tail}|${state ?? ""}|${f}`;
 }
 
-// A link label, truncated in the middle for long URLs/paths (mirrors HistoryPane.LinkLabel).
+// A URL link label, truncated in the middle when long (mirrors HistoryPane.LinkLabel).
 export function chatLinkLabel(text: string): string {
   return text.length <= 60 ? text : text.slice(0, 28) + "..." + text.slice(-28);
+}
+
+// A PATH link label (issue #4078): the file name plus the folder it sits in - "hosting\README.md" - written
+// with the path's own separator. Cutting the middle out of a path hid exactly the part that tells two files
+// apart. The full path stays in the tooltip and in Copy path. A folder written with a trailing separator is
+// labelled by its own name and its parent's.
+export function chatPathLabel(path: string): string {
+  const separator = path.includes("\\") ? "\\" : "/";
+  const segments = path.split(/[\\/]/).filter((segment) => segment.length > 0);
+  if (segments.length <= 2) return path;
+  return segments[segments.length - 2] + separator + segments[segments.length - 1];
 }
 
 // Map the given history through the filter, clean + render each bubble, and derive the empty-state
