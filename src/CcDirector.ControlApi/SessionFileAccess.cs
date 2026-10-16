@@ -9,20 +9,32 @@ namespace CcDirector.ControlApi;
 /// viewer, and it is the ONE place the decision is made: the file read, the folder listing and the Chat's
 /// "not on disk" hint all ask here.
 ///
-/// A path is ALLOWED when any of these holds:
+/// A path is ADMITTED when any of these holds:
 ///   1. it is inside the session's working folder (the July rule, unchanged, real path included);
 ///   2. its exact path, after normalisation, is named in the session's own conversation;
-///   3. it is a FILE directly inside a folder whose exact path is named there.
-/// Rule 3 is the only way a name reaches past itself, and only one level down: naming a file never admits
-/// its siblings or its folder, and naming a folder never admits the folders inside it.
+///   3. it is a FILE whose REAL parent folder is named there by its exact path. The real parent, not the
+///      parent as spelled: a symbolic link inside a named folder, or a named link to a folder, leads to files
+///      in a folder nobody named, and those are refused.
+/// Naming a file never admits its siblings or its folder, and naming a folder never admits the folders inside it.
 ///
-/// Whatever admitted it, a path is still REFUSED when:
-///   - its real identity cannot be established (an unreadable reparse point, a link cycle);
+/// BEING NAMED IS NOT THE PROTECTION. One "find ~" in a tool result names every file in the home folder, and
+/// anyone who can see the Chat can also prompt the agent, so a viewer can get almost any path named. What
+/// actually stands between a viewer and the owner's credentials is the list of refusals below, which apply to
+/// every path however it was admitted. Treat a change to them as a change to the security boundary.
+///
+/// A path is REFUSED, whatever admitted it, when:
+///   - its real identity cannot be established (an unreadable reparse point, a link cycle), or it names a
+///     Windows alternate data stream;
 ///   - it, or what it really is after every symbolic link and junction is followed, is on the secrets list
-///     (<see cref="SessionFileSecrets"/>);
+///     (<see cref="SessionFileSecrets.IsSecret"/>);
+///   - it lies OUTSIDE the working folder and its real location is a hidden file or folder directly under the
+///     user's home folder, or anything inside one (<see cref="SessionFileSecrets.IsHiddenUnderHome"/>). A list
+///     of names will always miss some tool's credentials; this catches every tool that keeps them in
+///     ~/.something. Inside the working folder the July rules stand, so a repository's own .github still opens;
 ///   - it is a file with more than one name (a hard link), which no path test can place.
 ///
-/// Existence is only ever reported for an allowed path, so asking about an unnamed path outside the working
+/// A file is served by its REAL path, so a link swapped after this decision cannot redirect the read.
+/// Existence is only ever reported for an admitted path, so asking about an unnamed path outside the working
 /// folder says "not allowed" whether or not anything is there.
 /// </summary>
 internal static class SessionFileAccess
@@ -79,25 +91,30 @@ internal static class SessionFileAccess
 
         var isFolder = Directory.Exists(real);
         var insideWorkingFolder = IsInsideWorkingFolder(workingDirectory, full);
+
+        // Outside the working folder, every hidden file or folder directly under the home folder is a secret.
+        if (!insideWorkingFolder && (secrets.IsHiddenUnderHome(real) || secrets.IsHiddenUnderHome(full)))
+            return NotAllowed(SecretSentence);
+
         var namedItself = named.Contains(full);
-        var fileInNamedFolder = !isFolder && Path.GetDirectoryName(full) is { } parent && named.Contains(parent);
+        var fileInNamedFolder = !isFolder && Path.GetDirectoryName(real) is { } realParent && named.Contains(realParent);
         if (!insideWorkingFolder && !namedItself && !fileInNamedFolder)
             return NotAllowed(isFolder ? FolderNotListableSentence : NotAllowedSentence);
 
         if (isFolder)
             return new Decision(PathStatusCodes.Folder, FolderSentence, full);
-        if (!File.Exists(full))
+        if (!File.Exists(real))
             return new Decision(PathStatusCodes.NotOnDisk, NotOnDiskSentence, null);
-        if (ControlEndpoints.RefuseUnlessSingleName(full) is null)
+        if (ControlEndpoints.RefuseUnlessSingleName(real) is null)
             return NotAllowed(HardLinkSentence);
-        return new Decision(PathStatusCodes.File, "", full);
+        return new Decision(PathStatusCodes.File, "", real);
     }
 
     /// <summary>
     /// The contents of a folder this session may list: a folder inside the working folder, or a folder the
     /// conversation names by its exact path. Files and folders are both returned; a folder outside the working
     /// folder lists its FILES only, because the folders inside it are not themselves named and would only
-    /// refuse when opened. Secret entries are left out. Throws <see cref="UnauthorizedAccessException"/> with
+    /// refuse when opened. An entry that opening would refuse is left out. Throws <see cref="UnauthorizedAccessException"/> with
     /// the Director's sentence when the folder may not be listed, and <see cref="DirectoryNotFoundException"/>
     /// when it is not a folder.
     /// </summary>
@@ -112,19 +129,21 @@ internal static class SessionFileAccess
         var folder = decision.FullPath;
         var insideWorkingFolder = IsInsideWorkingFolder(workingDirectory, folder);
 
+        // Every entry is offered only if opening it would be admitted: the same decision the click will meet,
+        // so a listing never shows a secret's name, a dotfile under the home folder, or a link that leads out.
         var entries = new List<DirEntryDto>();
         if (insideWorkingFolder)
         {
             foreach (var dir in Directory.EnumerateDirectories(folder))
             {
-                if (secrets.IsSecret(dir))
+                if (DecideCore(workingDirectory, dir, named, secrets).Code == PathStatusCodes.NotAllowed)
                     continue;
                 entries.Add(new DirEntryDto { Name = Path.GetFileName(dir), Path = dir, IsFile = false });
             }
         }
         foreach (var file in Directory.EnumerateFiles(folder))
         {
-            if (secrets.IsSecret(file))
+            if (DecideCore(workingDirectory, file, named, secrets).Code == PathStatusCodes.NotAllowed)
                 continue;
             entries.Add(new DirEntryDto { Name = Path.GetFileName(file), Path = file, IsFile = true });
         }
@@ -164,12 +183,28 @@ internal static class SessionFileAccess
                 ControlEndpoints.PathIdentityComparison);
     }
 
+    /// <summary>
+    /// True when a Windows path names an alternate data stream ("x.pem::$DATA", "notes.txt:hidden"): a colon
+    /// anywhere after the drive. Such a path reads the same bytes as the file under a name no rule here
+    /// recognises (".pem::$DATA" is not ".pem"), so it is refused outright. On other systems a colon is an
+    /// ordinary character in a file name. Exposed with the platform as a parameter so both answers are testable.
+    /// </summary>
+    internal static bool NamesAlternateDataStream(string path, bool windows)
+    {
+        if (!windows || string.IsNullOrEmpty(path))
+            return false;
+        var start = path.Length >= 2 && path[1] == ':' ? 2 : 0;
+        return path.IndexOf(':', start) >= 0;
+    }
+
     private static Decision NotAllowed(string sentence) => new(PathStatusCodes.NotAllowed, sentence, null);
 
     // An absolute path stays itself; a relative one resolves against the working folder (as the July rule did).
     // Null for anything that is not a usable path.
     private static string? FullPathOf(string? workingDirectory, string requested)
     {
+        if (NamesAlternateDataStream(requested, OperatingSystem.IsWindows()))
+            return null;
         try
         {
             if (Path.IsPathFullyQualified(requested))

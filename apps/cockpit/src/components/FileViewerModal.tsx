@@ -4,16 +4,13 @@ import type { FileViewerType } from "@devthrottle/client-core/history/fileTypes"
 import {
   downloadSessionFile,
   ensureGatewayCookie,
-  fetchPathStatuses,
   fetchSessionFileSize,
   fetchSessionFileText,
   fetchSessionFolder,
-  PATH_STATUS_FOLDER,
-  PATH_STATUS_NOT_ALLOWED,
-  PATH_STATUS_NOT_ON_DISK,
   sessionFileUrl,
 } from "@devthrottle/client-core/api/client";
-import type { PathStatus, SessionFolderListing } from "@devthrottle/client-core/api/client";
+import type { SessionFolderListing } from "@devthrottle/client-core/api/client";
+import { isFolder as pathIsFolder, refusalSentence, usePathStatus } from "@devthrottle/client-core/history/usePathStatus";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { Button } from "./Button";
 import { useDismissOnBackdrop } from "./useDismissOnBackdrop";
@@ -62,14 +59,6 @@ function baseName(path: string): string {
   return segments[segments.length - 1] || path;
 }
 
-// What the Director said the shown path is. "unknown" means the question itself could not be answered (a
-// Director too old to know the path-status verb): the viewer then renders by file type as it always did, and
-// each render mode still shows the Director's reason if the read is refused - the old behaviour, not a guess.
-type PathState =
-  | { kind: "loading" }
-  | { kind: "known"; status: PathStatus }
-  | { kind: "unknown" };
-
 export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalProps) {
   // The image / PDF / HTML modes render a bare <img>/<iframe> whose src hits a gated Gateway route and
   // so cannot carry a Bearer header; like the terminal stream (terminal/stream.ts), they authenticate
@@ -81,7 +70,7 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
   // folders passed through are kept so Back returns to them.
   const [current, setCurrent] = useState(path);
   const [trail, setTrail] = useState<string[]>([]);
-  const [state, setState] = useState<PathState>({ kind: "loading" });
+  const state = usePathStatus(sessionId, current, SURFACE);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
 
@@ -90,31 +79,14 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
     setTrail([]);
   }, [path]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setState({ kind: "loading" });
-    setDownloadError(null);
-    fetchPathStatuses(sessionId, [current], controller.signal)
-      .then((rows) => {
-        const status = rows.find((row) => row.path === current);
-        setState(status ? { kind: "known", status } : { kind: "unknown" });
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        describeAndReport(SURFACE, "check what the path is", err, { sessionId, background: true });
-        setState({ kind: "unknown" });
-      });
-    return () => controller.abort();
-  }, [sessionId, current]);
+  useEffect(() => setDownloadError(null), [current]);
 
   const type = classifyFile(current);
   const url = sessionFileUrl(sessionId, current);
   const name = baseName(current);
-  const isFolder = state.kind === "known" && state.status.code === PATH_STATUS_FOLDER;
-  const refused =
-    state.kind === "known" &&
-    (state.status.code === PATH_STATUS_NOT_ON_DISK || state.status.code === PATH_STATUS_NOT_ALLOWED);
-  const canDownload = state.kind !== "loading" && !isFolder && !refused;
+  const isFolder = pathIsFolder(state);
+  const refusal = refusalSentence(state);
+  const canDownload = state.kind !== "loading" && !isFolder && refusal === null;
 
   // Escape dismisses the viewer, matching ConfirmDialog.
   useEffect(() => {
@@ -175,8 +147,8 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
         <div className="file-viewer-body">
           {state.kind === "loading" ? (
             <div className="file-viewer-loading">Loading...</div>
-          ) : refused && state.kind === "known" ? (
-            <div className="file-viewer-error">{state.status.sentence}</div>
+          ) : refusal !== null ? (
+            <div className="file-viewer-error">{refusal}</div>
           ) : isFolder ? (
             <FolderListing sessionId={sessionId} path={current} onOpen={openFromFolder} />
           ) : (

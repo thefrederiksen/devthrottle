@@ -30,6 +30,7 @@ public sealed class SessionFileAccessTests : IDisposable
     private readonly string _work;       // the session's working folder
     private readonly string _outside;    // a folder outside it
     private readonly string _protected;  // a stand-in for a CcStorage protected root (the cc-secrets store folder)
+    private readonly string _home;       // a stand-in for the user's home folder
     private readonly SessionFileSecrets _secrets;
 
     public SessionFileAccessTests()
@@ -40,10 +41,12 @@ public sealed class SessionFileAccessTests : IDisposable
         _work = Path.Combine(_base, "repo");
         _outside = Path.Combine(_base, "briefs");
         _protected = Path.Combine(_base, "protected-store");
+        _home = Path.Combine(_base, "home");
         Directory.CreateDirectory(_work);
         Directory.CreateDirectory(_outside);
         Directory.CreateDirectory(_protected);
-        _secrets = new SessionFileSecrets(() => new[] { _protected });
+        Directory.CreateDirectory(_home);
+        _secrets = new SessionFileSecrets(() => new[] { _protected }, _home);
     }
 
     public void Dispose()
@@ -251,6 +254,26 @@ public sealed class SessionFileAccessTests : IDisposable
         new object[] { Path.Combine("google-chrome", "Default", "Cookies") },
         new object[] { Path.Combine(".mozilla", "firefox", "abc.default", "logins.json") },
         new object[] { Path.Combine("Mozilla", "Firefox", "Profiles", "abc.default", "key4.db") },
+        // Review of #4081, defect 1: each of these was admitted when named.
+        new object[] { Path.Combine(".config", "gh", "hosts.yml") },
+        new object[] { Path.Combine(".config", "gcloud", "application_default_credentials.json") },
+        new object[] { Path.Combine(".config", "gcloud", "credentials.db") },
+        new object[] { Path.Combine(".config", "gcloud", "access_tokens.db") },
+        new object[] { Path.Combine(".cargo", "credentials.toml") },
+        new object[] { Path.Combine(".cargo", "credentials") },
+        new object[] { Path.Combine(".terraform.d", "credentials.tfrc.json") },
+        new object[] { Path.Combine(".local", "share", "keyrings", "login.keyring") },
+        new object[] { Path.Combine(".config", "rclone", "rclone.conf") },
+        new object[] { "rclone.conf" },
+        new object[] { ".vault-token" },
+        new object[] { ".boto" },
+        new object[] { ".s3cfg" },
+        new object[] { ".my.cnf" },
+        new object[] { ".dockercfg" },
+        new object[] { ".bash_history" },
+        new object[] { ".zsh_history" },
+        new object[] { "ConsoleHost_history.txt" },
+        new object[] { Path.Combine("GitHub CLI", "hosts.yml") },
     };
 
     [Theory]
@@ -634,4 +657,182 @@ public sealed class SessionFileAccessTests : IDisposable
 
     private static T DirectorCommandRouterBody<T>(DirectorCommandResult result) where T : class =>
         SessionCommandExecutor.Deserialize<T>(result.BodyJson) ?? throw new InvalidOperationException("the result carried no body");
+
+    // ------------------------------------- review of #4081: the home folder, links, data streams ----
+
+    [Fact]
+    public void Decide_namingTheHomeFolder_doesNotAdmitItsDotfiles()
+    {
+        // Defect 2: with the home folder named, ~/.bash_history was served.
+        var history = Write(Path.Combine(_home, ".bash_history"), "export TOKEN=abc");
+
+        var decision = Decide(history, Named(_home));
+
+        Assert.Equal(PathStatusCodes.NotAllowed, decision.Code);
+        Assert.Equal(SessionFileAccess.SecretSentence, decision.Sentence);
+    }
+
+    [Fact]
+    public void Decide_anyHiddenFileOrFolderUnderHome_isRefusedEvenWhenNamed_andEvenForAToolNoListKnows()
+    {
+        // The home rule catches what the name list cannot know about.
+        var unknownTool = Write(Path.Combine(_home, ".sometool", "nested", "token.txt"), "secret");
+        var unknownDotfile = Write(Path.Combine(_home, ".sometoolrc"), "secret");
+
+        Assert.Equal(SessionFileAccess.SecretSentence, Decide(unknownTool, Named(unknownTool)).Sentence);
+        Assert.Equal(SessionFileAccess.SecretSentence, Decide(unknownDotfile, Named(unknownDotfile)).Sentence);
+        Assert.Equal(SessionFileAccess.SecretSentence, Decide(unknownDotfile, Named(_home)).Sentence);
+    }
+
+    [Fact]
+    public void Decide_ordinaryFileInANamedHomeFolder_isStillAllowed()
+    {
+        var notes = Write(Path.Combine(_home, "notes.txt"));
+
+        Assert.Equal(PathStatusCodes.File, Decide(notes, Named(_home)).Code);
+    }
+
+    [Fact]
+    public void ListFolder_namedHomeFolder_showsNoDotfiles()
+    {
+        Write(Path.Combine(_home, "notes.txt"));
+        Write(Path.Combine(_home, ".bash_history"));
+        Write(Path.Combine(_home, ".sometoolrc"));
+
+        var listing = SessionFileAccess.ListFolder(_work, _home, Named(_home), _secrets);
+
+        Assert.Equal(new[] { "notes.txt" }, listing.Entries.Select(e => e.Name).ToArray());
+    }
+
+    [Fact]
+    public void Decide_symbolicLinkToADotfileUnderHome_isRefused()
+    {
+        // The home rule is decided on the real path, so an innocent link outside home does not get round it.
+        var hidden = Write(Path.Combine(_home, ".sometool", "token.txt"), "secret");
+        var link = Path.Combine(_outside, "token-link.txt");
+        CreateFileLink(link, hidden);
+
+        Assert.Equal(SessionFileAccess.SecretSentence, Decide(link, Named(link)).Sentence);
+    }
+
+    [Fact]
+    public void Decide_hiddenFolderInsideAWorkingFolderUnderHome_keepsTheJulyRules()
+    {
+        // A session whose working folder is inside the home folder still opens its own .github.
+        var repoUnderHome = Path.Combine(_home, "repo");
+        var workflow = Write(Path.Combine(repoUnderHome, ".github", "workflows", "ci.yml"));
+
+        var decision = SessionFileAccess.Decide(repoUnderHome, workflow, SessionNamedPaths.Empty, _secrets);
+
+        Assert.Equal(PathStatusCodes.File, decision.Code);
+    }
+
+    [Fact]
+    public void Decide_symbolicLinkInsideANamedFolderToAnUnnamedFile_isRefused()
+    {
+        // Defect 3a: briefs/innocent.txt -> private/diary.txt, with briefs named, served the diary.
+        var diary = Write(Path.Combine(_base, "private", "diary.txt"), "dear diary");
+        var briefs = Path.Combine(_outside, "named-briefs");
+        Directory.CreateDirectory(briefs);
+        var link = Path.Combine(briefs, "innocent.txt");
+        CreateFileLink(link, diary);
+
+        Assert.Equal(PathStatusCodes.NotAllowed, Decide(link, Named(briefs)).Code);
+        var listing = SessionFileAccess.ListFolder(_work, briefs, Named(briefs), _secrets);
+        Assert.Empty(listing.Entries);
+    }
+
+    [Fact]
+    public void Decide_fileThroughANamedLinkToAFolder_isRefused()
+    {
+        // Defect 3b: a named link-to-a-folder out -> private served out/diary.txt.
+        var privateFolder = Path.Combine(_base, "private");
+        Write(Path.Combine(privateFolder, "diary.txt"), "dear diary");
+        var outLink = Path.Combine(_outside, "out");
+        CreateDirectoryLink(outLink, privateFolder);
+
+        var decision = Decide(Path.Combine(outLink, "diary.txt"), Named(outLink));
+
+        Assert.Equal(PathStatusCodes.NotAllowed, decision.Code);
+        Assert.Empty(SessionFileAccess.ListFolder(_work, outLink, Named(outLink), _secrets).Entries);
+    }
+
+    [Fact]
+    public void Decide_servesTheRealPathNotTheLink()
+    {
+        // The bytes are read from the place the decision was made about, so a link swapped afterwards cannot
+        // redirect the read.
+        var target = Write(Path.Combine(_base, "elsewhere", "report.txt"));
+        var link = Path.Combine(_outside, "report-link.txt");
+        CreateFileLink(link, target);
+
+        Assert.Equal(Path.GetFullPath(target), Decide(link, Named(link)).FullPath);
+    }
+
+    [Theory]
+    [InlineData(@"C:\briefs\x.pem::$DATA", true, true)]
+    [InlineData(@"C:\briefs\notes.txt:hidden", true, true)]
+    [InlineData(@"C:\briefs\notes.txt", true, false)]
+    [InlineData(@"C:", true, false)]
+    [InlineData("/tmp/a:b.txt", false, false)]
+    public void NamesAlternateDataStream_isDecidedPerPlatform(string path, bool windows, bool expected)
+    {
+        Assert.Equal(expected, SessionFileAccess.NamesAlternateDataStream(path, windows));
+    }
+
+    [Theory]
+    [InlineData("server.pem.")]
+    [InlineData("server.pem ")]
+    [InlineData(".env.")]
+    [InlineData("gateway-token.txt..")]
+    public void IsSecretFileName_trailingDotsAndSpacesWindowsDrops_stillMatch(string name)
+    {
+        Assert.True(SessionFileSecrets.IsSecretFileName(name));
+    }
+
+    [Fact]
+    public void WindowsCredentialRoots_namesTheCredentialStoresAndTheyAreSecret()
+    {
+        var appData = Path.Combine(_base, "AppData", "Roaming");
+        var local = Path.Combine(_base, "AppData", "Local");
+        var roots = SessionFileSecrets.WindowsCredentialRoots(appData, local);
+        var secrets = new SessionFileSecrets(() => roots);
+
+        Assert.True(secrets.IsSecret(Path.Combine(appData, "Microsoft", "Credentials", "ABCDEF")));
+        Assert.True(secrets.IsSecret(Path.Combine(appData, "Microsoft", "Protect", "S-1-5", "key")));
+        Assert.True(secrets.IsSecret(Path.Combine(appData, "GitHub CLI", "hosts.yml")));
+        Assert.True(secrets.IsSecret(Path.Combine(local, "Microsoft", "Vault", "x")));
+        Assert.True(secrets.IsSecret(Path.Combine(appData, "Microsoft", "Windows", "PowerShell", "PSReadLine", "history.txt")));
+        Assert.False(secrets.IsSecret(Path.Combine(appData, "SomeApp", "settings.json")));
+    }
+
+    [Fact]
+    public void ForThisMachine_protectsTheRealHomeFolder()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var secrets = SessionFileSecrets.ForThisMachine();
+
+        Assert.True(secrets.IsHiddenUnderHome(Path.Combine(home, ".config", "gh", "hosts.yml")));
+        Assert.True(secrets.IsHiddenUnderHome(Path.Combine(home, ".bash_history")));
+        Assert.False(secrets.IsHiddenUnderHome(Path.Combine(home, "Documents", "report.pdf")));
+    }
+
+    private static void CreateDirectoryLink(string link, string target)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                Assert.Fail($"Could not create a directory symbolic link on this host ({ex.Message}); this test needs a real link.");
+                return;
+            }
+            // No symbolic-link right on this Windows host: a junction, which needs no privilege.
+            CcDirector.Core.Utilities.DirectoryJunction.Create(link, target);
+        }
+    }
 }
