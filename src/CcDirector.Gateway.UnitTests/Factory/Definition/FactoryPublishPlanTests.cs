@@ -1256,4 +1256,86 @@ public sealed class FactoryPublishPlanTests
         Assert.Equal(40_320, FactoryDefinitionChanges.PairingsToJudge(8, 8, 8));
         Assert.Equal(FactoryDefinitionChanges.MaxPairingsJudged + 1, FactoryDefinitionChanges.PairingsToJudge(9, 9, 9));
     }
+
+    // ---------- one at a time, when no two-step way gets there (review of 4067, finding 6) ----------
+
+    private const string OneAtATime = "Change these starts one at a time, publishing after each.";
+
+    private static FactoryDefinition Writer(params SeatStartDefinition[] starts)
+        => WithSeat(Definition(), "writer", s => s with { Starts = starts });
+
+    // The writer seat's schedules as a publish of this plan leaves them: what the next publish is composed over.
+    private static CronJobEntity[] After(PublishPlan plan)
+        => plan.Schedules.Where(s => s.Seat == "writer" && s.Action != PlannedScheduleAction.Delete)
+            .Select(s => Live(s.Id!, "writer", s.Job!.CronExpression!, s.Job.Action.Seed!, enabled: s.Job.Enabled, name: s.Job.Name))
+            .ToArray();
+
+    // Each draft in turn must be accepted; the schedules each leaves are the next one's live rows.
+    private static Dictionary<string, CronJobEntity> FollowedOneAtATime(CronJobEntity[] live, params FactoryDefinition[] steps)
+    {
+        foreach (var step in steps) live = After(Plan(step, schedules: live));
+        return live.ToDictionary(j => j.Id);
+    }
+
+    [Fact]
+    public void Compose_PromptsRotatedAmongThreeKeptTimes_SaysOneAtATime_AndThatWayIsAccepted_TheSwitchStayingAt0700()
+    {
+        var target = Writer(Start("0 7 * * *", "Evening mail."), Start("0 12 * * *", "Morning mail."), Start("0 19 * * *", "Midday mail."));
+
+        Assert.EndsWith(OneAtATime, Assert.Single(Refusal(target, schedules: ThreeKeptTimes()).Findings).Message);
+
+        var end = FollowedOneAtATime(ThreeKeptTimes(),
+            Writer(Start("0 7 * * *", "Evening mail."), Start("0 12 * * *", "Midday mail."), Start("0 19 * * *", "Evening mail.")),
+            Writer(Start("0 7 * * *", "Evening mail."), Start("0 12 * * *", "Morning mail."), Start("0 19 * * *", "Evening mail.")),
+            target);
+        Assert.Equal(("0 7 * * *", "Evening mail.", true), (end["cj_a"].CronExpression, end["cj_a"].Action.Seed, end["cj_a"].Enabled));
+        Assert.Equal(("0 12 * * *", "Morning mail.", false), (end["cj_b"].CronExpression, end["cj_b"].Action.Seed, end["cj_b"].Enabled));
+        Assert.Equal(("0 19 * * *", "Midday mail.", false), (end["cj_c"].CronExpression, end["cj_c"].Action.Seed, end["cj_c"].Enabled));
+    }
+
+    [Fact]
+    public void Compose_PromptsSwappedBetweenTwoKeptTimes_SaysOneAtATime_AndThatWayIsAccepted()
+    {
+        var target = Writer(Start("0 7 * * *", "Midday mail."), Start("0 12 * * *", "Morning mail."), Start("0 19 * * *", "Evening mail."));
+
+        Assert.EndsWith(OneAtATime, Assert.Single(Refusal(target, schedules: ThreeKeptTimes()).Findings).Message);
+
+        var end = FollowedOneAtATime(ThreeKeptTimes(),
+            Writer(Start("0 7 * * *", "Midday mail."), Start("0 12 * * *", "Midday mail."), Start("0 19 * * *", "Evening mail.")),
+            target);
+        Assert.Equal(("0 7 * * *", "Midday mail.", true), (end["cj_a"].CronExpression, end["cj_a"].Action.Seed, end["cj_a"].Enabled));
+        Assert.Equal(("0 12 * * *", "Morning mail.", false), (end["cj_b"].CronExpression, end["cj_b"].Action.Seed, end["cj_b"].Enabled));
+    }
+
+    [Fact]
+    public void Compose_ReviewCase6b_ANewPromptThatIsAnotherSchedulesToday_SaysOneAtATime_AndThatWayIsAccepted()
+    {
+        // By the kept times this draft is decided, but the pairing pairs by prompt; the better pairing is found and the
+        // worse one refused, never written. Prompts unchanged would be the live factory itself, so: one at a time.
+        CronJobEntity[] Live6b() => new[]
+        {
+            Live("cj_a", "writer", "0 8 * * *", "Send the digest.", enabled: true, name: "DevThrottle - Writer"),
+            Live("cj_b", "writer", "0 12 * * *", "Send the digest and the summary.", enabled: false, name: "DevThrottle - Writer (2)"),
+        };
+        var target = Writer(Start("0 8 * * *", "Send the digest and the summary."), Start("0 12 * * *", "Send the digest, the summary and the alerts."));
+
+        var finding = Assert.Single(Refusal(target, schedules: Live6b()).Findings);
+        Assert.Equal("Starts 1 and 2 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled) and " +
+                     "cj_b (DevThrottle - Writer (2), paused) without a guess: nothing in the draft tells them apart, so a " +
+                     "publish could give a schedule's switch to the wrong start. " + OneAtATime, finding.Message);
+
+        var end = FollowedOneAtATime(Live6b(),
+            Writer(Start("0 8 * * *", "Send the digest."), Start("0 12 * * *", "Send the digest, the summary and the alerts.")),
+            target);
+        Assert.Equal(("0 8 * * *", "Send the digest and the summary.", true), (end["cj_a"].CronExpression, end["cj_a"].Action.Seed, end["cj_a"].Enabled));
+        Assert.Equal(("0 12 * * *", "Send the digest, the summary and the alerts.", false), (end["cj_b"].CronExpression, end["cj_b"].Action.Seed, end["cj_b"].Enabled));
+    }
+
+    [Fact]
+    public void Compose_EveryPromptEditedToNewWords_KeepsTheTwoStepInstruction_NotOneAtATime()
+    {
+        // Phase 7's case: no draft prompt is one a schedule holds today, so the two-step way still applies.
+        Assert.EndsWith("then publish the prompt edits.",
+            Assert.Single(Refusal(MailDesk(EditedPrompts), schedules: ParkedMailDesk()).Findings).Message);
+    }
 }

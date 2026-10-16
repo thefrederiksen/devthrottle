@@ -322,18 +322,26 @@ public static class FactoryDefinitionChanges
         // What the draft says for one choice: a kept time as much as a kept prompt, then the check, then the zone.
         int Said(int o, int n) => Score(oldStarts[o], newStarts[n]) + (SameWhen(oldStarts[o], newStarts[n]) ? 4 : 0);
         bool Pairable(int o, int n) => (oldStarts[o].Cron is null) == (newStarts[n].Cron is null);
-        // The first of the starts a difference would not change anything between: alike in all kept, or written the same.
-        int OldClass(int o) => o < 0 ? -1 : olds.First(x => x == o || interchangeable(x, o));
-        int NewClass(int n) => n < 0 ? -1 : news.First(x => x == n || SameStart(newStarts[x], newStarts[n]));
+        // Each start's class: the first of the starts a difference would not change anything between - alike in all
+        // that is kept, or written the same. Positions here are places in olds and news, so the search reads arrays.
+        var oldClass = olds.Select(o => olds.FindIndex(x => x == o || interchangeable(x, o))).ToArray();
+        var newClass = news.Select(n => news.FindIndex(x => x == n || SameStart(newStarts[x], newStarts[n]))).ToArray();
+        var said = new int[olds.Count, news.Count];
+        var pairable = new bool[olds.Count, news.Count];
+        for (var i = 0; i < olds.Count; i++)
+            for (var j = 0; j < news.Count; j++)
+                (said[i, j], pairable[i, j]) = (Said(olds[i], news[j]), Pairable(olds[i], news[j]));
 
-        var chosen = olds.ToDictionary(o => o, _ => -1);
-        foreach (var p in pairs) chosen[p.Old] = p.New;
-        var chosenScore = pairs.Sum(p => Said(p.Old, p.New));
+        var chosen = Enumerable.Repeat(-1, olds.Count).ToArray();
+        foreach (var p in pairs) chosen[olds.IndexOf(p.Old)] = news.IndexOf(p.New);
+        var chosenScore = Enumerable.Range(0, olds.Count).Where(i => chosen[i] >= 0).Sum(i => said[i, chosen[i]]);
         var chosenKey = Key(chosen);
+        var chosenOf = Inverse(chosen);
 
         // Every pairing of the same size: each old start takes an unused new start of its kind, or none.
-        var alternative = new Dictionary<int, int>();
-        var used = new HashSet<int>();
+        var alternative = new int[olds.Count];
+        var used = new bool[news.Count];
+        var better = new HashSet<(bool, int)>();
         Try(0, 0, 0);
 
         // An exact pair whose new start another old start, not paired exactly, is also written the same as.
@@ -344,7 +352,8 @@ public static class FactoryDefinitionChanges
             {
                 if (exactOld.Contains(o2) || !SameStart(oldStarts[o2], newStarts[exact.New]) || interchangeable(exact.Old, o2)) continue;
                 var nodes = new List<(bool, int)> { (false, exact.Old), (false, o2), (true, exact.New) };
-                if (chosen.TryGetValue(o2, out var n2) && n2 >= 0) nodes.Add((true, n2));
+                var at = olds.IndexOf(o2);
+                if (at >= 0 && chosen[at] >= 0) nodes.Add((true, news[chosen[at]]));
                 Join(nodes);
             }
         }
@@ -352,53 +361,69 @@ public static class FactoryDefinitionChanges
         return parent.Keys.GroupBy(Root)
             .Select(g => new UndecidedStarts(
                 g.Where(k => !k.IsNew).Select(k => k.At).OrderBy(x => x).ToList(),
-                g.Where(k => k.IsNew).Select(k => k.At).OrderBy(x => x).ToList()))
+                g.Where(k => k.IsNew).Select(k => k.At).OrderBy(x => x).ToList(),
+                PairedWorse: g.Any(k => better.Contains(k))))
             .OrderBy(u => u.New.Count == 0 ? int.MaxValue : u.New[0]).ThenBy(u => u.Old.Count == 0 ? int.MaxValue : u.Old[0])
             .ToList();
 
-        string Key(IReadOnlyDictionary<int, int> assignment)
-            => string.Join(";", assignment.Where(kv => kv.Value >= 0)
-                .Select(kv => $"{NewClass(kv.Value)}:{OldClass(kv.Key)}").OrderBy(x => x, StringComparer.Ordinal));
+        // A pairing as the sorted (start class, row class) of its pairs: equal keys differ in nothing kept.
+        int[] Key(int[] assignment)
+        {
+            var key = new List<int>(pairs.Count);
+            for (var i = 0; i < assignment.Length; i++)
+                if (assignment[i] >= 0) key.Add(newClass[assignment[i]] * (olds.Count + 1) + oldClass[i]);
+            key.Sort();
+            return key.ToArray();
+        }
+
+        // For each new start, the old start that takes it, or -1.
+        int[] Inverse(int[] assignment)
+        {
+            var of = Enumerable.Repeat(-1, news.Count).ToArray();
+            for (var i = 0; i < assignment.Length; i++)
+                if (assignment[i] >= 0) of[assignment[i]] = i;
+            return of;
+        }
+
+        int NewClassOf(int j) => j < 0 ? -1 : newClass[j];
+        int OldClassOf(int i) => i < 0 ? -1 : oldClass[i];
 
         void Try(int i, int paired, int score)
         {
             if (i == olds.Count)
             {
-                if (paired != pairs.Count || score < chosenScore || Key(alternative) == chosenKey) return;
+                if (paired != pairs.Count || score < chosenScore || Key(alternative).AsSpan().SequenceEqual(chosenKey)) return;
                 var nodes = new List<(bool, int)>();
-                foreach (var o in olds)
+                for (var k = 0; k < olds.Count; k++)
                 {
-                    var was = chosen[o];
-                    var now = alternative[o];
-                    if (NewClass(was) == NewClass(now)) continue;
-                    nodes.Add((false, o));
-                    if (was >= 0) nodes.Add((true, was));
-                    if (now >= 0) nodes.Add((true, now));
+                    if (NewClassOf(chosen[k]) == NewClassOf(alternative[k])) continue;
+                    nodes.Add((false, olds[k]));
+                    if (chosen[k] >= 0) nodes.Add((true, news[chosen[k]]));
+                    if (alternative[k] >= 0) nodes.Add((true, news[alternative[k]]));
                 }
-                foreach (var n in news)
-                {
-                    var was = chosen.FirstOrDefault(kv => kv.Value == n, new KeyValuePair<int, int>(-1, -1)).Key;
-                    var now = alternative.FirstOrDefault(kv => kv.Value == n, new KeyValuePair<int, int>(-1, -1)).Key;
-                    if (OldClass(was) != OldClass(now)) nodes.Add((true, n));
-                }
-                if (nodes.Count > 0) Join(nodes);
+                var alternativeOf = Inverse(alternative);
+                for (var j = 0; j < news.Count; j++)
+                    if (OldClassOf(chosenOf[j]) != OldClassOf(alternativeOf[j])) nodes.Add((true, news[j]));
+                if (nodes.Count == 0) return;
+                Join(nodes);
+                // The pairing made scores LESS than this one: changing the starts one at a time is the way through.
+                if (score > chosenScore) better.UnionWith(nodes);
                 return;
             }
-            var o1 = olds[i];
             // None: only while enough old starts remain to make as many pairs as the pairing did.
             if (olds.Count - i - 1 >= pairs.Count - paired)
             {
-                alternative[o1] = -1;
+                alternative[i] = -1;
                 Try(i + 1, paired, score);
             }
             if (paired == pairs.Count) return;
-            foreach (var n in news)
+            for (var j = 0; j < news.Count; j++)
             {
-                if (used.Contains(n) || !Pairable(o1, n)) continue;
-                used.Add(n);
-                alternative[o1] = n;
-                Try(i + 1, paired + 1, score + Said(o1, n));
-                used.Remove(n);
+                if (used[j] || !pairable[i, j]) continue;
+                used[j] = true;
+                alternative[i] = j;
+                Try(i + 1, paired + 1, score + said[i, j]);
+                used[j] = false;
             }
         }
     }
@@ -704,5 +729,8 @@ internal sealed record StartPairing(IReadOnlyList<StartPair> Pairs, IReadOnlyLis
 /// One guess of a pairing (<see cref="FactoryDefinitionChanges.Undecided"/>): the old positions and the new positions,
 /// each in list order, whose pairing nothing in the draft decided. <see cref="TooMany"/> when there were more pairings
 /// to try than <see cref="FactoryDefinitionChanges.MaxPairingsJudged"/>, and every start not paired exactly is in it.
+/// <see cref="PairedWorse"/> when another pairing of them scores MORE than the one made: no two-step way reaches it, but
+/// changing the starts one at a time does.
 /// </summary>
-internal sealed record UndecidedStarts(IReadOnlyList<int> Old, IReadOnlyList<int> New, bool TooMany = false);
+internal sealed record UndecidedStarts(IReadOnlyList<int> Old, IReadOnlyList<int> New, bool TooMany = false,
+    bool PairedWorse = false);
