@@ -31,7 +31,7 @@ public sealed class LedgerAndPassRuleTests
     }
 
     private static LedgerEntry Entry(string director, bool pass) =>
-        new("run", DateTime.UtcNow, "abc", "m", "os", "claude", "v", "idle-short", 10, director, pass ? "ARRIVED" : "LOST", pass, 1, "", null);
+        new("run", new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc), "abc", "m", "os", "claude", "v", "idle-short", 10, director, pass ? "ARRIVED" : "LOST", pass, 1, "", null);
 
     [Fact]
     public void Counted_SetupFailure_IsLeftOutButAnErrorAfterTheSendIsCounted()
