@@ -38,10 +38,11 @@ and 500 output tokens (more than one to two seconds of streaming can produce).
 | 2026-10-16 | Developer, phase 0 | Fixture recording 2: resume | 3 | 6 | 3,743 | 30 | 0.0023 |
 | 2026-10-16 | Developer, phase 0 | Fixture recording 2: refusal | 6 | 68 | 3,752 | 3,827 | 0.0238 |
 | 2026-10-16 | Developer, phase 0 | Fixture recording 2: exit (estimate) | 3,800 | 500 | 0 | 0 | 0.0390 |
+| 2026-10-16 | Developer, phase 0 | Fixture recording 3: exit before acknowledgement (Pi killed before it reached the model) | 0 | 0 | 0 | 0 | 0.0000 |
 
 Recording 1 was discarded and recorded again because its fixtures carried text that this public
 repository should not publish (the fleet's skill descriptions and the user name inside Pi's session
-folder name). Recording 2 is what is committed.
+folder name). Recording 2 is what is committed, plus recording 3, the exit before acknowledgement, added at the Delivery Lead's request.
 
 ## Totals
 

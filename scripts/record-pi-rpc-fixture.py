@@ -31,7 +31,7 @@ CC_* variables are removed from Pi's environment so Pi does not join the fleet a
 
 Usage:
   python3 scripts/record-pi-rpc-fixture.py <fixture-dir> <work-dir> [scenario ...]
-Scenarios: plain tool abort resume refusal exit (default: all, in that order; resume needs plain
+Scenarios: plain tool abort resume refusal exit exit-before-ack (default: all, in that order; resume needs plain
 in the same run, because it resumes plain's session by its id).
 """
 import json
@@ -293,8 +293,27 @@ def scenario_exit(ctx):
     return None, {"exitCode": code, "tokens": stats}
 
 
+def scenario_exit_before_ack(ctx):
+    run = PiRun("exit-before-ack", ctx["fixtures"], ctx["work"], str(uuid.uuid4()), ctx["redactor"],
+                "Pi ended (SIGKILL by the recorder) right after the prompt was written, before its "
+                "acknowledgement: the stream ends with no response to the prompt.")
+    run.send({"type": "prompt", "message": "Reply with exactly the word PONG"})
+    # Pi takes about 0.3 seconds to start and answer; end it well inside that window, before it
+    # can reach the model.
+    time.sleep(0.05)
+    run.kill()
+    code = run.finish(close_stdin=False)
+    acknowledged = run.counts.get("response", 0)
+    if acknowledged:
+        raise RuntimeError(f"[exit-before-ack] Pi answered {acknowledged} time(s) before it was killed; "
+                           "the scenario did not happen - record it again")
+    return None, {"exitCode": code, "events": run.counts,
+                  "tokens": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}
+
+
 SCENARIOS = {"plain": scenario_plain, "tool": scenario_tool, "abort": scenario_abort,
-             "resume": scenario_resume, "refusal": scenario_refusal, "exit": scenario_exit}
+             "resume": scenario_resume, "refusal": scenario_refusal, "exit": scenario_exit,
+             "exit-before-ack": scenario_exit_before_ack}
 
 
 def main():

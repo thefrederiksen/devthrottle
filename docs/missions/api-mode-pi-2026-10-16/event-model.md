@@ -56,7 +56,7 @@ Rules every dialect keeps:
 
 1. **One `PromptDelivered` or one `PromptRefused` per prompt written to the agent, never both,
    never neither.** If the agent exits before acknowledging, the Director emits `PromptRefused`
-   (`refusedBy: director`, reason "the agent exited before acknowledging the prompt").
+   (`refusedBy: director`, reason "Pi exited before acknowledging"; seen in `exit-before-ack`).
 2. **Every `TurnStarted` gets exactly one `TurnEnded`**, including when the process dies.
 3. **Every `ToolCallStarted` gets exactly one `ToolCallFinished`.** A tool still running when its
    turn ends is closed by the dialect as `cancelled` (turn cancelled) or `failed` (turn failed), so
@@ -64,11 +64,19 @@ Rules every dialect keeps:
 4. Verbatim fields (`acknowledgement`, `input`, `agentStopReason`) are the agent's own data,
    untranslated, so a receipt can be checked against the wire log.
 
-**Awaiting the Delivery Lead's answer:** the mission's failure case reads "Pi exits mid-turn: ...
-the prompt is not marked delivered". On the wire Pi acknowledges in 0.1 to 0.4 seconds, long before
-a turn can be cut short, so this note keeps the prompt `PromptDelivered` and ends the **turn**
-`failed` with the reason (rule 1 covers the exit before the acknowledgement). Changed here if the
-answer differs.
+5. **A prompt's receipt shows its turn's outcome beside Delivered.** A receipt is the prompt's
+   `PromptDelivered` plus the `TurnEnded` of the turn whose `promptIds` hold it. When that turn
+   ended `failed` or `cancelled`, the receipt shows it next to Delivered, never Delivered alone.
+
+**Delivery Lead ruling (16 October 2026) on the failure case in section 7 of the mission
+document.** The original wording: "Pi exits mid-turn: the session shows failed with the reason,
+and the prompt is not marked delivered." On the wire Pi acknowledges a prompt 0.1 to 0.4 seconds
+after it is written, long before a turn can be cut short, so the case splits in two:
+
+| Case | What the model emits | Fixture |
+|---|---|---|
+| Pi exits **after** acknowledging (mid-turn) | `PromptDelivered` stays: Delivered means Pi acknowledged it (section 3 of the mission document). The turn ends `TurnEnded`, `failed`, reason = the exit code and the last standard error lines. Rule 5: the receipt shows that failed turn beside Delivered, so it never reads as a plain success. Then `ConnectionEnded`. | `exit` (real) |
+| Pi exits **before** acknowledging | `PromptRefused`, `refusedBy: director`, reason "Pi exited before acknowledging". No turn. Then `ConnectionEnded`. | `exit-before-ack` (real: Pi killed 50 milliseconds after the prompt was written; it wrote nothing) |
 
 ## 3. The Pi mapping
 
@@ -101,7 +109,7 @@ fleet's skills and Pi's extensions load in API mode (a lesson from `StudioBacken
 | `{"id":<ours>,"type":"response","command":"prompt","success":false,"error":"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."}` (seen in `refusal`) | `PromptRefused`, `refusedBy: agent`, `reason` = `error` verbatim. |
 | `{"id":<ours>,"type":"response","command":"no_such_command","success":false,"error":"Unknown command: no_such_command"}` (seen) | Not a prompt: a dialect defect. Logged and raised as an error, never shown as a receipt. |
 | `{"type":"response","command":"parse","success":false,"error":"Failed to parse command: ..."}` (seen; **no id**) | We wrote a line Pi could not parse: a dialect defect. If a prompt is waiting for its acknowledgement, it is `PromptRefused` (`refusedBy: director`, reason quoting `error`). |
-| End of standard output before the response | `PromptRefused`, `refusedBy: director`, "the agent exited before acknowledging the prompt", then `ConnectionEnded`. |
+| End of standard output before the response (seen in `exit-before-ack`: standard output is empty) | `PromptRefused`, `refusedBy: director`, "Pi exited before acknowledging", then `ConnectionEnded`. |
 
 ### 3.3 The turn
 
@@ -151,7 +159,7 @@ Seen in `exit` (the recorder sent SIGKILL during the reply): standard output sim
 `message_update`. There is no `message_end`, `turn_end`, `agent_end` or `agent_settled`, and the
 exit code is -9 (137 from a shell). The model emits `TurnEnded`, `failed`, reason "Pi exited during
 the turn (exit code -9)" plus the last standard error lines, then `ConnectionEnded`. The prompt
-stays `PromptDelivered` (see the question in section 2). Resuming the same session afterwards works:
+stays `PromptDelivered`, and its receipt shows the failed turn (the ruling in section 2). Resuming the same session afterwards works:
 Pi had saved nothing of the cut-off reply, and its stats report 0 tokens for it.
 
 ### 3.6 Permission requests
@@ -179,10 +187,10 @@ by `messageCount` being 0 or the standard error warning, and must fail with that
 `scripts/record-pi-rpc-fixture.py` records them; the fixture folder's README lists each scenario.
 They are in `src/CcDirector.Core.Tests/TestData/pi-rpc/`, which **`CcDirector.Core.UnitTests`**
 already links and copies to its output (`TestData\**` in its project file; checked with MSBuild:
-all twelve files are copied, no project change needed). That project is chosen because it is the
+all fourteen wire-log files are copied, no project change needed). That project is chosen because it is the
 Director's suite in the **default gate** of `scripts/test-local.ps1` on origin/main (1,418 tests,
 inside the two-minute budget); `CcDirector.Core.Tests` itself is parked and would leave the replay
 tests unrun on every ordinary change. The shared folder keeps one copy for both.
 
-Every fixture is real, including the refusal. None is hand-built. `.gitattributes` marks the folder
+Every fixture is real, including the refusal and the exit before acknowledgement. None is hand-built. `.gitattributes` marks the folder
 `-text` so a Windows checkout keeps line feeds and the framing tests see the bytes Pi wrote.

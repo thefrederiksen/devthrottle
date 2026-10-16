@@ -21,6 +21,7 @@ Each scenario has two files:
 | `resume` | A new Pi process on the `plain` session's id answering from that conversation (`PONG`); no system message, no "No project session found" warning. |
 | `refusal` | Real refusals: a prompt during a turn without `streamingBehavior` (`success: false` with Pi's reason), an unknown command, malformed JSON (a `parse` response with no id); then a prompt Pi queued (`disposition: queued`, `queue_update`, a second Pi turn in the same run), and `abort` while idle. |
 | `exit` | Pi killed (SIGKILL, exit code -9) while the reply streamed: the output ends after a `message_update`, with no `agent_settled`. |
+| `exit-before-ack` | Pi killed (SIGKILL, exit code -9) 50 milliseconds after the prompt was written, before it acknowledged: standard output is empty, so the prompt has no response. Made no model call. |
 
 Redaction: the work folder is `/work` (and `work` inside Pi's session folder name), the home folder
 is `/home/fixture`, the model provider's address is `https://model-provider.invalid`, and skill
