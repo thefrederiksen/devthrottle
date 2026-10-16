@@ -26,6 +26,10 @@ is in mail-rules.json ("secrets"), not in this code:
                          mailbox by an application access policy
   clientSecret  secret   that app's client secret
 
+Two optional rules keys say where Graph and its sign-in are: "graph" (default https://graph.microsoft.com/v1.0)
+and "signIn" (default https://login.microsoftonline.com). Only a test rig sets them, to point the check at a fake
+mailbox on this machine; the definition that reads a real mailbox leaves them out.
+
 Rules (who counts, which entries) are in files/mail-rules.json under the working folder - where the definition
 puts them, and the Director runs a check with the downloaded version's folder as its working folder - or in the file
 named by --rules.
@@ -50,6 +54,7 @@ STATE_CAP_BYTES = 64 * 1024
 PAGE_SIZE = 50
 MAX_PAGES_PER_FOLDER = 10
 GRAPH = "https://graph.microsoft.com/v1.0"
+SIGN_IN = "https://login.microsoftonline.com"
 SECRET_PARTS = ("tenantId", "clientId", "clientSecret")
 SECRET_VARS = "CC_CHECK_SECRET_VARS"
 DEFAULT_RULES = os.path.join("files", "mail-rules.json")
@@ -99,9 +104,9 @@ def read_credentials(rules, env):
     return credentials
 
 
-def read_token(credentials):
+def read_token(credentials, sign_in=SIGN_IN):
     """The app-only Graph token. A POST to the sign-in endpoint - the only non-GET call this makes."""
-    url = f"https://login.microsoftonline.com/{credentials['tenantId']}/oauth2/v2.0/token"
+    url = f"{sign_in}/{credentials['tenantId']}/oauth2/v2.0/token"
     answer = http_json("POST", url, form={
         "client_id": credentials["clientId"],
         "client_secret": credentials["clientSecret"],
@@ -126,6 +131,10 @@ def load_rules(path):
     for part in SECRET_PARTS:
         if not isinstance(rules["secrets"].get(part), str) or not rules["secrets"][part]:
             raise CheckFailed(f"{path} names no entry for '{part}' under 'secrets'")
+    for key in ("graph", "signIn"):
+        if key in rules and (not isinstance(rules[key], str) or not rules[key]):
+            raise CheckFailed(f"{path}: '{key}' must be an address in quotes, such as \"http://127.0.0.1:7994\"; "
+                              "leave it out to use Microsoft's own")
     return rules
 
 
@@ -163,7 +172,7 @@ def write_state(path, folders):
         fh.write(text)
 
 
-def messages_since(token, mailbox, folder, since_iso):
+def messages_since(token, mailbox, folder, since_iso, graph=GRAPH):
     """Sender, subject and time of the messages received at or after since_iso, OLDEST first, at most
     PAGE_SIZE * MAX_PAGES_PER_FOLDER of them. GET only, no body. Returns (messages, more_left)."""
     query = urllib.parse.urlencode({
@@ -172,7 +181,7 @@ def messages_since(token, mailbox, folder, since_iso):
         "$orderby": "receivedDateTime asc",
         "$top": str(PAGE_SIZE),
     })
-    url = f"{GRAPH}/users/{urllib.parse.quote(mailbox)}/mailFolders/{folder}/messages?{query}"
+    url = f"{graph}/users/{urllib.parse.quote(mailbox)}/mailFolders/{folder}/messages?{query}"
     out = []
     for _ in range(MAX_PAGES_PER_FOLDER):
         page = http_json("GET", url, headers={"Authorization": f"Bearer {token}"})
@@ -209,13 +218,13 @@ def run(rules, env, state_path, now):
     watched = watched_senders(rules["ledger"])
     markers = [m.lower() for m in rules["bounceSubjectMarkers"]]
 
-    token = read_token(credentials)
+    token = read_token(credentials, rules.get("signIn", SIGN_IN))
     found, notes, new_state = [], [], {}
     for folder in rules["folders"]:
         mark = state.get(folder)
         since = mark["newest"] if mark else first_since
         already = set(mark["idsAtNewest"]) if mark else set()
-        seen, more_left = messages_since(token, rules["mailbox"], folder, since)
+        seen, more_left = messages_since(token, rules["mailbox"], folder, since, rules.get("graph", GRAPH))
         fresh = [m for m in seen if m["id"] not in already]
         found.extend(m for m in fresh if m["from"] in watched or any(k in m["subject"].lower() for k in markers))
 

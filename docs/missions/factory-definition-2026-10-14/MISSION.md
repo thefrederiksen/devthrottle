@@ -299,7 +299,9 @@ it forgets everything between runs; and a time-of-day schedule cannot have one.
   asks the seat's machine the same question it asks about secret names (section 5.5 step 5). No other interpreter is
   tried.
 - **Secrets.** The start lists secret NAMES; the Director runs the check under `cc-secrets run` with those names, so
-  the values are in the check's environment and nowhere else, and a check cannot read a name it did not declare.
+  the values are in the check's environment. The Director hands a check only the secrets it declared; a check runs
+  as the user, so publishing a definition is the trust boundary (the phase 5b QA report found a check can call
+  `cc-secrets run` on an entry it did not declare).
   The variable each secret arrives in (the Delivery Lead's ruling in phase 5b, replacing a "one rule" that phase 0
   proved false for cc-secrets: with two or more secrets each entry arrives in ITS OWN variable, and `cc-secrets run`
   cannot rename a `--with` entry):
