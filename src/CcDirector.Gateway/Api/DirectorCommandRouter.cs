@@ -198,4 +198,24 @@ internal static class DirectorCommandRouter
         result.Status is DirectorCommandStatus.Timeout or DirectorCommandStatus.TunnelDropped
             ? result.Error ?? $"director returned {result.Status}"
             : $"director returned {result.Status}: {result.Error}";
+
+    /// <summary>
+    /// THE DIRECTOR'S OWN REFUSAL OF A SEAT START (Factory Definition mission, phase 5, QA finding 6): the sentence the
+    /// Director refused a seat's create with, alone, or null when this is not one. A seat start is a create that names
+    /// a seat or a kit; a refusal is the Director answering <see cref="DirectorCommandStatus.BadRequest"/> or
+    /// <see cref="DirectorCommandStatus.Conflict"/> with a sentence - a secret the machine does not hold, a repository
+    /// it has not registered, an agent that cannot take the seat's rules. That sentence is the answer a person acts on,
+    /// so every door a seat start goes through carries it alone, as a 409 where the door answers with a status, never
+    /// wrapped as "director returned ..." behind a 502.
+    ///
+    /// Everything else stays a fault: <see cref="DirectorCommandStatus.Error"/> (the create threw), a Director that did
+    /// not answer or dropped, and every create that is not a seat start, whose answers are unchanged.
+    /// </summary>
+    public static string? SeatStartRefusal(NewSessionRequest? request, DirectorCommandResult? result)
+    {
+        if (request is null || result is null || result.Ok) return null;
+        if (string.IsNullOrWhiteSpace(request.FactorySeat) && string.IsNullOrWhiteSpace(request.FactoryKit)) return null;
+        if (result.Status is not (DirectorCommandStatus.BadRequest or DirectorCommandStatus.Conflict)) return null;
+        return string.IsNullOrWhiteSpace(result.Error) ? null : result.Error;
+    }
 }

@@ -231,6 +231,8 @@ public sealed class DefinedByDefinitionTests : IDisposable
         nameof(CronJobDto.FactoryHref), nameof(CronJobDto.ShortName), nameof(CronJobDto.LoadWarning),
         nameof(CronJobDto.Shifts), nameof(CronJobDto.ShiftText), nameof(CronJobDto.ShiftWarning), nameof(CronJobDto.ShiftRule),
         nameof(CronJobDto.DefinedByDefinition),
+        // Stamped with DefinedByDefinition on every answer (phase 5, QA finding 5); never stored, never read from a body.
+        nameof(CronJobDto.PathText),
         // A timed start's check (phase 5b) is written only by a publish and ignored on every write through the
         // schedule routes (CronJobStore.ApplyDefinition never copies it), so no route can change it.
         nameof(CronJobDto.CheckPath), nameof(CronJobDto.CheckSecrets), nameof(CronJobDto.DefinitionVersion),

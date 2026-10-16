@@ -279,7 +279,12 @@ internal static class CronJobEndpoints
                 .Where(f => isDefined(ctx, f))
                 .ToHashSet(StringComparer.Ordinal);
             foreach (var job in jobs)
+            {
                 job.DefinedByDefinition = !string.IsNullOrWhiteSpace(job.Factory) && defined.Contains(job.Factory);
+                // Where the folder goes, in the Gateway's words: a defined factory's run is built from its definition,
+                // not started in a folder (QA finding 5), so a client never reads its empty folder as a broken row.
+                job.PathText = job.DefinedByDefinition ? CronJobDto.DefinedPathText : null;
+            }
             if (defined.Count > 0)
                 FileLog.Write($"[CronJobEndpoints] defined: schedules={jobs.Count}, of a defined factory={jobs.Count(j => j.DefinedByDefinition)}");
         }

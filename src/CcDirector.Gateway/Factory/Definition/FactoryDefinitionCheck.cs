@@ -58,6 +58,13 @@ public static class FactoryDefinitionCheck
         "allow rules are not applied when the seat starts: a definition only adds limits.";
 
     /// <summary>
+    /// The notice on a seat with starts that names a rule set with an <c>ask</c> rule (Factory Definition, phase 5, QA
+    /// finding 4). An ask rule binds even under the Director's permission flag, so a run nobody is watching waits at it.
+    /// </summary>
+    public const string AskStopsAnUnattendedRun =
+        "This seat starts on a schedule or a check, with nobody there to answer: an ask rule stops the run until a person answers it.";
+
+    /// <summary>
     /// Check a whole definition. <paramref name="factoryId"/> is the factory the save names;
     /// <paramref name="fleetSkillIds"/> the skill ids in the account's skill store; <paramref name="connectedMachines"/>
     /// the machine names the account's Directors report now. The result carries the parsed definition when there is no
@@ -564,6 +571,7 @@ public static class FactoryDefinitionCheck
                     if (!answer.CanTake)
                         Error(_findings, path, rules.KeyLine, answer.Reason!);
                 }
+                AskRulesWithNobodyThere(path, map, rules);
             }
 
             if (map.Find("secrets") is { } secrets)
@@ -586,6 +594,24 @@ public static class FactoryDefinitionCheck
             if (map.Find("starts") is { Value: DefinitionList starts })
                 foreach (var start in starts.Items)
                     CheckStart(path, (DefinitionMap)start, machine, named);
+        }
+
+        // AN ASK RULE ON A SEAT NOBODY WATCHES (Factory Definition mission, phase 5, QA finding 4): an ask rule binds
+        // even under the Director's permission flag, so a seat started by one of its starts - a schedule or a check,
+        // with nobody there - waits at the question until a person answers it. Said on the seat's line naming each rule
+        // set whose ask list is not empty, as a notice: the rule may be meant. A seat with no starts is only ever
+        // started by a person, who is there to answer, and gets none.
+        private void AskRulesWithNobodyThere(string path, DefinitionMap seat, DefinitionEntry rules)
+        {
+            if (seat.Find("starts") is not { Value: DefinitionList { Items.Count: > 0 } }) return;
+            foreach (var (rule, line) in Items(rules))
+            {
+                if (_p.RuleSets.TryGetValue(rule, out var file)
+                    && file.Map.Find("permissions")?.Value is DefinitionMap permissions
+                    && permissions.Find("ask") is { } ask
+                    && Items(ask).Count > 0)
+                    Notice(_findings, path, line, AskStopsAnUnattendedRun);
+            }
         }
 
         private void CheckSkills(string path, DefinitionMap skills, string agent, Named named)

@@ -211,6 +211,18 @@ public sealed class CronJobDto
     /// </summary>
     public bool DefinedByDefinition { get; set; }
 
+    /// <summary>
+    /// What a client shows where this schedule's folder goes when its run does not start in one (Factory Definition,
+    /// phase 5, QA finding 5): <see cref="DefinedPathText"/> for a schedule of a factory with a published definition,
+    /// whose run is built from the definition - its <see cref="CronJobAction.RepoPath"/> is empty, or an old folder no
+    /// run starts in. Null for every other schedule, whose run starts in <see cref="CronJobAction.RepoPath"/>. Stamped by
+    /// the Gateway on every answer with <see cref="DefinedByDefinition"/>, so no client words it itself. Read-only.
+    /// </summary>
+    public string? PathText { get; set; }
+
+    /// <summary>The words of <see cref="PathText"/> for a schedule of a defined factory.</summary>
+    public const string DefinedPathText = "built from the factory's definition";
+
     // ---------- A timed start WITH A CHECK (Factory Definition, phase 5b) ----------
     // Written only by a factory definition's publish, never from a request body: a write through the schedule routes
     // leaves them as they are. Null on every schedule without a check, which fires exactly as before.

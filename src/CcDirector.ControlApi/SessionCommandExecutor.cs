@@ -1461,6 +1461,16 @@ internal static class SessionCommandExecutor
         return composed;
     }
 
+    /// <summary>
+    /// The status a create that threw answers with. A seat the machine refuses (<see cref="FactorySeatRefusedException"/>:
+    /// a secret it does not hold, an agent that cannot take the seat's rules) is a REFUSAL, answered
+    /// <see cref="DirectorCommandStatus.Conflict"/> so the Gateway passes its sentence to the person as a 409 (Factory
+    /// Definition mission, phase 5, QA finding 6). Everything else that throws is a fault, answered
+    /// <see cref="DirectorCommandStatus.Error"/> as before.
+    /// </summary>
+    internal static DirectorCommandStatus CreateFailureStatus(Exception ex) =>
+        ex is FactorySeatRefusedException ? DirectorCommandStatus.Conflict : DirectorCommandStatus.Error;
+
     internal static DirectorCommandResult Create(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
     {
         var req = Deserialize<NewSessionRequest>(command.PayloadJson);
@@ -1744,7 +1754,7 @@ internal static class SessionCommandExecutor
             // Creation genuinely can fail (spawn error, bad path); the documented contract is to surface
             // the message as an error the caller maps to 500 - the same behaviour the REST lambda had.
             FileLog.Write($"[SessionCommandExecutor] create FAILED: {ex.Message}");
-            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, ex.Message);
+            return DirectorCommandResult.Fail(CreateFailureStatus(ex), ex.Message);
         }
 
         // Apply the per-session Wingman opt-in (contract default true, matching Session.WingmanEnabled).

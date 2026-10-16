@@ -496,9 +496,16 @@ internal static class MachineEndpoints
                 tooOld = SpawnFactory.RefuseAtMachineDoor(req, directorId,
                     directors is null ? null : id => directors.Get(tenant, id), spawner.RefuseSeatStart);
 
-            var (ok, dto, error, _) = await spawner.SpawnOnMachineAsync(machine, req, ct, refuseDirector);
+            var spawned = await spawner.SpawnOnMachineWithOutcomeAsync(machine, req, ct, refuseDirector);
+            var (ok, dto, error) = (spawned.Ok, spawned.Dto, spawned.Error);
             if (tooOld is not null)
                 return Results.Json(new { error = tooOld, machine }, statusCode: StatusCodes.Status409Conflict);
+            // A seat start the Director refused is its sentence, a 409 the caller acts on (QA finding 6), never a 502.
+            if (!ok && spawned.SeatStartRefused)
+            {
+                FileLog.Write($"[MachineEndpoints] POST /machines/{machine}/sessions REFUSED by the Director: {error}");
+                return Results.Json(new { error, machine }, statusCode: StatusCodes.Status409Conflict);
+            }
             if (!ok || dto is null)
             {
                 FileLog.Write($"[MachineEndpoints] POST /machines/{machine}/sessions FAILED: {error}");
