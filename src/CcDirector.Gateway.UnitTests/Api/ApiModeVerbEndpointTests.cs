@@ -337,6 +337,21 @@ public sealed class ApiModeVerbEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task RunApiModeVerbAsync_SessionKeyStopsATerminalSessionItControls_IsPointedAtAQueuedMessageNotInterrupt()
+    {
+        // Second review, note 1: interrupt is refused to every session key, even on a session it controls, so the
+        // sentence a session key reads must not send it there.
+        var caller = Guid.NewGuid();
+        var sid = Seat(ConnectionModes.Terminal, holder: null, controller: caller.ToString());
+
+        var result = await MoveAsync(sid, ApiModeVerb.StopTurn, AsSession(caller));
+
+        AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.NotApiMode, GatewayEndpoints.StopNotApiModeAgentReason);
+        Assert.Contains("cc-devthrottle message send", GatewayEndpoints.StopNotApiModeAgentReason);
+        Assert.DoesNotContain("session interrupt", GatewayEndpoints.StopNotApiModeAgentReason);
+    }
+
+    [Fact]
     public async Task RunApiModeVerbAsync_StopWhenTheHolderCannotBeRead_IsStillSent()
     {
         // A holder the Gateway does not know must never keep a user from stopping a turn: Stop needs only the mode.
@@ -440,7 +455,7 @@ public sealed class ApiModeVerbEndpointTests : IDisposable
 
         var result = await MoveAsync(sid, ApiModeVerb.TakeWheel, AsSession(Guid.NewGuid()));
 
-        Assert.Equal(GatewayEndpoints.WheelRefusalCodes.NotYourSession, Body(result).GetProperty("code").GetString());
+        AssertRefused(result, StatusCodes.Status403Forbidden, GatewayEndpoints.WheelRefusalCodes.NotYourSession, AgentInputRefusal.ApiModeNotYourSession);
     }
 
     [Fact]

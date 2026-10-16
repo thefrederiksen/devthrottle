@@ -156,12 +156,12 @@ None. Numbering would have continued from 4.
 
 - **The Stop refusal on a terminal session points every caller at interrupt, including a session key that cannot use it.** `StopNotApiModeReason` says "interrupt it instead (cc-devthrottle session interrupt, or Ctrl+C in its terminal)". Interrupt is refused to every session key, even on a session it controls (the brief and `OwnedSessionInput` both keep it the owner's). An agent that controls a terminal-mode child and calls Stop is therefore sent to a verb that answers 403 with the Typing sentence, which then tells it to message the session instead. The end state is correct and it costs one extra request, which is why this is a note. The Gateway may choose the sentence by caller without breaking rule 7, since the ruling stays on the Gateway.
 
-  Developer's answer:
+  Developer's answer: Accepted, fixed. A session key (not raised) that asks to stop a terminal-mode session now reads `StopNotApiModeAgentReason`: Stop does not apply, an agent may not interrupt a session, and it should send a queued message instead (`AgentInputRefusal.Instead`). The owner's device and a raised session still read the sentence that names interrupt, which they can use. The Gateway chooses the sentence, so rule 7 holds. New test: `RunApiModeVerbAsync_SessionKeyStopsATerminalSessionItControls_IsPointedAtAQueuedMessageNotInterrupt`.
 
 - **The ordering test asserts the code only.** `RunApiModeVerbAsync_NotControlled_IsRefusedBeforeTheSessionsStateIsSaid` checks that the body's code is `not_your_session`, but not the 403 status and not that nothing was sent. The other refusal tests assert all three through `AssertRefused`; this one could too, at no cost.
 
-  Developer's answer:
+  Developer's answer: Accepted, fixed. The test now uses `AssertRefused`, so it checks 403, the code, the sentence, and that nothing was sent.
 
 - **The contract's words say "finished sending"; the guarantee comes from awaiting the completion.** The phase 4 contract reads "finished sending `PushDelta` ... (awaited, not the fire-and-forget `NotifyDelta`)". What makes the window zero by construction is that `DirectorHubCalls.PushDeltaAsync` uses `InvokeAsync`, whose task completes only after the Gateway's hub method has returned, and that method applies the store synchronously. "Finished sending" could be read as satisfied by an awaited `SendAsync`, which completes when the bytes leave and would make the ordering rest on the hub's dispatch internals instead. Naming the call (await `PushDeltaAsync`, the existing method) where the contract is carried to phase 4 removes the ambiguity.
 
-  Developer's answer:
+  Developer's answer: Accepted, fixed. The contract in the handler's summary and in the pull request now names the call: the Director awaits `DirectorHubCalls.PushDeltaAsync` (which uses `InvokeAsync` and completes only after the Gateway's `DirectorHub.PushDelta` has applied the delta), never `GatewayStreamClient.NotifyDelta` and never a bare awaited `SendAsync`. The Tech Lead carries that wording to phase 4.

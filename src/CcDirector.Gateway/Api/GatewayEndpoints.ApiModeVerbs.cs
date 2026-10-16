@@ -95,6 +95,12 @@ internal static partial class GatewayEndpoints
         "This session is in terminal mode, so Stop over the agent's protocol does not apply. To stop its turn, interrupt "
         + "it instead (cc-devthrottle session interrupt, or Ctrl+C in its terminal).";
 
+    /// <summary>The same refusal for a SESSION KEY, which cannot interrupt (interrupt stays the owner's even on a session
+    /// the caller controls), so it is pointed at the one way it can reach that session (second review, note 1).</summary>
+    internal const string StopNotApiModeAgentReason =
+        "This session is in terminal mode, so Stop over the agent's protocol does not apply, and an agent may not "
+        + "interrupt a session. " + AgentInputRefusal.Instead;
+
     internal const string WheelAlreadyHeldReason =
         "You already have the wheel of this session: its terminal is open on the conversation. Hand it back first "
         + "if you want the session to continue in API mode.";
@@ -122,10 +128,11 @@ internal static partial class GatewayEndpoints
     /// lock, and that refusal comes back through here verbatim. In the other direction it would not be: a hand back
     /// sent the moment a take was answered would read the old holder and be refused with a sentence that is untrue.
     /// That is closed by a CONTRACT ON THE DIRECTOR (review finding 3, carried to phase 4): before it returns its reply
-    /// to <c>wheel-take</c> or <c>wheel-hand-back</c>, the Director has finished sending <c>PushDelta</c> with the
-    /// session's new holder on the same hub connection (awaited, not the fire-and-forget <c>NotifyDelta</c>). The reply
-    /// is a client result on that connection and the hub runs one call per connection at a time, so the Gateway has
-    /// applied the new holder before the caller hears the reply. The Gateway's ruling exists so the common refusals are
+    /// to <c>wheel-take</c> or <c>wheel-hand-back</c>, the Director AWAITS <c>DirectorHubCalls.PushDeltaAsync</c> with the
+    /// session's new holder - never the fire-and-forget <c>GatewayStreamClient.NotifyDelta</c>, and never a bare awaited
+    /// <c>SendAsync</c>. <c>PushDeltaAsync</c> uses <c>InvokeAsync</c>, whose task completes only after the Gateway's
+    /// <c>DirectorHub.PushDelta</c> has returned, and that method applies the delta to the pushed store before it returns.
+    /// So the Director cannot reply until the Gateway already holds the new holder, whatever the hub's dispatch order. The Gateway's ruling exists so the common refusals are
     /// answered at once and in one set of words for every client (CLAUDE.md rule 7).
     /// </summary>
     internal static async Task<IResult> RunApiModeVerbAsync(
@@ -181,8 +188,10 @@ internal static partial class GatewayEndpoints
         if (!state.IsApiMode)
         {
             FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} REFUSED: terminal mode (mode={session.ConnectionMode ?? "(none)"})");
-            return WheelRefusal(WheelRefusalCodes.NotApiMode,
-                verb == ApiModeVerb.StopTurn ? StopNotApiModeReason : WheelNotApiModeReason, StatusCodes.Status409Conflict);
+            var notApiReason = verb != ApiModeVerb.StopTurn ? WheelNotApiModeReason
+                : caller is not null && !raised ? StopNotApiModeAgentReason
+                : StopNotApiModeReason;
+            return WheelRefusal(WheelRefusalCodes.NotApiMode, notApiReason, StatusCodes.Status409Conflict);
         }
 
         if (verb == ApiModeVerb.TakeWheel && state.Holder == WheelHolders.User)
