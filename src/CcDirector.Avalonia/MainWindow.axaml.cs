@@ -6467,16 +6467,16 @@ public partial class MainWindow : Window
     };
 
     /// <summary>
-    /// Note that a build has finished downloading. What happens NEXT is the launcher's to decide, so
-    /// this says only what is certainly true and points at the panel for the rest. It used to promise
-    /// "installs next time you open the app", which stopped being how it works when the launcher took
-    /// ownership of the install (issue #1033) - it now happens without anyone opening anything, as soon
-    /// as this Director is idle.
+    /// Note that a build has finished downloading. What happens NEXT is the launcher's to decide - when
+    /// there is one. The wording comes from <see cref="CcDirector.Core.Update.UpdateStatusFold.ReadyNotice"/>,
+    /// read against the same fact the update panel uses (is a launcher running?), so the notice never
+    /// promises an install on its own on a machine with no launcher to carry it out (issue #3091).
     /// </summary>
     public void ShowUpdateReady(string version)
     {
-        FileLog.Write($"[MainWindow] ShowUpdateReady: {version}");
-        ShowNotification($"Director {version} downloaded. It installs on its own once no sessions are running.");
+        var launcherRunning = LauncherDiscovery.IsRunning(LauncherDiscovery.Read());
+        FileLog.Write($"[MainWindow] ShowUpdateReady: {version}, launcherRunning={launcherRunning}");
+        ShowNotification(CcDirector.Core.Update.UpdateStatusFold.ReadyNotice(version, launcherRunning));
         RefreshUpdateStatus();
     }
 

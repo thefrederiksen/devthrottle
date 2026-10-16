@@ -8,16 +8,23 @@ namespace CcDirector.Setup.Engine;
 public enum LauncherSwapOrder
 {
     /// <summary>
-    /// Stop the launcher, replace its file, start it again. Windows, where the executable is LOCKED
-    /// while it runs so it cannot be replaced underneath itself; and Linux, where nothing supervises
-    /// the launcher and a stopped launcher stays stopped until something starts it.
+    /// Stop the launcher, replace its file, start it again. WINDOWS ONLY, where the executable is
+    /// LOCKED while it runs so it cannot be replaced underneath itself.
+    ///
+    /// LINUX USED TO BE HERE, on the stated premise that "nothing supervises the launcher and a stopped
+    /// launcher stays stopped until something starts it". That premise stopped being true the moment
+    /// Linux got a systemd user unit (<see cref="LauncherSystemdAutostart"/>): the unit carries
+    /// Restart=on-failure, so stopping the launcher first lets systemd bring the OLD build back up in
+    /// the gap before the swap lands - precisely the race described below for macOS, with the same
+    /// ending, a launcher that is alive and the wrong version. Linux now uses
+    /// <see cref="PlaceThenRestart"/>.
     /// </summary>
     StopThenPlaceThenStart,
 
     /// <summary>
     /// Replace the file while the launcher is still running, then ask its supervisor to restart it.
     ///
-    /// FOR macOS, AND IT IS NOT A STYLISTIC PREFERENCE. The launcher runs as a launchd agent with
+    /// FOR macOS AND LINUX, AND IT IS NOT A STYLISTIC PREFERENCE. The launcher runs as a launchd agent with
     /// KeepAlive / SuccessfulExit=false, so launchd resurrects it after a kill - FROM THE PATH IN THE
     /// PLIST, which is the file being replaced. Stop it first and launchd can start the OLD build back
     /// up in the gap before the swap lands; the swap then succeeds, the old process is the running one,
@@ -28,6 +35,12 @@ public enum LauncherSwapOrder
     /// The restart is therefore one operation owned by launchd (<c>launchctl kickstart -k</c>), not a
     /// stop and a start this process performs. A stop and a start here would race the supervisor and,
     /// on a good day, leave two launchers.
+    ///
+    /// LINUX IS THE SAME STORY WITH A DIFFERENT SUPERVISOR: a systemd user unit with
+    /// Restart=on-failure, restarted as one operation with <c>systemctl --user restart</c>
+    /// (<see cref="LauncherSystemdAutostart.Restart"/>). Replacing the file first is safe there for the
+    /// same reason - Unix replaces a running binary by rename, and the running process keeps the inode
+    /// it started from.
     /// </summary>
     PlaceThenRestart,
 }

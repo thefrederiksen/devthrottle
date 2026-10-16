@@ -641,33 +641,22 @@ internal static class Commands
         var launcherExe = layout.PathFor(ComponentRegistry.Launcher);
         if (installMode && File.Exists(launcherExe))
         {
-            // Same contract both platforms: the exe/binary is already placed; this step starts it
+            // Same contract on every platform: the exe/binary is already placed; this step starts it
             // and verifies health + autostart registration (Run key on Windows, launch agent on
-            // macOS, where a kickstart hands a running launcher over to the newly placed binary).
+            // macOS, systemd user unit on Linux - in each case a restart hands a running launcher over
+            // to the newly placed binary).
+            //
+            // LINUX USED TO SKIP THIS STEP, saying "the Director does not need it: a downloaded update installs
+            // the next time the Director starts". That was the bug in issue #3091: a Director that is never
+            // restarted never installs anything, and the launcher - which installs it as soon as the Director is
+            // idle - was never started and never registered to start at login.
             LauncherInstallResult launcherStart;
             if (OperatingSystem.IsWindows())
                 launcherStart = await new LauncherTrayInstaller(layout).InstallAsync();
             else if (OperatingSystem.IsMacOS())
                 launcherStart = await new LauncherMacInstaller(layout).InstallAsync();
             else
-            {
-                // Linux has no launcher install step yet: nothing registers it to start at sign-in or
-                // starts it. That used to throw here, AFTER the Director and the tools were placed, so a
-                // Linux install that had worked ended in a crash and a failed exit code.
-                // Say plainly what is and is not running instead, and do not count it as a failure - the
-                // Director runs without a launcher and installs a downloaded update when it next starts.
-                const string linuxLauncher = "The launcher is not started on Linux yet. The Director does not need it: "
-                                             + "a downloaded update installs the next time the Director starts.";
-                if (json)
-                    Program.WriteJson(new { launcherTray = new { success = true, message = linuxLauncher, steps = Array.Empty<string>() } });
-                else
-                {
-                    Console.WriteLine();
-                    Console.WriteLine("Launcher:");
-                    Console.WriteLine($"  {linuxLauncher}");
-                }
-                return result.Failed > 0 ? Error : Ok;
-            }
+                launcherStart = await new LauncherLinuxInstaller(layout).InstallAsync();
 
             if (json)
                 Program.WriteJson(new { launcherTray = new { success = launcherStart.Success, message = launcherStart.Message, steps = launcherStart.Steps, diagnostics = launcherStart.Diagnostics } });

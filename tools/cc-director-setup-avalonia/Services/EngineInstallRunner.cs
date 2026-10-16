@@ -241,12 +241,15 @@ public sealed class EngineInstallRunner
     }
 
     /// <summary>
-    /// Place and start the launcher on macOS: download and swap the single-file binary via the
+    /// Place and start the launcher on macOS and Linux: download and swap the single-file binary via the
     /// generic runner (which also sets its executable permission), then hand over to
-    /// <see cref="LauncherMacInstaller"/> for the first start, the health wait, and the
-    /// launch-agent verification. On Windows this wizard does nothing - the Windows wizard
-    /// (the WPF one) installs the launcher there. Returns true when the launcher was installed
-    /// and is healthy.
+    /// <see cref="LauncherMacInstaller"/> (launch agent) or <see cref="LauncherLinuxInstaller"/> (systemd
+    /// user unit) for the first start, the health wait, and the start-at-login verification. On Windows
+    /// this wizard does nothing - the Windows wizard (the WPF one) installs the launcher there. Returns
+    /// true when the launcher was installed and is healthy.
+    ///
+    /// LINUX USED TO BE SKIPPED HERE, and that skip was half of issue #3091: nothing put a launcher on a
+    /// Linux machine, so nothing ever installed the Director updates it downloaded.
     ///
     /// A launcher that could not be placed or started does NOT fail the install: the row reads
     /// <see cref="InstallCompletion.WarningStatus"/> with the reason, the failure is reported to DevThrottle
@@ -261,7 +264,7 @@ public sealed class EngineInstallRunner
     /// </summary>
     private async Task<bool> InstallLauncherAsync(Prep prep, IProgress<string>? status, CancellationToken ct)
     {
-        if (!OperatingSystem.IsMacOS()) return false;
+        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux()) return false;
         prep.ItemsById.TryGetValue(ComponentRegistry.Launcher.Id, out var item);
 
         var assetName = ComponentRegistry.Launcher.AssetFor(HostPlatform.Current);
@@ -309,7 +312,9 @@ public sealed class EngineInstallRunner
 
         if (item is not null) item.Status = "Starting...";
         status?.Report("Starting the launcher...");
-        var startResult = await new LauncherMacInstaller(_layout).InstallAsync(ct);
+        var startResult = OperatingSystem.IsMacOS()
+            ? await new LauncherMacInstaller(_layout).InstallAsync(ct)
+            : await new LauncherLinuxInstaller(_layout).InstallAsync(ct);
         foreach (var step in startResult.Steps)
             SetupLog.Write($"[EngineInstallRunner]   launcher: {step}");
         SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync: start success={startResult.Success}: {startResult.Message}");
@@ -325,7 +330,8 @@ public sealed class EngineInstallRunner
                 item.FailedStep = InstallWarning.StartStep;
                 // What the failure LEFT, read from the disk: the Director's repair needs the property list, and a
                 // first install launchd refuses has just deleted the one it wrote.
-                item.LaunchAgentPresent = LauncherLaunchdAutostart.IsRegistered();
+                // macOS only: the launch agent is what the Director's repair rebuilds. Linux has no such repair.
+                item.LaunchAgentPresent = OperatingSystem.IsMacOS() && LauncherLaunchdAutostart.IsRegistered();
                 SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync: launch agent property list present after the failure={item.LaunchAgentPresent}");
             }
         }

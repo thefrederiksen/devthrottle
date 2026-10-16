@@ -110,6 +110,16 @@ public class LauncherUpdateOwnerTests : IDisposable
             witnessTimeout: TimeSpan.FromMilliseconds(400))
         {
             SwapLockName = _swapLockName,
+            // STATED, NOT INHERITED FROM THE HOST. These tests are written around stop-then-place-then-start
+            // and assert on the stop, the quit request and the start; taking the platform default instead
+            // made them mean different things on different machines, and on a supervised platform the owner
+            // would call the REAL supervisor - launchctl on a Mac, systemctl on Linux - from a unit test.
+            // The supervised order has its own test, which supplies its own RestartLauncher.
+            SwapOrder = LauncherSwapOrder.StopThenPlaceThenStart,
+            // A restart must never be reached from this factory. If a change makes it reachable, this fails
+            // loudly here rather than quietly shelling out to the machine's real service manager.
+            RestartLauncher = () => throw new InvalidOperationException(
+                "RestartLauncher was called under StopThenPlaceThenStart; the swap order under test is wrong."),
             ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
             ListLauncherProcesses = () => running.ToList(),
             RequestQuit = root => { quitRequests?.Add(root); return false; },
@@ -400,6 +410,12 @@ public class LauncherUpdateOwnerTests : IDisposable
             witnessTimeout: TimeSpan.FromSeconds(2))
         {
             SwapLockName = _swapLockName,
+            // Stated rather than inherited from the host, for the reason the shared factory gives: this
+            // test asserts on a stop and a start, so it must run the stop-then-place-then-start order on
+            // every machine - not whichever order the platform default happens to pick.
+            SwapOrder = LauncherSwapOrder.StopThenPlaceThenStart,
+            RestartLauncher = () => throw new InvalidOperationException(
+                "RestartLauncher was called under StopThenPlaceThenStart; the swap order under test is wrong."),
             ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
             ListLauncherProcesses = () => running.ToList(),
             RequestQuit = _ => false,
