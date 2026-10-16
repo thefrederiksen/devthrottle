@@ -1,0 +1,1668 @@
+# Gateway: http://127.0.0.1:7996, built from this tree, storage root <rig>\gateway-root made empty for this run. The slot 6 Director (pid 49080, id 3977a23f-508f-4723-807b-6697a6370df1) was started by the cc-director-launch scheduled task through <rig>\start-director6.cmd, storage root <rig>\director-root, and connected on <machine>. The stand-in Director 'qa-standin-director' is connected on QA-OLD.
+
+$ GET /directors      (raw HTTP, as a person)
+  status: 200
+  answer: [{"directorId":"3977a23f-508f-4723-807b-6697a6370df1","pid":49080,"startedAt":"2026-10-16T00:19:50.8340344Z","controlEndpoint":"","machineName":"<machine>","user":"<user>","displayName":"<machine>","version":"2.21.0","os":"windows","schemaVersion":1,"lastSeen":"2026-10-16T00:19:52.1057113Z","tailnetEndpoint":null,"endpointUnreachableReason":null,"source":"stream","streamVerifiedAt":null,"streamVerifyError":null,"advertisedEndpointState":null,"advertisedEndpointCheckedAt":null,"advertisedEndpointUnreachableSince":null,"advertisedEndpointError":null,"stoppedAtUtc":null},{"directorId":"qa-standin-director","pid":2328,"startedAt":"2026-10-16T00:19:53.2933642Z","controlEndpoint":"","machineName":"QA-OLD","user":"qa","displayName":"","version":"9.9.9-qa","os":"","schemaVersion":1,"lastSeen":"2026-10-16T00:19:53.2933642Z","tailnetEndpoint":null,"endpointUnreachableReason":null,"source":"stream","streamVerifiedAt":null,"streamVerifyError":null,"advertisedEndpointState":null,"advertisedEndpointCheckedAt":null,"advertisedEndpointUnreachableSince":null,"advertisedEndpointError":null,"stoppedAtUtc":null}]
+
+# the slot 6 Director's instance configuration (written by the rig before launch)
+{
+  "onboarding": {
+    "completed": true
+  },
+  "autoUpdate": {
+    "enabled": false
+  },
+  "gateway": {
+    "url": "http://127.0.0.1:7996",
+    "token": "<director key>",
+    "streamMode": true
+  },
+  "agent": {
+    "entries": [
+      {
+        "id": "73d04672-1719-4a64-860c-b939781b873f",
+        "display_name": "Claude Code",
+        "type": "ClaudeCode",
+        "enabled": true,
+        "executable_path": "<home>\\.local\\bin\\claude.EXE",
+        "preset_id": "Skip permissions",
+        "default_model": "opus",
+        "args_override": "",
+        "launch_mode": "Guided"
+      }
+    ]
+  },
+  "worktreePool": {
+    "repoDefaults": {
+      "<rig>\\repos\\qa-scratch": {
+        "enabled": false,
+        "poolSize": 4
+      }
+    }
+  }
+}
+
+# its registered repositories
+[
+  {
+    "Name": "qa-scratch",
+    "Path": "<rig>\\repos\\qa-scratch"
+  },
+  {
+    "Name": "qa-plain",
+    "Path": "<rig>\\repos\\qa-plain"
+  }
+]
+
+# SECTION 12 - qa-plain has NO definition: registered with its folder, a schedule, a run now and a talk. Each starts as before phase 5: no seat fields, the registered folder as the start folder.
+
+$ cc-devthrottle factory register --manifest <rig>\qa-plain.manifest.json      (as a person: the rig's enrolled browser device)
+registered: qa-plain
+title: QA Plain
+computer: <machine>
+folder: <rig>\repos\qa-plain
+boss: boss
+goal: none
+purpose: none
+seats[1]{id,name,role,computer,schedules}:
+  boss,Boss,Boss,<machine>,
+help[2]:
+  cc-devthrottle factory list
+  cc-devthrottle factory goal-number show --factory qa-plain
+[exit 0]
+
+$ cc-devthrottle schedule create --name "QA Plain boss" --machine <machine> --repo <rig>\repos\qa-plain --cron "0 5 1 1 *" --tz UTC --seed "QA-P6-PLAIN. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer." --factory qa-plain --seat boss --json      (as a person: the rig's enrolled browser device)
+{
+  "id": "cj_cebc43",
+  "name": "QA Plain boss",
+  "enabled": true,
+  "scheduleKind": "recurring",
+  "cronExpression": "0 5 1 1 *",
+  "runAt": null,
+  "timeZoneId": "UTC",
+  "factory": "qa-plain",
+  "seat": "boss",
+  "target": {
+    "machine": "<machine>"
+  },
+  "action": {
+    "repoPath": "<rig>\\repos\\qa-plain",
+    "seed": "QA-P6-PLAIN. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer.",
+    "workListName": null,
+    "autoDismiss": true
+  },
+  "preventOverlap": true,
+  "notifyOn": "none",
+  "notifyWebhookUrl": null,
+  "createdUtc": "2026-10-16T00:19:56.8508401Z",
+  "lastFiredUtc": null,
+  "nextRunUtc": "2027-01-01T05:00:00Z",
+  "lastStatus": null,
+  "scheduleText": null,
+  "remainingToday": null,
+  "lifecycle": "active",
+  "stateLabel": "Active",
+  "toggleLabel": "Pause",
+  "runRecord": null,
+  "factoryTitle": null,
+  "factoryHref": null,
+  "shortName": null,
+  "loadWarning": null,
+  "shifts": [],
+  "shiftText": "No run in the next 7 days",
+  "shiftWarning": null,
+  "shiftRule": null,
+  "definedByDefinition": false
+}
+[exit 0]
+
+$ cc-devthrottle schedule run cj_cebc43      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-16T00:19:59.2831227Z UTC
+  Target:  3977a23f-508f-4723-807b-6697a6370df1
+  Session: 8c98db3e-159c-4c0c-a2e7-93ca262efcdf
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_cebc43
+  cc-devthrottle session buffer 8c98db3e-159c-4c0c-a2e7-93ca262efcdf
+[exit 0]
+
+# the undefined factory's scheduled run - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-repos-qa-plain/7c7b9725-b2f9-4d14-90d2-781bcc0ffd59.jsonl
+  cwd: <rig>\repos\qa-plain
+  tool call: Bash {"command": "pwd -W", "description": "Print Windows-style working directory"}
+  tool result: <rig>/repos/qa-plain
+  tool call: Skill {"skill": "factory-kit:qa-word"}
+  tool result (error): <tool_use_error>Unknown skill: factory-kit:qa-word</tool_use_error>
+  tool call: Bash {"command": "cc-devthrottle run result ok", "description": "Report scheduled run result as ok"}
+  tool result: Recorded: the run of QA Plain boss went ok. This session now closes itself.
+run: 07949e2f-2659-40c5-8c4a-a1fda18ec2d2
+schedule: QA Plain boss (cj_cebc43)
+result: ok
+session: flagged to close
+help[1]:
+  cc-devthrottle session done --undo
+  agent: I ran both steps. The skill isn't available in this session.
+
+1. `pwd -W` printed:
+   ```
+   <rig>/repos/qa-plain
+   ```
+
+2. NO-SKILL. The Skill tool answered:
+   ```
+   Unknown skill: factory-kit:qa-word
+   ```
+
+I reported the run as `ok`, since both steps ran and the missing skill was one of the expected outcomes. The run is recorded and this session is now flagged to close.
+
+# the undefined factory's scheduled run - seen while the sessions ran
+  the sessions (GET /sessions, the fields that say where and as what each runs):
+    {"sessionId": "8c98db3e-159c-4c0c-a2e7-93ca262efcdf", "name": "QA Plain boss - 2026-10-16 00:19", "repoPath": "<rig>\\repos\\qa-plain", "pooledWorktree": null, "factoryKitDirectory": null, "factoryHome": null, "factory": "qa-plain", "factorySeat": null, "factoryDefinitionVersion": null, "factoryKit": null, "factoryStartOverride": null, "launchModel": null, "parentSessionId": null, "agent": "ClaudeCode", "status": "Running"}
+  the kit folders the Director held (<rig>/director-root/instances/default/factory-run):
+  the command lines of the running claude.exe processes that name the rig:
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model opus --session-id 7c7b9725-b2f9-4d14-90d2-781bcc0ffd59 --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json"
+  git status --short --untracked-files=all of each pooled slot, read while its session ran:
+
+$ cc-devthrottle schedule runs cj_cebc43 --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "scheduledUtc": "2026-10-16T00:19:57.6823488Z",
+    "firedUtc": "2026-10-16T00:19:59.2831227Z",
+    "machine": "<machine>",
+    "targetDirectorId": "3977a23f-508f-4723-807b-6697a6370df1",
+    "sessionId": "8c98db3e-159c-4c0c-a2e7-93ca262efcdf",
+    "infraStatus": "started",
+    "taskStatus": "closed-itself",
+    "ending": "still-open",
+    "endingText": "running - 1 min so far",
+    "shiftText": "evening shift, Thu 15 Oct, 16:00-24:00",
+    "runId": "07949e2f-2659-40c5-8c4a-a1fda18ec2d2",
+    "result": "ok",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": "2026-10-16T00:20:32.4151816Z",
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-plain",
+    "seat": "boss",
+    "jobName": "QA Plain boss",
+    "missedNotListed": 0,
+    "briefVersion": null,
+    "briefVersionKind": null
+  }
+]
+[exit 0]
+
+# the undefined run's history row
+#   read from the rig's gateway.db: SELECT SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride FROM session_history WHERE SessionId = ? COLLATE NOCASE ['8c98db3e-159c-4c0c-a2e7-93ca262efcdf']
+  SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride
+  8c98db3e-159c-4c0c-a2e7-93ca262efcdf, QA Plain boss - 2026-10-16 00:19, <rig>\repos\qa-plain, None, qa-plain, None, None, None, None
+  (1 rows)
+
+# the undefined run's launch - the Director's log, lines '[ProcessHost] Start:' naming '<rig>\repos\qa-plain'
+  2026-10-15 20:19:57.953 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 7c7b9725-b2f9-4d14-90d2-781bcc0ffd59 --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json", workingDir=<rig>\repos\qa-plain, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+
+$ cc-devthrottle session stop 8c98db3e-159c-4c0c-a2e7-93ca262efcdf --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped 8c98db3e - process 31200 ended, row removed
+the worktree <rig>\repos\qa-plain was left untouched - whether it has uncommitted changes could not be determined
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+$ POST /gateway/factory-agents/factories/qa-plain/seats/boss/talk      (raw HTTP, as a person)
+  status: 201
+  answer: {"sessionId":"4884883f-ad89-4ebc-9f46-d615a45c5b2e","sessionName":"QA Plain - Boss - talk with the owner","href":"/session/4884883f-ad89-4ebc-9f46-d615a45c5b2e","factory":"qa-plain","seat":"boss","computer":"<machine>","directorId":"3977a23f-508f-4723-807b-6697a6370df1","briefVersion":null,"briefVersionKind":null}
+
+# the undefined talk's history row
+#   read from the rig's gateway.db: SELECT SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride FROM session_history WHERE SessionId = ? COLLATE NOCASE ['4884883f-ad89-4ebc-9f46-d615a45c5b2e']
+  SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride
+  4884883f-ad89-4ebc-9f46-d615a45c5b2e, QA Plain - Boss - talk with the owner, <rig>\repos\qa-plain, None, qa-plain, None, None, None, None
+  (1 rows)
+
+# the undefined talk - GET /sessions, the fields that say where and as what it runs
+{
+  "sessionId": "4884883f-ad89-4ebc-9f46-d615a45c5b2e",
+  "name": "QA Plain - Boss - talk with the owner",
+  "repoPath": "<rig>\\repos\\qa-plain",
+  "pooledWorktree": null,
+  "factoryKitDirectory": null,
+  "factoryHome": null,
+  "factory": "qa-plain",
+  "factorySeat": null,
+  "factoryDefinitionVersion": null,
+  "factoryKit": null,
+  "factoryStartOverride": null,
+  "launchModel": null,
+  "parentSessionId": null,
+  "agent": "ClaudeCode",
+  "status": "Running"
+}
+
+# the undefined talk's launch - the Director's log, lines '[ProcessHost] Start:' naming '<rig>\repos\qa-plain'
+  2026-10-15 20:19:57.953 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 7c7b9725-b2f9-4d14-90d2-781bcc0ffd59 --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json", workingDir=<rig>\repos\qa-plain, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+  2026-10-15 20:20:45.542 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 3330efb2-2a7f-482a-979e-75e124e7d7f7 --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json", workingDir=<rig>\repos\qa-plain, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+
+# the undefined talk - seen while the sessions ran
+  the sessions (GET /sessions, the fields that say where and as what each runs):
+  the kit folders the Director held (<rig>/director-root/instances/default/factory-run):
+  the command lines of the running claude.exe processes that name the rig:
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model opus --session-id 3330efb2-2a7f-482a-979e-75e124e7d7f7 --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json"
+  git status --short --untracked-files=all of each pooled slot, read while its session ran:
+
+$ cc-devthrottle session stop 4884883f-ad89-4ebc-9f46-d615a45c5b2e --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped 4884883f - process 59768 ended, row removed
+the worktree <rig>\repos\qa-plain was left untouched - whether it has uncommitted changes could not be determined
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+# SECTION 11 - the first definition of qa-kit, saved and published. The publish asks each seat's machine: the worker's held secret 'cloudflare-account-id', the keeper's missing 'qa-p6-no-such-secret', the registered qa-scratch, the unregistered qa-not-here, and the oldie's machine QA-OLD, whose Director cannot be asked.
+
+# the definition folder <rig>/definition-v1, every file
+  --- factory.yaml
+  factory: qa-kit
+  title: QA Kit
+  purpose: Shows a seat started from its definition on a real Director
+  goalText: |
+    Prove the run kit.
+  goalApprovedOn: 2026-10-15
+  bossSeat: boss
+  defaults:
+    machine: <machine>
+    agent: ClaudeCode
+    model: claude-sonnet-5-5
+  repositories: [qa-scratch, qa-not-here]
+
+  --- rules/base.json
+  {
+    "permissions": {
+      "deny": [
+        "Bash(git push:*)"
+      ],
+      "ask": []
+    }
+  }
+
+  --- rules/asks.json
+  {
+    "permissions": {
+      "deny": [],
+      "ask": [
+        "Bash(git --version)"
+      ]
+    }
+  }
+
+  --- seats/asker.yaml
+  seat: asker
+  name: Asker
+  role: Asker
+  brief: |
+    Run one command.
+  rules: [asks]
+  starts:
+    - cron: "0 5 1 1 *"
+      timeZone: UTC
+      prompt: |
+        QA-P6-ASK. Do exactly one step, then stop. Run the command git --version with Bash, alone, and run no other command first. Quote what it printed, or what you were told if it did not run.
+
+  --- skills/qa-word/SKILL.md
+  ---
+  name: qa-word
+  description: Gives the QA factory's word. Use when asked for the factory's word.
+  ---
+  
+  The QA factory's word is HERON-5520. Answer with that word.
+
+  --- seats/boss.yaml
+  seat: boss
+  name: Boss
+  role: Boss
+  brief: |
+    Work in your own folder. Touch nothing else.
+  starts:
+    - cron: "0 5 1 1 *"
+      timeZone: UTC
+      prompt: |
+        QA-P6-HOME. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Run ls -A "$CC_FACTORY_KIT_DIR" with Bash and quote what it printed.
+
+  --- seats/worker.yaml
+  seat: worker
+  name: Worker
+  role: Worker
+  repository: qa-scratch
+  brief: |
+    Read, report, and start one child. Change no file.
+  rules: [base]
+  secrets: [cloudflare-account-id]
+  skills:
+    factory: [qa-word]
+  starts:
+    - cron: "0 5 1 1 *"
+      timeZone: UTC
+      prompt: |
+        QA-P6-WORKER. Do exactly these four steps and nothing else, then stop.
+        1. Use your Read tool (never Bash) on the file notes.txt in your current folder and quote its first line. If the Read tool is refused, write REFUSED and quote the refusal word for word. Do not try any other way to read it.
+        2. Use the Skill tool to load the skill factory-kit:qa-word and write the word it gives.
+        3. Run git status --short with Bash and quote what it printed.
+        4. Run this one command with Bash and quote what it printed:
+        cc-devthrottle session spawn "$(pwd -W)" --controlled-by self --name "QA kit child" --prompt 'QA-P6-CHILD. Do exactly two steps, then stop. 1. Use your Read tool (never Bash) on notes.txt and quote its first line. If refused, write REFUSED and quote the refusal word for word. Do not try any other way. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer.'
+
+  --- seats/keeper.yaml
+  seat: keeper
+  name: Keeper
+  role: Keeper
+  brief: |
+    Keep the keys.
+  secrets: [qa-p6-no-such-secret]
+
+  --- seats/stray.yaml
+  seat: stray
+  name: Stray
+  role: Stray
+  repository: qa-not-here
+  brief: |
+    Work in a repository this machine does not have.
+
+  --- seats/oldie.yaml
+  seat: oldie
+  name: Oldie
+  role: Oldie
+  machine: QA-OLD
+  brief: |
+    Run on the older Director.
+  secrets: [cloudflare-account-id]
+
+$ cc-devthrottle factory definition save qa-kit --dir <rig>\definition-v1 --expected-version 0 --note "the first definition"      (as a person: the rig's enrolled browser device)
+Saved: version 1 of the definition of qa-kit is a draft (10 files, 2848 bytes).
+No version is published yet.
+notices[5]:
+  seats/keeper.yaml:6: Whether <machine> holds 'qa-p6-no-such-secret' is not checked yet.
+  seats/oldie.yaml:7: Whether QA-OLD holds 'cloudflare-account-id' is not checked yet.
+  seats/stray.yaml:4: Whether <machine> has the repository 'qa-not-here' registered is not checked yet.
+  seats/worker.yaml:4: Whether <machine> has the repository 'qa-scratch' registered is not checked yet.
+  seats/worker.yaml:8: Whether <machine> holds 'cloudflare-account-id' is not checked yet.
+help[2]:
+  cc-devthrottle factory definition diff qa-kit --to 1
+  cc-devthrottle factory definition publish qa-kit --version 1
+[exit 0]
+
+$ cc-devthrottle factory definition diff qa-kit      (as a person: the rig's enrolled browser device)
+qa-kit: from nothing published to version 1.
+published version: none
+what changes: First publish: 11 factory settings set, 6 seats added, 3 starts created, rules tightened on asks, base, asker and worker, 1 skill file added.
+  factory qa-kit
+  title QA Kit
+  purpose Shows a seat started from its definition on a real Director
+  goal text set: 1 line
+      + Prove the run kit.
+  goalApprovedOn 2026-10-15
+  bossSeat boss
+  defaults.machine <machine>
+  defaults.agent ClaudeCode
+  defaults.model claude-sonnet-5-5
+  repository qa-not-here added
+  repository qa-scratch added
+  Seat Asker (asker) added.
+    role Asker
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    rule set asks added
+    brief: 1 line
+      + Run one command.
+  Seat Boss (boss) added.
+    role Boss
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    brief: 1 line
+      + Work in your own folder. Touch nothing else.
+  Seat Keeper (keeper) added.
+    role Keeper
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    secret qa-p6-no-such-secret added
+    brief: 1 line
+      + Keep the keys.
+  Seat Oldie (oldie) added.
+    role Oldie
+    machine QA-OLD
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    secret cloudflare-account-id added
+    brief: 1 line
+      + Run on the older Director.
+  Seat Stray (stray) added.
+    role Stray
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    repository qa-not-here
+    brief: 1 line
+      + Work in a repository this machine does not have.
+  Seat Worker (worker) added.
+    role Worker
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    repository qa-scratch
+    rule set base added
+    secret cloudflare-account-id added
+    factory skill qa-word added
+    brief: 1 line
+      + Read, report, and start one child. Change no file.
+  Asker: start created, Cron 0 5 1 1 * UTC.
+    prompt "QA-P6-ASK. Do exactly one step, then stop. Run the command git --version with Bash, alone, and run no other command f..."
+  Boss: start created, Cron 0 5 1 1 * UTC.
+    prompt "QA-P6-HOME. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Run ls -A "$CC_FAC..."
+  Worker: start created, Cron 0 5 1 1 * UTC.
+    prompt "QA-P6-WORKER. Do exactly these four steps and nothing else, then stop. 1. Use your Read tool (never Bash) on the file..."
+  Rule set asks (new) tightened: ask Bash(git --version) added.
+  Rule set base (new) tightened: deny Bash(git push:*) added.
+  Seat Asker (asker) tightened: now takes rule set asks.
+  Seat Worker (worker) tightened: now takes rule set base.
+  Skill file skills/qa-word/SKILL.md added: 6 lines.
+      + ---
+      + name: qa-word
+      + description: Gives the QA factory's word. Use when asked for the factory's word.
+      + ---
+      + 
+      + The QA factory's word is HERON-5520. Answer with that word.
+What publishing version 1 would do to the live factory now:
+  Registry: qa-kit registered from its definition, in no folder: each seat runs where the definition says.
+  A new schedule (QA Kit - Asker) for seat asker: Cron 0 5 1 1 * UTC.
+  A new schedule (QA Kit - Boss) for seat boss: Cron 0 5 1 1 * UTC.
+  A new schedule (QA Kit - Worker) for seat worker: Cron 0 5 1 1 * UTC.
+help[2]:
+  cc-devthrottle factory definition publish qa-kit --version 1 --replaces 0
+  cc-devthrottle factory definition history qa-kit
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-kit --version 1 --replaces 0      (as a person: the rig's enrolled browser device)
+Published: version 1 of the definition of qa-kit. Version 1 is now the published definition.
+what changes: First publish: 11 factory settings set, 6 seats added, 3 starts created, rules tightened on asks, base, asker and worker, 1 skill file added.
+  factory qa-kit
+  title QA Kit
+  purpose Shows a seat started from its definition on a real Director
+  goal text set: 1 line
+      + Prove the run kit.
+  goalApprovedOn 2026-10-15
+  bossSeat boss
+  defaults.machine <machine>
+  defaults.agent ClaudeCode
+  defaults.model claude-sonnet-5-5
+  repository qa-not-here added
+  repository qa-scratch added
+  Seat Asker (asker) added.
+    role Asker
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    rule set asks added
+    brief: 1 line
+      + Run one command.
+  Seat Boss (boss) added.
+    role Boss
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    brief: 1 line
+      + Work in your own folder. Touch nothing else.
+  Seat Keeper (keeper) added.
+    role Keeper
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    secret qa-p6-no-such-secret added
+    brief: 1 line
+      + Keep the keys.
+  Seat Oldie (oldie) added.
+    role Oldie
+    machine QA-OLD
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    secret cloudflare-account-id added
+    brief: 1 line
+      + Run on the older Director.
+  Seat Stray (stray) added.
+    role Stray
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    repository qa-not-here
+    brief: 1 line
+      + Work in a repository this machine does not have.
+  Seat Worker (worker) added.
+    role Worker
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    repository qa-scratch
+    rule set base added
+    secret cloudflare-account-id added
+    factory skill qa-word added
+    brief: 1 line
+      + Read, report, and start one child. Change no file.
+  Asker: start created, Cron 0 5 1 1 * UTC.
+    prompt "QA-P6-ASK. Do exactly one step, then stop. Run the command git --version with Bash, alone, and run no other command f..."
+  Boss: start created, Cron 0 5 1 1 * UTC.
+    prompt "QA-P6-HOME. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Run ls -A "$CC_FAC..."
+  Worker: start created, Cron 0 5 1 1 * UTC.
+    prompt "QA-P6-WORKER. Do exactly these four steps and nothing else, then stop. 1. Use your Read tool (never Bash) on the file..."
+  Rule set asks (new) tightened: ask Bash(git --version) added.
+  Rule set base (new) tightened: deny Bash(git push:*) added.
+  Seat Asker (asker) tightened: now takes rule set asks.
+  Seat Worker (worker) tightened: now takes rule set base.
+  Skill file skills/qa-word/SKILL.md added: 6 lines.
+      + ---
+      + name: qa-word
+      + description: Gives the QA factory's word. Use when asked for the factory's word.
+      + ---
+      + 
+      + The QA factory's word is HERON-5520. Answer with that word.
+applied:
+  Definition: version 1 published.
+  Registry: qa-kit registered from its definition, in no folder: each seat runs where the definition says.
+  Schedule cj_93e5b0 (QA Kit - Asker) created for seat asker: Cron 0 5 1 1 * UTC.
+  Schedule cj_e5016d (QA Kit - Boss) created for seat boss: Cron 0 5 1 1 * UTC.
+  Schedule cj_19cb4d (QA Kit - Worker) created for seat worker: Cron 0 5 1 1 * UTC.
+notices[3]:
+  seats/keeper.yaml:6: <machine> does not hold the secret 'qa-p6-no-such-secret'. Add it there with cc-secrets; the seat's start will refuse without it.
+  seats/oldie.yaml:7: Whether QA-OLD holds 'cloudflare-account-id' could not be asked: the Director on QA-OLD is version 9.9.9-qa, which is too old to be asked. Update it. The seat's start will check it.
+  seats/stray.yaml:4: <machine> does not have the repository 'qa-not-here' registered. Register it there; the seat's start will refuse without it.
+help[2]:
+  cc-devthrottle factory definition get qa-kit
+  cc-devthrottle factory definition history qa-kit
+[exit 0]
+
+# FINDING - the plain schedule list refuses once a defined factory's schedule carries no folder (phase 5 writes it empty on purpose); --json still answers.
+
+$ cc-devthrottle schedule list --fields id,name,enabled,cron,machine      (as a person: the rig's enrolled browser device)
+Error: the Gateway returned schedule cj_19cb4d with a blank action.repoPath; the Gateway never stores one. --json shows the raw rows.
+help[1]:
+  cc-devthrottle schedule list --json
+[exit 1]
+
+$ cc-devthrottle schedule list --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "id": "cj_19cb4d",
+    "name": "QA Kit - Worker",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 5 1 1 *",
+    "runAt": null,
+    "timeZoneId": "UTC",
+    "factory": "qa-kit",
+    "seat": "worker",
+    "target": {
+      "machine": "<machine>"
+    },
+    "action": {
+      "repoPath": "",
+      "seed": "QA-P6-WORKER. Do exactly these four steps and nothing else, then stop.\n1. Use your Read tool (never Bash) on the file notes.txt in your current folder and quote its first line. If the Read tool is refused, write REFUSED and quote the refusal word for word. Do not try any other way to read it.\n2. Use the Skill tool to load the skill factory-kit:qa-word and write the word it gives.\n3. Run git status --short with Bash and quote what it printed.\n4. Run this one command with Bash and quote what it printed:\ncc-devthrottle session spawn \"$(pwd -W)\" --controlled-by self --name \"QA kit child\" --prompt 'QA-P6-CHILD. Do exactly two steps, then stop. 1. Use your Read tool (never Bash) on notes.txt and quote its first line. If refused, write REFUSED and quote the refusal word for word. Do not try any other way. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer.'\n",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-16T00:20:52.3236957Z",
+    "lastFiredUtc": null,
+    "nextRunUtc": "2027-01-01T05:00:00Z",
+    "lastStatus": null,
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "none",
+      "text": "no runs yet",
+      "runs": 0
+    },
+    "factoryTitle": "QA Kit",
+    "factoryHref": "/factories/qa-kit/seats",
+    "shortName": "Worker",
+    "loadWarning": null,
+    "shifts": [],
+    "shiftText": "No run in the next 7 days",
+    "shiftWarning": null,
+    "shiftRule": null,
+    "definedByDefinition": true
+  },
+  {
+    "id": "cj_93e5b0",
+    "name": "QA Kit - Asker",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 5 1 1 *",
+    "runAt": null,
+    "timeZoneId": "UTC",
+    "factory": "qa-kit",
+    "seat": "asker",
+    "target": {
+      "machine": "<machine>"
+    },
+    "action": {
+      "repoPath": "",
+      "seed": "QA-P6-ASK. Do exactly one step, then stop. Run the command git --version with Bash, alone, and run no other command first. Quote what it printed, or what you were told if it did not run.\n",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-16T00:20:52.3236957Z",
+    "lastFiredUtc": null,
+    "nextRunUtc": "2027-01-01T05:00:00Z",
+    "lastStatus": null,
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "none",
+      "text": "no runs yet",
+      "runs": 0
+    },
+    "factoryTitle": "QA Kit",
+    "factoryHref": "/factories/qa-kit/seats",
+    "shortName": "Asker",
+    "loadWarning": null,
+    "shifts": [],
+    "shiftText": "No run in the next 7 days",
+    "shiftWarning": null,
+    "shiftRule": null,
+    "definedByDefinition": true
+  },
+  {
+    "id": "cj_cebc43",
+    "name": "QA Plain boss",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 5 1 1 *",
+    "runAt": null,
+    "timeZoneId": "UTC",
+    "factory": "qa-plain",
+    "seat": "boss",
+    "target": {
+      "machine": "<machine>"
+    },
+    "action": {
+      "repoPath": "<rig>\\repos\\qa-plain",
+      "seed": "QA-P6-PLAIN. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer.",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-16T00:19:56.8508401Z",
+    "lastFiredUtc": "2026-10-16T00:19:59.2831227Z",
+    "nextRunUtc": "2027-01-01T05:00:00Z",
+    "lastStatus": "started",
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "bad",
+      "text": "0 of 1 closed itself - 1 stopped by you",
+      "runs": 1
+    },
+    "factoryTitle": "QA Plain",
+    "factoryHref": "/factories/qa-plain/seats",
+    "shortName": "QA Plain boss",
+    "loadWarning": null,
+    "shifts": [],
+    "shiftText": "No run in the next 7 days",
+    "shiftWarning": null,
+    "shiftRule": null,
+    "definedByDefinition": false
+  },
+  {
+    "id": "cj_e5016d",
+    "name": "QA Kit - Boss",
+    "enabled": true,
+    "scheduleKind": "recurring",
+    "cronExpression": "0 5 1 1 *",
+    "runAt": null,
+    "timeZoneId": "UTC",
+    "factory": "qa-kit",
+    "seat": "boss",
+    "target": {
+      "machine": "<machine>"
+    },
+    "action": {
+      "repoPath": "",
+      "seed": "QA-P6-HOME. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Run ls -A \"$CC_FACTORY_KIT_DIR\" with Bash and quote what it printed.\n",
+      "workListName": null,
+      "autoDismiss": true
+    },
+    "preventOverlap": true,
+    "notifyOn": "none",
+    "notifyWebhookUrl": null,
+    "createdUtc": "2026-10-16T00:20:52.3236957Z",
+    "lastFiredUtc": null,
+    "nextRunUtc": "2027-01-01T05:00:00Z",
+    "lastStatus": null,
+    "scheduleText": null,
+    "remainingToday": null,
+    "lifecycle": "active",
+    "stateLabel": "Active",
+    "toggleLabel": "Pause",
+    "runRecord": {
+      "verdict": "none",
+      "text": "no runs yet",
+      "runs": 0
+    },
+    "factoryTitle": "QA Kit",
+    "factoryHref": "/factories/qa-kit/seats",
+    "shortName": "Boss",
+    "loadWarning": null,
+    "shifts": [],
+    "shiftText": "No run in the next 7 days",
+    "shiftWarning": null,
+    "shiftRule": null,
+    "definedByDefinition": true
+  }
+]
+[exit 0]
+
+# the schedules, from the answer above
+  cj_19cb4d, QA Kit - Worker, factory=qa-kit, seat=worker, cron=0 5 1 1 *, machine=<machine>, action.repoPath=""
+  cj_93e5b0, QA Kit - Asker, factory=qa-kit, seat=asker, cron=0 5 1 1 *, machine=<machine>, action.repoPath=""
+  cj_cebc43, QA Plain boss, factory=qa-plain, seat=boss, cron=0 5 1 1 *, machine=<machine>, action.repoPath="<rig>\\repos\\qa-plain"
+  cj_e5016d, QA Kit - Boss, factory=qa-kit, seat=boss, cron=0 5 1 1 *, machine=<machine>, action.repoPath=""
+
+# SECTIONS 4, 5 and 6 - three talks refused before anything starts: a missing secret, a repository this machine has not registered, and a seat on an older Director.
+
+$ POST /gateway/factory-agents/factories/qa-kit/seats/keeper/talk      (raw HTTP, as a person)
+  status: 502
+  answer: {"type":"https://tools.ietf.org/html/rfc9110#section-15.6.3","title":"Bad Gateway","status":502,"detail":"director returned Error: The seat keeper needs the secret 'qa-p6-no-such-secret', which <machine> does not hold, so no session was started. Add it there with cc-secrets."}
+
+$ POST /gateway/factory-agents/factories/qa-kit/seats/stray/talk      (raw HTTP, as a person)
+  status: 502
+  answer: {"type":"https://tools.ietf.org/html/rfc9110#section-15.6.3","title":"Bad Gateway","status":502,"detail":"director returned BadRequest: The seat stray works in the repository 'qa-not-here', which is not registered on <machine>, so no session was started. Register it there, or change the seat's repository in the definition."}
+
+$ POST /gateway/factory-agents/factories/qa-kit/seats/oldie/talk      (raw HTTP, as a person)
+  status: 409
+  answer: {"error":"The Director on QA-OLD is version 9.9.9-qa, which cannot start a seat of a defined factory (it cannot build the seat's kit), so no session was started. Update this Director and try again."}
+
+# every session history row of qa-kit so far (a refused start leaves none)
+#   read from the rig's gateway.db: SELECT SessionId, SessionName, Factory FROM session_history WHERE Factory = ? ['qa-kit']
+  SessionId, SessionName, Factory
+  (0 rows)
+
+# SECTIONS 1, 2, 3, 7, 9 and 10 - the worker, a repository seat, run now twice: before and after a publish that adds a deny on reading notes.txt. Each run reads notes.txt, uses its factory skill, prints git status and starts a child; each child reads notes.txt and asks for the skill.
+
+# before any seat run: the user's skills folders
+  <home>\.claude\skills: 48 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+  <home>\.agents\skills: 21 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+
+# before any seat run: the scratch repository's shared checkout
+  <rig>\repos\qa-scratch: 3 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+
+# before any seat run: the pool of qa-scratch
+  $ cc-worktrees list --repo <rig>\repos\qa-scratch   (CC_WORKTREES_HOME=<rig>\cc-worktrees-state)
+  count: 0
+  slots[0]{slot,state,holder,reason}:
+  help[1]:
+    cc-worktrees get --repo <path> --holder <holder>
+  [exit 0]
+
+$ cc-devthrottle schedule run cj_19cb4d      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-16T00:21:02.7456897Z UTC
+  Target:  3977a23f-508f-4723-807b-6697a6370df1
+  Session: b04cdf4f-8f14-49eb-8934-8d3ef22180ad
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_19cb4d
+  cc-devthrottle session buffer b04cdf4f-8f14-49eb-8934-8d3ef22180ad
+[exit 0]
+
+# RUN A (definition version 1, no deny on notes.txt): the worker's run - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-repos-qa-scratch-worktrees-wt01/a626c43d-ca04-42c1-84bb-4bb5a9a510fc.jsonl
+  cwd: <rig>\repos\qa-scratch.worktrees\wt01
+  tool call: Read {"file_path": "<rig>\\repos\\qa-scratch.worktrees\\wt01\\notes.txt"}
+  tool result: 1	NOTES-LINE-7310: the first line of notes.txt
+2	A second line.
+3	
+  tool call: Skill {"skill": "factory-kit:qa-word"}
+  tool result: Launching skill: factory-kit:qa-word
+  tool call: Bash {"command": "git status --short", "description": "Show short git status"}
+  tool result: ?? .claude/
+?? .temp/
+  tool call: Bash {"command": "cc-devthrottle session spawn \"$(pwd -W)\" --controlled-by self --name \"QA kit child\" --prompt 'QA-P6-CHILD. Do exactly two steps, then stop. 1. Use your Read tool (never Bash) on notes.txt and quote its first line. If refused, write REFUSED and quote the refusal word for word. Do not try any other way. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer.'", "description": "Spawn the QA kit child session"}
+  tool result: Opened session b175f653-6f45-44f4-acee-9191e2ae8b79 (QA kit child).
+id: b175f653-6f45-44f4-acee-9191e2ae8b79
+help[2]:
+  cc-devthrottle message send b175f653-6f45-44f4-acee-9191e2ae8b79 "<message>"
+  cc-devthrottle session buffer b175f653-6f45-44f4-acee-9191e2ae8b79
+  tool call: Bash {"command": "cc-devthrottle run result ok", "description": "Report run result ok"}
+  tool result: Recorded: the run of QA Kit - Worker went ok. This session now closes itself.
+run: ebb62134-856c-4bc1-bf3a-aec8cf8064ee
+schedule: QA Kit - Worker (cj_19cb4d)
+result: ok
+session: flagged to close
+help[1]:
+  cc-devthrottle session done --undo
+  agent: All four steps are done and the run is reported ok.
+
+1. **notes.txt first line:** `NOTES-LINE-7310: the first line of notes.txt`
+2. **factory word:** HERON-5520
+3. **`git status --short`:**
+   ```
+   ?? .claude/
+   ?? .temp/
+   ```
+4. **Child spawn:** it printed `Opened session b175f653-6f45-44f4-acee-9191e2ae8b79 (QA kit child).`
+
+I did not read `grants.md` before acting, which the brief said to do for anything it covers.
+
+# RUN A (definition version 1, no deny on notes.txt): the worker's child - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-repos-qa-scratch-worktrees-wt01/7c093417-8f54-4694-add9-041e4779d31f.jsonl
+  cwd: <rig>\repos\qa-scratch.worktrees\wt01
+  tool call: Read {"file_path": "<rig>\\repos\\qa-scratch.worktrees\\wt01\\notes.txt"}
+  tool call: Skill {"skill": "factory-kit:qa-word"}
+  tool result: 1	NOTES-LINE-7310: the first line of notes.txt
+2	A second line.
+3	
+  tool result (error): <tool_use_error>Unknown skill: factory-kit:qa-word</tool_use_error>
+  agent: Step 1 worked, and step 2 returned NO-SKILL.
+
+1. The Read tool opened notes.txt. Its first line is:
+   `NOTES-LINE-7310: the first line of notes.txt`
+
+2. **NO-SKILL.** The Skill tool answered:
+   `Unknown skill: factory-kit:qa-word`
+
+I stopped after these two steps.
+
+# RUN A (definition version 1, no deny on notes.txt) - seen while the sessions ran
+  the sessions (GET /sessions, the fields that say where and as what each runs):
+    {"sessionId": "b04cdf4f-8f14-49eb-8934-8d3ef22180ad", "name": "QA Kit - Worker - 2026-10-16 00:20", "repoPath": "<rig>\\repos\\qa-scratch.worktrees\\wt01", "pooledWorktree": {"repo": "<rig>\\repos\\qa-scratch", "slot": "wt01", "path": "<rig>\\repos\\qa-scratch.worktrees\\wt01", "lease": "e9230437331545c3a19706b968471323"}, "factoryKitDirectory": "<rig>\\director-root\\instances\\default\\factory-run\\b04cdf4f-8f14-49eb-8934-8d3ef22180ad", "factoryHome": null, "factory": "qa-kit", "factorySeat": "worker", "factoryDefinitionVersion": 1, "factoryKit": "seat", "factoryStartOverride": null, "launchModel": "claude-sonnet-5-5", "parentSessionId": null, "agent": "ClaudeCode", "status": "Running"}
+    {"sessionId": "b175f653-6f45-44f4-acee-9191e2ae8b79", "name": "QA kit child", "repoPath": "<rig>/repos/qa-scratch.worktrees/wt01", "pooledWorktree": null, "factoryKitDirectory": "<rig>\\director-root\\instances\\default\\factory-run\\b175f653-6f45-44f4-acee-9191e2ae8b79", "factoryHome": null, "factory": "qa-kit", "factorySeat": "worker", "factoryDefinitionVersion": 1, "factoryKit": "rules-only", "factoryStartOverride": null, "launchModel": null, "parentSessionId": "b04cdf4f-8f14-49eb-8934-8d3ef22180ad", "agent": "ClaudeCode", "status": "Running"}
+  the kit folders the Director held (<rig>/director-root/instances/default/factory-run):
+    b04cdf4f-8f14-49eb-8934-8d3ef22180ad: kit.json kind=seat, seat=worker, version=1
+        brief.md (51 bytes)
+        claude-plugin/.claude-plugin/plugin.json (157 bytes)
+        claude-plugin/skills/qa-word/SKILL.md (164 bytes)
+        grants.md (58 bytes)
+        kit.json (1021 bytes)
+        records/documents.md (502 bytes)
+        records/journal.md (381 bytes)
+        rules.json (94 bytes)
+        settings.json (1703 bytes)
+    b175f653-6f45-44f4-acee-9191e2ae8b79: kit.json kind=rules-only, seat=worker, version=1
+        kit.json (279 bytes)
+        rules.json (94 bytes)
+        settings.json (1703 bytes)
+  the command lines of the running claude.exe processes that name the rig:
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model claude-sonnet-5-5 --session-id a626c43d-ca04-42c1-84bb-4bb5a9a510fc --settings "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\settings.json" --plugin-dir "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\claude-plugin"
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model opus --session-id 7c093417-8f54-4694-add9-041e4779d31f --settings "<rig>\director-root\instances\default\factory-run\b175f653-6f45-44f4-acee-9191e2ae8b79\settings.json"
+  git status --short --untracked-files=all of each pooled slot, read while its session ran:
+    <rig>\repos\qa-scratch.worktrees\wt01:
+        ?? .claude/sounds/.current_session
+        ?? .temp/input_20261015_202109_uebjbl.txt
+    <rig>\repos\qa-scratch.worktrees\wt01 -> .temp/input_20261015_202109_uebjbl.txt, its first lines:
+        You are Worker, Worker of QA Kit (factory id: qa-kit; your agent id: worker).
+        
+        This is one of your scheduled runs: the schedule "QA Kit - Worker" (cj_19cb4d). Your brief is given to you here in full, as the Gateway holds it (definition version 1, part of the factory's definition); it is not a file in the factory's folder. With it comes what this schedule asks of this run.
+        
+        --- your brief, definition version 1 ---
+        Read, report, and start one child. Change no file.
+
+$ cc-devthrottle schedule runs cj_19cb4d --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "scheduledUtc": "2026-10-16T00:20:58.5255356Z",
+    "firedUtc": "2026-10-16T00:21:02.7456897Z",
+    "machine": "<machine>",
+    "targetDirectorId": "3977a23f-508f-4723-807b-6697a6370df1",
+    "sessionId": "b04cdf4f-8f14-49eb-8934-8d3ef22180ad",
+    "infraStatus": "started",
+    "taskStatus": "closed-itself",
+    "ending": "still-open",
+    "endingText": "running - 1 min so far",
+    "shiftText": "evening shift, Thu 15 Oct, 16:00-24:00",
+    "runId": "ebb62134-856c-4bc1-bf3a-aec8cf8064ee",
+    "result": "ok",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": "2026-10-16T00:21:51.9561525Z",
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-kit",
+    "seat": "worker",
+    "jobName": "QA Kit - Worker",
+    "missedNotListed": 0,
+    "briefVersion": 1,
+    "briefVersionKind": "definition"
+  }
+]
+[exit 0]
+
+# RUN A (definition version 1, no deny on notes.txt): the worker run's history row
+#   read from the rig's gateway.db: SELECT SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride FROM session_history WHERE SessionId = ? COLLATE NOCASE ['b04cdf4f-8f14-49eb-8934-8d3ef22180ad']
+  SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride
+  b04cdf4f-8f14-49eb-8934-8d3ef22180ad, QA Kit - Worker - 2026-10-16 00:20, <rig>\repos\qa-scratch.worktrees\wt01, claude-sonnet-5-5, qa-kit, 1, seat, worker, None
+  (1 rows)
+
+# RUN A (definition version 1, no deny on notes.txt): the Director's launches of kit sessions so far - the Director's log, lines '[ProcessHost] Start:' naming 'factory-run'
+  2026-10-15 20:21:02.603 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id a626c43d-ca04-42c1-84bb-4bb5a9a510fc --settings "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\settings.json" --plugin-dir "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\claude-plugin", workingDir=<rig>\repos\qa-scratch.worktrees\wt01, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+  2026-10-15 20:21:45.945 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 7c093417-8f54-4694-add9-041e4779d31f --settings "<rig>\director-root\instances\default\factory-run\b175f653-6f45-44f4-acee-9191e2ae8b79\settings.json", workingDir=<rig>/repos/qa-scratch.worktrees/wt01, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+
+# RUN A (definition version 1, no deny on notes.txt): the pool of qa-scratch
+  $ cc-worktrees list --repo <rig>\repos\qa-scratch   (CC_WORKTREES_HOME=<rig>\cc-worktrees-state)
+  count: 1 (free 0, in-use 1, held 0)
+  slots[1]{slot,state,holder,reason}:
+    wt01,in-use,QA Kit - Worker - 2026-10-16 00:20 (b04cdf4f-8f14-49eb-8934-8d3ef22180ad),
+  help[1]:
+    cc-worktrees get --repo <path> --holder <holder>
+  [exit 0]
+
+# RUN A (definition version 1, no deny on notes.txt): the user's skills folders after the run
+  <home>\.claude\skills: 48 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+  <home>\.agents\skills: 21 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+
+# RUN A (definition version 1, no deny on notes.txt): the scratch repository's shared checkout after the run
+  <rig>\repos\qa-scratch: 3 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+
+# RUN A (definition version 1, no deny on notes.txt): the shared checkout, git status
+  $ git status --short --untracked-files=all   (in <rig>\repos\qa-scratch)
+  [exit 0]
+
+$ cc-devthrottle session stop b04cdf4f-8f14-49eb-8934-8d3ef22180ad --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped b04cdf4f - process 76152 ended; the row was kept because its pooled worktree is held
+the pooled worktree was not returned and is held - wt01 was not returned and is held: 2 untracked files. Nothing in it was touched. The session row was kept so this is visible; stopping it again removes the row and leaves the worktree held.
+the worktree <rig>\repos\qa-scratch.worktrees\wt01 was left untouched - it has uncommitted changes in it
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+$ cc-devthrottle session stop b175f653-6f45-44f4-acee-9191e2ae8b79 --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped b175f653 - process 70468 ended, row removed
+the worktree <rig>/repos/qa-scratch.worktrees/wt01 was left untouched - it has uncommitted changes in it
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+# A second session on the machine, not a seat: a person's spawn in the folder qa-plain, asked for the factory skill. It also runs this tree's cc-devthrottle from inside a rig session, as the worker's child spawn does.
+
+$ cc-devthrottle session spawn <rig>\repos\qa-plain --machine <machine> --name "QA plain second session" --prompt "QA-P6-SECOND. Do exactly two steps, then stop. 1. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer. 2. Run cc-devthrottle session whoami with Bash and quote what it printed."      (as a person: the rig's enrolled browser device)
+Opened session 8d93e38e-d56e-4034-b5fe-a12459328b75 (QA plain second session).
+id: 8d93e38e-d56e-4034-b5fe-a12459328b75
+help[2]:
+  cc-devthrottle message send 8d93e38e-d56e-4034-b5fe-a12459328b75 "<message>"
+  cc-devthrottle session buffer 8d93e38e-d56e-4034-b5fe-a12459328b75
+[exit 0]
+
+# the second session on the machine - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-repos-qa-plain/5be73153-01d0-4ea5-8753-3c43b10abb3e.jsonl
+  cwd: <rig>\repos\qa-plain
+  tool call: Skill {"skill": "factory-kit:qa-word"}
+  tool result (error): <tool_use_error>Unknown skill: factory-kit:qa-word</tool_use_error>
+  tool call: Bash {"command": "cc-devthrottle session whoami", "description": "Print this session's identity"}
+  tool result: You are session number 101, 8d93e38e-d56e-4034-b5fe-a12459328b75 ("QA plain second session") on <machine>, repo qa-plain.
+help[3]:
+  cc-devthrottle message send <session-id> "<message>"
+  cc-devthrottle message send all "<message>"
+  cc-devthrottle session list
+  agent: 1. NO-SKILL. The Skill tool answered:
+
+   > Unknown skill: factory-kit:qa-word
+
+2. `cc-devthrottle session whoami` printed:
+
+   ```
+   You are session number 101, 8d93e38e-d56e-4034-b5fe-a12459328b75 ("QA plain second session") on <machine>, repo qa-plain.
+   help[3]:
+     cc-devthrottle message send <session-id> "<message>"
+     cc-devthrottle message send all "<message>"
+     cc-devthrottle session list
+   ```
+
+I've done both steps and stopped.
+
+# the second session on the machine - seen while the sessions ran
+  the sessions (GET /sessions, the fields that say where and as what each runs):
+    {"sessionId": "8d93e38e-d56e-4034-b5fe-a12459328b75", "name": "QA plain second session", "repoPath": "<rig>\\repos\\qa-plain", "pooledWorktree": null, "factoryKitDirectory": null, "factoryHome": null, "factory": null, "factorySeat": null, "factoryDefinitionVersion": null, "factoryKit": null, "factoryStartOverride": null, "launchModel": null, "parentSessionId": null, "agent": "ClaudeCode", "status": "Running"}
+  the kit folders the Director held (<rig>/director-root/instances/default/factory-run):
+    b04cdf4f-8f14-49eb-8934-8d3ef22180ad: kit.json kind=seat, seat=worker, version=1
+        brief.md (51 bytes)
+        claude-plugin/.claude-plugin/plugin.json (157 bytes)
+        claude-plugin/skills/qa-word/SKILL.md (164 bytes)
+        grants.md (58 bytes)
+        kit.json (1021 bytes)
+        records/documents.md (502 bytes)
+        records/journal.md (381 bytes)
+        rules.json (94 bytes)
+        settings.json (1703 bytes)
+  the command lines of the running claude.exe processes that name the rig:
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model opus --session-id 5be73153-01d0-4ea5-8753-3c43b10abb3e --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json"
+  git status --short --untracked-files=all of each pooled slot, read while its session ran:
+
+$ cc-devthrottle session stop 8d93e38e-d56e-4034-b5fe-a12459328b75 --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped 8d93e38e - process 69044 ended, row removed
+the worktree <rig>\repos\qa-plain was left untouched - whether it has uncommitted changes could not be determined
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+# The rule tightened: version 2 is version 1 with one change, rules/base.json denies Read(./notes.txt).
+
+# the definition folder <rig>/definition-v2, every file
+  --- factory.yaml
+  factory: qa-kit
+  title: QA Kit
+  purpose: Shows a seat started from its definition on a real Director
+  goalText: |
+    Prove the run kit.
+  goalApprovedOn: 2026-10-15
+  bossSeat: boss
+  defaults:
+    machine: <machine>
+    agent: ClaudeCode
+    model: claude-sonnet-5-5
+  repositories: [qa-scratch, qa-not-here]
+
+  --- rules/base.json
+  {
+    "permissions": {
+      "deny": [
+        "Bash(git push:*)",
+        "Read(./notes.txt)"
+      ],
+      "ask": []
+    }
+  }
+
+  --- rules/asks.json
+  {
+    "permissions": {
+      "deny": [],
+      "ask": [
+        "Bash(git --version)"
+      ]
+    }
+  }
+
+  --- seats/asker.yaml
+  seat: asker
+  name: Asker
+  role: Asker
+  brief: |
+    Run one command.
+  rules: [asks]
+  starts:
+    - cron: "0 5 1 1 *"
+      timeZone: UTC
+      prompt: |
+        QA-P6-ASK. Do exactly one step, then stop. Run the command git --version with Bash, alone, and run no other command first. Quote what it printed, or what you were told if it did not run.
+
+  --- skills/qa-word/SKILL.md
+  ---
+  name: qa-word
+  description: Gives the QA factory's word. Use when asked for the factory's word.
+  ---
+  
+  The QA factory's word is HERON-5520. Answer with that word.
+
+  --- seats/boss.yaml
+  seat: boss
+  name: Boss
+  role: Boss
+  brief: |
+    Work in your own folder. Touch nothing else.
+  starts:
+    - cron: "0 5 1 1 *"
+      timeZone: UTC
+      prompt: |
+        QA-P6-HOME. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Run ls -A "$CC_FACTORY_KIT_DIR" with Bash and quote what it printed.
+
+  --- seats/worker.yaml
+  seat: worker
+  name: Worker
+  role: Worker
+  repository: qa-scratch
+  brief: |
+    Read, report, and start one child. Change no file.
+  rules: [base]
+  secrets: [cloudflare-account-id]
+  skills:
+    factory: [qa-word]
+  starts:
+    - cron: "0 5 1 1 *"
+      timeZone: UTC
+      prompt: |
+        QA-P6-WORKER. Do exactly these four steps and nothing else, then stop.
+        1. Use your Read tool (never Bash) on the file notes.txt in your current folder and quote its first line. If the Read tool is refused, write REFUSED and quote the refusal word for word. Do not try any other way to read it.
+        2. Use the Skill tool to load the skill factory-kit:qa-word and write the word it gives.
+        3. Run git status --short with Bash and quote what it printed.
+        4. Run this one command with Bash and quote what it printed:
+        cc-devthrottle session spawn "$(pwd -W)" --controlled-by self --name "QA kit child" --prompt 'QA-P6-CHILD. Do exactly two steps, then stop. 1. Use your Read tool (never Bash) on notes.txt and quote its first line. If refused, write REFUSED and quote the refusal word for word. Do not try any other way. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer.'
+
+  --- seats/keeper.yaml
+  seat: keeper
+  name: Keeper
+  role: Keeper
+  brief: |
+    Keep the keys.
+  secrets: [qa-p6-no-such-secret]
+
+  --- seats/stray.yaml
+  seat: stray
+  name: Stray
+  role: Stray
+  repository: qa-not-here
+  brief: |
+    Work in a repository this machine does not have.
+
+  --- seats/oldie.yaml
+  seat: oldie
+  name: Oldie
+  role: Oldie
+  machine: QA-OLD
+  brief: |
+    Run on the older Director.
+  secrets: [cloudflare-account-id]
+
+$ cc-devthrottle factory definition save qa-kit --dir <rig>\definition-v2 --expected-version 1 --note "deny reading notes.txt"      (as a person: the rig's enrolled browser device)
+Saved: version 2 of the definition of qa-kit is a draft (10 files, 2875 bytes).
+Version 1 stays the published definition until a person publishes this draft.
+notices[5]:
+  seats/keeper.yaml:6: Whether <machine> holds 'qa-p6-no-such-secret' is not checked yet.
+  seats/oldie.yaml:7: Whether QA-OLD holds 'cloudflare-account-id' is not checked yet.
+  seats/stray.yaml:4: Whether <machine> has the repository 'qa-not-here' registered is not checked yet.
+  seats/worker.yaml:4: Whether <machine> has the repository 'qa-scratch' registered is not checked yet.
+  seats/worker.yaml:8: Whether <machine> holds 'cloudflare-account-id' is not checked yet.
+help[2]:
+  cc-devthrottle factory definition diff qa-kit --to 2
+  cc-devthrottle factory definition publish qa-kit --version 2
+[exit 0]
+
+$ cc-devthrottle factory definition diff qa-kit      (as a person: the rig's enrolled browser device)
+qa-kit: from version 1 to version 2.
+published version: 1
+what changes: Rules tightened on base.
+  Rule set base tightened: deny Read(./notes.txt) added.
+What publishing version 2 would do to the live factory now:
+  Registry: nothing changes but who registered it.
+  Schedule cj_93e5b0 (QA Kit - Asker) kept as it is.
+  Schedule cj_e5016d (QA Kit - Boss) kept as it is.
+  Schedule cj_19cb4d (QA Kit - Worker) kept as it is.
+help[2]:
+  cc-devthrottle factory definition publish qa-kit --version 2 --replaces 1
+  cc-devthrottle factory definition history qa-kit
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-kit --version 2 --replaces 1      (as a person: the rig's enrolled browser device)
+Published: version 2 of the definition of qa-kit. Version 2 is now the published definition.
+what changes: Rules tightened on base.
+  Rule set base tightened: deny Read(./notes.txt) added.
+applied:
+  Definition: version 2 published.
+  Registry: nothing changes but who registered it.
+  Schedule cj_93e5b0 (QA Kit - Asker) kept as it is.
+  Schedule cj_e5016d (QA Kit - Boss) kept as it is.
+  Schedule cj_19cb4d (QA Kit - Worker) kept as it is.
+notices[3]:
+  seats/keeper.yaml:6: <machine> does not hold the secret 'qa-p6-no-such-secret'. Add it there with cc-secrets; the seat's start will refuse without it.
+  seats/oldie.yaml:7: Whether QA-OLD holds 'cloudflare-account-id' could not be asked: the Director on QA-OLD is version 9.9.9-qa, which is too old to be asked. Update it. The seat's start will check it.
+  seats/stray.yaml:4: <machine> does not have the repository 'qa-not-here' registered. Register it there; the seat's start will refuse without it.
+help[2]:
+  cc-devthrottle factory definition get qa-kit
+  cc-devthrottle factory definition history qa-kit
+[exit 0]
+
+$ cc-devthrottle schedule run cj_19cb4d      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-16T00:23:21.7617799Z UTC
+  Target:  3977a23f-508f-4723-807b-6697a6370df1
+  Session: 28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_19cb4d
+  cc-devthrottle session buffer 28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc
+[exit 0]
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the worker's run - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-repos-qa-scratch-worktrees-wt02/9c522241-3c43-43f6-946d-09bd1ee8680c.jsonl
+  cwd: <rig>\repos\qa-scratch.worktrees\wt02
+  tool call: Read {"file_path": "<rig>\\repos\\qa-scratch.worktrees\\wt02\\notes.txt"}
+  tool result (error): <tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>
+  tool call: Skill {"skill": "factory-kit:qa-word"}
+  tool result: Launching skill: factory-kit:qa-word
+  tool call: Bash {"command": "git status --short", "description": "Show short git status"}
+  tool result: ?? .claude/
+?? .temp/
+  tool call: Bash {"command": "cc-devthrottle session spawn \"$(pwd -W)\" --controlled-by self --name \"QA kit child\" --prompt 'QA-P6-CHILD. Do exactly two steps, then stop. 1. Use your Read tool (never Bash) on notes.txt and quote its first line. If refused, write REFUSED and quote the refusal word for word. Do not try any other way. 2. Use the Skill tool to load factory-kit:qa-word. If it is unknown, write NO-SKILL and quote the answer.'", "description": "Spawn the QA child session"}
+  tool result: Opened session 38e37ba1-4a82-4c57-a5f5-afcd803a0529 (QA kit child).
+id: 38e37ba1-4a82-4c57-a5f5-afcd803a0529
+help[2]:
+  cc-devthrottle message send 38e37ba1-4a82-4c57-a5f5-afcd803a0529 "<message>"
+  cc-devthrottle session buffer 38e37ba1-4a82-4c57-a5f5-afcd803a0529
+  tool call: Bash {"command": "cc-devthrottle run result ok", "description": "Report run result"}
+  tool result: Recorded: the run of QA Kit - Worker went ok. This session now closes itself.
+run: 861aef4b-9145-4e9f-bb31-e66dcfd81494
+schedule: QA Kit - Worker (cj_19cb4d)
+result: ok
+session: flagged to close
+help[1]:
+  cc-devthrottle session done --undo
+  agent: 1. **Read notes.txt:** REFUSED. The refusal, word for word: "File is in a directory that is denied by your permission settings." I tried no other way to read it.
+2. **qa-word skill:** The word is HERON-5520.
+3. **git status --short:** It printed
+   ```
+   ?? .claude/
+   ?? .temp/
+   ```
+4. **Spawn child:** It printed `Opened session 38e37ba1-4a82-4c57-a5f5-afcd803a0529 (QA kit child).`
+
+I recorded the run result as ok.
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the worker's child - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-repos-qa-scratch-worktrees-wt02/5699406c-9758-4c13-a532-d01effca289e.jsonl
+  cwd: <rig>\repos\qa-scratch.worktrees\wt02
+  tool call: Read {"file_path": "<rig>\\repos\\qa-scratch.worktrees\\wt02\\notes.txt"}
+  tool result (error): <tool_use_error>File is in a directory that is denied by your permission settings.</tool_use_error>
+  tool call: Skill {"skill": "factory-kit:qa-word"}
+  tool result (error): <tool_use_error>Unknown skill: factory-kit:qa-word</tool_use_error>
+  agent: 1. REFUSED. The Read call on notes.txt was denied with: "File is in a directory that is denied by your permission settings." I did not try any other way to read it.
+
+2. NO-SKILL. The Skill tool answered: "Unknown skill: factory-kit:qa-word"
+
+Stopped after these two steps.
+
+# RUN B (definition version 2, Read(./notes.txt) denied) - seen while the sessions ran
+  the sessions (GET /sessions, the fields that say where and as what each runs):
+    {"sessionId": "28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc", "name": "QA Kit - Worker - 2026-10-16 00:23", "repoPath": "<rig>\\repos\\qa-scratch.worktrees\\wt02", "pooledWorktree": {"repo": "<rig>\\repos\\qa-scratch", "slot": "wt02", "path": "<rig>\\repos\\qa-scratch.worktrees\\wt02", "lease": "8dc99a10c64d4e7d9e62473b72246bc3"}, "factoryKitDirectory": "<rig>\\director-root\\instances\\default\\factory-run\\28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc", "factoryHome": null, "factory": "qa-kit", "factorySeat": "worker", "factoryDefinitionVersion": 2, "factoryKit": "seat", "factoryStartOverride": null, "launchModel": "claude-sonnet-5-5", "parentSessionId": null, "agent": "ClaudeCode", "status": "Running"}
+    {"sessionId": "38e37ba1-4a82-4c57-a5f5-afcd803a0529", "name": "QA kit child", "repoPath": "<rig>/repos/qa-scratch.worktrees/wt02", "pooledWorktree": null, "factoryKitDirectory": "<rig>\\director-root\\instances\\default\\factory-run\\38e37ba1-4a82-4c57-a5f5-afcd803a0529", "factoryHome": null, "factory": "qa-kit", "factorySeat": "worker", "factoryDefinitionVersion": 2, "factoryKit": "rules-only", "factoryStartOverride": null, "launchModel": null, "parentSessionId": "28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc", "agent": "ClaudeCode", "status": "Running"}
+  the kit folders the Director held (<rig>/director-root/instances/default/factory-run):
+    28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc: kit.json kind=seat, seat=worker, version=2
+        brief.md (51 bytes)
+        claude-plugin/.claude-plugin/plugin.json (157 bytes)
+        claude-plugin/skills/qa-word/SKILL.md (164 bytes)
+        grants.md (58 bytes)
+        kit.json (1021 bytes)
+        records/documents.md (502 bytes)
+        records/journal.md (381 bytes)
+        rules.json (122 bytes)
+        settings.json (1731 bytes)
+    38e37ba1-4a82-4c57-a5f5-afcd803a0529: kit.json kind=rules-only, seat=worker, version=2
+        kit.json (279 bytes)
+        rules.json (122 bytes)
+        settings.json (1731 bytes)
+  the command lines of the running claude.exe processes that name the rig:
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 9c522241-3c43-43f6-946d-09bd1ee8680c --settings "<rig>\director-root\instances\default\factory-run\28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc\settings.json" --plugin-dir "<rig>\director-root\instances\default\factory-run\28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc\claude-plugin"
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model opus --session-id 5699406c-9758-4c13-a532-d01effca289e --settings "<rig>\director-root\instances\default\factory-run\38e37ba1-4a82-4c57-a5f5-afcd803a0529\settings.json"
+  git status --short --untracked-files=all of each pooled slot, read while its session ran:
+    <rig>\repos\qa-scratch.worktrees\wt02:
+        ?? .claude/sounds/.current_session
+        ?? .temp/input_20261015_202324_ves5ij.txt
+    <rig>\repos\qa-scratch.worktrees\wt02 -> .temp/input_20261015_202324_ves5ij.txt, its first lines:
+        You are Worker, Worker of QA Kit (factory id: qa-kit; your agent id: worker).
+        
+        This is one of your scheduled runs: the schedule "QA Kit - Worker" (cj_19cb4d). Your brief is given to you here in full, as the Gateway holds it (definition version 2, part of the factory's definition); it is not a file in the factory's folder. With it comes what this schedule asks of this run.
+        
+        --- your brief, definition version 2 ---
+        Read, report, and start one child. Change no file.
+
+$ cc-devthrottle schedule runs cj_19cb4d --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "scheduledUtc": "2026-10-16T00:23:19.7366467Z",
+    "firedUtc": "2026-10-16T00:23:21.7617799Z",
+    "machine": "<machine>",
+    "targetDirectorId": "3977a23f-508f-4723-807b-6697a6370df1",
+    "sessionId": "28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc",
+    "infraStatus": "started",
+    "taskStatus": "closed-itself",
+    "ending": "still-open",
+    "endingText": "running - 1 min so far",
+    "shiftText": "evening shift, Thu 15 Oct, 16:00-24:00",
+    "runId": "861aef4b-9145-4e9f-bb31-e66dcfd81494",
+    "result": "ok",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": "2026-10-16T00:24:01.1807419Z",
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-kit",
+    "seat": "worker",
+    "jobName": "QA Kit - Worker",
+    "missedNotListed": 0,
+    "briefVersion": 2,
+    "briefVersionKind": "definition"
+  },
+  {
+    "scheduledUtc": "2026-10-16T00:20:58.5255356Z",
+    "firedUtc": "2026-10-16T00:21:02.7456897Z",
+    "machine": "<machine>",
+    "targetDirectorId": "3977a23f-508f-4723-807b-6697a6370df1",
+    "sessionId": "b04cdf4f-8f14-49eb-8934-8d3ef22180ad",
+    "infraStatus": "started",
+    "taskStatus": "stopped-by-you",
+    "ending": "stopped-by-you",
+    "endingText": "stopped by you after 2 min",
+    "shiftText": "evening shift, Thu 15 Oct, 16:00-24:00",
+    "runId": "ebb62134-856c-4bc1-bf3a-aec8cf8064ee",
+    "result": "ok",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": "2026-10-16T00:21:51.9561525Z",
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-kit",
+    "seat": "worker",
+    "jobName": "QA Kit - Worker",
+    "missedNotListed": 0,
+    "briefVersion": 1,
+    "briefVersionKind": "definition"
+  }
+]
+[exit 0]
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the worker run's history row
+#   read from the rig's gateway.db: SELECT SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride FROM session_history WHERE SessionId = ? COLLATE NOCASE ['28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc']
+  SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride
+  28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc, QA Kit - Worker - 2026-10-16 00:23, <rig>\repos\qa-scratch.worktrees\wt02, claude-sonnet-5-5, qa-kit, 2, seat, worker, None
+  (1 rows)
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the Director's launches of kit sessions so far - the Director's log, lines '[ProcessHost] Start:' naming 'factory-run'
+  2026-10-15 20:21:02.603 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id a626c43d-ca04-42c1-84bb-4bb5a9a510fc --settings "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\settings.json" --plugin-dir "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\claude-plugin", workingDir=<rig>\repos\qa-scratch.worktrees\wt01, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+  2026-10-15 20:21:45.945 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 7c093417-8f54-4694-add9-041e4779d31f --settings "<rig>\director-root\instances\default\factory-run\b175f653-6f45-44f4-acee-9191e2ae8b79\settings.json", workingDir=<rig>/repos/qa-scratch.worktrees/wt01, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+  2026-10-15 20:23:21.681 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 9c522241-3c43-43f6-946d-09bd1ee8680c --settings "<rig>\director-root\instances\default\factory-run\28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc\settings.json" --plugin-dir "<rig>\director-root\instances\default\factory-run\28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc\claude-plugin", workingDir=<rig>\repos\qa-scratch.worktrees\wt02, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE,PATH
+  2026-10-15 20:23:57.663 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 5699406c-9758-4c13-a532-d01effca289e --settings "<rig>\director-root\instances\default\factory-run\38e37ba1-4a82-4c57-a5f5-afcd803a0529\settings.json", workingDir=<rig>/repos/qa-scratch.worktrees/wt02, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE,PATH
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the pool of qa-scratch
+  $ cc-worktrees list --repo <rig>\repos\qa-scratch   (CC_WORKTREES_HOME=<rig>\cc-worktrees-state)
+  count: 2 (free 0, in-use 1, held 1)
+  slots[2]{slot,state,holder,reason}:
+    wt01,held,QA Kit - Worker - 2026-10-16 00:20 (b04cdf4f-8f14-49eb-8934-8d3ef22180ad),2 untracked files
+    wt02,in-use,QA Kit - Worker - 2026-10-16 00:23 (28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc),
+  help[2]:
+    cc-worktrees get --repo <path> --holder <holder>
+    cc-worktrees return <path> --lease <lease>
+  [exit 0]
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the user's skills folders after the run
+  <home>\.claude\skills: 48 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+  <home>\.agents\skills: 21 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the scratch repository's shared checkout after the run
+  <rig>\repos\qa-scratch: 3 entries; since the first look: added [], removed []
+    files holding 'HERON-5520': 0 []
+
+# RUN B (definition version 2, Read(./notes.txt) denied): the shared checkout, git status
+  $ git status --short --untracked-files=all   (in <rig>\repos\qa-scratch)
+  [exit 0]
+
+$ cc-devthrottle session stop 28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped 28e3d020 - process 12708 ended; the row was kept because its pooled worktree is held
+the pooled worktree was not returned and is held - wt02 was not returned and is held: 2 untracked files. Nothing in it was touched. The session row was kept so this is visible; stopping it again removes the row and leaves the worktree held.
+the worktree <rig>\repos\qa-scratch.worktrees\wt02 was left untouched - it has uncommitted changes in it
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+$ cc-devthrottle session stop 38e37ba1-4a82-4c57-a5f5-afcd803a0529 --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped 38e37ba1 - process 19668 ended, row removed
+the worktree <rig>/repos/qa-scratch.worktrees/wt02 was left untouched - it has uncommitted changes in it
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+# the two runs' folders
+  run A: <rig>\repos\qa-scratch.worktrees\wt01
+  run B: <rig>\repos\qa-scratch.worktrees\wt02
+
+# SECTION 8 - the boss, a seat with no repository, run from its schedule: it runs in its kit's work folder.
+
+$ cc-devthrottle schedule get cj_e5016d      (as a person: the rig's enrolled browser device)
+QA Kit - Boss  (cj_e5016d)
+  Enabled:    yes
+  Machine:    <machine>
+  Runs:       skill QA-P6-HOME. Do exactly two steps, then stop. 1. Run pwd -W with Bash and quote what it printed. 2. Run ls -A "$CC_FACTORY_KIT_DIR" with Bash and quote what it printed.
+
+  Schedule:   cron 0 5 1 1 *  (UTC)
+  Notify:     off
+  Seat:       boss of qa-kit
+  Next run:   2027-01-01T05:00:00Z UTC
+  Last fired: -  (-)
+  Created:    2026-10-16T00:20:52.3236957Z UTC
+[exit 0]
+
+$ cc-devthrottle schedule run cj_e5016d      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-16T00:24:34.5624775Z UTC
+  Target:  3977a23f-508f-4723-807b-6697a6370df1
+  Session: eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_e5016d
+  cc-devthrottle session buffer eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970
+[exit 0]
+
+# the rig answered Claude Code's folder-trust question in session eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970
+  the screen, blanks removed: Quicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyourowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,takeamomenttoreviewwhat'sinthisfolderfirst.ClaudeCode'llbeabletoread,edit,andexecutefileshere.Securityguide>No,exitYes,Itrustthisfold
+  answered: Enter, with the pointer on 'Yes, I trust this folder'
+
+# the boss's scheduled run - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-director-root-instances-default-factory-run-eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970-work/22e14242-a31b-4bd6-be0b-2af0bc117a7e.jsonl
+  cwd: <rig>\director-root\instances\default\factory-run\eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970\work
+  tool call: Bash {"command": "pwd -W; echo ---; ls -A \"$CC_FACTORY_KIT_DIR\""}
+  tool result: <rig>/director-root/instances/default/factory-run/eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970/work
+---
+brief.md
+grants.md
+kit.json
+records/
+rules.json
+work/
+  tool call: Bash {"command": "cc-devthrottle run result ok"}
+  tool result: Recorded: the run of QA Kit - Boss went ok. This session now closes itself.
+run: d6bdd361-3f9a-412a-a2ac-002219f9cce1
+schedule: QA Kit - Boss (cj_e5016d)
+result: ok
+session: flagged to close
+help[1]:
+  cc-devthrottle session done --undo
+  agent: Both steps ran and the run is recorded as ok.
+
+1. `pwd -W` printed:
+   `<rig>/director-root/instances/default/factory-run/eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970/work`
+
+2. `ls -A "$CC_FACTORY_KIT_DIR"` printed:
+   ```
+   brief.md
+   grants.md
+   kit.json
+   records/
+   rules.json
+   work/
+   ```
+
+# the boss's scheduled run - seen while the sessions ran
+  the sessions (GET /sessions, the fields that say where and as what each runs):
+    {"sessionId": "eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970", "name": "QA Kit - Boss - 2026-10-16 00:24", "repoPath": "<rig>\\director-root\\instances\\default\\factory-run\\eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970\\work", "pooledWorktree": null, "factoryKitDirectory": "<rig>\\director-root\\instances\\default\\factory-run\\eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970", "factoryHome": true, "factory": "qa-kit", "factorySeat": "boss", "factoryDefinitionVersion": 2, "factoryKit": "seat", "factoryStartOverride": null, "launchModel": "claude-sonnet-5-5", "parentSessionId": null, "agent": "ClaudeCode", "status": "Running"}
+  the kit folders the Director held (<rig>/director-root/instances/default/factory-run):
+    28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc: kit.json kind=seat, seat=worker, version=2
+        brief.md (51 bytes)
+        claude-plugin/.claude-plugin/plugin.json (157 bytes)
+        claude-plugin/skills/qa-word/SKILL.md (164 bytes)
+        grants.md (58 bytes)
+        kit.json (1021 bytes)
+        records/documents.md (502 bytes)
+        records/journal.md (381 bytes)
+        rules.json (122 bytes)
+        settings.json (1731 bytes)
+    eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970: kit.json kind=seat, seat=boss, version=2
+        brief.md (45 bytes)
+        grants.md (56 bytes)
+        kit.json (670 bytes)
+        records/documents.md (502 bytes)
+        records/journal.md (375 bytes)
+        rules.json (62 bytes)
+        work/.claude/sounds/.current_session (39 bytes)
+  the command lines of the running claude.exe processes that name the rig:
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 22e14242-a31b-4bd6-be0b-2af0bc117a7e --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json"
+  git status --short --untracked-files=all of each pooled slot, read while its session ran:
+
+$ cc-devthrottle schedule runs cj_e5016d --json      (as a person: the rig's enrolled browser device)
+[
+  {
+    "scheduledUtc": "2026-10-16T00:24:34.427693Z",
+    "firedUtc": "2026-10-16T00:24:34.5624775Z",
+    "machine": "<machine>",
+    "targetDirectorId": "3977a23f-508f-4723-807b-6697a6370df1",
+    "sessionId": "eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970",
+    "infraStatus": "started",
+    "taskStatus": "closed-itself",
+    "ending": "still-open",
+    "endingText": "running - 1 min so far",
+    "shiftText": "evening shift, Thu 15 Oct, 16:00-24:00",
+    "runId": "d6bdd361-3f9a-412a-a2ac-002219f9cce1",
+    "result": "ok",
+    "problem": null,
+    "resultReason": null,
+    "resultUtc": "2026-10-16T00:25:08.9247095Z",
+    "resolvedUtc": null,
+    "resolvedBy": null,
+    "resolvedReason": null,
+    "factory": "qa-kit",
+    "seat": "boss",
+    "jobName": "QA Kit - Boss",
+    "missedNotListed": 0,
+    "briefVersion": 2,
+    "briefVersionKind": "definition"
+  }
+]
+[exit 0]
+
+# the boss run's history row
+#   read from the rig's gateway.db: SELECT SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride FROM session_history WHERE SessionId = ? COLLATE NOCASE ['eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970']
+  SessionId, SessionName, RepoPath, Model, Factory, FactoryDefinitionVersion, FactoryKit, FactorySeat, FactoryStartOverride
+  eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970, QA Kit - Boss - 2026-10-16 00:24, <rig>\director-root\instances\default\factory-run\eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970\work, None, qa-kit, 2, seat, boss, None
+  (1 rows)
+
+# the boss run's launch - the Director's log, lines '[ProcessHost] Start:' naming '\work, injectedEnv'
+  2026-10-15 20:24:34.487 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 22e14242-a31b-4bd6-be0b-2af0bc117a7e --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json", workingDir=<rig>\director-root\instances\default\factory-run\eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970\work, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE,PATH
+
+$ cc-devthrottle session stop eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970 --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped eb8b9b9e - process 16152 ended, row removed
+the worktree <rig>\director-root\instances\default\factory-run\eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970\work was left untouched - whether it has uncommitted changes could not be determined
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+# SECTION 13 - the asker: its only rule set asks before 'Bash(git --version)' and denies nothing. It runs from its schedule under the flag this Director launches Claude Code with. Asked, or run without asking?
+
+$ cc-devthrottle schedule run cj_93e5b0      (as a person: the rig's enrolled browser device)
+Fired the schedule.
+  Fired:   2026-10-16T00:25:18.5450622Z UTC
+  Target:  3977a23f-508f-4723-807b-6697a6370df1
+  Session: 74b3d824-ce87-42fe-9603-f33727e11068
+  Infra:   started
+  Task:    unknown
+help[2]:
+  cc-devthrottle schedule runs cj_93e5b0
+  cc-devthrottle session buffer 74b3d824-ce87-42fe-9603-f33727e11068
+[exit 0]
+
+# the rig answered Claude Code's folder-trust question in session 74b3d824-ce87-42fe-9603-f33727e11068
+  the screen, blanks removed: Quicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyourowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,takeamomenttoreviewwhat'sinthisfolderfirst.ClaudeCode'llbeabletoread,edit,andexecutefileshere.Securityguide>No,exitYes,Itrustthisfold
+  answered: Enter, with the pointer on 'Yes, I trust this folder'
+
+# the asker's scheduled run - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-director-root-instances-default-factory-run-74b3d824-ce87-42fe-9603-f33727e11068-work/56528661-eeba-41da-bf00-c06a060d1868.jsonl
+  cwd: <rig>\director-root\instances\default\factory-run\74b3d824-ce87-42fe-9603-f33727e11068\work
+  tool call: Bash {"command": "git --version", "description": "Print git version"}
+
+# the asker's screen at the question: Claude Code stopped to ask
+  Bash command
+   Print git version
+   git --version
+  PermissionruleBash(git--version)requiresconfirmationforthiscommand.
+   /permissions to update rules
+   Do you want to proceed?
+   > 1. Yes
+     2. No
+   Esc to cancel ? Tab to amend
+
+# the asker's outcome
+  asked-by-the-rule
+
+# the asker's scheduled run - seen while the sessions ran
+  the sessions (GET /sessions, the fields that say where and as what each runs):
+    {"sessionId": "74b3d824-ce87-42fe-9603-f33727e11068", "name": "QA Kit - Asker - 2026-10-16 00:25", "repoPath": "<rig>\\director-root\\instances\\default\\factory-run\\74b3d824-ce87-42fe-9603-f33727e11068\\work", "pooledWorktree": null, "factoryKitDirectory": "<rig>\\director-root\\instances\\default\\factory-run\\74b3d824-ce87-42fe-9603-f33727e11068", "factoryHome": true, "factory": "qa-kit", "factorySeat": "asker", "factoryDefinitionVersion": 2, "factoryKit": "seat", "factoryStartOverride": null, "launchModel": "claude-sonnet-5-5", "parentSessionId": null, "agent": "ClaudeCode", "status": "Running"}
+  the kit folders the Director held (<rig>/director-root/instances/default/factory-run):
+    74b3d824-ce87-42fe-9603-f33727e11068: kit.json kind=seat, seat=asker, version=2
+        brief.md (17 bytes)
+        grants.md (57 bytes)
+        kit.json (707 bytes)
+        records/documents.md (502 bytes)
+        records/journal.md (378 bytes)
+        rules.json (97 bytes)
+        settings.json (1706 bytes)
+        work/.claude/sounds/.current_session (39 bytes)
+  the command lines of the running claude.exe processes that name the rig:
+    "<home>\.local\bin\claude.EXE" --dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 56528661-eeba-41da-bf00-c06a060d1868 --settings "<rig>\director-root\instances\default\factory-run\74b3d824-ce87-42fe-9603-f33727e11068\settings.json"
+  git status --short --untracked-files=all of each pooled slot, read while its session ran:
+
+# the asker run's launch - the Director's log, lines '[ProcessHost] Start:' naming 'factory-run'
+  2026-10-15 20:21:02.603 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id a626c43d-ca04-42c1-84bb-4bb5a9a510fc --settings "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\settings.json" --plugin-dir "<rig>\director-root\instances\default\factory-run\b04cdf4f-8f14-49eb-8934-8d3ef22180ad\claude-plugin", workingDir=<rig>\repos\qa-scratch.worktrees\wt01, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+  2026-10-15 20:21:45.945 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 7c093417-8f54-4694-add9-041e4779d31f --settings "<rig>\director-root\instances\default\factory-run\b175f653-6f45-44f4-acee-9191e2ae8b79\settings.json", workingDir=<rig>/repos/qa-scratch.worktrees/wt01, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE
+  2026-10-15 20:23:21.681 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 9c522241-3c43-43f6-946d-09bd1ee8680c --settings "<rig>\director-root\instances\default\factory-run\28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc\settings.json" --plugin-dir "<rig>\director-root\instances\default\factory-run\28e3d020-eb15-4d7e-afa7-8dfb3e0e71dc\claude-plugin", workingDir=<rig>\repos\qa-scratch.worktrees\wt02, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE,PATH
+  2026-10-15 20:23:57.663 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model opus --session-id 5699406c-9758-4c13-a532-d01effca289e --settings "<rig>\director-root\instances\default\factory-run\38e37ba1-4a82-4c57-a5f5-afcd803a0529\settings.json", workingDir=<rig>/repos/qa-scratch.worktrees/wt02, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE,PATH
+  2026-10-15 20:24:34.487 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 22e14242-a31b-4bd6-be0b-2af0bc117a7e --settings "<rig>\director-root\instances\default\claude-hooks\hooks-settings.json", workingDir=<rig>\director-root\instances\default\factory-run\eb8b9b9e-69d2-4e6d-8bf2-46dae5dd4970\work, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE,PATH
+  2026-10-15 20:25:18.472 [ProcessHost] Start: exe=<home>\.local\bin\claude.EXE, args=--dangerously-skip-permissions --model claude-sonnet-5-5 --session-id 56528661-eeba-41da-bf00-c06a060d1868 --settings "<rig>\director-root\instances\default\factory-run\74b3d824-ce87-42fe-9603-f33727e11068\settings.json", workingDir=<rig>\director-root\instances\default\factory-run\74b3d824-ce87-42fe-9603-f33727e11068\work, injectedEnv=CC_DIRECTOR_ID,CC_FACTORY_KIT_DIR,CC_FACTORY_MEMORY_DIR,CC_FLEET_TOOLS,CC_GATEWAY_SESSION_KEY,CC_GATEWAY_URL,CC_SESSION_ID,CC_SESSION_POINTER_FILE,CC_SESSION_PREAMBLE_FILE,PATH
+
+$ cc-devthrottle session stop 74b3d824-ce87-42fe-9603-f33727e11068 --reason "the phase 5 QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped 74b3d824 - process 25636 ended, row removed
+the worktree <rig>\director-root\instances\default\factory-run\74b3d824-ce87-42fe-9603-f33727e11068\work was left untouched - whether it has uncommitted changes could not be determined
+reason: the phase 5 QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
