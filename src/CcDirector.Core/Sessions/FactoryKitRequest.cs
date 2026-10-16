@@ -4,14 +4,16 @@ namespace CcDirector.Core.Sessions;
 /// The kit a create must put in place before its agent starts (Factory Definition mission, phase 5): which factory,
 /// published version, seat and kind; whether the seat works in the kit's own <c>work/</c> folder because it has no
 /// repository (<see cref="Home"/>); and, on a restore, the kit folder the seat already had
-/// (<see cref="ReturningDirectory"/>), which is refreshed in place rather than replaced by a new one.
+/// (<see cref="ReturningDirectory"/>), which is refreshed in place rather than replaced by a new one; and, when a check
+/// started the seat, what the check found (<see cref="Check"/>, phase 5b), written beside the kit as <c>check.json</c>.
 /// </summary>
 public sealed record FactoryKitRequest(string Factory, int Version, string Seat, string Kind, bool Home = false,
-    string? ReturningDirectory = null)
+    string? ReturningDirectory = null, Gateway.Contracts.FactoryCheckDto? Check = null)
 {
     /// <summary>One line for the log.</summary>
     public override string ToString() =>
-        $"factory={Factory}, version={Version}, seat={Seat}, kind={Kind}, home={Home}, returning={ReturningDirectory ?? "(none)"}";
+        $"factory={Factory}, version={Version}, seat={Seat}, kind={Kind}, home={Home}, returning={ReturningDirectory ?? "(none)"}, " +
+        $"check={(Check is null ? "(none)" : $"{Check.CheckPath} count={Check.Count}")}";
 }
 
 /// <summary>

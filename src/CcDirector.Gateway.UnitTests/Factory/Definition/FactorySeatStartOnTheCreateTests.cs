@@ -240,4 +240,68 @@ public sealed class FactorySeatStartOnTheCreateTests : IDisposable
         Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
         Assert.Equal(AgentLaunchModel.NoModelFlag(AgentKind.RawCli, "claude-sonnet-5-5"), result.Error);
     }
+
+    // WHAT A CHECK FOUND (phase 5b, design 3.4).
+
+    private static FactoryCheckDto TheCheck() => new()
+    {
+        CheckPath = "checks/new_mail.py",
+        Count = 3,
+        Context = "three unread mails from customers",
+        CheckedUtc = new DateTime(2026, 10, 15, 8, 0, 0, DateTimeKind.Utc),
+        DefinitionVersion = 4,
+        Seat = "outreach",
+        Start = 2,
+    };
+
+    [Fact]
+    public void SettleSeatStart_ASeatStartedByACheck_HandsWhatTheCheckFoundToTheKit()
+    {
+        var check = TheCheck();
+
+        var refusal = Settle(ASeat(r => { r.RepoPath = _repo; r.FactoryCheck = check; }), out var kit, out _);
+
+        Assert.Null(refusal);
+        Assert.Same(check, kit!.Check);
+    }
+
+    [Fact]
+    public void SettleSeatStart_UNDEFINED_FACTORY_ASeatWithNoCheck_HandsTheKitNoCheck()
+    {
+        Settle(ASeat(r => r.RepoPath = _repo), out var kit, out _);
+
+        Assert.Null(kit!.Check);
+    }
+
+    [Fact]
+    public void Create_ACheckWithNoSeat_IsRefusedByTheVerbBeforeAnythingStarts()
+    {
+        var result = CreateThroughTheVerb(new NewSessionRequest
+        {
+            Agent = "ClaudeCode", RepoPath = _repo, Factory = "devthrottle", FactoryCheck = TheCheck(),
+        });
+
+        Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        Assert.Equal("The create carries what the check checks/new_mail.py found but names no seat whose kit could hold " +
+                     "it, so no session was started.", result.Error);
+    }
+
+    [Fact]
+    public void NewSessionRequest_UNDEFINED_FACTORY_NoCheck_LeavesFactoryCheckOutOfTheJson()
+    {
+        var json = JsonSerializer.Serialize(ASeat(r => r.RepoPath = _repo), Web);
+
+        Assert.DoesNotContain("factoryCheck", json);
+    }
+
+    [Fact]
+    public void NewSessionRequest_ACheck_TravelsToTheDirectorWhole()
+    {
+        var json = JsonSerializer.Serialize(ASeat(r => r.FactoryCheck = TheCheck()), Web);
+
+        var back = JsonSerializer.Deserialize<NewSessionRequest>(json, Web)!.FactoryCheck!;
+
+        Assert.Equal(JsonSerializer.Serialize(TheCheck(), Web), JsonSerializer.Serialize(back, Web));
+        Assert.Equal(DateTimeKind.Utc, back.CheckedUtc.Kind);
+    }
 }

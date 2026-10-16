@@ -171,4 +171,20 @@ public sealed class FleetManagerPlacementEndpointsTests : IDisposable
         Assert.StartsWith("The Fleet Manager is already running", Error(result));
         Assert.Empty(_world.Spawns);
     }
+
+    [Fact]
+    public void StampOrigin_ACreateCarryingWhatACheckFound_LeavesWithNone()
+    {
+        // Factory Definition phase 5b: the placement never passes the spawn doors' settle, so its own stamp is the one
+        // thing that keeps a check's finding out of the Fleet Manager's kit.
+        var req = new NewSessionRequest
+        {
+            Agent = "ClaudeCode",
+            FactoryCheck = new FactoryCheckDto { CheckPath = "checks/new_mail.py", Count = 2, Seat = "outreach", Start = 1 },
+        };
+
+        FleetManagerPlacementEndpoints.StampOrigin(Request(Tenant, deviceType: "browser"), FleetManagerPlacementEndpoints.StartRoute)(req);
+
+        Assert.Null(req.FactoryCheck);
+    }
 }

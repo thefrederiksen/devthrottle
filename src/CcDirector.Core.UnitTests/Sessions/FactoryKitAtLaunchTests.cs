@@ -81,7 +81,7 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
                 Kind = kit.Kind,
                 Files = new List<FactoryKitFileDto>
                 {
-                    new() { Path = "kit.json", Text = "{}\n" },
+                    new() { Path = "kit.json", Text = "{\"files\":[{\"path\":\"brief.md\"},{\"path\":\"rules.json\"}]}\n" },
                     new() { Path = "rules.json", Text = "{\"permissions\":{\"deny\":[],\"ask\":[]}}\n" },
                     new() { Path = "brief.md", Text = $"Brief of version {kit.Version}.\n" },
                 },
@@ -98,9 +98,10 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
         return exe;
     }
 
-    private Session Create(SessionManager manager, string repoPath, FactoryKitRequest? kit = null, bool force = false)
+    private Session Create(SessionManager manager, string repoPath, FactoryKitRequest? kit = null, bool force = false,
+        Action<Session>? beforeLaunch = null)
         => manager.CreateSession(repoPath, new RawCliAgent(Agent()), userArgs: null, SessionBackendType.Studio,
-            resumeSessionId: null, factoryKit: kit, forcePooledWorktree: force);
+            resumeSessionId: null, beforeLaunch: beforeLaunch, factoryKit: kit, forcePooledWorktree: force);
 
     private static StudioBackend Backend(Session session) => Assert.IsType<StudioBackend>(session.Backend);
 
@@ -243,6 +244,120 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
         Assert.Contains("the kit folder handed back by the restore is refused.", ex.Message);
         Assert.Contains("is not directly under", ex.Message);
         Assert.Empty(_downloads);
+    }
+
+    // WHAT A CHECK FOUND (phase 5b, design 3.4): check.json in the kit, listed in kit.json, before the agent starts.
+
+    private static FactoryCheckDto TheCheck() => new()
+    {
+        CheckPath = "checks/new_mail.py",
+        Count = 3,
+        Context = "three unread mails from customers",
+        CheckedUtc = new DateTime(2026, 10, 15, 8, 0, 0, DateTimeKind.Utc),
+        DefinitionVersion = 4,
+        Seat = "outreach",
+        Start = 2,
+    };
+
+    private const string TheCheckJson =
+        "{\n  \"checkPath\": \"checks/new_mail.py\",\n  \"count\": 3,\n  \"context\": \"three unread mails from customers\",\n" +
+        "  \"checkedUtc\": \"2026-10-15T08:00:00Z\",\n  \"definitionVersion\": 4,\n  \"seat\": \"outreach\",\n  \"start\": 2\n}\n";
+
+    private static FactoryKitRequest CheckedSeat(bool home = false, string? returning = null) =>
+        new("devthrottle", 4, "outreach", FactoryKits.Seat, home, returning, TheCheck());
+
+    private static string? CheckJsonIn(Session session)
+    {
+        var path = Path.Combine(session.FactoryKitDirectory!, FactoryRunKit.CheckFileName);
+        return File.Exists(path) ? File.ReadAllText(path) : null;
+    }
+
+    [Fact]
+    public void CreateSession_ASeatStartedByACheck_HasCheckJsonWithExactlyWhatTheCheckFoundBeforeTheAgentStarts()
+    {
+        using var manager = Manager();
+        string? atLaunch = null;
+
+        var session = Create(manager, Repo(), CheckedSeat(), beforeLaunch: s => atLaunch = CheckJsonIn(s));
+
+        Assert.Equal(TheCheckJson, atLaunch);
+        Assert.Equal(TheCheckJson, CheckJsonIn(session));
+        var kitJson = File.ReadAllText(Path.Combine(session.FactoryKitDirectory!, "kit.json"));
+        Assert.Contains("\"path\": \"check.json\",\n      \"source\": \"check\",\n      \"from\": [\n        \"checks/new_mail.py\"", kitJson);
+    }
+
+    [Fact]
+    public void CreateSession_UNDEFINED_FACTORY_ASeatStartedWithNoCheck_HasNoCheckJsonAndItsKitJsonAsSent()
+    {
+        using var manager = Manager();
+
+        var session = Create(manager, Repo(), Seat());
+
+        Assert.Null(CheckJsonIn(session));
+        Assert.Equal("{\"files\":[{\"path\":\"brief.md\"},{\"path\":\"rules.json\"}]}\n",
+            File.ReadAllText(Path.Combine(session.FactoryKitDirectory!, "kit.json")));
+    }
+
+    [Fact]
+    public void RemoveSession_ASeatStartedByACheck_DeletesCheckJsonWithTheKit()
+    {
+        using var manager = Manager();
+        var session = Create(manager, Repo(), CheckedSeat(home: true));
+        var dir = session.FactoryKitDirectory!;
+        Assert.NotNull(CheckJsonIn(session));
+
+        Assert.True(manager.RemoveSession(session.Id));
+
+        Assert.False(File.Exists(Path.Combine(dir, FactoryRunKit.CheckFileName)));
+        Assert.False(Directory.Exists(dir));
+    }
+
+    [Fact]
+    public void CreateSession_ARestoredSeatThatACheckStarted_KeepsItsCheckJsonAndKitJsonStillListsIt()
+    {
+        using var manager = Manager();
+        var first = Create(manager, Repo(), CheckedSeat(home: true));
+        var dir = first.FactoryKitDirectory!;
+
+        // A restore's create carries no check: the capture does not hold one. The folder does.
+        var restored = Create(manager, "", Seat(home: true, returning: dir));
+
+        Assert.Equal(TheCheckJson, CheckJsonIn(restored));
+        Assert.Contains("\"path\": \"check.json\"", File.ReadAllText(Path.Combine(dir, "kit.json")));
+    }
+
+    [Fact]
+    public void CreateSession_ARestoredSeatWhoseCheckJsonTheAgentDamaged_StillStartsWithTheFileAsItWas()
+    {
+        using var manager = Manager();
+        var first = Create(manager, Repo(), CheckedSeat(home: true));
+        var dir = first.FactoryKitDirectory!;
+        File.WriteAllText(Path.Combine(dir, FactoryRunKit.CheckFileName), "{ the agent wrote over this");
+
+        var restored = Create(manager, "", Seat(home: true, returning: dir));
+
+        Assert.Equal(dir, restored.FactoryKitDirectory);
+        Assert.Equal("{ the agent wrote over this", CheckJsonIn(restored));
+        Assert.Contains("\"path\": \"check.json\"", File.ReadAllText(Path.Combine(dir, "kit.json")));
+    }
+
+    [Fact]
+    public void CreateSession_ACheckWhoseKitHasNoListOfFiles_StopsTheCreateAndWritesNoKit()
+    {
+        using var manager = Manager();
+        var download = manager.FactoryKitDownload!;
+        manager.FactoryKitDownload = (kit, session) =>
+        {
+            var composed = download(kit, session);
+            composed.Files[0].Text = "{}\n";
+            return composed;
+        };
+
+        var ex = Assert.Throws<FactoryKitUnavailableException>(() => Create(manager, Repo(), CheckedSeat()));
+
+        Assert.EndsWith("The kit's kit.json has no list of files to name check.json in, so it was not written.", ex.Message);
+        Assert.Empty(manager.ListSessions());
+        Assert.False(Directory.Exists(KitRoot) && Directory.EnumerateDirectories(KitRoot).Any());
     }
 
     [Fact]

@@ -272,4 +272,41 @@ public sealed class FactoryKitComposerTests
 
         Assert.Contains("no seat 'nobody'", ex.Message);
     }
+
+    // WHAT A CHECK FOUND (phase 5b, design 3.4): the Director's WithCheck is handed the kit.json THIS composer wrote,
+    // so a change to its shape that the Director cannot read is caught here, not on every check start.
+
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    public void WithCheck_TheComposedKitJson_ListsCheckJsonBesideEveryComposedEntry(string lineEnding)
+    {
+        var files = FactoryKitComposer.Compose(Source(Content(), "outreach", FactoryKits.Seat))
+            .Select(f => f.Path == FactoryKitComposer.KitFile
+                ? new FactoryKitFileDto { Path = f.Path, Text = f.Text.ReplaceLineEndings(lineEnding) }
+                : f)
+            .ToList();
+        var composed = files.Single(f => f.Path == FactoryKitComposer.KitFile).Text;
+        var check = new FactoryCheckDto
+        {
+            CheckPath = "checks/new_mail.py", Count = 2, CheckedUtc = Built, DefinitionVersion = 7, Seat = "outreach", Start = 1,
+        };
+
+        var kit = CcDirector.Core.Sessions.FactoryRunKit.WithCheck(
+            new FactoryKitResponse { Factory = "devthrottle", Seat = "outreach", Version = 7, Kind = FactoryKits.Seat, Files = files },
+            check);
+
+        var before = Json(composed);
+        var after = Json(kit.Files.Single(f => f.Path == FactoryKitComposer.KitFile).Text);
+        var listed = after.GetProperty("files").EnumerateArray().ToList();
+        var expected = before.GetProperty("files").EnumerateArray().Select(e => e.GetProperty("path").GetString()!)
+            .Append("check.json").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        Assert.Equal(expected, listed.Select(e => e.GetProperty("path").GetString()!).ToList());
+        var entry = listed.Single(e => e.GetProperty("path").GetString() == "check.json");
+        Assert.Equal("check", entry.GetProperty("source").GetString());
+        Assert.Equal(new[] { "checks/new_mail.py" }, Strings(entry.GetProperty("from")));
+        foreach (var name in new[] { "factory", "seat", "version", "kind", "builtAtUtc", "secrets" })
+            Assert.Equal(JsonSerializer.Serialize(before.GetProperty(name)), JsonSerializer.Serialize(after.GetProperty(name)));
+        Assert.Contains(kit.Files, f => f.Path == "check.json");
+    }
 }

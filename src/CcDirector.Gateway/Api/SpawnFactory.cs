@@ -87,6 +87,10 @@ internal static class SpawnFactory
         var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
         if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown)
         {
+            // WHAT A CHECK FOUND IS THE GATEWAY'S CHECK STARTS' ALONE (phase 5b, design 3.4). They reach the Director
+            // on an internal credential; a person's create - the talk included - never carries one.
+            ClearCheck(req, route, "a person's create");
+
             // A PERSON NEVER NAMES A SEAT (Factory Definition mission, phase 5). A seat start is built by the Gateway
             // from the published definition - the talk, a schedule, a run now - and the talk is the person's door to
             // a seat. A seat typed into a spawn would be a session claiming a seat's kit, rules and records without
@@ -137,8 +141,10 @@ internal static class SpawnFactory
             return true;
         }
 
-        // A SESSION'S CHILD IS NEVER A TALK, so it never carries the person's override record (review finding 1).
+        // A SESSION'S CHILD IS NEVER A TALK, so it never carries the person's override record (review finding 1), and
+        // never a check start, so it carries no check's finding: a session cannot write a check.json into its child's kit.
         ClearOverride(req, route, $"session {caller.SessionId}'s create");
+        ClearCheck(req, route, $"session {caller.SessionId}'s create");
 
         // NO READER AT ALL is a different thing from "this session has no row yet", and conflating the two was a
         // mistake worth naming: a Gateway built without the reader (a harness, an older wiring) cannot read
@@ -315,6 +321,13 @@ internal static class SpawnFactory
         if (req.FactoryStartOverride is null) return;
         FileLog.Write($"[SpawnFactory] {route}: the override record '{req.FactoryStartOverride}' on {whose} was dropped - only a talk writes it");
         req.FactoryStartOverride = null;
+    }
+
+    private static void ClearCheck(NewSessionRequest req, string route, string whose)
+    {
+        if (req.FactoryCheck is null) return;
+        FileLog.Write($"[SpawnFactory] {route}: what the check {req.FactoryCheck.CheckPath} found, on {whose}, was dropped - only the Gateway's check starts carry it");
+        req.FactoryCheck = null;
     }
 
     private static void ClearSeat(NewSessionRequest req)

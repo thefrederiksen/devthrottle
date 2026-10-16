@@ -150,7 +150,7 @@ internal static class FleetManagerPlacementEndpoints
     /// say who owns the result, and for a Fleet Manager there is one answer: the owner. It answers to nobody else, and
     /// <see cref="FleetManagerSessions.IsFleetManager"/> does not treat a session another session owns as one.
     /// </summary>
-    private static Action<NewSessionRequest> StampOrigin(HttpContext ctx, string route)
+    internal static Action<NewSessionRequest> StampOrigin(HttpContext ctx, string route)
         => req =>
         {
             if (AuthMiddleware.CallingSession(ctx) is not null)
@@ -164,6 +164,8 @@ internal static class FleetManagerPlacementEndpoints
             // which every session the Fleet Manager started would inherit it. The Fleet Manager answers to the
             // owner and to nobody's factory, so the answer is none for every caller and there is nothing to read.
             req.Factory = null;
+            // Nor is it ever a check start (Factory Definition phase 5b): no check's finding reaches its kit.
+            req.FactoryCheck = null;
         };
 
     /// <summary>A second line behind <see cref="SessionKeyGuard"/>: a session key never reaches a start - unless the
