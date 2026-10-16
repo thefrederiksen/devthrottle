@@ -25,7 +25,7 @@ by a line feed (byte 0x0A)**.
 
 ## 2. The session event model
 
-Agent-neutral. Every API dialect (Pi now; Codex, Claude Code and the Agent Client Protocol later)
+Agent-neutral. Every API dialect (Pi now; other agents and the Agent Client Protocol later)
 reports these and nothing else upward. The words are the Agent Client Protocol's (prompt turn,
 agent message chunk, agent thought chunk, tool call and its status, stop reason, request
 permission, cancel); the shape is ours.
