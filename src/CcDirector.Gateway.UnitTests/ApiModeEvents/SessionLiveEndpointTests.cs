@@ -1,0 +1,715 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text.Json;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
+using CcDirector.Gateway.ApiModeEvents;
+using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Contracts.ApiMode;
+using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Streaming;
+using CcDirector.Gateway.Tenancy;
+using CcDirector.Gateway.Tests.Data;
+using CcDirector.Gateway.Util;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests.ApiModeEvents;
+
+/// <summary>
+/// The live relay of an API-mode session's events (mission #4070, phase 2): <c>GET /sessions/{sid}/live</c> and its
+/// poll form <c>GET /sessions/{sid}/live/items</c>, driven over HTTP on an in-memory host (TestServer: no listener, no
+/// port) against the REAL in-memory event buffer, a REAL pushed-session roster and a REAL tenant boundary, with the
+/// Gateway's own compression middleware in front, as in production.
+///
+/// Events reach the buffer the way the ingest hands them over (<see cref="ApiModeEventBuffer.Apply"/>). The ruling is a
+/// stand-in that names each event, so a test can tell which events were relayed and that only the ruling's output is
+/// sent; it answers nothing for <see cref="ConnectionReady"/>, which proves an event with nothing to show is skipped.
+///
+/// No sleep and no clock decides a result: every wait is on the stream itself or on a signal the code raises. The
+/// <see cref="HangGuard"/> only turns a hang into a failure.
+/// </summary>
+public sealed class SessionLiveEndpointTests : IAsyncDisposable
+{
+    private static readonly TenantId Alice = new("aaaaaaaa-0000-4000-8000-00000000000a");
+    private static readonly TenantId Bob = new("bbbbbbbb-0000-4000-8000-00000000000b");
+    private const string AliceDirector = "dir-alice";
+    private const string ApiSession = "5d1c0f3e-8a2b-4c6d-9e0f-1a2b3c4d5e6f";
+    private const string TerminalSession = "6e2d1f4a-9b3c-4d7e-8f10-2b3c4d5e6f70";
+    private const string TenantHeader = "X-Test-Tenant";
+    private static readonly DateTime GenAStarted = new(2026, 10, 16, 11, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime GenBStarted = new(2026, 10, 16, 12, 30, 0, DateTimeKind.Utc);
+    private static readonly DateTimeOffset T0 = new(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    private readonly GatewayDbTestHarness _harness = new();
+    private readonly HostedTenantBoundary _boundary;
+    private readonly ApiModeEventBuffer _buffer = new();
+    private readonly CountingFeed _feed;
+    private DateTime _now = T0.UtcDateTime;
+    private readonly PushedSessionStore _pushed;
+    private readonly Gate _gate = new();
+    private WebApplication? _app;
+    private HttpClient? _client;
+
+    public SessionLiveEndpointTests()
+    {
+        _boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _harness.OpenDevices(), hosted: false);
+        _feed = new CountingFeed(_buffer);
+        _pushed = new PushedSessionStore(() => _now);
+        _pushed.RegisterConnection(Alice, AliceDirector, "conn-alice");
+        Assert.True(_pushed.ApplySnapshot(Alice, AliceDirector, "conn-alice", 1, new List<SessionDto>
+        {
+            new() { SessionId = ApiSession, Name = "Pi in API mode", Agent = "Pi", ActivityState = "Working", LastActivityAt = _now, ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol },
+            new() { SessionId = TerminalSession, Name = "Pi in a terminal", Agent = "Pi", ActivityState = "Working", LastActivityAt = _now, ConnectionMode = ConnectionModes.Terminal },
+        }));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _gate.Open();
+        _client?.Dispose();
+        if (_app is not null) await _app.DisposeAsync();
+        _harness.Dispose();
+    }
+
+    // ----- the stream: replay, then live -----
+
+    [Fact]
+    public async Task Stream_NoCursor_ReplaysWhatIsHeldThenFollowsLive()
+    {
+        await StartAsync();
+        PushA(Ready(0), Delivered(1, "p1"), Started(2));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        var first = await stream.NextAsync();
+        var second = await stream.NextAsync();
+        PushA(Text(3, "PONG"));
+        var live = await stream.NextAsync();
+
+        // ConnectionReady (sequence 0) was ruled to nothing, so it is not sent; every other event is, in order, and
+        // each event's id is its cursor.
+        Assert.Equal(("item", "gen-a:1", "PromptDelivered", 1L), (first!.Event, first.Id, Kind(first), Sequence(first)));
+        Assert.Equal(("item", "gen-a:2", "TurnStarted"), (second!.Event, second.Id, Kind(second)));
+        Assert.Equal(("item", "gen-a:3", "MessageText"), (live!.Event, live.Id, Kind(live)));
+        Assert.Equal(1, _feed.Active);
+    }
+
+    [Fact]
+    public async Task Stream_CursorInTheLastEventIdHeader_ResumesAfterIt()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), Text(3, "a"), Text(4, "b"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
+
+        Assert.Equal("gen-a:3", (await stream.NextAsync())!.Id);
+        Assert.Equal("gen-a:4", (await stream.NextAsync())!.Id);
+    }
+
+    [Fact]
+    public async Task Stream_CursorInTheQuery_ResumesAfterIt()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), Text(3, "a"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, after: "gen-a:2");
+
+        Assert.Equal("gen-a:3", (await stream.NextAsync())!.Id);
+    }
+
+    [Fact]
+    public async Task Stream_HeaderAndQueryBothSent_TheHeaderWins()
+    {
+        // A browser reconnecting keeps the address it first opened (an old after) and sends its newest cursor in the
+        // header: the header is the one to honour.
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), Text(3, "a"), Text(4, "b"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, after: "gen-a:1", lastEventId: "gen-a:3");
+
+        Assert.Equal("gen-a:4", (await stream.NextAsync())!.Id);
+    }
+
+    // ----- the stream: never a silent gap -----
+
+    [Fact]
+    public async Task Stream_CursorOfAnOlderGeneration_SendsOneResetThenTheCurrentGeneration()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2));
+        PushB(Ready(0), Delivered(1, "p2"));   // the Director restarted: a new generation, its sequence starting again
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
+        var reset = await stream.NextAsync();
+        var next = await stream.NextAsync();
+
+        Assert.Equal("reset", reset!.Event);
+        Assert.Equal("", reset.Id);   // clears the browser's Last-Event-ID
+        var body = Reset(reset);
+        Assert.Equal(ApiModeLiveResetCodes.NewGeneration, body.Code);
+        Assert.Equal(new[] { $"/sessions/{ApiSession}/receipts", $"/sessions/{ApiSession}/history" }, body.RebuildFrom);
+        Assert.False(string.IsNullOrWhiteSpace(body.Message));
+        Assert.Equal(("item", "gen-b:1"), (next!.Event, next.Id));
+    }
+
+    [Fact]
+    public async Task Stream_CursorTheBufferHasLetGo_SendsAMissedEventsResetThenWhatIsHeld()
+    {
+        await StartAsync();
+        // Five more than the buffer holds: sequences 0 to 4 are let go.
+        PushA(Enumerable.Range(0, ApiModeEventBuffer.MaxEventsPerSession + 5).Select(i => (SessionEvent)Text(i, "x")).ToArray());
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:1");
+        var reset = await stream.NextAsync();
+        var first = await stream.NextAsync();
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
+        Assert.Equal("gen-a:5", first!.Id);
+    }
+
+    [Fact]
+    public async Task Stream_CursorAfterAGatewayRestart_SendsAMissedEventsReset()
+    {
+        // The Gateway holds nothing for the session (its buffer is in-process): a client carrying a cursor is told to
+        // rebuild rather than left waiting for events that will never be replayed.
+        await StartAsync();
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:7");
+        var reset = await stream.NextAsync();
+        PushA(Delivered(8, "p3"));
+        var live = await stream.NextAsync();
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
+        Assert.Equal(("item", "gen-a:8"), (live!.Event, live.Id));
+    }
+
+    [Fact]
+    public async Task Stream_TheDirectorRestartsWhileFollowing_SendsAResetThenTheNewGeneration()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
+        PushB(Delivered(1, "p2"));
+        var reset = await stream.NextAsync();
+        var next = await stream.NextAsync();
+
+        Assert.Equal(("reset", "", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, reset.Id, Reset(reset).Code));
+        Assert.Equal(("item", "gen-b:1"), (next!.Event, next.Id));
+    }
+
+    // ----- the stream: the client's side -----
+
+    [Fact]
+    public async Task Stream_TheClientDisconnects_TheSubscriptionIsReleased()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+        var stream = await OpenStreamAsync(Alice, ApiSession);
+        Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
+        Assert.Equal(1, _feed.Active);
+
+        await stream.DisposeAsync();
+        await _feed.Released.WaitAsync(HangGuard);
+
+        Assert.Equal(0, _feed.Active);
+        PushA(Started(2));   // nothing is listening any more, and the feed carries on
+    }
+
+    [Fact]
+    public async Task Stream_AClientThatFallsBehind_IsDroppedWithAResetAndNeverHoldsUpTheFeed()
+    {
+        await StartAsync(liveBacklog: 2);
+        PushA(Delivered(1, "p1"));
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
+
+        // The client stops reading: every write to its connection now waits. The session then produces more than a
+        // whole replay plus the backlog. The feed hands each event over synchronously, so if the relay ever waited on
+        // the client this call would never return.
+        _gate.Close();
+        PushA(Enumerable.Range(2, ApiModeEventBuffer.MaxEventsPerSession + 10).Select(i => (SessionEvent)Text(i, "x")).ToArray());
+        Assert.Equal(1, _feed.Active);   // still attached until the response loop notices
+
+        _gate.Open();
+        var frames = await stream.ReadToEndAsync();
+        await _feed.Released.WaitAsync(HangGuard);
+
+        // At most the one event that was being written when the client stopped, then the reset, then the end.
+        Assert.InRange(frames.Count, 1, 2);
+        var reset = frames[^1];
+        Assert.Equal(("reset", ApiModeLiveResetCodes.FellBehind), (reset.Event, Reset(reset).Code));
+        Assert.All(frames.SkipLast(1), f => Assert.Equal("gen-a:2", f.Id));
+        Assert.Equal(0, _feed.Active);
+    }
+
+    [Fact]
+    public async Task Stream_RequestedWithCompression_IsSentUncompressedEventByEvent()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, acceptCompression: true);
+        Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
+        PushA(Started(2));
+
+        Assert.Equal("gen-a:2", (await stream.NextAsync())!.Id);
+        Assert.Empty(stream.Response.Content.Headers.ContentEncoding);
+        Assert.Equal("text/event-stream", stream.Response.Content.Headers.ContentType!.MediaType);
+    }
+
+    // ----- the poll form -----
+
+    [Fact]
+    public async Task Items_NoCursor_ListsWhatIsHeldWithTheNextCursor()
+    {
+        await StartAsync();
+        PushA(Ready(0), Delivered(1, "p1"), Started(2));
+
+        var page = await GetPageAsync(Alice, ApiSession);
+
+        Assert.Null(page.Reset);
+        Assert.Equal(new[] { "gen-a:1", "gen-a:2" }, page.Items.Select(i => i.Cursor));
+        Assert.Equal("PromptDelivered", ((JsonElement)page.Items[0].Item!).GetProperty("kind").GetString());
+        Assert.Equal("gen-a:2", page.Next);
+    }
+
+    [Fact]
+    public async Task Items_WithTheNextCursor_ListsOnlyWhatCameAfterIt()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2));
+        var first = await GetPageAsync(Alice, ApiSession);
+        PushA(Text(3, "PONG"));
+
+        var second = await GetPageAsync(Alice, ApiSession, after: first.Next);
+        var third = await GetPageAsync(Alice, ApiSession, after: second.Next);
+
+        Assert.Equal(new[] { "gen-a:3" }, second.Items.Select(i => i.Cursor));
+        Assert.Empty(third.Items);
+        Assert.Null(third.Reset);
+        Assert.Equal("gen-a:3", third.Next);   // nothing new: keep the same cursor
+    }
+
+    [Fact]
+    public async Task Items_LastEventRuledToNothing_NextStillMovesPastIt()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Ready(2));
+
+        var page = await GetPageAsync(Alice, ApiSession);
+
+        Assert.Equal(new[] { "gen-a:1" }, page.Items.Select(i => i.Cursor));
+        Assert.Equal("gen-a:2", page.Next);
+    }
+
+    [Fact]
+    public async Task Items_CursorOfAnOlderGeneration_AnswersAResetWithTheCurrentItems()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+        PushB(Delivered(1, "p2"), Started(2));
+
+        var page = await GetPageAsync(Alice, ApiSession, after: "gen-a:1");
+
+        Assert.Equal(ApiModeLiveResetCodes.NewGeneration, page.Reset!.Code);
+        Assert.Equal(new[] { "gen-b:1", "gen-b:2" }, page.Items.Select(i => i.Cursor));
+        Assert.Equal("gen-b:2", page.Next);
+    }
+
+    [Fact]
+    public async Task Items_CursorAfterAGatewayRestart_AnswersAResetAndNoCursor()
+    {
+        await StartAsync();
+
+        var page = await GetPageAsync(Alice, ApiSession, after: "gen-a:7");
+        var again = await GetPageAsync(Alice, ApiSession, after: page.Next);
+
+        Assert.Equal(ApiModeLiveResetCodes.MissedEvents, page.Reset!.Code);
+        Assert.Null(page.Next);   // ask for everything held next time, not the same cursor again
+        Assert.Null(again.Reset);   // which does not reset a second time
+    }
+
+    [Fact]
+    public async Task Items_RequestedWithCompression_IsCompressedLikeAnyJsonRead()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/sessions/{ApiSession}/live/items");
+        request.Headers.Add(TenantHeader, Alice.Value);
+        request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("gzip"));
+
+        using var response = await _client!.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("gzip", response.Content.Headers.ContentEncoding);
+    }
+
+    // ----- who may read, and what is refused -----
+
+    [Theory]
+    [InlineData("/live")]
+    [InlineData("/live/items")]
+    public async Task AnotherAccountsSession_IsNotFoundAndServesNothing(string route)
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+
+        var (status, body) = await GetAsync(Bob, ApiSession, route);
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.DoesNotContain("gen-a", body);
+        Assert.Equal(0, _feed.Subscribed);
+    }
+
+    [Theory]
+    [InlineData("/live")]
+    [InlineData("/live/items")]
+    public async Task TerminalModeSession_IsRefusedWithAPlainSentence(string route)
+    {
+        await StartAsync();
+
+        var (status, body) = await GetAsync(Alice, TerminalSession, route);
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(SessionLiveEndpoint.TerminalModeRefusal, json.RootElement.GetProperty("error").GetString());
+        Assert.Equal(SessionLiveEndpoint.NotApiModeCode, json.RootElement.GetProperty("code").GetString());
+        Assert.Equal(0, _feed.Subscribed);
+    }
+
+    [Theory]
+    [InlineData("/live")]
+    [InlineData("/live/items")]
+    public async Task UnknownSession_IsNotFound(string route)
+    {
+        await StartAsync();
+
+        var (status, _) = await GetAsync(Alice, Guid.NewGuid().ToString(), route);
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+    }
+
+    [Theory]
+    [InlineData("/live")]
+    [InlineData("/live/items")]
+    public async Task RequestWithNoBoundTenant_IsForbidden(string route)
+    {
+        await StartAsync();
+
+        var (status, _) = await GetAsync(null, ApiSession, route);
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+    }
+
+    [Theory]
+    [InlineData("gen-a")]
+    [InlineData("gen-a:")]
+    [InlineData(":4")]
+    [InlineData("gen-a:-1")]
+    [InlineData("gen-a:x")]
+    public async Task UnreadableCursor_IsABadRequestThatSaysWhatToSend(string cursor)
+    {
+        await StartAsync();
+
+        var (status, body) = await GetAsync(Alice, ApiSession, "/live/items?after=" + Uri.EscapeDataString(cursor));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("generation:sequence", body);
+    }
+
+    [Fact]
+    public async Task SessionIdThatIsNotAnIdentifier_IsABadRequest()
+    {
+        await StartAsync();
+
+        var (status, _) = await GetAsync(Alice, "not-a-session", "/live/items");
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+    }
+
+    [Fact]
+    public async Task DirectorAwayButEventsHeld_StillServesThem()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+        _now += TimeSpan.FromMinutes(5);   // the roster row goes stale: its computer is away
+
+        var page = await GetPageAsync(Alice, ApiSession);
+
+        Assert.Equal(new[] { "gen-a:1" }, page.Items.Select(i => i.Cursor));
+    }
+
+    [Fact]
+    public async Task DirectorAwayAndNothingHeld_IsRefusedWithTheReason()
+    {
+        await StartAsync();
+        _now += TimeSpan.FromMinutes(5);
+
+        var (status, body) = await GetAsync(Alice, ApiSession, "/live/items");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, status);
+        Assert.Contains(SessionLiveEndpoint.DirectorAwayRefusal, JsonDocument.Parse(body).RootElement.GetProperty("error").GetString());
+    }
+
+    // ----- the feed's side of a connection, on its own -----
+
+    [Fact]
+    public void Offer_PastCapacity_FallsBehindAtOnceAndIgnoresTheRest()
+    {
+        var connection = new SessionLiveEndpoint.LiveConnection(capacity: 2);
+
+        connection.Offer(Held(1));
+        connection.Offer(Held(2));
+        Assert.False(connection.FellBehind);
+        connection.Offer(Held(3));
+        connection.Offer(Held(4));
+
+        Assert.True(connection.FellBehind);
+        Assert.True(connection.Reader.TryRead(out var first));
+        Assert.True(connection.Reader.TryRead(out var second));
+        Assert.False(connection.Reader.TryRead(out _));
+        Assert.True(connection.Reader.Completion.IsCompleted);
+        Assert.Equal((1L, 2L), (first!.Event.Sequence, second!.Event.Sequence));
+    }
+
+    [Theory]
+    [InlineData("gen-a:0", "gen-a", 0L)]
+    [InlineData("gen-a:2004", "gen-a", 2004L)]
+    [InlineData("2026-10-16T12:00:00Z:5", "2026-10-16T12:00:00Z", 5L)]   // a generation may hold a colon
+    public void TryParseCursor_AFormattedCursor_RoundTrips(string text, string generation, long sequence)
+    {
+        Assert.True(SessionLiveEndpoint.TryParseCursor(text, out var cursor));
+        Assert.Equal(new ApiModeEventCursor(generation, sequence), cursor);
+        Assert.Equal(text, SessionLiveEndpoint.Format(cursor));
+    }
+
+    // ----- the host -----
+
+    private async Task StartAsync(int liveBacklog = SessionLiveEndpoint.DefaultLiveBacklog)
+    {
+        // The empty builder reads no settings files, so it watches none: a host that set up file watchers would
+        // depend on the machine's watcher limit, which is the machine deciding whether a test passes.
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.WebHost.UseTestServer();
+        builder.Services.AddRouting();
+        GatewayResponseCompression.AddTo(builder.Services);
+        var app = builder.Build();
+
+        // The credential the auth middleware would have verified, stamped the way it stamps it; and the client's
+        // side of the connection, which a test can stop reading.
+        app.Use(async (ctx, next) =>
+        {
+            var tenant = ctx.Request.Headers[TenantHeader].ToString();
+            if (tenant.Length > 0)
+            {
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "device-key";
+                ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = new DeviceCredentialIdentity("device-" + tenant[..4], tenant, "browser", "active");
+            }
+            ctx.Response.Body = new GatedBody(ctx.Response.Body, _gate);
+            await next();
+        });
+        GatewayResponseCompression.Use(app);
+        SessionLiveEndpoint.Map(app, _feed, Rule, _pushed, StaleAfter, _boundary, liveBacklog);
+
+        await app.StartAsync();
+        _app = app;
+        _client = app.GetTestServer().CreateClient();
+    }
+
+    /// <summary>The stand-in ruling: names the event. Nothing to show for ConnectionReady.</summary>
+    private static object? Rule(TenantId tenant, ApiModeHeldEvent held) =>
+        held.Event is ConnectionReady ? null : new RuledItem(held.Event.GetType().Name, held.Event.Sequence);
+
+    private sealed record RuledItem(string Kind, long Sequence);
+
+    private async Task<LiveStream> OpenStreamAsync(TenantId tenant, string sid, string? after = null, string? lastEventId = null, bool acceptCompression = false)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/sessions/{sid}/live" + (after is null ? "" : "?after=" + Uri.EscapeDataString(after)));
+        request.Headers.Add(TenantHeader, tenant.Value);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        if (lastEventId is not null) request.Headers.Add("Last-Event-ID", lastEventId);
+        if (acceptCompression)
+        {
+            request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("br"));
+            request.Headers.AcceptEncoding.Add(new StringWithQualityHeaderValue("gzip"));
+        }
+        var response = await _client!.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).WaitAsync(HangGuard);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return new LiveStream(request, response, await response.Content.ReadAsStreamAsync());
+    }
+
+    private async Task<ApiModeLivePageDto> GetPageAsync(TenantId tenant, string sid, string? after = null)
+    {
+        var (status, body) = await GetAsync(tenant, sid, "/live/items" + (after is null ? "" : "?after=" + Uri.EscapeDataString(after)));
+        Assert.Equal(HttpStatusCode.OK, status);
+        return JsonSerializer.Deserialize<ApiModeLivePageDto>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+    }
+
+    private async Task<(HttpStatusCode Status, string Body)> GetAsync(TenantId? tenant, string sid, string route)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/sessions/{sid}{route}");
+        if (tenant is { } t) request.Headers.Add(TenantHeader, t.Value);
+        using var response = await _client!.SendAsync(request).WaitAsync(HangGuard);
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    // ----- events -----
+
+    private void PushA(params SessionEvent[] events) => Push("gen-a", GenAStarted, events);
+    private void PushB(params SessionEvent[] events) => Push("gen-b", GenBStarted, events);
+
+    private void Push(string generation, DateTime started, SessionEvent[] events)
+    {
+        var incoming = events.Select(e => new ApiModeEventBuffer.Incoming(e, JsonSerializer.Serialize(e, SessionEventJson.Options).Length)).ToList();
+        var result = _buffer.Apply(Alice, ApiSession, generation, started, incoming, _ => { });
+        Assert.False(result.Refused);
+    }
+
+    private static ConnectionReady Ready(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, AgentSessionId = "e173b676-b5d6-4605-bc6c-cdbc82fd42a7", Model = "gpt-5.6-sol" };
+    private static PromptDelivered Delivered(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Disposition = PromptDisposition.Started, Acknowledgement = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""" };
+    private static TurnStarted Started(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", PromptIds = new[] { "p1" } };
+    private static MessageText Text(long seq, string text) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", MessageId = "m1", Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Delta, Text = text };
+    private static ApiModeHeldEvent Held(long seq) => new("gen-a", Text(seq, "x"));
+
+    // ----- reading frames -----
+
+    private static string Kind(Frame frame) => JsonDocument.Parse(frame.Data).RootElement.GetProperty("kind").GetString()!;
+    private static long Sequence(Frame frame) => JsonDocument.Parse(frame.Data).RootElement.GetProperty("sequence").GetInt64();
+    private static ApiModeLiveResetDto Reset(Frame frame) => JsonSerializer.Deserialize<ApiModeLiveResetDto>(frame.Data, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    /// <summary>One event of the stream. <see cref="Id"/> is null when the frame had no id line, empty when it cleared it.</summary>
+    private sealed record Frame(string? Id, string Event, string Data);
+
+    private sealed class LiveStream(HttpRequestMessage request, HttpResponseMessage response, Stream body) : IAsyncDisposable
+    {
+        private readonly StreamReader _reader = new(body);
+
+        public HttpResponseMessage Response => response;
+
+        /// <summary>The next event, or null at the end of the stream.</summary>
+        public async Task<Frame?> NextAsync()
+        {
+            string? id = null, type = null, data = null;
+            while (true)
+            {
+                var line = await _reader.ReadLineAsync().WaitAsync(HangGuard);
+                if (line is null) return type is null ? null : new Frame(id, type, data ?? "");
+                if (line.Length == 0)
+                {
+                    if (type is null && data is null && id is null) continue;
+                    return new Frame(id, type ?? "message", data ?? "");
+                }
+                var colon = line.IndexOf(':');
+                var field = colon < 0 ? line : line[..colon];
+                var value = colon < 0 ? "" : line[(colon + 1)..].TrimStart(' ');
+                switch (field)
+                {
+                    case "id": id = value; break;
+                    case "event": type = value; break;
+                    case "data": data = data is null ? value : data + "\n" + value; break;
+                }
+            }
+        }
+
+        public async Task<List<Frame>> ReadToEndAsync()
+        {
+            var frames = new List<Frame>();
+            while (await NextAsync() is { } frame) frames.Add(frame);
+            return frames;
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            _reader.Dispose();
+            response.Dispose();
+            request.Dispose();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    // ----- the instruments -----
+
+    /// <summary>The real buffer, counting the subscriptions the relay holds on it and signalling each release.</summary>
+    private sealed class CountingFeed(IApiModeEventFeed inner) : IApiModeEventFeed
+    {
+        private int _active;
+        private int _subscribed;
+        private TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Active => Volatile.Read(ref _active);
+        public int Subscribed => Volatile.Read(ref _subscribed);
+        public Task Released => _released.Task;
+
+        public ApiModeEventReplay Read(TenantId tenant, string sessionId, ApiModeEventCursor? after = null) => inner.Read(tenant, sessionId, after);
+
+        public ApiModeEventSubscription Subscribe(TenantId tenant, string sessionId, ApiModeEventCursor? after, Action<ApiModeHeldEvent> onEvent)
+        {
+            var real = inner.Subscribe(tenant, sessionId, after, onEvent);
+            Interlocked.Increment(ref _active);
+            Interlocked.Increment(ref _subscribed);
+            return new ApiModeEventSubscription(real.Replay, () =>
+            {
+                real.Dispose();
+                Interlocked.Decrement(ref _active);
+                _released.TrySetResult();
+            });
+        }
+
+        public IDisposable SubscribeAll(Action<TenantId, ApiModeHeldEvent> onEvent) => inner.SubscribeAll(onEvent);
+    }
+
+    /// <summary>Whether the client is reading. While closed, every write to a response waits, as on a socket nobody reads.</summary>
+    private sealed class Gate
+    {
+        private volatile TaskCompletionSource _open = Opened();
+
+        public Task WhenOpen => _open.Task;
+        public void Close() => _open = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Open() => _open.TrySetResult();
+
+        private static TaskCompletionSource Opened()
+        {
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            tcs.SetResult();
+            return tcs;
+        }
+    }
+
+    /// <summary>One response's body, behind the <see cref="Gate"/>.</summary>
+    private sealed class GatedBody(Stream inner, Gate gate) : Stream
+    {
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await gate.WhenOpen.WaitAsync(cancellationToken);
+            await inner.WriteAsync(buffer, cancellationToken);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override async Task FlushAsync(CancellationToken cancellationToken)
+        {
+            await gate.WhenOpen.WaitAsync(cancellationToken);
+            await inner.FlushAsync(cancellationToken);
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => throw new NotSupportedException("the response is written asynchronously");
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException("the response is written asynchronously");
+    }
+}

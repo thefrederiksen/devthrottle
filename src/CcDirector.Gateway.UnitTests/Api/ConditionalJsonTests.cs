@@ -192,6 +192,10 @@ public sealed class ConditionalJsonTests
     [InlineData("/directors/d1/events", false)]  // a JSON list, not a stream
     [InlineData("/director-streams", false)]
     [InlineData("/eventsx", false)]
+    [InlineData("/sessions/5b0e1c52-7f59-4c1e-9d1a-0b8b1f6d0a11/live", true)]      // an API-mode session's live relay
+    [InlineData("/Sessions/5b0e1c52-7f59-4c1e-9d1a-0b8b1f6d0a11/LIVE", true)]
+    [InlineData("/sessions/5b0e1c52-7f59-4c1e-9d1a-0b8b1f6d0a11/live/items", false)] // its poll form is ordinary JSON
+    [InlineData("/sessions/live", false)]
     public void IsStreamingPath_OnlyTheLiveStreams(string path, bool expected)
     {
         Assert.Equal(expected, GatewayResponseCompression.IsStreamingPath(new PathString(path)));

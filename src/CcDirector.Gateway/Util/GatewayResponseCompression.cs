@@ -18,7 +18,7 @@ namespace CcDirector.Gateway.Util;
 ///
 /// What is NEVER compressed, and why:
 /// <list type="bullet">
-/// <item>The Server-Sent Events feed (<c>GET /events</c>) and the two SignalR hubs (<c>/director-stream</c>,
+/// <item>The Server-Sent Events feeds (<c>GET /events</c>, and an API-mode session's <c>GET /sessions/{sid}/live</c>) and the two SignalR hubs (<c>/director-stream</c>,
 /// <c>/launcher-stream</c>). A compressor holds bytes back until it has enough to compress, so an event would
 /// sit in its buffer instead of reaching the subscriber. Those paths bypass the middleware entirely
 /// (<see cref="IsStreamingPath"/>), and <c>text/event-stream</c> is also excluded by type, so a new stream
@@ -59,11 +59,24 @@ public static class GatewayResponseCompression
     }
 
     /// <summary>
-    /// The paths whose responses are a live stream and must never pass through a compressor: the events feed
-    /// and both SignalR hubs (including their negotiate and transport sub-paths).
+    /// The paths whose responses are a live stream and must never pass through a compressor: the events feed,
+    /// an API-mode session's live relay, and both SignalR hubs (including their negotiate and transport sub-paths).
     /// </summary>
     public static bool IsStreamingPath(PathString path) =>
         path.Equals("/events", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/director-stream", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/launcher-stream", StringComparison.OrdinalIgnoreCase);
+        || path.StartsWithSegments("/launcher-stream", StringComparison.OrdinalIgnoreCase)
+        || IsSessionLiveStream(path);
+
+    /// <summary>
+    /// <c>/sessions/{sid}/live</c> exactly: an API-mode session's live relay (mission #4070). Its poll form,
+    /// <c>/sessions/{sid}/live/items</c>, is ordinary JSON and IS compressed.
+    /// </summary>
+    private static bool IsSessionLiveStream(PathString path)
+    {
+        var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length == 3
+            && string.Equals(segments[0], "sessions", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(segments[2], "live", StringComparison.OrdinalIgnoreCase);
+    }
 }

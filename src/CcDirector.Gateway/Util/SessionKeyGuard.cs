@@ -427,6 +427,12 @@ public static class SessionKeyGuard
             // allow list that widens by pattern stops being an allow list.
             if (s.Length == 3 && s[0] == "sessions" && s[2] == "history") return true;
 
+            // An API-mode session's live relay (mission #4070): the stream of its ruled display items, and the same
+            // items as a poll. The same class of read as the history beside it - one session's own output, inside the
+            // caller's own account - so an agent's key may follow a session it can already read the history of.
+            if (s.Length == 3 && s[0] == "sessions" && s[2] == "live") return true;
+            if (s.Length == 4 && s[0] == "sessions" && s[2] == "live" && s[3] == "items") return true;
+
             // What the Wingman said this session's stops MEAN - the latest judged stop, and the history of
             // them. The same class of read again: one session's own record, inside the caller's own
             // account. Listed as two literals rather than one prefix, for the reason above.
