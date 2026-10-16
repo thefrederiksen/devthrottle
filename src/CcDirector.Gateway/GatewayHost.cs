@@ -4898,7 +4898,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 : Factory.FactorySessionStarts.None,
             // API mode (mission #4070, phase 2): the receipts and the held events each API-mode row's verdict is
             // folded from - the same store the ingest writes and the same feed the live stream reads.
-            apiModeFacts: new ApiModeDisplay.ApiModeDisplayFacts(_apiModeEventBuffer, _apiModeReceipts, _tenantBoundary),
+            apiModeFacts: new ApiModeDisplay.ApiModeDisplayFacts(_apiModeEventBuffer, new ApiModeDisplay.ApiModeVerdictReceipts(_gatewayDb)),
             // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
             dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
             deliveryClock: DeliveryClock,

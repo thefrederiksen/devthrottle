@@ -1,38 +1,49 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
-using CcDirector.Gateway.Receipts;
-using CcDirector.Gateway.Tenancy;
 
 namespace CcDirector.Gateway.ApiModeDisplay;
 
 /// <summary>
-/// Where the API-mode verdict's facts are read from, for one account (mission #4070, phase 2): the session's stored
-/// receipts, read INSIDE the account's tenant scope (the store is partitioned by the ambient tenant), and the recent
-/// events the feed holds for it, read by tenant. So one account's session id can never fold another account's facts.
+/// Where the API-mode verdict's facts are read from (mission #4070, phase 2): the stored receipts of every API-mode
+/// session on a roster in ONE read for the account (<see cref="ApiModeVerdictReceipts"/>), and the recent events the feed
+/// holds for each, read by tenant from memory. So stamping a roster costs one database query however many API-mode rows
+/// it has, takes no receipt-store lock, and one account's session id can never fold another account's facts.
 /// </summary>
 public sealed class ApiModeDisplayFacts
 {
-    private readonly IApiModeEventFeed _feed;
-    private readonly ApiModeReceiptStore _receipts;
-    private readonly HostedTenantBoundary? _boundary;
+    /// <summary>For an account and the API-mode session ids on its roster: each one's receipts, oldest prompt
+    /// first.</summary>
+    internal delegate IReadOnlyDictionary<string, IReadOnlyList<ApiModeVerdictReceipt>> ReceiptsReader(TenantId tenant, IReadOnlyCollection<string> sessionIds);
 
-    public ApiModeDisplayFacts(IApiModeEventFeed feed, ApiModeReceiptStore receipts, HostedTenantBoundary? boundary)
+    private readonly IApiModeEventFeed _feed;
+    private readonly ReceiptsReader _receipts;
+
+    public ApiModeDisplayFacts(IApiModeEventFeed feed, ApiModeVerdictReceipts receipts)
+        : this(feed, (receipts ?? throw new ArgumentNullException(nameof(receipts))).Read)
+    {
+    }
+
+    /// <summary>The seam a test counts the reads through.</summary>
+    internal ApiModeDisplayFacts(IApiModeEventFeed feed, ReceiptsReader receipts)
     {
         _feed = feed ?? throw new ArgumentNullException(nameof(feed));
         _receipts = receipts ?? throw new ArgumentNullException(nameof(receipts));
-        _boundary = boundary;
     }
 
-    /// <summary>The session's stored receipts (oldest prompt first) and what the feed holds for it, in
-    /// <paramref name="tenant"/>.</summary>
-    public (IReadOnlyList<ApiModeReceiptDto> Receipts, ApiModeEventReplay Held) Read(TenantId tenant, string sessionId)
+    /// <summary>Every asked-for session's stored receipts (oldest prompt first) in <paramref name="tenant"/>, in one
+    /// read.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<ApiModeVerdictReceipt>> ReadReceipts(TenantId tenant, IReadOnlyCollection<string> sessionIds)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        return _receipts(tenant, sessionIds);
+    }
+
+    /// <summary>What the feed holds for the session in <paramref name="tenant"/> (memory only, no database).</summary>
+    public ApiModeEventReplay Held(TenantId tenant, string sessionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
-        IReadOnlyList<ApiModeReceiptDto> receipts;
-        using (_boundary?.EnterScope(tenant))
-            receipts = _receipts.Read(sessionId);
-        return (receipts, _feed.Read(tenant, sessionId));
+        return _feed.Read(tenant, sessionId);
     }
 }
 
@@ -51,17 +62,21 @@ internal static class ApiModeRowStamp
     internal static void Stamp(IReadOnlyList<SessionDto> rows, ApiModeDisplayFacts? facts, TenantId? tenant)
     {
         ArgumentNullException.ThrowIfNull(rows);
+        var apiRows = new List<SessionDto>();
         foreach (var s in rows)
         {
-            if (facts is null || tenant is not { IsValid: true } t
-                || !string.Equals(s.ConnectionMode, ConnectionModes.Api, StringComparison.Ordinal)
-                || string.IsNullOrEmpty(s.SessionId))
-            {
-                s.ApiMode = null;
-                continue;
-            }
-            var (receipts, held) = facts.Read(t, s.SessionId);
-            s.ApiMode = ApiModeSessionFold.Fold(s.ConnectionMode, s.WheelHolder, receipts, held);
+            s.ApiMode = null;
+            if (facts is not null && tenant is { IsValid: true }
+                && string.Equals(s.ConnectionMode, ConnectionModes.Api, StringComparison.Ordinal)
+                && !string.IsNullOrEmpty(s.SessionId))
+                apiRows.Add(s);
         }
+        if (apiRows.Count == 0) return;
+
+        // ONE receipt read for every API-mode row on the roster (review finding 1): never one per row.
+        var t = tenant!.Value;
+        var receipts = facts!.ReadReceipts(t, apiRows.Select(s => s.SessionId).ToList());
+        foreach (var s in apiRows)
+            s.ApiMode = ApiModeSessionFold.Fold(s.ConnectionMode, s.WheelHolder, receipts[s.SessionId], facts.Held(t, s.SessionId));
     }
 }

@@ -114,7 +114,34 @@ removes the per-row round trip. Alternatively the feed's own documentation descr
 keeps per-session state through `SubscribeAll` and starts from the receipts; a verdict cache fed that
 way would make the roster read free of database reads altogether.
 
-Developer's answer:
+Developer's answer: **Fixed.** Stamping a roster now costs one database query for all its API-mode rows, and that
+query takes no lock.
+
+- `ApiModeRowStamp.Stamp` first gathers every API-mode row, then calls `ApiModeDisplayFacts.ReadReceipts` once with
+  all their session ids, then folds each row. A roster with no API-mode row reads nothing at all.
+- The read is the new `ApiModeVerdictReceipts.Read(tenant, sessionIds)`: one query (`session_id IN (...)`) on a context
+  created for the given account, so the global tenant filter keeps every other account's rows out. It reads straight
+  from the database, not through `ApiModeReceiptStore`, so it never takes the store's `_gate`: a roster read does not
+  wait behind the ingest, and the ingest does not wait behind a roster read. The store's file is the receipts pull
+  request's (#4082), and I left it unchanged.
+- It projects only the six columns the verdict needs, into the new `ApiModeVerdictReceipt` record (prompt id, state,
+  queue reason, turn id, turn outcome and its reason). The acknowledgement and the refusal reason are never read. The
+  fold now takes that record, so it cannot lean on a column the roster read does not fetch.
+- The quadratic `turnOrder.Contains` is gone: a `HashSet` beside the list counts the turns in one pass.
+- The event feed is still read once per row, but that is an in-memory read, not a database one.
+
+Tests (`ApiModeVerdictReceiptsTests`, through the real ingest and store over the harness's SQLite file):
+`Stamp_ARosterOfManyApiModeRows_ReadsTheReceiptsOnceForAllOfThem` (five API-mode rows and two terminal ones: one read,
+for exactly the five, and every API-mode row folded), `Stamp_ARosterWithNoApiModeRow_ReadsNothing`,
+`Read_SeveralSessions_AnswersEachOneGroupedAndOldestPromptFirst`, `Read_AnotherAccountsSessionWithTheSameId_AnswersNothingOfIt`,
+`Read_NoSessionIds_AnswersEmptyWithoutAQuery`, and `Read_ThroughTheBatchReader_FoldsTheSameVerdictAsTheStoresOwnRead`
+(the batch read gives exactly what the store's own read gives, in the same order). The earlier verdict and roster tests
+now run through the batch reader too. That the read takes no store lock holds by construction: the reader is built from
+the database alone and is never handed the store. I have no test that blocks the store's lock, because the lock is
+private to #4082's store.
+
+A verdict kept current from the feed, the alternative you named, would remove even the one query. I did not build it,
+because it would need its own rebuild-after-restart path, and one query per roster read is small.
 
 ### Finding 2 (low): the agent label names a cause the fold cannot know
 
@@ -131,7 +158,11 @@ it did. The "Not known" part is honest; the "since the Gateway started" part is 
 cause, which is exactly what the sentence exists to avoid. The fix is a sentence that states only
 what is known: that this Gateway holds no connection event for the session.
 
-Developer's answer:
+Developer's answer: **Fixed.** The label is now "Not known: the Gateway holds no connection event for this session. The
+Director reports the agent process holds the conversation". It states what is known and names no cause, so it is true
+in all four cases: a restart, an eviction, a trimmed buffer and a new generation. The sentence is one constant,
+`ApiModeSessionFold.NoConnectionEventHeld`. A new test, `Fold_AReplayTrimmedWithNoGatewayRestart_SaysOnlyThatNoConnectionEventIsHeld`,
+covers the trimmed case with no restart, and the restart test asserts the new words.
 
 ## Observations (not findings: no harm proven, recorded so the next seat need not rediscover them)
 
@@ -161,3 +192,19 @@ Developer's answer:
   generator's shape for a nullable object reference (compare `turnVerdict?: null | ...` in the same
   file) and sit in the property order of `SessionDto`, so a regeneration should produce the same
   text.
+
+
+### Developer's answer to the observations
+
+- **A.** Left alone, as the Tech Lead instructed. It belongs to #4082, and its Developer fixes it; I take the fix when I
+  merge that branch again.
+- **B.** Agreed. Re-send until acknowledged is a requirement on whoever builds the Director's push. It is recorded
+  here, and I will name it in my report to the Tech Lead. Nothing in this pull request can prove it.
+- **C.** Intended. The digest's rows carry no verdict, and the stamp documents null as "nothing was read, so nothing is
+  claimed". If the digest later needs the verdict, its caller passes the facts, and that is a one-line change.
+- **D.** Agreed, not built: the brief asked for how many prompts wait and why, and that is met. If a client needs each
+  prompt's place in the queue, it is a Gateway addition to the queue words.
+- **E.** No change. The contract requires `StderrTail`, and the Director's serialiser always writes it. Checking for null
+  belongs in the ingest's `CheckFields`, which is #4082's code; the ruling should not add a fallback for a field the
+  contract requires.
+- **F.** Agreed. The hand edit follows the generator's shape and the property order of `SessionDto`, as #4077 did.

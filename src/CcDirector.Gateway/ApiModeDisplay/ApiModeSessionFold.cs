@@ -32,7 +32,7 @@ public static class ApiModeSessionFold
     /// <param name="receipts">The session's stored receipts, oldest prompt first, as the receipt store reads them.</param>
     /// <param name="held">What the event feed holds for the session (<see cref="IApiModeEventFeed.Read"/> with no
     /// cursor).</param>
-    public static ApiModeSessionDisplay? Fold(string connectionMode, string wheelHolder, IReadOnlyList<ApiModeReceiptDto> receipts, ApiModeEventReplay held)
+    public static ApiModeSessionDisplay? Fold(string connectionMode, string wheelHolder, IReadOnlyList<ApiModeVerdictReceipt> receipts, ApiModeEventReplay held)
     {
         ArgumentNullException.ThrowIfNull(receipts);
         ArgumentNullException.ThrowIfNull(held);
@@ -45,12 +45,14 @@ public static class ApiModeSessionFold
         var userHasTheWheel = wheelHolder == WheelHolders.User;
 
         // ----- turns, from the receipts: numbered in the order their first prompt arrived -----
+        // A set beside the list, so a long session's thousands of receipts are counted in one pass, not one scan each.
         var turnOrder = new List<string>();
-        var outcomeOf = new Dictionary<string, ApiModeReceiptDto>(StringComparer.Ordinal);
+        var seenTurns = new HashSet<string>(StringComparer.Ordinal);
+        var outcomeOf = new Dictionary<string, ApiModeVerdictReceipt>(StringComparer.Ordinal);
         foreach (var r in receipts)
         {
             if (r.TurnId is not { } turn) continue;
-            if (!turnOrder.Contains(turn, StringComparer.Ordinal)) turnOrder.Add(turn);
+            if (seenTurns.Add(turn)) turnOrder.Add(turn);
             if (r.TurnOutcome is not null && !outcomeOf.ContainsKey(turn)) outcomeOf[turn] = r;
         }
         var latestTurn = turnOrder.Count > 0 ? turnOrder[^1] : null;
@@ -127,7 +129,7 @@ public static class ApiModeSessionFold
     }
 
     /// <summary>The queue in words: how many prompts wait, and why (the Director's reason for each).</summary>
-    internal static string? QueueWords(IReadOnlyList<ApiModeReceiptDto> queued)
+    internal static string? QueueWords(IReadOnlyList<ApiModeVerdictReceipt> queued)
     {
         if (queued.Count == 0) return null;
         var head = queued.Count == 1 ? "1 prompt waiting" : $"{queued.Count} prompts waiting";
@@ -138,6 +140,11 @@ public static class ApiModeSessionFold
         if (byReason.Count == 1) return $"{head}: {byReason[0].Words}";
         return $"{head}: " + string.Join(", ", byReason.Select(g => $"{g.Count} because {g.Words}"));
     }
+
+    /// <summary>The agent label when the protocol process holds the conversation and the Gateway holds no connection
+    /// event for the session: what is known, and no guess at why the event is not held.</summary>
+    internal const string NoConnectionEventHeld =
+        "Not known: the Gateway holds no connection event for this session. The Director reports the agent process holds the conversation";
 
     private static (bool? Connected, string Label) Agent(string wheelHolder, ApiModeEventReplay held)
     {
@@ -158,9 +165,11 @@ public static class ApiModeSessionFold
         if (wheelHolder != WheelHolders.Protocol)
             return (null, "Not known: the Director reports a wheel holder this Gateway does not know");
         // The protocol process holds the conversation, and no connection event is held here. With the whole
-        // generation held, the agent has not said it is ready yet; with anything missing, this Gateway cannot tell.
+        // generation held, the agent has not said it is ready yet; with anything missing, this Gateway cannot tell -
+        // and it cannot tell WHY anything is missing either (a Gateway restart, the buffer letting the session go or
+        // trimming its oldest events, a new generation), so the words state only what is known (review finding 2).
         return held.Complete
             ? (false, "Agent starting")
-            : (null, "Not known since the Gateway started: the Director reports the agent process holds the conversation");
+            : (null, NoConnectionEventHeld);
     }
 }

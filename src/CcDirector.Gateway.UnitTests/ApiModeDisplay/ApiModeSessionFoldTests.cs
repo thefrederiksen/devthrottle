@@ -2,6 +2,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Contracts.ApiMode;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Receipts;
@@ -24,11 +25,11 @@ public sealed class ApiModeSessionFoldTests
     private static ApiModeEventReplay HeldWhole(params SessionEvent[] events)
         => new("gen-a", events.Select(e => new ApiModeHeldEvent("gen-a", e)).ToList(), Complete: true);
 
-    private static ApiModeReceiptDto Delivered(string prompt, string? turn = null, string? outcome = null, string? reason = null)
-        => new() { PromptId = prompt, State = ApiModeReceiptState.Delivered, Disposition = "started", TurnId = turn, TurnOutcome = outcome, TurnOutcomeReason = reason };
+    private static ApiModeVerdictReceipt Delivered(string prompt, string? turn = null, string? outcome = null, string? reason = null)
+        => new(prompt, ApiModeReceiptState.Delivered, null, turn, outcome, reason);
 
-    private static ApiModeReceiptDto QueuedFor(string prompt, string reason)
-        => new() { PromptId = prompt, State = ApiModeReceiptState.Queued, QueueReason = reason };
+    private static ApiModeVerdictReceipt QueuedFor(string prompt, string reason)
+        => new(prompt, ApiModeReceiptState.Queued, reason, null, null, null);
 
     [Fact]
     public void Fold_ATerminalModeRow_HasNoVerdict()
@@ -139,7 +140,7 @@ public sealed class ApiModeSessionFoldTests
     public void Fold_AWheelHolderThisGatewayDoesNotKnow_SaysUnknown()
     {
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, "somebodyElse", Array.Empty<ApiModeReceiptDto>(), NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, "somebodyElse", Array.Empty<ApiModeVerdictReceipt>(), NothingHeld)!;
 
         // Assert
         Assert.Equal("unknown", verdict.Kind);
@@ -159,6 +160,22 @@ public sealed class ApiModeSessionFoldTests
         Assert.Null(verdict.LastTurnEnding);
         Assert.Equal("Idle after turn 2", verdict.ActivityLabel);
     }
+
+    [Fact]
+    public void Fold_AReplayTrimmedWithNoGatewayRestart_SaysOnlyThatNoConnectionEventIsHeld()
+    {
+        // Arrange: the buffer still holds the session's later events but trimmed its oldest, the ConnectionReady among
+        // them. The Gateway did not restart, so the words must not say it did (review finding 2).
+        var trimmed = new ApiModeEventReplay("gen-a", new[] { new ApiModeHeldEvent("gen-a", Queued(40, "p9")) }, Complete: false);
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, new[] { QueuedFor("p9", "turnRunning") }, trimmed)!;
+
+        // Assert
+        Assert.Null(verdict.AgentConnected);
+        Assert.Equal("Not known: the Gateway holds no connection event for this session. The Director reports the agent process holds the conversation", verdict.AgentLabel);
+        Assert.DoesNotContain("started", verdict.AgentLabel, StringComparison.Ordinal);
+    }
 }
 
 /// <summary>
@@ -175,6 +192,7 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly AsyncLocalTenantContext _ambient = new();
     private readonly HostedTenantBoundary _boundary;
+    private readonly GatewayDatabase _db;
     private readonly ApiModeReceiptStore _receipts;
     private ApiModeEventBuffer _buffer = new();
 
@@ -183,10 +201,13 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
         var path = _harness.LegacyPath("devices.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _boundary = new HostedTenantBoundary(_ambient, new DeviceRegistry(_harness.Open(), path), hosted: false);
-        _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
+        _db = _harness.Open(_ambient);
+        _receipts = new ApiModeReceiptStore(_db, () => T0.UtcDateTime);
     }
 
     public void Dispose() => _harness.Dispose();
+
+    private ApiModeDisplayFacts Facts() => new(_buffer, new ApiModeVerdictReceipts(_db));
 
     private void Push(TenantId tenant, params SessionEvent[] events)
         => Assert.NotNull(new ApiModeEventIngest(_buffer, _receipts, _boundary).Accept(tenant, Director, A(events)));
@@ -199,7 +220,7 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
     private ApiModeSessionDisplay? Verdict(string wheel = WheelHolders.Protocol, TenantId? tenant = null, string mode = ConnectionModes.Api)
     {
         var row = new SessionDto { SessionId = Sid, ConnectionMode = mode, WheelHolder = wheel };
-        ApiModeRowStamp.Stamp(new[] { row }, new ApiModeDisplayFacts(_buffer, _receipts, _boundary), tenant ?? Alice);
+        ApiModeRowStamp.Stamp(new[] { row }, Facts(), tenant ?? Alice);
         return row.ApiMode;
     }
 
@@ -339,7 +360,7 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
         Assert.False(verdict.Working);
         // ...and what only the events said is honestly not known.
         Assert.Null(verdict.AgentConnected);
-        Assert.Equal("Not known since the Gateway started: the Director reports the agent process holds the conversation", verdict.AgentLabel);
+        Assert.Equal("Not known: the Gateway holds no connection event for this session. The Director reports the agent process holds the conversation", verdict.AgentLabel);
     }
 
     [Fact]
@@ -406,7 +427,7 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
         var row = new SessionDto { SessionId = Sid, ConnectionMode = ConnectionModes.Terminal, ApiMode = new ApiModeSessionDisplay { Kind = "working" } };
 
         // Act
-        ApiModeRowStamp.Stamp(new[] { row }, new ApiModeDisplayFacts(_buffer, _receipts, _boundary), Alice);
+        ApiModeRowStamp.Stamp(new[] { row }, Facts(), Alice);
 
         // Assert
         Assert.Null(row.ApiMode);

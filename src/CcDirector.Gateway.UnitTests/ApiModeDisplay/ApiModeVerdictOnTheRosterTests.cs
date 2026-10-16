@@ -4,6 +4,7 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Contracts.ApiMode;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Pairing;
@@ -41,6 +42,7 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
     // read resolves to the Local tenant the pushes and the ingest below went into.
     private readonly SingleTenantContext _single = new();
     private readonly HostedTenantBoundary _boundary;
+    private readonly GatewayDatabase _db;
     private readonly ApiModeReceiptStore _receipts;
     private readonly ApiModeEventBuffer _buffer = new();
     private readonly DirectorRegistry _registry;
@@ -55,7 +57,8 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
         var path = _harness.LegacyPath("devices.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _boundary = new HostedTenantBoundary(_single, new DeviceRegistry(_harness.Open(), path), hosted: false);
-        _receipts = new ApiModeReceiptStore(_harness.Open(_single), () => T0.UtcDateTime);
+        _db = _harness.Open(_single);
+        _receipts = new ApiModeReceiptStore(_db, () => T0.UtcDateTime);
     }
 
     public void Dispose()
@@ -201,7 +204,7 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
             tenantBoundary: _boundary,
             aiGate: TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             pushedSessions: _pushed,
-            apiModeFacts: withApiMode ? new ApiModeDisplayFacts(_buffer, _receipts, _boundary) : null);
+            apiModeFacts: withApiMode ? new ApiModeDisplayFacts(_buffer, new ApiModeVerdictReceipts(_db)) : null);
         await app.StartAsync();
         _apps.Add(app);
         return app.GetTestClient();
