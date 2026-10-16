@@ -53,6 +53,11 @@ a turn also carry `turnId` (assigned by the Director; Pi has no turn id of its o
 | `ConnectionReady` | `agentSessionId`, `model` | The agent process is up and named its conversation. Needed for take the wheel (`pi --session-id <agentSessionId>`). |
 | `ConnectionEnded` | `exitCode`, `reason`, `stderrTail` | The agent process is gone, expected or not. |
 
+Three fields may be null, each when there is honestly no value: `reason` on a `done` turn,
+`agentStopReason` when the agent exited mid-turn, and `durationMilliseconds` when the dialect closed a
+tool the agent never finished. `toolCallId` on `PermissionRequested` is optional. Every other field is
+always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
+
 `ConnectionReady` and `ConnectionEnded` are **additions** to the list in the mission document's
 section 5. Without them the Director cannot tell "idle" from "the process died between turns", and
 take the wheel needs the agent's own conversation id.
