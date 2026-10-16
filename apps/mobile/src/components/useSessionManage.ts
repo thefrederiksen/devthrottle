@@ -97,6 +97,9 @@ export interface SessionManage {
    *  Gateway apply the user's default. Always a hold, never an unsnooze: picking a length while already
    *  snoozed re-arms the clock to that length. Resolves true when the Gateway accepted it. */
   holdFor: (minutes: number) => Promise<boolean>;
+  /** Re-read the roster now instead of at the next poll: a control whose press changed the session's verdict (the
+   *  Terminal tab's wheel button) calls it so the new verdict shows at once. */
+  refreshNow: () => void;
   /** Stop the session: end the agent process on its machine and take it off the roster.
    *
    *  THE REASON IS COLLECTED HERE, NOT BY THE CALLER (issue internal#1992). Ruling 4 of mission "Stop
@@ -306,6 +309,8 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     }
   }, [sessionId]);
 
+  const refreshNow = useCallback(() => { void refresh(); }, [refresh]);
+
   return {
     // Checked against the route on every render, so even the one render between a route change and the reset effect
     // above can never hand out the previous session's row.
@@ -324,5 +329,6 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     toggleHold,
     holdFor,
     stopSession: doStopSession,
+    refreshNow,
   };
 }

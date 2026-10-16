@@ -41,6 +41,9 @@ export interface SessionsOutletContext {
   sessions: SessionDto[] | null;
   /** Per-Director reachability for the Online / Wobbly / Offline rendering (issue #1215). */
   directors: DirectorReachability[];
+  /** Re-read the roster now instead of at the next poll: a control whose press changed the session's verdict
+   *  (the Terminal tab's wheel button) calls it so the new verdict shows at once. */
+  refreshNow: () => void;
 }
 
 export function SessionsView() {
@@ -129,7 +132,7 @@ export function SessionsView() {
     [refreshNow, navigate, location.search],
   );
 
-  const context: SessionsOutletContext = { sessions, directors };
+  const context: SessionsOutletContext = { sessions, directors, refreshNow };
 
   // Requests to talk to another session (issue #3631) are read once here and shown on the session that asked - its
   // roster card and its header - never as a band above the detail. Secret transfers waiting for the owner (issue

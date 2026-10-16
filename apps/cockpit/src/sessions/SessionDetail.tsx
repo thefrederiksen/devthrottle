@@ -77,7 +77,7 @@ function tabFromAddress(raw: string | null): MainTab {
 export function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { sessions } = useOutletContext<SessionsOutletContext>();
+  const { sessions, refreshNow } = useOutletContext<SessionsOutletContext>();
   const selected = sessions?.find((s) => s.sessionId === sessionId);
   const { openStop } = useStopSession();
 
@@ -268,7 +268,7 @@ export function SessionDetail() {
           {/* The terminal is ALWAYS mounted (hidden, not unmounted, when Chat or Voice is active) so its
               live WebSocket is never torn down on a tab switch (issue #1213). */}
           <div className={`session-pane ${mainTab === "terminal" ? "" : "session-pane-off"}`}>
-            <TerminalPane />
+            <TerminalPane session={selected} onWheelChanged={refreshNow} />
           </div>
           {mainTab === "chat" && (
             <div className="session-pane">

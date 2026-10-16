@@ -1124,6 +1124,32 @@ export async function sendInterrupt(sessionId: string, signal?: AbortSignal): Pr
   }
 }
 
+// Take the wheel of an API-mode session (mission #4070): the Director stops the agent's protocol process and
+// opens its real terminal on the same conversation. POST /sessions/{sid}/wheel/take. A refusal (terminal mode,
+// already held, a Director that refused mid-switch) throws a GatewayError carrying the Gateway's own sentence in
+// serverReason and its code ("wheel_already_held", ...) in code; the caller shows the sentence verbatim.
+export async function takeWheel(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await postWheelVerb(sessionId, "take", "take the wheel", signal);
+}
+
+// Hand the wheel back: the Director closes the terminal and resumes the conversation in API mode.
+// POST /sessions/{sid}/wheel/hand-back. Refusals arrive exactly as for takeWheel.
+export async function handBackWheel(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await postWheelVerb(sessionId, "hand-back", "hand the wheel back", signal);
+}
+
+async function postWheelVerb(sessionId: string, route: "take" | "hand-back", what: string, signal?: AbortSignal): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/wheel/${route}`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, what);
+  }
+}
+
 // Reset the conversation context in place (/clear for Claude, /new for pi) without ending the
 // process. POST /sessions/{sid}/clear-context. Only meaningful for drivers that declare the
 // ClearContext capability; the caller gates the button on SessionDto.driverCapabilities.
