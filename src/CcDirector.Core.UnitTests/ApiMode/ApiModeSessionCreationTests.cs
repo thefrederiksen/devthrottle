@@ -32,7 +32,9 @@ public sealed class ApiModeSessionCreationTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "api-mode-create-" + Guid.NewGuid().ToString("N"));
     private readonly string? _previousRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
     private readonly string _repo;
+    // What the agent's executable path is configured as, and the file the Director must resolve it to.
     private readonly string _piExecutable;
+    private readonly string _piResolved;
     private readonly List<IDisposable> _disposables = [];
 
     public ApiModeSessionCreationTests()
@@ -40,10 +42,18 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
         _repo = Path.Combine(_root, "repo");
         Directory.CreateDirectory(_repo);
-        // The Director refuses an executable that is not a file; this one is never run - the scripted Pi stands in.
+        // A Pi installed the way npm installs it: an extensionless script, and on Windows a pi.cmd beside it, which is the
+        // one a Windows Director must start (it never runs the script). The Director resolves the configured path the same
+        // way for a terminal and an API-mode session. Never run - the scripted Pi stands in.
         _piExecutable = Path.Combine(_root, "bin", "pi");
         Directory.CreateDirectory(Path.GetDirectoryName(_piExecutable)!);
         File.WriteAllText(_piExecutable, "never run");
+        _piResolved = _piExecutable;
+        if (OperatingSystem.IsWindows())
+        {
+            _piResolved = _piExecutable + ".cmd";
+            File.WriteAllText(_piResolved, "never run");
+        }
     }
 
     public void Dispose()
@@ -117,7 +127,7 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         // Assert: Pi was started as terminal mode would start it - same executable, same folder, same --session-id
         // and preamble file - with --mode rpc ahead, the inherited CC_ variables removed and the session's own applied.
         var started = pi.Process.StartedWith!;
-        Assert.Equal(_piExecutable, started.Executable);
+        Assert.Equal(Path.GetFullPath(_piResolved), started.Executable);
         Assert.Equal(_repo, started.WorkingDirectory);
         Assert.Equal(["--mode", "rpc", "--session-id"], started.Arguments.Take(3));
         Assert.Equal(session.ClaudeSessionId, started.Arguments[3]);
