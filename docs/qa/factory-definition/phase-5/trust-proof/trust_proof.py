@@ -105,7 +105,7 @@ def project_keys() -> set[str]:
 
 def claude_project_folder(folder: Path) -> Path:
     """The folder Claude Code keeps a session's transcript in: the working folder's full path with every character that
-    is not a letter or digit replaced by '-' (as ~/.claude/projects shows, e.g. D--ReposFred--wt-fd-p5-p7)."""
+    is not a letter or digit replaced by '-' (as ~/.claude/projects shows: C:/work/repo becomes C--work-repo)."""
     return PROJECTS / "".join(c if c.isascii() and c.isalnum() else "-" for c in str(folder.resolve()))
 
 
