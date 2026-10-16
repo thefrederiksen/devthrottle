@@ -1,4 +1,4 @@
-using CcDirector.Gateway.Util;
+﻿using CcDirector.Gateway.Util;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -32,6 +32,36 @@ public sealed class SessionKeyGuardRaisedTests
         Assert.False(unraised.Allowed);
         Assert.Equal(AgentInputRefusal.Typing, unraised.Reason);
         Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
+    }
+
+    /// <summary>Take the wheel and hand it back (issue #4070): agent input, so a raised session passes with the grant
+    /// recorded and an unraised key is refused with the wheel's own sentence.</summary>
+    [Theory]
+    [InlineData("POST", "/sessions/" + Sid + "/wheel/take")]
+    [InlineData("POST", "/sessions/" + Sid + "/wheel/hand-back")]
+    [InlineData("POST", "/Sessions/" + Sid + "/WHEEL/Hand-Back/")]
+    public void Check_WheelMove_RaisedPasses_UnraisedIsRefusedWithTheWheelSentence(string method, string path)
+    {
+        var raised = SessionKeyGuard.Check(method, path, raised: true);
+        Assert.True(raised.Allowed, $"{method} {path} must pass for a raised key");
+        Assert.Equal(RaisedGrant.AgentInput, raised.RaisedGrant);
+
+        var unraised = SessionKeyGuard.Check(method, path, raised: false);
+        Assert.False(unraised.Allowed, $"{method} {path} must be refused to a session key");
+        Assert.Equal(AgentInputRefusal.Wheel, unraised.Reason);
+        Assert.Contains("cc-devthrottle message send", unraised.Reason);
+    }
+
+    /// <summary>Only the two literal shapes are agent input: a GET, or a third move nobody built, falls to the allow list
+    /// and is refused there.</summary>
+    [Theory]
+    [InlineData("GET", "/sessions/" + Sid + "/wheel/take")]
+    [InlineData("POST", "/sessions/" + Sid + "/wheel/steal")]
+    [InlineData("POST", "/sessions/" + Sid + "/wheel")]
+    public void Check_WheelLookalike_IsRefusedEvenToARaisedKey(string method, string path)
+    {
+        Assert.False(SessionKeyGuard.Check(method, path, raised: true).Allowed);
+        Assert.False(SessionKeyGuard.Check(method, path, raised: false).Allowed);
     }
 
     /// <summary>The prompt shape (Parent Control, fix 1): a raised key still passes with the recorded grant; an unraised

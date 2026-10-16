@@ -4427,6 +4427,14 @@ internal static partial class GatewayEndpoints
                 : TunnelFailure(streamResult);
         });
 
+        // TAKE THE WHEEL AND HAND IT BACK on an API-mode session (issue #4070, phase 2). Located and tenant-scoped as
+        // interrupt is; the Gateway rules the refusals it can see, the Director rules the rest. See MoveSessionWheelAsync.
+        app.MapPost("/sessions/{sid}/wheel/take", (HttpContext ctx, string sid) =>
+            MoveSessionWheelAsync(ctx, sid, WheelMove.Take, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
+        app.MapPost("/sessions/{sid}/wheel/hand-back", (HttpContext ctx, string sid) =>
+            MoveSessionWheelAsync(ctx, sid, WheelMove.HandBack, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
         // Phone image upload: the browser POSTs the image to the Gateway (its origin); we
         // forward the bytes to the owning Director, which files it into its screenshots
         // folder (same machine as the session) and returns the saved absolute path.

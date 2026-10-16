@@ -1223,6 +1223,27 @@ public sealed class SessionDto
     public int? WaitingStretchCount { get; set; }
 
     /// <summary>
+    /// How the owning Director drives this session's agent (mission "API mode for agent wrappers", issue #4070):
+    /// <see cref="SessionConnectionModes.Terminal"/> by typing into its terminal, or
+    /// <see cref="SessionConnectionModes.Api"/> over the agent's own protocol. A RAW FACT the Director reports.
+    ///
+    /// NULL IS TERMINAL MODE: null is what a Director that predates API mode pushes, and every session such a
+    /// Director runs is a terminal session. The Gateway reads it in one place only
+    /// (<c>CcDirector.Gateway.Api.SessionWheelState</c>).
+    /// </summary>
+    public string? ConnectionMode { get; set; }
+
+    /// <summary>
+    /// Who holds the conversation of an API-mode session right now (issue #4070, take the wheel):
+    /// <see cref="SessionWheelHolders.Protocol"/> while the Director drives the agent over its protocol,
+    /// <see cref="SessionWheelHolders.User"/> while the user has taken the wheel and the agent's real terminal
+    /// is open, and <see cref="SessionWheelHolders.None"/> while no process holds it (between the two, or while
+    /// the agent is not running). Exactly one process holds a conversation at any moment; the Director enforces
+    /// that and reports the result here. Null for a terminal-mode session and from an older Director.
+    /// </summary>
+    public string? WheelHolder { get; set; }
+
+    /// <summary>
     /// Issue #1176 (Phase 1a): a copy safe to hand out from the Gateway's pushed-session cache. The
     /// <c>/sessions</c> aggregation stamps scalar fields (EffectiveColor, DirectorId, MachineName,
     /// voice/transcription overlays, etc.) on the object it serves, so callers must never receive the
@@ -1237,6 +1258,29 @@ public sealed class SessionDto
         copy.DriverCapabilities = new List<string>(DriverCapabilities);
         return copy;
     }
+}
+
+/// <summary>The values of <see cref="SessionDto.ConnectionMode"/> (issue #4070).</summary>
+public static class SessionConnectionModes
+{
+    /// <summary>The Director types into the agent's terminal. The default, and what a missing value means.</summary>
+    public const string Terminal = "terminal";
+
+    /// <summary>The Director speaks the agent's own protocol.</summary>
+    public const string Api = "api";
+}
+
+/// <summary>The values of <see cref="SessionDto.WheelHolder"/> (issue #4070).</summary>
+public static class SessionWheelHolders
+{
+    /// <summary>No process holds the conversation: between a take and a hand-back, or while the agent is not running.</summary>
+    public const string None = "none";
+
+    /// <summary>The Director drives the agent over its protocol.</summary>
+    public const string Protocol = "protocol";
+
+    /// <summary>The user has taken the wheel: the agent's real terminal is open on the conversation.</summary>
+    public const string User = "user";
 }
 
 /// <summary>The values of <see cref="SessionDto.WorkingOrigin"/>.</summary>
