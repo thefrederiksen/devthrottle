@@ -251,6 +251,7 @@ public sealed class ClaudeFolderTrust
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     // Taken over or not removable: it is waited for like a held lock, so this never spins.
+                    // not-an-error: another process may take a stale lock over first; the wait below decides
                     FileLog.Write($"[ClaudeFolderTrust] TakeLock: the stale {LockPath} could not be removed: {ex.Message}");
                 }
             }

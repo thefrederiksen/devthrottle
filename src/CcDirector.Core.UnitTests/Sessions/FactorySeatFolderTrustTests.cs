@@ -204,7 +204,7 @@ public sealed class FactorySeatFolderTrustTests : IDisposable
     {
         var lockDir = Config + ".lock";
         Directory.CreateDirectory(lockDir);
-        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(DateTimeOffset.UtcNow);
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 10, 16, 12, 0, 0, TimeSpan.Zero));
         Directory.SetLastWriteTimeUtc(lockDir, clock.GetUtcNow().UtcDateTime);
         using var manager = new SessionManager(
             new AgentOptions { DefaultBufferSizeBytes = 65536, GracefulShutdownTimeoutSeconds = 2 },
