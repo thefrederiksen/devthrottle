@@ -1,8 +1,15 @@
 # Phase 5, P7: Claude Code's folder trust and a prompt file outside the folder, proven on the real agent
 
 Date: 2026-10-16. Claude Code 2.1.301 on one Windows machine. Both scripts drive the real `claude` interactively in a
-pseudo-terminal, in scratch folders under the temporary directory, and delete every scratch folder, every
-`~/.claude.json` entry they or Claude Code made for one, and Claude Code's own projects folder for each scratch session.
+pseudo-terminal, in scratch folders under the temporary directory.
+
+**The two output files were produced by an EARLIER clean-up, not by the scripts committed here.** That clean-up chose
+which `~/.claude/projects` folders and `~/.claude.json` keys to delete by matching the scratch folder's name, and a
+hand-run delete of the same kind during this work removed another live session's transcript folder. This pull request
+replaced it with the ledger described under "What the clean-up deletes" below, and by the Tech Lead's instruction the
+scripts have NOT been run since. So the CLEAN-UP lines at the end of each output file (`entries left under the scratch
+root`, `removed the scratch session's transcript folder`) are that earlier version's, and the committed scripts print
+different lines. The cases themselves (A to F, 1 and 2) do not depend on the clean-up and stand as recorded.
 
 ## What was proven (trust-proof-output.txt)
 

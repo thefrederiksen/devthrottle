@@ -142,7 +142,11 @@ class Ledger:
         return folder
 
     def agent_ran_in(self, folder: Path) -> None:
-        self.agent_folders.append(folder.resolve())
+        """Record a folder the agent is started in. It must be inside the root: the transcript folder named for it is
+        the one delete that reaches outside the root, so it may only ever name a folder of this run."""
+        folder = folder.resolve()
+        self._inside(folder)
+        self.agent_folders.append(folder)
 
     def _inside(self, folder: Path) -> None:
         if self.root not in folder.parents and folder != self.root:
