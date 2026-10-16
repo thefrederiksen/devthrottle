@@ -1,19 +1,24 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 
 namespace CcDirector.Gateway.Api;
 
-/// <summary>The two moves of the wheel on an API-mode session (mission "API mode for agent wrappers", issue #4070).</summary>
-internal enum WheelMove
+/// <summary>The verbs only an API-mode session has (mission "API mode for agent wrappers", issue #4070).</summary>
+internal enum ApiModeVerb
 {
     /// <summary>The user takes the wheel: the Director stops the protocol process and opens the agent's real terminal
     /// on the same conversation.</summary>
-    Take,
+    TakeWheel,
 
     /// <summary>The user hands it back: the Director closes the terminal and resumes the conversation over the protocol.</summary>
-    HandBack,
+    HandBackWheel,
+
+    /// <summary>Stop the running turn: the Director asks the agent, in its own protocol, to end the turn (for Pi, its
+    /// <c>abort</c> command), and the agent confirms it.</summary>
+    StopTurn,
 }
 
 /// <summary>
@@ -67,7 +72,11 @@ internal static partial class GatewayEndpoints
     /// <summary>The command the owning Director receives to hand the wheel back.</summary>
     internal const string WheelHandBackCommand = "wheel-hand-back";
 
-    /// <summary>The refusal codes this verb answers with. A client shows the <c>error</c> sentence verbatim; the code
+    /// <summary>The command the owning Director receives to stop the running turn of an API-mode session. It maps to the
+    /// agent's own stop (for Pi, <c>abort</c>). The name is being confirmed with the Director side.</summary>
+    internal const string TurnStopCommand = "turn-stop";
+
+    /// <summary>The refusal codes these verbs answer with. A client shows the <c>error</c> sentence verbatim; the code
     /// is for a client or a test that needs to tell the refusals apart without reading the words.</summary>
     internal static class WheelRefusalCodes
     {
@@ -75,11 +84,16 @@ internal static partial class GatewayEndpoints
         public const string AlreadyHeld = "wheel_already_held";
         public const string NotHeld = "wheel_not_held";
         public const string UnreadableState = "wheel_state_unreadable";
+        public const string NotYourSession = "not_your_session";
     }
 
     internal const string WheelNotApiModeReason =
         "This session is in terminal mode, so there is no wheel to take or hand back: you already type into its "
         + "terminal directly. Take the wheel is only for a session started in API mode.";
+
+    internal const string StopNotApiModeReason =
+        "This session is in terminal mode, so Stop over the agent's protocol does not apply. To stop its turn, interrupt "
+        + "it instead (cc-devthrottle session interrupt, or Ctrl+C in its terminal).";
 
     internal const string WheelAlreadyHeldReason =
         "You already have the wheel of this session: its terminal is open on the conversation. Hand it back first "
@@ -90,14 +104,18 @@ internal static partial class GatewayEndpoints
         + "Take the wheel first if you want to type into its terminal.";
 
     /// <summary>
-    /// <c>POST /sessions/{sid}/wheel/take</c> and <c>POST /sessions/{sid}/wheel/hand-back</c>, the handler. Held here
-    /// rather than inline so every exit can be driven by a unit test with no booted host.
+    /// <c>POST /sessions/{sid}/wheel/take</c>, <c>POST /sessions/{sid}/wheel/hand-back</c> and
+    /// <c>POST /sessions/{sid}/turn/stop</c>, the handler. Held here rather than inline so every exit can be driven by a
+    /// unit test with no booted host.
     ///
-    /// It locates the session exactly as interrupt does (scoped to the caller's account), RULES on the Gateway what
-    /// it can see from the session the Director pushed - not API mode, take while already held, hand back while not
-    /// held - and sends the rest to the owning Director. A refusal the Director itself returns (for example a hand
-    /// back while the terminal is mid-turn) is passed through in the Director's own words with its own status, and a
-    /// Director that is not connected is answered the way interrupt answers it.
+    /// It locates the session exactly as interrupt does (scoped to the caller's account). A SESSION KEY may act only on a
+    /// session it controls (the owner's ruling on review finding 1: the prompt route's owned-session rule,
+    /// <see cref="OwnedSessionInput.OwnsDirectly"/>); a raised session is the owner's own grant and is not held to it,
+    /// exactly as on the prompt route. It then RULES on the Gateway what it can see from the session the Director
+    /// pushed - not API mode, take while already held, hand back while the protocol holds it - and sends the rest to
+    /// the owning Director. A refusal the Director itself returns (for example a hand back while the terminal is
+    /// mid-turn) is passed through in the Director's own words with its own status, and a Director that is not
+    /// connected is answered the way interrupt answers it.
     ///
     /// The Gateway's ruling reads a pushed state, which can be a push behind the Director. In one direction that is
     /// safe on its own: a request the stale state lets through is refused by the Director, which holds the ownership
@@ -107,14 +125,13 @@ internal static partial class GatewayEndpoints
     /// to <c>wheel-take</c> or <c>wheel-hand-back</c>, the Director has finished sending <c>PushDelta</c> with the
     /// session's new holder on the same hub connection (awaited, not the fire-and-forget <c>NotifyDelta</c>). The reply
     /// is a client result on that connection and the hub runs one call per connection at a time, so the Gateway has
-    /// applied the new holder before the caller hears the reply. The
-    /// Gateway's ruling exists so the common refusals are answered at once and in one set of words for every client
-    /// (CLAUDE.md rule 7).
+    /// applied the new holder before the caller hears the reply. The Gateway's ruling exists so the common refusals are
+    /// answered at once and in one set of words for every client (CLAUDE.md rule 7).
     /// </summary>
-    internal static async Task<IResult> MoveSessionWheelAsync(
+    internal static async Task<IResult> RunApiModeVerbAsync(
         HttpContext ctx,
         string sid,
-        WheelMove move,
+        ApiModeVerb verb,
         Tenancy.HostedTenantBoundary? tenantBoundary,
         DirectorRegistry registry,
         Streaming.PushedSessionStore? pushedSessions,
@@ -122,33 +139,55 @@ internal static partial class GatewayEndpoints
         SessionOwnerCache? owners,
         DirectorCommandRouter.SendDirectorCommandAsync? sendCommand)
     {
-        var command = move == WheelMove.Take ? WheelTakeCommand : WheelHandBackCommand;
-        FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} command={command}");
+        var command = verb switch
+        {
+            ApiModeVerb.TakeWheel => WheelTakeCommand,
+            ApiModeVerb.HandBackWheel => WheelHandBackCommand,
+            ApiModeVerb.StopTurn => TurnStopCommand,
+            _ => throw new ArgumentOutOfRangeException(nameof(verb), verb, "unknown API-mode verb"),
+        };
+        var caller = AuthMiddleware.CallingSession(ctx);
+        var raised = AuthMiddleware.RaisedGrantOf(ctx) is not null;
+        FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} command={command} "
+            + $"caller={(caller is null ? "(the owner's device)" : caller.SessionId.ToString())} raised={raised}");
 
         var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStale, owners);
         if (session is null || director is null)
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: session not located");
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} REFUSED: session not located");
             return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
         }
 
-        var state = SessionWheelState.Read(session);
-        if (state.Problem is not null)
+        // A SESSION KEY ACTS ONLY ON A SESSION IT CONTROLS. Checked before anything about the session's state is said,
+        // so a caller that does not control the session learns nothing about its wheel. The guard let the path through
+        // for every session key because it cannot read an id; here the target is in hand.
+        if (caller is not null && !raised && !OwnedSessionInput.OwnsDirectly(caller.SessionId.ToString(), session))
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync FAILED: sid={sid} move={move} mode={session.ConnectionMode ?? "(none)"} "
-                + $"holder={session.WheelHolder ?? "(none)"}: {state.Problem}");
-            return WheelRefusal(WheelRefusalCodes.UnreadableState, state.Problem, StatusCodes.Status502BadGateway);
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} REFUSED: caller={caller.SessionId} "
+                + $"does not control it (owner={session.ControllerSessionId ?? "(the owner)"})");
+            return WheelRefusal(WheelRefusalCodes.NotYourSession, AgentInputRefusal.ApiModeNotYourSession, StatusCodes.Status403Forbidden);
+        }
+
+        var state = SessionWheelState.Read(session);
+        // Stop needs only the mode: a holder the Gateway cannot read must never keep a user from stopping a turn.
+        var problem = verb == ApiModeVerb.StopTurn && state.IsApiMode ? null : state.Problem;
+        if (problem is not null)
+        {
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync FAILED: sid={sid} verb={verb} mode={session.ConnectionMode ?? "(none)"} "
+                + $"holder={session.WheelHolder ?? "(none)"}: {problem}");
+            return WheelRefusal(WheelRefusalCodes.UnreadableState, problem, StatusCodes.Status502BadGateway);
         }
 
         if (!state.IsApiMode)
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: terminal mode (mode={session.ConnectionMode ?? "(none)"})");
-            return WheelRefusal(WheelRefusalCodes.NotApiMode, WheelNotApiModeReason, StatusCodes.Status409Conflict);
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} REFUSED: terminal mode (mode={session.ConnectionMode ?? "(none)"})");
+            return WheelRefusal(WheelRefusalCodes.NotApiMode,
+                verb == ApiModeVerb.StopTurn ? StopNotApiModeReason : WheelNotApiModeReason, StatusCodes.Status409Conflict);
         }
 
-        if (move == WheelMove.Take && state.Holder == WheelHolders.User)
+        if (verb == ApiModeVerb.TakeWheel && state.Holder == WheelHolders.User)
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: the user already holds the wheel");
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} REFUSED: the user already holds the wheel");
             return WheelRefusal(WheelRefusalCodes.AlreadyHeld, WheelAlreadyHeldReason, StatusCodes.Status409Conflict);
         }
 
@@ -157,9 +196,9 @@ internal static partial class GatewayEndpoints
         // process holds it - for example the terminal the user took ended on its own) goes to the Director, exactly as
         // a take on none does: what none means after the user held the wheel is the Director's to rule, and hand back
         // may be the very verb that resumes the session (review finding 2).
-        if (move == WheelMove.HandBack && state.Holder == WheelHolders.Protocol)
+        if (verb == ApiModeVerb.HandBackWheel && state.Holder == WheelHolders.Protocol)
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: the protocol holds the wheel, not the user");
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} REFUSED: the protocol holds the wheel, not the user");
             return WheelRefusal(WheelRefusalCodes.NotHeld, WheelNotHeldReason, StatusCodes.Status409Conflict);
         }
 
@@ -167,18 +206,18 @@ internal static partial class GatewayEndpoints
             CancellationToken.None, machineName: director.MachineName);
         if (result is null)
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} NOT DELIVERED: director={director.DirectorId} is not connected");
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} NOT DELIVERED: director={director.DirectorId} is not connected");
             return TunnelFailure(null);
         }
 
         if (!result.Ok)
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED by director={director.DirectorId}: "
+            FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} REFUSED by director={director.DirectorId}: "
                 + DirectorCommandRouter.DescribeFailure(result));
             return MapDirectorFailure(result);
         }
 
-        FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} accepted by director={director.DirectorId}");
+        FileLog.Write($"[GatewayEndpoints] RunApiModeVerbAsync: sid={sid} verb={verb} accepted by director={director.DirectorId}");
         return Results.Json(new { accepted = true });
     }
 

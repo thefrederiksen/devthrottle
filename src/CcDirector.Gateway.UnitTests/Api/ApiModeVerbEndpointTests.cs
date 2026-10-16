@@ -8,6 +8,7 @@ using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Tenancy;
+using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -21,7 +22,7 @@ namespace CcDirector.Gateway.Tests.Api;
 /// Take the wheel and hand it back on an API-mode session (mission "API mode for agent wrappers", issue #4070, phase 2):
 /// the Gateway's verb, its routing to the owning Director, and its refusals.
 ///
-/// Driven through <c>GatewayEndpoints.MoveSessionWheelAsync</c>, the handler both routes map to in one line, over the
+/// Driven through <c>GatewayEndpoints.RunApiModeVerbAsync</c>, the handler both routes map to in one line, over the
 /// real self-host tenant boundary, a real Director registry and a real pushed-session store on an injected clock. A
 /// fake command sender plays the Director and records every command it was sent, which is what makes "nothing was
 /// sent" a measured fact. The last tests boot the real route map on an in-memory test server, to prove the two paths
@@ -29,7 +30,7 @@ namespace CcDirector.Gateway.Tests.Api;
 ///
 /// PARKED SUITE. Gateway.UnitTests does not run in the default gate; these run under -Parked.
 /// </summary>
-public sealed class SessionWheelEndpointTests : IDisposable
+public sealed class ApiModeVerbEndpointTests : IDisposable
 {
     private const string DirectorId = "director-1";
     private const string Machine = "DEVLINUX";
@@ -43,7 +44,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     private readonly List<(string DirectorId, string Verb, string SessionId)> _sent = new();
     private Func<DirectorCommand, DirectorCommandResult?> _director = _ => DirectorCommandResult.Success(null);
 
-    public SessionWheelEndpointTests()
+    public ApiModeVerbEndpointTests()
     {
         Directory.CreateDirectory(_root);
         _registry = new DirectorRegistry(Path.Combine(_root, "instances"));
@@ -64,11 +65,11 @@ public sealed class SessionWheelEndpointTests : IDisposable
     // No process holds it (the agent is starting, or between a hand back and the protocol resuming). The Gateway
     // cannot see a reason to refuse, so the Director - which holds the ownership lock - decides.
     [InlineData(WheelHolders.None)]
-    public async Task MoveSessionWheelAsync_TakeOnApiSessionTheUserDoesNotHold_SendsWheelTakeToTheOwningDirector(string holder)
+    public async Task RunApiModeVerbAsync_TakeOnApiSessionTheUserDoesNotHold_SendsWheelTakeToTheOwningDirector(string holder)
     {
         var sid = Seat(ConnectionModes.Api, holder);
 
-        var result = await MoveAsync(sid, WheelMove.Take);
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel);
 
         Assert.Equal(StatusCodes.Status200OK, Status(result));
         Assert.True(Body(result).GetProperty("accepted").GetBoolean());
@@ -77,11 +78,11 @@ public sealed class SessionWheelEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task MoveSessionWheelAsync_HandBackWhileTheUserHoldsTheWheel_SendsWheelHandBackToTheOwningDirector()
+    public async Task RunApiModeVerbAsync_HandBackWhileTheUserHoldsTheWheel_SendsWheelHandBackToTheOwningDirector()
     {
         var sid = Seat(ConnectionModes.Api, WheelHolders.User);
 
-        var result = await MoveAsync(sid, WheelMove.HandBack);
+        var result = await MoveAsync(sid, ApiModeVerb.HandBackWheel);
 
         Assert.Equal(StatusCodes.Status200OK, Status(result));
         Assert.True(Body(result).GetProperty("accepted").GetBoolean());
@@ -102,11 +103,11 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task MoveSessionWheelAsync_TerminalModeSession_IsRefusedAsNotApiMode(bool take)
+    public async Task RunApiModeVerbAsync_TerminalModeSession_IsRefusedAsNotApiMode(bool take)
     {
         var sid = Seat(ConnectionModes.Terminal, holder: null);
 
-        var result = await MoveAsync(sid, take ? WheelMove.Take : WheelMove.HandBack);
+        var result = await MoveAsync(sid, take ? ApiModeVerb.TakeWheel : ApiModeVerb.HandBackWheel);
 
         AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.NotApiMode, GatewayEndpoints.WheelNotApiModeReason);
     }
@@ -114,7 +115,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task MoveSessionWheelAsync_SessionFromAnOlderDirectorWithNeitherField_IsTreatedAsTerminalMode(bool take)
+    public async Task RunApiModeVerbAsync_SessionFromAnOlderDirectorWithNeitherField_IsTreatedAsTerminalMode(bool take)
     {
         // A Director that predates API mode pushes no ConnectionMode and no WheelHolder. Every session it runs is a
         // terminal session, and that is what the Gateway must answer - never a guess, never a send.
@@ -123,40 +124,40 @@ public sealed class SessionWheelEndpointTests : IDisposable
             && located.Session.ConnectionMode == ConnectionModes.Terminal && located.Session.WheelHolder == WheelHolders.None,
             "a row pushed without either field must read as terminal mode with nobody holding the wheel");
 
-        var result = await MoveAsync(sid, take ? WheelMove.Take : WheelMove.HandBack);
+        var result = await MoveAsync(sid, take ? ApiModeVerb.TakeWheel : ApiModeVerb.HandBackWheel);
 
         AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.NotApiMode, GatewayEndpoints.WheelNotApiModeReason);
     }
 
     [Fact]
-    public async Task MoveSessionWheelAsync_TakeWhileTheUserAlreadyHoldsTheWheel_IsRefused()
+    public async Task RunApiModeVerbAsync_TakeWhileTheUserAlreadyHoldsTheWheel_IsRefused()
     {
         var sid = Seat(ConnectionModes.Api, WheelHolders.User);
 
-        var result = await MoveAsync(sid, WheelMove.Take);
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel);
 
         AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.AlreadyHeld, GatewayEndpoints.WheelAlreadyHeldReason);
     }
 
     [Fact]
-    public async Task MoveSessionWheelAsync_HandBackWhileTheProtocolHoldsTheWheel_IsRefused()
+    public async Task RunApiModeVerbAsync_HandBackWhileTheProtocolHoldsTheWheel_IsRefused()
     {
         var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
 
-        var result = await MoveAsync(sid, WheelMove.HandBack);
+        var result = await MoveAsync(sid, ApiModeVerb.HandBackWheel);
 
         AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.NotHeld, GatewayEndpoints.WheelNotHeldReason);
     }
 
     [Fact]
-    public async Task MoveSessionWheelAsync_HandBackWhileNobodyHoldsTheWheel_IsSentToTheDirectorToRule()
+    public async Task RunApiModeVerbAsync_HandBackWhileNobodyHoldsTheWheel_IsSentToTheDirectorToRule()
     {
         // Review finding 2. No process holds the conversation - for example the terminal the user took ended on its
         // own. The Gateway cannot say the session "is still running in API mode", and hand back may be exactly the
         // verb that resumes it, so the Director, which knows, rules - as it does for a take on none.
         var sid = Seat(ConnectionModes.Api, WheelHolders.None);
 
-        var result = await MoveAsync(sid, WheelMove.HandBack);
+        var result = await MoveAsync(sid, ApiModeVerb.HandBackWheel);
 
         Assert.Equal(StatusCodes.Status200OK, Status(result));
         Assert.Equal((DirectorId, "wheel-hand-back", sid), Assert.Single(_sent));
@@ -166,11 +167,11 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [InlineData("acp", WheelHolders.Protocol)]
     [InlineData(ConnectionModes.Api, "")]
     [InlineData(ConnectionModes.Api, "somebody")]
-    public async Task MoveSessionWheelAsync_StateTheGatewayCannotRead_IsRefusedWithTheReasonAndNothingIsSent(string mode, string holder)
+    public async Task RunApiModeVerbAsync_StateTheGatewayCannotRead_IsRefusedWithTheReasonAndNothingIsSent(string mode, string holder)
     {
         var sid = Seat(mode, holder);
 
-        var result = await MoveAsync(sid, WheelMove.Take);
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel);
 
         Assert.Equal(StatusCodes.Status502BadGateway, Status(result));
         var body = Body(result);
@@ -180,7 +181,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task MoveSessionWheelAsync_AnotherAccountsSession_IsNotFoundAndNothingIsSent()
+    public async Task RunApiModeVerbAsync_AnotherAccountsSession_IsNotFoundAndNothingIsSent()
     {
         // The same session id, pushed by a Director of ANOTHER account. The caller (this Gateway's own account) must
         // not locate it, must not learn it exists, and must not reach that Director.
@@ -189,7 +190,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
         var sid = Guid.NewGuid().ToString();
         Assert.True(_pushed.ApplySnapshot(OtherAccount, "director-b", "conn-b", 1, new[] { Row(sid, "director-b", ConnectionModes.Api, WheelHolders.Protocol) }));
 
-        var result = await MoveAsync(sid, WheelMove.Take);
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel);
 
         Assert.Equal(StatusCodes.Status404NotFound, Status(result));
         Assert.Equal("session_not_found", Body(result).GetProperty("code").GetString());
@@ -199,13 +200,13 @@ public sealed class SessionWheelEndpointTests : IDisposable
     // ---- the Director's answers -----------------------------------------------------------------------------------
 
     [Fact]
-    public async Task MoveSessionWheelAsync_DirectorRefusesHandBackMidTurn_PassesItsWordsAndStatusThroughVerbatim()
+    public async Task RunApiModeVerbAsync_DirectorRefusesHandBackMidTurn_PassesItsWordsAndStatusThroughVerbatim()
     {
         const string directorWords = "The terminal is in the middle of a turn. Hand back once Pi has finished answering.";
         _director = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, directorWords);
         var sid = Seat(ConnectionModes.Api, WheelHolders.User);
 
-        var result = await MoveAsync(sid, WheelMove.HandBack);
+        var result = await MoveAsync(sid, ApiModeVerb.HandBackWheel);
 
         Assert.Equal(StatusCodes.Status409Conflict, Status(result));
         Assert.Equal(directorWords, Body(result).GetProperty("error").GetString());
@@ -217,25 +218,25 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [InlineData(DirectorCommandStatus.NotFound, StatusCodes.Status404NotFound)]
     [InlineData(DirectorCommandStatus.Locked, StatusCodes.Status423Locked)]
     [InlineData(DirectorCommandStatus.Error, StatusCodes.Status502BadGateway)]
-    public async Task MoveSessionWheelAsync_DirectorRefusesTake_PassesItsWordsThroughWithItsStatus(DirectorCommandStatus directorStatus, int expected)
+    public async Task RunApiModeVerbAsync_DirectorRefusesTake_PassesItsWordsThroughWithItsStatus(DirectorCommandStatus directorStatus, int expected)
     {
         const string directorWords = "Pi's executable was not found on this machine, so its terminal could not be opened.";
         _director = _ => DirectorCommandResult.Fail(directorStatus, directorWords);
         var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
 
-        var result = await MoveAsync(sid, WheelMove.Take);
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel);
 
         Assert.Equal(expected, Status(result));
         Assert.Equal(directorWords, Body(result).GetProperty("error").GetString());
     }
 
     [Fact]
-    public async Task MoveSessionWheelAsync_DirectorNotConnected_IsA502ThatSaysSo()
+    public async Task RunApiModeVerbAsync_DirectorNotConnected_IsA502ThatSaysSo()
     {
         _director = _ => null;
         var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
 
-        var result = await MoveAsync(sid, WheelMove.Take);
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel);
 
         Assert.Equal(StatusCodes.Status502BadGateway, Status(result));
         Assert.Equal("The Director is not connected right now, so the command was not delivered.", Body(result).GetProperty("error").GetString());
@@ -305,19 +306,179 @@ public sealed class SessionWheelEndpointTests : IDisposable
         Assert.Empty(_sent);
     }
 
+    // ---- stop the turn -------------------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(WheelHolders.Protocol)]
+    [InlineData(WheelHolders.None)]
+    [InlineData(WheelHolders.User)]
+    public async Task RunApiModeVerbAsync_StopOnAnApiSession_SendsTurnStopToTheOwningDirector(string holder)
+    {
+        // Stop does not depend on who holds the wheel: the Director rules what stopping means in each state.
+        var sid = Seat(ConnectionModes.Api, holder);
+
+        var result = await MoveAsync(sid, ApiModeVerb.StopTurn);
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        Assert.Equal((DirectorId, "turn-stop", sid), Assert.Single(_sent));
+    }
+
+    [Theory]
+    [InlineData(ConnectionModes.Terminal)]
+    [InlineData(null)]
+    public async Task RunApiModeVerbAsync_StopOnATerminalSession_IsRefusedPointingAtInterrupt(string? mode)
+    {
+        var sid = Seat(mode, holder: null);
+
+        var result = await MoveAsync(sid, ApiModeVerb.StopTurn);
+
+        AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.NotApiMode, GatewayEndpoints.StopNotApiModeReason);
+        Assert.Contains("interrupt", GatewayEndpoints.StopNotApiModeReason);
+    }
+
+    [Fact]
+    public async Task RunApiModeVerbAsync_StopWhenTheHolderCannotBeRead_IsStillSent()
+    {
+        // A holder the Gateway does not know must never keep a user from stopping a turn: Stop needs only the mode.
+        var sid = Seat(ConnectionModes.Api, "somebody");
+
+        var result = await MoveAsync(sid, ApiModeVerb.StopTurn);
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        Assert.Equal("turn-stop", Assert.Single(_sent).Verb);
+    }
+
+    [Fact]
+    public async Task RunApiModeVerbAsync_StopOnAnUnknownMode_IsRefusedAndNothingIsSent()
+    {
+        var sid = Seat("acp", WheelHolders.Protocol);
+
+        var result = await MoveAsync(sid, ApiModeVerb.StopTurn);
+
+        Assert.Equal(StatusCodes.Status502BadGateway, Status(result));
+        Assert.Equal(GatewayEndpoints.WheelRefusalCodes.UnreadableState, Body(result).GetProperty("code").GetString());
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
+    public async Task RunApiModeVerbAsync_DirectorRefusesStop_PassesItsWordsAndStatusThroughVerbatim()
+    {
+        const string directorWords = "Nothing is running in this session, so there is no turn to stop.";
+        _director = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, directorWords);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
+
+        var result = await MoveAsync(sid, ApiModeVerb.StopTurn);
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal(directorWords, Body(result).GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void TurnStopCommand_IsTheNameSentToTheDirector()
+        => Assert.Equal("turn-stop", GatewayEndpoints.TurnStopCommand);
+
+    // ---- a session key: only on a session it controls (the owner's ruling on review finding 1) -------------------
+
+    [Theory]
+    [InlineData(nameof(ApiModeVerb.TakeWheel), WheelHolders.Protocol, "wheel-take")]
+    [InlineData(nameof(ApiModeVerb.HandBackWheel), WheelHolders.User, "wheel-hand-back")]
+    [InlineData(nameof(ApiModeVerb.StopTurn), WheelHolders.Protocol, "turn-stop")]
+    public async Task RunApiModeVerbAsync_SessionKeyOnASessionItControls_IsAllowed(string verb, string holder, string command)
+    {
+        var caller = Guid.NewGuid();
+        var sid = Seat(ConnectionModes.Api, holder, controller: caller.ToString());
+
+        var result = await MoveAsync(sid, VerbNamed(verb), AsSession(caller));
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        Assert.Equal((DirectorId, command, sid), Assert.Single(_sent));
+    }
+
+    [Theory]
+    [InlineData(nameof(ApiModeVerb.TakeWheel), WheelHolders.Protocol)]
+    [InlineData(nameof(ApiModeVerb.HandBackWheel), WheelHolders.User)]
+    [InlineData(nameof(ApiModeVerb.StopTurn), WheelHolders.Protocol)]
+    public async Task RunApiModeVerbAsync_SessionKeyOnASessionAnotherSessionControls_IsRefusedAndNothingIsSent(string verb, string holder)
+    {
+        var sid = Seat(ConnectionModes.Api, holder, controller: Guid.NewGuid().ToString());
+
+        var result = await MoveAsync(sid, VerbNamed(verb), AsSession(Guid.NewGuid()));
+
+        AssertRefused(result, StatusCodes.Status403Forbidden, GatewayEndpoints.WheelRefusalCodes.NotYourSession, AgentInputRefusal.ApiModeNotYourSession);
+    }
+
+    [Theory]
+    [InlineData(nameof(ApiModeVerb.TakeWheel))]
+    [InlineData(nameof(ApiModeVerb.HandBackWheel))]
+    [InlineData(nameof(ApiModeVerb.StopTurn))]
+    public async Task RunApiModeVerbAsync_SessionKeyOnASessionTheOwnerRuns_IsRefusedAndNothingIsSent(string verb)
+    {
+        // No controller: the owner runs it directly. Not the caller's.
+        var sid = Seat(ConnectionModes.Api, WheelHolders.User);
+
+        var result = await MoveAsync(sid, VerbNamed(verb), AsSession(Guid.NewGuid()));
+
+        AssertRefused(result, StatusCodes.Status403Forbidden, GatewayEndpoints.WheelRefusalCodes.NotYourSession, AgentInputRefusal.ApiModeNotYourSession);
+    }
+
+    [Fact]
+    public async Task RunApiModeVerbAsync_SessionKeyOnItself_IsRefused()
+    {
+        var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
+
+        var result = await MoveAsync(sid, ApiModeVerb.StopTurn, AsSession(Guid.Parse(sid)));
+
+        AssertRefused(result, StatusCodes.Status403Forbidden, GatewayEndpoints.WheelRefusalCodes.NotYourSession, AgentInputRefusal.ApiModeNotYourSession);
+    }
+
+    [Fact]
+    public async Task RunApiModeVerbAsync_NotControlled_IsRefusedBeforeTheSessionsStateIsSaid()
+    {
+        // A terminal session the caller does not control: the answer is "not yours", never "terminal mode", so a caller
+        // learns nothing about a session it does not control.
+        var sid = Seat(ConnectionModes.Terminal, holder: null);
+
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel, AsSession(Guid.NewGuid()));
+
+        Assert.Equal(GatewayEndpoints.WheelRefusalCodes.NotYourSession, Body(result).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task RunApiModeVerbAsync_RaisedSessionOnASessionItDoesNotControl_IsAllowedAsOnThePromptRoute()
+    {
+        var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
+
+        var result = await MoveAsync(sid, ApiModeVerb.TakeWheel, AsSession(Guid.NewGuid(), raised: true));
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        Assert.Equal("wheel-take", Assert.Single(_sent).Verb);
+    }
+
+    [Fact]
+    public async Task TurnStopRoute_OnTheRealRouteMap_ReachesTheOwningDirector()
+    {
+        var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
+        await using var host = await StartRouteMapAsync();
+
+        var response = await host.Client.PostAsync($"sessions/{sid}/turn/stop", content: null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal((DirectorId, "turn-stop", sid), Assert.Single(_sent));
+    }
+
     // ---- helpers --------------------------------------------------------------------------------------------------
 
-    private string Seat(string? mode, string? holder)
+    private string Seat(string? mode, string? holder, string? controller = null)
     {
         var sid = Guid.NewGuid().ToString();
-        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", 1, new[] { Row(sid, DirectorId, mode, holder) }));
+        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", 1, new[] { Row(sid, DirectorId, mode, holder, controller) }));
         return sid;
     }
 
     /// <summary>A session row as the owning Director pushes it, through the same JSON a push carries. A null
     /// <paramref name="mode"/> or <paramref name="holder"/> leaves that field OUT of the JSON, which is exactly what a
     /// Director that predates API mode sends.</summary>
-    private static SessionDto Row(string sid, string directorId, string? mode, string? holder)
+    private static SessionDto Row(string sid, string directorId, string? mode, string? holder, string? controller = null)
     {
         var json = new Dictionary<string, object>
         {
@@ -331,6 +492,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
         };
         if (mode is not null) json["connectionMode"] = mode;
         if (holder is not null) json["wheelHolder"] = holder;
+        if (controller is not null) json["controllerSessionId"] = controller;
         return JsonSerializer.Deserialize<SessionDto>(JsonSerializer.Serialize(json), WebJson)!;
     }
 
@@ -345,9 +507,21 @@ public sealed class SessionWheelEndpointTests : IDisposable
     private static HostedTenantBoundary SelfHostBoundary() =>
         new(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
 
-    private Task<IResult> MoveAsync(string sid, WheelMove move) =>
-        GatewayEndpoints.MoveSessionWheelAsync(new DefaultHttpContext(), sid, move, SelfHostBoundary(), _registry, _pushed,
+    private Task<IResult> MoveAsync(string sid, ApiModeVerb verb, HttpContext? ctx = null) =>
+        GatewayEndpoints.RunApiModeVerbAsync(ctx ?? new DefaultHttpContext(), sid, verb, SelfHostBoundary(), _registry, _pushed,
             StreamStale, owners: null, sendCommand: Send);
+
+    /// <summary>A request made with a SESSION key, as AuthMiddleware leaves it once it has verified the key: the calling
+    /// session's identity, and the raised grant when the owner has raised that session.</summary>
+    private static HttpContext AsSession(Guid caller, bool raised = false)
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(caller, TenantId.Local, DirectorId);
+        if (raised) ctx.Items[AuthMiddleware.RaisedGrantItemKey] = RaisedGrant.AgentInput;
+        return ctx;
+    }
+
+    private static ApiModeVerb VerbNamed(string name) => Enum.Parse<ApiModeVerb>(name);
 
     /// <summary>The status the result writes. A JSON result built with no status code writes 200, which is what a null means.</summary>
     private static int Status(IResult result) => Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode ?? StatusCodes.Status200OK;

@@ -34,31 +34,36 @@ public sealed class SessionKeyGuardRaisedTests
         Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
     }
 
-    /// <summary>Take the wheel and hand it back (issue #4070): agent input, so a raised session passes with the grant
-    /// recorded and an unraised key is refused with the wheel's own sentence.</summary>
+    /// <summary>The API-mode verbs (issue #4070): take the wheel, hand back, stop the turn. A raised session passes with
+    /// the grant recorded; an unraised key is let through to the route, which acts only on a session the caller controls
+    /// (the owner's ruling on review finding 1) - the same split as the prompt.</summary>
     [Theory]
     [InlineData("POST", "/sessions/" + Sid + "/wheel/take")]
     [InlineData("POST", "/sessions/" + Sid + "/wheel/hand-back")]
+    [InlineData("POST", "/sessions/" + Sid + "/turn/stop")]
     [InlineData("POST", "/Sessions/" + Sid + "/WHEEL/Hand-Back/")]
-    public void Check_WheelMove_RaisedPasses_UnraisedIsRefusedWithTheWheelSentence(string method, string path)
+    [InlineData("POST", "/Sessions/" + Sid + "/Turn/STOP/")]
+    public void Check_ApiModeVerb_RaisedPassesWithTheGrant_UnraisedReachesTheOwnershipRoute(string method, string path)
     {
         var raised = SessionKeyGuard.Check(method, path, raised: true);
         Assert.True(raised.Allowed, $"{method} {path} must pass for a raised key");
         Assert.Equal(RaisedGrant.AgentInput, raised.RaisedGrant);
 
         var unraised = SessionKeyGuard.Check(method, path, raised: false);
-        Assert.False(unraised.Allowed, $"{method} {path} must be refused to a session key");
-        Assert.Equal(AgentInputRefusal.Wheel, unraised.Reason);
-        Assert.Contains("cc-devthrottle message send", unraised.Reason);
+        Assert.True(unraised.Allowed, $"{method} {path} must reach the route, which decides ownership");
+        Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
     }
 
-    /// <summary>Only the two literal shapes are agent input: a GET, or a third move nobody built, falls to the allow list
-    /// and is refused there.</summary>
+    /// <summary>Only the three literal shapes are API-mode verbs: a GET, or a move nobody built, falls to the allow list
+    /// and is refused there, even to a raised key.</summary>
     [Theory]
     [InlineData("GET", "/sessions/" + Sid + "/wheel/take")]
+    [InlineData("GET", "/sessions/" + Sid + "/turn/stop")]
     [InlineData("POST", "/sessions/" + Sid + "/wheel/steal")]
+    [InlineData("POST", "/sessions/" + Sid + "/turn/start")]
     [InlineData("POST", "/sessions/" + Sid + "/wheel")]
-    public void Check_WheelLookalike_IsRefusedEvenToARaisedKey(string method, string path)
+    [InlineData("POST", "/sessions/" + Sid + "/turn")]
+    public void Check_ApiModeVerbLookalike_IsRefusedEvenToARaisedKey(string method, string path)
     {
         Assert.False(SessionKeyGuard.Check(method, path, raised: true).Allowed);
         Assert.False(SessionKeyGuard.Check(method, path, raised: false).Allowed);
