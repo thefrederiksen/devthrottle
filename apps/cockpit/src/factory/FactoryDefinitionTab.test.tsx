@@ -206,6 +206,18 @@ describe("the Definition tab", () => {
     expect(within(outcome).getByText("Definition: version 5 published.")).toBeTruthy();
   });
 
+  it("reads the page around it again after a publish, so a first publish's header stops saying DRAFT", async () => {
+    client.getFactoryDefinitionTab.mockResolvedValue(DRAFTED);
+    client.publishFactoryDefinition.mockResolvedValue({ factory: "qa-outreach", version: 5, findings: [], changes: null, applied: [] });
+    renderAt("/factories/qa-outreach/definition");
+
+    fireEvent.click(await screen.findByTestId("fa-def-publish"));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Publish" }));
+
+    await waitFor(() => expect(pageClient.getFactoryPage).toHaveBeenCalledTimes(2));
+    expect(await screen.findByTestId("fa-def-outcome")).toBeTruthy();
+  });
+
   it("leaves a refused publish on the tab with the Gateway's sentence and every finding by file and line", async () => {
     client.getFactoryDefinitionTab.mockResolvedValue(DRAFTED);
     client.publishFactoryDefinition.mockRejectedValue(

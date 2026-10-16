@@ -186,6 +186,32 @@ describe("Schedule page: shifts and the shift-end warning", () => {
     expect(await screen.findByText("morning shift, Sat 10 Oct, 08:00-16:00")).toBeTruthy();
   });
 
+  it("shows a run whose start is not known in the Gateway's words and tone, never as did not run", async () => {
+    cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep", { shiftText: "Morning shift" })]);
+    cronClient.getCronRuns.mockResolvedValue([
+      {
+        scheduledUtc: "2026-10-16T04:05:07Z",
+        firedUtc: "2026-10-16T04:05:37Z",
+        machine: "SOREN_NORTH",
+        targetDirectorId: "d1",
+        infraStatus: "start-unknown",
+        infraTone: "warn",
+        taskStatus: "unknown",
+        ending: "start-unknown",
+        endingText: "may have started - the Gateway did not learn whether its session started",
+      },
+    ] as never);
+    renderPage();
+
+    fireEvent.click(await screen.findByText("Own morning sweep"));
+
+    const infra = await screen.findByTestId("sched-run-infra");
+    expect(infra.textContent).toBe("start-unknown");
+    expect(infra.className).toBe("sched-st warn");
+    expect(screen.getByText("may have started - the Gateway did not learn whether its session started")).toBeTruthy();
+    expect(screen.queryByText(/did not run/)).toBeNull();
+  });
+
   it("shows no warning for a schedule the Gateway did not warn about", async () => {
     cronClient.getCronJobs.mockResolvedValue([job("cj_own", "Own morning sweep", { shiftText: "Morning shift" })]);
     renderPage();

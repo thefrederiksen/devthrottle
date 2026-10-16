@@ -174,15 +174,16 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, director={director ?? "the machine's"}, repo={job.Action.RepoPath}, seed={seed}, "
                       + (seat is null ? "brief=none given" : $"opened as {seat.Factory.Factory}/{seat.Seat.Id} with brief {seat.Brief.VersionWords}"));
 
-        var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(job.Target.Machine, req, ct);
+        var (ok, dto, error, directorId, unknown) = await SpawnAsync(job, job.Target.Machine, req, foldUnknown: found is null, ct);
         if (!ok || dto is null || string.IsNullOrEmpty(dto.SessionId))
         {
-            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={job.Target.Machine}, {error}");
-            return new CronRunStart(null, directorId, error ?? "could not start a session on the target machine", BriefVersion: null);
+            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={job.Target.Machine}, outcomeUnknown={unknown}, {error}");
+            return new CronRunStart(null, directorId, error ?? "could not start a session on the target machine", BriefVersion: null)
+                { OutcomeUnknown = unknown, SessionName = req.Name };
         }
 
         FileLog.Write($"[DirectorCronSessionStarter] started: job={job.Id}, sid={dto.SessionId}, director={directorId}");
-        return new CronRunStart(dto.SessionId, directorId, null, seat?.Brief.Version, seat?.Brief.Kind);
+        return new CronRunStart(dto.SessionId, directorId, null, seat?.Brief.Version, seat?.Brief.Kind) { SessionName = req.Name };
     }
 
     /// <summary>
@@ -242,14 +243,70 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         }
 
         FileLog.Write($"[DirectorCronSessionStarter] start (defined): job={job.Id}, machine={built.Machine}, director={director ?? "the machine's"}, seat={seat.Seat}, definition v{published.Version}, seed={seed}");
-        var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(built.Machine, req, ct);
+        var (ok, dto, error, directorId, unknown) = await SpawnAsync(job, built.Machine, req, foldUnknown: found is null, ct);
         if (!ok || dto is null || string.IsNullOrEmpty(dto.SessionId))
         {
-            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={built.Machine}, {error}");
-            return new CronRunStart(null, directorId, error ?? "could not start a session on the target machine", BriefVersion: null);
+            FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={built.Machine}, outcomeUnknown={unknown}, {error}");
+            return new CronRunStart(null, directorId, error ?? "could not start a session on the target machine", BriefVersion: null)
+                { OutcomeUnknown = unknown, SessionName = req.Name };
         }
 
         FileLog.Write($"[DirectorCronSessionStarter] started (defined): job={job.Id}, sid={dto.SessionId}, director={directorId}");
-        return new CronRunStart(dto.SessionId, directorId, null, opened.Brief.Version, opened.Brief.Kind);
+        return new CronRunStart(dto.SessionId, directorId, null, opened.Brief.Version, opened.Brief.Kind) { SessionName = req.Name };
+    }
+
+    /// <summary>The sentence of a run whose create was out when the Gateway stopped.</summary>
+    public const string GatewayStoppedDuringCreate =
+        "The Gateway stopped while the session was being started, so it is not known whether it started.";
+
+    /// <summary>The sentence of a run cut by the Gateway stopping before any create was sent: it was still waiting for a
+    /// Director to start on the machine.</summary>
+    public static string GatewayStoppedBeforeCreate(string machine) =>
+        $"The Gateway stopped while it waited for a Director on {machine} to start, so no session was asked for.";
+
+    /// <summary>
+    /// The one spawn of a run, and whether its outcome is known (Factory Definition, phase 5, review of P10, findings 1
+    /// and 2). A create the Gateway stopped waiting for, or whose connection dropped, may still have started its session,
+    /// so it comes back UNKNOWN rather than as a failure. So does a create cut by the Gateway stopping: the Director is
+    /// not told, and carries it on. A stop while the machine's Director is still being launched comes back as a run that
+    /// did not start, in words, never as an exception that leaves no record. Which of the two a stop is, is known from
+    /// the spawner's refusal hook, which it asks once the machine has resolved to a Director, before the create.
+    ///
+    /// <paramref name="foldUnknown"/> is false for the session a schedule's CHECK asked for (phase 5b): that start keeps
+    /// its own bookkeeping (<see cref="CronRunHistoryStore.FinishDueStart"/>), and is passed through exactly as before.
+    /// </summary>
+    private async Task<(bool Ok, SessionDto? Dto, string? Error, string? DirectorId, bool OutcomeUnknown)> SpawnAsync(
+        CronJobDto job, string machine, NewSessionRequest req, bool foldUnknown, CancellationToken ct)
+    {
+        if (!foldUnknown)
+        {
+            var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(machine, req, ct);
+            return (ok, dto, error, directorId, false);
+        }
+
+        string? resolved = null;
+        try
+        {
+            var r = await _spawner.SpawnOnMachineWithOutcomeAsync(machine, req, ct, refuseDirector: id =>
+            {
+                resolved = id;   // the create goes to this Director next; nothing is refused here
+                return null;
+            });
+            var unknown = !r.Ok && r.OutcomeUnknown;
+            // A host stop during the create reaches the router as SignalR's cancelled invocation, which it can only name
+            // a dropped connection. The connection did not drop: the Gateway stopped.
+            var error = unknown && ct.IsCancellationRequested ? GatewayStoppedDuringCreate : r.Error;
+            return (r.Ok, r.Dto, error, r.DirectorId, unknown);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            if (resolved is not null)
+            {
+                FileLog.Write($"[DirectorCronSessionStarter] start CUT: job={job.Id}, machine={machine}, director={resolved}: the Gateway stopped while the create was out");
+                return (false, null, GatewayStoppedDuringCreate, resolved, true);
+            }
+            FileLog.Write($"[DirectorCronSessionStarter] start CUT: job={job.Id}, machine={machine}: the Gateway stopped before any create was sent");
+            return (false, null, GatewayStoppedBeforeCreate(machine), null, false);
+        }
     }
 }

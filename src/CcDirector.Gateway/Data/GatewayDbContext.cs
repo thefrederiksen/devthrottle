@@ -612,6 +612,8 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Seat).HasMaxLength(128);
             b.Property(e => e.JobName).HasMaxLength(256);
             b.Property(e => e.BriefVersionKind).HasMaxLength(16);
+            // The name a start whose outcome was not known is matched by (review of P10, the heal by name).
+            b.Property(e => e.SessionName).HasMaxLength(320);
             b.Property(e => e.ClaimedByDirectorId).HasMaxLength(64);
             // The sweep reads the runs still waiting on a report; the session lookup finds a session's own run.
             b.HasIndex(e => e.Result);

@@ -315,7 +315,7 @@ public sealed class FactoriesScreenFoldTests
     {
         var view = FactoriesScreenFold.List(Inputs(Array.Empty<RegisteredFactoryDto>()));
         Assert.Empty(view.Rows);
-        Assert.Contains("factory register", view.EmptyText);
+        Assert.Contains("New factory imports a definition folder", view.EmptyText);
     }
 
     // ---------- schedules outside any factory (issue #3650, point 5) ----------
@@ -670,6 +670,16 @@ public sealed class FactoriesScreenFoldTests
         var row = FactoriesScreenFold.Seats(WarmForward(), Inputs(new[] { WarmForward() }, jobs: jobs)).Rows.Single(r => r.SeatId == "savings-engineer");
         Assert.Equal("Today 05:00 - did not start", row.LastRunText);
         Assert.Equal(FactoryTone.Red, row.LastRunTone);
+    }
+
+    [Fact]
+    public void Seats_AScheduleWhoseStartIsNotKnown_SaysMayHaveStarted_NeverStartedOrDidNotStart()
+    {
+        // Review of P10, finding 1: the create was sent and the Gateway never learned how it came out.
+        var jobs = new[] { Job("cj_save", "0 5 * * *", lastFired: Now.AddHours(-5), lastStatus: "start-unknown") };
+        var row = FactoriesScreenFold.Seats(WarmForward(), Inputs(new[] { WarmForward() }, jobs: jobs)).Rows.Single(r => r.SeatId == "savings-engineer");
+        Assert.Equal("Today 05:00 - may have started", row.LastRunText);
+        Assert.Equal(FactoryTone.Amber, row.LastRunTone);
     }
 
     [Fact]

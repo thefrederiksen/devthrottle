@@ -133,6 +133,32 @@ export interface FactoriesListView {
   outsideRows: FactoryOutsideScheduleRow[];
   /** Set when there are none. */
   outsideEmptyText: string | null;
+  /** New factory (Factory Definition, phase 6b): import a zip as the first draft of the factory it names. */
+  newFactory: FactoryNewFactoryAction;
+  /** "Not published yet": the heading over draftRows. */
+  draftTitle: string;
+  /** Every factory with a draft definition and nothing published. Never in rows. */
+  draftRows: FactoryDraftRow[];
+}
+
+/** New factory: the button, where the zip goes, and what it does - every word the Gateway's. */
+export interface FactoryNewFactoryAction {
+  label: string;
+  busyLabel: string;
+  /** "/gateway/factories/new". */
+  href: string;
+  noteText: string;
+}
+
+/** A factory whose definition is a draft and was never published. */
+export interface FactoryDraftRow {
+  id: string;
+  title: string;
+  /** "Eric - draft, not published yet". */
+  text: string;
+  lineText: string;
+  /** Its factory page, on the Definition tab. */
+  href: string;
 }
 
 /** One active schedule that is no seat of any registered factory (issue #3650). */

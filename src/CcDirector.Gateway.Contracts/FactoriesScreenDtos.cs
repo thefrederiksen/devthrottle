@@ -72,6 +72,48 @@ public sealed class FactoriesListViewDto
 
     /// <summary>Set when there are none.</summary>
     public string? OutsideEmptyText { get; set; }
+
+    /// <summary>New factory (Factory Definition, phase 6b): import a zip of a definition folder as the first draft of the
+    /// factory its factory.yaml names.</summary>
+    public FactoryNewFactoryActionDto NewFactory { get; set; } = new();
+
+    /// <summary>"Not published yet": the heading over the factories that have a draft definition and no publish.</summary>
+    public string DraftTitle { get; set; } = "";
+
+    /// <summary>Every factory with a definition and nothing published, by id. Never in <see cref="Rows"/>.</summary>
+    public List<FactoryDraftRowDto> DraftRows { get; set; } = new();
+}
+
+/// <summary>New factory on the Factories screen: the button, where the zip goes, and what it does.</summary>
+public sealed class FactoryNewFactoryActionDto
+{
+    /// <summary>"New factory".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>"Importing...".</summary>
+    public string BusyLabel { get; set; } = "";
+
+    /// <summary>Where the zip is posted: <c>/gateway/factories/new</c>.</summary>
+    public string Href { get; set; } = "";
+
+    /// <summary>What New factory does, in one or two sentences.</summary>
+    public string NoteText { get; set; } = "";
+}
+
+/// <summary>A factory whose definition is a draft and was never published: it has no registry entry yet.</summary>
+public sealed class FactoryDraftRowDto
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+
+    /// <summary>"Eric - draft, not published yet".</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>"Version 1, a draft, 3 files. Open it to read what changes and publish it."</summary>
+    public string LineText { get; set; } = "";
+
+    /// <summary>Its factory page, on the Definition tab.</summary>
+    public string Href { get; set; } = "";
 }
 
 /// <summary>One enabled schedule that is no seat of any registered factory (issue #3650).</summary>

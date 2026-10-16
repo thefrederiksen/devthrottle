@@ -405,6 +405,29 @@ public sealed class SessionDto
     public string BackendType { get; set; } = "";
 
     /// <summary>
+    /// HOW THE DIRECTOR DRIVES THE AGENT - one of <see cref="ConnectionModes"/>: <c>terminal</c> (typing into the
+    /// agent's terminal) or <c>api</c> (API mode: the agent's own native protocol). API mode is opt-in per session
+    /// (mission #4070). Reported by the owning Director. A Director too old to report it sends nothing, and the row
+    /// reads <c>terminal</c>, which is what every such Director does.
+    /// </summary>
+    public string ConnectionMode { get; set; } = ConnectionModes.Terminal;
+
+    /// <summary>
+    /// WHO HOLDS THE WHEEL OF AN API-MODE CONVERSATION RIGHT NOW - one of <see cref="WheelHolders"/>. The wheel is an
+    /// API-mode fact: <c>protocol</c> (the API-mode protocol process holds the conversation), <c>user</c> (the user
+    /// took the wheel and the agent's real terminal holds it), or <c>none</c> (the protocol process has stopped and
+    /// no terminal has taken over, so no process holds it). Exactly one process holds a conversation at any moment
+    /// (mission #4070).
+    ///
+    /// A terminal-mode row ALWAYS reads <c>none</c>, because there is no wheel to hold - and that <c>none</c> does
+    /// NOT mean nothing holds the conversation: the agent's terminal process does. So <c>none</c> says "no process
+    /// holds it" only together with <see cref="ConnectionMode"/> <c>api</c>; never read it alone. Reported by the
+    /// owning Director. A Director too old to report it sends nothing, and the row reads <c>none</c>, as every
+    /// terminal-mode row does.
+    /// </summary>
+    public string WheelHolder { get; set; } = WheelHolders.None;
+
+    /// <summary>
     /// The session's agent-driver capability names (e.g. "Cancel", "Interrupt",
     /// "ClearContext", "History", "TranscriptRead"). UIs render action buttons from
     /// this list verbatim - a verb a tool lacks is simply absent, never guessed.
@@ -1224,4 +1247,31 @@ public static class WorkingOrigins
 
     /// <summary>The product or an agent started it with a send: the fleet doorbell, a handover, a queue drain.</summary>
     public const string Agent = "agent";
+}
+
+/// <summary>The values of <see cref="SessionDto.ConnectionMode"/>.</summary>
+public static class ConnectionModes
+{
+    /// <summary>The Director types into the agent's terminal. The default, and all an older Director does.</summary>
+    public const string Terminal = "terminal";
+
+    /// <summary>API mode: the Director speaks the agent's own native protocol (for Pi, <c>pi --mode rpc</c>).</summary>
+    public const string Api = "api";
+}
+
+/// <summary>The values of <see cref="SessionDto.WheelHolder"/>.</summary>
+public static class WheelHolders
+{
+    /// <summary>
+    /// No wheel is held. On an API-mode row: the protocol process has stopped and no terminal has taken over, so no
+    /// process holds the conversation. On a terminal-mode row (and every older Director's row) it is always this
+    /// value, because terminal mode has no wheel - the agent's terminal process holds the conversation there.
+    /// </summary>
+    public const string None = "none";
+
+    /// <summary>The API-mode protocol process holds the conversation.</summary>
+    public const string Protocol = "protocol";
+
+    /// <summary>The user holds it in the agent's real terminal: they took the wheel.</summary>
+    public const string User = "user";
 }

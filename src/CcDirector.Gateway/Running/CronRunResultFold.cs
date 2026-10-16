@@ -41,8 +41,9 @@ public static class CronRunResultFold
         {
             case CronRunResults.Pending:
                 break;
+            // A start whose outcome is not known has no session known to owe a report (review of P10).
             case CronRunResults.Ok or CronRunResults.Problem or CronRunResults.Untracked
-                or CronRunResults.Checking or CronRunResults.NothingToDo:
+                or CronRunResults.Checking or CronRunResults.NothingToDo or CronRunResults.StartUnknown:
                 return null;
             default:
                 throw new InvalidOperationException(
@@ -213,7 +214,7 @@ public static class CronRunResultFold
         {
             CronRunResults.Problem => true,
             CronRunResults.Ok or CronRunResults.Pending or CronRunResults.Untracked
-                or CronRunResults.Checking or CronRunResults.NothingToDo => false,
+                or CronRunResults.Checking or CronRunResults.NothingToDo or CronRunResults.StartUnknown => false,
             _ => throw new InvalidOperationException(
                 $"Run {run.RunId} has the result '{run.Result}', which is not one of the results CronRunResults defines. Add it to CronRunResultFold.IsProblem."),
         };
@@ -436,6 +437,8 @@ public static class CronRunResultFold
                     case CronRunResults.Pending:
                     case CronRunResults.Untracked:
                     case CronRunResults.Checking:
+                    // Not known to have run, and not known not to: counted as neither (review of P10).
+                    case CronRunResults.StartUnknown:
                         break;
                     default:
                         throw new InvalidOperationException(

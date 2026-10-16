@@ -2653,7 +2653,12 @@ public sealed class GatewayHost : IAsyncDisposable
             zoneOf: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
             writeActivity: (tenant, run, row, correction) => _cronRuns.WriteActivityRow(tenant, run, row, correction),
             nowUtc: () => cronClock.UtcNow,
-            triggers: triggerStore);
+            triggers: triggerStore,
+            // Review of P10: a run whose start's outcome was not known is matched by its exact name to the session a
+            // Director reports. Assigned further down this constructor, before the first sweep or request can call this.
+            scheduleSessionsByName: (tenant, directorId, name) =>
+                Api.GatewayEndpoints.LastKnownScheduleSessionsByName(PushedSessions, tenant, directorId, name),
+            settleLastStatus: (jobId, firedUtc, status) => _cronJobs.SettleLastStatus(jobId, firedUtc, status));
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check
         // when its check counts work (phase 5b), so a checked run is given exactly what a scheduled run is.
@@ -5391,7 +5396,10 @@ public sealed class GatewayHost : IAsyncDisposable
         var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant),
             (tenant, ids, now) => Running.CronRunRecordReader.RecentRunsOf(_cronRuns, _sessionHistory, tenant, ids, now),
             (tenant, factory) => _cronRunResults.Problems(tenant, factory, includeClosed: false),
-            (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false));
+            (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false),
+            // The factories New factory made that are not published yet (Factory Definition, phase 6b), each read from
+            // its newest draft.
+            Api.FactoriesScreenEndpoints.UnpublishedFrom(FactoryDefinitions));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,

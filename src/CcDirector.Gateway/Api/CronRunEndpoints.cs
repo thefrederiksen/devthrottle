@@ -61,13 +61,11 @@ internal static class CronRunEndpoints
             var result = await engine.RunNowAsync(id, runLifetime);
             if (ctx.RequestAborted.IsCancellationRequested)
                 FileLog.Write($"[CronRunEndpoints] POST /cron/jobs/{id}/run: the caller went away before the answer; the run was recorded as {result.Record?.InfraStatus ?? result.Outcome.ToString()}");
-            // The fire is answered with the task status its read would carry: a run now of a schedule with a check
-            // reads "checking", not "unknown" (CronRunEndingFold.TaskStatusOf).
-            if (result.Record is { } fired)
-                fired.TaskStatus = Running.CronRunEndingFold.TaskStatusOf(fired);
+            // The fire is answered folded exactly as its read would be: its ending, its task status (a run now of a
+            // schedule with a check reads "checking", not "unknown" - CronRunEndingFold.TaskStatusOf) and its tone.
             return result.Outcome switch
             {
-                CronFireOutcome.Fired => Results.Json(result.Record),
+                CronFireOutcome.Fired => Results.Json(history.Folded(result.Record!, DateTime.UtcNow)),
                 CronFireOutcome.SkippedOverlap =>
                     Results.Conflict(new { error = "a prior run of this job is still in flight", id }),
                 CronFireOutcome.NoSuchJob =>

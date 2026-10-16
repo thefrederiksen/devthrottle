@@ -49,8 +49,12 @@ export function FactoryView() {
     setNotice(text);
     view.reload();
   };
-  // The Seats tab is its own Gateway view; it is read only while that tab is open.
-  const onSeats = requestedTab === "seats";
+  // The Seats tab is its own Gateway view; it is read only while that tab is open and has something to show (a factory
+  // that is not published yet has no seats to read - its tab carries the Gateway's sentence instead).
+  const onSeats =
+    requestedTab === "seats" &&
+    view.data !== null &&
+    view.data.tabs.some((t) => t.key === "seats" && (t.notYetText ?? null) === null);
   const seats = useView<FactorySeatsView | null>(
     (s) => (onSeats ? getFactorySeats(factory, s) : Promise.resolve(null)),
     `${factory}|${onSeats}`,
@@ -64,6 +68,8 @@ export function FactoryView() {
   if (view.data === null) return <LoadingState />;
   const page = view.data;
   const tab = page.tabs.some((t) => t.key === requestedTab) ? requestedTab : "overview";
+  // A tab with nothing to show yet shows the Gateway's one sentence in place of its content.
+  const notYet = page.tabs.find((t) => t.key === tab)?.notYetText ?? null;
 
   return (
     <div className="fa-page" data-testid="factory-page">
@@ -125,9 +131,14 @@ export function FactoryView() {
       </nav>
 
       {page.truncatedText !== null && <div className="fa-warn">{page.truncatedText}</div>}
-      {tab === "overview" && <Overview page={page} onChanged={view.reload} onDone={done} />}
-      {tab === "floor" && <FactoryFloorPanel factory={page.id} full />}
-      {tab === "seats" &&
+      {notYet !== null && (
+        <section className="fa-panel" data-testid="fa-tab-not-yet">
+          <p className="fa-dim">{notYet}</p>
+        </section>
+      )}
+      {notYet === null && tab === "overview" && <Overview page={page} onChanged={view.reload} onDone={done} />}
+      {notYet === null && tab === "floor" && <FactoryFloorPanel factory={page.id} full />}
+      {notYet === null && tab === "seats" &&
         (seats.error !== null ? (
           // error-reported-by: useView
           <ErrorBanner message={seats.error} onRetry={seats.reload} />
@@ -136,11 +147,11 @@ export function FactoryView() {
         ) : (
           <SeatsTab view={seats.data} onChanged={seats.reload} />
         ))}
-      {tab === "activity" && <ActivityTab fixedFactory={page.id} />}
-      {tab === "reports" && <ReportsTab fixedFactory={page.id} />}
-      {tab === "memory" && <FactoryMemoryTab factory={page.id} />}
-      {tab === "records" && <FactoryRecordsTab factory={page.id} />}
-      {tab === "definition" && <FactoryDefinitionTab factory={page.id} />}
+      {notYet === null && tab === "activity" && <ActivityTab fixedFactory={page.id} />}
+      {notYet === null && tab === "reports" && <ReportsTab fixedFactory={page.id} />}
+      {notYet === null && tab === "memory" && <FactoryMemoryTab factory={page.id} />}
+      {notYet === null && tab === "records" && <FactoryRecordsTab factory={page.id} />}
+      {notYet === null && tab === "definition" && <FactoryDefinitionTab factory={page.id} onChanged={view.reload} />}
     </div>
   );
 }

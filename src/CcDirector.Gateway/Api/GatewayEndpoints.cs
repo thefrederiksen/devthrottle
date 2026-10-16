@@ -4427,6 +4427,18 @@ internal static partial class GatewayEndpoints
                 : TunnelFailure(streamResult);
         });
 
+        // THE API-MODE VERBS (issue #4070, phase 2): take the wheel, hand it back, and stop the running turn. Located and
+        // tenant-scoped as interrupt is; a session key acts only on a session it controls; the Gateway rules the refusals
+        // it can see, the Director rules the rest. See RunApiModeVerbAsync.
+        app.MapPost("/sessions/{sid}/wheel/take", (HttpContext ctx, string sid) =>
+            RunApiModeVerbAsync(ctx, sid, ApiModeVerb.TakeWheel, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
+        app.MapPost("/sessions/{sid}/wheel/hand-back", (HttpContext ctx, string sid) =>
+            RunApiModeVerbAsync(ctx, sid, ApiModeVerb.HandBackWheel, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
+        app.MapPost("/sessions/{sid}/turn/stop", (HttpContext ctx, string sid) =>
+            RunApiModeVerbAsync(ctx, sid, ApiModeVerb.StopTurn, tenantBoundary, registry, pushedSessions, streamStaleResolved, owners, sendCommand));
+
         // Phone image upload: the browser POSTs the image to the Gateway (its origin); we
         // forward the bytes to the owning Director, which files it into its screenshots
         // folder (same machine as the session) and returns the saved absolute path.
@@ -6113,6 +6125,27 @@ internal static partial class GatewayEndpoints
             if (row is not null) return row;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Every session ONE Director of the account reports under exactly this name with a SCHEDULE's origin, in the
+    /// roster's order (review of P10, and its follow-up findings 1 and 2). How a scheduled run whose start's outcome was
+    /// not known finds the session the Director created anyway: the name carries the schedule and the minute of the run,
+    /// the origin surface narrows it to schedule starts, as <see cref="LastKnownTriggerSessionByName"/> does for
+    /// triggers, and the Director is the one the create went to, so a schedule of the same name on another machine is
+    /// never looked at. ALL of them, not the first: two runs in one minute share a name, and the caller skips the
+    /// sessions another run already holds.
+    /// </summary>
+    internal static IReadOnlyList<string> LastKnownScheduleSessionsByName(
+        Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string directorId, string name)
+    {
+        if (pushedSessions is null || string.IsNullOrEmpty(directorId) || string.IsNullOrEmpty(name)) return Array.Empty<string>();
+        return pushedSessions.GetLastKnown(tenant, directorId).Sessions
+            .Where(s => string.Equals(s.Name, name, StringComparison.Ordinal)
+                        && string.Equals(s.OriginSurface, CcDirector.Core.Sessions.SessionOriginSurfaces.Cron, StringComparison.Ordinal)
+                        && !string.IsNullOrEmpty(s.SessionId))
+            .Select(s => s.SessionId)
+            .ToList();
     }
 
     /// <summary>

@@ -68,9 +68,9 @@ def test_schedule_run_GatewayDidNotAnswerInTime_SaysTheRunMayStillBeStartingAndH
         result = runner.invoke(app, ["schedule", "run", "cj_38f92e"])
 
     assert result.exit_code == 1
-    assert ("Not known yet: the Gateway did not answer within 45 seconds, so whether the run started is not known "
-            "yet. It may still be starting: the Gateway goes on with it after this command stops waiting. The "
-            "schedule's runs show how it went.") in result.stderr
+    assert ("Outcome unknown: the Gateway did not answer within 45 seconds. The run may still be starting: the "
+            "Gateway goes on with it after this command stops waiting. The schedule's runs show how it went."
+            ) in result.stderr
     assert "cc-devthrottle schedule runs cj_38f92e" in result.stderr
     assert "Error:" not in result.stderr
     assert "failed" not in result.stderr.lower()
@@ -84,3 +84,23 @@ def test_schedule_run_GatewayNotReachable_IsStillAnError(monkeypatch):
 
     assert result.exit_code == 1
     assert "Error: Gateway not reachable at http://127.0.0.1:7996." in result.stderr
+
+
+def test_schedule_runs_AStartWhoseOutcomeIsUnknown_ShowsTheGatewaysWordsForHowItEnded(monkeypatch):
+    from rich.console import Console
+
+    monkeypatch.setattr(schedule_ops, "console", Console(width=300))
+    monkeypatch.setattr(schedule_ops.ScheduleClient, "__init__", lambda self, base_url=None: None)
+    monkeypatch.setattr(schedule_ops.ScheduleClient, "list_runs", lambda self, job_id: [{
+        "scheduledUtc": "2026-10-16T04:05:07Z", "firedUtc": "2026-10-16T04:05:37Z", "targetDirectorId": "08520f72",
+        "sessionId": None, "infraStatus": "start-unknown", "taskStatus": "unknown",
+        "endingText": "may have started - the Gateway did not learn whether its session started",
+    }])
+
+    result = runner.invoke(app, ["schedule", "runs", "cj_38f92e"])
+
+    assert result.exit_code == 0, result.stderr
+    assert "How it ended" in result.stdout
+    assert "start-unknown" in result.stdout
+    assert "may have started - the Gateway did not learn whether its session started" in result.stdout
+    assert "did not run" not in result.stdout
