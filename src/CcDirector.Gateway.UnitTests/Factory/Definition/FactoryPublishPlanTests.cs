@@ -837,10 +837,12 @@ public sealed class FactoryPublishPlanTests
 
     private const string MailDeskGuess =
         "Starts 1, 2 and 3 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled), " +
-        "cj_b (DevThrottle - Writer (2), paused) and cj_c (DevThrottle - Writer (3), paused) without a guess: the time does " +
-        "not tell them apart and nothing else says which start each schedule takes, so a publish could give a schedule's " +
-        "switch to the wrong start. Publish once with these starts' prompts unchanged, so each pairs with its own schedule " +
-        "by its prompt, then publish the prompt edits.";
+        "cj_b (DevThrottle - Writer (2), paused) and cj_c (DevThrottle - Writer (3), paused) without a guess: nothing in " +
+        "the draft tells them apart, so a publish could give a schedule's switch to the wrong start. Publish once with " +
+        "these starts' prompts unchanged, so each pairs with its own schedule by its prompt, then publish the prompt edits.";
+
+    private const string MatchTheSwitches =
+        "These schedules share a prompt, so first pause or enable them so their switches match, or give these starts different prompts.";
 
     [Fact]
     public void Compose_PhaseSevensCase_RealTimesAndEditedPromptsOverSchedulesSharingATime_IsRefused_NamingThemAll()
@@ -910,12 +912,117 @@ public sealed class FactoryPublishPlanTests
 
         var finding = Assert.Single(Refusal(d, schedules: live).Findings);
 
-        Assert.StartsWith("Starts 1 and 2 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled) and " +
-                          "cj_b (DevThrottle - Writer (2), paused) without a guess:", finding.Message);
+        Assert.Equal("Starts 1 and 2 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled) and " +
+                     "cj_b (DevThrottle - Writer (2), paused) without a guess: nothing in the draft tells them apart, so a " +
+                     "publish could give a schedule's switch to the wrong start. " + MatchTheSwitches, finding.Message);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Compose_OneOfTwoSchedulesWrittenTheSameKeptExactly_ButSwitchedDifferently_IsAGuess_EitherWayRound(bool firstEnabled)
+    {
+        // Review of 4063, finding 2: the draft keeps one start as it is and moves the other. Which live schedule was kept
+        // exactly - and so which switch moved to 08:00 - was the order of the two ids.
+        var live = new[]
+        {
+            Live("cj_a", "writer", Never, "Mail.", enabled: firstEnabled, name: "DevThrottle - Writer"),
+            Live("cj_b", "writer", Never, "Mail.", enabled: !firstEnabled, name: "DevThrottle - Writer (2)"),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start(Never, "Mail."), Start("0 8 * * *", "Mail.") } });
+
+        var finding = Assert.Single(Refusal(d, schedules: live).Findings);
+
+        Assert.Equal("seats/writer.yaml", finding.File);
+        Assert.Equal($"Starts 1 and 2 cannot be paired with the live schedules cj_a (DevThrottle - Writer, {(firstEnabled ? "enabled" : "paused")}) " +
+                     $"and cj_b (DevThrottle - Writer (2), {(firstEnabled ? "paused" : "enabled")}) without a guess: nothing in the draft " +
+                     "tells them apart, so a publish could give a schedule's switch to the wrong start. " + MatchTheSwitches, finding.Message);
     }
 
     [Fact]
-    public void Compose_SchedulesAtDifferentTimes_WithEveryPromptEdited_StillPairByTime()
+    public void Compose_OneOfTwoSchedulesWrittenTheSameKeptExactly_AndAlikeInEverythingKept_IsNotAGuess()
+    {
+        var live = new[] { Live("cj_a", "writer", Never, "Mail.", enabled: false), Live("cj_b", "writer", Never, "Mail.", enabled: false) };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start(Never, "Mail."), Start("0 8 * * *", "Mail.") } });
+
+        var writer = Plan(d, schedules: live).Schedules.Where(s => s.Seat == "writer").ToList();
+
+        Assert.Equal(2, writer.Count);
+        Assert.All(writer, s => Assert.False(s.Job!.Enabled));
+    }
+
+    [Fact]
+    public void Compose_ReviewCaseA_BothTimesNudgedAndBothPromptsEdited_IsRefused_NotAnEnabledSwitchMovedToNoon()
+    {
+        // Review of 4063, finding 1, case A: no time is kept and no prompt is, so the cron text's order decided - and it
+        // gave the enabled morning schedule to the noon start.
+        var live = new[]
+        {
+            Live("cj_a", "writer", "0 8 * * *", "Morning mail.", enabled: true, name: "DevThrottle - Writer"),
+            Live("cj_b", "writer", "30 12 * * *", "Midday mail.", enabled: false, name: "DevThrottle - Writer (2)"),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with
+        {
+            Starts = new[] { Start("30 8 * * *", "Morning, from the kit."), Start("0 12 * * *", "Midday, from the kit.") },
+        });
+
+        var finding = Assert.Single(Refusal(d, schedules: live).Findings);
+
+        Assert.Equal("Starts 1 and 2 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled) and " +
+                     "cj_b (DevThrottle - Writer (2), paused) without a guess: nothing in the draft tells them apart, so a " +
+                     "publish could give a schedule's switch to the wrong start. Publish once with these starts' prompts " +
+                     "unchanged, so each pairs with its own schedule by its prompt, then publish the prompt edits.", finding.Message);
+    }
+
+    [Fact]
+    public void Compose_ReviewCaseB_OneNewStartOverTwoSchedulesAtOtherTimes_IsRefused_NotTheEnabledOneDeleted()
+    {
+        // Review of 4063, finding 1, case B: which schedule is kept and which deleted was the cron text's order.
+        var live = new[]
+        {
+            Live("cj_a", "writer", "0 7 * * *", "Morning.", enabled: true, name: "DevThrottle - Writer"),
+            Live("cj_b", "writer", "0 19 * * *", "Evening.", enabled: false, name: "DevThrottle - Writer (2)"),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start("0 8 * * *", "Mail, from the kit.") } });
+
+        var finding = Assert.Single(Refusal(d, schedules: live).Findings);
+
+        Assert.StartsWith("Start 1 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled) and " +
+                          "cj_b (DevThrottle - Writer (2), paused) without a guess: nothing in the draft tells them apart,", finding.Message);
+    }
+
+    [Fact]
+    public void Compose_ReviewCaseA_TheTwoStepWay_IsAccepted_AndTheEnabledSwitchStaysOnTheMorning()
+    {
+        var live = new[]
+        {
+            Live("cj_a", "writer", "0 8 * * *", "Morning mail.", enabled: true),
+            Live("cj_b", "writer", "30 12 * * *", "Midday mail.", enabled: false),
+        };
+        // Step one: the new times, the prompts unchanged - the prompt decides.
+        var first = Plan(WithSeat(Definition(), "writer", s => s with
+        {
+            Starts = new[] { Start("30 8 * * *", "Morning mail."), Start("0 12 * * *", "Midday mail.") },
+        }), schedules: live).Schedules.Where(s => s.Seat == "writer").ToDictionary(s => s.Id!);
+        Assert.Equal(("30 8 * * *", true), (first["cj_a"].Job!.CronExpression, first["cj_a"].Job!.Enabled));
+        Assert.Equal(("0 12 * * *", false), (first["cj_b"].Job!.CronExpression, first["cj_b"].Job!.Enabled));
+
+        // Step two: the times kept, the prompts edited - the kept time decides.
+        var moved = new[]
+        {
+            Live("cj_a", "writer", "30 8 * * *", "Morning mail.", enabled: true),
+            Live("cj_b", "writer", "0 12 * * *", "Midday mail.", enabled: false),
+        };
+        var second = Plan(WithSeat(Definition(), "writer", s => s with
+        {
+            Starts = new[] { Start("30 8 * * *", "Morning, from the kit."), Start("0 12 * * *", "Midday, from the kit.") },
+        }), schedules: moved).Schedules.Where(s => s.Seat == "writer").ToDictionary(s => s.Id!);
+        Assert.Equal(("30 8 * * *", "Morning, from the kit.", true), (second["cj_a"].Job!.CronExpression, second["cj_a"].Job!.Action.Seed, second["cj_a"].Job!.Enabled));
+        Assert.Equal(("0 12 * * *", "Midday, from the kit.", false), (second["cj_b"].Job!.CronExpression, second["cj_b"].Job!.Action.Seed, second["cj_b"].Job!.Enabled));
+    }
+
+    [Fact]
+    public void Compose_SchedulesWhoseTimesAreKept_WithEveryPromptEdited_PairByTheKeptTime()
     {
         var live = new[]
         {
@@ -999,8 +1106,8 @@ public sealed class FactoryPublishPlanTests
         var finding = Assert.Single(composed.Refusal!.Findings);
         Assert.Equal("seats/outreach.yaml", finding.File);
         Assert.Equal("Starts 1 and 2 cannot be paired with the live triggers devthrottle-outreach-start-1 (running) and " +
-                     "devthrottle-outreach-start-2 (paused) without a guess: the time does not tell them apart and nothing " +
-                     "else says which start each trigger takes, so a publish could give a trigger's switch to the wrong start. " +
+                     "devthrottle-outreach-start-2 (paused) without a guess: nothing in the draft tells them apart, so a " +
+                     "publish could give a trigger's switch to the wrong start. " +
                      "Publish once with these starts' prompts unchanged, so each pairs with its own trigger by its prompt, then " +
                      "publish the prompt edits.", finding.Message);
     }

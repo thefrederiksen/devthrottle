@@ -291,19 +291,32 @@ public static class FactoryPublishPlan
     /// </summary>
     internal static string ScheduleGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<CronJobEntity> schedules)
         => Guess(startNumbers, schedules.Count == 1 ? "schedule" : "schedules",
-            schedules.Select(j => $"{j.Id} ({j.Name}, {(j.Enabled ? "enabled" : "paused")})").ToList(), "schedule");
+            schedules.Select(j => $"{j.Id} ({j.Name}, {(j.Enabled ? "enabled" : "paused")})").ToList(), "schedule",
+            SharePrompt(schedules.Select(j => j.Action.Seed ?? "").ToList()), "pause or enable");
 
     /// <summary>The refusal of a guessed pairing of definition triggers, as <see cref="ScheduleGuess"/>.</summary>
     internal static string TriggerGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<TriggerEntity> triggers)
         => Guess(startNumbers, triggers.Count == 1 ? "trigger" : "triggers",
-            triggers.Select(t => $"{t.Name} ({(t.Paused ? "paused" : "running")})").ToList(), "trigger");
+            triggers.Select(t => $"{t.Name} ({(t.Paused ? "paused" : "running")})").ToList(), "trigger",
+            SharePrompt(triggers.Select(t => t.Prompt).ToList()), "pause or resume");
 
-    private static string Guess(IReadOnlyList<int> startNumbers, string rows, IReadOnlyList<string> named, string row)
+    // Two of the rows already hold one prompt, so an unchanged prompt cannot tell them apart.
+    private static bool SharePrompt(IReadOnlyList<string> prompts) => prompts.Distinct(StringComparer.Ordinal).Count() < prompts.Count;
+
+    /// <summary>
+    /// The finding: which starts and rows, why, and what to do. When two of the rows already share a prompt, publishing
+    /// the prompts unchanged would be refused again, so the person matches the switches or makes the prompts differ.
+    /// </summary>
+    private static string Guess(IReadOnlyList<int> startNumbers, string rows, IReadOnlyList<string> named, string row,
+        bool sharePrompt, string pauseOr)
         => $"{(startNumbers.Count == 1 ? "Start" : "Starts")} {JoinAnd(startNumbers.Select(n => n.ToString()).ToList())} " +
-           $"cannot be paired with the live {rows} {JoinAnd(named)} without a guess: the time does not tell them apart " +
-           $"and nothing else says which start each {row} takes, so a publish could give a {row}'s switch to the wrong " +
-           $"start. Publish once with these starts' prompts unchanged, so each pairs with its own {row} by its prompt, " +
-           "then publish the prompt edits.";
+           $"cannot be paired with the live {rows} {JoinAnd(named)} without a guess: nothing in the draft tells them " +
+           $"apart, so a publish could give a {row}'s switch to the wrong start. " +
+           (sharePrompt
+               ? $"These {row}s share a prompt, so first {pauseOr} them so their switches match, or give these starts " +
+                 "different prompts."
+               : $"Publish once with these starts' prompts unchanged, so each pairs with its own {row} by its prompt, " +
+                 "then publish the prompt edits.");
 
     private static string JoinAnd(IReadOnlyList<string> items)
         => items.Count == 1 ? items[0] : string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1];

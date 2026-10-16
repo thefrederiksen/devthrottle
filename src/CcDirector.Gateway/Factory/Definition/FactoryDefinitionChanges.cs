@@ -247,17 +247,20 @@ public static class FactoryDefinitionChanges
         => (candidate.Prompt == old.Prompt ? 4 : 0) + (candidate.Check == old.Check ? 2 : 0) + (candidate.TimeZone == old.TimeZone ? 1 : 0);
 
     /// <summary>
-    /// WHERE THE PAIRING GUESSED (issue 4056): the groups of old and new positions that <paramref name="pairing"/>
-    /// paired by list order alone, so a different, equally good pairing exists and would give a live row - with its
-    /// switch - to a different start. Empty when every pairing was decided.
+    /// WHERE THE PAIRING GUESSED (issue 4056): the groups of old and new positions whose pairing nothing in the draft
+    /// decided, so a different pairing is at least as good and would give a live row - with its switch - to a different
+    /// start. Empty when every pairing was decided.
     ///
-    /// Two of the pairing's choices CANNOT BE TOLD APART when the time does not separate them - the two old starts, or
-    /// the two new starts, have the same kind and the same time (cron expression and time zone, or interval) - and the
-    /// closeness score does not either: swapping them scores at least as well. That covers two paired old starts
-    /// (swap their new starts), a paired and an unpaired old start (the unpaired one could have taken the new start),
-    /// and a paired and an unpaired new start (the old start could have taken the unpaired one). A tie that changes
-    /// nothing is not a guess: two old starts <paramref name="interchangeable"/> says are alike in everything a publish
-    /// keeps, or two new starts written the same. Starts paired exactly are never part of a guess.
+    /// The pairing's score never weighs time: past the score, its order is the ordinal text of the cron expression, which
+    /// is not closeness. So a choice is judged here by what the draft says, a kept time counting as much as a kept prompt
+    /// (then the check, then the zone): a choice is DECIDED only when it beats every swap. That covers two paired old
+    /// starts (swap their new starts), a paired and an unpaired old start (the unpaired one could have taken the new
+    /// start), and a paired and an unpaired new start (the old start could have taken the unpaired one), at any times.
+    /// An exact pair is a guess too when another old start, not paired exactly, is written the same as its new start:
+    /// which of the two was kept as it is was the list order.
+    ///
+    /// A tie that changes nothing is not a guess: two old starts <paramref name="interchangeable"/> says are alike in
+    /// everything a publish keeps, or two new starts written the same. The pairing itself is not changed.
     /// </summary>
     internal static IReadOnlyList<UndecidedStarts> Undecided(StartPairing pairing, IReadOnlyList<SeatStartDefinition> oldStarts,
         IReadOnlyList<SeatStartDefinition> newStarts, Func<int, int, bool> interchangeable)
@@ -279,31 +282,45 @@ public static class FactoryDefinitionChanges
             foreach (var node in nodes) parent.TryAdd(node, node);
             for (var i = 1; i < nodes.Length; i++) parent[Root(nodes[i])] = Root(nodes[0]);
         }
+        // What the draft says for one choice: a kept time as much as a kept prompt, then the check, then the zone.
+        int Said(int o, int n) => Score(oldStarts[o], newStarts[n]) + (SameWhen(oldStarts[o], newStarts[n]) ? 4 : 0);
+        static bool SameKind(SeatStartDefinition a, SeatStartDefinition b) => (a.Cron is null) == (b.Cron is null);
 
         for (var i = 0; i < pairs.Count; i++)
         {
             var (o1, n1) = (pairs[i].Old, pairs[i].New);
-            var here = Score(oldStarts[o1], newStarts[n1]);
+            var here = Said(o1, n1);
             for (var j = i + 1; j < pairs.Count; j++)
             {
                 var (o2, n2) = (pairs[j].Old, pairs[j].New);
-                if (!SameWhen(oldStarts[o1], oldStarts[o2]) && !SameWhen(newStarts[n1], newStarts[n2])) continue;
                 if (interchangeable(o1, o2) || SameStart(newStarts[n1], newStarts[n2])) continue;
-                if (Score(oldStarts[o1], newStarts[n2]) + Score(oldStarts[o2], newStarts[n1])
-                    < here + Score(oldStarts[o2], newStarts[n2])) continue;
+                if (Said(o1, n2) + Said(o2, n1) < here + Said(o2, n2)) continue;
                 Join((false, o1), (false, o2), (true, n1), (true, n2));
             }
             foreach (var o2 in pairing.UnpairedOld)
             {
-                if (!SameWhen(oldStarts[o1], oldStarts[o2]) || interchangeable(o1, o2)) continue;
-                if (Score(oldStarts[o2], newStarts[n1]) < here) continue;
+                if (!SameKind(oldStarts[o1], oldStarts[o2]) || interchangeable(o1, o2)) continue;
+                if (Said(o2, n1) < here) continue;
                 Join((false, o1), (false, o2), (true, n1));
             }
             foreach (var n2 in pairing.UnpairedNew)
             {
-                if (!SameWhen(newStarts[n1], newStarts[n2]) || SameStart(newStarts[n1], newStarts[n2])) continue;
-                if (Score(oldStarts[o1], newStarts[n2]) < here) continue;
+                if (!SameKind(newStarts[n1], newStarts[n2]) || SameStart(newStarts[n1], newStarts[n2])) continue;
+                if (Said(o1, n2) < here) continue;
                 Join((false, o1), (true, n1), (true, n2));
+            }
+        }
+
+        // An exact pair whose new start another old start, not paired exactly, is also written the same as.
+        var exactOld = pairing.Pairs.Where(p => p.Exact).Select(p => p.Old).ToHashSet();
+        var partner = pairs.ToDictionary(p => p.Old, p => p.New);
+        foreach (var exact in pairing.Pairs.Where(p => p.Exact))
+        {
+            for (var o2 = 0; o2 < oldStarts.Count; o2++)
+            {
+                if (exactOld.Contains(o2) || !SameStart(oldStarts[o2], newStarts[exact.New]) || interchangeable(exact.Old, o2)) continue;
+                Join((false, exact.Old), (false, o2), (true, exact.New));
+                if (partner.TryGetValue(o2, out var n2)) Join((false, o2), (true, n2));
             }
         }
 
