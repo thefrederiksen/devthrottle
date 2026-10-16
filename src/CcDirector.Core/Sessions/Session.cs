@@ -1,4 +1,5 @@
 ﻿using CcDirector.Core.Agents;
+using CcDirector.Core.ApiMode;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Input;
@@ -99,6 +100,10 @@ public sealed class Session : IDisposable
     public const int MinVerificationLength = 50;
 
     private readonly ISessionBackend _backend;
+
+    // The backend when this session is in API mode (issue #4070), held apart because _backend may be wrapped in the
+    // usage-limit guard; null for every terminal session.
+    private readonly ApiModeSessionBackend? _apiMode;
     private bool _disposed;
 
     // ===== THE SESSION'S SCREEN: one terminal emulator at the terminal's REAL size (issue #3406) =====
@@ -2377,6 +2382,11 @@ public sealed class Session : IDisposable
     /// <summary>Access to the underlying backend for mode-specific operations.</summary>
     public ISessionBackend Backend => _backend;
 
+    /// <summary>How the Director talks to this session's agent (issue #4070): API mode when its backend is the agent's
+    /// own protocol, otherwise terminal.</summary>
+    public SessionConnectionMode ConnectionMode =>
+        _apiMode is null ? SessionConnectionMode.Terminal : SessionConnectionMode.Api;
+
     /// <summary>
     /// Create a new session with the specified backend.
     /// </summary>
@@ -2399,6 +2409,7 @@ public sealed class Session : IDisposable
             ? new UsageLimitInputGuard(backend, id, UsageLimitDialogMayShow)
             : backend;
         BackendType = backendType;
+        _apiMode = backend as ApiModeSessionBackend;
         CreatedAt = createdAt ?? DateTimeOffset.UtcNow;
         Status = SessionStatus.Starting;
 
@@ -3538,6 +3549,9 @@ public sealed class Session : IDisposable
     public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
+        // API mode (issue #4070): the prompt goes to the agent's own protocol and its receipt is the agent's
+        // acknowledgement, so none of the typing, echo or records checks below runs for it.
+        if (_apiMode is { } apiMode) return await SendApiModePromptAsync(apiMode, text, source);
         // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
 
@@ -4654,10 +4668,39 @@ public sealed class Session : IDisposable
     /// <summary>Soft-stop the current turn (Esc for Claude and pi).</summary>
     public async Task CancelTurnAsync()
     {
+        // API mode (issue #4070): Stop is the agent's own abort, confirmed by the agent ending the turn cancelled.
+        if (_apiMode is { } apiMode) { await StopApiModeTurnAsync(apiMode); return; }
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] CancelTurnAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
             await Driver.CancelAsync(_backend);
+    }
+
+    /// <summary>
+    /// Send a prompt to an API-mode session (issue #4070): through the Director's queue to the agent, and answered from
+    /// the agent's own acknowledgement - delivered, or refused with the reason. A prompt queued behind a running turn
+    /// waits here until it is written and acknowledged; the caller's own answer budget covers that wait.
+    /// </summary>
+    private async Task<TextSendOutcome> SendApiModePromptAsync(ApiModeSessionBackend apiMode, string text, SendSource source)
+    {
+        FileLog.Write($"[Session] SendApiModePromptAsync: session={Id}, source={source}, len={text.Length}");
+        var receipt = await apiMode.Host.SendPromptAsync(text, CancellationToken.None);
+        if (receipt.Delivered)
+        {
+            FileLog.Write($"[Session] SendApiModePromptAsync done: session={Id}, prompt={receipt.PromptId}, delivered");
+            return TextSendOutcome.Delivered;
+        }
+        FileLog.Write($"[Session] SendApiModePromptAsync done: session={Id}, prompt={receipt.PromptId}, REFUSED by {receipt.RefusedBy} - {receipt.RefusalReason}");
+        return TextSendOutcome.Refused(receipt.RefusalReason!);
+    }
+
+    /// <summary>Stop the running turn of an API-mode session with the agent's own abort, and wait for the agent to
+    /// confirm it (issue #4070).</summary>
+    private async Task StopApiModeTurnAsync(ApiModeSessionBackend apiMode)
+    {
+        FileLog.Write($"[Session] StopApiModeTurnAsync: session={Id}");
+        var ended = await apiMode.Host.StopAsync(CancellationToken.None);
+        FileLog.Write($"[Session] StopApiModeTurnAsync done: session={Id}, turn={ended?.TurnId ?? "(none running)"}, outcome={ended?.Outcome.ToString() ?? "(none)"}");
     }
 
     /// <summary>Hard interrupt (Ctrl+C where the tool supports it; pi does NOT -
