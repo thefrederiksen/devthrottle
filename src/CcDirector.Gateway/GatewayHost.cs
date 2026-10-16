@@ -1446,6 +1446,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // The lifetime a factory trigger's session start runs on: cancelled in StopAsync, never by the Director's check
     // report - a start takes longer than the Director waits for that answer (the trigger's live check, 2026-09-21).
     private readonly CancellationTokenSource _triggerStartLifetime = new();
+    // The lifetime a schedule's run now runs on once the Gateway has decided to make it: cancelled in StopAsync, never
+    // by the request - a seat's start outlasts the caller's wait (Factory Definition, phase 5, QA finding 9).
+    private readonly CancellationTokenSource _runNowLifetime = new();
     private readonly DevReports.DevReportTurnEndLauncher _devReportLauncher;
     private readonly DevReports.DevReportSettleSweep _devReportSettleSweep;
     private System.Threading.Timer? _devReportSettleTimer;
@@ -6057,7 +6060,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // of that factory, so this route needs the schedule's factory and the caller's.
             jobById: id => _cronJobs.Get(id),
             sessionFactoryOf: _sessionHistory.FactoryOf,
-            accountZoneOf: AccountZoneOf);
+            accountZoneOf: AccountZoneOf,
+            runLifetime: _runNowLifetime.Token);
 
         // Factory Control, step 1: a scheduled run reports how it went, a problem is resolved with a reason, and the
         // account's problems are read through the one fold the factory page, the email and the Factory Manager share.
@@ -7464,6 +7468,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _devReportSettleTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report settle timer dispose error: {ex.Message}"); }
         try { _devReportSendLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report send lifetime cancel error: {ex.Message}"); }
         try { _triggerStartLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] trigger start lifetime cancel error: {ex.Message}"); }
+        try { _runNowLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] run now lifetime cancel error: {ex.Message}"); }
         _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;

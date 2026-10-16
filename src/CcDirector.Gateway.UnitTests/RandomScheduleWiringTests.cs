@@ -50,7 +50,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         var engine = new CronEngine(_store, _history, new RecordingStarter(), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FakeClock(DateTime.UtcNow));
         CronRunEndpoints.Map(_app, engine, runRecords, jobById: _store.Get,
-            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, accountZoneOf: _ => TimeZoneInfo.Utc);
+            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, accountZoneOf: _ => TimeZoneInfo.Utc, runLifetime: CancellationToken.None);
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First() + "/") };
     }

@@ -94,7 +94,7 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         var engine = new CronEngine(_schedules, runs, new CountingStarter(() => _starts++), new UnusedWorkListRunner(),
             new NullCronNotifier(), new FixedClock(Now));
         CronRunEndpoints.Map(_routes, engine, runRecords, jobById: id => _schedules.Get(id),
-            sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, accountZoneOf: _ => TimeZoneInfo.Utc);
+            sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, accountZoneOf: _ => TimeZoneInfo.Utc, runLifetime: CancellationToken.None);
 
         var service = new TriggerService(_triggers, record,
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
