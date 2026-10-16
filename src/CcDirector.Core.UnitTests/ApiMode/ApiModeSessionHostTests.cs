@@ -556,21 +556,45 @@ public sealed class ApiModeSessionHostTests
     }
 
     [Fact]
-    public async Task SendPromptAsync_AGatewayIdSentAgain_IsANewAttemptOfThatIdAndNoIdIsUsedTwice()
+    public async Task SendPromptAsync_AGatewayIdSentAgainAfterItsRefusal_ReusesThatIdExactly()
     {
         // Arrange: Pi has ended, so every prompt is refused at once and nothing else varies.
         await using var rig = StartHost(new ScriptedPi("plain"));
         await rig.Sink.WaitForAsync<ConnectionReady>();
         await rig.ShutdownAsync();
 
-        // Act: a Gateway id, the same id again (a retry), a Gateway id that looks like a Director id, then no id.
+        // Act: a Gateway id, the same id again (a retry of a delivery that was not delivered), a Gateway id that looks
+        // like a Director id, then no id twice.
         var ids = new List<string>();
-        foreach (var gatewayId in new string?[] { "upload-1", "upload-1", "prompt-1", null })
+        foreach (var gatewayId in new string?[] { "upload-1", "upload-1", "prompt-1", null, null })
             ids.Add((await rig.Host.SendPromptAsync("Too late", gatewayId, CancellationToken.None)).PromptId);
 
-        // Assert: the retry names its delivery and its attempt; the minted id skips the one the Gateway already used.
-        Assert.Equal(["upload-1", "upload-1:attempt-2", "prompt-1", "prompt-2"], ids);
+        // Assert: the retry carries the Gateway's id exactly, so its receipt joins (the later receipt stands); a minted
+        // id skips the one the Gateway already used.
+        Assert.Equal(["upload-1", "upload-1", "prompt-1", "prompt-2", "prompt-3"], ids);
         Assert.Equal(ids, rig.Sink.Events.OfType<PromptRefused>().Select(r => r.PromptId));
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_AGatewayIdStillWaitingForItsReceipt_IsRefusedAndNothingIsWritten()
+    {
+        // Arrange: the first copy is written and Pi has not answered it.
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        await using var rig = StartHost(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        var first = rig.Host.SendPromptAsync("First", "upload-9", CancellationToken.None);
+        await pi.WaitForWrittenAsync("prompt");
+
+        // Act
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Host.SendPromptAsync("First", "upload-9", CancellationToken.None));
+
+        // Assert: a defect the delivery record should have stopped, refused in words; the first copy is untouched.
+        Assert.Equal("Prompt upload-9 is already being delivered to this session; a second copy is not sent.", error.Message);
+        Assert.Equal(["get_state", "prompt"], pi.WrittenTypes);
+        pi.RespondToNext();
+        Assert.Equal("upload-9", (await ScriptedPi.WithinHangGuard(first, "the first copy's receipt")).PromptId);
     }
 
     public static TheoryData<string> Scenarios => ["plain", "tool", "abort", "resume", "exit", "exit-before-ack"];

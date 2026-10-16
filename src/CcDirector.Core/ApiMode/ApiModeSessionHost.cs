@@ -665,11 +665,16 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
 
     /// <summary>
     /// The prompt id every event about this prompt carries (the Delivery Lead's ruling, 16 October 2026: a receipt joins
-    /// to the prompt the user sent). A prompt that came from the Gateway with its delivery id carries THAT id. A prompt
-    /// with none - typed in the desktop, a typed Gateway prompt with no delivery id, a fleet message, the framework's own
-    /// text - gets a Director id, <c>prompt-1</c>, <c>prompt-2</c>, ... Ids are unique within the session: a minted id
-    /// skips any already used, and a Gateway id sent a second time (a retry of a delivery the Director refused) carries
-    /// <c>&lt;id&gt;:attempt-2</c>, <c>:attempt-3</c>, ... so each attempt has its own receipt and still names its delivery.
+    /// to the prompt the user sent). A prompt that came from the Gateway with its delivery id carries THAT id, exactly,
+    /// every time - the Gateway's prompt route gives every prompt one. A prompt with none - typed in the desktop, a fleet
+    /// message or doorbell, the framework's own text, a pre-prompt - gets a Director id, <c>prompt-1</c>, <c>prompt-2</c>,
+    /// ..., which skips any id already used in the session.
+    ///
+    /// A Gateway id can reach the host twice: a delivery the Director refused is not-delivered, and the delivery record
+    /// lets it begin again under the same id (a retry, or "Send anyway"). By then its refusal was published and its
+    /// receipt settled, so nothing here holds the id and reusing it cannot collide; the retry's receipt is the later one
+    /// under the same id, and the later receipt stands (phase 1 review, finding 3). A Gateway id that is still waiting
+    /// for its receipt is a defect - the delivery record refuses a delivering id - and is refused here in words.
     /// </summary>
     private string ResolvePromptIdLocked(string? gatewayPromptId)
     {
@@ -680,11 +685,15 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         }
         else
         {
+            if (_awaitingReceipt.ContainsKey(gatewayPromptId))
+            {
+                FileLog.Write($"[ApiModeSessionHost] ResolvePromptId FAILED: session={_sessionId}, Gateway id {gatewayPromptId} is still waiting for its receipt");
+                throw new InvalidOperationException(
+                    $"Prompt {gatewayPromptId} is already being delivered to this session; a second copy is not sent.");
+            }
             promptId = gatewayPromptId;
-            for (var attempt = 2; _usedPromptIds.Contains(promptId); attempt++)
-                promptId = $"{gatewayPromptId}:attempt-{attempt}";
-            if (promptId != gatewayPromptId)
-                FileLog.Write($"[ApiModeSessionHost] ResolvePromptId: session={_sessionId}, Gateway id {gatewayPromptId} was already used in this session; this attempt is {promptId}");
+            if (_usedPromptIds.Contains(promptId))
+                FileLog.Write($"[ApiModeSessionHost] ResolvePromptId: session={_sessionId}, Gateway id {promptId} is sent again (a retry of a delivery that was not delivered)");
         }
         _usedPromptIds.Add(promptId);
         return promptId;
