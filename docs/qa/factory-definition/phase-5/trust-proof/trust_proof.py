@@ -170,6 +170,9 @@ class Ledger:
             if named.name in self.project_folders_before:
                 say(f"  KEPT {named.name}: it existed before this run")
                 continue
+            if named.parent.resolve() != PROJECTS.resolve():
+                say(f"  KEPT {named}: it is not directly under {PROJECTS}")
+                continue
             if named.is_dir():
                 shutil.rmtree(named)
                 say(f"  removed Claude Code's folder for {key(folder)}: {not named.exists()}")
