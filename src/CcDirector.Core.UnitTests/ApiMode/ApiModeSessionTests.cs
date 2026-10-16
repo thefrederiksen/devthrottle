@@ -123,7 +123,7 @@ public sealed class ApiModeSessionTests : IDisposable
 
         // Act
         await session.SendTextAsync("Write a long answer", Door);
-        var code = await exited.Task;
+        var code = await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
 
         // Assert: the ordinary exit path, through the backend's ProcessExited.
         Assert.Equal(137, code);
@@ -145,7 +145,7 @@ public sealed class ApiModeSessionTests : IDisposable
         // Act
         var before = session.ActivityState;
         pi.RespondToNext();
-        await waiting.Task;
+        await ScriptedPi.WithinHangGuard(waiting.Task, "the session to wait for input");
 
         // Assert: a session never claims to wait for a prompt its agent cannot take yet.
         Assert.Equal(ActivityState.Starting, before);

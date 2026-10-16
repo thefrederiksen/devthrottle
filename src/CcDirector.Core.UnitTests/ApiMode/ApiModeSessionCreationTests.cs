@@ -101,7 +101,7 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         session.OnActivityStateChanged += (_, now) => { if (now == wanted) reached.TrySetResult(now); };
         if (session.ActivityState == wanted)
             reached.TrySetResult(wanted);
-        return reached.Task;
+        return ScriptedPi.WithinHangGuard(reached.Task, $"the session to reach {wanted}");
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public sealed class ApiModeSessionCreationTests : IDisposable
 
         // Act: a prompt and its whole turn.
         var outcome = await session.SendTextAsync("Reply with exactly the word PONG", Door);
-        await turnSettled.Task;
+        await ScriptedPi.WithinHangGuard(turnSettled.Task, "the turn's working-then-waiting activity");
 
         // Assert: delivered by Pi's acknowledgement; the activity came from Pi's events (working for the turn, waiting
         // after it) - not from a screen, which there is none of.
@@ -244,7 +244,7 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         if (session.ExitCode is { } already)
             exited.TrySetResult(already);
         var ended = await sink.WaitForAsync<ConnectionEnded>();
-        await exited.Task;
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
 
         // Assert
         Assert.StartsWith("Resume failed:", ended.Reason);

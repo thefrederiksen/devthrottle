@@ -23,6 +23,30 @@ namespace CcDirector.Core.UnitTests.ApiMode;
 /// </summary>
 internal sealed class ScriptedPi
 {
+    /// <summary>
+    /// How long a test waits for something the code under test must do before the wait fails, naming what never
+    /// happened. A hang guard only: every wait it bounds completes in milliseconds on correct code, so it never decides
+    /// a pass, and without it a regression would stall the whole gate instead of failing one test.
+    /// </summary>
+    public static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
+    /// <summary>Wait for <paramref name="task"/>, or fail naming <paramref name="what"/> after <see cref="HangGuard"/>.</summary>
+    public static async Task<T> WithinHangGuard<T>(Task<T> task, string what)
+    {
+        try
+        {
+            return await task.WaitAsync(HangGuard);
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException($"Waited {HangGuard.TotalSeconds} seconds for {what}; it never happened, so the code under test hangs here.");
+        }
+    }
+
+    /// <summary>Wait for <paramref name="task"/>, or fail naming <paramref name="what"/> after <see cref="HangGuard"/>.</summary>
+    public static async Task WithinHangGuard(Task task, string what) =>
+        await WithinHangGuard(task.ContinueWith(t => { t.GetAwaiter().GetResult(); return true; }, TaskScheduler.Default), what);
+
     private const string PlainConversationId = "311ffc3b-7a39-45cf-bcb5-596c494cdbbf";
 
     private readonly object _gate = new();
@@ -108,7 +132,7 @@ internal sealed class ScriptedPi
             }
             var done = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             _writeWaiters.Add((Match, done));
-            return done.Task;
+            return WithinHangGuard(done.Task, $"the host to write {type} (occurrence {occurrence})");
         }
     }
 
@@ -298,6 +322,6 @@ internal sealed class RecordingSink : ISessionEventSink
             _waiters.Add((Matches, waiter));
             done = waiter.Task;
         }
-        return (T)await done;
+        return (T)await ScriptedPi.WithinHangGuard(done, $"a {typeof(T).Name} event");
     }
 }

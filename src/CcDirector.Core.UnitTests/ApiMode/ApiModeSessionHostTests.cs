@@ -208,7 +208,7 @@ public sealed class ApiModeSessionHostTests
 
         // Act
         var receipt = await rig.Host.SendPromptAsync("Write a long answer", CancellationToken.None);
-        var ended = await rig.Host.Ended;
+        var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
 
         // Assert: Delivered stays (Pi acknowledged it), and the prompt's turn ended failed with the exit stated, so
         // the receipt never reads as a plain success (event model, section 2 ruling and rule 5).
@@ -233,7 +233,7 @@ public sealed class ApiModeSessionHostTests
 
         // Act
         var receipt = await rig.Host.SendPromptAsync("Reply with exactly the word PONG", CancellationToken.None);
-        var ended = await rig.Host.Ended;
+        var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
 
         // Assert
         Assert.Equal(new ApiModePromptReceipt("prompt-1", false, "Pi exited before acknowledging", PromptRefusedBy.Director), receipt);
@@ -282,14 +282,14 @@ public sealed class ApiModeSessionHostTests
 
         // Act: Pi acknowledges the first and runs its turn to the end.
         pi.RespondToNext();
-        Assert.True((await first).Delivered);
+        Assert.True((await ScriptedPi.WithinHangGuard(first, "the first prompt's receipt")).Delivered);
         await rig.Sink.WaitForAsync<TurnEnded>(t => t.TurnId == "turn-1");
         var secondLine = await pi.WaitForWrittenAsync("prompt", occurrence: 2);
         pi.RespondToNext();
 
         // Assert: the second was written only after the first settled, and got its own receipt and turn.
         Assert.Equal("Second", MessageOf(secondLine));
-        Assert.True((await second).Delivered);
+        Assert.True((await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt")).Delivered);
         var turnTwo = await rig.Sink.WaitForAsync<TurnStarted>(t => t.TurnId == "turn-2");
         Assert.Equal(["prompt-2"], turnTwo.PromptIds);
         var lines = rig.Sink.Lines();
@@ -312,7 +312,7 @@ public sealed class ApiModeSessionHostTests
         pi.RespondToNext();
         await pi.WaitForWrittenAsync("prompt");
         pi.RespondToNext();
-        var receipt = await sending;
+        var receipt = await ScriptedPi.WithinHangGuard(sending, "the prompt's receipt");
 
         // Assert: no prompt before ConnectionReady.
         Assert.Equal(PromptQueuedReason.AgentStarting, queued.Reason);
@@ -336,8 +336,8 @@ public sealed class ApiModeSessionHostTests
 
         // Act
         pi.RespondToNext();
-        var ended = await rig.Host.Ended;
-        var receipt = await sending;
+        var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
+        var receipt = await ScriptedPi.WithinHangGuard(sending, "the prompt's receipt");
 
         // Assert: the resume fails with the stated reason, no prompt was written into the empty conversation, and the
         // waiting prompt is refused with that reason.
@@ -453,7 +453,7 @@ public sealed class ApiModeSessionHostTests
         rig.Clock.Advance(TimeSpan.FromMilliseconds(1));
         var failed = await rig.Sink.WaitForAsync<TurnEnded>();
         await rig.Sink.WaitForAsync<ConnectionReady>(c => c.Sequence > failed.Sequence);
-        var secondReceipt = await second;
+        var secondReceipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
 
         // Assert: the acknowledged prompt's turn ended failed with the restart stated (the ruling's third row)...
         var turn = Assert.Single(rig.Sink.Events.OfType<TurnStarted>(), t => t.TurnId == failed.TurnId);
