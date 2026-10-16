@@ -29,4 +29,28 @@ public sealed class AgentChoiceDto
     /// driver's known-models list; falls back to the raw model id, or empty when no model is configured.
     /// Purely informational - the Cockpit shows it so the user sees which model the agent will use.</summary>
     public string ModelLabel { get; set; } = "";
+
+    /// <summary>
+    /// How this agent can be connected, in order, each with the words a person sees (API mode mission, issue #4070,
+    /// phase 5). The Director reports what the agent's wrapper declares (Terminal, and API mode for an agent with an API
+    /// dialect - Pi today); the Gateway's <c>GET /directors/{id}/agents</c> leg replaces that with what is OFFERED
+    /// (<see cref="ConnectionModes.Offered"/>), so a client draws the New Session Connection row only when this holds
+    /// more than one choice, and never decides for itself which agents have API mode. An older Director sends nothing,
+    /// and the Gateway answers Terminal alone.
+    /// </summary>
+    public List<ConnectionChoiceDto> Connections { get; set; } = new();
+}
+
+/// <summary>One way to connect an agent: the mode word sent back as <see cref="NewSessionRequest.ConnectionMode"/>, and its label.</summary>
+public sealed class ConnectionChoiceDto
+{
+    /// <summary>One of <see cref="ConnectionModes"/>: <c>terminal</c> or <c>api</c>.</summary>
+    public string Mode { get; set; } = "";
+
+    /// <summary>The words shown for it: "Terminal" or "API mode".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>The choices for <paramref name="modes"/>, each labelled with <see cref="ConnectionModes.LabelOf"/>.</summary>
+    public static List<ConnectionChoiceDto> For(IEnumerable<string> modes) =>
+        modes.Select(m => new ConnectionChoiceDto { Mode = m, Label = ConnectionModes.LabelOf(m) }).ToList();
 }

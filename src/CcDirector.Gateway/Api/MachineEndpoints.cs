@@ -463,6 +463,10 @@ internal static class MachineEndpoints
             // property. Scopes nest and restore on dispose, so re-entering the same tenant costs nothing.
             using var tenantScope = boundary is null ? null : boundary.EnterScope(tenant);
 
+            // HOW IT IS CONNECTED (API mode mission, issue #4070, phase 5), ruled by the same fold as the Director door.
+            if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered) is { } connectionRefused)
+                return Results.BadRequest(new { error = connectionRefused });
+
             // WHO IS ASKING, and WHO WILL OWN THE RESULT - settled from the verified credential rather
             // than from the body, in the ONE place both spawn doors share (issue #2838). This replaced a
             // stamp that lived only on this door and only covered a person's device.

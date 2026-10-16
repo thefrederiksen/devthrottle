@@ -1,0 +1,38 @@
+- dialog "Start a new session":
+  - text: Start a new session 1. Repository Machine
+  - list "Machine":
+    - listitem:
+      - button "North up 12h 18m v2.20.0" [pressed]
+  - text: 2 repositories on this machine, most recently used first.
+  - textbox "Filter repositories by name or path"
+  - button "Name"
+  - button "Path"
+  - button "Last Used v" [pressed]
+  - list:
+    - listitem:
+      - button "devthrottle /home/soren/ReposFred/devthrottle 11h ago selected" [pressed]
+    - listitem:
+      - button "cc-consult /home/soren/ReposFred/cc-consult 4d ago"
+  - text: Or enter a path
+  - textbox "Or enter a path":
+    - /placeholder: D:\Repos\my-project
+    - text: /home/soren/ReposFred/devthrottle
+  - button "Add to this machine"
+  - text: 2. Launch options Agent
+  - group "Agent":
+    - button "Pi" [pressed]
+    - button "Claude Code"
+  - text: Connection
+  - group "Connection":
+    - button "Terminal"
+    - button "API mode" [pressed]
+  - text: Permission mode
+  - group "Permission mode":
+    - button "Skip permission prompts" [pressed]
+    - button "Ask for permissions"
+  - text: Factory (optional)
+  - textbox "Factory (optional)":
+    - /placeholder: None
+  - text: Leave empty for a session in no factory. A factory id, such as website-factory, starts the session in that factory, where it reads and writes the factory's memory. This session will start as Pi . GLM-5.3 . skips permission prompts . API mode
+  - button "Cancel"
+  - button "Create session"

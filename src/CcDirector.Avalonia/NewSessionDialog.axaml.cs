@@ -561,6 +561,16 @@ public partial class NewSessionDialog : Window
     /// no entry is selected, preserving the legacy default for callers.</summary>
     public AgentKind SelectedAgentKind => SelectedAgentEntry?.Type ?? AgentKind.ClaudeCode;
 
+    /// <summary>
+    /// How the session starts (API mode mission #4070, phase 5): API mode only when the person chose it on the Connection
+    /// row and it is offered for the selected agent; otherwise the terminal, the default.
+    /// </summary>
+    public Core.ApiMode.SessionConnectionMode SelectedConnectionMode =>
+        NewSessionConnection.ModeToStart(SelectedAgentKind, ConnectionApiRadio.IsChecked == true, _apiModeOffered);
+
+    /// <summary>Whether API mode is offered: the one switch, read once when the dialog opens.</summary>
+    private readonly bool _apiModeOffered;
+
     private static AgentOptions CurrentOptions()
     {
         FileLog.Write("[NewSessionDialog] CurrentOptions");
@@ -578,13 +588,19 @@ public partial class NewSessionDialog : Window
     public NewSessionDialog(
         RepositoryRegistry? registry = null,
         SessionHistoryStore? historyStore = null,
-        Func<CancellationToken, Task<KnownRepositoryListResult>>? gatewayRepositories = null)
+        Func<CancellationToken, Task<KnownRepositoryListResult>>? gatewayRepositories = null,
+        bool? apiModeOffered = null)
     {
         FileLog.Write("[NewSessionDialog] Constructor: initializing");
+        // The one switch (ConnectionModes.ApiModeOffered) unless a test names the position it is reading.
+        _apiModeOffered = apiModeOffered ?? Gateway.Contracts.ConnectionModes.ApiModeOffered;
         InitializeComponent();
         _registry = registry;
         _historyStore = historyStore;
         _gatewayRepositories = gatewayRepositories ?? AskTheDirectorsGatewayAsync;
+        // The Connection row's words, from the one place every surface reads them (API mode mission #4070).
+        ConnectionTerminalRadio.Content = Gateway.Contracts.ConnectionModes.TerminalLabel;
+        ConnectionApiRadio.Content = Gateway.Contracts.ConnectionModes.ApiLabel;
 
         // Alpha gating: Handovers, GitHub remote sessions and the Assistant/Coach
         // quick-launch cards are alpha features - hidden by default. The dialog is
@@ -914,6 +930,16 @@ public partial class NewSessionDialog : Window
         var isRawCli = agentKind == AgentKind.RawCli;
         if (CustomCliPanel is not null)
             CustomCliPanel.IsVisible = isRawCli;
+
+        // The Connection row (API mode mission #4070) shows only for an agent offered both connections. Hidden, it goes
+        // back to Terminal, so a choice made for one agent is never what another starts with.
+        var showsConnection = NewSessionConnection.ShowsChoice(agentKind, _apiModeOffered);
+        if (ConnectionPanel is not null)
+        {
+            ConnectionPanel.IsVisible = showsConnection;
+            if (!showsConnection && ConnectionTerminalRadio is not null)
+                ConnectionTerminalRadio.IsChecked = true;
+        }
         if (isRawCli && entry is not null && CustomCommandBox is not null
             && string.IsNullOrWhiteSpace(CustomCommandBox.Text))
         {

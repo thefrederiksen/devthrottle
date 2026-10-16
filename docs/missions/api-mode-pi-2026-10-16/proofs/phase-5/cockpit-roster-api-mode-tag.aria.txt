@@ -1,0 +1,68 @@
+- navigation "Primary":
+  - text: DevThrottle
+  - button "Collapse the menu" [expanded]
+  - group "Work":
+    - list:
+      - listitem:
+        - link "Sessions":
+          - /url: /sessions
+      - listitem:
+        - link "Fleet Map":
+          - /url: /fleet-map
+      - listitem:
+        - link "Fleet Manager":
+          - /url: /fleet-manager
+      - listitem:
+        - link "Factories":
+          - /url: /factories
+      - listitem:
+        - link "History":
+          - /url: /history
+      - listitem:
+        - link "Voice Recorder":
+          - /url: /transcripts
+      - listitem:
+        - link "Reports":
+          - /url: /reports
+  - group "Set up, your fleet":
+    - list:
+      - listitem:
+        - link "Directors":
+          - /url: /directors
+      - listitem:
+        - link "Licenses":
+          - /url: /licenses
+      - listitem:
+        - link "Skills":
+          - /url: /skills
+      - listitem:
+        - link "Workflows":
+          - /url: /workflows
+      - listitem:
+        - link "Schedule":
+          - /url: /schedule
+      - listitem:
+        - link "Network":
+          - /url: /network
+  - button "Account 1. Open your menu."
+- main "Main":
+  - text: Sessions 2
+  - group "Roster ordering":
+    - button "Mine" [pressed]
+    - button "Attention"
+  - button "Filter sessions": Filter
+  - button "Start a new session": +
+  - text: SOREN_NORTH
+  - list:
+    - listitem:
+      - link "101 Prompt Delivery - Pi in API mode Ready started 16:18 open 0m API mode":
+        - /url: /session/aaaaaaaa-0000-4000-8000-000000000001
+      - button "Session menu"
+    - listitem:
+      - link "102 Prompt Delivery - Pi in its terminal Ready started 16:18 open 0m":
+        - /url: /session/aaaaaaaa-0000-4000-8000-000000000002
+      - button "Session menu"
+  - button "What do the colours mean?"
+  - button "Turn on voice for your 2"
+  - heading "Pick a session" [level=1]
+  - paragraph: "Choose a session on the left to drive it: its live terminal, the action bar, the composer, the prompt queue, and its screenshots."

@@ -1,0 +1,51 @@
+/* The New Session "Connection" row (ConnectionChoiceRow), carried by the component so the Cockpit and the phone get
+   one copy. It is the same segmented look as the Cockpit's .newsess-seg agent and permission rows, built only from
+   tokens both shells define (--surface-2, --border, --text, --text-dim, --accent). The phone re-tunes it for touch
+   under its .screen ancestor. */
+
+.conn-choice-label {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: 10px 0 5px;
+}
+
+.conn-choice-seg {
+  display: flex;
+  gap: 4px;
+}
+
+.conn-choice-btn {
+  flex: 1;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.conn-choice-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.conn-choice-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.conn-choice-btn.sel {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--accent);
+}
+
+.screen .conn-choice-label {
+  font-size: 13px;
+  margin: 0 0 6px;
+}
+
+.screen .conn-choice-btn {
+  min-height: 44px;
+  font-size: 15px;
+}

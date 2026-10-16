@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSession, GatewayError, getKnownRepositories } from "./client";
+import { createSession, GatewayError, getAgents, getKnownRepositories } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -145,5 +145,44 @@ describe("new session client", () => {
       agent: "RawCli",
       wingmanEnabled: false,
     });
+  });
+
+  // API mode mission #4070, phase 5: terminal is the default and is never written on the wire, so a plain create's
+  // body is exactly what it was before the field existed; API mode is sent as the contract's word.
+  it("sends no connection for terminal, and the contract's word for API mode", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ sessionId: "created-session" }, 201));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await createSession("director-one", "/repo", { agent: "Pi", connectionMode: "terminal" });
+    await createSession("director-one", "/repo", { agent: "Pi", connectionMode: "api" });
+
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call as unknown as [string, RequestInit])[1].body)));
+    expect("connectionMode" in bodies[0]).toBe(false);
+    expect(bodies[1].connectionMode).toBe("api");
+  });
+
+  it("reads each agent's offered connections as the Gateway sends them, and terminal alone from an older Gateway", async () => {
+    globalThis.fetch = (async () =>
+      jsonResponse([
+        {
+          type: "Pi",
+          displayName: "Pi",
+          defaultModel: "",
+          modelLabel: "",
+          connections: [
+            { mode: "terminal", label: "Terminal" },
+            { mode: "api", label: "API mode" },
+          ],
+        },
+        { type: "Codex", displayName: "Codex", defaultModel: "", modelLabel: "" },
+      ])) as unknown as typeof fetch;
+
+    const agents = await getAgents("director-one");
+
+    expect(agents[0].connections).toEqual([
+      { mode: "terminal", label: "Terminal" },
+      { mode: "api", label: "API mode" },
+    ]);
+    expect(agents[1].connections).toEqual([{ mode: "terminal", label: "Terminal" }]);
   });
 });

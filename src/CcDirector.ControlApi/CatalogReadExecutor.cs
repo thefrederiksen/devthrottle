@@ -186,10 +186,27 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
                 DisplayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Type.ToString() : entry.DisplayName,
                 DefaultModel = entry.DefaultModel ?? "",
                 ModelLabel = ResolveModelLabel(entry.Type, entry.DefaultModel),
+                // What the wrapper DECLARES, not what is offered: the Gateway folds this to the offered choices
+                // (ConnectionModes.Offered), so whether API mode is offered is ruled in one place (issue #4070).
+                Connections = ConnectionChoiceDto.For(DeclaredConnectionModes(entry.Type)),
             });
         }
         FileLog.Write($"[CatalogReadExecutor] agents-list: {choices.Count} enabled agent kind(s)");
         return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(choices));
+    }
+
+    /// <summary>
+    /// The connection modes the agent's wrapper declares, as the contract's words (API mode mission, issue #4070, phase 5):
+    /// <c>terminal</c> for every agent, and <c>api</c> as well for a wrapper with an API dialect (Pi today). Read from the
+    /// same driver <see cref="Core.Sessions.SessionManager"/> refuses an API-mode create by, so the list never offers what
+    /// the create would refuse.
+    /// </summary>
+    internal static IReadOnlyList<string> DeclaredConnectionModes(AgentKind kind)
+    {
+        var driver = AgentPluginRegistry.Contains(kind)
+            ? AgentPluginRegistry.Get(kind).Driver
+            : Core.Drivers.AgentDrivers.For(kind);
+        return driver.ConnectionModes.Select(Core.ApiMode.SessionConnectionModeWords.ToWord).ToList();
     }
 
     /// <summary>

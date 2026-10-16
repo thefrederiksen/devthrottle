@@ -846,7 +846,8 @@ OPTIONS:
   --repo         Only this repository: its folder name or full path.
   --machine      Only sessions on this machine.
   --fields       Fields to show, comma separated. Default: id,name,state,repo.
-                 Valid: id, name, state, repo, machine, number, model, agent, mission, path.
+                 Valid: id, name, state, repo, machine, number, model, agent, mission, path, connection.
+  --connection   Only sessions connected this way: terminal or api (API mode).
 ```
 
 The output follows the command-line output standard (`docs/axi-standard.md`): a `count:` line, then
@@ -861,7 +862,7 @@ sessions[2]{id,name,state,repo}:
 help[5]:
   cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
   cc-devthrottle message send <session-id> "<message>"
-  cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path
+  cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path,connection
   cc-devthrottle session list --json
   cc-devthrottle session whoami
 ```
@@ -879,12 +880,13 @@ help[5]:
   crashed, otherwise `needs-you`, `snoozed`, or - for an active session - `working` while the agent
   is working and `ready` when it is not. An unknown triage verdict, or a session with no id, exits 1
   rather than being guessed at.
-- **Filters** (`--state`, `--repo`, `--machine`) can be combined, and every one of them applies to
+- **Filters** (`--state`, `--repo`, `--machine`, `--connection`) can be combined, and every one of them applies to
   `--json` as well: the output is the same bare array, narrowed. `--repo` matches the repository
   folder name, ignoring case but not spaces, or the full path - a Windows path ignoring case and
   slash direction, any other path exactly (as `repo list` and `worktree list` do); `--machine`
   ignores case. An
-  unknown state exits 2 and lists the valid states.
+  unknown state exits 2 and lists the valid states, and an unknown `--connection` value exits 2 and lists
+  `terminal, api`.
 - **An empty answer says so**: `count: 0` for an empty fleet, and `count: 0 of N total` when a
   filter matched nothing. With `--json` it is `[]`.
 - **`--json`** without a filter prints exactly what the Gateway returned. Any caution that the list
@@ -896,6 +898,11 @@ says which kind of absence it is rather than being blank: `no model yet` for a s
 recorded yet (it is read at each turn-end), `model not reported` for an agent that cannot report one
 at all (Gemini, Cursor - it is never coming), and `(unknown)` when the Gateway sent no verdict for
 that row.
+
+The `connection` field is how the Director drives that session's agent: `terminal` (typing into its
+terminal, the default) or `api` (API mode: the agent's own protocol - Pi today; API mode mission #4070). A
+row from a Gateway or Director older than API mode carries no connection and reads `terminal`, which is
+what every such session is.
 
 ### Session Whoami
 
@@ -1253,7 +1260,15 @@ OPTIONS:
   --command-args TEXT   For --agent RawCli: arguments for the command
   --controlled-by TEXT  WHO OWNS IT: 'self' or 'none'. Required from a session
   --standalone          The USER owns it: no controller (same as --controlled-by none)
+  --connection TEXT     How the agent is driven: terminal (default) or api (API mode)
 ```
+
+**`--connection api` starts the agent in API mode** (API mode mission #4070): the Director speaks the
+agent's own protocol instead of typing into its terminal - Pi today. Without the flag nothing is sent and
+the session starts in its terminal, as always. An unknown value exits 2 before anything is sent. API mode
+is refused, with the reason printed and exit 1, while the Gateway does not offer it yet ("API mode is not
+offered yet ...", until taking the wheel is built) and for an agent whose wrapper has no API mode ("Claude
+Code cannot be started in API mode: its wrapper speaks only through the terminal.").
 
 Prints the new session's short id and full GUID, then `help[]` lines that name the new session by
 its full id; the session then appears in `cc-devthrottle session list`. A non-existent repository

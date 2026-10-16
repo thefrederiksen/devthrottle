@@ -439,6 +439,15 @@ public sealed class SessionDto
     public ApiModeSessionDisplay? ApiMode { get; set; }
 
     /// <summary>
+    /// THE ROSTER'S CONNECTION TAG, in finished words (API mode mission, issue #4070, phase 5): "API mode" on a session
+    /// driven in API mode, null on every terminal-mode session (no tag - terminal is the default and needs no mark).
+    /// Folded by the Gateway from <see cref="ConnectionMode"/> (<see cref="ConnectionModes.TagOf"/>) beside
+    /// <see cref="StateLabel"/>, so the Cockpit and the phone render it verbatim and never read the mode word
+    /// themselves. Director-local responses leave it null.
+    /// </summary>
+    public string? ConnectionTag { get; set; }
+
+    /// <summary>
     /// The session's agent-driver capability names (e.g. "Cancel", "Interrupt",
     /// "ClearContext", "History", "TranscriptRead"). UIs render action buttons from
     /// this list verbatim - a verb a tool lacks is simply absent, never guessed.
@@ -1260,7 +1269,7 @@ public static class WorkingOrigins
     public const string Agent = "agent";
 }
 
-/// <summary>The values of <see cref="SessionDto.ConnectionMode"/>.</summary>
+/// <summary>The values of <see cref="SessionDto.ConnectionMode"/>, and the one switch that decides whether API mode is offered.</summary>
 public static class ConnectionModes
 {
     /// <summary>The Director types into the agent's terminal. The default, and all an older Director does.</summary>
@@ -1268,6 +1277,55 @@ public static class ConnectionModes
 
     /// <summary>API mode: the Director speaks the agent's own native protocol (for Pi, <c>pi --mode rpc</c>).</summary>
     public const string Api = "api";
+
+    /// <summary>
+    /// THE ONE SWITCH THAT OFFERS API MODE (mission #4070, section 8). While it is false, no surface offers API mode: the
+    /// Gateway's agent list carries only Terminal for every agent, so the Cockpit and the phone draw no Connection row;
+    /// the desktop New Session dialog hides its row; and the Gateway refuses a create that asks for API mode, so
+    /// <c>cc-devthrottle session spawn --connection api</c> is refused with that reason. It stays false until phase 4
+    /// (take the wheel) lands, so no surface offers a mode it cannot finish. Turning API mode on is this one line.
+    /// </summary>
+    public static bool ApiModeOffered { get; } = false;
+
+    /// <summary>The words a person sees for each mode: the New Session row's choices.</summary>
+    public const string TerminalLabel = "Terminal";
+
+    /// <summary>The word for API mode, on the New Session row and on the roster's tag.</summary>
+    public const string ApiLabel = "API mode";
+
+    /// <summary>
+    /// The connection modes OFFERED for an agent whose wrapper declares <paramref name="declared"/>, in order: Terminal
+    /// always (every agent has a terminal, and an older Director that declares nothing still has one), then API mode
+    /// only when the wrapper declares it AND <paramref name="apiModeOffered"/> is on. A word the product does not know
+    /// is dropped - it could only be offered as a choice nobody can make.
+    /// </summary>
+    public static List<string> Offered(IEnumerable<string>? declared) => Offered(declared, ApiModeOffered);
+
+    /// <inheritdoc cref="Offered(IEnumerable{string})"/>
+    /// <param name="declared">The modes the agent's wrapper declares, as words.</param>
+    /// <param name="apiModeOffered">Whether API mode is offered at all - <see cref="ApiModeOffered"/>, passed so a test can read both positions.</param>
+    public static List<string> Offered(IEnumerable<string>? declared, bool apiModeOffered)
+    {
+        var offered = new List<string> { Terminal };
+        if (apiModeOffered && declared is not null && declared.Contains(Api, StringComparer.Ordinal))
+            offered.Add(Api);
+        return offered;
+    }
+
+    /// <summary>The label a person sees for a mode word: <see cref="TerminalLabel"/> or <see cref="ApiLabel"/>. An unknown word throws.</summary>
+    public static string LabelOf(string mode) => mode switch
+    {
+        Terminal => TerminalLabel,
+        Api => ApiLabel,
+        _ => throw new ArgumentException($"\"{mode}\" is not a connection mode: it is \"{Terminal}\" or \"{Api}\".", nameof(mode)),
+    };
+
+    /// <summary>
+    /// The roster tag for a session's <see cref="SessionDto.ConnectionMode"/>: <see cref="ApiLabel"/> for API mode, null
+    /// for terminal (no tag). Read case-insensitively, as the Gateway reads the pushed word everywhere else.
+    /// </summary>
+    public static string? TagOf(string? connectionMode) =>
+        string.Equals(connectionMode, Api, StringComparison.OrdinalIgnoreCase) ? ApiLabel : null;
 }
 
 /// <summary>The values of <see cref="SessionDto.WheelHolder"/>.</summary>

@@ -69,6 +69,10 @@ internal static partial class GatewayEndpoints
                 statusCode: StatusCodes.Status403Forbidden));
         var spawnRoute = $"POST /directors/{id}/sessions";
 
+        // HOW IT IS CONNECTED (API mode mission, issue #4070, phase 5): API mode only while it is offered, an unknown word never.
+        if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered) is { } connectionRefused)
+            return DirectorSpawnOutcome.Refused(Results.BadRequest(new { error = connectionRefused }));
+
         // WHO IS ASKING, and WHO WILL OWN THE RESULT (issue #2838). This door previously forwarded the
         // body VERBATIM - no origin stamping of any kind - while the machine door stamped a person's
         // device. It is also the door an unqualified `cc-devthrottle session spawn` uses, so the

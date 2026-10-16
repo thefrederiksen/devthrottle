@@ -1,0 +1,14 @@
+- region "Review the new session":
+  - heading "Review the new session" [level=2]
+  - term: Director
+  - definition: North
+  - term: Machine
+  - definition: SOREN_NORTH
+  - term: Agent
+  - definition: Pi GLM-5.3
+  - term: Repository
+  - definition: devthrottle /home/soren/ReposFred/devthrottle
+  - text: Connection
+  - group "Connection":
+    - button "Terminal"
+    - button "API mode" [pressed]
