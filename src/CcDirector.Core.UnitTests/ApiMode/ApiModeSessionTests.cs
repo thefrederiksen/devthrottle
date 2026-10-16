@@ -42,7 +42,7 @@ public sealed class ApiModeSessionTests : IDisposable
         var clock = new FakeTimeProvider(Start);
         var sink = new RecordingSink();
         var backend = new ApiModeSessionBackend(id.ToString(), pi.AgentSessionId, resuming: false,
-            new SessionEventStream(id.ToString(), sink, clock), () => pi.Process, clock);
+            new SessionEventStream(id.ToString(), sink, clock), () => pi.Process, () => new FakeTerminalBackend(), clock);
         var session = new Session(id, _dir, _dir, null, backend, SessionBackendType.ConPty) { AgentKind = AgentKind.Pi };
         _sessions.Add(session);
         backend.Start("pi", $"--session-id {pi.AgentSessionId} --append-system-prompt \"{Path.Combine(_dir, "pre amble.md")}\"", _dir, 120, 30,
@@ -288,7 +288,7 @@ public sealed class ApiModeSessionTests : IDisposable
         var error = Assert.Throws<InvalidOperationException>(() => backend.Write([0x1B]));
 
         // Assert
-        Assert.Contains("is in API mode: it has no terminal", error.Message);
+        Assert.Contains("is in API mode and its protocol holds the conversation: it has no terminal", error.Message);
         Assert.Null(backend.Buffer);
     }
 
@@ -299,7 +299,7 @@ public sealed class ApiModeSessionTests : IDisposable
         var id = Guid.NewGuid().ToString();
         var clock = new FakeTimeProvider(Start);
         var backend = new ApiModeSessionBackend(id, "agent-session", resuming: false,
-            new SessionEventStream(id, new RecordingSink(), clock), () => new SystemApiModeProcess(), clock);
+            new SessionEventStream(id, new RecordingSink(), clock), () => new SystemApiModeProcess(), () => new FakeTerminalBackend(), clock);
         var missing = Path.Combine(_dir, "not-installed", "pi");
 
         // Act

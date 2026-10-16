@@ -106,6 +106,10 @@ public sealed class SessionManager : IDisposable
     /// </summary>
     public ISessionEventSink SessionEventSink { get; set; } = new LoggingSessionEventSink();
 
+    /// <summary>Makes the terminal an API-mode session's wheel runs in when the user takes it (phase 4): the terminal path's
+    /// own backend in the Director, a fake in a test, so no test starts a terminal. Null means the terminal path's own.</summary>
+    public Func<ISessionBackend>? ApiModeTerminalFactory { get; set; }
+
     /// <summary>The clock API-mode sessions' events are timed by.</summary>
     public TimeProvider ApiModeClock { get; set; } = TimeProvider.System;
 
@@ -865,7 +869,9 @@ public sealed class SessionManager : IDisposable
             ? new ApiModeSessionBackend(id.ToString(), launchSpec.PreassignedSessionId
                     ?? throw new InvalidOperationException($"{agent.Kind} named no session id for API mode, so its conversation could not be resumed or taken over."),
                 resuming: !string.IsNullOrEmpty(resumeSessionId),
-                new SessionEventStream(id.ToString(), SessionEventSink, ApiModeClock), ApiModeProcessFactory, ApiModeClock)
+                new SessionEventStream(id.ToString(), SessionEventSink, ApiModeClock), ApiModeProcessFactory,
+                // The user's wheel (phase 4) runs in the terminal path's own backend.
+                ApiModeTerminalFactory ?? (() => PlatformSessionBackend.CreateDefault(_options.DefaultBufferSizeBytes)), ApiModeClock)
             : backendType switch
         {
             // ConPty on Windows, UnixPty on macOS/Linux - one selection, in PlatformSessionBackend.

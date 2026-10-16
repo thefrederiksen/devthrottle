@@ -257,6 +257,37 @@ public sealed class DirectorKeysBeforeRosterTests
         Assert.Equal(new[] { Alpha }, push.SessionIds);
     }
 
+    // ===================== the wheel's awaited row push (issue #4070, phase 4) =====================
+
+    [Fact]
+    public async Task PushDeltaAndWaitAsync_TheHubStillApplyingTheDelta_DoesNotCompleteUntilItHas()
+    {
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hub = new RecordingHub { HoldDelta = hold };
+        var client = NewClient(sessionIds: new[] { Alpha });
+        await client.ReseedAsync(hub, client.CurrentConnectionGeneration);
+        hub.Calls.Clear();
+
+        var pushing = client.PushDeltaAndWaitAsync(new SessionDto { SessionId = Alpha, WheelHolder = WheelHolders.User }, hub, CancellationToken.None);
+
+        Assert.Equal("PushDelta", Assert.Single(hub.Calls).Method);
+        Assert.False(pushing.IsCompleted);
+        hold.SetResult();
+        await pushing;
+    }
+
+    [Fact]
+    public async Task PushDeltaAndWaitAsync_BeforeThisConnectionsKeysAreSent_IsRefusedAndNothingIsSent()
+    {
+        var hub = new RecordingHub();
+        var client = NewClient(sessionIds: new[] { Alpha });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.PushDeltaAndWaitAsync(new SessionDto { SessionId = Alpha }, hub, CancellationToken.None));
+
+        Assert.Empty(hub.Calls);
+    }
+
     // ===================== helpers =====================
 
     private static GatewayStreamClient NewClient(
@@ -285,6 +316,8 @@ public sealed class DirectorKeysBeforeRosterTests
         public string? RefuseKeyFor { get; init; }
         public bool RefuseHello { get; init; }
         public bool RefuseSnapshot { get; init; }
+        /// <summary>When set, PushDelta does not return until this completes, as a hub whose PushDelta is still applying.</summary>
+        public TaskCompletionSource? HoldDelta { get; init; }
         public GatewayCapabilities? Capabilities { get; init; }
         public Func<bool>? Observe { get; set; }
         public Action? OnKeyRegistered { get; set; }
@@ -319,7 +352,7 @@ public sealed class DirectorKeysBeforeRosterTests
         public Task PushDeltaAsync(long sequence, SessionDto session)
         {
             Record("PushDelta", session.SessionId);
-            return Task.CompletedTask;
+            return HoldDelta?.Task ?? Task.CompletedTask;
         }
 
         public Task<TurnWatermark?> PushTurnsAsync(long sequence, TurnPushBatch batch, CancellationToken ct)

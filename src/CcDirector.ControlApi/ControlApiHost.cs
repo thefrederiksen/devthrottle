@@ -1338,7 +1338,18 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
 
         return SessionCommandExecutor.DispatchAsync(_sessionManager, DirectorId, cmd,
-            new SessionCommandServices { ProactiveExplain = _proactiveExplain, TurnSummaryCache = _turnSummaryCache, DirectorVersion = _version, Repositories = _repositoryRegistry, ReapplyGatewayAsync = ReapplyGatewayAsync, Licenses = Core.Licenses.LicenseSwitching.Shared });
+            new SessionCommandServices
+            {
+                ProactiveExplain = _proactiveExplain, TurnSummaryCache = _turnSummaryCache, DirectorVersion = _version, Repositories = _repositoryRegistry,
+                ReapplyGatewayAsync = ReapplyGatewayAsync, Licenses = Core.Licenses.LicenseSwitching.Shared,
+                // The wheel commands (API mode, phase 4) reply only after the Gateway holds the session's new row.
+                PushSessionRowAsync = (row, ct) =>
+                {
+                    var client = _streamClient
+                        ?? throw new InvalidOperationException("there is no Gateway stream to push the session's row over");
+                    return client.PushDeltaAndWaitAsync(row, ct);
+                },
+            });
     }
 
     /// <summary>

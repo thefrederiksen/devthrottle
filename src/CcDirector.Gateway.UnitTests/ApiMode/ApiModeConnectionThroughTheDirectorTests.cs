@@ -31,14 +31,23 @@ public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
             session.Dispose();
     }
 
-    private Session ApiModeSession()
+    /// <summary>An API-mode session on a minimal fake Pi (it answers get_state; nothing is spawned), started, each on a
+    /// conversation of its own; the user's wheel runs in a terminal stand-in that runs nothing.</summary>
+    private Session ApiModeSession() => ApiModeSession(out _);
+
+    private Session ApiModeSession(out MinimalPiProcess pi)
     {
         var id = Guid.NewGuid();
-        var backend = new ApiModeSessionBackend(id.ToString(), "pi-conversation", resuming: false,
+        var conversation = Guid.NewGuid().ToString();
+        var process = new MinimalPiProcess(conversation);
+        pi = process;
+        var backend = new ApiModeSessionBackend(id.ToString(), conversation, resuming: false,
             new SessionEventStream(id.ToString(), new LoggingSessionEventSink(), new FakeTimeProvider(Now)),
-            () => throw new InvalidOperationException("No process is started in these tests."), new FakeTimeProvider(Now));
+            () => process, () => new TerminalStandIn(), new FakeTimeProvider(Now));
         var session = new Session(id, Path.GetTempPath(), Path.GetTempPath(), null, backend, SessionBackendType.ConPty) { AgentKind = AgentKind.Pi };
         _sessions.Add(session);
+        backend.Start("pi", $"--session-id {conversation}", Path.GetTempPath(), 120, 30);
+        session.MarkRunning();
         return session;
     }
 
@@ -61,11 +70,14 @@ public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
     }
 
     [Fact]
-    public void Map_ApiModeSessionThatEnded_ReportsNobodyHoldingTheWheel()
+    public async Task Map_ApiModeSessionThatEnded_ReportsNobodyHoldingTheWheel()
     {
-        // Arrange
-        var session = ApiModeSession();
-        session.MarkFailed();
+        // Arrange: Pi's process ends (killed), and the session learns it.
+        var session = ApiModeSession(out var pi);
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExited += _ => exited.TrySetResult();
+        pi.Kill();
+        await exited.Task.WaitAsync(TimeSpan.FromSeconds(30));
 
         // Act
         var row = ControlEndpoints.Map(session, "dir-1");
@@ -165,6 +177,90 @@ public sealed class ApiModeConnectionThroughTheDirectorTests : IDisposable
 
         // Assert: the name the Gateway sends (pull request #4079), read from the Gateway itself so the two cannot drift.
         Assert.Contains(CcDirector.Gateway.Api.GatewayEndpoints.TurnStopCommand, verbs);
+    }
+
+    [Fact]
+    public async Task WheelCoreAsync_Take_RepliesOnlyAfterTheGatewayHasAppliedTheNewHolder()
+    {
+        // Arrange: a push that the test completes by hand, as DirectorHub.PushDelta returning would.
+        var session = ApiModeSession();
+        var pushed = new TaskCompletionSource<SessionDto>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task Push(SessionDto row, CancellationToken ct)
+        {
+            pushed.TrySetResult(row);
+            return applied.Task;
+        }
+
+        // Act
+        var replying = SessionCommandExecutor.WheelCoreAsync(session, "dir-1", Push, take: true);
+        var row = await pushed.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: the row carries the new holder, and no reply goes out before the Gateway has applied it.
+        Assert.Equal(WheelHolders.User, row.WheelHolder);
+        Assert.False(replying.IsCompleted);
+        applied.SetResult();
+        var reply = await replying.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.True(reply.Ok);
+    }
+
+    [Fact]
+    public async Task WheelCoreAsync_TakeTwice_TheSecondIsRefusedByTheDirector()
+    {
+        // Arrange
+        var session = ApiModeSession();
+        Task Push(SessionDto row, CancellationToken ct) => Task.CompletedTask;
+        Assert.True((await SessionCommandExecutor.WheelCoreAsync(session, "dir-1", Push, take: true)).Ok);
+
+        // Act
+        var second = await SessionCommandExecutor.WheelCoreAsync(session, "dir-1", Push, take: true);
+
+        // Assert
+        Assert.Equal(DirectorCommandStatus.Conflict, second.Status);
+        Assert.Equal(ApiModeSessionBackend.AlreadyHeldReason, second.Error);
+    }
+
+    [Fact]
+    public async Task WheelCoreAsync_TerminalSession_IsRefusedForBothCommands()
+    {
+        // Arrange
+        var session = TerminalSession();
+        Task Push(SessionDto row, CancellationToken ct) => Task.CompletedTask;
+
+        // Act
+        var take = await SessionCommandExecutor.WheelCoreAsync(session, "dir-1", Push, take: true);
+        var handBack = await SessionCommandExecutor.WheelCoreAsync(session, "dir-1", Push, take: false);
+
+        // Assert
+        Assert.Equal(DirectorCommandStatus.Conflict, take.Status);
+        Assert.Equal(Session.NoWheelReason, take.Error);
+        Assert.Equal(DirectorCommandStatus.Conflict, handBack.Status);
+        Assert.Equal(Session.NoWheelReason, handBack.Error);
+    }
+
+    [Fact]
+    public async Task WheelCoreAsync_NoWayToReportTheSwitch_IsRefusedAndNothingIsSwitched()
+    {
+        // Arrange
+        var session = ApiModeSession();
+
+        // Act
+        var result = await SessionCommandExecutor.WheelCoreAsync(session, "dir-1", pushSessionRow: null, take: true);
+
+        // Assert
+        Assert.Equal(DirectorCommandStatus.Conflict, result.Status);
+        Assert.Equal(SessionWheelHolder.Protocol, session.WheelHolder);
+    }
+
+    [Fact]
+    public void Verbs_SessionWriteArea_HandlesTheGatewaysWheelCommands()
+    {
+        // Act
+        var verbs = new SessionWriteExecutor().Verbs;
+
+        // Assert: the names the Gateway sends, read from the Gateway itself so the two cannot drift.
+        Assert.Contains(CcDirector.Gateway.Api.GatewayEndpoints.WheelTakeCommand, verbs);
+        Assert.Contains(CcDirector.Gateway.Api.GatewayEndpoints.WheelHandBackCommand, verbs);
     }
 
     private sealed class TerminalStandIn : ISessionBackend
