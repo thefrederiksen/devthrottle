@@ -40,13 +40,17 @@ namespace CcDirector.Gateway.Api;
 /// first reads its receipts (<c>GET /sessions/{sid}/receipts</c>) and its stored conversation
 /// (<c>GET /sessions/{sid}/history</c>), and only then attaches here with NO cursor. From then on it applies every item
 /// as the item says (append or replace, by <see cref="ApiModeLiveItem.ItemId"/>) and keeps the cursor of the last
-/// frame. A client with no cursor is never sent a reset on attaching: what it loaded is durable, and what the stream
-/// replays on top of it is applied by item id, so it is not shown twice. A receipt, a tool card, a turn line and a
-/// connection line are each a <c>replace</c> of the item with that id. A reply's deltas are <c>append</c>s to
-/// <c>reply:&lt;messageId&gt;</c>, and the reply's <c>final</c>, which follows them, replaces everything they built (the
-/// event model, the <c>MessageText</c> row), so a replayed reply is whole again once its final arrives. That is also
-/// why a brand-new session, which has nothing held yet (the feed answers such a replay as not complete), streams
-/// cleanly and does not look broken.</para>
+/// frame. A client with no cursor is never sent a reset on attaching. That is also why a brand-new session, which has
+/// nothing held yet (the feed answers such a replay as not complete), streams cleanly and does not look broken.</para>
+///
+/// <para><b>What the replay lands on.</b> Items are applied by item id, so a replayed item never doubles an item the
+/// client already holds FROM THIS STREAM: a receipt, a tool card, a turn line and a connection line are each a
+/// <c>replace</c> of the item with that id, and a reply's deltas <c>append</c> to <c>reply:&lt;messageId&gt;</c> until
+/// the reply's <c>final</c> replaces everything they built (the event model, the <c>MessageText</c> row). A receipt item
+/// (<c>receipt:&lt;promptId&gt;</c>) also lands on the receipt of that prompt loaded from <c>/receipts</c>. A reply does
+/// NOT: the stored conversation (<c>/history</c>) carries no message id today, so a reply loaded from it cannot be
+/// matched to a live reply item. A client that attached after loading the history treats every reply item as a new
+/// reply. (The gap is known and belongs to phase 3 and the Director, which fills an API-mode session's history.)</para>
 ///
 /// <para><b>Apply items in the order they arrive, never sorted by <see cref="ApiModeLiveItem.Sequence"/>.</b> The
 /// sequence starts again at 1 with every Director generation, and the stored receipts sent after a reset carry

@@ -279,10 +279,13 @@ Developer's answer: **Accepted and fixed**, both.
 2. The contract paragraph on `SessionLiveEndpoint` now says what a no-cursor attach replays over what the client
    just loaded. Every item is applied by `ItemId`, and receipts, tool cards, turn lines and connection lines are
    all `replace`. A reply's deltas `append` to `reply:<messageId>`, and its `final` replaces what they built, so a
-   replayed reply is whole again once its final arrives. One thing I did not write, because I cannot check it from
-   phase 2: that the stored conversation (`/history`) carries the same message id, so that a client can match a
-   loaded reply to its live item. That is phase 3's to settle with whoever owns the history of an API-mode
-   session, and I have raised it with the Tech Lead rather than write it as fact. A third paragraph covers your
+   replayed reply is whole again once its final arrives. Your suggested sentence about matching the loaded
+   conversation by message id is NOT written, because it is not true today: I asked, and the Tech Lead confirmed that
+   the history contract on origin/main carries no message id (an API-mode session's history is filled by the
+   Director). The paragraph now says plainly that a reply loaded from `/history` cannot be matched to a live reply
+   item, and that a client which attached after loading the history treats every reply item as a new reply. A receipt
+   item does match the receipt loaded from `/receipts`, by prompt id. The Tech Lead has passed the gap to the
+   Delivery Lead for phase 3 and the Director. A third paragraph covers your
    finding 3, part 2: the stream can end at any time without a reset, the client reconnects with the cursor of the
    last frame it applied (a browser does this on its own), and keep-alive comment lines carry no event.
 
