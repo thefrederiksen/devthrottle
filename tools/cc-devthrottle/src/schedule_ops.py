@@ -355,6 +355,23 @@ def _job_timing(job: Dict[str, Any], key: str, *needed_by: str) -> Optional[str]
     return _job_field(job, key, nullable=not needed, blank_ok=not needed)
 
 
+def _job_path(job: Dict[str, Any]) -> str:
+    """Where the schedule's run starts. A defined factory's run is built from its definition, not started in a
+    folder: the Gateway says so in `pathText` and writes `action.repoPath` empty (Factory Definition, phase 5),
+    so its words are shown in the folder's place. With no `pathText` - every other schedule, and any Gateway
+    older than the field - the folder is required exactly as before, and a blank one is still a broken row."""
+    path_text = job.get("pathText")
+    if path_text is None:
+        return _job_field(job, "repoPath", nullable=False, blank_ok=False, within="action")
+    if not isinstance(path_text, str):
+        _bad_job(job["id"], f"pathText {_describe(path_text)}; it must be text or null")
+    if not path_text.strip():
+        _bad_job(job["id"], "a blank pathText; the Gateway never sends one")
+    # The folder is still read and checked for its kind: a defined factory's row may hold an empty one.
+    _job_field(job, "repoPath", nullable=False, blank_ok=True, within="action")
+    return path_text
+
+
 def _job_notify(job: Dict[str, Any]) -> str:
     """The notify policy. The Gateway normalizes it on every write to one of the three it knows."""
     notify = _job_field(job, "notifyOn", nullable=False, blank_ok=False)
@@ -379,7 +396,8 @@ _JOB_READERS = {
     "time-zone": lambda j: _job_field(j, "timeZoneId", nullable=False, blank_ok=False),
     # A seed job may carry an empty work list name; the Gateway requires a seed or a work list, not both.
     "work-list": lambda j: _job_field(j, "workListName", nullable=True, blank_ok=True, within="action"),
-    "path": lambda j: _job_field(j, "repoPath", nullable=False, blank_ok=False, within="action"),
+    # A defined factory's schedule has no folder; the Gateway's pathText says what goes there (see _job_path).
+    "path": _job_path,
     "last-fired": lambda j: _job_field(j, "lastFiredUtc", nullable=True, blank_ok=False),
     "last-status": lambda j: _job_field(j, "lastStatus", nullable=True, blank_ok=True),
     "notify": _job_notify,
@@ -791,14 +809,20 @@ def run_now(job_id: str, json_output: bool) -> None:
         print(json.dumps(record, indent=2))
         return
 
-    axi_cli.write_lines(
+    lines = [
         "Fired the schedule.",
         f"  Fired:   {_fmt(record.get('firedUtc'))} UTC",
         f"  Target:  {_fmt(record.get('targetDirectorId'))}",
         f"  Session: {_fmt(record.get('sessionId'))}",
         f"  Infra:   {_fmt(record.get('infraStatus'))}",
         f"  Task:    {_fmt(record.get('taskStatus'))}",
-    )
+    ]
+    # Why a run started nothing, in the Gateway's words - for a seat the Director refused, its own sentence (Factory
+    # Definition, phase 5, QA finding 6). A run that started has no reason, and no line.
+    reason = record.get("resultReason")
+    if reason:
+        lines.append(f"  Reason:  {axi_cli.ascii_text(reason)}")
+    axi_cli.write_lines(*lines)
     # The id is the one the Gateway just accepted; the session is whatever the run record names.
     axi_cli.print_next([
         f"cc-devthrottle schedule runs {axi_cli.bare(job_id, '<schedule-id>')}",

@@ -137,6 +137,13 @@ internal static partial class GatewayEndpoints
         }
         else
         {
+            // A seat start the Director refused (a secret it does not hold, a repository it has not registered) is the
+            // Director's sentence alone, as a 409 shaped like the Gateway's own refusals - never a 502 (QA finding 6).
+            if (DirectorCommandRouter.SeatStartRefusal(req, streamResult) is { } refusal)
+            {
+                FileLog.Write($"[GatewayEndpoints] {spawnRoute}: the Director refused the seat start: {refusal}");
+                return DirectorSpawnOutcome.Refused(Results.Json(new { error = refusal }, statusCode: StatusCodes.Status409Conflict));
+            }
             body = streamResult.Ok ? DirectorCommandRouter.ReadBody<SessionDto>(streamResult) : null;
             err = streamResult.Ok ? null : DirectorCommandRouter.DescribeFailure(streamResult);
         }

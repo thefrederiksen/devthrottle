@@ -261,7 +261,7 @@ internal sealed class SessionVerbClient
     public async Task<(bool ok, SessionDto? body, string? error)> CreateSessionAsync(
         NewSessionRequest req, CancellationToken ct = default)
     {
-        var (ok, body, error, _) = await CreateSessionWithOutcomeAsync(req, ct);
+        var (ok, body, error, _, _) = await CreateSessionWithOutcomeAsync(req, ct);
         return (ok, body, error);
     }
 
@@ -270,17 +270,23 @@ internal sealed class SessionVerbClient
     /// waiting (<see cref="DirectorCommandStatus.Timeout"/>) or the tunnel dropped mid-command
     /// (<see cref="DirectorCommandStatus.TunnelDropped"/>). Either way the Director may have created the session, so
     /// a caller that must never start twice has to treat it as possibly started. Read from the status, never the text.
+    ///
+    /// <c>seatStartRefused</c> is true when the Director refused a seat start with a sentence
+    /// (<see cref="DirectorCommandRouter.SeatStartRefusal"/>); the error is then that sentence alone, the answer a person
+    /// acts on (Factory Definition mission, phase 5, QA finding 6). It is false for every other failure.
     /// </summary>
-    public async Task<(bool ok, SessionDto? body, string? error, bool outcomeUnknown)> CreateSessionWithOutcomeAsync(
+    public async Task<(bool ok, SessionDto? body, string? error, bool outcomeUnknown, bool seatStartRefused)> CreateSessionWithOutcomeAsync(
         NewSessionRequest req, CancellationToken ct = default)
     {
         var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, "create", "", req, ct,
             machineName: _director.MachineName);
         if (result is null)
-            return (false, null, "owning Director is not connected to the tunnel", false);
-        return result.Ok
-            ? (true, DirectorCommandRouter.ReadBody<SessionDto>(result), null, false)
-            : (false, null, DirectorCommandRouter.DescribeFailure(result),
-                result.Status is DirectorCommandStatus.Timeout or DirectorCommandStatus.TunnelDropped);
+            return (false, null, "owning Director is not connected to the tunnel", false, false);
+        if (result.Ok)
+            return (true, DirectorCommandRouter.ReadBody<SessionDto>(result), null, false, false);
+        if (DirectorCommandRouter.SeatStartRefusal(req, result) is { } refusal)
+            return (false, null, refusal, false, true);
+        return (false, null, DirectorCommandRouter.DescribeFailure(result),
+            result.Status is DirectorCommandStatus.Timeout or DirectorCommandStatus.TunnelDropped, false);
     }
 }

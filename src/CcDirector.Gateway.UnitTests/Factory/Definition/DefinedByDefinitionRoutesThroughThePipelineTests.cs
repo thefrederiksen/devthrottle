@@ -628,6 +628,41 @@ public sealed class DefinedByDefinitionRoutesThroughThePipelineTests : IDisposab
         Assert.False(defined["cj_plain"]);
     }
 
+    private static string? PathTextOf(JsonElement job)
+        => job.GetProperty("pathText").ValueKind == JsonValueKind.Null ? null : job.GetProperty("pathText").GetString();
+
+    [Fact]
+    public async Task ListSchedules_ADefinedFactorysScheduleWithNoFolder_SaysItsRunIsBuiltFromTheDefinition()
+    {
+        // QA finding 5: the command line refused the list on this schedule's empty folder. The Gateway now says, in its
+        // own words, what goes where the folder goes, on the list and on the schedule's own read.
+        Seed(Standing.Published);
+        WithNoFolder("cj_dt");
+
+        var list = await Send("GET", "/cron/jobs");
+
+        Assert.Equal(200, list.Status);
+        var text = list.Body.GetProperty("jobs").EnumerateArray()
+            .ToDictionary(j => j.GetProperty("id").GetString()!, PathTextOf);
+        Assert.Equal("built from the factory's definition", text["cj_dt"]);
+        Assert.Null(text["cj_wf"]);
+        Assert.Null(text["cj_plain"]);
+        Assert.Equal("built from the factory's definition", PathTextOf((await Send("GET", "/cron/jobs/cj_dt")).Body));
+    }
+
+    [Theory]
+    [InlineData(Standing.NoDefinition)]
+    [InlineData(Standing.DraftOnly)]
+    public async Task ListSchedules_UNDEFINED_FACTORY_NoScheduleCarriesPathText(Standing standing)
+    {
+        Seed(standing);
+
+        var list = await Send("GET", "/cron/jobs");
+
+        Assert.Equal(200, list.Status);
+        Assert.All(list.Body.GetProperty("jobs").EnumerateArray(), j => Assert.Null(PathTextOf(j)));
+    }
+
     [Fact]
     public async Task Disable_ASchedulesOfADefinedFactory_WithTheFactoryAndSeatLeftBlank_Works()
     {

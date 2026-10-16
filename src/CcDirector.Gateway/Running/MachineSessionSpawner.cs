@@ -30,8 +30,9 @@ public sealed class MachineSessionSpawner
         string directorId, NewSessionRequest req, CancellationToken ct);
 
     /// <summary>The create-session call that also says whether a failure left the outcome unknown (the Gateway
-    /// stopped waiting, or the tunnel dropped mid-command), so the Director may have created the session anyway.</summary>
-    public delegate Task<(bool ok, SessionDto? body, string? error, bool outcomeUnknown)> CreateSessionWithOutcomeDelegate(
+    /// stopped waiting, or the tunnel dropped mid-command), so the Director may have created the session anyway, and
+    /// whether the Director refused a seat start with a sentence (the error is then that sentence alone).</summary>
+    public delegate Task<(bool ok, SessionDto? body, string? error, bool outcomeUnknown, bool seatStartRefused)> CreateSessionWithOutcomeDelegate(
         string directorId, NewSessionRequest req, CancellationToken ct);
 
     private readonly IDirectorTargetResolver _resolver;
@@ -79,7 +80,7 @@ public sealed class MachineSessionSpawner
         => async (directorId, req, ct) =>
         {
             var (ok, body, error) = await create(directorId, req, ct);
-            return (ok, body, error, false);
+            return (ok, body, error, false, false);
         };
 
     /// <summary>
@@ -146,12 +147,12 @@ public sealed class MachineSessionSpawner
 
         FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync: machine={machine}, director={target.DirectorId}, repo={req.RepoPath}");
 
-        var (ok, body, error, outcomeUnknown) = await _create(target.DirectorId, req, ct);
+        var (ok, body, error, outcomeUnknown, seatStartRefused) = await _create(target.DirectorId, req, ct);
         if (!ok || body is null || string.IsNullOrEmpty(body.SessionId))
         {
-            FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine={machine}, outcomeUnknown={outcomeUnknown}, error={error}");
+            FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync FAILED: machine={machine}, outcomeUnknown={outcomeUnknown}, seatStartRefused={seatStartRefused}, error={error}");
             return MachineSpawnResult.Failed(error ?? "director did not return a session id", target.DirectorId,
-                outcomeUnknown: !ok && outcomeUnknown);
+                outcomeUnknown: !ok && outcomeUnknown) with { SeatStartRefused = !ok && seatStartRefused };
         }
 
         FileLog.Write($"[MachineSessionSpawner] SpawnOnMachineAsync: started sid={body.SessionId}, director={target.DirectorId}");
@@ -163,6 +164,11 @@ public sealed class MachineSessionSpawner
 /// Gateway cannot know: it stopped waiting, or the tunnel dropped mid-command.</summary>
 public sealed record MachineSpawnResult(bool Ok, SessionDto? Dto, string? Error, string? DirectorId, bool OutcomeUnknown)
 {
+    /// <summary>True when the Director refused a seat start with a sentence (a secret it does not hold, a repository it
+    /// has not registered): <see cref="Error"/> is that sentence alone, a refusal the caller acts on, never a fault
+    /// (Factory Definition mission, phase 5, QA finding 6).</summary>
+    public bool SeatStartRefused { get; init; }
+
     public static MachineSpawnResult Failed(string error, string? directorId, bool outcomeUnknown)
         => new(false, null, error, directorId, outcomeUnknown);
 }
