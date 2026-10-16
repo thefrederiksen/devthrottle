@@ -27,10 +27,13 @@ namespace CcDirector.ControlApi;
 /// again; storing is idempotent.</item>
 /// </list>
 ///
-/// TRIGGERS: every publish; every Hello from the Gateway (so after a reconnect, a Gateway restart or a deploy, every event
-/// the Gateway has not acknowledged is sent again from the oldest held - which is what keeps "Working - turn N" right after
-/// a Gateway restart during a turn); and a slow safety sweep. Runs for one session never overlap: a trigger during a run
-/// marks it pending, and the runner checks that under the same lock before it leaves.
+/// TRIGGERS: every publish; the FIRST Hello answered on each new connection (so after a reconnect, a Gateway restart or a
+/// deploy, every event the Gateway has not acknowledged is sent again from the oldest held - which is what keeps "Working -
+/// turn N" right after a Gateway restart during a turn); and a slow safety sweep. Not the Hello of the regular ten-second
+/// re-push: on one connection the Gateway has already answered every batch, and a Gateway that keeps refusing would
+/// otherwise get the same batch six times a minute per session (review of pull request #4090, finding 1). Runs for one
+/// session never overlap: a trigger during a run marks it pending, and the runner checks that under the same lock before
+/// it leaves.
 ///
 /// ONLY WHEN THE GATEWAY HAS <c>PushApiModeEvents</c>. Against a Gateway without it the events are held, and that is
 /// logged once per session; they go up when a Gateway that has it answers a Hello.
@@ -38,8 +41,20 @@ namespace CcDirector.ControlApi;
 /// THE MEMORY BOUND (stated in the pull request): at most <see cref="DefaultMaxHeldEventsPerSession"/> events and
 /// <see cref="DefaultMaxHeldCharactersPerSession"/> characters of event JSON are held per session. Past either, the
 /// OLDEST held events are dropped, and every drop is logged loudly with the session, the generation and the exact
-/// sequences dropped, so a gap the Gateway will see is always explained in the Director's log. An event too large to fit
-/// any batch is dropped the same way, by name. Nothing is ever dropped without saying so.
+/// sequences dropped. An event too large to fit any batch is dropped the same way, by name. Nothing is ever dropped
+/// without saying so.
+///
+/// A HOLE STARTS A NEW GENERATION (review of pull request #4090, finding 2). The Gateway stores any sequence above the
+/// highest it holds without checking for a gap, so a hole in the middle of a generation would be invisible to it and to
+/// every reader. The pusher therefore sends a generation's events under that generation only while it has every one of
+/// them from sequence 1. At the first one it does not have - dropped by the bound, too large for a batch, or never handed
+/// to it (the Gateway was turned off in the settings while the session ran) - the events after the hole go up as a NEW
+/// generation, a fresh id started one millisecond after the one it continues, counted again from sequence 1. That is a
+/// rule the Gateway already keeps: a later generation replaces the session's, and a reader whose cursor is of the earlier
+/// one is answered "not complete" and reads again. The session's own stream on the Director keeps its one generation;
+/// only what the Gateway is sent is re-labelled, and the change is logged with both ids. What it cannot do: an event in
+/// the hole never reaches the Gateway, so the durable receipt of a prompt whose own event fell in it keeps the state it
+/// had.
 ///
 /// Built on delegates, not on the stream client, so every branch is tested with a fake Gateway.
 /// </summary>
@@ -58,7 +73,21 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
     /// (about 100 megabytes in memory).</summary>
     public const long DefaultMaxHeldCharactersPerSession = 50_000_000;
 
-    private sealed record HeldEvent(string Generation, DateTime GenerationStartedUtc, long Sequence, string Json);
+    /// <summary>One held event: the session's own (<see cref="Event"/>, of <see cref="SourceGeneration"/>), and what the
+    /// Gateway is sent for it - the generation, start and sequence it goes up under, and its JSON.</summary>
+    private sealed record HeldEvent(SessionEvent Event, string SourceGeneration, string Generation, DateTime GenerationStartedUtc,
+        long Sequence, string Json);
+
+    /// <summary>How one of the session's generations is sent: under <see cref="Label"/>, with every sequence above
+    /// <see cref="Offset"/> counted again from 1. <see cref="LastSeen"/> is the last of the session's own sequences
+    /// handed to the pusher, so a hole in what is handed over is seen.</summary>
+    private sealed class Segment
+    {
+        public required string Label;
+        public required DateTime StartedUtc;
+        public required long Offset;
+        public long LastSeen;
+    }
 
     private sealed class SessionState
     {
@@ -68,6 +97,10 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
         public bool Pending;
         public bool Running;
         public bool LoggedUnsupported;
+        /// <summary>By the session's own generation: how its events are sent now. The same table for every state the
+        /// session has had, because a state retires whenever nothing is held and what was last handed over must outlive
+        /// it (or the next event would look like a hole).</summary>
+        public required Dictionary<string, Segment> Segments { get; init; }
         /// <summary>The run took this state out of the table (nothing held, nothing pending). A publisher holding it
         /// takes a fresh one, so an event can never land in a state nothing will send.</summary>
         public bool Retired;
@@ -84,8 +117,13 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
     private readonly TimeSpan _sweepInterval;
     private readonly CcDirector.Core.Background.BackgroundJobs _jobs;
     private readonly ConcurrentDictionary<string, SessionState> _states = new(StringComparer.Ordinal);
+    // Per session, how its generations are sent (see SessionState.Segments). One small entry per API-mode session this
+    // Director process has run; a session's stream has one generation for the life of the process.
+    private readonly ConcurrentDictionary<string, Dictionary<string, Segment>> _segments = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _stopping = new();
     private CcDirector.Core.Background.BackgroundJob? _sweepJob;
+    // 1 until the first Hello of a connection has been answered: that Hello, and only that one, resends what is held.
+    private int _resendOnNextHello = 1;
 
     /// <param name="push">Send one batch and return the Gateway's answer. Throws when the tunnel is down.</param>
     /// <param name="canPush">Whether the Gateway on the other end advertises <see cref="HubMethod"/>.</param>
@@ -122,6 +160,9 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
         FileLog.Write($"[ApiModeEventPusher] Created: batch={maxBatchEvents} events or {maxBatchCharacters} characters, held per session={maxHeldEvents} events or {maxHeldCharacters} characters");
     }
 
+    private SessionState NewState(string sessionId) =>
+        new() { Segments = _segments.GetOrAdd(sessionId, _ => new Dictionary<string, Segment>(StringComparer.Ordinal)) };
+
     /// <summary>How many events are held for <paramref name="sessionId"/>, not yet acknowledged by the Gateway.</summary>
     public int HeldCount(string sessionId)
     {
@@ -140,11 +181,9 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(batch);
         if (batch.Events.Count == 0)
             return;
-        var held = batch.Events.Select(e => new HeldEvent(batch.Generation, batch.GenerationStartedUtc, e.Sequence,
-            JsonSerializer.Serialize(e, SessionEventJson.Options))).ToList();
         while (true)
         {
-            var state = _states.GetOrAdd(batch.SessionId, _ => new SessionState());
+            var state = _states.GetOrAdd(batch.SessionId, NewState);
             lock (state)
             {
                 if (state.Retired)
@@ -152,10 +191,12 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
                     _states.TryRemove(new KeyValuePair<string, SessionState>(batch.SessionId, state));
                     continue;
                 }
-                foreach (var e in held)
+                foreach (var e in batch.Events)
                 {
-                    state.Held.Add(e);
-                    state.HeldCharacters += e.Json.Length;
+                    var segment = SegmentForLocked(batch.SessionId, state, batch.Generation, batch.GenerationStartedUtc, e.Sequence);
+                    var held = Hold(e, batch.Generation, segment);
+                    state.Held.Add(held);
+                    state.HeldCharacters += held.Json.Length;
                 }
                 EnforceBoundLocked(batch.SessionId, state);
             }
@@ -167,10 +208,29 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
     /// <summary>Fire-and-forget: send what is held for one session. Coalesces with a run already in progress.</summary>
     public void Trigger(string sessionId) => _ = PushSessionAsync(sessionId, _stopping.Token);
 
+    /// <summary>A new connection to the Gateway (the first, a reconnect, a Gateway restart or a deploy): its first
+    /// answered Hello resends what is held.</summary>
+    public void NewConnection()
+    {
+        Interlocked.Exchange(ref _resendOnNextHello, 1);
+        FileLog.Write("[ApiModeEventPusher] NewConnection: the next answered Hello resends every held event");
+    }
+
     /// <summary>
-    /// The Gateway answered a Hello - a new connection, a reconnect after a Gateway restart or a deploy, or the regular
-    /// re-push. Every session with events the Gateway has not acknowledged sends them again, from the oldest held. Returns
-    /// that work, which never throws; the Director does not wait for it, and a test awaits it.
+    /// The Gateway answered a Hello. The first on a connection resends every held event (<see cref="ResendAllAsync"/>);
+    /// the regular ten-second re-push's Hello on the same connection does nothing. Returns that work, which never throws.
+    /// </summary>
+    public Task HelloAnsweredAsync()
+    {
+        if (Interlocked.Exchange(ref _resendOnNextHello, 0) == 0)
+            return Task.CompletedTask;
+        return ResendAllAsync();
+    }
+
+    /// <summary>
+    /// Every session with events the Gateway has not acknowledged sends them again, from the oldest held: the first Hello
+    /// of a connection, and the sweep. Returns that work, which never throws; the Director does not wait for it, and a
+    /// test awaits it.
     /// </summary>
     public Task ResendAllAsync()
     {
@@ -203,7 +263,7 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
         SessionState state;
         while (true)
         {
-            state = _states.GetOrAdd(sessionId, _ => new SessionState());
+            state = _states.GetOrAdd(sessionId, NewState);
             var claimed = false;
             lock (state)
             {
@@ -357,8 +417,9 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
             while (state.Held.Count > 0 && state.Held[0].Json.Length > _maxBatchCharacters)
             {
                 var tooLarge = state.Held[0];
-                FileLog.Write($"[ApiModeEventPusher] DROPPED: session={sessionId}, generation={tooLarge.Generation}, sequence {tooLarge.Sequence}: its JSON is {tooLarge.Json.Length} characters, more than a batch may carry ({_maxBatchCharacters}); the Gateway will see a gap at this sequence");
+                FileLog.Write($"[ApiModeEventPusher] DROPPED: session={sessionId}, generation={tooLarge.SourceGeneration}, sequence {tooLarge.Event.Sequence}: its JSON is {tooLarge.Json.Length} characters, more than a batch may carry ({_maxBatchCharacters}); what follows it goes up as a new generation");
                 Remove(state, [tooLarge]);
+                AfterHoleLocked(sessionId, state, tooLarge.SourceGeneration, tooLarge.Event.Sequence, "an event too large for any batch was dropped");
             }
             if (state.Held.Count == 0)
                 return null;
@@ -413,11 +474,83 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
             state.HeldCharacters -= oldest.Json.Length;
             dropped.Add(oldest);
         }
-        foreach (var group in dropped.GroupBy(e => e.Generation))
+        foreach (var group in dropped.GroupBy(e => e.SourceGeneration))
         {
             FileLog.Write($"[ApiModeEventPusher] DROPPED UNACKNOWLEDGED EVENTS: session={sessionId}, generation={group.Key}, " +
-                          $"sequences {group.First().Sequence}..{group.Last().Sequence} ({group.Count()} events): the Gateway has not acknowledged them " +
-                          $"and the Director holds at most {_maxHeldEvents} events or {_maxHeldCharacters} characters per session; the Gateway will see a gap");
+                          $"sequences {group.First().Event.Sequence}..{group.Last().Event.Sequence} ({group.Count()} events): the Gateway has not acknowledged them " +
+                          $"and the Director holds at most {_maxHeldEvents} events or {_maxHeldCharacters} characters per session; what follows them goes up as a new generation");
+            AfterHoleLocked(sessionId, state, group.Key, group.Last().Event.Sequence, "the memory bound dropped events");
         }
+    }
+
+    // ---------------------------------------------------------------- generations as the Gateway is sent them
+
+    /// <summary>The segment the session's event <paramref name="sequence"/> of <paramref name="generation"/> is sent
+    /// under. A sequence that does not follow the last one handed over is a hole: a new generation starts at it.</summary>
+    private static Segment SegmentForLocked(string sessionId, SessionState state, string generation, DateTime startedUtc, long sequence)
+    {
+        if (!state.Segments.TryGetValue(generation, out var segment))
+        {
+            segment = new Segment { Label = generation, StartedUtc = startedUtc, Offset = 0 };
+            state.Segments[generation] = segment;
+        }
+        if (sequence != segment.LastSeen + 1)
+        {
+            var why = segment.LastSeen == 0
+                ? $"its sequences 1..{sequence - 1} never reached the pusher"
+                : $"its sequences {segment.LastSeen + 1}..{sequence - 1} never reached the pusher";
+            segment = NewSegmentLocked(sessionId, state, generation, sequence - 1, why);
+        }
+        segment.LastSeen = sequence;
+        return segment;
+    }
+
+    /// <summary>The session's events of <paramref name="generation"/> through <paramref name="holeThrough"/> will never
+    /// reach the Gateway. If the generation is still sent under a segment the hole would sit inside, what follows goes
+    /// up as a new one.</summary>
+    private static void AfterHoleLocked(string sessionId, SessionState state, string generation, long holeThrough, string why)
+    {
+        if (state.Segments.TryGetValue(generation, out var segment) && holeThrough > segment.Offset)
+            NewSegmentLocked(sessionId, state, generation, holeThrough, why);
+    }
+
+    /// <summary>Send the session's events of <paramref name="generation"/> above <paramref name="holeThrough"/> as a new
+    /// generation from sequence 1, started a millisecond after the one it continues, and re-label those already held.</summary>
+    private static Segment NewSegmentLocked(string sessionId, SessionState state, string generation, long holeThrough, string why)
+    {
+        var previous = state.Segments[generation];
+        var segment = new Segment
+        {
+            Label = Guid.NewGuid().ToString(),
+            StartedUtc = previous.StartedUtc.AddMilliseconds(1),
+            Offset = holeThrough,
+            LastSeen = previous.LastSeen,
+        };
+        state.Segments[generation] = segment;
+        var relabelled = 0;
+        for (var i = 0; i < state.Held.Count; i++)
+        {
+            var e = state.Held[i];
+            if (e.SourceGeneration != generation || e.Event.Sequence <= holeThrough)
+                continue;
+            var again = Hold(e.Event, generation, segment);
+            state.HeldCharacters += again.Json.Length - e.Json.Length;
+            state.Held[i] = again;
+            relabelled++;
+        }
+        FileLog.Write($"[ApiModeEventPusher] A HOLE STARTS A NEW GENERATION: session={sessionId}, generation={generation} " +
+                      $"(sent as {previous.Label}): {why}, so its events through sequence {holeThrough} that the Gateway does not hold " +
+                      $"never will. Its events from sequence {holeThrough + 1} go up as generation {segment.Label} " +
+                      $"(started {segment.StartedUtc:O}) from sequence 1, {relabelled} of them already held; the Gateway takes the later " +
+                      "generation as a fresh start and answers a reader of the earlier one that its stream is not complete. " +
+                      "A receipt whose own event fell in the hole is not corrected.");
+        return segment;
+    }
+
+    private static HeldEvent Hold(SessionEvent e, string sourceGeneration, Segment segment)
+    {
+        var sent = segment.Offset == 0 ? e : e with { Sequence = e.Sequence - segment.Offset };
+        return new HeldEvent(e, sourceGeneration, segment.Label, segment.StartedUtc, sent.Sequence,
+            JsonSerializer.Serialize(sent, SessionEventJson.Options));
     }
 }

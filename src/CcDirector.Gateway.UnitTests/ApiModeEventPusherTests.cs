@@ -2,6 +2,8 @@ using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.Core.ApiMode;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts.ApiMode;
 using Xunit;
 
@@ -37,16 +39,56 @@ public sealed class ApiModeEventPusherTests : IAsyncDisposable
         public Func<ApiModeEventBatch, ApiModeEventWatermark?>? Answer;
         public Exception? Throw;
 
-        public Task<ApiModeEventWatermark?> Push(ApiModeEventBatch batch, CancellationToken ct)
+        /// <summary>When set, the next push does not answer until this completes: a push held open.</summary>
+        public TaskCompletionSource? Hold;
+        /// <summary>Completed when the Gateway has received this many batches.</summary>
+        public int SignalAt;
+        public readonly TaskCompletionSource Signalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<ApiModeEventWatermark?> Push(ApiModeEventBatch batch, CancellationToken ct)
         {
+            int count;
             lock (Received)
+            {
                 Received.Add(batch);
+                count = Received.Count;
+            }
+            if (count == SignalAt)
+                Signalled.TrySetResult();
+            if (Hold is { } hold)
+            {
+                Hold = null;
+                await hold.Task;
+            }
             if (Throw is { } ex)
                 throw ex;
             var answer = Answer is null
                 ? new ApiModeEventWatermark { SessionId = batch.SessionId, Generation = batch.Generation, Sequence = Sequences(batch).Last() }
                 : Answer(batch);
-            return Task.FromResult(answer);
+            return answer;
+        }
+    }
+
+    /// <summary>A Gateway that keeps what it is sent exactly as the real one does: the ingest's own check of the batch,
+    /// then the real <see cref="ApiModeEventBuffer"/> deciding the generation and the new sequences. Only the durable
+    /// receipts are left out.</summary>
+    private sealed class BufferGateway
+    {
+        public static readonly TenantId Tenant = new("tenant-a");
+        public readonly ApiModeEventBuffer Buffer = new();
+        public readonly List<ApiModeEventBatch> Received = [];
+        public bool Unreachable;
+
+        public Task<ApiModeEventWatermark?> Push(ApiModeEventBatch batch, CancellationToken ct)
+        {
+            if (Unreachable)
+                throw new InvalidOperationException("the Gateway stream is not connected");
+            Received.Add(batch);
+            var result = Buffer.Apply(Tenant, batch.SessionId, batch.Generation, batch.GenerationStartedUtc,
+                ApiModeEventIngest.Parse(batch), _ => { });
+            return Task.FromResult<ApiModeEventWatermark?>(result.Refused
+                ? null
+                : new ApiModeEventWatermark { SessionId = batch.SessionId, Generation = result.Generation, Sequence = result.HighestSequence });
         }
     }
 
@@ -274,7 +316,7 @@ public sealed class ApiModeEventPusherTests : IAsyncDisposable
         // restart) with a later generation whose sequence starts again at 1.
         var gateway = new FakeGateway();
         var pusher = Build(gateway);
-        pusher.Publish(Batch("gen-old", Event(7), Event(8)));
+        pusher.Publish(Batch("gen-old", Event(1), Event(2)));
         pusher.Publish(Batch("gen-new", Event(1), Event(2)));
         gateway.Supports = true;
 
@@ -316,8 +358,13 @@ public sealed class ApiModeEventPusherTests : IAsyncDisposable
         gateway.Supports = true;
         await pusher.PushSessionAsync(SessionId);
 
-        // Assert: the two oldest were dropped (and logged by sequence); the newest three went up.
-        Assert.Equal([3L, 4L, 5L], Sequences(Assert.Single(gateway.Received)));
+        // Assert: the two oldest were dropped (and logged by sequence); the newest three went up, as a new generation
+        // from sequence 1, started after the one they continue, so the Gateway cannot take them as following anything.
+        var batch = Assert.Single(gateway.Received);
+        Assert.Equal([1L, 2L, 3L], Sequences(batch));
+        Assert.NotEqual(Generation, batch.Generation);
+        Assert.True(batch.GenerationStartedUtc > GenerationStarted);
+        Assert.Equal(["x", "x", "x"], batch.Events.Select(j => ((MessageText)JsonSerializer.Deserialize<SessionEvent>(j, SessionEventJson.Options)!).Text));
     }
 
     [Fact]
@@ -332,8 +379,201 @@ public sealed class ApiModeEventPusherTests : IAsyncDisposable
         // Act
         await pusher.PushSessionAsync(SessionId);
 
-        // Assert
-        Assert.Equal([[1L], [3L]], gateway.Received.Select(Sequences));
+        // Assert: sequence 1 under its generation; what followed the dropped event, as a new generation from 1.
+        Assert.Equal([[1L], [1L]], gateway.Received.Select(Sequences));
+        Assert.Equal(Generation, gateway.Received[0].Generation);
+        Assert.NotEqual(Generation, gateway.Received[1].Generation);
         Assert.Equal(0, pusher.HeldCount(SessionId));
+    }
+
+    // ===================== review of pull request #4090, finding 1: one resend per connection =====================
+
+    [Fact]
+    public async Task HelloAnsweredAsync_TheRegularRePushOnOneConnection_DoesNotSendTheHeldBatchAgain()
+    {
+        // Arrange: a Gateway that keeps refusing for now, so the batch stays held.
+        var gateway = new FakeGateway
+        {
+            Supports = false,
+            Answer = b => new ApiModeEventWatermark { SessionId = b.SessionId, Generation = "", Sequence = -1 },
+        };
+        var pusher = Build(gateway);
+        pusher.Publish(Batch(Generation, Event(1), Event(2)));
+        gateway.Supports = true;
+
+        // Act: a connection's first Hello, then five of the ten-second re-push's on the same connection.
+        pusher.NewConnection();
+        for (var i = 0; i < 6; i++)
+            await pusher.HelloAnsweredAsync();
+
+        // Assert: one send, not six.
+        Assert.Single(gateway.Received);
+        Assert.Equal(2, pusher.HeldCount(SessionId));
+    }
+
+    [Fact]
+    public async Task HelloAnsweredAsync_ANewConnection_SendsTheHeldBatchAgainOnce()
+    {
+        // Arrange
+        var gateway = new FakeGateway
+        {
+            Supports = false,
+            Answer = b => new ApiModeEventWatermark { SessionId = b.SessionId, Generation = "", Sequence = -1 },
+        };
+        var pusher = Build(gateway);
+        pusher.Publish(Batch(Generation, Event(1), Event(2)));
+        gateway.Supports = true;
+        pusher.NewConnection();
+        await pusher.HelloAnsweredAsync();
+        await pusher.HelloAnsweredAsync();
+
+        // Act: the tunnel reconnects (a Gateway restart, a deploy).
+        pusher.NewConnection();
+        await pusher.HelloAnsweredAsync();
+        await pusher.HelloAnsweredAsync();
+
+        // Assert: once per connection.
+        Assert.Equal(2, gateway.Received.Count);
+        Assert.All(gateway.Received, b => Assert.Equal([1L, 2L], Sequences(b)));
+    }
+
+    // ===================== review of pull request #4090, finding 2: a hole starts a new generation =====================
+
+    [Fact]
+    public async Task Publish_ABoundDropAfterTheGatewayHeldTheGeneration_TheGatewaysReaderIsToldItsStreamIsIncomplete()
+    {
+        // Arrange: the real Gateway buffer holds sequences 1 and 2; a reader is at (generation, 2).
+        var gateway = new BufferGateway();
+        var pusher = new ApiModeEventPusher(gateway.Push, () => true, maxHeldEvents: 3);
+        _pushers.Add(pusher);
+        pusher.Publish(Batch(Generation, Event(1), Event(2)));
+        await pusher.PushSessionAsync(SessionId);
+        var cursor = new ApiModeEventCursor(Generation, 2);
+        Assert.True(gateway.Buffer.Read(BufferGateway.Tenant, SessionId, cursor).Complete);
+
+        // Act: the Gateway is unreachable while five more events are published; the bound of three drops 3 and 4.
+        gateway.Unreachable = true;
+        pusher.Publish(Batch(Generation, Event(3), Event(4), Event(5), Event(6), Event(7)));
+        gateway.Unreachable = false;
+        await pusher.PushSessionAsync(SessionId);
+
+        // Assert: the Gateway was not handed 5..7 as if they followed 2. The reader learns it missed events.
+        var replay = gateway.Buffer.Read(BufferGateway.Tenant, SessionId, cursor);
+        Assert.False(replay.Complete);
+        Assert.NotEqual(Generation, replay.Generation);
+        Assert.Equal([1L, 2L, 3L], replay.Events.Select(e => e.Event.Sequence));
+    }
+
+    [Fact]
+    public async Task Publish_EventsThatNeverReachedThePusher_GoUpAsANewGeneration()
+    {
+        // Arrange: the Gateway stored 1 and 2; then the Gateway was turned off in the settings and events 3 and 4 went
+        // to the Director's log, not to the pusher.
+        var gateway = new BufferGateway();
+        var pusher = new ApiModeEventPusher(gateway.Push, () => true);
+        _pushers.Add(pusher);
+        pusher.Publish(Batch(Generation, Event(1), Event(2)));
+        await pusher.PushSessionAsync(SessionId);
+
+        // Act: it is turned on again and the session publishes 5.
+        pusher.Publish(Batch(Generation, Event(5)));
+        await pusher.PushSessionAsync(SessionId);
+
+        // Assert
+        var last = gateway.Received[^1];
+        Assert.NotEqual(Generation, last.Generation);
+        Assert.Equal([1L], Sequences(last));
+        Assert.False(gateway.Buffer.Read(BufferGateway.Tenant, SessionId, new ApiModeEventCursor(Generation, 2)).Complete);
+    }
+
+    [Fact]
+    public async Task Publish_AfterEverythingHeldWasAcknowledged_StaysInTheSameGeneration()
+    {
+        // Arrange: nothing held between the two publishes, so the session's state was let go in between.
+        var gateway = new BufferGateway();
+        var pusher = new ApiModeEventPusher(gateway.Push, () => true);
+        _pushers.Add(pusher);
+        pusher.Publish(Batch(Generation, Event(1), Event(2)));
+        await pusher.PushSessionAsync(SessionId);
+        Assert.Equal(0, pusher.HeldCount(SessionId));
+
+        // Act
+        pusher.Publish(Batch(Generation, Event(3)));
+        await pusher.PushSessionAsync(SessionId);
+
+        // Assert: no hole, so no new generation, and the reader at 2 is complete.
+        Assert.All(gateway.Received, b => Assert.Equal(Generation, b.Generation));
+        var replay = gateway.Buffer.Read(BufferGateway.Tenant, SessionId, new ApiModeEventCursor(Generation, 2));
+        Assert.True(replay.Complete);
+        Assert.Equal([3L], replay.Events.Select(e => e.Event.Sequence));
+    }
+
+    [Fact]
+    public async Task Publish_ASecondHoleInTheSameGeneration_StartsAnotherLaterGeneration()
+    {
+        // Arrange
+        var gateway = new BufferGateway();
+        var pusher = new ApiModeEventPusher(gateway.Push, () => true);
+        _pushers.Add(pusher);
+        pusher.Publish(Batch(Generation, Event(1)));
+        await pusher.PushSessionAsync(SessionId);
+
+        // Act: two holes, each followed by an event that reaches the pusher.
+        pusher.Publish(Batch(Generation, Event(3)));
+        await pusher.PushSessionAsync(SessionId);
+        pusher.Publish(Batch(Generation, Event(6), Event(7)));
+        await pusher.PushSessionAsync(SessionId);
+
+        // Assert: three generations, each later than the one before, so the Gateway takes every one.
+        Assert.Equal(3, gateway.Received.Select(b => b.Generation).Distinct().Count());
+        Assert.True(gateway.Received[1].GenerationStartedUtc > gateway.Received[0].GenerationStartedUtc);
+        Assert.True(gateway.Received[2].GenerationStartedUtc > gateway.Received[1].GenerationStartedUtc);
+        Assert.Equal([1L, 2L], Sequences(gateway.Received[2]));
+        var replay = gateway.Buffer.Read(BufferGateway.Tenant, SessionId);
+        Assert.Equal(gateway.Received[2].Generation, replay.Generation);
+    }
+
+    // ===================== review of pull request #4090, finding 3: a publish during a push =====================
+
+    [Fact]
+    public async Task Publish_WhileAPushIsInFlight_IsSentByTheSameRunWhenThePushAnswers()
+    {
+        // Arrange: the first push is held open by the Gateway.
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gateway = new FakeGateway { Supports = true, Hold = hold, SignalAt = 2 };
+        var pusher = Build(gateway);
+        pusher.Publish(Batch(Generation, Event(1)));
+        Assert.Single(gateway.Received);
+
+        // Act: two more publishes while the push is open - each marks the run pending and returns; then the Gateway answers.
+        pusher.Publish(Batch(Generation, Event(2)));
+        pusher.Publish(Batch(Generation, Event(3)));
+        Assert.Single(gateway.Received);
+        hold.SetResult();
+
+        // Assert: the run that was in flight sends both, coalesced into one batch, with no other trigger.
+        await gateway.Signalled.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal([[1L], [2L, 3L]], gateway.Received.Select(Sequences));
+    }
+
+    [Fact]
+    public async Task ResendAllAsync_TwoSessionsHoldingEvents_SendsEach()
+    {
+        // Arrange
+        const string other = "2c0d6f1a-9b3e-4f7a-8c55-1e2d3f4a5b6c";
+        var gateway = new FakeGateway();
+        var pusher = Build(gateway);
+        pusher.Publish(Batch(Generation, Event(1)));
+        pusher.Publish(new SessionEventBatch(other, Generation, GenerationStarted,
+            [new MessageText { SessionId = other, Sequence = 1, At = At, TurnId = "turn-1", MessageId = "m", Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Delta, Text = "y" }]));
+        gateway.Supports = true;
+
+        // Act
+        await pusher.ResendAllAsync();
+
+        // Assert
+        Assert.Equal(new[] { SessionId, other }.Order(), gateway.Received.Select(b => b.SessionId).Order());
+        Assert.Equal(0, pusher.HeldCount(SessionId));
+        Assert.Equal(0, pusher.HeldCount(other));
     }
 }

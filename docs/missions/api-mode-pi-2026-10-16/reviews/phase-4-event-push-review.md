@@ -96,7 +96,17 @@ cannot tell a connection's first Hello from its repeat.
 cost is bounded only by how long the Gateway keeps refusing. The brief's third question asked for no push
 storm, and this is one.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** The resend is now gated to once per connection, the way the turn
+pusher's `TurnWatermarksKnown` gates its re-seed. The stream client's existing new-connection callback (the one issue
+#3559 added, which runs on the first connect and on every reconnect and never on the ten-second re-push) now calls
+`ApiModeEventPusher.NewConnection()`, which sets a flag; the Hello callback calls `HelloAnsweredAsync()`, which resends
+everything held only if it can clear that flag. So a reconnect, a Gateway restart and a deploy each get one resend, and
+the repeat Hello on the same connection sends nothing. A Gateway that keeps refusing now sees a held batch at most once
+a minute from the sweep, plus once per new publish for that session. The host's comment that claimed "costs nothing" is
+rewritten, and so is the pusher's TRIGGERS paragraph. Tests:
+`HelloAnsweredAsync_TheRegularRePushOnOneConnection_DoesNotSendTheHeldBatchAgain` (six Hellos on one connection against
+a Gateway that refuses for now: one send) and `HelloAnsweredAsync_ANewConnection_SendsTheHeldBatchAgainOnce` (two
+connections, two Hellos each: two sends). Making every Hello resend again fails both.
 
 ### 2. A memory-bound drop in the middle of a generation is invisible to the Gateway, so the log line's promise that "the Gateway will see a gap" does not hold, and readers are told the stream is complete
 
@@ -142,7 +152,44 @@ belongs, the Gateway (marking a stored batch whose first new sequence is above `
 way `FirstHeldSequence` already marks a late start) or the Director, is the Developer's decision; the log
 line should say what is true either way.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed on the Director, with the Gateway's existing rules; no Gateway change.** A hole
+now starts a new generation. The pusher sends a session's generation under its own id only while it has every event of
+it from sequence 1. At the first one it does not have, the events after the hole go up as a new generation: a fresh id,
+started one millisecond after the one it continues, counted again from sequence 1. The rule covers all three ways a hole
+appears: the memory bound dropping the oldest, an event too large for any batch, and the settings path you found (events
+published while the Gateway was turned off went to the Director's log and never reached the pusher, so the next event's
+sequence does not follow the last one handed over). The Gateway already handles this. `Apply` takes a later generation
+as a fresh start, and `ReplayOf` answers a reader whose cursor is of the earlier generation `Complete: false`, so the
+reader reads again from the new generation and folds from there. A client that folds from the new generation does not
+inherit the turn whose `TurnEnded` was lost. The session's own stream on the Director keeps its one generation; only
+what the Gateway is sent is re-labelled, and each re-label is logged with both ids. The log lines no longer say "the
+Gateway will see a gap": they say what follows goes up as a new generation, and that a receipt whose own event fell in
+the hole is not corrected.
+
+What this cannot fix, stated plainly: the durable receipts. An event in the hole never reaches the Gateway, so if a
+`TurnEnded` is dropped, the receipts of the prompts that turn carried keep the state they had. Nothing the Director
+sends later can correct that, short of not dropping the event. If the Gateway should close a turn's receipts when a
+session moves to a later generation, that is a rule in the Gateway's receipt store, and I am telling the Tech Lead so
+rather than building it here.
+
+Two details. A session's state retires whenever nothing is held, so the record of the last sequence handed over lives
+in a separate per-session table that outlives it; otherwise every drained queue would look like a hole. A test pins this.
+And a batch in flight when a drop re-labels its events is answered under the old id, so that run stops on "covers none"
+and the re-labelled events go at the next trigger: a rare extra wait, never a loss.
+
+Tests, against the real Gateway buffer (the ingest's own `Parse`, then `ApiModeEventBuffer.Apply`):
+- `Publish_ABoundDropAfterTheGatewayHeldTheGeneration_TheGatewaysReaderIsToldItsStreamIsIncomplete`: the Gateway
+  holds 1 and 2, the bound drops 3 and 4, and a reader at sequence 2 is answered not complete.
+- `Publish_EventsThatNeverReachedThePusher_GoUpAsANewGeneration`: the settings path.
+- `Publish_AfterEverythingHeldWasAcknowledged_StaysInTheSameGeneration`: no false hole after the state retires.
+- `Publish_ASecondHoleInTheSameGeneration_StartsAnotherLaterGeneration`.
+
+The bound and too-large tests now assert the new generation. Removing the re-label after a drop fails three tests, and
+removing the hole check fails two.
+
+`event-model.md` says a generation is one per Director process. The Director's stream still is, but the Gateway can
+now see more than one for a session when there was a hole. I have not edited the document; it wants one sentence if
+you agree.
 
 ### 3. The concurrency claims are proven by reading only: no test holds a push open and publishes during it
 
@@ -163,7 +210,18 @@ would pass this suite, and in production would show only as events that wait up 
 next Hello, which nobody would trace to the pusher. The harm is bounded by finding 1's cadence, which is why
 this is the smallest finding; it stays a finding because the pull request puts the claim in writing.
 
-Developer's answer:
+Developer's answer: **Accepted, test added.** `Publish_WhileAPushIsInFlight_IsSentByTheSameRunWhenThePushAnswers`
+holds the first push open on the fake Gateway, publishes twice while it is open (each returns at once and nothing is
+sent), then answers. The run that was in flight sends both events as one coalesced batch, with no other trigger.
+`ResendAllAsync_TwoSessionsHoldingEvents_SendsEach` covers the resend over more than one session.
+
+One correction to the regression the finding named, because I ran it. Clearing `Pending` after the send instead of
+before PASSES the new test. That is not a gap in the test: the run's own loop reads the held list again after every
+answer, so an event published during a push is sent by that loop whether or not `Pending` is read. `Pending` matters
+only in the instant between the run finding nothing held and the run leaving. There is no await in that instant, so
+no fake can hold it open, and covering it would need a hook in the product code just for a test. I have not added
+one. The hand-off there reads correct to both of us, and if it ever failed, the next publish, the next connection's
+Hello or the minute sweep would send the event.
 
 ## Notes that need no change, recorded so the next seat need not re-derive them
 

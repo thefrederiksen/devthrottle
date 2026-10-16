@@ -1209,8 +1209,9 @@ public sealed class ControlApiHost : IAsyncDisposable
             {
                 if (capabilities.TurnWatermarksKnown) _ = _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
                 // API mode (issue #4070): after a new connection, a Gateway restart or a deploy, every event the Gateway
-                // has not acknowledged goes up again; storing is idempotent, so the regular re-push's Hello costs nothing.
-                _ = _apiModeEventPusher?.ResendAllAsync();
+                // has not acknowledged goes up again - on that connection's first Hello only, never on the ten-second
+                // re-push's, so a Gateway that keeps refusing is not sent the same batch every ten seconds.
+                _ = _apiModeEventPusher?.HelloAnsweredAsync();
                 // License Switching contract 2.3: the first Hello on a new connection is answered with a "connected"
                 // usage report, so a restarted Gateway has the facts within seconds rather than two minutes. After
                 // the Hello, because only then does the Director know the Gateway has PushLicenseUsage at all.
@@ -1224,6 +1225,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             onNewConnection: () =>
             {
                 Interlocked.Exchange(ref _licenseReportOnNextHello, 1);
+                _apiModeEventPusher?.NewConnection();
                 foreach (var session in _sessionManager.ListSessions())
                     session.SetFleetManagerLessons(null);
             },
