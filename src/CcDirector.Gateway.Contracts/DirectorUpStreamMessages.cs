@@ -198,3 +198,75 @@ public sealed class CloseStreamRequest
     /// <summary>The stream to stop. Cancels the Director producer's CancellationToken for this id.</summary>
     public string StreamId { get; set; } = "";
 }
+
+/// <summary>
+/// API mode (mission #4070, phase 2): ONE SESSION'S API-MODE EVENTS, CARRIED UP FROM THE DIRECTOR TO THE GATEWAY. The
+/// Director invokes the hub's <c>PushApiModeEvents</c> with one of these; the Gateway stores the receipts the events
+/// carry, keeps the recent events per session, and hands them to the Gateway code that folds and relays them. The
+/// events themselves are the session event model (<see cref="ApiMode.SessionEvent"/>,
+/// <c>docs/missions/api-mode-pi-2026-10-16/event-model.md</c>, section 2).
+///
+/// <para><b>Each event travels as its own JSON text</b>, written with <see cref="ApiMode.SessionEventJson.Options"/>
+/// (one object per event, its <c>type</c> naming the event). The tunnel negotiates MessagePack or JSON, and the event
+/// records are polymorphic: carried as text, an event reaches the Gateway in exactly the form the event model writes,
+/// whichever protocol the Director's connection chose, and no second encoding of the model exists to drift.</para>
+///
+/// <para><b>Ordering: generation, then sequence.</b> <see cref="Generation"/> is assigned by the Director each time it
+/// starts holding the session's event stream (a Director restart is a new generation; taking the wheel and handing
+/// back inside one Director process is not), with <see cref="GenerationStartedUtc"/>. Inside one generation each
+/// event's <c>sequence</c> rises; a new generation starts its sequence again. The Gateway's rule, the same one the
+/// turn push uses for its generations:</para>
+/// <list type="bullet">
+/// <item>Same generation: an event at or below the highest sequence the Gateway holds is a duplicate or a late
+/// arrival and stores nothing.</item>
+/// <item>A generation that started LATER (ties broken by the generation id, ordinally) replaces the session's
+/// current one, and its sequence counts afresh.</item>
+/// <item>A generation that started EARLIER is refused whole: a Director that has been superseded cannot move the
+/// session backwards.</item>
+/// </list>
+///
+/// <para><b>Rules for a batch</b> (a batch that breaks one is refused whole and nothing is stored): every event names
+/// <see cref="SessionId"/>; sequences rise strictly inside the batch; at most <see cref="MaxEvents"/> events; a
+/// <c>TurnEnded</c> that is not <c>done</c> carries a reason. The session must be the sending Director's: in a team,
+/// the same ownership rule as the turn push.</para>
+///
+/// <para><b>The answer</b> is an <see cref="ApiModeEventWatermark"/>: the generation the session is on and the highest
+/// sequence held in it, so the Director knows what has landed. <c>null</c> means REFUSED for good - malformed, an
+/// older generation, or not this Director's session - and re-sending the same batch cannot succeed; the Gateway logs
+/// the reason. A hub error (the database unreachable) is an exception: nothing was kept, and the same batch may be
+/// sent again safely, because storing is idempotent.</para>
+/// </summary>
+public sealed class ApiModeEventBatch
+{
+    /// <summary>The most events one batch may carry.</summary>
+    public const int MaxEvents = 500;
+
+    /// <summary>The longest generation id accepted.</summary>
+    public const int MaxGenerationLength = 64;
+
+    /// <summary>The DevThrottle session every event in the batch belongs to.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>The Director's generation of this session's event stream (a fresh id each time the Director starts
+    /// holding it; a Guid is ideal).</summary>
+    public string Generation { get; set; } = "";
+
+    /// <summary>When the Director started this generation, UTC. Compared at whole milliseconds.</summary>
+    public DateTime GenerationStartedUtc { get; set; }
+
+    /// <summary>The events, oldest first, each one <see cref="ApiMode.SessionEvent"/> serialised with
+    /// <see cref="ApiMode.SessionEventJson.Options"/>.</summary>
+    public List<string> Events { get; set; } = new();
+}
+
+/// <summary>The Gateway's answer to an <see cref="ApiModeEventBatch"/>: what it now holds for the session.</summary>
+public sealed class ApiModeEventWatermark
+{
+    public string SessionId { get; set; } = "";
+
+    /// <summary>The generation the session is on at the Gateway.</summary>
+    public string Generation { get; set; } = "";
+
+    /// <summary>The highest sequence of <see cref="Generation"/> the Gateway holds; -1 when it holds none.</summary>
+    public long Sequence { get; set; }
+}

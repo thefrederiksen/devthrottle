@@ -1222,6 +1222,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The API-mode prompt receipts (mission #4070, phase 2): queued, delivered with the agent's own
     /// acknowledgement, or refused with the reason, and the outcome of the turn that carried each prompt.</summary>
     private readonly Receipts.ApiModeReceiptStore _apiModeReceipts;
+    /// <summary>The recent API-mode events of every session, and their subscriptions (mission #4070, phase 2).</summary>
+    private readonly ApiModeEvents.ApiModeEventBuffer _apiModeEventBuffer = new();
+    /// <summary>What DirectorHub.PushApiModeEvents hands each batch to: receipts, then the buffer.</summary>
+    private readonly ApiModeEvents.ApiModeEventIngest _apiModeEventIngest;
+
+    /// <summary>The ONE read side of the API-mode events: the display fold and the live relay build on this.</summary>
+    internal ApiModeEvents.IApiModeEventFeed ApiModeEventFeed => _apiModeEventBuffer;
     /// <summary>The judged stops (the Wingman-on-every-turn mission): what the Wingman said each turn end
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
@@ -2154,6 +2161,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // hub writes through, never a second instance.
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         _apiModeReceipts = new Receipts.ApiModeReceiptStore(_gatewayDb, () => DateTime.UtcNow);
+        _apiModeEventIngest = new ApiModeEvents.ApiModeEventIngest(_apiModeEventBuffer, _apiModeReceipts, _tenantBoundary);
         // The dev report store is built here, before the team gate, because the gate's ownership answer reads a report's
         // author (devthrottle_internal#2309): a report a person published in a team is theirs.
         _devReports = new DevReports.DevReportStore(_gatewayDb);
@@ -4436,6 +4444,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // The stored conversation (turn-push mission): DirectorHub.PushTurns writes it, Hello reads its watermarks.
         builder.Services.AddSingleton(_sessionTurns);
         builder.Services.AddSingleton(TeamCallerOwnership);
+        // API mode (mission #4070, phase 2): DirectorHub.PushApiModeEvents hands each batch to the ingest; Gateway code
+        // reads the events through IApiModeEventFeed, the one buffer.
+        builder.Services.AddSingleton(_apiModeEventIngest);
+        builder.Services.AddSingleton(_apiModeEventBuffer);
+        builder.Services.AddSingleton<ApiModeEvents.IApiModeEventFeed>(_apiModeEventBuffer);
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
