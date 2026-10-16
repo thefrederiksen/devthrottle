@@ -33,6 +33,7 @@
     "./devreports/DevReportViewer": "./src/devreports/DevReportViewer.tsx",
     "./devreports/DevReportLanding": "./src/devreports/DevReportLanding.tsx",
     "./devreports/DevReportConversation": "./src/devreports/DevReportConversation.tsx",
+    "./apimode/ApiModeLiveChat": "./src/apimode/ApiModeLiveChat.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {

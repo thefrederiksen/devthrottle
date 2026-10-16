@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { listSessions } from "@devthrottle/client-core/api/client";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
+import { ApiModeLiveChat } from "@devthrottle/client-core/apimode/ApiModeLiveChat";
 import { chatLinkLabel, chatPathLabel } from "@devthrottle/client-core/history/chatView";
 import { isNotOnDisk, usePathStatuses } from "@devthrottle/client-core/history/usePathStatuses";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
@@ -29,7 +30,11 @@ export function Chat() {
   const navigate = useNavigate();
 
   const [name, setName] = useState<string | null>(null);
-  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(sessionId);
+  const manage = useSessionManage(sessionId);
+  // An API-mode session's conversation is the Gateway's live stream (mission #4070, phase 3), shown by the shared
+  // ApiModeLiveChat; the row carries the Gateway's verdict only in API mode. The history read stands down for it.
+  const apiMode = manage.session?.apiMode ?? null;
+  const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(apiMode === null ? sessionId : undefined);
   // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
   const pathStatuses = usePathStatuses(sessionId, bubbles, SURFACE_PATHS);
   const [status, setStatus] = useState(STATUS_BASE);
@@ -40,7 +45,6 @@ export function Chat() {
   // fifth of the screen from the conversation they sit under. The input row, Send, Speak and Attach
   // are never behind this: replying is what this screen is for.
   const [showKeys, setShowKeys] = useState(false);
-  const manage = useSessionManage(sessionId);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
@@ -112,33 +116,35 @@ export function Chat() {
 
       {/* Compact "Show:" filter, mirroring the desktop History tab: reveal tool calls, tool results,
           or thinking. All three hidden by default; the choice is remembered per browser. */}
-      <div className="chat-filter">
-        <span className="chat-filter-label">Show:</span>
-        <label>
-          <input
-            type="checkbox"
-            checked={filter.showToolCalls}
-            onChange={(e) => setFilter({ ...filter, showToolCalls: e.target.checked })}
-          />{" "}
-          Tool calls
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={filter.showToolResults}
-            onChange={(e) => setFilter({ ...filter, showToolResults: e.target.checked })}
-          />{" "}
-          Results
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={filter.showThinking}
-            onChange={(e) => setFilter({ ...filter, showThinking: e.target.checked })}
-          />{" "}
-          Thinking
-        </label>
-      </div>
+      {apiMode === null && (
+        <div className="chat-filter">
+          <span className="chat-filter-label">Show:</span>
+          <label>
+            <input
+              type="checkbox"
+              checked={filter.showToolCalls}
+              onChange={(e) => setFilter({ ...filter, showToolCalls: e.target.checked })}
+            />{" "}
+            Tool calls
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={filter.showToolResults}
+              onChange={(e) => setFilter({ ...filter, showToolResults: e.target.checked })}
+            />{" "}
+            Results
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={filter.showThinking}
+              onChange={(e) => setFilter({ ...filter, showThinking: e.target.checked })}
+            />{" "}
+            Thinking
+          </label>
+        </div>
+      )}
 
       {error !== null && <div className="banner banner-error" role="alert">{error}</div>}
 
@@ -162,63 +168,69 @@ export function Chat() {
           only when there IS a stored conversation, so it never doubles up with the empty-state sentence. */}
       {staleNotice !== null && <div className="chat-stale" role="status">{staleNotice}</div>}
 
-      <div className="chat-stage">
-        {loadFailed && bubbles.length === 0 ? (
-          <div className="chat-empty">Could not read this session's history right now. Retrying...</div>
-        ) : bubbles.length === 0 ? (
-          <div className="chat-empty">{emptyText}</div>
-        ) : (
-          <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
-            {bubbles.map((r, i) => (
-              <div className={`chat-bubble ${r.bubble.kind}`} key={i}>
-                <div className="chat-speaker">{r.bubble.speaker}</div>
-                {r.bubble.isRawText ? (
-                  <pre className="chat-body raw">{r.bubble.body}</pre>
-                ) : (
-                  <div className="chat-body md" dangerouslySetInnerHTML={{ __html: r.html }} />
-                )}
-                {r.links.length > 0 && (
-                  <div className="chat-links">
-                    {r.links.map((link, j) => (
-                      <span className={`chat-link ${link.isUrl ? "url" : "path"}${!link.isUrl && isNotOnDisk(pathStatuses, link.text) ? " not-on-disk" : ""}`} key={j}>
-                        {link.isUrl ? (
-                          <a
-                            className="chat-link-open"
-                            href={link.text}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title={link.text}
-                          >
-                            {chatLinkLabel(link.text)}
-                          </a>
-                        ) : (
-                          // Local Files (Phase 3): the file path is now a clickable control that opens
-                          // the full-screen viewer for that path (the copy button below is unchanged).
-                          <button
-                            type="button"
-                            className="chat-link-open chat-link-view"
-                            title={link.text}
-                            onClick={() => openFile(link.text)}
-                          >
-                            {chatPathLabel(link.text)}
-                          </button>
+      {apiMode !== null ? (
+        <div className="chat-stage">
+          <ApiModeLiveChat sessionId={sessionId} display={apiMode} />
+        </div>
+      ) : (
+        <div className="chat-stage">
+          {loadFailed && bubbles.length === 0 ? (
+            <div className="chat-empty">Could not read this session's history right now. Retrying...</div>
+          ) : bubbles.length === 0 ? (
+            <div className="chat-empty">{emptyText}</div>
+          ) : (
+            <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
+              {bubbles.map((r, i) => (
+                <div className={`chat-bubble ${r.bubble.kind}`} key={i}>
+                  <div className="chat-speaker">{r.bubble.speaker}</div>
+                  {r.bubble.isRawText ? (
+                    <pre className="chat-body raw">{r.bubble.body}</pre>
+                  ) : (
+                    <div className="chat-body md" dangerouslySetInnerHTML={{ __html: r.html }} />
+                  )}
+                  {r.links.length > 0 && (
+                    <div className="chat-links">
+                      {r.links.map((link, j) => (
+                        <span className={`chat-link ${link.isUrl ? "url" : "path"}${!link.isUrl && isNotOnDisk(pathStatuses, link.text) ? " not-on-disk" : ""}`} key={j}>
+                          {link.isUrl ? (
+                            <a
+                              className="chat-link-open"
+                              href={link.text}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={link.text}
+                            >
+                              {chatLinkLabel(link.text)}
+                            </a>
+                          ) : (
+                            // Local Files (Phase 3): the file path is now a clickable control that opens
+                            // the full-screen viewer for that path (the copy button below is unchanged).
+                            <button
+                              type="button"
+                              className="chat-link-open chat-link-view"
+                              title={link.text}
+                              onClick={() => openFile(link.text)}
+                            >
+                              {chatPathLabel(link.text)}
+                            </button>
+                            )}
+                            {!link.isUrl && isNotOnDisk(pathStatuses, link.text) && (
+                              <span className="chat-link-missing">not on disk</span>
                           )}
-                          {!link.isUrl && isNotOnDisk(pathStatuses, link.text) && (
-                            <span className="chat-link-missing">not on disk</span>
-                        )}
-                        <button type="button" className="chat-link-copy" onClick={() => copyLink(link.text)}>
-                          {link.isUrl ? "Copy URL" : "Copy path"}
-                        </button>
-                        {copied === link.text && <span className="chat-link-copied">copied</span>}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                          <button type="button" className="chat-link-copy" onClick={() => copyLink(link.text)}>
+                            {link.isUrl ? "Copy URL" : "Copy path"}
+                          </button>
+                          {copied === link.text && <span className="chat-link-copied">copied</span>}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* The SAME controls as Terminal (shared SessionControls). The input row + Speak + Send is
           always visible for replying; a Keys toggle reveals the Enter/Esc/Stop + arrow rows. */}
