@@ -77,7 +77,7 @@ public static class SessionReceiptsEndpoint
             return Results.Json(new { error = "session not found" }, statusCode: StatusCodes.Status404NotFound);
         }
 
-        // THE FINISHED WORDS, ruled here so a client never composes a receipt (CLAUDE.md rule 7). The live stream words
+        // THE FINISHED WORDS, ruled here so a client never composes a receipt (the project rule 7). The live stream words
         // its receipt items with the same function, so a receipt reads the same on both.
         foreach (var receipt in stored)
         {

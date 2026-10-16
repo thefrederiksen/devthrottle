@@ -6,7 +6,7 @@ namespace CcDirector.Gateway.ApiModeDisplay;
 
 /// <summary>
 /// THE GATEWAY'S RULING ON WHAT AN API-MODE SESSION SHOWS, EVENT BY EVENT AND RECEIPT BY RECEIPT (mission #4070,
-/// phase 2; the event model is <c>docs/missions/api-mode-pi-2026-10-16/event-model.md</c>). CLAUDE.md rule 7: the
+/// phase 2; the event model is <c>docs/missions/api-mode-pi-2026-10-16/event-model.md</c>). The project rule 7: the
 /// client is dumb. Every word a client shows for a live event or a receipt is decided here, once, and travels as an
 /// <see cref="ApiModeLiveItem"/> or as <see cref="ApiModeReceiptDto.Words"/>; a client never composes one.
 ///

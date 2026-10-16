@@ -5,7 +5,7 @@ namespace CcDirector.Gateway.Contracts;
 /// <c>ApiModeLiveRuling</c> and rendered VERBATIM: a piece of the agent's reply, a tool card, the line that ends a turn,
 /// a prompt's receipt, or a line about the agent process. The client decides nothing from it - it finds the item on
 /// screen by <see cref="ItemId"/> and either appends <see cref="Text"/> to it or replaces it, as <see cref="Mode"/>
-/// says (CLAUDE.md rule 7: the client is dumb, the Gateway rules).
+/// says (the project rule 7: the client is dumb, the Gateway rules).
 /// </summary>
 public sealed class ApiModeLiveItem
 {

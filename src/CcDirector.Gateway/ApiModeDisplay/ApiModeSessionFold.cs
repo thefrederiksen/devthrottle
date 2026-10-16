@@ -7,7 +7,7 @@ namespace CcDirector.Gateway.ApiModeDisplay;
 
 /// <summary>
 /// THE GATEWAY'S VERDICT ON ONE API-MODE SESSION (mission #4070, phase 2), folded once here and stamped on the row every
-/// client reads (<see cref="SessionDto.ApiMode"/>). CLAUDE.md rule 7: the client renders it and decides nothing. Pure:
+/// client reads (<see cref="SessionDto.ApiMode"/>). The project rule 7: the client renders it and decides nothing. Pure:
 /// no input or output, no clock - the same facts give the same verdict.
 ///
 /// <para><b>Which fact comes from where, and what survives a Gateway restart.</b></para>
