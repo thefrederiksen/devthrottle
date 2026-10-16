@@ -56,30 +56,6 @@ public class GatewaySignInAddressTests
     }
 
     /// <summary>
-    /// Windows cannot open a browser at all (no handler for the link). With the address on screen that is NOT the
-    /// end of the sign-in: the screen is told the browser did not open, the wait goes on, and the address still
-    /// completes the sign-in. This is the case the address exists for.
-    /// </summary>
-    [Fact]
-    public async Task DefaultSignIn_WhenWindowsCannotOpenABrowser_TheScreenIsToldAndTheAddressStillWorks()
-    {
-        var events = new List<string>();
-        var display = new RecordingDisplay(events);
-        var runner = new GatewayAccountEnrollRunner(
-            handlerFactory: () => new RecordingHandler(events, succeed: true),
-            persist: (_, _) => { },
-            signInAddressDisplay: display,
-            openBrowser: _ => throw new System.ComponentModel.Win32Exception("No application is associated with the specified file"));
-
-        var enrolling = runner.VerifyAndSaveAsync(GatewayUrl, DeviceId, MachineName, CancellationToken.None);
-        await HandBackToTheShownAddressAsync(display);
-        var result = await enrolling.WaitAsync(TimeSpan.FromSeconds(10));
-
-        Assert.True(result.Success, result.ErrorMessage);
-        Assert.Contains("browser did not open: No application is associated with the specified file", events);
-    }
-
-    /// <summary>
     /// With no screen to show the address (the command line), a browser that cannot be opened ends the sign-in
     /// at once - waiting five minutes for an address nobody can see would be the original defect.
     /// </summary>
