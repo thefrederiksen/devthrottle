@@ -87,6 +87,7 @@ after it is written, long before a turn can be cut short, so the case splits in 
 |---|---|---|
 | Pi exits **after** acknowledging (mid-turn) | `PromptDelivered` stays: Delivered means Pi acknowledged it (section 3 of the mission document). The turn ends `TurnEnded`, `failed`, reason = the exit code and the standard error lines written since the turn started. Rule 5: the receipt shows that failed turn beside Delivered, so it never reads as a plain success. Then `ConnectionEnded`. | `exit` (real) |
 | Pi exits **before** acknowledging | `PromptRefused`, `refusedBy: director`, reason "Pi exited before acknowledging". No turn. Then `ConnectionEnded`. | `exit-before-ack` (real: Pi killed 50 milliseconds after the prompt was written; it wrote nothing) |
+| Pi acknowledged, then exited, or the Director's bound ran out, **before** `agent_start` | `TurnStarted` with the waiting prompts, then `TurnEnded`, `failed`, reason "Pi acknowledged the prompt but never started it", plus the exit code and the standard error lines written since the prompt was written when Pi exited, or that the Director is restarting Pi when the bound ran out (the Director never sends the prompt again on its own). When Pi exited, then `ConnectionEnded`. | None (Pi's own `--mode rpc` handler can acknowledge and then drop a prompt; no recording provokes it). Ruled by the Delivery Lead, 16 October 2026, on review finding 1 of #4076. |
 
 ## 3. The Pi mapping
 
