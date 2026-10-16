@@ -315,7 +315,7 @@ public sealed class FactoriesScreenFoldTests
     {
         var view = FactoriesScreenFold.List(Inputs(Array.Empty<RegisteredFactoryDto>()));
         Assert.Empty(view.Rows);
-        Assert.Contains("factory register", view.EmptyText);
+        Assert.Contains("New factory imports a definition folder", view.EmptyText);
     }
 
     // ---------- schedules outside any factory (issue #3650, point 5) ----------

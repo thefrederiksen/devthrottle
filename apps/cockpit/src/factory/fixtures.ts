@@ -317,6 +317,14 @@ export const FACTORY_LIST: FactoriesListView = {
     { id: "cj_money1", name: "Money Saver - daily", whenText: "Every day at 06:00 (fixture)", machine: "SOREN_NORTH", reason: "Names the factory 'money-saver', which is not registered (fixture)" },
   ],
   outsideEmptyText: null,
+  newFactory: {
+    label: "New factory",
+    busyLabel: "Importing...",
+    href: "/gateway/factories/new",
+    noteText: "New factory takes a zip of a definition folder. (fixture)",
+  },
+  draftTitle: "Not published yet",
+  draftRows: [],
 };
 
 export const FACTORY_PAGE: FactoryPageView = {

@@ -44,6 +44,10 @@ public sealed class FactoryTabDto
 {
     public string Key { get; set; } = "";
     public string Label { get; set; } = "";
+
+    /// <summary>Set when the tab has nothing to show yet: the one sentence the Cockpit shows in its place. A factory that
+    /// is not published yet has only its Definition tab (Factory Definition, phase 6b).</summary>
+    public string? NotYetText { get; set; }
 }
 
 /// <summary>One choice in a filter list: the value sent back to the Gateway and the words shown.</summary>

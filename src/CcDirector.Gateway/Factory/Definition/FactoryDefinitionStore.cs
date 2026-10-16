@@ -127,6 +127,28 @@ public sealed class FactoryDefinitionStore
     }
 
     /// <summary>
+    /// EVERY FACTORY WITH A DEFINITION AND NOTHING PUBLISHED (Factory Definition, phase 6b): the factories whose versions
+    /// are all drafts, by id, with the newest of them. A factory imported with New factory is one of these until its
+    /// first publish registers it. Read without any content.
+    /// </summary>
+    public IReadOnlyList<FactoryDefinitionVersionSummary> Unpublished(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var published = ctx.FactoryDefinitions.AsNoTracking()
+                .Where(v => v.State == FactoryDefinitionStates.Published)
+                .Select(v => v.Factory).Distinct().ToList();
+            var factories = ctx.FactoryDefinitions.AsNoTracking()
+                .Select(v => v.Factory).Distinct().ToList()
+                .Where(f => !published.Contains(f, StringComparer.Ordinal))
+                .OrderBy(f => f, StringComparer.Ordinal)
+                .ToList();
+            return factories.Select(f => Newest(ctx, f)!).ToList();
+        }
+    }
+
+    /// <summary>
     /// ONE PAGE of one factory's history, newest first, WITHOUT ANY VERSION'S CONTENT. <paramref name="before"/> is
     /// the version the page starts below - null for the newest page - and the page says where the next one starts,
     /// or that there is none. <see cref="Find"/> reads one version with its content.

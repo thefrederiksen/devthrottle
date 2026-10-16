@@ -9,6 +9,7 @@ import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { OwnerActionButton, StatusWord, TalkButton, ToneChip } from "./FactoryParts";
 import { FactoryManagerCard } from "./FactoryManagerCard";
+import { DraftFactories, NewFactoryButton } from "./FactoryNew";
 import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import {
   FACTORY_VIEW_MODES,
@@ -154,13 +155,16 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
   if (view.emptyText !== null)
     return (
       <div className="fa-tab-body">
+        <NewFactoryButton view={view} />
         <EmptyState message={view.emptyText} />
+        <DraftFactories view={view} />
         {archived}
         <OutsideAnyFactory view={view} />
       </div>
     );
   return (
     <div className="fa-tab-body">
+      <NewFactoryButton view={view} />
       {view.truncatedText !== null && <div className="fa-warn">{view.truncatedText}</div>}
       <div className="fa-strip" data-testid="fa-strip" aria-label="Factory counts">
         <StripNumber testId="fa-strip-total" n={counts.total} label={counts.total === 1 ? "factory" : "factories"} tone="" />
@@ -298,6 +302,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
       <p className="fa-footnote" data-testid="fa-sort-footer">
         {sortFooter(order)}
       </p>
+      <DraftFactories view={view} />
       {archived}
       <OutsideAnyFactory view={view} />
     </div>

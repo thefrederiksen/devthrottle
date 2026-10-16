@@ -231,6 +231,8 @@ export interface FactoryDefinitionImported {
   version: number;
   doneText: string;
   findings: FactoryDefinitionFinding[];
+  /** Set by New factory: the new factory's page, on its Definition tab. */
+  openHref?: string | null;
 }
 
 /**

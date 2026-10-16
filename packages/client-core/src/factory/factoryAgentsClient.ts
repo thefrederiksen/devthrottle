@@ -28,6 +28,11 @@ export interface FactoryAgentsSwitch {
 export interface FactoryTab {
   key: string;
   label: string;
+  /**
+   * Set when the tab has nothing to show yet: the one sentence shown in its place. A factory that is not published yet
+   * has only its Definition tab (Factory Definition, phase 6b). Optional: the list's tabs never carry it.
+   */
+  notYetText?: string | null;
 }
 
 export interface FactoryChoice {
