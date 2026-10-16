@@ -34,6 +34,21 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     /// <summary>Writes each line in two halves with a yield between, so unserialised writers would interleave.</summary>
     public bool WriteInHalves { get; init; }
 
+    /// <summary>Every write blocks until the process exits, then fails: an agent that stopped reading its full input pipe.</summary>
+    public bool BlockWrites { get; init; }
+
+    /// <summary>The write exits the process and fails with a broken pipe, as a write racing the agent's exit does.</summary>
+    public bool ExitDuringWrite { get; init; }
+
+    /// <summary>The exit code a kill reports: 137 as on Linux, or -1 as on Windows.</summary>
+    public int KillExitCode { get; init; } = 137;
+
+    /// <summary>When set, reading standard error throws it.</summary>
+    public Exception? ErrorReadFailure { get; init; }
+
+    /// <summary>When set, a cancelled output read throws this instead of a cancellation, as a read on a closed Windows handle does.</summary>
+    public Exception? CancelledReadFailure { get; init; }
+
     public ApiModeProcessStartInfo? StartedWith { get; private set; }
     public int KillCount { get; private set; }
     public bool InputClosed => _inputClosed;
@@ -61,6 +76,16 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     {
         if (_inputClosed || HasExited)
             throw new IOException("The pipe is being closed.");
+        if (ExitDuringWrite)
+        {
+            Exit(0);
+            throw new IOException("Broken pipe");
+        }
+        if (BlockWrites)
+        {
+            await _exit.Task;
+            throw new IOException("The pipe is being closed.");
+        }
 
         if (WriteInHalves)
         {
@@ -84,7 +109,18 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     {
         while (_currentOffset >= _current.Length)
         {
-            if (!await _output.Reader.WaitToReadAsync(cancellationToken))
+            if (CancelledReadFailure is not null && cancellationToken.IsCancellationRequested)
+                throw CancelledReadFailure;
+            bool more;
+            try
+            {
+                more = await _output.Reader.WaitToReadAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (CancelledReadFailure is not null)
+            {
+                throw CancelledReadFailure;
+            }
+            if (!more)
                 return 0;
             if (_output.Reader.TryRead(out var next))
             {
@@ -101,6 +137,8 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
 
     public async ValueTask<string?> ReadErrorLineAsync(CancellationToken cancellationToken)
     {
+        if (ErrorReadFailure is not null)
+            throw ErrorReadFailure;
         if (!await _error.Reader.WaitToReadAsync(cancellationToken))
             return null;
         return _error.Reader.TryRead(out var line) ? line : await ReadErrorLineAsync(cancellationToken);
@@ -118,7 +156,7 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     public void Kill()
     {
         KillCount++;
-        Exit(137);
+        Exit(KillExitCode);
     }
 
     public void Dispose()

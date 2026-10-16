@@ -32,7 +32,10 @@ public interface IApiModeProcess : IDisposable
     /// <summary>Read the next line of standard error, or null at the end of the stream.</summary>
     ValueTask<string?> ReadErrorLineAsync(CancellationToken cancellationToken);
 
-    /// <summary>Wait for the process to exit and return its exit code (on Linux and macOS, 128 plus the signal for a process ended by a signal).</summary>
+    /// <summary>
+    /// Wait for the process to exit and return its exit code as the operating system reports it: on Linux and macOS
+    /// 128 plus the signal for a process ended by a signal (137 for a kill), on Windows -1 for a killed process.
+    /// </summary>
     Task<int> WaitForExitAsync(CancellationToken cancellationToken);
 
     /// <summary>Close standard input: the polite way to ask the process to exit.</summary>

@@ -35,8 +35,9 @@ public sealed record ApiModeTransportOptions
 /// - Reads standard output continuously, so the agent never stalls on a full pipe, and cuts it into records
 ///   on line feed only (<see cref="NewlineJsonFramer"/>).
 /// - Writes one JSON object per line, one write at a time.
-/// - Matches a response to the request waiting for it by id (<see cref="SendRequestAsync"/>). A request still
-///   waiting when the process ends fails with <see cref="ApiModeConnectionEndedException"/>.
+/// - Matches a response to the request waiting for it by id (<see cref="SendRequestAsync"/>). A request that
+///   cannot be answered because the process ended - still waiting at the end, or written after the process
+///   exited - fails with <see cref="ApiModeConnectionEndedException"/>, which carries how it ended.
 /// - Delivers EVERY record, matched or not, to one consumer through <see cref="Events"/>, in wire order, and
 ///   then exactly one <see cref="ApiModeProcessEnded"/> as the last event.
 /// - Holds standard error lines with a sequence number, so a failure reason can use only the lines written
@@ -44,6 +45,11 @@ public sealed record ApiModeTransportOptions
 /// </summary>
 public sealed class ApiModeTransport : IAsyncDisposable
 {
+    private const int NotStarted = 0;
+    private const int Starting = 1;
+    private const int Running = 2;
+    private const int StartFailed = 3;
+
     private readonly IApiModeProcess _process;
     private readonly TimeProvider _timeProvider;
     private readonly ApiModeTransportOptions _options;
@@ -65,10 +71,12 @@ public sealed class ApiModeTransport : IAsyncDisposable
     private long _errorSequence;
 
     private long _nextRequestNumber;
-    private int _started;
+    private int _state = NotStarted;
+    private int _killedByTransport;
     private Task _outputLoop = Task.CompletedTask;
     private Task _errorLoop = Task.CompletedTask;
     private string? _outputFault;
+    private string? _errorFault;
     private string? _unterminatedOutput;
 
     public ApiModeTransport(IApiModeProcess process, TimeProvider? timeProvider = null, ApiModeTransportOptions? options = null)
@@ -94,14 +102,18 @@ public sealed class ApiModeTransport : IAsyncDisposable
 
     /// <summary>
     /// Start the agent process and begin reading it. Throws <see cref="ApiModeStartException"/> when the process
-    /// cannot be started, naming the executable and why. A transport is started once.
+    /// cannot be started, naming the executable and why. A transport is started once; one whose start failed can
+    /// only be disposed.
     /// </summary>
     public void Start(ApiModeProcessStartInfo startInfo)
     {
         ArgumentNullException.ThrowIfNull(startInfo);
         FileLog.Write($"[ApiModeTransport] Start: {startInfo.Describe()}");
-        if (Interlocked.Exchange(ref _started, 1) != 0)
-            throw new InvalidOperationException("This API-mode transport was already started; start a new one for a new process.");
+        var previous = Interlocked.CompareExchange(ref _state, Starting, NotStarted);
+        if (previous != NotStarted)
+            throw new InvalidOperationException(previous == StartFailed
+                ? "This API-mode transport's start failed; start a new one."
+                : "This API-mode transport was already started; start a new one for a new process.");
 
         try
         {
@@ -109,6 +121,7 @@ public sealed class ApiModeTransport : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            Volatile.Write(ref _state, StartFailed);
             FileLog.Write($"[ApiModeTransport] Start FAILED: {ex.Message}");
             throw;
         }
@@ -116,13 +129,15 @@ public sealed class ApiModeTransport : IAsyncDisposable
         _outputLoop = Task.Run(ReadOutputLoopAsync);
         _errorLoop = Task.Run(ReadErrorLoopAsync);
         _ = Task.Run(WatchForExitAsync);
+        Volatile.Write(ref _state, Running);
         FileLog.Write($"[ApiModeTransport] Start: process {_process.ProcessId} running");
     }
 
     /// <summary>
     /// Write <paramref name="command"/> and wait for the record whose id matches. When the command has no id, one is
     /// given (on a copy; the caller's object is not changed). Cancelling stops the wait only; the line may already
-    /// be written. Throws <see cref="ApiModeConnectionEndedException"/> when the process ends first.
+    /// be written. Throws <see cref="ApiModeConnectionEndedException"/> when the process ends first, or has already
+    /// exited when the line is written.
     /// </summary>
     public async Task<ApiModeRecord> SendRequestAsync(JsonObject command, CancellationToken cancellationToken)
     {
@@ -152,7 +167,7 @@ public sealed class ApiModeTransport : IAsyncDisposable
 
         try
         {
-            await WriteLineAsync(request, cancellationToken).ConfigureAwait(false);
+            await WriteLineAsync(request, $"Request {id} ({label})", cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -167,20 +182,32 @@ public sealed class ApiModeTransport : IAsyncDisposable
         return response;
     }
 
-    /// <summary>Write one record that expects no response (a notification, or an answer to the agent's own request).</summary>
+    /// <summary>
+    /// Write one record that expects no response (a notification, or an answer to the agent's own request). Throws
+    /// <see cref="ApiModeConnectionEndedException"/> when the process has ended or already exited.
+    /// </summary>
     public async Task WriteRecordAsync(JsonObject record, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(record);
-        FileLog.Write($"[ApiModeTransport] WriteRecordAsync: record={LabelOf(record)}");
+        var label = LabelOf(record);
+        FileLog.Write($"[ApiModeTransport] WriteRecordAsync: record={label}");
         lock (_gate)
         {
             ThrowIfNotRunning();
             if (_endedRecord is not null)
                 throw new ApiModeConnectionEndedException(
-                    $"Record {LabelOf(record)} was not sent: the agent process already ended ({_endedRecord.Describe()}).", _endedRecord);
+                    $"Record {label} was not sent: the agent process already ended ({_endedRecord.Describe()}).", _endedRecord);
         }
 
-        await WriteLineAsync(record, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await WriteLineAsync(record, $"Record {label}", cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ApiModeTransport] WriteRecordAsync FAILED: record={label}: {ex.Message}");
+            throw;
+        }
     }
 
     /// <summary>
@@ -212,7 +239,9 @@ public sealed class ApiModeTransport : IAsyncDisposable
 
     /// <summary>
     /// Ask the process to exit by closing its standard input; if it has not ended within <paramref name="grace"/>,
-    /// kill it. Returns how it ended. Safe to call after the process already ended.
+    /// kill it. The grace starts at once: a write stuck on a full pipe (an agent that stopped reading) cannot hold
+    /// the kill back, because the input is closed only if the write lock comes free within the grace. Returns how
+    /// it ended. Safe to call after the process already ended.
     /// </summary>
     public async Task<ApiModeProcessEnded> ShutdownAsync(TimeSpan grace, CancellationToken cancellationToken)
     {
@@ -221,25 +250,38 @@ public sealed class ApiModeTransport : IAsyncDisposable
 
         if (!_ended.Task.IsCompleted)
         {
-            await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                _process.CloseInput();
-            }
-            finally
-            {
-                _writeLock.Release();
-            }
-
             using var graceCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var graceElapsed = Task.Delay(grace, _timeProvider, graceCancellation.Token);
-            var first = await Task.WhenAny(_ended.Task, graceElapsed).ConfigureAwait(false);
+            var lockTaken = _writeLock.WaitAsync(graceCancellation.Token);
+            var first = await Task.WhenAny(lockTaken, graceElapsed, _ended.Task).ConfigureAwait(false);
+            if (first == lockTaken && lockTaken.IsCompletedSuccessfully)
+            {
+                try
+                {
+                    if (!_ended.Task.IsCompleted)
+                        _process.CloseInput();
+                }
+                finally
+                {
+                    _writeLock.Release();
+                }
+
+                first = await Task.WhenAny(graceElapsed, _ended.Task).ConfigureAwait(false);
+            }
+            else
+            {
+                // The lock may still be granted after we stop waiting for it; whoever gets it must give it back.
+                _ = lockTaken.ContinueWith(
+                    taken => { if (taken.IsCompletedSuccessfully) _writeLock.Release(); },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+
             graceCancellation.Cancel();
             cancellationToken.ThrowIfCancellationRequested();
-            if (first != _ended.Task)
+            if (!_ended.Task.IsCompleted)
             {
-                FileLog.Write($"[ApiModeTransport] ShutdownAsync: process {_process.ProcessId} did not exit within {grace.TotalMilliseconds}ms of closing its input; killing it");
-                _process.Kill();
+                FileLog.Write($"[ApiModeTransport] ShutdownAsync: process {_process.ProcessId} did not exit within {grace.TotalMilliseconds}ms; killing it");
+                KillByTransport();
             }
         }
 
@@ -248,15 +290,23 @@ public sealed class ApiModeTransport : IAsyncDisposable
         return ended;
     }
 
-    /// <summary>Kill the process if it is still running, wait for the end to be reported, and release the process.</summary>
+    /// <summary>
+    /// Kill the process if it is still running, wait for the end to be reported and for both read loops to stop,
+    /// and release the process. Safe after a failed start: there is nothing to kill or wait for.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         FileLog.Write($"[ApiModeTransport] DisposeAsync: process {_process.ProcessId}");
-        if (Volatile.Read(ref _started) == 1)
+        if (Volatile.Read(ref _state) == Running)
         {
             if (!_ended.Task.IsCompleted)
-                _process.Kill();
+                KillByTransport();
             await _ended.Task.ConfigureAwait(false);
+
+            // The loops may still be reading pipes a grandchild holds open; stop them and wait, so nothing they
+            // touch is disposed under them.
+            _readCancellation.Cancel();
+            await Task.WhenAll(_outputLoop, _errorLoop).ConfigureAwait(false);
         }
 
         _process.Dispose();
@@ -264,7 +314,7 @@ public sealed class ApiModeTransport : IAsyncDisposable
         _writeLock.Dispose();
     }
 
-    private async Task WriteLineAsync(JsonObject record, CancellationToken cancellationToken)
+    private async Task WriteLineAsync(JsonObject record, string what, CancellationToken cancellationToken)
     {
         // The serialiser never writes a raw line feed (it escapes one inside a string), so this is one line.
         var json = record.ToJsonString();
@@ -273,14 +323,35 @@ public sealed class ApiModeTransport : IAsyncDisposable
         bytes[^1] = (byte)'\n';
 
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var written = false;
+        Exception? writeFailure = null;
         try
         {
-            await _process.WriteLineAsync(bytes, cancellationToken).ConfigureAwait(false);
+            if (!_process.HasExited)
+            {
+                await _process.WriteLineAsync(bytes, cancellationToken).ConfigureAwait(false);
+                written = true;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && _process.HasExited)
+        {
+            // not-an-error: the process is gone, so the broken pipe is only the symptom; the caller is told how it ended below
+            FileLog.Write($"[ApiModeTransport] WriteLineAsync: {what} could not be written because the process exited ({ex.Message})");
+            writeFailure = ex;
         }
         finally
         {
             _writeLock.Release();
         }
+
+        if (written)
+            return;
+
+        // The process is gone but the end is not reported yet (it waits for the output to drain). Wait for it -
+        // never longer than the drain grace - so the caller learns how the process ended, not that a pipe broke.
+        var ended = await _ended.Task.ConfigureAwait(false);
+        throw new ApiModeConnectionEndedException(
+            $"{what} was not sent: the agent process ended ({ended.Describe()}).", ended, writeFailure);
     }
 
     private async Task ReadOutputLoopAsync()
@@ -303,16 +374,17 @@ public sealed class ApiModeTransport : IAsyncDisposable
                 _unterminatedOutput = Encoding.UTF8.GetString(tail);
             FileLog.Write($"[ApiModeTransport] ReadOutputLoopAsync: standard output ended after {Interlocked.Read(ref _recordSequence)} records");
         }
-        catch (OperationCanceledException) when (_readCancellation.IsCancellationRequested)
+        catch (Exception ex) when (_readCancellation.IsCancellationRequested)
         {
-            // not-an-error: the exit watcher stopped the read after the drain grace, and it reports the end itself
-            FileLog.Write("[ApiModeTransport] ReadOutputLoopAsync: stopped reading; the process ended but its output was still open");
+            // not-an-error: the read was stopped on purpose (the drain grace ran out, or the transport is being disposed); the end is reported by the exit watcher
+            FileLog.Write($"[ApiModeTransport] ReadOutputLoopAsync: stopped reading on request ({ex.GetType().Name})");
         }
         catch (Exception ex)
         {
-            _outputFault = ex.Message;
-            FileLog.Write($"[ApiModeTransport] ReadOutputLoopAsync FAILED: {ex.Message}; killing process {_process.ProcessId}");
-            _process.Kill();
+            _outputFault = $"reading standard output failed: {ex.Message}";
+            FileLog.Write($"[ApiModeTransport] ReadOutputLoopAsync FAILED: {ex.Message}");
+            if (!_ended.Task.IsCompleted)
+                KillByTransport();
         }
     }
 
@@ -332,20 +404,24 @@ public sealed class ApiModeTransport : IAsyncDisposable
                 FileLog.Write($"[ApiModeTransport] process {_process.ProcessId} standard error: {text}");
             }
         }
-        catch (OperationCanceledException) when (_readCancellation.IsCancellationRequested)
+        catch (Exception ex) when (_readCancellation.IsCancellationRequested)
         {
-            // not-an-error: the exit watcher stopped the read after the drain grace, and it reports the end itself
-            FileLog.Write("[ApiModeTransport] ReadErrorLoopAsync: stopped reading; the process ended but its standard error was still open");
+            // not-an-error: the read was stopped on purpose (the drain grace ran out, or the transport is being disposed); the end is reported by the exit watcher
+            FileLog.Write($"[ApiModeTransport] ReadErrorLoopAsync: stopped reading on request ({ex.GetType().Name})");
         }
         catch (Exception ex)
         {
+            // The end record must say the standard error lines are incomplete, or a failure reason built from them
+            // would read as "the agent wrote nothing".
+            _errorFault = $"reading standard error failed, so its lines may be incomplete: {ex.Message}";
             FileLog.Write($"[ApiModeTransport] ReadErrorLoopAsync FAILED: {ex.Message}");
         }
     }
 
     private async Task WatchForExitAsync()
     {
-        int exitCode;
+        int? exitCode;
+        string? watchFault = null;
         try
         {
             exitCode = await _process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
@@ -364,11 +440,17 @@ public sealed class ApiModeTransport : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[ApiModeTransport] WatchForExitAsync FAILED: {ex.Message}");
-            _outputFault ??= $"the exit code could not be read: {ex.Message}";
-            exitCode = -1;
+            watchFault = $"the exit code could not be read: {ex.Message}";
+            exitCode = null;
         }
 
-        Complete(exitCode);
+        Complete(exitCode, watchFault);
+    }
+
+    private void KillByTransport()
+    {
+        Interlocked.Exchange(ref _killedByTransport, 1);
+        _process.Kill();
     }
 
     private void Deliver(byte[] line)
@@ -429,7 +511,7 @@ public sealed class ApiModeTransport : IAsyncDisposable
         answered?.Completion.TrySetResult(record);
     }
 
-    private void Complete(int exitCode)
+    private void Complete(int? exitCode, string? watchFault)
     {
         ApiModeProcessEnded ended;
         List<PendingRequest> orphaned;
@@ -440,12 +522,14 @@ public sealed class ApiModeTransport : IAsyncDisposable
             List<ApiModeErrorLine> errorLines;
             lock (_errorGate)
                 errorLines = _errorLines.ToList();
+            var faults = new[] { _outputFault, _errorFault, watchFault }.OfType<string>().ToList();
             ended = new ApiModeProcessEnded
             {
                 ExitCode = exitCode,
+                KilledByTransport = Volatile.Read(ref _killedByTransport) == 1,
                 ErrorLines = errorLines,
                 UnterminatedOutput = _unterminatedOutput,
-                TransportFault = _outputFault,
+                TransportFault = faults.Count == 0 ? null : string.Join("; ", faults),
             };
             _endedRecord = ended;
             orphaned = _pending.Values.ToList();
@@ -466,15 +550,18 @@ public sealed class ApiModeTransport : IAsyncDisposable
 
     private string ReadOrAssignId(JsonObject request)
     {
-        if (request[_options.IdPropertyName] is JsonValue existing)
-        {
-            if (existing.TryGetValue<string>(out var text))
-                return text;
-            return existing.ToJsonString();
-        }
-
         if (request.ContainsKey(_options.IdPropertyName))
+        {
+            // Only a string or a number can come back as a matchable id (see Deliver); anything else would wait forever.
+            if (request[_options.IdPropertyName] is JsonValue existing)
+            {
+                if (existing.TryGetValue<string>(out var text))
+                    return text;
+                if (existing.GetValueKind() == JsonValueKind.Number)
+                    return existing.ToJsonString();
+            }
             throw new ArgumentException($"The command's {_options.IdPropertyName} must be a string or a number.", nameof(request));
+        }
 
         var id = $"req-{Interlocked.Increment(ref _nextRequestNumber)}";
         request[_options.IdPropertyName] = id;
@@ -493,8 +580,15 @@ public sealed class ApiModeTransport : IAsyncDisposable
 
     private void ThrowIfNotRunning()
     {
-        if (Volatile.Read(ref _started) == 0)
-            throw new InvalidOperationException("The API-mode transport has not been started.");
+        switch (Volatile.Read(ref _state))
+        {
+            case Running:
+                return;
+            case StartFailed:
+                throw new InvalidOperationException("The API-mode transport's start failed; nothing can be sent.");
+            default:
+                throw new InvalidOperationException("The API-mode transport has not been started.");
+        }
     }
 
     private static string Truncate(string text) => text.Length <= 200 ? text : text[..200] + "...";

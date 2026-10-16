@@ -25,8 +25,8 @@ public sealed class ApiModeStartException : Exception
 /// </summary>
 public sealed class ApiModeConnectionEndedException : Exception
 {
-    public ApiModeConnectionEndedException(string message, ApiModeProcessEnded ended)
-        : base(message)
+    public ApiModeConnectionEndedException(string message, ApiModeProcessEnded ended, Exception? innerException = null)
+        : base(message, innerException)
     {
         Ended = ended;
     }

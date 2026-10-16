@@ -76,8 +76,20 @@ public sealed class SystemApiModeProcess : IApiModeProcess
 
         _process = process;
         _input = process.StandardInput.BaseStream;
-        _output = process.StandardOutput.BaseStream;
-        _error = process.StandardError;
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows gives a child synchronous pipes, whose reads cannot be cancelled; read them on threads of their
+            // own so the transport can always stop reading (see DedicatedThreadReadStream).
+            _output = new DedicatedThreadReadStream(process.StandardOutput.BaseStream, $"process {process.Id} standard output");
+            _error = new StreamReader(
+                new DedicatedThreadReadStream(process.StandardError.BaseStream, $"process {process.Id} standard error"),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+        else
+        {
+            _output = process.StandardOutput.BaseStream;
+            _error = process.StandardError;
+        }
         ProcessId = process.Id;
         FileLog.Write($"[SystemApiModeProcess] Start: process {ProcessId} started from {resolved}");
     }
@@ -134,6 +146,12 @@ public sealed class SystemApiModeProcess : IApiModeProcess
     public void Dispose()
     {
         FileLog.Write($"[SystemApiModeProcess] Dispose: process {ProcessId}");
+        // The Windows read streams cancel their blocked reads on disposal; the process's own streams close with it.
+        if (OperatingSystem.IsWindows())
+        {
+            _output?.Dispose();
+            _error?.Dispose();
+        }
         _process?.Dispose();
     }
 }

@@ -123,7 +123,17 @@ been started". And a hung `DisposeAsync` hangs whatever tears the session down. 
 `Start_ExecutableMissing_ThrowsNamingTheExecutable` does not dispose the transport, which is why
 the suite does not see this.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** The transport now has four states: not started, starting, running and
+start failed. A failed `_process.Start` sets "start failed" before it rethrows. `DisposeAsync` kills and waits only
+for a transport that is running, so after a failed start it just releases the process. `SendRequestAsync`,
+`WriteRecordAsync` and `ShutdownAsync` refuse with "the API-mode transport's start failed". A second `Start` says
+the same, so a caller never retries on a broken transport.
+Tests: `DisposeAsync_AfterAFailedStart_CompletesAndTheCallerSeesTheStartFailure` (the fake, in the `await using`
+shape phase 2 will use), `DisposeAsync_AfterTheRealProcessFailedToStart_TheCallerSeesTheStartFailure` (the real
+`SystemApiModeProcess`, with a working folder that cannot exist, so nothing is spawned) and
+`SendRequestAsync_AfterAFailedStart_ThrowsSayingTheStartFailed`. Against `a0b3eb0c4` the first and third hung
+(stopped after 60 seconds) and the second failed with `InvalidOperationException`, which is exactly what you
+reported.
 
 ### Finding 2: between the process exiting and the end being reported, a request fails with a pipe error instead of the stated connection-ended reason
 
@@ -152,7 +162,18 @@ no exit code, no error lines and the wrong type, so the user is shown a broken p
 why Pi went away. The window is not theoretical: it is the whole drain, and with a grandchild
 holding the pipes it is five seconds.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** Both write paths now go through one helper. If the process has already
+exited, the line is not written at all. If the write fails while the process has exited (checked in an exception
+filter, so a pipe error on a live process is still rethrown as it is), the pipe error is kept as the inner
+exception. In both cases the helper waits for the end record, which comes within the drain grace, and throws
+`ApiModeConnectionEndedException` carrying the exit code, the standard error lines and any fault. A write that
+succeeded is never reported as unsent, even if the process exits straight after it: a response may already be on
+its way.
+Tests: `SendRequestAsync_ProcessExitedButTheEndIsNotReportedYet_FailsWithConnectionEndedAndTheExitCode`
+(your scenario: a grandchild holds the pipes, `FakeTimeProvider`, and it asserts nothing was written),
+`SendRequestAsync_TheWriteRacesTheExit_FailsWithConnectionEndedCarryingThePipeError` and
+`WriteRecordAsync_TheWriteRacesTheExit_FailsWithConnectionEnded`. Against `a0b3eb0c4` the first hung and the
+other two failed (they got `IOException`).
 
 ### Finding 3: the timed kill in ShutdownAsync is only armed after the write lock is taken, so a write stuck on a full standard input pipe prevents the kill from ever starting
 
@@ -174,7 +195,14 @@ armed. `DisposeAsync` kills without the lock and so still works, but `ShutdownAs
 method phase 2 will call for a close, and a hung Pi then hangs the close. Reasoned from the code;
 not run, because the fake's write never blocks.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** `ShutdownAsync` now arms the grace timer first and then waits for
+whichever comes first: the write lock, the end, or the grace running out. Input is closed only if the lock comes
+free in time. Otherwise the wait for the lock is dropped (a continuation releases the lock if it is granted later)
+and the process is killed when the grace runs out. The kill also ends the stuck write, which now fails with
+`ApiModeConnectionEndedException` (finding 2).
+Test: `ShutdownAsync_AWriteIsStuckOnAFullPipe_KillsWhenTheGraceRunsOut`. A new `BlockWrites` fake holds the write
+lock forever. The test advances the fake clock by the grace, then asserts the kill, that input was never closed,
+and that the stuck write fails with "killed by the transport". Against `a0b3eb0c4` it hung.
 
 ### Finding 4: on Windows a killed process reports exit code -1, which the end record documents as "only when the exit code could not be read"
 
@@ -197,7 +225,23 @@ show "-1" where the design says 137. The transport works on Windows, Linux and m
 requirement, so the record's contract must say what Windows reports, and the dialect must not
 treat -1 as "could not be read".
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** I could not observe this on Windows from devlinux, but the runtime line
+you cite is the kind of evidence the Tech Lead asked for, and the fix is right on every platform. Changes:
+- `ApiModeProcessEnded.ExitCode` is now `int?`. It is null only when the exit code could not be read, and then
+  `TransportFault` says why. The record documents -1 on Windows as an ordinary exit code, never "unknown".
+- A new `KilledByTransport` flag is set by every kill the transport makes (shutdown grace, disposal, a line over
+  the limit), so nobody has to read the number to know.
+- `Describe()` says "exit code -1, killed by the transport".
+- The `IApiModeProcess.WaitForExitAsync` summary names both platforms.
+- The fixture tests keep asserting 137 because the fake reports 137, as Linux does; the fake now has a
+  `KillExitCode` setting.
+
+Note for phase 1's dialect: build the "Pi exited during the turn" reason from `Describe()`, or from `ExitCode` plus
+`KilledByTransport`, and never treat -1 as "could not be read".
+Tests: `Ended_KilledOnWindows_MinusOneIsAnOrdinaryExitCodeWithNoFault` and the control
+`Ended_ProcessExitsOnItsOwn_IsNotKilledByTheTransport`. Against `a0b3eb0c4` the first failed (the old `Describe()`
+has no "killed by the transport"); the control passes on both, as a control should. Still unobserved on a real
+Windows machine: the Windows gate on SORENLAPTOP is the first run there.
 
 ### Finding 5: on Windows the read cancellation after the drain grace does not interrupt the reads, so every session whose grandchild holds the pipes leaves two thread-pool threads blocked until that grandchild exits
 
@@ -222,7 +266,29 @@ many sessions pays it per session. The transport reports the end, so nothing han
 leak, and the design comment at line 308 ("the exit watcher stopped the read") is not true there.
 Read from the runtime source, not observed.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed, with one gap stated.** On Windows only, `SystemApiModeProcess` now wraps
+standard output and standard error in a new `DedicatedThreadReadStream`:
+- The blocking pipe read runs on a thread of its own and hands chunks over through a bounded channel.
+- The transport's read waits on that channel, which cancellation always ends. So the loops stop promptly after
+  the drain grace and on disposal, and no pool thread is ever held.
+- When the stream is disposed (`SystemApiModeProcess.Dispose`), it calls `CancelSynchronousIo` on the reader
+  thread, so the blocked `ReadFile` returns and the thread ends.
+- Linux and macOS keep the runtime's own streams, whose reads cancel already. A dedicated thread there could not be
+  interrupted and would be a new leak.
+
+**The gap, stated in the class's own documentation:** the reader thread checks for disposal, then calls Read. A
+read that starts in the instant between that check and the cancel is not interrupted. That one thread then stays
+blocked until the pipe closes, but it is a dedicated thread, not a pool thread.
+
+**What is proven and what is not:** the stream's behaviour is unit tested on Linux with a stream whose Read blocks
+the way a synchronous pipe does (`DedicatedThreadReadStreamTests`):
+- bytes are passed through in order, and the end of the stream returns 0
+- a cancelled read ends at once while the blocking read is still waiting
+- a failed read surfaces its own exception
+- a buffer smaller than a chunk gets the rest on the next read
+
+The `CancelSynchronousIo` call is Windows-only and has not been run. The Windows gate on SORENLAPTOP compiles it,
+but it is first exercised by a real Windows session whose grandchild holds the pipes.
 
 ### Finding 6: after the drain grace the watcher reports the end without waiting for the loops it cancelled, and DisposeAsync then disposes what those loops still use; the output loop's catch handler then calls Kill on a disposed process, which throws out of the catch
 
@@ -247,7 +313,21 @@ the only evidence of what went wrong, and a log line that states a kill that did
 Narrow on Linux (a window between two statements), ordinary on Windows (every drain-grace end).
 Reasoned from the code; not run.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** Three changes:
+- `DisposeAsync` now cancels the reads and waits for both read loops to finish before it disposes the process or
+  the cancellation source. Neither loop can throw (each catches at its own entry), and with finding 5 both always
+  stop on cancellation, on Windows too.
+- In both loops, any exception raised after a requested stop (`catch (Exception) when
+  (_readCancellation.IsCancellationRequested)`) is recorded as a requested stop. It is not a fault and does not
+  trigger a kill, so an `ObjectDisposedException` or a closed-handle `IOException` from an abandoned read no longer
+  writes a fault onto a record that has already been published.
+- A real output failure kills only if the end has not been reported, and its log line no longer claims a kill
+  that did not happen.
+
+Test: `DisposeAsync_AfterTheDrainGraceReadsFailOnTheirClosedPipe_NoFaultAndNoKill`. A new
+`CancelledReadFailure` fake setting makes a stopped read throw `ObjectDisposedException`, as a closed Windows handle
+does. The test asserts no transport fault and no kill. Against `a0b3eb0c4` it failed (the old general catch called
+Kill).
 
 ### Finding 7: a failure of the standard error read loop is logged and swallowed, so the end record and ErrorLinesSince are silently empty exactly when a failure reason is being built
 
@@ -263,7 +343,12 @@ section 3.5, with nothing on the record to say lines were lost. The user reads "
 the turn (exit code 1)" and nothing else, and nobody is told the diagnostics were dropped. Small,
 and the fix is one assignment, but it is the one place in the transport where a failure hides.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** A failure of the standard error loop now records
+"reading standard error failed, so its lines may be incomplete: <reason>". `Complete` joins it with any
+output-read fault and any failure to read the exit code into `ApiModeProcessEnded.TransportFault`. So a reason
+built from the lines carries, on the same record, the fact that lines were lost.
+Test: `Ended_ReadingStandardErrorFails_TheFaultSaysTheLinesMayBeIncomplete` (a new `ErrorReadFailure` fake
+setting). Against `a0b3eb0c4` it failed (no fault on the record).
 
 ## 4. Observations that are not findings
 
@@ -278,3 +363,22 @@ Developer's answer:
 - On Linux the kill exit code of 137 that the fixtures assert comes from the native shim
   (128 plus the signal); I did not re-prove it, since phase 0 stated it and the transport only
   passes `Process.ExitCode` through.
+
+## Developer's answers to the observations in section 4
+
+- **`HasExited` unused:** it is used now. The write path asks it whether a failed write means the process is gone
+  (finding 2).
+- **A boolean id would wait forever:** fixed. `ReadOrAssignId` now accepts only a string or a number and refuses
+  anything else with `ArgumentException` before writing (`SendRequestAsync_BooleanId_ThrowsBecauseNoResponseCouldEverMatchIt`;
+  against `a0b3eb0c4` it hung).
+- **Standard error is read with `ReadLineAsync`:** agreed, and left as it is. Standard error is diagnostics, never
+  protocol.
+- **137 on Linux:** confirmed by a run, not only stated. A one-off program (not committed) started a real child
+  through `SystemApiModeProcess` on devlinux and had the transport kill it after the shutdown grace. It reported 137.
+
+## Developer's verification after the answers
+
+- The API-mode tests are now 89 (73 + 16 new: 12 in `ApiModeTransportEndingTests`, 4 in
+  `DedicatedThreadReadStreamTests`). All passed in eight consecutive runs on devlinux.
+- Each new test for a finding was also run against the reviewed head `a0b3eb0c4`, as stated in each answer above.
+- Gate counts are in the pull request and in the hand-back to the Tech Lead.

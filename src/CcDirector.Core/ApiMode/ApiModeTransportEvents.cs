@@ -39,10 +39,15 @@ public sealed record ApiModeErrorLine(long Sequence, string Text);
 public sealed record ApiModeProcessEnded : ApiModeTransportEvent
 {
     /// <summary>
-    /// The exit code. On Linux and macOS a process ended by a signal reports 128 plus the signal (137 for a kill).
-    /// -1 only when the exit code itself could not be read, and then <see cref="TransportFault"/> says why.
+    /// The exit code exactly as the operating system reported it, or null only when it could not be read (then
+    /// <see cref="TransportFault"/> says why). A kill reports 137 on Linux and macOS (128 plus the signal) and -1 on
+    /// Windows (.NET terminates the process with exit code -1), so -1 is an ordinary value, never "unknown". Whether
+    /// the transport killed the process is <see cref="KilledByTransport"/>, not a reading of this number.
     /// </summary>
-    public required int ExitCode { get; init; }
+    public required int? ExitCode { get; init; }
+
+    /// <summary>True when the transport killed the process (shutdown grace ran out, disposal, or a transport failure).</summary>
+    public bool KilledByTransport { get; init; }
 
     /// <summary>Every standard error line still held (see <see cref="ApiModeTransport.ErrorLinesSince"/> for the window).</summary>
     public required IReadOnlyList<ApiModeErrorLine> ErrorLines { get; init; }
@@ -55,7 +60,8 @@ public sealed record ApiModeProcessEnded : ApiModeTransportEvent
 
     /// <summary>One sentence for logs and failure reasons.</summary>
     public string Describe() =>
-        $"exit code {ExitCode}"
+        (ExitCode is { } code ? $"exit code {code}" : "exit code unknown")
+        + (KilledByTransport ? ", killed by the transport" : "")
         + (TransportFault is null ? "" : $"; transport failure: {TransportFault}")
         + (UnterminatedOutput is null ? "" : $"; output ended mid-record ({UnterminatedOutput.Length} characters)");
 }
