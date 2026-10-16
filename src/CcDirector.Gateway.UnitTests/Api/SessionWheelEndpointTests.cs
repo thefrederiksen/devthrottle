@@ -12,7 +12,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Api;
@@ -60,13 +60,13 @@ public sealed class SessionWheelEndpointTests : IDisposable
     // ---- success: the command reaches the owning Director ---------------------------------------------------------
 
     [Theory]
-    [InlineData(SessionWheelHolders.Protocol)]
+    [InlineData(WheelHolders.Protocol)]
     // No process holds it (the agent is starting, or between a hand back and the protocol resuming). The Gateway
     // cannot see a reason to refuse, so the Director - which holds the ownership lock - decides.
-    [InlineData(SessionWheelHolders.None)]
+    [InlineData(WheelHolders.None)]
     public async Task MoveSessionWheelAsync_TakeOnApiSessionTheUserDoesNotHold_SendsWheelTakeToTheOwningDirector(string holder)
     {
-        var sid = Seat(SessionConnectionModes.Api, holder);
+        var sid = Seat(ConnectionModes.Api, holder);
 
         var result = await MoveAsync(sid, WheelMove.Take);
 
@@ -79,7 +79,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [Fact]
     public async Task MoveSessionWheelAsync_HandBackWhileTheUserHoldsTheWheel_SendsWheelHandBackToTheOwningDirector()
     {
-        var sid = Seat(SessionConnectionModes.Api, SessionWheelHolders.User);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.User);
 
         var result = await MoveAsync(sid, WheelMove.HandBack);
 
@@ -104,7 +104,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [InlineData(false)]
     public async Task MoveSessionWheelAsync_TerminalModeSession_IsRefusedAsNotApiMode(bool take)
     {
-        var sid = Seat(SessionConnectionModes.Terminal, holder: null);
+        var sid = Seat(ConnectionModes.Terminal, holder: null);
 
         var result = await MoveAsync(sid, take ? WheelMove.Take : WheelMove.HandBack);
 
@@ -119,6 +119,9 @@ public sealed class SessionWheelEndpointTests : IDisposable
         // A Director that predates API mode pushes no ConnectionMode and no WheelHolder. Every session it runs is a
         // terminal session, and that is what the Gateway must answer - never a guess, never a send.
         var sid = Seat(mode: null, holder: null);
+        Assert.True(_pushed.TryLocate(TenantId.Local, sid, StreamStale) is { } located
+            && located.Session.ConnectionMode == ConnectionModes.Terminal && located.Session.WheelHolder == WheelHolders.None,
+            "a row pushed without either field must read as terminal mode with nobody holding the wheel");
 
         var result = await MoveAsync(sid, take ? WheelMove.Take : WheelMove.HandBack);
 
@@ -128,7 +131,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [Fact]
     public async Task MoveSessionWheelAsync_TakeWhileTheUserAlreadyHoldsTheWheel_IsRefused()
     {
-        var sid = Seat(SessionConnectionModes.Api, SessionWheelHolders.User);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.User);
 
         var result = await MoveAsync(sid, WheelMove.Take);
 
@@ -136,11 +139,11 @@ public sealed class SessionWheelEndpointTests : IDisposable
     }
 
     [Theory]
-    [InlineData(SessionWheelHolders.Protocol)]
-    [InlineData(SessionWheelHolders.None)]
+    [InlineData(WheelHolders.Protocol)]
+    [InlineData(WheelHolders.None)]
     public async Task MoveSessionWheelAsync_HandBackWhileTheUserDoesNotHoldTheWheel_IsRefused(string holder)
     {
-        var sid = Seat(SessionConnectionModes.Api, holder);
+        var sid = Seat(ConnectionModes.Api, holder);
 
         var result = await MoveAsync(sid, WheelMove.HandBack);
 
@@ -148,10 +151,10 @@ public sealed class SessionWheelEndpointTests : IDisposable
     }
 
     [Theory]
-    [InlineData("acp", SessionWheelHolders.Protocol)]
-    [InlineData(SessionConnectionModes.Api, null)]
-    [InlineData(SessionConnectionModes.Api, "somebody")]
-    public async Task MoveSessionWheelAsync_StateTheGatewayCannotRead_IsRefusedWithTheReasonAndNothingIsSent(string mode, string? holder)
+    [InlineData("acp", WheelHolders.Protocol)]
+    [InlineData(ConnectionModes.Api, "")]
+    [InlineData(ConnectionModes.Api, "somebody")]
+    public async Task MoveSessionWheelAsync_StateTheGatewayCannotRead_IsRefusedWithTheReasonAndNothingIsSent(string mode, string holder)
     {
         var sid = Seat(mode, holder);
 
@@ -172,7 +175,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
         _registry.RegisterFromStream("director-b", "THEIR-MACHINE", "them", "1.0", pid: 99, startedAt: Now, tenant: OtherAccount);
         _pushed.RegisterConnection(OtherAccount, "director-b", "conn-b");
         var sid = Guid.NewGuid().ToString();
-        Assert.True(_pushed.ApplySnapshot(OtherAccount, "director-b", "conn-b", 1, new[] { Row(sid, "director-b", SessionConnectionModes.Api, SessionWheelHolders.Protocol) }));
+        Assert.True(_pushed.ApplySnapshot(OtherAccount, "director-b", "conn-b", 1, new[] { Row(sid, "director-b", ConnectionModes.Api, WheelHolders.Protocol) }));
 
         var result = await MoveAsync(sid, WheelMove.Take);
 
@@ -188,7 +191,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     {
         const string directorWords = "The terminal is in the middle of a turn. Hand back once Pi has finished answering.";
         _director = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, directorWords);
-        var sid = Seat(SessionConnectionModes.Api, SessionWheelHolders.User);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.User);
 
         var result = await MoveAsync(sid, WheelMove.HandBack);
 
@@ -206,7 +209,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     {
         const string directorWords = "Pi's executable was not found on this machine, so its terminal could not be opened.";
         _director = _ => DirectorCommandResult.Fail(directorStatus, directorWords);
-        var sid = Seat(SessionConnectionModes.Api, SessionWheelHolders.Protocol);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
 
         var result = await MoveAsync(sid, WheelMove.Take);
 
@@ -218,7 +221,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     public async Task MoveSessionWheelAsync_DirectorNotConnected_IsA502ThatSaysSo()
     {
         _director = _ => null;
-        var sid = Seat(SessionConnectionModes.Api, SessionWheelHolders.Protocol);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
 
         var result = await MoveAsync(sid, WheelMove.Take);
 
@@ -237,21 +240,22 @@ public sealed class SessionWheelEndpointTests : IDisposable
     [InlineData("API", true)]
     public void SessionWheelStateRead_ConnectionMode_IsReadCaseInsensitivelyAndMissingIsTerminal(string? mode, bool isApi)
     {
-        var state = SessionWheelState.Read(new SessionDto { ConnectionMode = mode, WheelHolder = isApi ? "User" : null });
+        // A null here is an explicit JSON null, which the default cannot catch; it is still terminal mode.
+        var state = SessionWheelState.Read(new SessionDto { ConnectionMode = mode!, WheelHolder = "User" });
 
         Assert.Null(state.Problem);
         Assert.Equal(isApi, state.IsApiMode);
-        Assert.Equal(isApi ? SessionWheelHolders.User : "", state.Holder);
+        Assert.Equal(isApi ? WheelHolders.User : "", state.Holder);
     }
 
     // ---- the routes, on the real route map ------------------------------------------------------------------------
 
     [Theory]
-    [InlineData("take", "wheel-take", SessionWheelHolders.Protocol)]
-    [InlineData("hand-back", "wheel-hand-back", SessionWheelHolders.User)]
+    [InlineData("take", "wheel-take", WheelHolders.Protocol)]
+    [InlineData("hand-back", "wheel-hand-back", WheelHolders.User)]
     public async Task WheelRoutes_OnTheRealRouteMap_ReachTheOwningDirectorWithTheirCommand(string path, string verb, string holder)
     {
-        var sid = Seat(SessionConnectionModes.Api, holder);
+        var sid = Seat(ConnectionModes.Api, holder);
         await using var host = await StartRouteMapAsync();
 
         var response = await host.Client.PostAsync($"sessions/{sid}/wheel/{path}", content: null);
@@ -264,7 +268,7 @@ public sealed class SessionWheelEndpointTests : IDisposable
     public async Task WheelRoutes_DirectorNotConnected_AnswerExactlyAsInterruptAnswers()
     {
         _director = _ => null;
-        var sid = Seat(SessionConnectionModes.Api, SessionWheelHolders.User);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.User);
         await using var host = await StartRouteMapAsync();
 
         var interrupt = await host.Client.PostAsync($"sessions/{sid}/interrupt", content: null);
@@ -298,18 +302,27 @@ public sealed class SessionWheelEndpointTests : IDisposable
         return sid;
     }
 
-    private static SessionDto Row(string sid, string directorId, string? mode, string? holder) => new()
+    /// <summary>A session row as the owning Director pushes it, through the same JSON a push carries. A null
+    /// <paramref name="mode"/> or <paramref name="holder"/> leaves that field OUT of the JSON, which is exactly what a
+    /// Director that predates API mode sends.</summary>
+    private static SessionDto Row(string sid, string directorId, string? mode, string? holder)
     {
-        SessionId = sid,
-        DirectorId = directorId,
-        Agent = "Pi",
-        RepoPath = "/home/soren/ReposFred/devthrottle",
-        Status = "Running",
-        ActivityState = "WaitingForInput",
-        LastActivityAt = Now,
-        ConnectionMode = mode,
-        WheelHolder = holder,
-    };
+        var json = new Dictionary<string, object>
+        {
+            ["sessionId"] = sid,
+            ["directorId"] = directorId,
+            ["agent"] = "Pi",
+            ["repoPath"] = "/home/soren/ReposFred/devthrottle",
+            ["status"] = "Running",
+            ["activityState"] = "WaitingForInput",
+            ["lastActivityAt"] = Now,
+        };
+        if (mode is not null) json["connectionMode"] = mode;
+        if (holder is not null) json["wheelHolder"] = holder;
+        return JsonSerializer.Deserialize<SessionDto>(JsonSerializer.Serialize(json), WebJson)!;
+    }
+
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     private Task<DirectorCommandResult?> Send(string directorId, DirectorCommand command, CancellationToken ct)
     {
@@ -353,8 +366,11 @@ public sealed class SessionWheelEndpointTests : IDisposable
 
     private async Task<RouteMapHost> StartRouteMapAsync()
     {
-        var builder = WebApplication.CreateBuilder();
-        builder.Logging.ClearProviders();
+        // An EMPTY builder: no configuration files, so no file watchers. A default builder watches its settings files,
+        // and on a machine already running other suites that can run out of watchers and fail on correct code.
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.Services.AddRouting();
+        builder.Services.AddLogging();
         builder.WebHost.UseTestServer();
         var app = builder.Build();
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",

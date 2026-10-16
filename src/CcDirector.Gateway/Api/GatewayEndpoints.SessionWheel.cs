@@ -24,28 +24,29 @@ internal enum WheelMove
 /// <see cref="SessionDto.WheelHolder"/>, and if the source moves, this reader is the only thing that changes.
 /// </summary>
 /// <param name="IsApiMode">True when the Director drives the session over the agent's protocol.</param>
-/// <param name="Holder">Who holds the conversation, one of <see cref="SessionWheelHolders"/>; empty for a terminal session.</param>
+/// <param name="Holder">Who holds the conversation, one of <see cref="WheelHolders"/>; empty for a terminal session.</param>
 /// <param name="Problem">Set when the pushed session could not be read: a value the Gateway does not know, or an
 /// API-mode session that names no holder. Never guessed past.</param>
 internal readonly record struct SessionWheelState(bool IsApiMode, string Holder, string? Problem)
 {
     /// <summary>
-    /// Read one pushed session. A session with no <see cref="SessionDto.ConnectionMode"/> is a terminal session: that is
-    /// what every Director that predates API mode pushes, and every session it runs is a terminal session.
+    /// Read one pushed session. A Director that predates API mode pushes neither field, and the contract's defaults read
+    /// that row as <see cref="ConnectionModes.Terminal"/>, which every session it runs is. An explicit null or empty
+    /// mode, which the defaults cannot catch, is read the same way.
     /// </summary>
     public static SessionWheelState Read(SessionDto session)
     {
         var mode = session.ConnectionMode;
-        if (string.IsNullOrEmpty(mode) || string.Equals(mode, SessionConnectionModes.Terminal, StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrEmpty(mode) || string.Equals(mode, ConnectionModes.Terminal, StringComparison.OrdinalIgnoreCase))
             return new SessionWheelState(false, "", null);
 
-        if (!string.Equals(mode, SessionConnectionModes.Api, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(mode, ConnectionModes.Api, StringComparison.OrdinalIgnoreCase))
             return new SessionWheelState(false, "",
                 $"The machine running this session reported a connection mode the Gateway does not know (\"{mode}\"), "
                 + "so it cannot tell whether there is a wheel to take. Update the Gateway or that Director so they agree.");
 
         var holder = session.WheelHolder;
-        foreach (var known in new[] { SessionWheelHolders.None, SessionWheelHolders.Protocol, SessionWheelHolders.User })
+        foreach (var known in new[] { WheelHolders.None, WheelHolders.Protocol, WheelHolders.User })
             if (string.Equals(holder, known, StringComparison.OrdinalIgnoreCase))
                 return new SessionWheelState(true, known, null);
 
@@ -138,13 +139,13 @@ internal static partial class GatewayEndpoints
             return WheelRefusal(WheelRefusalCodes.NotApiMode, WheelNotApiModeReason, StatusCodes.Status409Conflict);
         }
 
-        if (move == WheelMove.Take && state.Holder == SessionWheelHolders.User)
+        if (move == WheelMove.Take && state.Holder == WheelHolders.User)
         {
             FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: the user already holds the wheel");
             return WheelRefusal(WheelRefusalCodes.AlreadyHeld, WheelAlreadyHeldReason, StatusCodes.Status409Conflict);
         }
 
-        if (move == WheelMove.HandBack && state.Holder != SessionWheelHolders.User)
+        if (move == WheelMove.HandBack && state.Holder != WheelHolders.User)
         {
             FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: the user does not hold the wheel (holder={state.Holder})");
             return WheelRefusal(WheelRefusalCodes.NotHeld, WheelNotHeldReason, StatusCodes.Status409Conflict);
