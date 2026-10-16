@@ -89,7 +89,8 @@ internal sealed class FactoryPublishScenario
         return check.Definition!;
     }
 
-    public void AddSchedule(string factory, string? seat, string id, string cron, string prompt, string? workList = null)
+    public void AddSchedule(string factory, string? seat, string id, string cron, string prompt, string? workList = null,
+        bool enabled = true)
     {
         using var ctx = Db.CreateContext(Tenant);
         ctx.CronJobs.Add(new CronJobEntity
@@ -97,7 +98,7 @@ internal sealed class FactoryPublishScenario
             Id = id,
             TenantId = Tenant.Value,
             Name = $"{factory} - {seat}",
-            Enabled = true,
+            Enabled = enabled,
             ScheduleKind = CronSchedule.KindRecurring,
             CronExpression = cron,
             TimeZoneId = "Europe/Copenhagen",

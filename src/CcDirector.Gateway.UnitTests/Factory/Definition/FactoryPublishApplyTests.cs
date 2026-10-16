@@ -461,4 +461,84 @@ public sealed class FactoryPublishApplyTests : IDisposable
         Assert.Contains("Schedule cj_old (devthrottle - writer) deleted: no start in the definition names it; its runs are kept.", plan.Plan!.Sentences());
         Assert.Equal(before, _s.Snapshot());
     }
+
+    // ---------- a pairing is never a guess (issue 4056) ----------
+
+    // Phase 7's Mail Desk on the writer seat: three starts, the prompts given, at the times given.
+    private static Dictionary<string, string> MailDesk(string morning, string midday, string afternoon,
+        string at8 = "0 8 * * *", string at1230 = "30 12 * * *", string at1630 = "30 16 * * *")
+        => DefinitionFixture.PublishableWith("seats/writer.yaml", $"""
+            seat: writer
+            name: Writer
+            role: Writer
+            brief: Answer the mail.
+            starts:
+              - cron: "{at8}"
+                timeZone: Europe/Copenhagen
+                prompt: {morning}
+              - cron: "{at1230}"
+                timeZone: Europe/Copenhagen
+                prompt: {midday}
+              - cron: "{at1630}"
+                timeZone: Europe/Copenhagen
+                prompt: {afternoon}
+            """);
+
+    private void ParkTheMailDesk()
+    {
+        _s.AddSchedule(TheFactory, "writer", "cj_a", "0 0 31 2 *", "Morning mail.");
+        _s.AddSchedule(TheFactory, "writer", "cj_b", "0 0 31 2 *", "Midday mail.", enabled: false);
+        _s.AddSchedule(TheFactory, "writer", "cj_c", "0 0 31 2 *", "Afternoon mail.", enabled: false);
+    }
+
+    [Fact]
+    public void Publish_PhaseSevensCaseStraightOverToday_IsRefused_AndWritesNothing_TheTwoStepWayMovesEachSwitchWithItsStart()
+    {
+        ParkTheMailDesk();
+        var straight = _s.Save(MailDesk("Morning mail, from the kit.", "Midday mail, from the kit.", "Afternoon mail, from the kit."));
+        var before = _s.Snapshot();
+
+        var refused = _s.Publish(straight);
+
+        Assert.Equal(FactoryDefinitionOutcome.PlanRefused, refused.Write.Outcome);
+        Assert.StartsWith("The live factory cannot take this definition without a guess:", refused.Write.Refusal);
+        var finding = Assert.Single(refused.RefusalFindings);
+        Assert.Equal("seats/writer.yaml", finding.File);
+        Assert.StartsWith("Starts 1, 2 and 3 cannot be paired with the live schedules cj_a (devthrottle - writer, enabled), " +
+                          "cj_b (devthrottle - writer, paused) and cj_c (devthrottle - writer, paused) without a guess:", finding.Message);
+        Assert.EndsWith("Publish once with these starts' prompts unchanged, so each pairs with its own schedule by its prompt, then publish the prompt edits.",
+            finding.Message);
+        Assert.Equal(before, _s.Snapshot());
+
+        // The two-step way: the real times with today's prompts, then the prompt edits.
+        _s.SaveAndPublish(MailDesk("Morning mail.", "Midday mail.", "Afternoon mail."));
+        _s.SaveAndPublish(MailDesk("Morning mail, from the kit.", "Midday mail, from the kit.", "Afternoon mail, from the kit."));
+
+        var writer = _s.Schedules(TheFactory).Where(j => j.Seat == "writer").ToDictionary(j => j.Id);
+        Assert.Equal(new[] { "cj_a", "cj_b", "cj_c" }, writer.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.Equal(("0 8 * * *", "Morning mail, from the kit.", true), (writer["cj_a"].CronExpression, writer["cj_a"].Action.Seed, writer["cj_a"].Enabled));
+        Assert.Equal(("30 12 * * *", "Midday mail, from the kit.", false), (writer["cj_b"].CronExpression, writer["cj_b"].Action.Seed, writer["cj_b"].Enabled));
+        Assert.Equal(("30 16 * * *", "Afternoon mail, from the kit.", false), (writer["cj_c"].CronExpression, writer["cj_c"].Action.Seed, writer["cj_c"].Enabled));
+    }
+
+    [Fact]
+    public void Restore_ThatWouldGuessThePairing_IsRefused_AndWritesNothing()
+    {
+        ParkTheMailDesk();
+        // Version 1 is today exactly; versions 2 and 3 are the two-step way to the real times and the edited prompts.
+        var parked = _s.Save(MailDesk("Morning mail.", "Midday mail.", "Afternoon mail.", "0 0 31 2 *", "0 0 31 2 *", "0 0 31 2 *"));
+        Assert.True(_s.Publish(parked).Write.Ok);
+        _s.SaveAndPublish(MailDesk("Morning mail.", "Midday mail.", "Afternoon mail."));
+        _s.SaveAndPublish(MailDesk("Morning mail, from the kit.", "Midday mail, from the kit.", "Afternoon mail, from the kit."));
+        var before = _s.Snapshot();
+
+        // Back to 31 February with the old prompts: three starts at one time, and no prompt the live schedules hold.
+        var refused = _s.Restore(parked, replaces: 3, expected: 3);
+
+        Assert.Equal(FactoryDefinitionOutcome.PlanRefused, refused.Write.Outcome);
+        var finding = Assert.Single(refused.RefusalFindings);
+        Assert.StartsWith("Starts 1, 2 and 3 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled), " +
+                          "cj_b (DevThrottle - Writer (2), paused) and cj_c (DevThrottle - Writer (3), paused) without a guess:", finding.Message);
+        Assert.Equal(before, _s.Snapshot());
+    }
 }

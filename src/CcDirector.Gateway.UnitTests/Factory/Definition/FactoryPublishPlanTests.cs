@@ -813,4 +813,206 @@ public sealed class FactoryPublishPlanTests
 
         Assert.Equal(Plan(schedules: live).Sentences(), Plan(schedules: live).Sentences());
     }
+
+    // ---------- a pairing is never a guess (issue 4056) ----------
+
+    private const string Never = "0 0 31 2 *";
+
+    private static readonly string[] MailPrompts = { "Morning mail.", "Midday mail.", "Afternoon mail." };
+
+    // Phase 7's Mail Desk, on the writer seat: three live schedules parked at 31 February, the first enabled.
+    private static CronJobEntity[] ParkedMailDesk() => new[]
+    {
+        Live("cj_a", "writer", Never, MailPrompts[0], enabled: true, name: "DevThrottle - Writer"),
+        Live("cj_b", "writer", Never, MailPrompts[1], enabled: false, name: "DevThrottle - Writer (2)"),
+        Live("cj_c", "writer", Never, MailPrompts[2], enabled: false, name: "DevThrottle - Writer (3)"),
+    };
+
+    private static FactoryDefinition MailDesk(params string[] prompts) => WithSeat(Definition(), "writer", s => s with
+    {
+        Starts = new[] { Start("0 8 * * *", prompts[0]), Start("30 12 * * *", prompts[1]), Start("30 16 * * *", prompts[2]) },
+    });
+
+    private static readonly string[] EditedPrompts = { "Morning mail, from the kit.", "Midday mail, from the kit.", "Afternoon mail, from the kit." };
+
+    private const string MailDeskGuess =
+        "Starts 1, 2 and 3 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled), " +
+        "cj_b (DevThrottle - Writer (2), paused) and cj_c (DevThrottle - Writer (3), paused) without a guess: the time does " +
+        "not tell them apart and nothing else says which start each schedule takes, so a publish could give a schedule's " +
+        "switch to the wrong start. Publish once with these starts' prompts unchanged, so each pairs with its own schedule " +
+        "by its prompt, then publish the prompt edits.";
+
+    [Fact]
+    public void Compose_PhaseSevensCase_RealTimesAndEditedPromptsOverSchedulesSharingATime_IsRefused_NamingThemAll()
+    {
+        var refusal = Refusal(MailDesk(EditedPrompts), schedules: ParkedMailDesk());
+
+        Assert.Equal(FactoryDefinitionOutcome.PlanRefused, refusal.Outcome);
+        Assert.Equal("The live factory cannot take this definition without a guess: 1 group of starts pairs with the schedules " +
+                     "or triggers of devthrottle in more than one way. Do what each one says and try again; nothing was written.",
+            refusal.Sentence);
+        var finding = Assert.Single(refusal.Findings);
+        Assert.Equal("seats/writer.yaml", finding.File);
+        Assert.True(finding.IsError);
+        Assert.Equal(MailDeskGuess, finding.Message);
+    }
+
+    [Fact]
+    public void Compose_PhaseSevensCase_TheTwoStepWay_IsAccepted_AndEachSwitchStaysWithItsOwnStart()
+    {
+        // Step one: the real times with the prompts unchanged. The prompt tells each schedule its start.
+        var first = Plan(MailDesk(MailPrompts), schedules: ParkedMailDesk()).Schedules.Where(s => s.Seat == "writer")
+            .ToDictionary(s => s.Id!);
+        Assert.Equal(("0 8 * * *", true), (first["cj_a"].Job!.CronExpression, first["cj_a"].Job!.Enabled));
+        Assert.Equal(("30 12 * * *", false), (first["cj_b"].Job!.CronExpression, first["cj_b"].Job!.Enabled));
+        Assert.Equal(("30 16 * * *", false), (first["cj_c"].Job!.CronExpression, first["cj_c"].Job!.Enabled));
+
+        // Step two: the live schedules now hold their own times, so the prompt edits pair by time.
+        var moved = new[]
+        {
+            Live("cj_a", "writer", "0 8 * * *", MailPrompts[0], enabled: true),
+            Live("cj_b", "writer", "30 12 * * *", MailPrompts[1], enabled: false),
+            Live("cj_c", "writer", "30 16 * * *", MailPrompts[2], enabled: false),
+        };
+        var second = Plan(MailDesk(EditedPrompts), schedules: moved).Schedules.Where(s => s.Seat == "writer")
+            .ToDictionary(s => s.Id!);
+        Assert.Equal(("0 8 * * *", EditedPrompts[0], true), (second["cj_a"].Job!.CronExpression, second["cj_a"].Job!.Action.Seed, second["cj_a"].Job!.Enabled));
+        Assert.Equal(("30 12 * * *", EditedPrompts[1], false), (second["cj_b"].Job!.CronExpression, second["cj_b"].Job!.Action.Seed, second["cj_b"].Job!.Enabled));
+        Assert.Equal(("30 16 * * *", EditedPrompts[2], false), (second["cj_c"].Job!.CronExpression, second["cj_c"].Job!.Action.Seed, second["cj_c"].Job!.Enabled));
+    }
+
+    [Fact]
+    public void Compose_SchedulesSharingATime_ThatAreAlikeInEverythingAPublishKeeps_AreNotAGuess()
+    {
+        // Two parked schedules written the same, both paused: whichever takes which start, nothing it keeps differs.
+        var live = new[]
+        {
+            Live("cj_a", "writer", Never, "Mail.", enabled: false),
+            Live("cj_b", "writer", Never, "Mail.", enabled: false),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start("0 8 * * *", "Morning."), Start("30 12 * * *", "Midday.") } });
+
+        var writer = Plan(d, schedules: live).Schedules.Where(s => s.Seat == "writer").ToList();
+
+        Assert.Equal(new[] { "cj_a", "cj_b" }, writer.Select(s => s.Id));
+        Assert.All(writer, s => Assert.False(s.Job!.Enabled));
+    }
+
+    [Fact]
+    public void Compose_SchedulesWrittenTheSame_ButSwitchedDifferently_AreAGuess()
+    {
+        var live = new[]
+        {
+            Live("cj_a", "writer", Never, "Mail.", enabled: true, name: "DevThrottle - Writer"),
+            Live("cj_b", "writer", Never, "Mail.", enabled: false, name: "DevThrottle - Writer (2)"),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start("0 8 * * *", "Morning."), Start("30 12 * * *", "Midday.") } });
+
+        var finding = Assert.Single(Refusal(d, schedules: live).Findings);
+
+        Assert.StartsWith("Starts 1 and 2 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled) and " +
+                          "cj_b (DevThrottle - Writer (2), paused) without a guess:", finding.Message);
+    }
+
+    [Fact]
+    public void Compose_SchedulesAtDifferentTimes_WithEveryPromptEdited_StillPairByTime()
+    {
+        var live = new[]
+        {
+            Live("cj_a", "writer", "0 7 * * *", "Morning.", enabled: true),
+            Live("cj_b", "writer", "0 19 * * *", "Evening.", enabled: false),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start("0 7 * * *", "Mornings now."), Start("0 19 * * *", "Evenings now.") } });
+
+        var writer = Plan(d, schedules: live).Schedules.Where(s => s.Seat == "writer").ToDictionary(s => s.Id!);
+
+        Assert.Equal(("0 7 * * *", true), (writer["cj_a"].Job!.CronExpression, writer["cj_a"].Job!.Enabled));
+        Assert.Equal(("0 19 * * *", false), (writer["cj_b"].Job!.CronExpression, writer["cj_b"].Job!.Enabled));
+    }
+
+    [Fact]
+    public void Compose_ASharedTimeScheduleLeftWithoutAStart_IsAGuessToo_TheOtherCouldHaveTakenIt()
+    {
+        // Two parked schedules, one start with a new prompt: which one is kept and which deleted is a guess.
+        var live = new[]
+        {
+            Live("cj_a", "writer", Never, "Morning mail.", enabled: true, name: "DevThrottle - Writer"),
+            Live("cj_b", "writer", Never, "Midday mail.", enabled: false, name: "DevThrottle - Writer (2)"),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start("0 8 * * *", "Mail, from the kit.") } });
+
+        var finding = Assert.Single(Refusal(d, schedules: live).Findings);
+
+        Assert.StartsWith("Start 1 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled) and " +
+                          "cj_b (DevThrottle - Writer (2), paused) without a guess:", finding.Message);
+    }
+
+    [Fact]
+    public void Compose_TwoStartsSharingATime_OverOneLiveSchedule_IsAGuess_WhichStartKeepsItsSwitch()
+    {
+        var live = new[] { Live("cj_a", "writer", "0 6 * * *", "Mail.", enabled: false, name: "DevThrottle - Writer") };
+        var d = WithSeat(Definition(), "writer", s => s with { Starts = new[] { Start("0 8 * * *", "Read."), Start("0 8 * * *", "Answer.") } });
+
+        var finding = Assert.Single(Refusal(d, schedules: live).Findings);
+
+        Assert.StartsWith("Starts 1 and 2 cannot be paired with the live schedule cj_a (DevThrottle - Writer, paused) without a guess:",
+            finding.Message);
+    }
+
+    [Fact]
+    public void Compose_ASharedTimeDecidedByThePrompt_AndAnExactMatch_AreNotAGuess()
+    {
+        // cj_a is written exactly as start 1; cj_b and cj_c share a time and keep their prompts at new times.
+        var live = new[]
+        {
+            Live("cj_a", "writer", "0 6 * * *", "Early.", enabled: false),
+            Live("cj_b", "writer", Never, "Morning mail.", enabled: true),
+            Live("cj_c", "writer", Never, "Midday mail.", enabled: false),
+        };
+        var d = WithSeat(Definition(), "writer", s => s with
+        {
+            Starts = new[] { Start("0 6 * * *", "Early."), Start("30 12 * * *", "Midday mail."), Start("0 8 * * *", "Morning mail.") },
+        });
+
+        var writer = Plan(d, schedules: live).Schedules.Where(s => s.Seat == "writer").ToDictionary(s => s.Id!);
+
+        Assert.Equal(0, writer["cj_a"].StartIndex);
+        Assert.Equal(("0 8 * * *", true), (writer["cj_b"].Job!.CronExpression, writer["cj_b"].Job!.Enabled));
+        Assert.Equal(("30 12 * * *", false), (writer["cj_c"].Job!.CronExpression, writer["cj_c"].Job!.Enabled));
+    }
+
+    [Fact]
+    public void Compose_TwoDefinitionTriggersOfOneInterval_WithBothPromptsEdited_IsRefused_NamingTheTriggers()
+    {
+        var running = DefTrigger("devthrottle-outreach-start-1", prompt: "Read the new mail.");
+        var paused = DefTrigger("devthrottle-outreach-start-2", prompt: "Answer the new mail.");
+        paused.Paused = true;
+        SeatStartDefinition Every10(string prompt) => new(null, null, null, 600, "checks/new_mail.py", new[] { "outreach-imap-password" }, prompt, true);
+        var d = WithSeat(Definition(DefinitionFixture.Valid()), "outreach", s => s with
+        {
+            Starts = new[] { Every10("Read the new mail, from the kit."), Every10("Answer the new mail, from the kit.") },
+        });
+
+        var composed = FactoryPublishPlan.Compose(d, Registry(), Array.Empty<CronJobEntity>(), new[] { running, paused });
+
+        Assert.Null(composed.Plan);
+        var finding = Assert.Single(composed.Refusal!.Findings);
+        Assert.Equal("seats/outreach.yaml", finding.File);
+        Assert.Equal("Starts 1 and 2 cannot be paired with the live triggers devthrottle-outreach-start-1 (running) and " +
+                     "devthrottle-outreach-start-2 (paused) without a guess: the time does not tell them apart and nothing " +
+                     "else says which start each trigger takes, so a publish could give a trigger's switch to the wrong start. " +
+                     "Publish once with these starts' prompts unchanged, so each pairs with its own trigger by its prompt, then " +
+                     "publish the prompt edits.", finding.Message);
+    }
+
+    [Fact]
+    public void Compose_AGuessOnAnUNDEFINED_FACTORY_IsNeverLookedFor_ItsSchedulesAreNotInThePlan()
+    {
+        // Another factory's parked schedules sharing a time are not this publish's to pair, so they refuse nothing.
+        var theirs = ParkedMailDesk().Select(j => { j.Factory = "invoice-factory"; return j; }).ToArray();
+
+        var plan = Plan(MailDesk(EditedPrompts), schedules: theirs);
+
+        Assert.DoesNotContain(plan.Schedules, s => s.Id is "cj_a" or "cj_b" or "cj_c");
+    }
 }

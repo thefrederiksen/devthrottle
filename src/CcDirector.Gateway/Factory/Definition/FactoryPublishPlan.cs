@@ -87,13 +87,19 @@ public static class FactoryPublishPlan
         var deletes = new List<PlannedSchedule>();
         var scheduleIdsOfSeat = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var placeholder = 0;
+        var guesses = new List<DefinitionFinding>();
         foreach (var seat in definition.Seats)
         {
             // Only a start with a cron time is a schedule; an interval start is a trigger (below).
             var timed = Enumerable.Range(0, seat.Starts.Count).Where(i => seat.Starts[i].Cron is not null).ToList();
             var live = mine.Where(j => j.Seat == seat.Seat).ToList();
-            var pairing = FactoryDefinitionChanges.PairStarts(live.Select(AsStart).ToList(),
-                timed.Select(i => seat.Starts[i]).ToList());
+            var liveStarts = live.Select(AsStart).ToList();
+            var timedStarts = timed.Select(i => seat.Starts[i]).ToList();
+            var pairing = FactoryDefinitionChanges.PairStarts(liveStarts, timedStarts);
+            foreach (var guess in FactoryDefinitionChanges.Undecided(pairing, liveStarts, timedStarts,
+                         (a, b) => Interchangeable(live[a], live[b])))
+                guesses.Add(Error(SeatFile(seat), ScheduleGuess(guess.New.Select(n => timed[n] + 1).ToList(),
+                    guess.Old.Select(o => live[o]).ToList())));
             var ids = new List<string>();
             var ofSeat = new List<PlannedSchedule>();
             foreach (var pair in pairing.Pairs)
@@ -117,6 +123,10 @@ public static class FactoryPublishPlan
         }
         foreach (var row in mine.Where(j => j.Seat is null || !seatsById.ContainsKey(j.Seat)))
             deletes.Add(Deleted(row, row.Seat is null ? DeleteReason.NoSeat : DeleteReason.SeatNotDefined));
+
+        // ---- a pairing is never a guess (issue 4056): the triggers' too, so every guess is named at once ----
+        guesses.AddRange(TriggerGuesses(definition, liveTriggers));
+        if (guesses.Count > 0) return GuessRefused(factory, guesses);
 
         // ---- the registry row: the registry's own rules ----
         var request = Manifest(definition, registry, scheduleIdsOfSeat);
@@ -240,6 +250,63 @@ public static class FactoryPublishPlan
            && string.IsNullOrWhiteSpace(live.Action.WorkListName) == string.IsNullOrWhiteSpace(job.Action.WorkListName)
            && (live.CheckPath ?? "") == (job.CheckPath ?? "")
            && (CronJobStore.CheckSecretsOf(live) ?? new List<string>()).SequenceEqual(job.CheckSecrets ?? new List<string>(), StringComparer.Ordinal);
+
+    /// <summary>
+    /// Two live schedules a publish cannot tell apart and need not: the same start, and alike in everything a paired
+    /// schedule keeps (<see cref="Kept"/>) - its switch, its notifications, its work list and whether its runs close
+    /// themselves. Which of the two a start takes then changes nothing but which id and run history it carries on with.
+    /// </summary>
+    private static bool Interchangeable(CronJobEntity a, CronJobEntity b)
+        => FactoryDefinitionChanges.SameStart(AsStart(a), AsStart(b)) && a.ScheduleKind == b.ScheduleKind
+           && a.Enabled == b.Enabled && a.NotifyOn == b.NotifyOn && a.NotifyWebhookUrl == b.NotifyWebhookUrl
+           && (a.Action.WorkListName ?? "") == (b.Action.WorkListName ?? "") && a.Action.AutoDismiss == b.Action.AutoDismiss;
+
+    /// <summary>
+    /// The guesses among the interval starts and the live definition triggers of each seat, paired exactly as
+    /// <see cref="PlanTriggers"/> pairs them. Two triggers of the same start are interchangeable when their pause switch
+    /// is the same too.
+    /// </summary>
+    private static IEnumerable<DefinitionFinding> TriggerGuesses(FactoryDefinition d, IReadOnlyList<TriggerEntity> liveTriggers)
+    {
+        var mine = liveTriggers.Where(t => string.Equals(t.Factory, d.Factory, StringComparison.Ordinal))
+            .OrderBy(t => t.Name, StringComparer.Ordinal).ThenBy(t => t.Id).ToList();
+        foreach (var seat in d.Seats.OrderBy(s => s.Seat, StringComparer.Ordinal))
+        {
+            var interval = Enumerable.Range(0, seat.Starts.Count).Where(i => seat.Starts[i].Cron is null).ToList();
+            var live = mine.Where(t => t.IsDefinitionCheck && t.Seat == seat.Seat).ToList();
+            var liveStarts = live.Select(AsStart).ToList();
+            var intervalStarts = interval.Select(i => seat.Starts[i]).ToList();
+            var pairing = FactoryDefinitionChanges.PairStarts(liveStarts, intervalStarts);
+            foreach (var guess in FactoryDefinitionChanges.Undecided(pairing, liveStarts, intervalStarts,
+                         (a, b) => live[a].Paused == live[b].Paused
+                                   && FactoryDefinitionChanges.SameStart(liveStarts[a], liveStarts[b])))
+                yield return Error(SeatFile(seat), TriggerGuess(guess.New.Select(n => interval[n] + 1).ToList(),
+                    guess.Old.Select(o => live[o]).ToList()));
+        }
+    }
+
+    /// <summary>
+    /// The refusal of a guessed pairing of schedules, on the seat's file: the starts by number (their place in the
+    /// seat's list, counting from 1), the live schedules by id, name and switch, and the way to publish it.
+    /// </summary>
+    internal static string ScheduleGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<CronJobEntity> schedules)
+        => Guess(startNumbers, schedules.Count == 1 ? "schedule" : "schedules",
+            schedules.Select(j => $"{j.Id} ({j.Name}, {(j.Enabled ? "enabled" : "paused")})").ToList(), "schedule");
+
+    /// <summary>The refusal of a guessed pairing of definition triggers, as <see cref="ScheduleGuess"/>.</summary>
+    internal static string TriggerGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<TriggerEntity> triggers)
+        => Guess(startNumbers, triggers.Count == 1 ? "trigger" : "triggers",
+            triggers.Select(t => $"{t.Name} ({(t.Paused ? "paused" : "running")})").ToList(), "trigger");
+
+    private static string Guess(IReadOnlyList<int> startNumbers, string rows, IReadOnlyList<string> named, string row)
+        => $"{(startNumbers.Count == 1 ? "Start" : "Starts")} {JoinAnd(startNumbers.Select(n => n.ToString()).ToList())} " +
+           $"cannot be paired with the live {rows} {JoinAnd(named)} without a guess: the time does not tell them apart " +
+           $"and nothing else says which start each {row} takes, so a publish could give a {row}'s switch to the wrong " +
+           $"start. Publish once with these starts' prompts unchanged, so each pairs with its own {row} by its prompt, " +
+           "then publish the prompt edits.";
+
+    private static string JoinAnd(IReadOnlyList<string> items)
+        => items.Count == 1 ? items[0] : string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1];
 
     /// <summary>
     /// A live schedule as a start, so the one pairing can match it: its time (whatever kind it is, it is a time, never
@@ -478,6 +545,15 @@ public static class FactoryPublishPlan
     {
         FileLog.Write($"[FactoryPublishPlan] Compose REFUSED ({outcome}): {sentence}");
         return new FactoryPublishComposition(null, new FactoryPublishRefusal(outcome, sentence, Array.Empty<DefinitionFinding>()));
+    }
+
+    private static FactoryPublishComposition GuessRefused(string factory, List<DefinitionFinding> findings)
+    {
+        var sentence = $"The live factory cannot take this definition without a guess: {findings.Count} " +
+                       $"{(findings.Count == 1 ? "group of starts pairs" : "groups of starts pair")} with the schedules or triggers of {factory} in more than one way. " +
+                       "Do what each one says and try again; nothing was written.";
+        FileLog.Write($"[FactoryPublishPlan] Compose REFUSED (422, a guessed pairing): {string.Join(" | ", findings.Select(f => $"{f.File}: {f.Message}"))}");
+        return new FactoryPublishComposition(null, new FactoryPublishRefusal(FactoryDefinitionOutcome.PlanRefused, sentence, findings));
     }
 
     private static FactoryPublishComposition RowRulesRefused(string factory, List<DefinitionFinding> findings)
