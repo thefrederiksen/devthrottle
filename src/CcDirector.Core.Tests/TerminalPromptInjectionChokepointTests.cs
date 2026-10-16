@@ -79,8 +79,10 @@ public sealed class TerminalPromptInjectionChokepointTests
         // The verb answers within its budget and may let the send carry on (Voice Delivery mission, phase 3), so the send
         // is started, then awaited or handed on - still the one chokepoint. Since Voice Delivery phase 5 it also carries
         // the time the Gateway accepted the words, so the session can refuse a prompt that waited too long before its
-        // first keystroke. The chokepoint is unchanged.
-        Assert.Contains("var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc);", executor);
+        // first keystroke. Since API mode phase 1 (issue #4070) it also carries the Gateway's delivery id, which an API-mode
+        // session uses as the prompt id on every event about the prompt and a terminal session does not read. The
+        // chokepoint is unchanged.
+        Assert.Contains("var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc, request.DeliveryId);", executor);
         // The queue-send and chat submit paths use the SAME chokepoint. (Fleet-message delivery is now
         // Gateway-native and rides the prompt verb above, so it funnels through the same chokepoint; the
         // VoiceTurn endpoint was retired at the cut.)

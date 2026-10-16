@@ -271,6 +271,14 @@ public sealed class NewSessionRequest
     public string? Model { get; set; }
 
     /// <summary>
+    /// How the Director drives the agent (API mode mission, issue #4070): one of <see cref="ConnectionModes"/>, or null
+    /// for terminal - the default, and all a caller that predates the field asks for. <c>api</c> starts the agent in its
+    /// own native protocol (Pi only today); an agent whose wrapper has no API dialect is refused. A restore sets it so a
+    /// session comes back the way it ran. Any other word is refused, never guessed.
+    /// </summary>
+    public string? ConnectionMode { get; set; }
+
+    /// <summary>
     /// A person's override of a talk with a seat, in words - "agent Codex, model x, machine Y, chosen by the person" -
     /// or null (Factory Definition mission, phase 5). Recorded on the session's history row so a talk that did not run
     /// as the definition says can be told apart from one that did. A scheduled or triggered start never carries one.

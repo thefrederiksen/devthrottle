@@ -373,6 +373,11 @@ public sealed class WorkspaceSeat
     /// the stored copy on every write like the seat beside it.</summary>
     public string? LaunchModel { get; set; }
 
+    /// <summary>How the Director drove the seat's agent (API mode mission, issue #4070): <c>api</c>, or null for
+    /// terminal. Handed back as the restore's <c>NewSessionRequest.ConnectionMode</c>, so an API-mode seat comes back in
+    /// API mode on the same conversation.</summary>
+    public string? ConnectionMode { get; set; }
+
     /// <summary>The prompt this seat is started with when the workspace is started COLD. Null when the
     /// seat is started SEEDED instead, where the seed points at <see cref="HandoverPath"/>.
     ///

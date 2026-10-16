@@ -1,0 +1,8 @@
+executable: /home/fixture/.local/bin/pi
+arguments: --mode rpc --session-id 21184695-7ced-4c1a-93e7-57d179f3c256 --append-system-prompt /director-root/pi-preamble/d21384bb-11fa-4aed-9835-e7eff42bea26.txt
+working folder: /work
+variables set: CC_FLEET_TOOLS, CC_SESSION_ID
+inherited prefixes removed: CC_
+ConnectionReady: agent session 21184695-7ced-4c1a-93e7-57d179f3c256, model gpt-5.6-sol
+send outcome: confirmed=True
+turn ended: Done, stop reason stop, usage in=3 out=6 cacheRead=0 cacheWrite=4836
