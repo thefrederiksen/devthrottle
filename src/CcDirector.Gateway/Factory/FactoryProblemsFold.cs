@@ -24,16 +24,19 @@ public static class FactoryProblemsFold
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(problems);
         var handoff = FactoryProblemHandoff.Route(factory);
-        var items = problems.Problems
+        var open = problems.Problems
             .Where(p => p.State == CronRunProblemStates.Open
                         && string.Equals(p.Factory, factory.Factory, StringComparison.OrdinalIgnoreCase))
-            .Select(p => Item(factory, p, handoff))
             .ToList();
+        var items = open.Select(p => Item(factory, p, handoff)).ToList();
+        // A failed check clears differently from a run (Factory Definition, phase 5b), so the note says how - only when
+        // one is listed, so a factory with no checks reads as it always has.
+        var checks = CronRunResultFold.AnyCheckProblem(open) ? CronRunResultFold.CheckClearsSentence + " " : "";
         return new FactoryPageProblemsDto
         {
             Heading = "Open problems",
             Note = "A problem stays here until the next run of the same schedule reports ok, or someone resolves it with a " +
-                   "one-line reason. " + (handoff.ToFactoryManager
+                   "one-line reason. " + checks + (handoff.ToFactoryManager
                        ? "This factory has no boss, so Handle the issue opens a talk with the Factory Manager, already told about it."
                        : "Handle the issue opens a talk with the boss, already told about it."),
             Items = items,

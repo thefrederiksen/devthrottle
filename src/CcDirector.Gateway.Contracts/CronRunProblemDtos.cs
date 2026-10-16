@@ -188,6 +188,10 @@ public sealed class CronFactoryDayDto
     /// 5b). Never counted as did not run.</summary>
     public int NothingToDo { get; set; }
 
+    /// <summary>Checks that failed in the window (Factory Definition, phase 5b): a timed start's run whose check failed
+    /// or did not run, and each failed check of an interval start.</summary>
+    public int CheckFailed { get; set; }
+
     /// <summary>The factory's seats with a run whose session is still open now, whatever the run's age - the same fact
     /// the Factories list's "stayed open" marker shows.</summary>
     public int LeftOpen { get; set; }

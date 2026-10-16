@@ -40,6 +40,61 @@ public sealed class DueCheckEndingTests
         Assert.Equal(CronRunEndingFold.RunJudgement.NotJudged, CronRunEndingFold.Judge(run, Now));
     }
 
+    [Theory]
+    [InlineData(CronRunResults.Checking, null, "checking")]
+    [InlineData(CronRunResults.NothingToDo, null, "nothing-to-do")]
+    [InlineData(CronRunResults.Problem, CronRunProblems.CheckFailed, "check-failed")]
+    [InlineData(CronRunResults.Problem, CronRunProblems.CheckNotRun, "check-not-run")]
+    public void Stamp_ACheckedRunWithNoSession_ReadsItsTaskStatusAsWhatItsCheckDid_NotUnknown(string result, string? problem, string expected)
+    {
+        // Arrange: stored as every fire stores it, "unknown" (the quality assurance report's finding 3: `schedule runs` printed Task
+        // "unknown" for a nothing-to-do run).
+        var run = Run(result, 5);
+        run.Problem = problem;
+
+        // Act
+        CronRunEndingFold.Stamp(new[] { run }, NoEndings, Now);
+
+        // Assert
+        Assert.Equal(expected, run.TaskStatus);
+    }
+
+    [Fact]
+    public void Stamp_ARunWithNoCheck_KeepsItsStoredTaskStatus()
+    {
+        // Arrange: a schedule with no check that failed to start a session (today's behaviour, goal 14), and one whose
+        // session a route recorded as closed by itself.
+        var didNotRun = Run(CronRunResults.Problem, 5);
+        didNotRun.Problem = CronRunProblems.DidNotRun;
+        var started = Run(CronRunResults.Ok, 5);
+        started.SessionId = "s1";
+        started.TaskStatus = CronRunEndings.ClosedItself;
+
+        // Act
+        CronRunEndingFold.Stamp(new[] { didNotRun, started }, NoEndings, Now);
+
+        // Assert
+        Assert.Equal((CronRunHistoryStore.TaskStatusUnknown, CronRunEndings.ClosedItself), (didNotRun.TaskStatus, started.TaskStatus));
+    }
+
+    [Fact]
+    public void RunsOf_ANothingToDoRunInTheStore_IsReadWithItsTrueTaskStatus_AndTheStoreKeepsUnknown()
+    {
+        // Arrange: the run table's own reader over the real store, the way GET /cron/jobs/{id}/runs reads it.
+        using var h = new CcDirector.Gateway.Tests.Data.GatewayDbTestHarness();
+        var db = h.Open();
+        var store = new CronRunHistoryStore(db, h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
+        store.Append("cj_quiet", Run(CronRunResults.NothingToDo, 5));
+        var reader = new CronRunRecordReader(store, new SessionHistoryStore(db).EndingsOf);
+
+        // Act
+        var read = Assert.Single(reader.RunsOf("cj_quiet", Now));
+
+        // Assert: folded on the read, never written back.
+        Assert.Equal("nothing-to-do", read.TaskStatus);
+        Assert.Equal(CronRunHistoryStore.TaskStatusUnknown, Assert.Single(store.List("cj_quiet")).TaskStatus);
+    }
+
     [Fact]
     public void Summarize_ASchedulesQuietChecks_AreNotRunsThatDidNotStart()
     {

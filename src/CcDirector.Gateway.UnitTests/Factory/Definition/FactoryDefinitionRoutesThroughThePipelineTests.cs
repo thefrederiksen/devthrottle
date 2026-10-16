@@ -557,9 +557,10 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task A_PUBLISH_WITH_PREVENT_OVERLAP_OFF_ON_A_CHECKED_START_IS_REFUSED_ON_ITS_LINE()
+    public async Task A_SAVE_WITH_PREVENT_OVERLAP_OFF_ON_A_CHECKED_START_IS_REFUSED_ON_ITS_LINE()
     {
-        // The check refuses it at every save, the publish included; the save is where a person meets it first.
+        // The check refuses it at every save; the save is where a person meets it first. The publish route's own
+        // refusal is A_PUBLISH_OF_A_STORED_VERSION_WITH_PREVENT_OVERLAP_OFF_ON_A_CHECKED_START_IS_422_ON_ITS_LINE.
         var off = new Dictionary<string, string>(DefinitionFixture.Valid())
             .Also("seats/outreach.yaml", "    secrets: [outreach-imap-password]\n", "    preventOverlap: false\n");
 
@@ -570,6 +571,52 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         Assert.Equal(("seats/outreach.yaml", 14), (error.GetProperty("file").GetString(), error.GetProperty("line").GetInt32()));
         Assert.Equal("A start with a check always prevents overlap, so preventOverlap cannot be false here. Remove it.",
             error.GetProperty("message").GetString());
+    }
+
+    /// <summary>
+    /// A version the save route would refuse, written to the store DIRECTLY - <see cref="FactoryDefinitionStore.SaveDraft"/>
+    /// runs no check, so this stands for a version saved before the rule existed - and then published through the
+    /// publish route, which checks the version it publishes again.
+    /// </summary>
+    private void StoreWithoutTheCheck(Dictionary<string, string> content) =>
+        Assert.True(new FactoryDefinitionStore(_db).SaveDraft(A, TheFactory, content, 0, CcDirector.Gateway.Data.Entities.FactoryMemoryAuthorKinds.Person,
+            "person-1", "saved before the rule", Now).Ok);
+
+    /// <summary>Publish version 1 as a person and assert the publish route's refusal: 422, the sentence, and the one error on its line.</summary>
+    private async Task AssertThePublishIsRefusedOn(int line, string message)
+    {
+        var refused = await Send("POST", FactoryPath + "/publish", AsAPerson, """{"version":1}""");
+
+        Assert.Equal(422, refused.Status);
+        Assert.Equal("CheckFailed", refused.Body.GetProperty("outcome").GetString());
+        Assert.Equal("Version 1 was not published: the check found 1 error in the definition of devthrottle. Fix each one where it is and try again.",
+            refused.Body.GetProperty("error").GetString());
+        var error = Assert.Single(refused.Body.GetProperty("findings").EnumerateArray(), f => f.GetProperty("severity").GetString() == "error");
+        Assert.Equal(("seats/outreach.yaml", line), (error.GetProperty("file").GetString(), error.GetProperty("line").GetInt32()));
+        Assert.Equal(message, error.GetProperty("message").GetString());
+        // Nothing was published and nothing of the start was written.
+        Assert.Equal(404, (await Send("GET", FactoryPath, AsAPerson)).Status);
+        Assert.DoesNotContain(_triggers.List(A), t => t.Factory == TheFactory);
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_OF_A_STORED_VERSION_WITH_PREVENT_OVERLAP_OFF_ON_A_CHECKED_START_IS_422_ON_ITS_LINE()
+    {
+        StoreWithoutTheCheck(new Dictionary<string, string>(DefinitionFixture.Valid())
+            .Also("seats/outreach.yaml", "    secrets: [outreach-imap-password]\n", "    preventOverlap: false\n"));
+
+        await AssertThePublishIsRefusedOn(14,
+            "A start with a check always prevents overlap, so preventOverlap cannot be false here. Remove it.");
+    }
+
+    [Fact]
+    public async Task A_PUBLISH_OF_A_STORED_VERSION_WITH_AN_INTERVAL_START_AND_NO_CHECK_IS_422_ON_ITS_EVERY_LINE()
+    {
+        StoreWithoutTheCheck(new Dictionary<string, string>(DefinitionFixture.Valid())
+            .Also("seats/outreach.yaml", "    check: checks/new_mail.py\n    secrets: [outreach-imap-password]\n", ""));
+
+        await AssertThePublishIsRefusedOn(12,
+            "A start with every must have a check: an interval with no check is a schedule that runs too often. Add a check, or use cron.");
     }
 
     [Fact]
