@@ -1,0 +1,318 @@
+# the zip (private; its size and hash only)
+  <eric zip>  1574 bytes  sha256 5f0b3ef27e558f631286f93b92d0704a4c46f0dafcabb8b862200aa57ebcafb2
+
+# Gateway: http://127.0.0.1:7991, built from this tree, storage root <rig>\gateway-root made empty for this run, serving this tree's Cockpit build. No Director.
+
+# before: the Factories list (rows, draftRows, newFactory)
+  GET /gateway/factories
+  {
+    "title": "Factories",
+    "subtitle": "Each factory runs one business or one job on its own, toward the goal you set for it.",
+    "tabs": [
+      {
+        "key": "factories",
+        "label": "Factories",
+        "notYetText": null
+      },
+      {
+        "key": "activity",
+        "label": "Activity",
+        "notYetText": null
+      },
+      {
+        "key": "reports",
+        "label": "Reports",
+        "notYetText": null
+      }
+    ],
+    "columns": [
+      "Factory",
+      "Waiting on you",
+      "Status"
+    ],
+    "rows": [],
+    "footerText": null,
+    "emptyText": "No factory is registered yet. New factory imports a definition folder as a draft; publishing it puts the factory here.",
+    "truncatedText": null,
+    "showArchivedLabel": "Show archived (0)",
+    "hideArchivedLabel": "Hide archived",
+    "archivedRows": [],
+    "archivedEmptyText": "No factory is archived.",
+    "outsideTitle": "Schedules outside any factory",
+    "outsideText": "These run on a schedule but are no seat of any factory. A plain job can stay here; factory work must be a seat of its factory - register the seat, then link the schedule to it with cc-devthrottle schedule link <id> --factory <factory> --seat <seat>.",
+    "outsideRows": [],
+    "outsideEmptyText": "Every active schedule is a seat of a factory.",
+    "newFactory": {
+      "label": "New factory",
+      "busyLabel": "Importing...",
+      "href": "/gateway/factories/new",
+      "noteText": "New factory takes a zip of a definition folder. It becomes version 1, a draft, of the factory its factory.yaml names, checked exactly as a save is. Nothing runs until you publish it on its Definition tab."
+    },
+    "draftTitle": "Not published yet",
+    "draftRows": []
+  }
+
+# STEP 1 - the blank Factories screen: no factory, no draft, and New factory.
+
+# PASS New factory is on the blank screen
+  seen: New factory
+
+# PASS no draft row on the blank screen
+  seen: 0
+
+# picture 01-blank-factories-screen.png
+  the blank Factories screen
+  address: /factories
+
+# STEP 2 - New factory with Eric's zip: the Cockpit opens the new factory's Definition tab.
+
+# PASS the tab says version 1 is a draft, nothing published
+  seen: Nothing is published yet. Version 1, a draft, is the only version.
+
+# PASS the tab offers Publish version 1
+  seen: Publish version 1
+
+# picture 02-definition-tab-draft.png
+  the draft's Definition tab, right after New factory
+  address: /factories/eric/definition
+
+# STEP 3 - the draft row under the list.
+
+# PASS the draft row reads 'Eric - draft, not published yet'
+  seen: Eric - draft, not published yet
+Version 1, a draft, 3 files. Open it to read what changes and publish it.
+
+# picture 03-factories-screen-draft-row.png
+  the Factories screen with the draft row
+  address: /factories
+
+# STEP 4 - the draft's other tabs: each says it starts when published, and nothing errors.
+
+# PASS the seats tab says it starts when Eric is published
+  seen: This starts when Eric is published. Until then nothing runs; its draft is on the Definition tab.
+
+# PASS the seats tab shows no error
+  seen: 0
+
+# PASS the overview tab says it starts when Eric is published
+  seen: This starts when Eric is published. Until then nothing runs; its draft is on the Definition tab.
+
+# PASS the overview tab shows no error
+  seen: 0
+
+# picture 04-draft-page-overview.png
+  the draft's factory page on the Overview tab
+  address: /factories/eric
+
+# STEP 5 - a second New factory with the same zip is refused: eric has a draft already.
+
+# PASS the refusal names the draft and where to import
+  seen: This folder's factory.yaml names 'eric', and Eric already has a draft that is not published yet. Open it under Not published yet and import there, on its Definition tab. Nothing was imported.
+
+# picture 05-new-factory-refused-draft-exists.png
+  New factory refused: Eric already has a draft
+  address: /factories
+
+# STEP 6 - Publish on the Definition tab, through its confirm.
+
+# the Publish confirm, as the Gateway worded it
+  Publish version 1 of the definition of Eric?
+  
+  Version 1 becomes the definition of Eric. Its registry entry, schedules and triggers are changed to match in one step, or nothing changes.
+  
+  What changes: First publish: 5 factory settings set, 1 seat added, 1 start created, 1 file added.
+  
+  It is the first published version. From then on the definition owns this factory's registry entry, schedules and triggers, and a direct edit of them is refused.
+  
+  Cancel
+  Publish
+
+# what the publish said and applied
+  Version 1 is published. It is the definition of Eric now.
+  
+  Definition: version 1 published.
+  Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
+  Schedule cj_204d03 (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto.
+  factory.yaml:5	notice	No Director on <machine> is connected now, so it could not be confirmed.
+
+# PASS the publish went through
+  seen: Version 1 is published. It is the definition of Eric now.
+
+Definition: version 1 published.
+Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
+Schedule cj_204d03 (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto.
+factory.yaml:5	notice	No Director on <machine> is connected now, so it could not be confirmed.
+
+# PASS the page header no longer says DRAFT after the publish
+  seen: Eric
+RUNNING
+
+# picture 06-definition-tab-published.png
+  the Definition tab after Publish
+  address: /factories/eric/definition
+
+# STEP 7 - the factory on the list, the draft row gone, and its seat with its schedule.
+
+# PASS no draft row after the publish
+  seen: 0
+
+# picture 07-factories-screen-published.png
+  the Factories screen with Eric on the list
+  address: /factories
+
+# PASS the seat Mail Desk runs daily at 08:00
+  seen: Seat	When it runs	Last run	Computer	
+Morning shift, 08:00-16:00
+
+Mail Desk
+Mail Desk
+Morning shift
+Open seat	
+Daily 08:00
+Pause
+	Not run yet
+no runs recorded yet
+	<machine>	
+Talk
+
+# picture 08-seats-tab-schedule.png
+  Eric's Seats tab: Mail Desk and its daily 08:00 start
+  address: /factories/eric/seats
+
+# STEP 8 - New factory with the same zip once more: eric is a live factory now.
+
+# PASS the refusal says the factory exists and to import on its page
+  seen: This folder's factory.yaml names 'eric', and that factory already exists: Eric. Open it and import there, on its Definition tab, to make the folder its next draft. Nothing was imported.
+
+# picture 09-new-factory-refused-exists.png
+  New factory refused: eric exists
+  address: /factories
+
+# after: the Factories list
+  GET /gateway/factories
+  {
+    "title": "Factories",
+    "subtitle": "Each factory runs one business or one job on its own, toward the goal you set for it.",
+    "tabs": [
+      {
+        "key": "factories",
+        "label": "Factories",
+        "notYetText": null
+      },
+      {
+        "key": "activity",
+        "label": "Activity",
+        "notYetText": null
+      },
+      {
+        "key": "reports",
+        "label": "Reports",
+        "notYetText": null
+      }
+    ],
+    "columns": [
+      "Factory",
+      "Waiting on you",
+      "Status"
+    ],
+    "rows": [
+      {
+        "id": "eric",
+        "title": "Eric",
+        "statusWord": "RUNNING",
+        "statusTone": "ok",
+        "statusRank": 3,
+        "statusReason": "Nothing failed and nothing is waiting on you.",
+        "statusLine": null,
+        "statusHref": null,
+        "waitingText": "-",
+        "waitingCount": 0,
+        "waitingHref": null,
+        "href": "/factories/eric",
+        "talk": null,
+        "noBossText": "No boss named",
+        "purpose": "Checks a mailbox every morning at 08:00 and, when the email is there, runs the owner's instructions.",
+        "bossName": null,
+        "leftOpenText": null,
+        "leftOpenHref": null
+      }
+    ],
+    "footerText": "Worst first: failing, then needs you, then paused, then running, then talk only.",
+    "emptyText": null,
+    "truncatedText": null,
+    "showArchivedLabel": "Show archived (0)",
+    "hideArchivedLabel": "Hide archived",
+    "archivedRows": [],
+    "archivedEmptyText": "No factory is archived.",
+    "outsideTitle": "Schedules outside any factory",
+    "outsideText": "These run on a schedule but are no seat of any factory. A plain job can stay here; factory work must be a seat of its factory - register the seat, then link the schedule to it with cc-devthrottle schedule link <id> --factory <factory> --seat <seat>.",
+    "outsideRows": [],
+    "outsideEmptyText": "Every active schedule is a seat of a factory.",
+    "newFactory": {
+      "label": "New factory",
+      "busyLabel": "Importing...",
+      "href": "/gateway/factories/new",
+      "noteText": "New factory takes a zip of a definition folder. It becomes version 1, a draft, of the factory its factory.yaml names, checked exactly as a save is. Nothing runs until you publish it on its Definition tab."
+    },
+    "draftTitle": "Not published yet",
+    "draftRows": []
+  }
+
+# after: the factory's schedules
+  GET /cron/jobs
+  {
+    "jobs": [
+      {
+        "id": "cj_204d03",
+        "name": "Eric - Mail Desk",
+        "enabled": true,
+        "scheduleKind": "recurring",
+        "cronExpression": "0 8 * * *",
+        "runAt": null,
+        "timeZoneId": "America/Toronto",
+        "factory": "eric",
+        "seat": "mail-desk",
+        "target": {
+          "machine": "<machine>"
+        },
+        "action": {
+          "repoPath": "",
+          "seed": "Good morning. It is time for the 08:00 mail check. Do what your brief says.\n",
+          "workListName": null,
+          "autoDismiss": true
+        },
+        "preventOverlap": true,
+        "notifyOn": "none",
+        "notifyWebhookUrl": null,
+        "createdUtc": "2026-10-16T15:00:41.5980121Z",
+        "lastFiredUtc": null,
+        "nextRunUtc": "2026-10-17T12:00:00Z",
+        "lastStatus": null,
+        "scheduleText": null,
+        "remainingToday": null,
+        "lifecycle": "active",
+        "stateLabel": "Active",
+        "toggleLabel": "Pause",
+        "runRecord": {
+          "verdict": "none",
+          "text": "no runs yet",
+          "runs": 0
+        },
+        "factoryTitle": "Eric",
+        "factoryHref": "/factories/eric/seats",
+        "shortName": "Mail Desk",
+        "loadWarning": null,
+        "shifts": [
+          "morning"
+        ],
+        "shiftText": "Morning shift",
+        "shiftWarning": null,
+        "shiftRule": null,
+        "definedByDefinition": true,
+        "pathText": "built from the factory's definition",
+        "checkPath": null,
+        "checkSecrets": null,
+        "definitionVersion": null
+      }
+    ]
+  }

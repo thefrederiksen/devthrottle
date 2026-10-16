@@ -2047,3 +2047,29 @@ a:focus .ff-bay rect {
 .fa-rec-table td.fa-rec-type {
   white-space: nowrap;
 }
+
+/* New factory and the factories not published yet (Factory Definition, phase 6b). */
+.fa-new-factory {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.fa-drafts {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fa-draft-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
