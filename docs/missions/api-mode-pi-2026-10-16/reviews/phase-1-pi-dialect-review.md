@@ -158,6 +158,22 @@ dialect would emit `TurnStarted` with the waiting prompts, then `TurnEnded` `fai
 acknowledged the prompt but never started it". That uses only the existing events and keeps rule 5. The
 queued-disposition observation below is the same question and gets the same answer.
 
+**Follow-up, after the Delivery Lead's ruling (16 October 2026): finding 1 is now accepted in full.**
+The ruling accepted the third row, and it is now in the ruling table in section 2 of event-model.md.
+The dialect emits it in both cases. In `OnProcessExited`, prompts Pi acknowledged and never began get
+`TurnStarted` with those prompts, then `TurnEnded` `failed`, "Pi acknowledged the prompt but never
+started it", with the exit code and the standard error written since the prompt was written; then
+`ConnectionEnded` with the same reason. The new `OnTurnStartOverdue`, which the Director calls when its
+bound runs out, emits the same pair with the reason "Pi acknowledged the prompt but never started it.
+The Director is restarting Pi; the prompt is not sent again". It is logged, and it condemns the process
+(`StopReason` is set and `CanWritePrompt` never reopens). It does nothing when the turn began in time.
+The timer, the restart and never re-sending the prompt belong to the Director (the integration
+Developer). The interim sentence on `ConnectionEnded` is replaced by this. Tests:
+`OnProcessExited_AfterAcknowledgementBeforeTheTurnStarted_EndsTheirTurnFailed`,
+`OnTurnStartOverdue_PromptWaiting_EndsItsTurnFailedAndCondemnsTheProcess`,
+`OnTurnStartOverdue_ThenPiStopped_EndsTheConnectionWithTheRestartReasonAndNoSecondTurn`,
+`OnTurnStartOverdue_TurnBeganInTime_DoesNothing` and `OnTurnStartOverdue_AfterPiExited_Throws`.
+
 ### 2. A prompt acknowledgement in a shape the dialect does not expect throws after the command is forgotten, so the prompt gets neither receipt and stays in flight
 
 Place: `src/CcDirector.Core/ApiMode/Pi/PiDialect.cs`, `OnResponse` line 305 (`Forget(id)`) before

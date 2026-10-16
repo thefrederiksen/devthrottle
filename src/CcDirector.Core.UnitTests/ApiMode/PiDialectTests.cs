@@ -432,24 +432,106 @@ public sealed class PiDialectTests
         Assert.True(resuming.CanWritePrompt);
     }
 
-    [Fact]
-    public void OnProcessExited_AfterAcknowledgementBeforeTheTurnStarted_ReasonNamesThePromptThatNeverRan()
+    /// <summary>A prompt written and acknowledged as started, with Pi's run not yet begun.</summary>
+    private void AcknowledgeWithoutTurn(string promptId = "p1")
     {
-        // Arrange: review finding 1 - Pi promises no turn after 'started'.
         Ready();
-        var command = WritePrompt("p1");
+        var command = WritePrompt(promptId);
         Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""");
-        Assert.Equal(["p1"], _dialect.PromptsAwaitingTurn);
+        Assert.Equal([promptId], _dialect.PromptsAwaitingTurn);
+    }
+
+    [Fact]
+    public void OnProcessExited_AfterAcknowledgementBeforeTheTurnStarted_EndsTheirTurnFailed()
+    {
+        // Arrange: the ruling's third row (review finding 1 of #4076) - Pi promises no turn after 'started'.
+        Take(_dialect.OnStderrLine("a line from before the prompt"));
+        AcknowledgeWithoutTurn();
+        Take(_dialect.OnStderrLine("Error: the run could not start"));
 
         // Act
         Take(_dialect.OnProcessExited(137));
 
-        // Assert
+        // Assert: rule 5 has a turn to read, failed, with the exit and only the standard error since the write.
+        const string reason = "Pi acknowledged the prompt but never started it. Pi exited (exit code 137). Standard error: Error: the run could not start";
         Assert.Equal(
         [
             "PromptDelivered p1 Started",
-            "ConnectionEnded 137: Pi exited (exit code 137). Pi acknowledged prompt(s) p1 and exited before starting their turn []",
+            "TurnStarted turn-1 [p1]",
+            $"TurnEnded turn-1 Failed reason={reason} stop=",
+            $"ConnectionEnded 137: {reason} [Error: the run could not start]",
         ], _events.Select(PiWireLogReplay.Describe));
+        Assert.Empty(_dialect.PromptsAwaitingTurn);
+    }
+
+    [Fact]
+    public void OnTurnStartOverdue_PromptWaiting_EndsItsTurnFailedAndCondemnsTheProcess()
+    {
+        // Arrange
+        AcknowledgeWithoutTurn();
+
+        // Act: the Director's bound ran out.
+        var step = _dialect.OnTurnStartOverdue();
+        Take(step);
+
+        // Assert: the restart is in the reason, the process must stop, and nothing reopens the gate.
+        const string reason = "Pi acknowledged the prompt but never started it. The Director is restarting Pi; the prompt is not sent again";
+        Assert.Equal(
+        [
+            "PromptDelivered p1 Started",
+            "TurnStarted turn-1 [p1]",
+            $"TurnEnded turn-1 Failed reason={reason} stop=",
+        ], _events.Select(PiWireLogReplay.Describe));
+        Assert.Equal(reason, step.StopReason);
+        Assert.False(_dialect.CanWritePrompt);
+        Assert.Empty(_dialect.PromptsAwaitingTurn);
+        Assert.Empty(_defects);
+    }
+
+    [Fact]
+    public void OnTurnStartOverdue_ThenPiStopped_EndsTheConnectionWithTheRestartReasonAndNoSecondTurn()
+    {
+        // Arrange
+        AcknowledgeWithoutTurn();
+        Take(_dialect.OnTurnStartOverdue());
+
+        // Act: the Director stops the process it condemned.
+        Take(_dialect.OnProcessExited(137));
+
+        // Assert: rule 2 - one TurnStarted, one TurnEnded; the prompt keeps its one receipt.
+        Assert.Single(_events.OfType<TurnStarted>());
+        Assert.Single(_events.OfType<TurnEnded>());
+        Assert.Single(_events.OfType<PromptDelivered>());
+        Assert.DoesNotContain(_events, e => e is PromptRefused);
+        Assert.Equal("Pi acknowledged the prompt but never started it. The Director is restarting Pi; the prompt is not sent again",
+            _events.OfType<ConnectionEnded>().Single().Reason);
+    }
+
+    [Fact]
+    public void OnTurnStartOverdue_TurnBeganInTime_DoesNothing()
+    {
+        // Arrange
+        AcknowledgeWithoutTurn();
+        Pi("""{"type":"agent_start"}""");
+        _events.Clear();
+
+        // Act
+        var step = _dialect.OnTurnStartOverdue();
+
+        // Assert
+        Assert.Empty(step.Events);
+        Assert.Null(step.StopReason);
+        Assert.True(_dialect.TurnRunning);
+    }
+
+    [Fact]
+    public void OnTurnStartOverdue_AfterPiExited_Throws()
+    {
+        // Arrange
+        Take(_dialect.OnProcessExited(0));
+
+        // Act + Assert
+        Assert.Throws<InvalidOperationException>(() => _dialect.OnTurnStartOverdue());
     }
 
     [Fact]

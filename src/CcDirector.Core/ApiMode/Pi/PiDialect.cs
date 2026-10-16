@@ -34,6 +34,14 @@ public sealed class PiDialect
     /// <summary>The reason a prompt is refused when Pi exits before acknowledging it (event model, rule 1).</summary>
     public const string ExitedBeforeAcknowledgingReason = "Pi exited before acknowledging";
 
+    /// <summary>The start of the reason a turn ends with when Pi acknowledged its prompt(s) and never began the
+    /// run: it exited first, or the Director's bound ran out (event model, section 2, the ruling's third row).</summary>
+    public const string AcknowledgedButNeverStartedReason = "Pi acknowledged the prompt but never started it";
+
+    /// <summary>What the reason adds when the Director's bound ran out: the restart is never silent, and the
+    /// prompt is never sent again on its own.</summary>
+    public const string RestartingPiReason = "The Director is restarting Pi; the prompt is not sent again";
+
     /// <summary>The reason a turn ends when Pi reports it aborted (event model, section 3.4).</summary>
     public const string StoppedByUserReason = "stopped by the user";
 
@@ -106,7 +114,8 @@ public sealed class PiDialect
     public bool CanWritePrompt => _connectionReadySent && !_exited && _stopReason is null && _inFlight.Count == 0;
 
     /// <summary>Prompts Pi acknowledged as <c>started</c> whose turn has not begun, oldest first. Pi does not
-    /// promise a turn after the acknowledgement, so the transport may bound how long these wait.</summary>
+    /// promise a turn after the acknowledgement, so the Director bounds how long these wait and calls
+    /// <see cref="OnTurnStartOverdue"/> when the bound runs out.</summary>
     public IReadOnlyList<string> PromptsAwaitingTurn => _deliveredAwaitingTurn;
 
     /// <summary>True while a turn is running (from <c>agent_start</c> to <c>agent_settled</c>).</summary>
@@ -269,11 +278,19 @@ public sealed class PiDialect
             EndTurn(step, TurnOutcome.Failed, turnReason, _turn.LastStopReason);
         }
 
+        string? neverStartedReason = null;
+        if (_deliveredAwaitingTurn.Count > 0)
+        {
+            neverStartedReason = $"{AcknowledgedButNeverStartedReason}. Pi exited (exit code {exitCode})";
+            if (stderr.Count > 0)
+                neverStartedReason += ". Standard error: " + string.Join(" | ", stderr);
+            EndNeverStartedTurn(step, neverStartedReason);
+        }
+
         var reason = _stopReason
             ?? turnReason
+            ?? neverStartedReason
             ?? (unacknowledged.Count > 0 ? ExitedBeforeAcknowledgingReason : $"Pi exited (exit code {exitCode})");
-        if (_deliveredAwaitingTurn.Count > 0)
-            reason += $". Pi acknowledged prompt(s) {string.Join(", ", _deliveredAwaitingTurn)} and exited before starting their turn";
         step.Events.Add(new ConnectionEnded
         {
             SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
@@ -287,6 +304,58 @@ public sealed class PiDialect
         _queuedByAgent.Clear();
         FileLog.Write($"[PiDialect] OnProcessExited: session={_sessionId}, reason={reason}");
         return step.Build();
+    }
+
+    /// <summary>
+    /// The Director's bound on the wait between Pi's <c>started</c> acknowledgement and <c>agent_start</c> ran
+    /// out (Pi promises no turn after the acknowledgement). The waiting prompts get their turn, started and
+    /// ended <c>failed</c> at once, with a reason that says the Director is restarting Pi, and this process
+    /// is condemned: nothing reopens <see cref="CanWritePrompt"/>, and <see cref="PiDialectStep.StopReason"/>
+    /// tells the Director to stop it. The Director owns the timer and the restart, and never sends the prompt
+    /// again on its own. Nothing to do (an empty step) when no prompt is waiting: the turn began in time.
+    /// </summary>
+    public PiDialectStep OnTurnStartOverdue()
+    {
+        FileLog.Write($"[PiDialect] OnTurnStartOverdue: session={_sessionId}, waiting={string.Join(",", _deliveredAwaitingTurn)}");
+        if (_exited)
+            throw new InvalidOperationException("OnTurnStartOverdue was called after Pi exited.");
+        var step = new StepBuilder();
+        if (_deliveredAwaitingTurn.Count == 0)
+        {
+            FileLog.Write($"[PiDialect] OnTurnStartOverdue: session={_sessionId}, no prompt is waiting; nothing to do");
+            return step.Build();
+        }
+
+        var reason = $"{AcknowledgedButNeverStartedReason}. {RestartingPiReason}";
+        if (_stderrSinceMark.Count > 0)
+            reason += ". Standard error: " + string.Join(" | ", _stderrSinceMark);
+        EndNeverStartedTurn(step, reason);
+        RequireStop(step, reason);
+        FileLog.Write($"[PiDialect] OnTurnStartOverdue: session={_sessionId}, restarting Pi, reason={reason}");
+        return step.Build();
+    }
+
+    /// <summary>The ruling's third row: a TurnStarted holding the prompts Pi acknowledged and never began,
+    /// then their one TurnEnded, failed. Pi gave no usage and no stop reason for a run it never ran.</summary>
+    private void EndNeverStartedTurn(StepBuilder step, string reason)
+    {
+        var turnId = _numbering.NextTurnId();
+        List<string> promptIds = [.. _deliveredAwaitingTurn];
+        _deliveredAwaitingTurn.Clear();
+        foreach (var promptId in promptIds)
+            _inFlight.Remove(promptId);
+        FileLog.Write($"[PiDialect] Acknowledged but never started: session={_sessionId}, turn={turnId}, prompts={string.Join(",", promptIds)}, reason={reason}");
+        step.Events.Add(new TurnStarted
+        {
+            SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
+            TurnId = turnId, PromptIds = promptIds,
+        });
+        step.Events.Add(new TurnEnded
+        {
+            SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
+            TurnId = turnId, Outcome = TurnOutcome.Failed, Reason = reason, AgentStopReason = null,
+            Usage = new TurnUsage { Input = 0, Output = 0, CacheRead = 0, CacheWrite = 0 },
+        });
     }
 
     // ---------------------------------------------------------------- responses
