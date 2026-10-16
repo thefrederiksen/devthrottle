@@ -9,3 +9,4 @@ src/CcDirector.Core/Wingman/Prompts/*.txt text eol=lf
 # Pi wire logs are byte-exact recordings: the framing tests read the line feeds Pi wrote. A checkout
 # that turned them into carriage return plus line feed would test a stream Pi never sends.
 src/CcDirector.Core.Tests/TestData/pi-rpc/*.jsonl -text
+docs/missions/api-mode-pi-2026-10-16/preamble-proof/*.jsonl -text
