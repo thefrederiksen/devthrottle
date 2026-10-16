@@ -1,4 +1,4 @@
-- status "Session status": "API mode Working - turn 2 1 prompt waiting: a turn is running Agent connected (gpt-5.1-codex-mini)"
+- status "Session status": "Working - turn 2 API mode 1 prompt waiting: a turn is running Agent connected (gpt-5.1-codex-mini)"
 - log "Live conversation":
   - article: Reply with exactly the word PONG Delivered
   - article:

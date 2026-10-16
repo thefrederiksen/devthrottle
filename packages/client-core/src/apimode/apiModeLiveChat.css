@@ -29,16 +29,23 @@
   color: var(--text-dim);
 }
 
+/* The two pills of the design report's status line: the activity, filled in the Gateway's tone, then the connection. */
 .live-chat-pill {
-  padding: 2px 9px;
-  border: 1px solid var(--live-tone);
-  border-radius: 999px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
   color: var(--text);
-  font-weight: 600;
 }
 
 .live-chat-activity {
-  color: var(--text);
+  border-color: var(--live-tone);
+  background: color-mix(in srgb, var(--live-tone) 18%, transparent);
+}
+
+.live-chat-connection {
+  border-color: color-mix(in srgb, var(--ok) 55%, var(--border));
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
 }
 
 .live-chat-status-part.live-tone-red {
@@ -80,7 +87,7 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 /* The agent's reply: the whole column, no card around it. */
@@ -108,24 +115,25 @@
   overflow-wrap: anywhere;
 }
 
-/* A tool call: a small card inset from the left, its edge in the Gateway's tone (running, done, failed, stopped). */
+/* A tool call: a card with the tool on the left and its status words on the right, in the Gateway's tone (running,
+   done, failed, stopped), as the design report draws it. */
 .live-chat-tool {
-  align-self: flex-start;
-  max-width: 88%;
+  align-self: stretch;
+  max-width: 92%;
   min-width: 0;
-  margin-left: 16px;
-  padding: 7px 11px;
-  background: var(--surface-2);
+  padding: 7px 10px;
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--live-tone);
-  border-radius: 6px;
+  border-radius: 7px;
   font-size: 12.5px;
 }
 
 .live-chat-tool-head {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
+  color: var(--text-dim);
 }
 
 .live-chat-tool-title {
@@ -135,11 +143,13 @@
 
 .live-chat-tool-status {
   flex: 0 0 auto;
-  padding: 0 7px;
-  border: 1px solid var(--live-tone);
-  border-radius: 999px;
-  font-size: 11px;
-  color: var(--text);
+  color: var(--accent);
+}
+
+.live-tone-green .live-chat-tool-status,
+.live-tone-yellow .live-chat-tool-status,
+.live-tone-red .live-chat-tool-status {
+  color: var(--live-tone);
 }
 
 .live-chat-tool-detail summary {
@@ -153,12 +163,12 @@
    --you-bubble-* tokens where the shell has them, the phone's own surface where it does not. */
 .live-chat-prompt {
   align-self: flex-end;
-  max-width: 72%;
+  max-width: 75%;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 3px;
 }
 
 .live-chat-prompt-text {
@@ -171,20 +181,19 @@
   overflow-wrap: anywhere;
 }
 
-/* A prompt's receipt: under the owner's words. */
+/* A prompt's receipt: small words under the owner's, in the Gateway's tone (the design report's receipt line). */
 .live-chat-receipt {
   max-width: 100%;
-  padding: 3px 10px;
-  border: 1px solid var(--live-tone);
-  /* Not a full pill: a refusal's reason can wrap to several lines. */
-  border-radius: 10px;
+  font-size: 11.5px;
   color: var(--text-dim);
-  font-size: 12px;
+  text-align: right;
   overflow-wrap: anywhere;
 }
 
+.live-chat-receipt.live-tone-green,
+.live-chat-receipt.live-tone-yellow,
 .live-chat-receipt.live-tone-red {
-  color: var(--attention);
+  color: var(--live-tone);
 }
 
 /* The line that ends a turn, across the column like a divider. */

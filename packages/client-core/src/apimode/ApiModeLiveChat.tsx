@@ -87,9 +87,10 @@ export function ApiModeLiveChat({ sessionId, display, streamDeps }: ApiModeLiveC
  *  turn's stopped or failed ending, and the agent process. All of it the Gateway's words. */
 function LiveStatus({ display }: { display: ApiModeSessionDisplay }) {
   return (
-    <div className={`live-chat-status ${toneClass(display.tone)}`} role="status" aria-label="Session status">
-      {display.connectionLabel && <span className="live-chat-pill">{display.connectionLabel}</span>}
-      {display.activityLabel && <span className="live-chat-activity">{display.activityLabel}</span>}
+    <div className="live-chat-status" role="status" aria-label="Session status">
+      {/* The design report's order: what the agent is doing first, in the Gateway's tone, then how it is connected. */}
+      {display.activityLabel && <span className={`live-chat-pill live-chat-activity ${toneClass(display.tone)}`}>{display.activityLabel}</span>}
+      {display.connectionLabel && <span className="live-chat-pill live-chat-connection">{display.connectionLabel}</span>}
       {display.queueLabel && <span className="live-chat-status-part">{display.queueLabel}</span>}
       {display.lastTurnEnding && <span className="live-chat-status-part live-tone-red">{display.lastTurnEnding}</span>}
       {display.agentLabel && <span className="live-chat-status-part live-chat-agent">{display.agentLabel}</span>}

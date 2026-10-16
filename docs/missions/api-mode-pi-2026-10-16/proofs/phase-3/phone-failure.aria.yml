@@ -1,4 +1,4 @@
-- status "Session status": "API mode Idle after turn 3 The last turn failed: Pi exited during the turn (exit code 137) Agent disconnected: Pi exited (exit code 137)"
+- status "Session status": "Idle after turn 3 API mode The last turn failed: Pi exited during the turn (exit code 137) Agent disconnected: Pi exited (exit code 137)"
 - log "Live conversation":
   - article: Write a long essay about rivers Delivered - stopped
   - article:
