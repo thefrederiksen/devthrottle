@@ -256,6 +256,58 @@ public sealed class LookBeforeTypingTests : IDisposable
     }
 
     [Fact]
+    public async Task SharedSubmit_OwnerTypedAfterAMarkedLine_RefusesAndErasesNothing()
+    {
+        // Review of pull request 4072, risk B: the clear keys (End and a Backspace per character and more) would take the
+        // owner's words off the end first.
+        const string leftover = "[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox";
+        using var screen = new ClaudeScreen(composer: leftover + " and my own reply");
+        ComposerRetention.MarkMayHoldText(screen, AgentKind.ClaudeCode.ToString(), leftover);
+
+        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Send(screen, Prompt));
+
+        Assert.Contains("would erase those words", ex.Message);
+        Assert.Empty(screen.Written);
+        Assert.Equal(leftover + " and my own reply", screen.Composer);
+        Assert.True(ComposerRetention.MayHoldText(screen));
+    }
+
+    private static ScreenFrame CodexFrame(IReadOnlyList<string> rows, int cursorRow, int cursorCol) =>
+        new(rows.ToList(), cursorRow, cursorCol, true, rows.ToList());
+
+    [Fact]
+    public void CodexComposer_NumberedPastPromptAboveALiveComposer_ReadsEmptyNotMenu()
+    {
+        // Review of pull request 4072, risk A: a past prompt that began "1. ..." stays on screen as "› 1. ...".
+        var frame = CodexFrame(
+        [
+            "› 1. list the files, then 2. count them",
+            "",
+            "• There are 4 files.",
+            "",
+            "› Ask Codex to do anything",
+            "",
+            "  gpt-5.6-sol default · ~/repo",
+        ], cursorRow: 4, cursorCol: 2);
+
+        Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
+    }
+
+    [Fact]
+    public void CodexComposer_ASelectedOptionWhereTheComposerIs_StillReadsMenu()
+    {
+        var frame = CodexFrame(
+        [
+            "  Update available! 0.155.1 -> 0.157.0",
+            "",
+            "› 1. Update now",
+            "  2. Skip",
+        ], cursorRow: 2, cursorCol: 2);
+
+        Assert.Equal(ComposerReading.MenuOpen, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
+    }
+
+    [Fact]
     public async Task SharedSubmit_MenuClosesWhileTheSendLooks_SubmitsThePrompt()
     {
         using var screen = new ClaudeScreen(overlay: QuestionMenu) { OverlayClosesAfterFrames = 2 };
