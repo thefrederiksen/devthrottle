@@ -1,0 +1,24 @@
+- status "Session status": "API mode Working - turn 2 1 prompt waiting: a turn is running Agent connected (gpt-5.1-codex-mini)"
+- log "Live conversation":
+  - article: Reply with exactly the word PONG Delivered
+  - article:
+    - paragraph: PONG
+  - text: Turn finished
+  - article: List the files in this folder with bash, then tell me how many there are Delivered
+  - 'article "bash: done"':
+    - text: bash done
+    - group: Input
+  - 'article "bash: running"':
+    - text: bash running
+    - group: Input
+  - article:
+    - paragraph:
+      - text: The folder holds
+      - code: README.md
+      - text: ","
+      - code: src/
+      - text: and
+      - code: tests/
+      - text: . Counting them now
+  - article: "Then summarise the README in one line Queued: a turn is running"
+  - article: "Are you there? Refused: Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message."

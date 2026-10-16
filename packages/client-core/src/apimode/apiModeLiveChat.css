@@ -1,0 +1,211 @@
+/* The live Chat of an API-mode session (mission #4070, phase 3). Shared by the Cockpit and the phone; it uses only the
+   tokens both shells define (--text, --text-dim, --surface, --surface-2, --border, --accent, --warn, --attention,
+   --ok). The phone re-tunes spacing for touch under its .screen ancestor in its own stylesheet; the content is the
+   same on both. The family is the history Chat's: the agent's reply across the whole column with no card, a tool call
+   as a small inset card, the owner's side on the right. */
+.live-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+
+/* Colour comes from the Gateway's tone word and nothing else. */
+.live-tone-green { --live-tone: var(--ok); }
+.live-tone-yellow { --live-tone: var(--warn); }
+.live-tone-red { --live-tone: var(--attention); }
+.live-tone-neutral { --live-tone: var(--border); }
+
+.live-chat-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.live-chat-pill {
+  padding: 2px 9px;
+  border: 1px solid var(--live-tone);
+  border-radius: 999px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.live-chat-activity {
+  color: var(--text);
+}
+
+.live-chat-status-part.live-tone-red {
+  color: var(--attention);
+}
+
+.live-chat-agent {
+  margin-left: auto;
+}
+
+.live-chat-notice {
+  margin: 8px 12px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--live-tone, var(--border));
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.live-chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+}
+
+.live-chat-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.live-chat-thread {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The agent's reply: the whole column, no card around it. */
+.live-chat-reply {
+  align-self: stretch;
+  min-width: 0;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.live-chat-reply .live-chat-body > :first-child { margin-top: 0; }
+.live-chat-reply .live-chat-body > :last-child { margin-bottom: 0; }
+
+.live-chat-reply pre,
+.live-chat-tool pre,
+.live-chat-line-detail {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A tool call: a small card inset from the left, its edge in the Gateway's tone (running, done, failed, stopped). */
+.live-chat-tool {
+  align-self: flex-start;
+  max-width: 88%;
+  min-width: 0;
+  margin-left: 16px;
+  padding: 7px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--live-tone);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.live-chat-tool-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.live-chat-tool-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.live-chat-tool-status {
+  flex: 0 0 auto;
+  padding: 0 7px;
+  border: 1px solid var(--live-tone);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.live-chat-tool-detail summary {
+  margin-top: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+
+/* The owner's prompt and its receipt, on the right. The bubble is the history Chat's owner bubble: the Cockpit's
+   --you-bubble-* tokens where the shell has them, the phone's own surface where it does not. */
+.live-chat-prompt {
+  align-self: flex-end;
+  max-width: 72%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.live-chat-prompt-text {
+  padding: 9px 13px;
+  background: var(--you-bubble-bg, var(--surface-2));
+  border: 1px solid var(--you-bubble-border, var(--border));
+  color: var(--you-bubble-text, var(--text));
+  border-radius: 12px 12px 3px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A prompt's receipt: under the owner's words. */
+.live-chat-receipt {
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--live-tone);
+  /* Not a full pill: a refusal's reason can wrap to several lines. */
+  border-radius: 10px;
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.live-chat-receipt.live-tone-red {
+  color: var(--attention);
+}
+
+/* The line that ends a turn, across the column like a divider. */
+.live-chat-turn {
+  align-self: stretch;
+  padding-top: 6px;
+  border-top: 1px dashed var(--live-tone);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.live-chat-turn.live-tone-red {
+  color: var(--attention);
+}
+
+/* The connection line and anything else the Gateway words as a line. */
+.live-chat-line {
+  align-self: center;
+  max-width: 100%;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  text-align: center;
+}
