@@ -91,6 +91,56 @@ internal static class SessionWsProxyEndpoints
             await RejectAsync(ctx, sid, "file");
         });
 
+        // Issue #4078: one folder this session may see - a folder in its working folder, or one its conversation
+        // names - with the files in it (the fs-list verb, sent FOR the session). The file viewer opens a named
+        // folder through this and each file in it through /file above.
+        app.MapGet("/sessions/{sid}/folder", async (string sid, HttpContext ctx) =>
+        {
+            var reqTenant = await ResolveTenantOrDenyAsync(ctx, tenantBoundary);
+            if (reqTenant is null) return;
+            if (pushedSessions.TryLocate(reqTenant.Value, sid, stale) is not { } loc)
+            {
+                await RejectAsync(ctx, sid, "folder");
+                return;
+            }
+            var list = await DirectorCommandRouter.TrySendAsync(sendCommand, loc.DirectorId, "fs-list", sid,
+                new FsListRequest { Path = ctx.Request.Query["path"].ToString() }, ctx.RequestAborted);
+            await WriteVerbJsonAsync(ctx, list, "fs-list (session)");
+        });
+
+        // Issue #4078: what each path the Chat shows is for this session - a file, a folder, not on disk, or not
+        // allowed (the path-status verb). The Chat greys out a path that is not on disk before anyone clicks it.
+        app.MapPost("/sessions/{sid}/path-status", async (string sid, HttpContext ctx) =>
+        {
+            var reqTenant = await ResolveTenantOrDenyAsync(ctx, tenantBoundary);
+            if (reqTenant is null) return;
+            if (pushedSessions.TryLocate(reqTenant.Value, sid, stale) is not { } loc)
+            {
+                await RejectAsync(ctx, sid, "path-status");
+                return;
+            }
+            PathStatusRequest? request;
+            try
+            {
+                request = await ctx.Request.ReadFromJsonAsync<PathStatusRequest>(ctx.RequestAborted);
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await ctx.Response.WriteAsJsonAsync(new { error = $"The list of paths could not be read: {ex.Message}" });
+                return;
+            }
+            if (request is null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await ctx.Response.WriteAsJsonAsync(new { error = "A list of paths is required." });
+                return;
+            }
+            var status = await DirectorCommandRouter.TrySendAsync(sendCommand, loc.DirectorId, "path-status", sid,
+                request, ctx.RequestAborted);
+            await WriteVerbJsonAsync(ctx, status, "path-status");
+        });
+
         // Screenshot bytes (GET, screenshot-file up-stream) and delete (DELETE, screenshot-delete verb). The
         // Cockpit gallery's thumbnail <img>, View, Copy, and per-card Del all land here; the session id is the
         // routing key for the machine-wide screenshots folder on the owning Director.

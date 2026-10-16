@@ -39,6 +39,8 @@ and 500 output tokens (more than one to two seconds of streaming can produce).
 | 2026-10-16 | Developer, phase 0 | Fixture recording 2: refusal | 6 | 68 | 3,752 | 3,827 | 0.0238 |
 | 2026-10-16 | Developer, phase 0 | Fixture recording 2: exit (estimate) | 3,800 | 500 | 0 | 0 | 0.0390 |
 | 2026-10-16 | Developer, phase 0 | Fixture recording 3: exit before acknowledgement (Pi killed before it reached the model) | 0 | 0 | 0 | 0 | 0.0000 |
+| 2026-10-16 | Developer, phase 1 integration | Preamble proof, run 1 (one prompt through the API-mode host; the same as run 2 without get_commands) | 3 | 6 | 0 | 4,842 | 0.0245 |
+| 2026-10-16 | Developer, phase 1 integration | Preamble proof, run 2, the one recorded in preamble-proof.md (get_commands made no model call) | 3 | 6 | 0 | 4,836 | 0.0244 |
 
 Recording 1 was discarded and recorded again because its fixtures carried text that this public
 repository should not publish (the fleet's skill descriptions and the user name inside Pi's session
@@ -49,5 +51,6 @@ folder name). Recording 2 is what is committed, plus recording 3, the exit befor
 | Scope | Estimated dollars |
 |---|---|
 | Phase 0 (both recordings) | 0.29 |
-| Mission so far, including the Architect's posted run | 0.32 |
-| Left of the 10 dollar grant | 9.68 |
+| Phase 1 integration (the two preamble proof runs) | 0.05 |
+| Mission so far, including the Architect's posted run | 0.37 |
+| Left of the 10 dollar grant | 9.63 |

@@ -1,4 +1,5 @@
 ﻿using CcDirector.Core.Agents;
+using CcDirector.Core.ApiMode;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Input;
@@ -99,6 +100,10 @@ public sealed class Session : IDisposable
     public const int MinVerificationLength = 50;
 
     private readonly ISessionBackend _backend;
+
+    // The backend when this session is in API mode (issue #4070), held apart because _backend may be wrapped in the
+    // usage-limit guard; null for every terminal session.
+    private readonly ApiModeSessionBackend? _apiMode;
     private bool _disposed;
 
     // ===== THE SESSION'S SCREEN: one terminal emulator at the terminal's REAL size (issue #3406) =====
@@ -2377,6 +2382,11 @@ public sealed class Session : IDisposable
     /// <summary>Access to the underlying backend for mode-specific operations.</summary>
     public ISessionBackend Backend => _backend;
 
+    /// <summary>How the Director talks to this session's agent (issue #4070): API mode when its backend is the agent's
+    /// own protocol, otherwise terminal.</summary>
+    public SessionConnectionMode ConnectionMode =>
+        _apiMode is null ? SessionConnectionMode.Terminal : SessionConnectionMode.Api;
+
     /// <summary>
     /// Create a new session with the specified backend.
     /// </summary>
@@ -2399,6 +2409,14 @@ public sealed class Session : IDisposable
             ? new UsageLimitInputGuard(backend, id, UsageLimitDialogMayShow)
             : backend;
         BackendType = backendType;
+        _apiMode = backend as ApiModeSessionBackend;
+        // API mode has no screen to detect a turn on: the agent's own events say when one runs (issue #4070).
+        // It starts as starting, not waiting: it is waiting for a prompt only once the agent has named its conversation.
+        if (_apiMode is not null)
+        {
+            ActivityState = ActivityState.Starting;
+            _apiMode.EventsPublished += OnApiModeEvents;
+        }
         CreatedAt = createdAt ?? DateTimeOffset.UtcNow;
         Status = SessionStatus.Starting;
 
@@ -2542,6 +2560,15 @@ public sealed class Session : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
         // Framework pre-prompt (not a human racing the dictation): exempt (issue #1181, Task 3b).
         var provenance = SubmissionProvenance.FrameworkText();
+        // API mode (issue #4070, phase 1 review finding 2): there is no screen to watch for readiness, and no need - the
+        // host's queue holds the prompt (PromptQueued, agentStarting) and writes it the moment the agent names its
+        // conversation. So it is handed over at once rather than after a wait for terminal output that never comes.
+        if (_apiMode is not null)
+        {
+            FileLog.Write($"[Session] PrePrompt: API mode, handed to the agent's queue at once, sid={Id}, len={text.Length}");
+            await SendTextAsync(text, provenance, SendSource.Framework);
+            return;
+        }
         if (CanGateFirstPrompt)
         {
             var limit = wait > Drivers.FirstPromptGate.MinimumWait ? wait : Drivers.FirstPromptGate.MinimumWait;
@@ -3535,9 +3562,17 @@ public sealed class Session : IDisposable
     /// for its age check at the first keystroke; null for every send that is not a Gateway prompt (the owner's own
     /// input, the framework, the fleet), which the check does not apply to.</param>
     /// <returns>Delivered, or still delivering, or refused before typing (see <see cref="TextSendOutcome"/>). A send that did not deliver throws.</returns>
-    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null)
+    /// <param name="deliveryId">The Gateway's delivery id for this prompt (<see cref="PromptRequest.DeliveryId"/>), or null. An
+    /// API-mode session carries it as the prompt id on every event about the prompt; a terminal session does not read it.</param>
+    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null, string? deliveryId = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
+        // API mode (issue #4070): the prompt goes to the agent's own protocol and its receipt is the agent's
+        // acknowledgement, so none of the typing, echo or records checks below runs for it. That includes the age check at
+        // the first keystroke: the prompt verb checked the age at receipt, and a prompt that then waits in the host's
+        // queue - behind a running turn, or while Pi starts - is written however long it waited, by design; the queue IS
+        // where it is meant to wait.
+        if (_apiMode is { } apiMode) return await SendApiModePromptAsync(apiMode, text, source, deliveryId);
         // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
 
@@ -3566,7 +3601,7 @@ public sealed class Session : IDisposable
     /// for its age check at receipt and at the first keystroke; null for a prompt the check does not apply to.</param>
     /// <returns>Sent, or why nothing was submitted.</returns>
     public async Task<GuardedSendResult> SendTextOnlyWhenWaitingForInputAsync(
-        string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter, DateTime? sentAtUtc = null)
+        string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter, DateTime? sentAtUtc = null, string? deliveryId = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -3582,6 +3617,9 @@ public sealed class Session : IDisposable
             FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: REFUSED session={Id}: {reason}");
             return GuardedSendResult.TooOld(ActivityState, reason);
         }
+
+        // API mode (issue #4070): there is nothing to type into; the prompt goes to the agent only if it can go now.
+        if (_apiMode is { } apiMode) return await SendApiModePromptOnlyWhenWaitingAsync(apiMode, text, source, deliveryId);
 
         GuardedInputSection section;
         lock (_inputLock)
@@ -4654,10 +4692,83 @@ public sealed class Session : IDisposable
     /// <summary>Soft-stop the current turn (Esc for Claude and pi).</summary>
     public async Task CancelTurnAsync()
     {
+        // API mode (issue #4070): Stop is the agent's own abort, confirmed by the agent ending the turn cancelled.
+        if (_apiMode is { } apiMode) { await StopApiModeTurnAsync(apiMode); return; }
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] CancelTurnAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
             await Driver.CancelAsync(_backend);
+    }
+
+    /// <summary>
+    /// Send a prompt to an API-mode session (issue #4070): through the Director's queue to the agent, and answered from
+    /// the agent's own acknowledgement - delivered, or refused with the reason. A prompt queued behind a running turn
+    /// waits here until it is written and acknowledged; the caller's own answer budget covers that wait.
+    /// </summary>
+    private async Task<TextSendOutcome> SendApiModePromptAsync(ApiModeSessionBackend apiMode, string text, SendSource source, string? deliveryId)
+    {
+        FileLog.Write($"[Session] SendApiModePromptAsync: session={Id}, source={source}, len={text.Length}, deliveryId={deliveryId ?? "(none)"}");
+        var receipt = await apiMode.Host.SendPromptAsync(text, deliveryId, CancellationToken.None);
+        if (receipt.Delivered)
+        {
+            FileLog.Write($"[Session] SendApiModePromptAsync done: session={Id}, prompt={receipt.PromptId}, delivered");
+            return TextSendOutcome.Delivered;
+        }
+        FileLog.Write($"[Session] SendApiModePromptAsync done: session={Id}, prompt={receipt.PromptId}, REFUSED by {receipt.RefusedBy} - {receipt.RefusalReason}");
+        return TextSendOutcome.Refused(receipt.RefusalReason!);
+    }
+
+    /// <summary>
+    /// The guarded send for an API-mode session (issue #4070): the prompt goes to the agent only if the agent can take it
+    /// now - its conversation named, no prompt in flight, none queued - and never waits behind other work. Refused busy
+    /// otherwise, with nothing sent; refused busy too when the agent refuses it, with the agent's reason.
+    /// </summary>
+    private async Task<GuardedSendResult> SendApiModePromptOnlyWhenWaitingAsync(ApiModeSessionBackend apiMode, string text, SendSource source, string? deliveryId)
+    {
+        FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync: session={Id}, source={source}, len={text.Length}, deliveryId={deliveryId ?? "(none)"}");
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed)
+            return GuardedSendResult.NotRunning(ActivityState);
+        var receipt = await apiMode.Host.TrySendPromptNowAsync(text, deliveryId, CancellationToken.None);
+        if (receipt is null)
+            return GuardedSendResult.Busy(ActivityState, "the agent is not waiting for a prompt (one is running or waiting to be sent, or it is starting); nothing was sent");
+        if (receipt.Delivered)
+        {
+            FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync done: session={Id}, prompt={receipt.PromptId}, delivered");
+            return GuardedSendResult.Sent(ActivityState);
+        }
+        FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync done: session={Id}, prompt={receipt.PromptId}, REFUSED by {receipt.RefusedBy} - {receipt.RefusalReason}");
+        return GuardedSendResult.Busy(ActivityState, receipt.RefusalReason!);
+    }
+
+    /// <summary>
+    /// An API-mode session's activity, read from the agent's own events (issue #4070), the way a terminal session's is
+    /// read from its screen: working from the turn's start to its end, waiting for a prompt once the agent named its
+    /// conversation and whenever a turn ends. The process's end is the ordinary exit path.
+    /// </summary>
+    private void OnApiModeEvents(IReadOnlyList<Gateway.Contracts.ApiMode.SessionEvent> events)
+    {
+        foreach (var e in events)
+        {
+            switch (e)
+            {
+                case Gateway.Contracts.ApiMode.ConnectionReady:
+                case Gateway.Contracts.ApiMode.TurnEnded:
+                    SetActivityState(ActivityState.WaitingForInput);
+                    break;
+                case Gateway.Contracts.ApiMode.TurnStarted:
+                    SetActivityState(ActivityState.Working);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Stop the running turn of an API-mode session with the agent's own abort, and wait for the agent to
+    /// confirm it (issue #4070).</summary>
+    private async Task StopApiModeTurnAsync(ApiModeSessionBackend apiMode)
+    {
+        FileLog.Write($"[Session] StopApiModeTurnAsync: session={Id}");
+        var ended = await apiMode.Host.StopAsync(CancellationToken.None);
+        FileLog.Write($"[Session] StopApiModeTurnAsync done: session={Id}, turn={ended?.TurnId ?? "(none running)"}, outcome={ended?.Outcome.ToString() ?? "(none)"}");
     }
 
     /// <summary>Hard interrupt (Ctrl+C where the tool supports it; pi does NOT -
@@ -5319,6 +5430,8 @@ public sealed class Session : IDisposable
 
         _backend.ProcessExited -= OnBackendProcessExited;
         _backend.StatusChanged -= OnBackendStatusChanged;
+        if (_apiMode is not null)
+            _apiMode.EventsPublished -= OnApiModeEvents;
         if (_screenFeed is not null && _backend.Buffer is not null)
             _backend.Buffer.OnBytesWritten -= _screenFeed;
         _isAlternateScreen = false;

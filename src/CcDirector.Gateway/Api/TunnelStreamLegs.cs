@@ -206,13 +206,23 @@ internal sealed class TunnelStreamLegs
             {
                 DirectorCommandStatus.NotFound => StatusCodes.Status404NotFound,
                 DirectorCommandStatus.BadRequest => StatusCodes.Status400BadRequest,
+                // Issue #4078: the Director answers a FOLDER asked for as a file with Conflict.
+                DirectorCommandStatus.Conflict => StatusCodes.Status409Conflict,
                 _ => StatusCodes.Status502BadGateway,
             };
             FileLog.Write($"[TunnelStreamLegs] {label} open FAILED sid={sid} stream={streamId}: {open.Status} {open.Error}");
             if (!ctx.Response.HasStarted)
             {
                 ctx.Response.StatusCode = code;
-                await ctx.Response.WriteAsJsonAsync(new { error = open.Error ?? $"director returned {open.Status}" });
+                // Issue #4078: a refused file read carries the Director's decision - its sentence AND its code
+                // (not on disk, not allowed, a folder) - so the viewer shows the sentence and, for a folder,
+                // opens the listing. The sentence is the error, verbatim; the Gateway writes none of its own.
+                var refusal = ReadRefusal(open);
+                await ctx.Response.WriteAsJsonAsync(new
+                {
+                    error = open.Error ?? $"director returned {open.Status}",
+                    code = refusal?.Code,
+                });
             }
             return true;
         }
@@ -228,6 +238,25 @@ internal sealed class TunnelStreamLegs
     }
 
     // ------------------------------------------------------------------------------- helpers ----
+
+    // The decision a Director attaches to a refused file read (issue #4078), or null when it sent none - an older
+    // Director, or a refusal that is not about the path (a bad session id).
+    private static PathStatusDto? ReadRefusal(DirectorCommandResult result)
+    {
+        if (string.IsNullOrEmpty(result.BodyJson))
+            return null;
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<PathStatusDto>(result.BodyJson, RefusalJson);
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            FileLog.Write($"[TunnelStreamLegs] refusal body could not be read: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions RefusalJson = new(System.Text.Json.JsonSerializerDefaults.Web);
 
     private async Task SendCloseStreamAsync(string directorId, string streamId)
     {

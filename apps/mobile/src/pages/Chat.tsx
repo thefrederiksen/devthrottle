@@ -3,7 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { listSessions } from "@devthrottle/client-core/api/client";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
-import { chatLinkLabel } from "@devthrottle/client-core/history/chatView";
+import { chatLinkLabel, chatPathLabel } from "@devthrottle/client-core/history/chatView";
+import { isNotOnDisk, usePathStatuses } from "@devthrottle/client-core/history/usePathStatuses";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
 import { SessionAppBar } from "../components/SessionAppBar";
 import { SessionControls } from "../components/SessionControls";
@@ -20,12 +21,17 @@ import { ViewTabs } from "../components/ViewTabs";
 const STATUS_BASE = "Conversation history (live)";
 const BOTTOM_THRESHOLD_PX = 40;
 
+// The surface name the path-status hint reports a background failure under (issue #4078).
+const SURFACE_PATHS = "mobile-chat-paths";
+
 export function Chat() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
 
   const [name, setName] = useState<string | null>(null);
   const { bubbles, emptyText, staleNotice, loadFailed, filter, setFilter } = useSessionChat(sessionId);
+  // Issue #4078: what each path shown is on the session's Director, so one that is not on disk is greyed out.
+  const pathStatuses = usePathStatuses(sessionId, bubbles, SURFACE_PATHS);
   const [status, setStatus] = useState(STATUS_BASE);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -174,7 +180,7 @@ export function Chat() {
                 {r.links.length > 0 && (
                   <div className="chat-links">
                     {r.links.map((link, j) => (
-                      <span className={`chat-link ${link.isUrl ? "url" : "path"}`} key={j}>
+                      <span className={`chat-link ${link.isUrl ? "url" : "path"}${!link.isUrl && isNotOnDisk(pathStatuses, link.text) ? " not-on-disk" : ""}`} key={j}>
                         {link.isUrl ? (
                           <a
                             className="chat-link-open"
@@ -194,8 +200,11 @@ export function Chat() {
                             title={link.text}
                             onClick={() => openFile(link.text)}
                           >
-                            {chatLinkLabel(link.text)}
+                            {chatPathLabel(link.text)}
                           </button>
+                          )}
+                          {!link.isUrl && isNotOnDisk(pathStatuses, link.text) && (
+                            <span className="chat-link-missing">not on disk</span>
                         )}
                         <button type="button" className="chat-link-copy" onClick={() => copyLink(link.text)}>
                           {link.isUrl ? "Copy URL" : "Copy path"}

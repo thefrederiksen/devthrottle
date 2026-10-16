@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { classifyFile, formatFileSize } from "@devthrottle/client-core/history/fileTypes";
 import type { FileViewerType } from "@devthrottle/client-core/history/fileTypes";
 import {
+  downloadSessionFile,
   ensureGatewayCookie,
   fetchSessionFileSize,
   fetchSessionFileText,
+  fetchSessionFolder,
   sessionFileUrl,
 } from "@devthrottle/client-core/api/client";
+import type { SessionFolderListing } from "@devthrottle/client-core/api/client";
+import { isFolder as pathIsFolder, refusalSentence, usePathStatus } from "@devthrottle/client-core/history/usePathStatus";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { Button } from "./Button";
 import { useDismissOnBackdrop } from "./useDismissOnBackdrop";
@@ -31,7 +35,14 @@ const IMAGE_DID_NOT_LOAD = "the image did not load. The file may be missing (404
 //               the Gateway's cookie authority.
 //   markdown -> fetch the text, render with the shared sanitized markdownToHtml()
 //   text     -> fetch the text, show in a <pre> (covers code files too)
-//   download -> unknown/binary: no guessed render; show the file name and a plain Download link.
+//   download -> unknown/binary: no guessed render; show the file name and a Download button.
+//
+// Issue #4078: before rendering, the viewer asks the session's Director what the path IS (path-status). A file
+// renders as above. A FOLDER opens a listing (the session's folder browser), and each file in it opens here in
+// turn, with Back to return to the folder. A path that is not on disk, or not allowed for this session, shows
+// the Director's own sentence and nothing else - never a broken <img> or a blank frame. Download fetches the
+// file first and shows the Director's reason when it is refused, instead of a bare <a download> that the
+// browser turns into "download failed" with no reason.
 
 export interface FileViewerModalProps {
   /** The session whose machine holds the file; the routing key for the Gateway proxy. */
@@ -55,9 +66,27 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
   // elements load even if the startup cookie was evicted. Synchronous: an effect would run too late.
   ensureGatewayCookie();
 
-  const type = classifyFile(path);
-  const url = sessionFileUrl(sessionId, path);
-  const name = baseName(path);
+  // The path on screen. It starts as the one clicked; opening a file from a folder listing moves it, and the
+  // folders passed through are kept so Back returns to them.
+  const [current, setCurrent] = useState(path);
+  const [trail, setTrail] = useState<string[]>([]);
+  const state = usePathStatus(sessionId, current, SURFACE);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  useEffect(() => {
+    setCurrent(path);
+    setTrail([]);
+  }, [path]);
+
+  useEffect(() => setDownloadError(null), [current]);
+
+  const type = classifyFile(current);
+  const url = sessionFileUrl(sessionId, current);
+  const name = baseName(current);
+  const isFolder = pathIsFolder(state);
+  const refusal = refusalSentence(state);
+  const canDownload = state.kind !== "loading" && !isFolder && refusal === null;
 
   // Escape dismisses the viewer, matching ConfirmDialog.
   useEffect(() => {
@@ -72,6 +101,26 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
   // outside the panel must not close the viewer (see useDismissOnBackdrop).
   const dismiss = useDismissOnBackdrop(onClose);
 
+  const download = () => {
+    setDownloadError(null);
+    setDownloading(true);
+    downloadSessionFile(sessionId, current, name)
+      .catch((err) => setDownloadError(describeAndReport(SURFACE, "download the file", err, { sessionId })))
+      .finally(() => setDownloading(false));
+  };
+
+  const openFromFolder = (entryPath: string) => {
+    setTrail((folders) => [...folders, current]);
+    setCurrent(entryPath);
+  };
+
+  const back = () => {
+    const previous = trail[trail.length - 1];
+    if (previous === undefined) return;
+    setTrail((folders) => folders.slice(0, -1));
+    setCurrent(previous);
+  };
+
   return (
     <div className="ui-modal-backdrop" {...dismiss}>
       <div
@@ -81,16 +130,98 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
         aria-label={name}
       >
         <div className="file-viewer-head">
-          <span className="file-viewer-name" title={path}>{name}</span>
+          {trail.length > 0 && (
+            <Button variant="secondary" onClick={back}>Back</Button>
+          )}
+          <span className="file-viewer-name" title={current}>{name}</span>
           <div className="file-viewer-head-actions">
-            <a className="file-viewer-download" href={url} download={name}>Download</a>
+            {canDownload && (
+              <Button variant="secondary" onClick={download} disabled={downloading}>
+                {downloading ? "Downloading..." : "Download"}
+              </Button>
+            )}
             <Button variant="secondary" onClick={onClose}>Close</Button>
           </div>
         </div>
+        {downloadError !== null && <div className="file-viewer-error file-viewer-download-error">{downloadError}</div>}
         <div className="file-viewer-body">
-          <FileViewerContent type={type} url={url} name={name} sessionId={sessionId} path={path} />
+          {state.kind === "loading" ? (
+            <div className="file-viewer-loading">Loading...</div>
+          ) : refusal !== null ? (
+            <div className="file-viewer-error">{refusal}</div>
+          ) : isFolder ? (
+            <FolderListing sessionId={sessionId} path={current} onOpen={openFromFolder} />
+          ) : (
+            <FileViewerContent
+              type={type}
+              url={url}
+              name={name}
+              sessionId={sessionId}
+              path={current}
+              onDownload={download}
+              downloading={downloading}
+            />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Issue #4078: a folder this session may see, through the session folder browser. Every entry opens in the
+// viewer - a file renders, a folder lists - and the parent is offered only when the Director allows going up.
+function FolderListing({
+  sessionId,
+  path,
+  onOpen,
+}: {
+  sessionId: string;
+  path: string;
+  onOpen: (entryPath: string) => void;
+}) {
+  const [listing, setListing] = useState<SessionFolderListing | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setListing(null);
+    setError(null);
+    fetchSessionFolder(sessionId, path, controller.signal)
+      .then((result) => setListing(result))
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        setError(describeAndReport(SURFACE, "open the folder", err, { sessionId }));
+      });
+    return () => controller.abort();
+  }, [sessionId, path]);
+
+  if (error !== null) return <div className="file-viewer-error">{error}</div>;
+  if (listing === null) return <div className="file-viewer-loading">Loading...</div>;
+  return (
+    <div className="file-viewer-scroll">
+      <p className="file-viewer-folder-note">This is a folder. Choose a file to open it.</p>
+      <ul className="file-viewer-folder" aria-label="Folder contents">
+        {listing.parentPath !== null && (
+          <li>
+            <button type="button" className="file-viewer-folder-entry folder" onClick={() => onOpen(listing.parentPath!)}>
+              .. (up one folder)
+            </button>
+          </li>
+        )}
+        {listing.entries.map((entry) => (
+          <li key={entry.path}>
+            <button
+              type="button"
+              className={`file-viewer-folder-entry ${entry.isFile ? "file" : "folder"}`}
+              title={entry.path}
+              onClick={() => onOpen(entry.path)}
+            >
+              {entry.isFile ? entry.name : `${entry.name}/`}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {listing.entries.length === 0 && <p className="file-viewer-folder-note">This folder has no files to show.</p>}
     </div>
   );
 }
@@ -101,8 +232,10 @@ function FileViewerContent(props: {
   name: string;
   sessionId: string;
   path: string;
+  onDownload: () => void;
+  downloading: boolean;
 }) {
-  const { type, url, name, sessionId, path } = props;
+  const { type, url, name, sessionId, path, onDownload, downloading } = props;
   switch (type) {
     case "image":
       return <ImageFile sessionId={sessionId} url={url} name={name} />;
@@ -118,7 +251,7 @@ function FileViewerContent(props: {
       return <TextFile sessionId={sessionId} path={path} render="text" />;
     case "download":
     default:
-      return <DownloadPanel sessionId={sessionId} path={path} url={url} name={name} />;
+      return <DownloadPanel sessionId={sessionId} path={path} name={name} onDownload={onDownload} downloading={downloading} />;
   }
 }
 
@@ -131,13 +264,15 @@ function FileViewerContent(props: {
 function DownloadPanel({
   sessionId,
   path,
-  url,
   name,
+  onDownload,
+  downloading,
 }: {
   sessionId: string;
   path: string;
-  url: string;
   name: string;
+  onDownload: () => void;
+  downloading: boolean;
 }) {
   const [size, setSize] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +298,9 @@ function DownloadPanel({
       <p className="file-viewer-download-note">This file type has no in-app preview.</p>
       <p className="file-viewer-download-name">{name}</p>
       {sizeLabel ? <p className="file-viewer-download-size">{sizeLabel}</p> : null}
-      <a className="file-viewer-download-btn" href={url} download={name}>Download</a>
+      <Button variant="secondary" onClick={onDownload} disabled={downloading}>
+        {downloading ? "Downloading..." : "Download"}
+      </Button>
     </div>
   );
 }

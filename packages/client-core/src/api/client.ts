@@ -1483,6 +1483,96 @@ export async function fetchSessionFileSize(sessionId: string, path: string, sign
   return null;
 }
 
+// Issue #4078: what a path is for one session, decided on that session's Director. The codes are the
+// Director's; the sentence is the Director's own words and is shown verbatim, never rewritten here.
+export const PATH_STATUS_FILE = "file";
+export const PATH_STATUS_FOLDER = "folder";
+export const PATH_STATUS_NOT_ON_DISK = "not-on-disk";
+export const PATH_STATUS_NOT_ALLOWED = "not-allowed";
+
+export interface PathStatus {
+  /** The path exactly as it was asked about. */
+  path: string;
+  /** One of the PATH_STATUS_* codes. */
+  code: string;
+  /** The Director's one plain sentence for this path; empty for an ordinary file. */
+  sentence: string;
+}
+
+/** One entry in a session folder listing. */
+export interface SessionFolderEntry {
+  name: string;
+  path: string;
+  isFile: boolean;
+}
+
+/** A folder this session may see, with the files (and, inside the working folder, the folders) in it. */
+export interface SessionFolderListing {
+  currentPath: string | null;
+  /** The folder above, when going up is allowed; null otherwise. */
+  parentPath: string | null;
+  entries: SessionFolderEntry[];
+}
+
+// POST /sessions/{sid}/path-status - what each path is for this session (file, folder, not on disk, not
+// allowed). The Chat asks about the paths it shows so one that is not on disk can be greyed out, and the file
+// viewer asks about the one it is opening so it can say why before trying to render it.
+export async function fetchPathStatuses(sessionId: string, paths: string[], signal?: AbortSignal): Promise<PathStatus[]> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/path-status`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ paths }),
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "check those paths");
+  }
+  const body = (await res.json()) as { paths?: PathStatus[] };
+  return body.paths ?? [];
+}
+
+// GET /sessions/{sid}/folder?path=... - one folder this session may see: a folder in its working folder, or one
+// its conversation names. A refusal is thrown as a GatewayError carrying the Director's sentence.
+export async function fetchSessionFolder(sessionId: string, path: string, signal?: AbortSignal): Promise<SessionFolderListing> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/folder?path=${encodeURIComponent(path)}`, {
+    method: "GET",
+    headers: { ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "open that folder");
+  }
+  return (await res.json()) as SessionFolderListing;
+}
+
+// Download a session file by FETCHING it first, so a refusal shows the Director's reason instead of the
+// browser's bare "download failed" that a plain <a download> gives. Only once the bytes are here is the save
+// started, from a local object URL.
+export async function downloadSessionFile(sessionId: string, path: string, fileName: string): Promise<void> {
+  const res = await gatewayFetch(sessionFileUrl(sessionId, path), {
+    method: "GET",
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "download that file");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    // Give the browser a moment to start the save before the URL is released.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+}
+
 // GET /sessions/{sid}/screenshots[?count=N] - the newest screenshots' metadata (not the bytes).
 // count <= 0 fetches everything (the folder can hold thousands, so callers pass a cap). A 503 means
 // the owning Director is offline (the Gateway could not reach it for this leg, issue #412); it is

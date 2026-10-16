@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { HistoryBubbleFilter } from "./bubbleMapper";
 import type { SessionHistoryDto } from "./types";
-import { buildChatSignature, chatLinkLabel, renderChatHistory } from "./chatView";
+import { buildChatSignature, chatLinkLabel, chatPathLabel, renderChatHistory } from "./chatView";
 
 // Covers the Chat logic hoisted out of the mobile Chat page into client-core (issue #1213), so both the
 // mobile page and the Cockpit tab render from one tested source.
@@ -108,5 +108,27 @@ describe("chatLinkLabel", () => {
     expect(label).toContain("...");
     expect(label.length).toBeLessThan(long.length);
     expect(label.startsWith("https://example.com/")).toBe(true);
+  });
+});
+
+describe("chatPathLabel", () => {
+  it("shows the file name and its folder, never a middle cut", () => {
+    expect(chatPathLabel("D:\\ReposMindzie\\mindzieWeb\\hosting\\README.md")).toBe("hosting\\README.md");
+    expect(chatPathLabel("/home/soren/repo/docs/brief.pdf")).toBe("docs/brief.pdf");
+  });
+
+  it("labels a folder written with a trailing separator by itself and its parent", () => {
+    expect(chatPathLabel("D:\\ReposMindzie\\mindzieWeb\\hosting\\")).toBe("mindzieWeb\\hosting");
+    expect(chatPathLabel("D:\\ReposMindzie\\mindzieWeb")).toBe("ReposMindzie\\mindzieWeb");
+  });
+
+  it("leaves a path with no folder to add unchanged", () => {
+    expect(chatPathLabel("D:\\brief.pdf")).toBe("D:\\brief.pdf");
+  });
+
+  it("keeps a very long path short without a middle cut", () => {
+    const long = "D:\\" + "deep\\".repeat(30) + "final-report.pdf";
+    expect(chatPathLabel(long)).toBe("deep\\final-report.pdf");
+    expect(chatPathLabel(long)).not.toContain("...");
   });
 });

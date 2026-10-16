@@ -41,6 +41,10 @@ public sealed class PiDriver : IAgentDriver
         // and compact-and-continue refuses for pi rather than guessing (issue #2150).
         | DriverCapabilities.CompactContext;
 
+    /// <summary>Terminal, and API mode: <c>pi --mode rpc</c>, spoken to by <see cref="ApiMode.Pi.PiDialect"/>
+    /// (issue #4070).</summary>
+    public IReadOnlyList<ApiMode.SessionConnectionMode> ConnectionModes => ApiMode.SessionConnectionModes.TerminalAndApi;
+
     public IReadOnlyList<AgentSlashCommand> SlashCommands => PiSlashCommands.All;
 
     // pi selects its model inside the tool, not via a Director-passed flag (v1): no model selection.

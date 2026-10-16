@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
+using CcDirector.Core.ApiMode;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Settings;
@@ -93,6 +94,20 @@ public sealed class SessionManager : IDisposable
     /// account on every machine. That is a strictly larger hole than the network port this mission removes.
     /// </summary>
     public Func<Guid, string?>? GatewaySessionCredentialSource { get; set; }
+
+    /// <summary>Makes the child process of an API-mode session (issue #4070): the real process in the Director, a fake in
+    /// a test, so no test starts an agent.</summary>
+    public Func<IApiModeProcess> ApiModeProcessFactory { get; set; } = () => new SystemApiModeProcess();
+
+    /// <summary>
+    /// Where API-mode sessions' events go (issue #4070). Until the upstream message to the Gateway exists (phase 2,
+    /// <c>DirectorUpStreamMessages</c>), the Director's log.
+    /// TODO(API mode phase 2): the Director's composition sets the sink that fills the upstream message here.
+    /// </summary>
+    public ISessionEventSink SessionEventSink { get; set; } = new LoggingSessionEventSink();
+
+    /// <summary>The clock API-mode sessions' events are timed by.</summary>
+    public TimeProvider ApiModeClock { get; set; } = TimeProvider.System;
 
     /// <summary>
     /// End a Gateway session key that was minted for a session which then FAILED to launch.
@@ -749,11 +764,14 @@ public sealed class SessionManager : IDisposable
     /// <param name="forcePooledWorktree">True for a seat that works in a repository (phase 5's <c>FactoryWorktree</c>):
     /// it takes a fresh pooled slot whatever the repository's pooled-worktree setting says, with the setting's pool
     /// size (the default, four, when it was never set). A refusal is the tool's own, unchanged.</param>
-    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null, FactoryKitRequest? factoryKit = null, bool forcePooledWorktree = false)
+    public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null, FactoryKitRequest? factoryKit = null, bool forcePooledWorktree = false, SessionConnectionMode connectionMode = SessionConnectionMode.Terminal)
     {
         using var creation = EnterCreation();
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
+        // API mode is refused here, before anything is taken, when this agent's wrapper does not speak it (issue #4070).
+        if (connectionMode == SessionConnectionMode.Api)
+            RequireApiModeSupported(agent, backendType);
         if (forcePooledWorktree && factoryKit is null)
             throw new ArgumentException("A pooled worktree is forced only for a seat, which always comes with its kit.", nameof(forcePooledWorktree));
         var home = factoryKit?.Home == true;
@@ -841,7 +859,14 @@ public sealed class SessionManager : IDisposable
         if (studioMode)
             _log?.Invoke($"Studio mode args: {args}");
 
-        ISessionBackend backend = backendType switch
+        // API mode (issue #4070): the agent's own protocol instead of a terminal. Everything above and below - the
+        // preamble, the launch line, the environment - is composed exactly as for the terminal.
+        ISessionBackend backend = connectionMode == SessionConnectionMode.Api
+            ? new ApiModeSessionBackend(id.ToString(), launchSpec.PreassignedSessionId
+                    ?? throw new InvalidOperationException($"{agent.Kind} named no session id for API mode, so its conversation could not be resumed or taken over."),
+                resuming: !string.IsNullOrEmpty(resumeSessionId),
+                new SessionEventStream(id.ToString(), SessionEventSink, ApiModeClock), ApiModeProcessFactory, ApiModeClock)
+            : backendType switch
         {
             // ConPty on Windows, UnixPty on macOS/Linux - one selection, in PlatformSessionBackend.
             SessionBackendType.ConPty
@@ -1217,7 +1242,9 @@ public sealed class SessionManager : IDisposable
             if (!string.Equals(resolvedExe, agent.ExecutablePath, StringComparison.OrdinalIgnoreCase))
                 _log?.Invoke($"Resolved agent command '{agent.ExecutablePath}' to '{resolvedExe}'");
 
-            var (launchExe, launchArgs) = CommandLineLauncher.Build(resolvedExe, args);
+            // An API-mode process is started with its executable and its arguments as a list (never through a shell); its
+            // process resolves a Windows .cmd shim itself.
+            var (launchExe, launchArgs) = backend is ApiModeSessionBackend ? (resolvedExe, args) : CommandLineLauncher.Build(resolvedExe, args);
             if (!string.Equals(launchExe, resolvedExe, StringComparison.OrdinalIgnoreCase))
                 _log?.Invoke($"Launching '{resolvedExe}' via shell: {launchExe} {launchArgs}");
 
@@ -1737,6 +1764,24 @@ public sealed class SessionManager : IDisposable
             session.PooledWorktreeHeldReason = reason;
             return new Git.PooledWorktreeReturn(pooled.Slot, pooled.Path, Freed: false, HeldReason: reason);
         }
+    }
+
+    /// <summary>
+    /// Refuse API mode for an agent whose wrapper does not declare it, or on a backend other than the default one, before
+    /// the create takes anything (issue #4070).
+    /// </summary>
+    private static void RequireApiModeSupported(IAgent agent, SessionBackendType backendType)
+    {
+        var driver = AgentPluginRegistry.Contains(agent.Kind)
+            ? AgentPluginRegistry.Get(agent.Kind).Driver
+            : Drivers.AgentDrivers.For(agent.Kind);
+        if (!driver.ConnectionModes.Contains(SessionConnectionMode.Api))
+            throw new InvalidOperationException(
+                $"{ToolDetectionService.DisplayName(agent.Kind)} cannot be started in API mode: its wrapper speaks only through the terminal.");
+        if (backendType != SessionBackendType.ConPty)
+            throw new InvalidOperationException(
+                $"API mode replaces the terminal, so it cannot be combined with the {backendType} backend.");
+        FileLog.Write($"[SessionManager] RequireApiModeSupported: agent={agent.Kind}, accepted");
     }
 
     /// <summary>Create a new pipe mode session for the given repo path.
@@ -2333,6 +2378,7 @@ public sealed class SessionManager : IDisposable
                 FactoryKit = s.FactoryKit,
                 FactoryStartOverride = s.FactoryStartOverride,
                 LaunchModel = s.LaunchModel,
+                ConnectionMode = s.ConnectionMode == SessionConnectionMode.Api ? SessionConnectionModeWords.ToWord(s.ConnectionMode) : null,
                 IsAutoNamed = s.IsAutoNamed,
                 MissionId = s.MissionId,
                 MissionName = s.MissionName,

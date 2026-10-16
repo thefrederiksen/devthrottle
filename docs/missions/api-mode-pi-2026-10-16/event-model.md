@@ -58,6 +58,16 @@ Three fields may be null, each when there is honestly no value: `reason` on a `d
 tool the agent never finished. `toolCallId` on `PermissionRequested` is optional. Every other field is
 always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
 
+**What a `promptId` is** (the Delivery Lead's rulings and the phase 1 integration review, finding 3, 16 October 2026):
+the Gateway's delivery id when the prompt came from the Gateway with one - its prompt route gives every prompt one -
+and otherwise a Director id that is a **new GUID for every prompt**, never a counter: the owner's typing in the desktop,
+a fleet message or doorbell, the framework's own text, a pre-prompt. Receipts are kept by tenant, session and prompt id,
+and a counter would start again after a Director restart and overwrite an earlier receipt; a GUID is never reused,
+across restarts included. Ids are unique within a session with one exception: a retry of a delivery that was not
+delivered reuses its Gateway id exactly, so the same `promptId` can carry a `PromptRefused` and then a later receipt,
+and **the later receipt stands** (read the latest receipt per `promptId`, in `sequence` order). An id is never reused
+while its prompt is still waiting for its receipt, and a delivered id is never sent again.
+
 `ConnectionReady` and `ConnectionEnded` are **additions** to the list in the mission document's
 section 5. Without them the Director cannot tell "idle" from "the process died between turns", and
 take the wheel needs the agent's own conversation id.
@@ -91,7 +101,13 @@ after it is written, long before a turn can be cut short, so the case splits in 
 
 ## 3. The Pi mapping
 
-Pi is started as `pi --mode rpc --session-id <id>`, with no `CC_*` variables in its environment.
+Pi is started as `pi --mode rpc --session-id <id>`, with the same launch arguments (the fleet preamble's
+`--append-system-prompt` among them) and folder as terminal mode. Its environment differs in one way: every `CC_*`
+variable Pi would inherit from the Director is stripped first (terminal mode strips only the variables it then stamps,
+so an inherited `CC_DIRECTOR_ROOT` or `CC_WORKTREES_HOME` reaches a terminal Pi and not an API-mode one), and then the
+session's own stamped set (its `CC_SESSION_ID`, its Gateway address and key, the fleet text) is applied, the same set
+terminal mode stamps. (Corrected in phase 1, approved by the Delivery Lead, 16
+October 2026: "no `CC_*` variables" came from the recorder stripping its own parent's variables.)
 Every command is sent with a unique `id`; Pi repeats it on the `response`. Session events carry no
 id.
 

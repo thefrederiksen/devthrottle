@@ -321,6 +321,11 @@ internal static class ControlEndpoints
             // Who started the current work (the Message Load mission): the Gateway's working edge spares an
             // armed snooze for agent-origin work only. A fact, like the one above; the Gateway rules on it.
             WorkingOrigin = s.WorkingOrigin,
+            // API mode (issue #4070): how the Director drives the agent, and who holds the conversation. Facts; the
+            // Gateway rules on what they mean.
+            ConnectionMode = Core.ApiMode.SessionConnectionModeWords.ToWord(s.ConnectionMode),
+            WheelHolder = Core.ApiMode.SessionConnectionModeWords.WheelHolderOf(
+                s.ConnectionMode, s.Status is SessionStatus.Exited or SessionStatus.Failed),
             // Prompts that did not go (issue internal#811). Only this machine can see a delivery fail, so
             // the counts and the unresolved flag are reported here as FACTS; the Gateway folds the words.
             // Before this they existed solely as a line in a Director log file, which is how two spoken
@@ -633,6 +638,28 @@ internal static class ControlEndpoints
     /// </summary>
     internal static string? ResolveSessionFile(string? workingDirectory, string? path)
     {
+        var full = ResolveInsideWorkingDirectory(workingDirectory, path);
+        if (full is null)
+            return null;
+
+        // Everything above decides where the NAME is. This decides whether the name is the only one
+        // (M03-I2-01). A hard link is a second directory entry for the same file object and carries
+        // no reparse-point attribute, so nothing above can see it: the in-root alias resolves to
+        // itself, passes containment, and the read serves a file that also lives outside the root.
+        // A file with more than one name cannot be proven to be inside anything, so it is refused,
+        // and so is a file whose name count cannot be established.
+        return RefuseUnlessSingleName(full);
+    }
+
+    /// <summary>
+    /// The containment half of <see cref="ResolveSessionFile"/>: the fully resolved path when it lies inside
+    /// the session's working directory on BOTH the lexical and the real filesystem identity, or null. It does
+    /// NOT apply the one-name (hard link) gate - callers that serve bytes must apply
+    /// <see cref="RefuseUnlessSingleName"/> after it. Split out (issue #4078) so the session file access rule
+    /// can tell "outside the working folder" apart from "a hard link inside it" and say which.
+    /// </summary>
+    internal static string? ResolveInsideWorkingDirectory(string? workingDirectory, string? path)
+    {
         if (string.IsNullOrWhiteSpace(workingDirectory) || string.IsNullOrWhiteSpace(path))
             return null;
 
@@ -670,13 +697,7 @@ internal static class ControlEndpoints
         if (!realFull.StartsWith(ContainmentPrefix(realRootTrimmed), PathIdentityComparison))
             return null;
 
-        // Everything above decides where the NAME is. This decides whether the name is the only one
-        // (M03-I2-01). A hard link is a second directory entry for the same file object and carries
-        // no reparse-point attribute, so nothing above can see it: the in-root alias resolves to
-        // itself, passes containment, and the read serves a file that also lives outside the root.
-        // A file with more than one name cannot be proven to be inside anything, so it is refused,
-        // and so is a file whose name count cannot be established.
-        return RefuseUnlessSingleName(full);
+        return full;
     }
 
     /// <summary>
@@ -684,7 +705,7 @@ internal static class ControlEndpoints
     /// filesystem says this file has exactly ONE name. See <see cref="FilesystemIdentity"/> for why a
     /// second name defeats every path-based containment test ever written.
     /// </summary>
-    private static string? RefuseUnlessSingleName(string full)
+    internal static string? RefuseUnlessSingleName(string full)
     {
         // A path with no file behind it has no identity to alias and serves nothing; the caller's own
         // existence check answers it as an ordinary not-found. Asking the filesystem how many names a

@@ -2517,6 +2517,20 @@ body {
   font-size: 11px;
 }
 
+/* Issue #4078: a path the session's Director says is not on disk - greyed out and labelled, still clickable
+   (the viewer then says the same thing in a full sentence). */
+.chat-link.not-on-disk .chat-link-open {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.chat-link-missing {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+}
+
 /* ===== Voice tab (issue #1213) - ported from the mobile Voice page; same classes, centered column ===== */
 .voice-tab {
   height: 100%;
