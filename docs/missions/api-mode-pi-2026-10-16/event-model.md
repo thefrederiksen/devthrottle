@@ -58,13 +58,15 @@ Three fields may be null, each when there is honestly no value: `reason` on a `d
 tool the agent never finished. `toolCallId` on `PermissionRequested` is optional. Every other field is
 always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
 
-**What a `promptId` is** (the Delivery Lead's ruling and the phase 1 integration review, finding 3, 16 October 2026):
+**What a `promptId` is** (the Delivery Lead's rulings and the phase 1 integration review, finding 3, 16 October 2026):
 the Gateway's delivery id when the prompt came from the Gateway with one - its prompt route gives every prompt one -
-and a Director id (`prompt-1`, `prompt-2`, ...) otherwise: the owner's typing in the desktop, a fleet message or
-doorbell, the framework's own text, a pre-prompt. Ids are unique within a session with one exception: a retry of a
-delivery that was not delivered reuses its id exactly, so the same `promptId` can carry a `PromptRefused` and then a
-later receipt, and **the later receipt stands** (read the latest receipt per `promptId`, in `sequence` order). An id is
-never reused while its prompt is still waiting for its receipt, and a delivered id is never sent again.
+and otherwise a Director id that is a **new GUID for every prompt**, never a counter: the owner's typing in the desktop,
+a fleet message or doorbell, the framework's own text, a pre-prompt. Receipts are kept by tenant, session and prompt id,
+and a counter would start again after a Director restart and overwrite an earlier receipt; a GUID is never reused,
+across restarts included. Ids are unique within a session with one exception: a retry of a delivery that was not
+delivered reuses its Gateway id exactly, so the same `promptId` can carry a `PromptRefused` and then a later receipt,
+and **the later receipt stands** (read the latest receipt per `promptId`, in `sequence` order). An id is never reused
+while its prompt is still waiting for its receipt, and a delivered id is never sent again.
 
 `ConnectionReady` and `ConnectionEnded` are **additions** to the list in the mission document's
 section 5. Without them the Director cannot tell "idle" from "the process died between turns", and

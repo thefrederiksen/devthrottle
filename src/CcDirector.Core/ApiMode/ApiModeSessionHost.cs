@@ -667,8 +667,8 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// The prompt id every event about this prompt carries (the Delivery Lead's ruling, 16 October 2026: a receipt joins
     /// to the prompt the user sent). A prompt that came from the Gateway with its delivery id carries THAT id, exactly,
     /// every time - the Gateway's prompt route gives every prompt one. A prompt with none - typed in the desktop, a fleet
-    /// message or doorbell, the framework's own text, a pre-prompt - gets a Director id, <c>prompt-1</c>, <c>prompt-2</c>,
-    /// ..., which skips any id already used in the session.
+    /// message or doorbell, the framework's own text, a pre-prompt - gets a Director id: a new GUID
+    /// (<see cref="SessionEventStream.NextPromptId"/>), unique across Director restarts, and never one already used here.
     ///
     /// A Gateway id can reach the host twice: a delivery the Director refused is not-delivered, and the delivery record
     /// lets it begin again under the same id (a retry, or "Send anyway"). By then its refusal was published and its

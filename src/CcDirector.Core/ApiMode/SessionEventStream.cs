@@ -40,7 +40,6 @@ public sealed record SessionEventBatch(
 public sealed class SessionEventStream
 {
     private readonly ISessionEventSink _sink;
-    private long _prompt;
 
     /// <param name="sessionId">The DevThrottle session.</param>
     /// <param name="sink">Where the events go.</param>
@@ -69,8 +68,12 @@ public sealed class SessionEventStream
     /// <summary>The numbers this session hands out, shared by every agent process of it.</summary>
     public SessionEventNumbering Numbering { get; } = new();
 
-    /// <summary>The next Director prompt id: <c>prompt-1</c>, <c>prompt-2</c>, ... Unique within the generation.</summary>
-    public string NextPromptId() => $"prompt-{++_prompt}";
+    /// <summary>
+    /// A new Director prompt id, for a prompt that has no Gateway delivery id: a new GUID every time, never a counter.
+    /// Receipts are kept by tenant, session and prompt id, and a counter would start again at 1 after a Director
+    /// restart and overwrite an earlier receipt (the Delivery Lead's revised ruling, 16 October 2026).
+    /// </summary>
+    public string NextPromptId() => Guid.NewGuid().ToString();
 
     /// <summary>Hand <paramref name="events"/> to the sink as one batch. An empty list sends nothing.</summary>
     public void Publish(IReadOnlyList<SessionEvent> events)

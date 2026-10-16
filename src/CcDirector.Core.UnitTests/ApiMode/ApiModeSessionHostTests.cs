@@ -84,12 +84,13 @@ public sealed class ApiModeSessionHostTests
         var ended = await rig.ShutdownAsync();
 
         // Assert: the receipt is Pi's own acknowledgement, and the turn streamed the reply and ended done.
-        Assert.Equal(new ApiModePromptReceipt("prompt-1", true, null, null), receipt);
+        Assert.Equal(new ApiModePromptReceipt(rig.Sink.Minted(1), true, null, null), receipt);
+        Assert.True(Guid.TryParse(receipt.PromptId, out _), "a prompt with no Gateway id gets a new GUID");
         Assert.Equal(
         [
             "ConnectionReady 311ffc3b-7a39-45cf-bcb5-596c494cdbbf gpt-5.6-sol",
-            "PromptDelivered prompt-1 Started",
-            "TurnStarted turn-1 [prompt-1]",
+            "PromptDelivered minted-1 Started",
+            "TurnStarted turn-1 [minted-1]",
             "MessageText turn-1-message-1 Reply Delta \"P\"",
             "MessageText turn-1-message-1 Reply Delta \"ONG\"",
             "MessageText turn-1-message-1 Reply Final \"PONG\"",
@@ -215,7 +216,7 @@ public sealed class ApiModeSessionHostTests
         Assert.True(receipt.Delivered);
         var turnStarted = Assert.Single(rig.Sink.Events.OfType<TurnStarted>());
         var turnEnded = Assert.Single(rig.Sink.Events.OfType<TurnEnded>());
-        Assert.Equal(["prompt-1"], turnStarted.PromptIds);
+        Assert.Equal([rig.Sink.Minted(1)], turnStarted.PromptIds);
         Assert.Equal(turnStarted.TurnId, turnEnded.TurnId);
         Assert.Equal(TurnOutcome.Failed, turnEnded.Outcome);
         Assert.StartsWith("Pi exited during the turn (exit code 137)", turnEnded.Reason);
@@ -236,7 +237,7 @@ public sealed class ApiModeSessionHostTests
         var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
 
         // Assert
-        Assert.Equal(new ApiModePromptReceipt("prompt-1", false, "Pi exited before acknowledging", PromptRefusedBy.Director), receipt);
+        Assert.Equal(new ApiModePromptReceipt(rig.Sink.Minted(1), false, "Pi exited before acknowledging", PromptRefusedBy.Director), receipt);
         Assert.Empty(rig.Sink.Events.OfType<TurnStarted>());
         Assert.Empty(rig.Sink.Events.OfType<PromptDelivered>());
         Assert.Equal(137, ended.ExitCode);
@@ -277,7 +278,7 @@ public sealed class ApiModeSessionHostTests
         var queued = await rig.Sink.WaitForAsync<PromptQueued>();
 
         // Assert: held by the Director, not written - Pi would refuse a prompt while busy.
-        Assert.Equal(new[] { "prompt-2", "TurnRunning", "1" }, new[] { queued.PromptId, queued.Reason.ToString(), queued.Position.ToString() });
+        Assert.Equal(new[] { "TurnRunning", "1" }, new[] { queued.Reason.ToString(), queued.Position.ToString() });
         Assert.Equal(["get_state", "prompt"], pi.WrittenTypes);
 
         // Act: Pi acknowledges the first and runs its turn to the end.
@@ -289,11 +290,15 @@ public sealed class ApiModeSessionHostTests
 
         // Assert: the second was written only after the first settled, and got its own receipt and turn.
         Assert.Equal("Second", MessageOf(secondLine));
-        Assert.True((await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt")).Delivered);
+        var secondReceipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
+        Assert.True(secondReceipt.Delivered);
+        Assert.Equal(queued.PromptId, secondReceipt.PromptId);
         var turnTwo = await rig.Sink.WaitForAsync<TurnStarted>(t => t.TurnId == "turn-2");
-        Assert.Equal(["prompt-2"], turnTwo.PromptIds);
-        var lines = rig.Sink.Lines();
-        Assert.True(lines.IndexOf("TurnEnded turn-1 Done reason= stop=stop") < lines.IndexOf("PromptDelivered prompt-2 Started"));
+        Assert.Equal([queued.PromptId], turnTwo.PromptIds);
+        var events = rig.Sink.Events.ToList();
+        var firstTurnEnded = events.FindIndex(e => e is TurnEnded { TurnId: "turn-1" });
+        var secondDelivered = events.FindIndex(e => e is PromptDelivered d && d.PromptId == queued.PromptId);
+        Assert.True(firstTurnEnded >= 0 && firstTurnEnded < secondDelivered, "the second prompt was delivered only after the first turn ended");
         Assert.Empty(rig.Host.Defects);
     }
 
@@ -320,7 +325,7 @@ public sealed class ApiModeSessionHostTests
         Assert.Equal(["get_state"], writtenBeforeReady);
         Assert.True(receipt.Delivered);
         var lines = rig.Sink.Lines();
-        Assert.True(lines.IndexOf("ConnectionReady 311ffc3b-7a39-45cf-bcb5-596c494cdbbf gpt-5.6-sol") < lines.IndexOf("PromptDelivered prompt-1 Started"));
+        Assert.True(lines.IndexOf("ConnectionReady 311ffc3b-7a39-45cf-bcb5-596c494cdbbf gpt-5.6-sol") < lines.IndexOf("PromptDelivered minted-1 Started"));
     }
 
     [Fact]
@@ -412,7 +417,8 @@ public sealed class ApiModeSessionHostTests
         Assert.True(Guid.TryParse(generation, out _));
         Assert.Equal(Start.UtcDateTime, Assert.Single(sink.Batches.Select(b => b.GenerationStartedUtc).Distinct()));
         Assert.Equal(Enumerable.Range(1, sink.Events.Count).Select(i => (long)i), sink.Events.Select(e => e.Sequence));
-        Assert.Equal(["prompt-1", "prompt-2"], sink.Events.OfType<PromptDelivered>().Select(d => d.PromptId));
+        Assert.Equal(sink.MintedIds(), sink.Events.OfType<PromptDelivered>().Select(d => d.PromptId));
+        Assert.Equal(2, sink.MintedIds().Count);
         Assert.Equal(["turn-1", "turn-2"], sink.Events.OfType<TurnStarted>().Select(t => t.TurnId));
     }
 
@@ -457,7 +463,7 @@ public sealed class ApiModeSessionHostTests
 
         // Assert: the acknowledged prompt's turn ended failed with the restart stated (the ruling's third row)...
         var turn = Assert.Single(rig.Sink.Events.OfType<TurnStarted>(), t => t.TurnId == failed.TurnId);
-        Assert.Equal(["prompt-1"], turn.PromptIds);
+        Assert.Equal([rig.Sink.Minted(1)], turn.PromptIds);
         Assert.Equal(TurnOutcome.Failed, failed.Outcome);
         Assert.StartsWith(PiDialect.AcknowledgedButNeverStartedReason, failed.Reason);
         Assert.Contains(PiDialect.RestartingPiReason, failed.Reason);
@@ -541,7 +547,7 @@ public sealed class ApiModeSessionHostTests
     }
 
     [Fact]
-    public async Task SendPromptAsync_NoGatewayId_GetsADirectorId()
+    public async Task SendPromptAsync_NoGatewayId_GetsANewGuid()
     {
         // Arrange
         await using var rig = StartHost(new ScriptedPi("plain"));
@@ -551,8 +557,8 @@ public sealed class ApiModeSessionHostTests
         var receipt = await rig.Host.SendPromptAsync("Reply with exactly the word PONG", gatewayPromptId: null, CancellationToken.None);
 
         // Assert
-        Assert.Equal("prompt-1", receipt.PromptId);
-        Assert.Equal("prompt-1", Assert.Single(rig.Sink.Events.OfType<PromptDelivered>()).PromptId);
+        Assert.True(Guid.TryParse(receipt.PromptId, out _), "a new GUID, never a counter");
+        Assert.Equal(receipt.PromptId, Assert.Single(rig.Sink.Events.OfType<PromptDelivered>()).PromptId);
     }
 
     [Fact]
@@ -563,16 +569,41 @@ public sealed class ApiModeSessionHostTests
         await rig.Sink.WaitForAsync<ConnectionReady>();
         await rig.ShutdownAsync();
 
-        // Act: a Gateway id, the same id again (a retry of a delivery that was not delivered), a Gateway id that looks
-        // like a Director id, then no id twice.
+        // Act: a Gateway id, the same id again (a retry of a delivery that was not delivered), a Gateway id shaped like
+        // a GUID, then no id twice.
+        var guidShaped = "0b5e1c7a-2f7e-4d3a-9c51-6b9a2a7d4e10";
         var ids = new List<string>();
-        foreach (var gatewayId in new string?[] { "upload-1", "upload-1", "prompt-1", null, null })
+        foreach (var gatewayId in new string?[] { "upload-1", "upload-1", guidShaped, null, null })
             ids.Add((await rig.Host.SendPromptAsync("Too late", gatewayId, CancellationToken.None)).PromptId);
 
-        // Assert: the retry carries the Gateway's id exactly, so its receipt joins (the later receipt stands); a minted
-        // id skips the one the Gateway already used.
-        Assert.Equal(["upload-1", "upload-1", "prompt-1", "prompt-2", "prompt-3"], ids);
+        // Assert: the retry carries the Gateway's id exactly, so its receipt joins (the later receipt stands); each prompt
+        // with no id gets a new GUID of its own.
+        Assert.Equal(["upload-1", "upload-1", guidShaped], ids.Take(3));
+        Assert.True(Guid.TryParse(ids[3], out _) && Guid.TryParse(ids[4], out _));
+        Assert.Equal(4, ids.Distinct().Count());
         Assert.Equal(ids, rig.Sink.Events.OfType<PromptRefused>().Select(r => r.PromptId));
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_ADirectorRestart_NeverReusesAMintedId()
+    {
+        // Arrange: one session, and the same session after a Director restart - a new stream and a new host for the same
+        // session id, as a restarted Director makes them - each sending prompts with no Gateway id.
+        var ids = new List<string>();
+        foreach (var director in new[] { "before the restart", "after the restart" })
+        {
+            await using var rig = StartHost(new ScriptedPi("plain"));
+            await rig.Sink.WaitForAsync<ConnectionReady>();
+            await rig.ShutdownAsync();
+
+            // Act: Pi has ended, so each prompt is refused at once with its id.
+            for (var i = 0; i < 3; i++)
+                ids.Add((await rig.Host.SendPromptAsync($"A prompt {director}", gatewayPromptId: null, CancellationToken.None)).PromptId);
+        }
+
+        // Assert: six different ids. A counter would have started again at 1 and overwritten the earlier receipts.
+        Assert.Equal(6, ids.Distinct().Count());
+        Assert.All(ids, id => Assert.True(Guid.TryParse(id, out _), $"{id} is a GUID"));
     }
 
     [Fact]

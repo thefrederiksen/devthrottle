@@ -285,8 +285,42 @@ internal sealed class RecordingSink : ISessionEventSink
         get { lock (_gate) return _batches.SelectMany(b => b.Events).ToList(); }
     }
 
-    /// <summary>The events as one line each (<see cref="PiWireLogReplay.Describe"/>), for asserting an exact sequence.</summary>
-    public List<string> Lines() => Events.Select(PiWireLogReplay.Describe).ToList();
+    /// <summary>
+    /// The events as one line each (<see cref="PiWireLogReplay.Describe"/>), for asserting an exact sequence. A prompt id
+    /// the Director minted is a new GUID, so each is written <c>minted-1</c>, <c>minted-2</c>, ... in the order it first
+    /// appears (<see cref="Minted"/>); every other id is written as it is.
+    /// </summary>
+    public List<string> Lines()
+    {
+        var minted = MintedIds();
+        return Events.Select(e => minted.Select((id, i) => (id, i)).Aggregate(PiWireLogReplay.Describe(e),
+            (line, m) => line.Replace(m.id, $"minted-{m.i + 1}"))).ToList();
+    }
+
+    /// <summary>The <paramref name="n"/>-th prompt id the Director minted (counting from 1), in the order the events
+    /// first named it. Throws when there is no such id.</summary>
+    public string Minted(int n) => MintedIds()[n - 1];
+
+    /// <summary>Every minted prompt id (a GUID) the events named, in order of first appearance.</summary>
+    public List<string> MintedIds()
+    {
+        var ids = new List<string>();
+        foreach (var e in Events)
+        {
+            IEnumerable<string> named = e switch
+            {
+                PromptQueued q => [q.PromptId],
+                PromptDelivered d => [d.PromptId],
+                PromptRefused r => [r.PromptId],
+                TurnStarted t => t.PromptIds,
+                _ => [],
+            };
+            foreach (var id in named)
+                if (Guid.TryParse(id, out _) && !ids.Contains(id))
+                    ids.Add(id);
+        }
+        return ids;
+    }
 
     public void Publish(SessionEventBatch batch)
     {

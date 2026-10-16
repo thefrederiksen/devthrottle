@@ -71,7 +71,8 @@ public sealed class ApiModeSessionCreationTests : IDisposable
     }
 
     /// <summary>A manager with every per-session component a Director runs started on it, then one API-mode Pi session.</summary>
-    private (SessionManager Manager, Session Session, RecordingSink Sink) CreateApiModeSession(ScriptedPi pi, string? resumeSessionId = null)
+    private (SessionManager Manager, Session Session, RecordingSink Sink) CreateApiModeSession(ScriptedPi pi, string? resumeSessionId = null,
+        Action<SessionManager>? configure = null)
     {
         var sink = new RecordingSink();
         var manager = Track(new SessionManager(new AgentOptions { PiPath = _piExecutable })
@@ -80,6 +81,7 @@ public sealed class ApiModeSessionCreationTests : IDisposable
             SessionEventSink = sink,
             ApiModeClock = new FakeTimeProvider(Start),
         });
+        configure?.Invoke(manager);
         var detector = Track(new TerminalStateDetector(manager, driveState: true));
         detector.Start();
         var autoResume = Track(new TransientErrorAutoResume(manager));
@@ -142,6 +144,40 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         Assert.Equal(SessionConnectionMode.Api, session.ConnectionMode);
         Assert.Same(session, Assert.Single(manager.ListSessions()));
         Assert.Equal(SessionStatus.Running, session.Status);
+    }
+
+    [Fact]
+    public async Task CreateSession_ApiModePi_MintsAndStampsItsGatewaySessionKeyAsATerminalSessionDoes()
+    {
+        // Arrange: a Director connected to a Gateway, whose session key source records which sessions asked.
+        const string gatewayUrl = "https://gateway.invalid";
+        var asked = new List<Guid>();
+        void Connect(SessionManager manager)
+        {
+            manager.GatewayUrl = gatewayUrl;
+            manager.GatewaySessionCredentialSource = id => { lock (asked) asked.Add(id); return $"key-for-{id}"; };
+        }
+        var pi = new ScriptedPi("plain");
+
+        // Act: the same Pi agent created on the terminal path (the Studio backend records the environment it was
+        // started with and runs nothing) and in API mode.
+        var terminalManager = Track(new SessionManager(new AgentOptions { PiPath = _piExecutable }));
+        Connect(terminalManager);
+        var terminal = terminalManager.CreateSession(_repo, new PiAgent(new AgentOptions { PiPath = _piExecutable }), null,
+            SessionBackendType.Studio, null);
+        var terminalEnvironment = Assert.IsType<StudioBackend>(terminal.Backend).StartedEnvironment!;
+        var (_, api, sink) = CreateApiModeSession(pi, configure: Connect);
+        await sink.WaitForAsync<ConnectionReady>();
+
+        // Assert: each create asked the key source once, for its own session, and Pi got the pair in its environment
+        // exactly as the terminal path gives it (the key row the Gateway keeps is registered by that source).
+        Assert.Equal([terminal.Id, api.Id], asked);
+        var apiEnvironment = pi.Process.StartedWith!.SetVariables;
+        Assert.Equal(gatewayUrl, terminalEnvironment["CC_GATEWAY_URL"]);
+        Assert.Equal($"key-for-{terminal.Id}", terminalEnvironment["CC_GATEWAY_SESSION_KEY"]);
+        Assert.Equal(gatewayUrl, apiEnvironment["CC_GATEWAY_URL"]);
+        Assert.Equal($"key-for-{api.Id}", apiEnvironment["CC_GATEWAY_SESSION_KEY"]);
+        Assert.Equal(api.Id.ToString(), apiEnvironment["CC_SESSION_ID"]);
     }
 
     [Fact]
