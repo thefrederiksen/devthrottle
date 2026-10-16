@@ -189,6 +189,56 @@
   cursor: pointer;
 }
 
+/* A repo row with its worktree toggle beside the checkbox (the toggle is a separate button: a button cannot hold one). */
+.rf-opt-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rf-opt-row .rf-opt {
+  flex: 1;
+  min-width: 0;
+}
+
+.rf-worktree-toggle {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rf-worktree-toggle:hover {
+  color: var(--text);
+  background: var(--panel-deep);
+}
+
+/* The worktrees under a repo: read-only, indented under the repo name, dimmer than a row you can tick. */
+.rf-worktrees {
+  margin: 0 0 4px 15px;
+  padding: 0 0 0 17px;
+  list-style: none;
+  border-left: 1px solid var(--border);
+}
+
+.rf-worktree {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px 3px 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.rf-worktree.main {
+  font-style: italic;
+}
+
 .rf-opt:hover {
   background: var(--panel-deep);
 }

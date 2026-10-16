@@ -3,7 +3,6 @@
 // machine and/or one set of repositories. The model is deliberately simple and pure so it is fully
 // unit-tested and the UI (the full-screen panel) stays a thin renderer over it.
 import type { SessionDto } from "../api/client";
-import { repoLeaf } from "./ordering";
 
 // The active selection. An empty list for a facet means "all" - no restriction on that facet - so the
 // default (no filter) is two empty lists. Selections combine across facets (machine AND repo) and
@@ -23,6 +22,35 @@ export interface FacetOption {
   count: number;
 }
 
+// A repo row in the panel: the repository, its session count across every one of its worktrees, and the worktrees
+// those sessions are in. The worktrees are shown under the repo for information only and are never a filter value:
+// they come and go, and a filter pinned to one would stop matching the day it is removed. `worktrees` is empty when
+// every session of the repo runs in the repository's own checkout; otherwise it lists that checkout too, as
+// MAIN_CHECKOUT, so the counts under a repo always add up to the repo's count.
+export interface RepoFacetOption extends FacetOption {
+  worktrees: FacetOption[];
+}
+
+// The value a worktree list uses for sessions running in the repository's own checkout rather than a worktree.
+export const MAIN_CHECKOUT = "";
+
+// The repository a session belongs to, by the last part of its path - the value the Repo filter holds. A session in a
+// worktree belongs to the repository the worktree was made from, never to the worktree's own folder. The order is the
+// Director's own (RepositoryUsage.StartedIn): a pooled slot's repository, then the repository a linked worktree belongs
+// to as the owning machine resolved it, then the session's own folder. Empty when the session has no folder.
+export function repoOf(s: SessionDto): string {
+  return leafName(worktreeOwner(s) ?? s.repoPath ?? "");
+}
+
+// The worktree a session runs in, by the last part of its folder, or MAIN_CHECKOUT when it runs in the repository
+// itself.
+export function worktreeOf(s: SessionDto): string {
+  const owner = worktreeOwner(s);
+  const here = (s.repoPath ?? "").trim();
+  if (owner === null || here.length === 0 || samePath(owner, here)) return MAIN_CHECKOUT;
+  return leafName(here);
+}
+
 // The machine a session runs on, trimmed. Empty string when the Gateway did not stamp a machine name
 // (older sessions); such a session is grouped under "(unknown)" in the panel so it stays selectable.
 export function machineName(s: SessionDto): string {
@@ -39,7 +67,7 @@ export function filterIsActive(f: SessionFilter): boolean {
 // machine is selected) AND its repo is among the selected repos (or no repo is selected).
 export function sessionMatchesFilter(s: SessionDto, f: SessionFilter): boolean {
   if (f.machines.length > 0 && !f.machines.includes(machineName(s))) return false;
-  if (f.repos.length > 0 && !f.repos.includes(repoLeaf(s))) return false;
+  if (f.repos.length > 0 && !f.repos.includes(repoOf(s))) return false;
   return true;
 }
 
@@ -56,9 +84,15 @@ export function machineFacet(sessions: SessionDto[]): FacetOption[] {
   return countBy(sessions, machineName);
 }
 
-// The distinct repo leaves in the roster with per-value counts, sorted by name.
-export function repoFacet(sessions: SessionDto[]): FacetOption[] {
-  return countBy(sessions, repoLeaf);
+// The distinct repositories in the roster with per-repo counts, sorted by name. A repository's worktrees fold into its
+// one row (see RepoFacetOption), so a repo worked on in seven worktrees is one row, not eight.
+export function repoFacet(sessions: SessionDto[]): RepoFacetOption[] {
+  return countBy(sessions, repoOf).map(({ value, count }) => {
+    const mine = sessions.filter((s) => repoOf(s) === value);
+    const worktrees = countBy(mine, worktreeOf, true);
+    const onlyMainCheckout = worktrees.length === 1 && worktrees[0].value === MAIN_CHECKOUT;
+    return { value, count, worktrees: onlyMainCheckout ? [] : worktrees };
+  });
 }
 
 // A short human summary of what is selected, for the app-bar summary strip - e.g.
@@ -78,19 +112,20 @@ export function toggleValue(values: string[], value: string): string[] {
 // when nothing changed so callers can skip a needless state update.
 export function pruneFilter(f: SessionFilter, sessions: SessionDto[]): SessionFilter {
   const machines = new Set(sessions.map(machineName));
-  const repos = new Set(sessions.map(repoLeaf));
+  const repos = new Set(sessions.map(repoOf));
   const keptMachines = f.machines.filter((m) => machines.has(m));
   const keptRepos = f.repos.filter((r) => repos.has(r));
   if (keptMachines.length === f.machines.length && keptRepos.length === f.repos.length) return f;
   return { machines: keptMachines, repos: keptRepos };
 }
 
-// Count sessions by a string key, dropping empty keys, sorted alphabetically by value.
-function countBy(sessions: SessionDto[], key: (s: SessionDto) => string): FacetOption[] {
+// Count sessions by a string key, sorted alphabetically by value. Empty keys are dropped unless `keepEmpty`, which
+// keeps them and sorts them first (the worktree list's MAIN_CHECKOUT).
+function countBy(sessions: SessionDto[], key: (s: SessionDto) => string, keepEmpty = false): FacetOption[] {
   const counts = new Map<string, number>();
   for (const s of sessions) {
     const value = key(s);
-    if (value.length === 0) continue;
+    if (value.length === 0 && !keepEmpty) continue;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return [...counts.entries()]
@@ -240,4 +275,18 @@ function listParam(params: URLSearchParams, key: string): string[] {
 function leafName(path: string): string {
   const parts = path.trim().split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : path.trim();
+}
+
+// The repository a session's folder is a worktree of, or null when it is not in one. Blank values count as absent.
+function worktreeOwner(s: SessionDto): string | null {
+  const pooled = (s.pooledWorktree?.repo ?? "").trim();
+  if (pooled.length > 0) return pooled;
+  const primary = (s.primaryRepoPath ?? "").trim();
+  return primary.length > 0 ? primary : null;
+}
+
+// Two paths name the same folder, ignoring slash direction, a trailing slash and case (the Director runs on Windows).
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
 }

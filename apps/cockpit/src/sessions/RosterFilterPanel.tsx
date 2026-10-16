@@ -4,6 +4,7 @@ import {
   type FacetOption,
   type SessionFilter,
   EMPTY_FILTER,
+  MAIN_CHECKOUT,
   applyFilter,
   filterIsActive,
   machineFacet,
@@ -354,6 +355,8 @@ function SavedFilterList({
 }
 
 // One facet: the "All ..." row (on when nothing in the facet is ticked), then a checkbox row per value with its count.
+// A repo worked on in worktrees carries a "7 worktrees" toggle that lists them under it, each with its count. That list
+// is information only - no checkbox - because the filter is on the repo: worktrees come and go.
 function FilterFacet({
   heading,
   options,
@@ -363,12 +366,13 @@ function FilterFacet({
   allLabel,
 }: {
   heading: string;
-  options: FacetOption[];
+  options: (FacetOption & { worktrees?: FacetOption[] })[];
   selected: string[];
   onToggle: (value: string) => void;
   onAll: () => void;
   allLabel: string;
 }) {
+  const [expanded, setExpanded] = useState<string[]>([]);
   const allActive = selected.length === 0;
   return (
     <div className="rf-facet">
@@ -380,22 +384,51 @@ function FilterFacet({
       {options.length === 0 && <div className="rf-dim">No {heading.toLowerCase()} names in the roster yet.</div>}
       {options.map((opt) => {
         const on = selected.includes(opt.value);
+        const worktrees = opt.worktrees ?? [];
+        const worktreeCount = worktrees.filter((w) => w.value !== MAIN_CHECKOUT).length;
+        const open = expanded.includes(opt.value);
         return (
-          <button key={opt.value} type="button" className={`rf-opt${on ? " on" : ""}`} onClick={() => onToggle(opt.value)} aria-pressed={on}>
-            <span className={`rf-check${on ? " on" : ""}`} aria-hidden="true">
-              {on ? "✓" : ""}
-            </span>
-            <span className="rf-opt-label">{opt.value}</span>
-            <span className="rf-opt-count">{opt.count}</span>
-          </button>
+          <div key={opt.value} className="rf-opt-group">
+            <div className="rf-opt-row">
+              <button type="button" className={`rf-opt${on ? " on" : ""}`} onClick={() => onToggle(opt.value)} aria-pressed={on}>
+                <span className={`rf-check${on ? " on" : ""}`} aria-hidden="true">
+                  {on ? "✓" : ""}
+                </span>
+                <span className="rf-opt-label">{opt.value}</span>
+                <span className="rf-opt-count">{opt.count}</span>
+              </button>
+              {worktreeCount > 0 && (
+                <button
+                  type="button"
+                  className="rf-worktree-toggle"
+                  aria-expanded={open}
+                  aria-controls={`rf-worktrees-${opt.value}`}
+                  aria-label={`${open ? "Hide" : "Show"} ${worktreeCount} ${worktreeCount === 1 ? "worktree" : "worktrees"} of ${opt.value}`}
+                  onClick={() => setExpanded((e) => toggleValue(e, opt.value))}
+                >
+                  {open ? "▾" : "▸"} {worktreeCount} {worktreeCount === 1 ? "worktree" : "worktrees"}
+                </button>
+              )}
+            </div>
+            {open && worktreeCount > 0 && (
+              <ul id={`rf-worktrees-${opt.value}`} className="rf-worktrees" aria-label={`Worktrees of ${opt.value}`}>
+                {worktrees.map((w) => (
+                  <li key={w.value} className={`rf-worktree${w.value === MAIN_CHECKOUT ? " main" : ""}`}>
+                    <span className="rf-opt-label">{w.value === MAIN_CHECKOUT ? "main checkout" : w.value}</span>
+                    <span className="rf-opt-count">{w.count}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         );
       })}
     </div>
   );
 }
 
-function withSelected(options: FacetOption[], selected: string[]): FacetOption[] {
-  const missing = selected.filter((v) => !options.some((o) => o.value === v)).map((value) => ({ value, count: 0 }));
+function withSelected<T extends FacetOption>(options: T[], selected: string[]): (T | FacetOption)[] {
+  const missing: FacetOption[] = selected.filter((v) => !options.some((o) => o.value === v)).map((value) => ({ value, count: 0 }));
   return missing.length === 0 ? options : [...options, ...missing].sort((a, b) => a.value.localeCompare(b.value));
 }
 

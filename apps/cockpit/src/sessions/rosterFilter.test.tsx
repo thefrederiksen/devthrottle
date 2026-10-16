@@ -84,13 +84,13 @@ const ROSTER = [
   session("acme-work", "acme", "BUILD_BOX", "needsYou", "412"),
 ];
 
-function Harness({ view = "my-order" as "my-order" | "attention" }) {
+function Harness({ view = "my-order" as "my-order" | "attention", sessions = ROSTER }) {
   const rosterFilter = useRosterFilter();
   const location = useLocation();
   return (
     <>
       <SessionRoster
-        sessions={ROSTER}
+        sessions={sessions}
         directors={[]}
         portByDirector={new Map()}
         selectedId={undefined}
@@ -105,12 +105,12 @@ function Harness({ view = "my-order" as "my-order" | "attention" }) {
   );
 }
 
-function renderAt(entry: string, view: "my-order" | "attention" = "my-order") {
+function renderAt(entry: string, view: "my-order" | "attention" = "my-order", sessions: SessionDto[] = ROSTER) {
   render(
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
-        <Route path="/" element={<Harness view={view} />} />
-        <Route path="/session/:sessionId" element={<Harness view={view} />} />
+        <Route path="/" element={<Harness view={view} sessions={sessions} />} />
+        <Route path="/session/:sessionId" element={<Harness view={view} sessions={sessions} />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -396,5 +396,39 @@ describe("the filter panel", () => {
 
     expect(savedState.current.remove).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /^Product\s*3$/ })).toBeTruthy();
+  });
+
+  // The owner, 2026-10-15: "what we really want to show is repos ... we need to just filter on repos, not on work trees
+  // because they come and go." Worktrees are listed under their repo for information, with no checkbox.
+  it("lists a repo once however many worktrees it is in, with its worktrees read-only under it", () => {
+    const inWorktree = (id: string, worktree: string) =>
+      ({ ...session(id, `_wt/${worktree}`, "DEVLINUX"), primaryRepoPath: "/home/s/devthrottle" }) as SessionDto;
+    renderAt("/", "my-order", [...ROSTER, inWorktree("p6", "fd-p5-p6"), inWorktree("p8a", "fd-p5-p8"), inWorktree("p8b", "fd-p5-p8")]);
+    fireEvent.click(filterButton());
+
+    expect(screen.getByRole("button", { name: /^devthrottle\s*5$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^fd-p5/ })).toBeNull();
+    expect(screen.queryByText("fd-p5-p6")).toBeNull();
+
+    const toggle = screen.getByRole("button", { name: "Show 2 worktrees of devthrottle" });
+    expect(toggle.textContent).toBe("▸ 2 worktrees");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    const list = screen.getByRole("list", { name: "Worktrees of devthrottle" });
+    expect(toggle.getAttribute("aria-controls")).toBe(list.id);
+    expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual(["main checkout2", "fd-p5-p61", "fd-p5-p82"]);
+    expect(within(list).queryAllByRole("button")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /^devthrottle/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(address()).toBe("?repo=devthrottle");
+    expect(rowNames()).toHaveLength(5);
+  });
+
+  it("offers no worktree toggle for a repo whose sessions all run in its own checkout", () => {
+    renderAt("/");
+    fireEvent.click(filterButton());
+    expect(screen.queryByRole("button", { name: /worktrees of/ })).toBeNull();
   });
 });
