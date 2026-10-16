@@ -19,7 +19,7 @@ and the Director did not report it failed (a false alarm makes the owner send it
 | `on-screen-repeat` | claude | the prompt's exact words are already visible above the composer |
 | `shell-bang` | claude | a `! command` whose words are on screen (the agent told the owner to type it) |
 | `shell-bang-fresh` | claude | the same without the words on screen - the control |
-| `menu-open` | claude | the agent shows its question menu (AskUserQuestion) when the prompt arrives |
+| `menu-open` | claude | the agent shows its question menu (AskUserQuestion) when the prompt arrives; passes when the prompt is refused plainly (or arrives) and the next prompt, after the menu is closed, arrives |
 | `owner-draft` | claude, pi | the owner has unsent text in the composer |
 | `leftover-line` | claude, pi | an unsubmitted framework line (a doorbell line) sits in the composer |
 | `resume` | claude | the first prompt of a session resumed on an existing conversation |
