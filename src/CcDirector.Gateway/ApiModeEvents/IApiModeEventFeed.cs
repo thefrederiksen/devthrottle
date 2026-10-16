@@ -40,8 +40,10 @@ public interface IApiModeEventFeed
     /// </summary>
     ApiModeEventSubscription Subscribe(TenantId tenant, string sessionId, ApiModeEventCursor? after, Action<ApiModeHeldEvent> onEvent);
 
-    /// <summary>Follow every session of every tenant from now on (no replay): for Gateway code that keeps its own per
-    /// session state, such as the display fold. Dispose to stop.</summary>
+    /// <summary>Follow every session of every tenant from now on, with NO replay: for Gateway code that keeps its own per
+    /// session state, such as the display fold. Dispose to stop. Such a reader must start from durable state (the
+    /// receipts), never from empty: after a Gateway restart it will see a <c>TurnEnded</c> whose <c>TurnStarted</c> it
+    /// never saw, and a <c>PromptDelivered</c> for a prompt it never saw queued.</summary>
     IDisposable SubscribeAll(Action<TenantId, ApiModeHeldEvent> onEvent);
 }
 
@@ -63,10 +65,13 @@ public sealed record ApiModeHeldEvent(string Generation, SessionEvent Event)
 /// <param name="Generation">The generation the session is on here, or null when nothing has been stored for it since
 /// this Gateway started.</param>
 /// <param name="Events">The held events after the cursor, oldest first.</param>
-/// <param name="Complete">True when the events answered are EVERY event this Gateway stored after the cursor. False
-/// when some were already let go (the bound), or the cursor is of another generation (the Director restarted since):
-/// then the reader has missed events and must rebuild from durable state - the receipts, the stored conversation -
-/// rather than append.</param>
+/// <param name="Complete">True only when the events answered are EVERY event of the session's stream after the cursor
+/// (with no cursor: the whole generation from its first sequence). False when this Gateway cannot vouch for that: the
+/// session has nothing held here; the cursor is of another generation (the Director restarted since); the bound let go
+/// of events after the cursor; or this process began holding the generation in the middle (a Gateway restart, or a
+/// session let go and come back), so events just after the cursor were never held here. False means the reader has
+/// missed events, or cannot know it has not, and must rebuild from durable state - the receipts, the stored
+/// conversation - rather than append.</param>
 public sealed record ApiModeEventReplay(string? Generation, IReadOnlyList<ApiModeHeldEvent> Events, bool Complete);
 
 /// <summary>A live subscription to one session. Dispose to stop; disposing twice is harmless.</summary>

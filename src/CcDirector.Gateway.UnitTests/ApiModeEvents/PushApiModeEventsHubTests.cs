@@ -73,7 +73,7 @@ public sealed class PushApiModeEventsHubTests : IDisposable
         Assert.NotNull(mark);
         Assert.Equal(Sid, mark.SessionId);
         Assert.Equal("gen-a", mark.Generation);
-        Assert.Equal(4, mark.Sequence);
+        Assert.Equal(5, mark.Sequence);
         var receipt = Assert.Single(_receipts.Read(Sid));
         Assert.Equal("cancelled", receipt.TurnOutcome);
         Assert.Equal(5, _buffer.Read(TenantId.Local, Sid).Events.Count);
@@ -98,9 +98,9 @@ public sealed class PushApiModeEventsHubTests : IDisposable
     {
         var hub = NewHub("conn-1");
         hub.Hello(Hello());
-        hub.PushApiModeEvents(B(Ready(0)));
+        hub.PushApiModeEvents(B(Ready(1)));
 
-        Assert.Null(hub.PushApiModeEvents(A(Ready(0), Queued(1, "p1"))));
+        Assert.Null(hub.PushApiModeEvents(A(Ready(1), Queued(2, "p1"))));
         Assert.Empty(_receipts.Read(Sid));
     }
 

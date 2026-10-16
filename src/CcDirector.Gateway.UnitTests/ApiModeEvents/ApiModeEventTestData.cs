@@ -61,53 +61,53 @@ internal static class ApiModeEventTestData
     /// <summary><c>plain</c>: delivered, the reply PONG streamed, the turn done.</summary>
     public static SessionEvent[] DeliveredThenDone() => new SessionEvent[]
     {
-        Ready(0),
-        Delivered(1, "p1", PlainAck),
-        Started(2, "t1", "p1"),
-        Text(3, "t1", "PO"),
-        Text(4, "t1", "NG"),
-        Text(5, "t1", "PONG", MessageTextKind.Final),
-        Ended(6, "t1", TurnOutcome.Done, null, "stop"),
+        Ready(1),
+        Delivered(2, "p1", PlainAck),
+        Started(3, "t1", "p1"),
+        Text(4, "t1", "PO"),
+        Text(5, "t1", "NG"),
+        Text(6, "t1", "PONG", MessageTextKind.Final),
+        Ended(7, "t1", TurnOutcome.Done, null, "stop"),
     };
 
     /// <summary><c>refusal</c>: the first prompt delivered and running; a second written during it, refused by Pi in its
     /// own words; the first turn done.</summary>
     public static SessionEvent[] RefusedByTheAgent() => new SessionEvent[]
     {
-        Ready(0),
-        Delivered(1, "p1", RefusalFirstAck),
-        Started(2, "t1", "p1"),
-        Refused(3, "p2", RefusalBusy, PromptRefusedBy.Agent),
-        Text(4, "t1", "OK", MessageTextKind.Final),
-        Ended(5, "t1", TurnOutcome.Done, null, "stop"),
+        Ready(1),
+        Delivered(2, "p1", RefusalFirstAck),
+        Started(3, "t1", "p1"),
+        Refused(4, "p2", RefusalBusy, PromptRefusedBy.Agent),
+        Text(5, "t1", "OK", MessageTextKind.Final),
+        Ended(6, "t1", TurnOutcome.Done, null, "stop"),
     };
 
     /// <summary><c>exit-before-ack</c>: Pi killed 50 milliseconds after the prompt was written; it wrote nothing.</summary>
     public static SessionEvent[] RefusedByTheDirectorBeforeAcknowledgement() => new SessionEvent[]
     {
-        Ready(0),
-        Refused(1, "p1", "Pi exited before acknowledging", PromptRefusedBy.Director),
-        Gone(2, 137, "Pi exited (exit code 137)"),
+        Ready(1),
+        Refused(2, "p1", "Pi exited before acknowledging", PromptRefusedBy.Director),
+        Gone(3, 137, "Pi exited (exit code 137)"),
     };
 
     /// <summary><c>exit</c>: acknowledged, then Pi killed while the reply streamed.</summary>
     public static SessionEvent[] DeliveredThenFailedMidTurn() => new SessionEvent[]
     {
-        Ready(0),
-        Delivered(1, "p1", ExitAck),
-        Started(2, "t1", "p1"),
-        Text(3, "t1", "Once upon"),
-        Ended(4, "t1", TurnOutcome.Failed, "Pi exited during the turn (exit code 137)", null),
-        Gone(5, 137, "Pi exited during the turn (exit code 137)"),
+        Ready(1),
+        Delivered(2, "p1", ExitAck),
+        Started(3, "t1", "p1"),
+        Text(4, "t1", "Once upon"),
+        Ended(5, "t1", TurnOutcome.Failed, "Pi exited during the turn (exit code 137)", null),
+        Gone(6, 137, "Pi exited during the turn (exit code 137)"),
     };
 
     /// <summary><c>abort</c>: acknowledged, thinking streamed, then stopped.</summary>
     public static SessionEvent[] DeliveredThenCancelled() => new SessionEvent[]
     {
-        Ready(0),
-        Delivered(1, "p1", AbortAck),
-        Started(2, "t1", "p1"),
-        Text(3, "t1", "Considering rivers", channel: MessageTextChannel.Thought),
-        Ended(4, "t1", TurnOutcome.Cancelled, "stopped by the user", "aborted"),
+        Ready(1),
+        Delivered(2, "p1", AbortAck),
+        Started(3, "t1", "p1"),
+        Text(4, "t1", "Considering rivers", channel: MessageTextChannel.Thought),
+        Ended(5, "t1", TurnOutcome.Cancelled, "stopped by the user", "aborted"),
     };
 }

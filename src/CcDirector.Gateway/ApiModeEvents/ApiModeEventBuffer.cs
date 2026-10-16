@@ -38,7 +38,7 @@ public sealed class ApiModeEventBuffer : IApiModeEventFeed
         SessionState? state;
         lock (_mapGate) _sessions.TryGetValue(key, out state);
         if (state is null)
-            return new ApiModeEventReplay(null, Array.Empty<ApiModeHeldEvent>(), Complete: after is null);
+            return new ApiModeEventReplay(null, Array.Empty<ApiModeHeldEvent>(), Complete: false);
         lock (state.Gate)
             return ReplayOf(state, after);
     }
@@ -133,6 +133,7 @@ public sealed class ApiModeEventBuffer : IApiModeEventFeed
                     state.Characters = 0;
                     state.EvictedThrough = -1;
                     state.HighestSequence = -1;
+                    state.FirstHeldSequence = -1;
                 }
                 if (state.Generation is null || switches)
                 {
@@ -144,6 +145,8 @@ public sealed class ApiModeEventBuffer : IApiModeEventFeed
                 foreach (var incoming in fresh)
                 {
                     var held = new ApiModeHeldEvent(generation, incoming.Event);
+                    if (state.FirstHeldSequence < 0)
+                        state.FirstHeldSequence = incoming.Event.Sequence;
                     state.Events.AddLast((held, incoming.Characters));
                     state.Characters += incoming.Characters;
                     state.HighestSequence = incoming.Event.Sequence;
@@ -172,6 +175,10 @@ public sealed class ApiModeEventBuffer : IApiModeEventFeed
         public long HighestSequence = -1;
         /// <summary>The highest sequence of the current generation let go by the bound; -1 when none was.</summary>
         public long EvictedThrough = -1;
+        /// <summary>The first sequence of the current generation THIS PROCESS stored; -1 before any. A Gateway restarted
+        /// in the middle of a generation first holds a sequence well above 1: everything below it was never held here, and
+        /// a reader whose cursor is below it has missed events (review of pull request #4082, finding 1).</summary>
+        public long FirstHeldSequence = -1;
         public readonly LinkedList<(ApiModeHeldEvent Held, int Characters)> Events = new();
         public long Characters;
         public readonly List<Action<ApiModeHeldEvent>> Subscribers = new();
@@ -231,21 +238,31 @@ public sealed class ApiModeEventBuffer : IApiModeEventFeed
         }
     }
 
+    /// <summary>
+    /// The held events after the cursor, and whether they are EVERY event of the stream after it. They are not when the
+    /// session has nothing held here (a Gateway restart forgets everything, so "nothing" cannot be told from "missed
+    /// everything"), when the cursor is of another generation, when the bound let go of events after the cursor, or when
+    /// this process first held the generation ABOVE the event after the cursor (it started in the middle). With no
+    /// cursor, the whole stream is held only when this process holds the generation from its first sequence
+    /// (<see cref="Contracts.ApiModeEventBatch.FirstSequence"/>) and let nothing go.
+    /// </summary>
     private static ApiModeEventReplay ReplayOf(SessionState state, ApiModeEventCursor? after)
     {
         if (state.Generation is null)
-            return new ApiModeEventReplay(null, Array.Empty<ApiModeHeldEvent>(), Complete: after is null);
+            return new ApiModeEventReplay(null, Array.Empty<ApiModeHeldEvent>(), Complete: false);
 
         if (after is { } cursor && string.Equals(cursor.Generation, state.Generation, StringComparison.Ordinal))
         {
             var events = state.Events.Where(e => e.Held.Event.Sequence > cursor.Sequence).Select(e => e.Held).ToList();
-            return new ApiModeEventReplay(state.Generation, events, Complete: cursor.Sequence >= state.EvictedThrough);
+            var complete = cursor.Sequence >= state.EvictedThrough && cursor.Sequence >= state.FirstHeldSequence - 1;
+            return new ApiModeEventReplay(state.Generation, events, complete);
         }
 
-        // No cursor, or a cursor of another generation: everything held. Complete only when nothing of this generation
-        // was let go AND the reader is not carrying on from a generation it can no longer see the end of.
         var whole = state.Events.Select(e => e.Held).ToList();
-        return new ApiModeEventReplay(state.Generation, whole, Complete: after is null && state.EvictedThrough < 0);
+        var fromTheStart = after is null
+                           && state.EvictedThrough < 0
+                           && state.FirstHeldSequence == Contracts.ApiModeEventBatch.FirstSequence;
+        return new ApiModeEventReplay(state.Generation, whole, fromTheStart);
     }
 
     /// <summary>An external subscriber's handler is an entry point: its failure is logged, never allowed to stop the

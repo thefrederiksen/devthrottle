@@ -123,7 +123,11 @@ public sealed class PiFixtureIngestTests : IDisposable
         Assert.Equal("started", r.Disposition);
         Assert.Equal(AckLine(scenario, 0), r.Acknowledgement);
         Assert.Equal("done", r.TurnOutcome);
-        Assert.Equal(events.Select(e => e.Sequence), _buffer.Read(Account, Sid).Events.Select(e => e.Event.Sequence));
+        var held = _buffer.Read(Account, Sid);
+        Assert.Equal(events.Select(e => e.Sequence), held.Events.Select(e => e.Event.Sequence));
+        // The real dialect numbers a generation from 1, so the Gateway holds it from the start and can say so.
+        Assert.Equal(1, events[0].Sequence);
+        Assert.True(held.Complete);
     }
 
     [Fact]

@@ -63,13 +63,13 @@ public sealed class ApiModeEventIngestTests : IDisposable
 
         Assert.NotNull(mark);
         Assert.Equal("gen-a", mark.Generation);
-        Assert.Equal(6, mark.Sequence);
+        Assert.Equal(7, mark.Sequence);
         var r = Receipt("p1");
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);
         Assert.Equal("started", r.Disposition);
         Assert.Equal(PlainAck, r.Acknowledgement);
         Assert.Equal("done", r.TurnOutcome);
-        Assert.Equal(new long[] { 0, 1, 2, 3, 4, 5, 6 }, HeldSequences());
+        Assert.Equal(new long[] { 1, 2, 3, 4, 5, 6, 7 }, HeldSequences());
         Assert.IsType<TurnEnded>(_buffer.Read(Alice, Sid).Events[^1].Event);
     }
 
@@ -127,11 +127,11 @@ public sealed class ApiModeEventIngestTests : IDisposable
     [Fact]
     public void Accept_AQueuedPrompt_IsQueuedUntilDelivered()
     {
-        Push(A(Queued(0, "p1", PromptQueuedReason.UserHasTheWheel)));
+        Push(A(Queued(1, "p1", PromptQueuedReason.UserHasTheWheel)));
         Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
         Assert.Equal("userHasTheWheel", Receipt("p1").QueueReason);
 
-        Push(A(Delivered(1, "p1", PlainAck)));
+        Push(A(Delivered(2, "p1", PlainAck)));
 
         Assert.Equal(ApiModeReceiptState.Delivered, Receipt("p1").State);
     }
@@ -146,7 +146,7 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Push(A(events[4..]));
 
         Assert.Equal("failed", Receipt("p1").TurnOutcome);
-        Assert.Equal(new long[] { 0, 1, 2, 3, 4, 5 }, HeldSequences());
+        Assert.Equal(new long[] { 1, 2, 3, 4, 5, 6 }, HeldSequences());
     }
 
     // ----- duplicates, late batches, generations -----
@@ -160,8 +160,8 @@ public sealed class ApiModeEventIngestTests : IDisposable
 
         var mark = Push(A(DeliveredThenDone()));
 
-        Assert.Equal(6, mark!.Sequence);
-        Assert.Equal(new long[] { 0, 1, 2, 3, 4, 5, 6 }, seen);
+        Assert.Equal(7, mark!.Sequence);
+        Assert.Equal(new long[] { 1, 2, 3, 4, 5, 6, 7 }, seen);
         Assert.Equal(7, HeldSequences().Count());
     }
 
@@ -169,12 +169,12 @@ public sealed class ApiModeEventIngestTests : IDisposable
     public void Accept_ALateBatchThatOverlaps_StoresOnlyTheEventsAboveTheHighestHeld()
     {
         var events = DeliveredThenDone();
-        Push(A(events[..5]));                 // 0..4
+        Push(A(events[..5]));                 // 1..5
 
-        var mark = Push(A(events[3..]));      // 3..6: 3 and 4 are duplicates
+        var mark = Push(A(events[3..]));      // 4..7: 4 and 5 are duplicates
 
-        Assert.Equal(6, mark!.Sequence);
-        Assert.Equal(new long[] { 0, 1, 2, 3, 4, 5, 6 }, HeldSequences());
+        Assert.Equal(7, mark!.Sequence);
+        Assert.Equal(new long[] { 1, 2, 3, 4, 5, 6, 7 }, HeldSequences());
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Push(A(DeliveredThenDone()));
 
         // The queued event of p1 that the Director sent first, arriving late as its own batch.
-        Push(A(Queued(0, "p1", PromptQueuedReason.AgentStarting)));
+        Push(A(Queued(1, "p1", PromptQueuedReason.AgentStarting)));
 
         var r = Receipt("p1");
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);
@@ -194,30 +194,30 @@ public sealed class ApiModeEventIngestTests : IDisposable
     [Fact]
     public void Accept_AnOlderGeneration_IsRefusedAndNothingChanges()
     {
-        Push(B(Ready(0), Queued(1, "p1")));
+        Push(B(Ready(1), Queued(2, "p1")));
 
-        var mark = Push(A(Ready(0), Delivered(1, "p1", PlainAck), Started(2, "t1", "p1")));
+        var mark = Push(A(Ready(1), Delivered(2, "p1", PlainAck), Started(3, "t1", "p1")));
 
         Assert.Null(mark);
         Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
         Assert.Equal("gen-b", _buffer.Read(Alice, Sid).Generation);
-        Assert.Equal(new long[] { 0, 1 }, HeldSequences());
+        Assert.Equal(new long[] { 1, 2 }, HeldSequences());
     }
 
     [Fact]
     public void Accept_ALaterGeneration_ReplacesTheSessionsAndCountsItsSequenceAfresh()
     {
-        Push(A(Ready(0), Delivered(1, "p1", ExitAck), Started(2, "t1", "p1"), Text(3, "t1", "Once")));
+        Push(A(Ready(1), Delivered(2, "p1", ExitAck), Started(3, "t1", "p1"), Text(4, "t1", "Once")));
 
         // The Director restarted: a new generation, counting from 0, closes the turn the old process left open.
-        var mark = Push(B(Ready(0), Ended(1, "t1", TurnOutcome.Failed, "the Director restarted during the turn", null)));
+        var mark = Push(B(Ready(1), Ended(2, "t1", TurnOutcome.Failed, "the Director restarted during the turn", null)));
 
         Assert.Equal("gen-b", mark!.Generation);
-        Assert.Equal(1, mark.Sequence);
+        Assert.Equal(2, mark.Sequence);
         Assert.Equal("failed", Receipt("p1").TurnOutcome);
         var held = _buffer.Read(Alice, Sid);
         Assert.Equal("gen-b", held.Generation);
-        Assert.Equal(new long[] { 0, 1 }, held.Events.Select(e => e.Event.Sequence));
+        Assert.Equal(new long[] { 1, 2 }, held.Events.Select(e => e.Event.Sequence));
     }
 
     // ----- a malformed batch stores nothing -----
@@ -225,26 +225,27 @@ public sealed class ApiModeEventIngestTests : IDisposable
     public static TheoryData<string> Faults => new()
     {
         "another-session", "sequence-not-rising", "failed-without-reason", "not-json", "unknown-type",
-        "too-many", "no-generation", "no-start", "negative-sequence", "long-prompt-id",
+        "too-many", "too-many-characters", "no-generation", "no-start", "sequence-zero", "long-prompt-id",
     };
 
     [Theory]
     [MemberData(nameof(Faults))]
     public void Accept_AMalformedBatch_IsRefusedWholeAndNothingIsStored(string fault)
     {
-        var batch = A(Ready(0), Delivered(1, "p1", PlainAck), Started(2, "t1", "p1"));
+        var batch = A(Ready(1), Delivered(2, "p1", PlainAck), Started(3, "t1", "p1"));
         switch (fault)
         {
-            case "another-session": batch.Events.Add(Json(Queued(3, "p2", sid: "another-session"))); break;
-            case "sequence-not-rising": batch.Events.Add(Json(Queued(2, "p2"))); break;
-            case "failed-without-reason": batch.Events.Add(Json(Ended(3, "t1", TurnOutcome.Failed, null, null))); break;
+            case "another-session": batch.Events.Add(Json(Queued(4, "p2", sid: "another-session"))); break;
+            case "sequence-not-rising": batch.Events.Add(Json(Queued(3, "p2"))); break;
+            case "failed-without-reason": batch.Events.Add(Json(Ended(4, "t1", TurnOutcome.Failed, null, null))); break;
             case "not-json": batch.Events.Add("{ this is not json"); break;
             case "unknown-type": batch.Events.Add("""{"type":"PromptTeleported","sessionId":"x","sequence":9,"at":"2026-10-16T12:00:00Z"}"""); break;
-            case "too-many": batch.Events.AddRange(Enumerable.Range(3, ApiModeEventBatch.MaxEvents).Select(i => Json(Text(i, "t1", "x")))); break;
+            case "too-many": batch.Events.AddRange(Enumerable.Range(4, ApiModeEventBatch.MaxEvents).Select(i => Json(Text(i, "t1", "x")))); break;
+            case "too-many-characters": batch.Events.Add(Json(Text(4, "t1", new string('x', ApiModeEventBatch.MaxCharacters)))); break;
             case "no-generation": batch.Generation = ""; break;
             case "no-start": batch.GenerationStartedUtc = default; break;
-            case "negative-sequence": batch.Events.Insert(0, Json(Ready(-1))); break;
-            case "long-prompt-id": batch.Events.Add(Json(Queued(3, new string('p', ApiModeReceiptStore.MaxIdLength + 1)))); break;
+            case "sequence-zero": batch.Events.Insert(0, Json(Ready(0))); break;
+            case "long-prompt-id": batch.Events.Add(Json(Queued(4, new string('p', ApiModeReceiptStore.MaxIdLength + 1)))); break;
         }
 
         Assert.ThrowsAny<ArgumentException>(() => Push(batch));

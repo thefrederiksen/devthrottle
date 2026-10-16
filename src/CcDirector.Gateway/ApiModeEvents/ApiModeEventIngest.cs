@@ -99,7 +99,8 @@ public sealed class ApiModeEventIngest
     /// <summary>
     /// Check a batch whole and read its events. Refuses (<see cref="ArgumentException"/>) a batch with no session, no
     /// generation or no start time, too many events, an event that is not a session event, an event of another session,
-    /// sequences that do not rise strictly, a negative sequence, a turn that ended other than done with no reason, or an
+    /// sequences that do not rise strictly, a sequence below the first,
+    /// more characters than <see cref="ApiModeEventBatch.MaxCharacters"/>, a turn that ended other than done with no reason, or an
     /// id or text longer than the receipt store keeps - so nothing reaches the store that it would refuse half-way.
     /// </summary>
     internal static IReadOnlyList<ApiModeEventBuffer.Incoming> Parse(ApiModeEventBatch batch)
@@ -112,6 +113,10 @@ public sealed class ApiModeEventIngest
         if (batch.GenerationStartedUtc == default) throw new ArgumentException("GenerationStartedUtc is not set", nameof(batch));
         if (batch.Events is null) throw new ArgumentException("Events is null", nameof(batch));
         if (batch.Events.Count > ApiModeEventBatch.MaxEvents) throw new ArgumentException($"a batch may carry at most {ApiModeEventBatch.MaxEvents} events; this one carries {batch.Events.Count}", nameof(batch));
+
+        var characters = batch.Events.Sum(e => (long)(e?.Length ?? 0));
+        if (characters > ApiModeEventBatch.MaxCharacters)
+            throw new ArgumentException($"a batch may carry at most {ApiModeEventBatch.MaxCharacters} characters of events; this one carries {characters}", nameof(batch));
 
         var parsed = new List<ApiModeEventBuffer.Incoming>(batch.Events.Count);
         long previous = -1;
@@ -130,8 +135,8 @@ public sealed class ApiModeEventIngest
             }
             if (!string.Equals(e.SessionId, batch.SessionId, StringComparison.Ordinal))
                 throw new ArgumentException($"event {i} ({e.GetType().Name}) belongs to session '{e.SessionId}', not the batch's '{batch.SessionId}'", nameof(batch));
-            if (e.Sequence < 0)
-                throw new ArgumentException($"event {i} has a negative sequence ({e.Sequence})", nameof(batch));
+            if (e.Sequence < ApiModeEventBatch.FirstSequence)
+                throw new ArgumentException($"event {i} has sequence {e.Sequence}; a generation's sequences start at {ApiModeEventBatch.FirstSequence}", nameof(batch));
             if (i > 0 && e.Sequence <= previous)
                 throw new ArgumentException($"event {i} has sequence {e.Sequence}, not above the previous {previous}; sequences rise strictly inside a batch", nameof(batch));
             CheckFields(i, e);
