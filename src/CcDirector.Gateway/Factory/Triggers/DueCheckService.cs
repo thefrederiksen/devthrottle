@@ -196,7 +196,10 @@ public sealed class DueCheckService
         var seed = TriggerDefinition.PromptFor(job.Action.Seed ?? "", count, reading.Context);
         FileLog.Write($"[DueCheckService] Report: run={id}, schedule={job.Id}, count={count.ToString(CultureInfo.InvariantCulture)}, starting the session on {directorId} off the request");
         var state = report.State;
-        var starting = Task.Run(() => FinishStartAsync(tenant, job, due, directorId, seed, state), CancellationToken.None);
+        // What the check found, for check.json in the seat's kit; the version is the one the check was handed from.
+        var found = new DueCheckFinding(job.CheckPath!, count, reading.Context, DateTime.SpecifyKind(report.CheckedAtUtc, DateTimeKind.Utc),
+            job.DefinitionVersion ?? throw new InvalidOperationException($"schedule {job.Id} has a check but no definition version"));
+        var starting = Task.Run(() => FinishStartAsync(tenant, job, due, directorId, seed, found, state), CancellationToken.None);
         return new DueCheckReportResult(DueCheckRefusal.None, null, null) { Starting = starting, StartingCount = count };
     }
 
@@ -223,13 +226,13 @@ public sealed class DueCheckService
     /// so it is an entry point: every failure ends logged, and as a did-not-run problem when it can be written.
     /// </summary>
     private async Task<CronRunRecord?> FinishStartAsync(TenantId tenant, CronJobDto job, CronRunHistoryStore.DueCheck due,
-        string directorId, string seed, string? state)
+        string directorId, string seed, DueCheckFinding found, string? state)
     {
         var runId = Guid.Parse(due.Run.RunId);
         CronRunStart start;
         try
         {
-            start = await _starter.StartCheckedRunAsync(job, directorId, seed, _startLifetime).ConfigureAwait(false);
+            start = await _starter.StartCheckedRunAsync(job, directorId, seed, found, _startLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

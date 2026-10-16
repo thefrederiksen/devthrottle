@@ -182,7 +182,7 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
         public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
             => throw new InvalidOperationException("a due check's session is started pinned");
 
-        public Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, CancellationToken ct)
+        public Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, DueCheckFinding found, CancellationToken ct)
         {
             Pinned.Add((directorId, seed));
             Done.TrySetResult();

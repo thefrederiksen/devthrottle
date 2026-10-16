@@ -556,7 +556,7 @@ public sealed class TriggerService
         {
             // A definition trigger's prompt also carries what its check found (design 3.2).
             var prompt = TriggerDefinition.PromptFor(trigger.Prompt, count, reading.Context);
-            var (defined, refusal) = DefinedStart(tenant, trigger, name, prompt, directorId);
+            var (defined, refusal) = DefinedStart(tenant, trigger, name, prompt, directorId, count, reading.Context, report.CheckedAtUtc);
             return refusal is null
                 ? new Decision(null, count, null, null, defined)
                 : new Decision(TriggerRunOutcome.Failed, count, null, TriggerStatusFold.StartFailedPrefix + refusal, null);
@@ -595,7 +595,7 @@ public sealed class TriggerService
     /// version without the trigger's seat starts nothing, and the reason is returned instead.
     /// </summary>
     private (NewSessionRequest? Request, string? Refusal) DefinedStart(TenantId tenant, TriggerEntity trigger, string name,
-        string prompt, string directorId)
+        string prompt, string directorId, int count, string? context, DateTime checkedUtc)
     {
         PublishedFactoryDefinition? published;
         try
@@ -620,7 +620,26 @@ public sealed class TriggerService
             return (null, notHeld);
         }
 
+        if (FactoryCheckStateFold.StartNumberOf(published.Definition, trigger, null) is not { } number)
+        {
+            var noStart = $"version {published.Version} of the definition of '{trigger.Factory}' has no checked start of seat '{seat.Seat}' that trigger '{trigger.Name}' stands for, so no session was started. Publish the definition again.";
+            FileLog.Write($"[TriggerService] DefinedStart REFUSED: trigger={trigger.Name}: {noStart}");
+            return (null, noStart);
+        }
+
         var request = FactorySeatStart.Build(published, seat, name, prompt).Request;
+        // WHAT THE CHECK FOUND reaches the agent as check.json in its kit (design 3.4): the version is the one the check
+        // was run from, the one the trigger carries.
+        request.FactoryCheck = new FactoryCheckDto
+        {
+            CheckPath = trigger.CheckPath!,
+            Count = count,
+            Context = context,
+            CheckedUtc = DateTime.SpecifyKind(checkedUtc, DateTimeKind.Utc),
+            DefinitionVersion = trigger.DefinitionVersion ?? published.Version,
+            Seat = seat.Seat,
+            Start = number,
+        };
         request.Director = directorId;
         request.AutoDismiss = true;
         request.Origin = SessionOriginKinds.Schedule;

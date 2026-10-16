@@ -86,6 +86,10 @@ public sealed class DefinitionTriggerSeatStartTests : IDisposable
         Assert.Equal((Director, true), (request.Director, request.AutoDismiss));
         Assert.Equal((SessionOriginKinds.Schedule, SessionOriginSurfaces.Trigger), (request.Origin, request.OriginSurface));
         Assert.Equal("New mail: 2. from ada@example.com", request.PrePrompt);
+        // What the check found reaches the agent as check.json: the outreach seat's first start, from version 1.
+        var check = request.FactoryCheck!;
+        Assert.Equal(("checks/new_mail.py", 2, "from ada@example.com"), (check.CheckPath, check.Count, check.Context));
+        Assert.Equal((Now, 1, "outreach", 1), (check.CheckedUtc, check.DefinitionVersion, check.Seat, check.Start));
     }
 
     [Fact]
@@ -103,5 +107,6 @@ public sealed class DefinitionTriggerSeatStartTests : IDisposable
         Assert.Null(request.FactorySeat);
         Assert.Null(request.FactoryKit);
         Assert.Null(request.FactoryDefinitionVersion);
+        Assert.Null(request.FactoryCheck);
     }
 }

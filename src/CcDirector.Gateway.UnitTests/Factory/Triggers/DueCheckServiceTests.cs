@@ -377,7 +377,7 @@ public sealed class DueCheckServiceTests : IDisposable
         public Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
             => throw new InvalidOperationException("a due check's session is started pinned, through StartCheckedRunAsync");
 
-        public async Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, CancellationToken ct)
+        public async Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, DueCheckFinding found, CancellationToken ct)
         {
             Started.Add((job, directorId, seed));
             if (Gate is not null) await Gate.Task;

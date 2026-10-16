@@ -73,6 +73,22 @@ public static class FactoryCheckStateFold
         return rows;
     }
 
+    /// <summary>
+    /// The number of the start a checked trigger or schedule stands for in <paramref name="definition"/> - its place
+    /// among its seat's starts, from 1 - by the same pairing <see cref="List"/> uses; null when the definition has no
+    /// such checked start (phase 5b: the start number a check start's FactoryCheck carries).
+    /// </summary>
+    public static int? StartNumberOf(FactoryDefinition definition, TriggerEntity? trigger, CronJobDto? schedule)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        var owner = trigger is not null ? FactoryCheckStateStore.TriggerOwner(trigger.Id)
+            : schedule is not null ? FactoryCheckStateStore.ScheduleOwner(schedule.Id)
+            : throw new ArgumentException("a trigger or a schedule is required");
+        var rows = List(definition, trigger is null ? Array.Empty<TriggerEntity>() : new[] { trigger },
+            schedule is null ? Array.Empty<CronJobDto>() : new[] { schedule }, _ => null);
+        return rows.FirstOrDefault(r => r.OwnerKey == owner)?.Start;
+    }
+
     // A live schedule as a start, the way the publish plan reads one, so the pairing here is the publish's.
     private static SeatStartDefinition AsStart(CronJobDto job)
         => new(job.CronExpression ?? job.RunAt ?? "", job.TimeZoneId, null, null, job.CheckPath,

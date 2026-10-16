@@ -60,23 +60,26 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     {
         if (job is null)
             throw new ArgumentNullException(nameof(job));
-        return StartRunCoreAsync(job, job.Action.Seed, director: null, ct);
+        return StartRunCoreAsync(job, job.Action.Seed, director: null, found: null, ct);
     }
 
     /// <summary>
     /// The session a schedule's check asked for (Factory Definition, phase 5b): the same request a scheduled run makes,
     /// pinned to the Director that ran the check and seeded with the prompt the check's findings were put into.
     /// </summary>
-    public Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, CancellationToken ct)
+    public Task<CronRunStart> StartCheckedRunAsync(CronJobDto job, string directorId, string seed, DueCheckFinding found,
+        CancellationToken ct)
     {
         if (job is null)
             throw new ArgumentNullException(nameof(job));
         if (string.IsNullOrWhiteSpace(directorId))
             throw new ArgumentException("the Director that ran the check is required", nameof(directorId));
-        return StartRunCoreAsync(job, seed ?? "", directorId, ct);
+        ArgumentNullException.ThrowIfNull(found);
+        return StartRunCoreAsync(job, seed ?? "", directorId, found, ct);
     }
 
-    private async Task<CronRunStart> StartRunCoreAsync(CronJobDto job, string seed, string? director, CancellationToken ct)
+    private async Task<CronRunStart> StartRunCoreAsync(CronJobDto job, string seed, string? director, DueCheckFinding? found,
+        CancellationToken ct)
     {
 
         // NO FACTORY WORK WITHOUT A REGISTERED SEAT (issue #3650). A write is already refused, but a link can stop
@@ -120,7 +123,15 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             return new CronRunStart(null, null, $"not started: {ex.Message}", BriefVersion: null);
         }
         if (published is not null)
-            return await StartDefinedAsync(job, published, seat, seed, director, ct);
+            return await StartDefinedAsync(job, published, seat, seed, director, found, ct);
+        if (found is not null)
+        {
+            // A schedule gets its check only from a publish, so a checked run of a factory with nothing published is a
+            // definition that went away: refused, never started without what its check found.
+            var undefined = $"'{job.Factory}' has no published definition, so the session the check of '{job.Name}' asked for cannot be built. Publish the definition again.";
+            FileLog.Write($"[DirectorCronSessionStarter] start REFUSED: job={job.Id}: {undefined}");
+            return new CronRunStart(null, null, $"not started: {undefined}", BriefVersion: null);
+        }
 
         var req = new NewSessionRequest
         {
@@ -182,7 +193,7 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     /// settings are the schedule's, as for every run. A seat the published version does not hold does not start.
     /// </summary>
     private async Task<CronRunStart> StartDefinedAsync(CronJobDto job, PublishedFactoryDefinition published,
-        ScheduledRunSeat? registered, string seed, string? director, CancellationToken ct)
+        ScheduledRunSeat? registered, string seed, string? director, DueCheckFinding? found, CancellationToken ct)
     {
         if (published.Seat(job.Seat) is not { } seat)
         {
@@ -207,8 +218,28 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         req.AutoDismiss = job.Action.AutoDismiss;
         req.Origin = SessionOriginKinds.Schedule;
         req.OriginSurface = SessionOriginSurfaces.Cron;
-        // A checked run (phase 5b) starts on the Director that ran its check, with the prompt its count was put into.
+        // A checked run (phase 5b) starts on the Director that ran its check, with the prompt its count was put into,
+        // and what the check found reaches the agent as check.json in its kit (design 3.4).
         req.Director = director;
+        if (found is not null)
+        {
+            if (Factory.Triggers.FactoryCheckStateFold.StartNumberOf(published.Definition, null, job) is not { } number)
+            {
+                var noStart = $"version {published.Version} of the definition of '{published.Definition.Factory}' has no checked start of seat '{seat.Seat}' that schedule '{job.Name}' stands for, so no session was started. Publish the definition again.";
+                FileLog.Write($"[DirectorCronSessionStarter] start REFUSED: job={job.Id}: {noStart}");
+                return new CronRunStart(null, null, $"not started: {noStart}", BriefVersion: null);
+            }
+            req.FactoryCheck = new FactoryCheckDto
+            {
+                CheckPath = found.CheckPath,
+                Count = found.Count,
+                Context = found.Context,
+                CheckedUtc = DateTime.SpecifyKind(found.CheckedUtc, DateTimeKind.Utc),
+                DefinitionVersion = found.DefinitionVersion,
+                Seat = seat.Seat,
+                Start = number,
+            };
+        }
 
         FileLog.Write($"[DirectorCronSessionStarter] start (defined): job={job.Id}, machine={built.Machine}, director={director ?? "the machine's"}, seat={seat.Seat}, definition v{published.Version}, seed={seed}");
         var (ok, dto, error, directorId) = await _spawner.SpawnOnMachineAsync(built.Machine, req, ct);
