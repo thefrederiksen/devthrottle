@@ -482,7 +482,7 @@ internal static class SessionCommandExecutor
         if (request.OnlyWhenWaitingForInput)
         {
             var sent = await session.SendTextOnlyWhenWaitingForInputAsync(
-                request.Text, provenance, effectiveSource, origin, request.AppendEnter, request.SentAtUtc);
+                request.Text, provenance, effectiveSource, origin, request.AppendEnter, request.SentAtUtc, request.DeliveryId);
             if (sent.Exited)
                 return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
             if (sent.RefusedTooOld)
@@ -513,7 +513,7 @@ internal static class SessionCommandExecutor
         }
         else if (request.AppendEnter)
         {
-            var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc);
+            var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc, request.DeliveryId);
             var budget = answerBudget ?? PromptAnswerBudget;
             if (!await FinishesWithinAsync(sending, budget, session))
             {

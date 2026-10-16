@@ -65,6 +65,9 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     private readonly List<QueuedPrompt> _queue = [];
     private readonly Dictionary<string, TaskCompletionSource<ApiModePromptReceipt>> _awaitingReceipt = new(StringComparer.Ordinal);
     private readonly Dictionary<string, StopWaiter> _stops = new(StringComparer.Ordinal);
+
+    // Every prompt id this session has used, so none is used twice (a Gateway id and a minted one included).
+    private readonly HashSet<string> _usedPromptIds = new(StringComparer.Ordinal);
     private readonly List<string> _defects = [];
     private readonly List<Task> _loops = [];
     private readonly TaskCompletionSource<ConnectionEnded> _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -154,7 +157,12 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// none is queued - and return its receipt; return null, having sent and queued nothing, when it cannot. For a send
     /// that must never wait behind other work (a guarded send).
     /// </summary>
-    public async Task<ApiModePromptReceipt?> TrySendPromptNowAsync(string text, CancellationToken cancellationToken)
+    public async Task<ApiModePromptReceipt?> TrySendPromptNowAsync(string text, CancellationToken cancellationToken) =>
+        await TrySendPromptNowAsync(text, gatewayPromptId: null, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>As <see cref="TrySendPromptNowAsync(string, CancellationToken)"/>, carrying the Gateway's id for the
+    /// prompt when it has one.</summary>
+    public async Task<ApiModePromptReceipt?> TrySendPromptNowAsync(string text, string? gatewayPromptId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(text);
         FileLog.Write($"[ApiModeSessionHost] TrySendPromptNowAsync: session={_sessionId}, length={text.Length}");
@@ -167,7 +175,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
                 FileLog.Write($"[ApiModeSessionHost] TrySendPromptNowAsync: session={_sessionId}, Pi cannot take a prompt now; nothing sent");
                 return null;
             }
-            var promptId = _stream.NextPromptId();
+            var promptId = ResolvePromptIdLocked(gatewayPromptId);
             receipt = new TaskCompletionSource<ApiModePromptReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
             _awaitingReceipt[promptId] = receipt;
             await WritePromptLocked(connection, new QueuedPrompt(promptId, text)).ConfigureAwait(false);
@@ -188,15 +196,23 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// until the prompt in flight settles or Pi names its conversation. Completes with Pi's receipt: delivered, or
     /// refused with the reason (Pi's own words, or the Director's when Pi never answered).
     /// </summary>
-    public async Task<ApiModePromptReceipt> SendPromptAsync(string text, CancellationToken cancellationToken)
+    public Task<ApiModePromptReceipt> SendPromptAsync(string text, CancellationToken cancellationToken) =>
+        SendPromptAsync(text, gatewayPromptId: null, cancellationToken);
+
+    /// <summary>
+    /// Send one prompt, as <see cref="SendPromptAsync(string, CancellationToken)"/>, carrying the Gateway's own id for it
+    /// (its delivery id) when it has one: that id is the prompt id on every event about the prompt, so its receipt joins
+    /// to the prompt the user sent (<see cref="ResolvePromptIdLocked"/>).
+    /// </summary>
+    public async Task<ApiModePromptReceipt> SendPromptAsync(string text, string? gatewayPromptId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(text);
-        FileLog.Write($"[ApiModeSessionHost] SendPromptAsync: session={_sessionId}, length={text.Length}");
+        FileLog.Write($"[ApiModeSessionHost] SendPromptAsync: session={_sessionId}, length={text.Length}, gatewayPromptId={gatewayPromptId ?? "(none)"}");
         TaskCompletionSource<ApiModePromptReceipt> receipt;
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var promptId = _stream.NextPromptId();
+            var promptId = ResolvePromptIdLocked(gatewayPromptId);
             receipt = new TaskCompletionSource<ApiModePromptReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
             _awaitingReceipt[promptId] = receipt;
 
@@ -643,6 +659,35 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         }
         await TakeStepLocked(connection, connection.Dialect.OnCommandWritten(command)).ConfigureAwait(false);
         return true;
+    }
+
+    // ---------------------------------------------------------------- prompt ids
+
+    /// <summary>
+    /// The prompt id every event about this prompt carries (the Delivery Lead's ruling, 16 October 2026: a receipt joins
+    /// to the prompt the user sent). A prompt that came from the Gateway with its delivery id carries THAT id. A prompt
+    /// with none - typed in the desktop, a typed Gateway prompt with no delivery id, a fleet message, the framework's own
+    /// text - gets a Director id, <c>prompt-1</c>, <c>prompt-2</c>, ... Ids are unique within the session: a minted id
+    /// skips any already used, and a Gateway id sent a second time (a retry of a delivery the Director refused) carries
+    /// <c>&lt;id&gt;:attempt-2</c>, <c>:attempt-3</c>, ... so each attempt has its own receipt and still names its delivery.
+    /// </summary>
+    private string ResolvePromptIdLocked(string? gatewayPromptId)
+    {
+        string promptId;
+        if (string.IsNullOrWhiteSpace(gatewayPromptId))
+        {
+            do promptId = _stream.NextPromptId(); while (_usedPromptIds.Contains(promptId));
+        }
+        else
+        {
+            promptId = gatewayPromptId;
+            for (var attempt = 2; _usedPromptIds.Contains(promptId); attempt++)
+                promptId = $"{gatewayPromptId}:attempt-{attempt}";
+            if (promptId != gatewayPromptId)
+                FileLog.Write($"[ApiModeSessionHost] ResolvePromptId: session={_sessionId}, Gateway id {gatewayPromptId} was already used in this session; this attempt is {promptId}");
+        }
+        _usedPromptIds.Add(promptId);
+        return promptId;
     }
 
     // ---------------------------------------------------------------- the turn-start bound

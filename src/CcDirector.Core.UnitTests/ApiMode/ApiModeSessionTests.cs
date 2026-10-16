@@ -67,6 +67,22 @@ public sealed class ApiModeSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task SendTextAsync_ApiModeSessionWithAGatewayDeliveryId_CarriesItAsThePromptId()
+    {
+        // Arrange
+        var (session, _, sink) = StartSession(new ScriptedPi("plain"));
+
+        // Act: the send path the Gateway's prompt verb takes, with the recording's delivery id.
+        var outcome = await session.SendTextAsync("Reply with exactly the word PONG", Door, deliveryId: "upload-3c2e");
+        var turn = await sink.WaitForAsync<TurnStarted>();
+
+        // Assert
+        Assert.True(outcome.Confirmed);
+        Assert.Equal("upload-3c2e", Assert.Single(sink.Events.OfType<PromptDelivered>()).PromptId);
+        Assert.Equal(["upload-3c2e"], turn.PromptIds);
+    }
+
+    [Fact]
     public async Task SendTextAsync_PiRefuses_ReturnsRefusedWithPisReason()
     {
         // Arrange
