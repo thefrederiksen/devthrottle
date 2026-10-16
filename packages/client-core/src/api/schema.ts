@@ -11938,6 +11938,22 @@ export interface components {
             /** Format: int64 */
             contentLength?: null | number | string;
         };
+        ApiModeSessionDisplay: {
+            kind?: string;
+            tone?: string;
+            connectionLabel?: string;
+            userHasTheWheel?: boolean;
+            activityLabel?: string;
+            working?: null | boolean;
+            /** Format: int32 */
+            turnNumber?: null | number;
+            /** Format: int32 */
+            queuedCount?: number;
+            queueLabel?: null | string;
+            lastTurnEnding?: null | string;
+            agentConnected?: null | boolean;
+            agentLabel?: string;
+        };
         CompactContextRequest: {
             continuePrompt?: null | string;
         };
@@ -12328,6 +12344,7 @@ export interface components {
             backendType?: string;
             connectionMode?: string;
             wheelHolder?: string;
+            apiMode?: null | components["schemas"]["ApiModeSessionDisplay"];
             driverCapabilities?: string[];
             /** Format: date-time */
             lastActivityAt?: null | string;
