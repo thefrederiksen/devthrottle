@@ -154,7 +154,7 @@ public sealed class SessionFileAccessTests : IDisposable
         var decision = Decide(_outside, Named(named));
 
         Assert.Equal(PathStatusCodes.NotAllowed, decision.Code);
-        Assert.Throws<UnauthorizedAccessException>(() => SessionFileAccess.ListFolder(_work, _outside, Named(named), _secrets));
+        Assert.Throws<SessionFileAccessRefusedException>(() => SessionFileAccess.ListFolder(_work, _outside, Named(named), _secrets));
     }
 
     [Fact]
@@ -450,7 +450,7 @@ public sealed class SessionFileAccessTests : IDisposable
         Write(Path.Combine(ssh, "id_rsa"));
 
         Assert.Equal(SessionFileAccess.SecretSentence, Decide(ssh, Named(ssh)).Sentence);
-        Assert.Throws<UnauthorizedAccessException>(() => SessionFileAccess.ListFolder(_work, ssh, Named(ssh), _secrets));
+        Assert.Throws<SessionFileAccessRefusedException>(() => SessionFileAccess.ListFolder(_work, ssh, Named(ssh), _secrets));
     }
 
     [Fact]
@@ -653,6 +653,38 @@ public sealed class SessionFileAccessTests : IDisposable
             Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
             Assert.Equal(SessionFileAccess.FolderNotListableSentence, result.Error);
         }
+    }
+
+    [Fact]
+    public void SessionFolderListResult_theRulesRefusal_isAnsweredAndNotReported()
+    {
+        using var capture = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+
+        var result = CatalogReadExecutor.SessionFolderListResult(
+            () => throw new SessionFileAccessRefusedException(SessionFileAccess.FolderNotListableSentence));
+        var lines = capture.DrainAndReadLines();
+
+        Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        Assert.Equal(SessionFileAccess.FolderNotListableSentence, result.Error);
+        var line = Assert.Single(lines, l => l.Contains("[CatalogReadExecutor] fs-list (session)"));
+        Assert.Contains("REFUSED", line);
+        Assert.False(CcDirector.Core.ErrorReports.ErrorLine.IsError(line), line);
+    }
+
+    [Fact]
+    public void SessionFolderListResult_theOperatingSystemDenyingAnAdmittedFolder_isReportedAsAFault()
+    {
+        const string denied = "Access to the path '/work/locked' is denied.";
+        using var capture = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+
+        var result = CatalogReadExecutor.SessionFolderListResult(() => throw new UnauthorizedAccessException(denied));
+        var lines = capture.DrainAndReadLines();
+
+        Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        Assert.Equal(denied, result.Error);
+        var line = Assert.Single(lines, l => l.Contains("[CatalogReadExecutor] fs-list (session)"));
+        Assert.Contains("FAILED", line);
+        Assert.True(CcDirector.Core.ErrorReports.ErrorLine.IsError(line), line);
     }
 
     private static T DirectorCommandRouterBody<T>(DirectorCommandResult result) where T : class =>

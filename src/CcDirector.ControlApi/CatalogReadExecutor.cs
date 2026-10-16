@@ -488,15 +488,31 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
         var session = sessionManager.GetSession(guid);
         if (session is null)
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+        return SessionFolderListResult(
+            () => SessionFileAccess.ListFolder(session.WorkingDirectory, path, namedPaths(session), secrets));
+    }
+
+    /// <summary>
+    /// What a session folder listing answers, from the listing or the exception it threw. The access rule's own
+    /// refusal and a path that is not a folder are answers to the request. The operating system denying a read of a
+    /// folder the rule admitted is a fault: it is logged as FAILED so it is reported, and the caller gets the same
+    /// <see cref="DirectorCommandStatus.BadRequest"/> with the message as before.
+    /// </summary>
+    internal static DirectorCommandResult SessionFolderListResult(Func<DirectoryListingDto> list)
+    {
         try
         {
-            var listing = SessionFileAccess.ListFolder(session.WorkingDirectory, path, namedPaths(session), secrets);
-            return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(listing));
+            return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(list()));
         }
-        catch (UnauthorizedAccessException ex)
+        catch (SessionFileAccessRefusedException ex)
         {
             // not-an-error: the access rule refused a folder this session may not list, and the caller is told why
             FileLog.Write($"[CatalogReadExecutor] fs-list (session) REFUSED: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            FileLog.Write($"[CatalogReadExecutor] fs-list (session) FAILED: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
         }
         catch (DirectoryNotFoundException ex)
