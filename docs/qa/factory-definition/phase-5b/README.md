@@ -412,8 +412,10 @@ named `tests` in its site-packages, which shadows the suite's `tests` folder and
 1. **A check can read a secret it did not declare, by asking cc-secrets itself.** The Director hands a check only what
    it declared (case 10), but the check runs as the user, and `cc-secrets run <any entry> -- ...` from inside it worked
    (`exit 0`, `set`). MISSION 5.5a says "a check cannot read a name it did not declare"; that holds for what the
-   Director gives it, not for what the check can fetch. Either the sentence changes, or cc-secrets refuses to run
-   inside a check. Raised with the Tech Lead.
+   Director gives it, not for what the check can fetch. A cc-secrets refusal keyed on a check's variables would be no
+   barrier (the check can unset them). Ruled by the Delivery Lead: no product change; MISSION 5.5a now reads "the
+   Director hands a check only the secrets it declared; a check runs as the user, so publishing a definition is the
+   trust boundary" - amended in this pull request.
 2. **The publish's machine question timed out on the first publish.** Version 1's publish, about half a minute after
    the Director started, answered every secret question with "Whether <machine> holds 'cloudflare-account-id' could not
    be answered: cc-secrets on <machine> did not answer within 10 seconds. The check's run will check it." Version 3's
