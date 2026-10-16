@@ -436,6 +436,55 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             finding.GetProperty("message").GetString());
     }
 
+    [Fact]
+    public async Task THE_DIFF_PLAN_SAYS_A_PUBLISH_WOULD_GUESS_THE_PAIRING_BEFORE_ANYONE_PUBLISHES()
+    {
+        // Arrange: phase 7's Mail Desk on the writer seat - three schedules parked at 31 February, the first enabled -
+        // and a draft that gives them their real times and edits every prompt in one version (issue 4056).
+        using (var ctx = _db.CreateContext(A))
+        {
+            foreach (var (id, prompt, enabled) in new[] { ("cj_a", "Morning mail.", true), ("cj_b", "Midday mail.", false), ("cj_c", "Afternoon mail.", false) })
+                ctx.CronJobs.Add(new CcDirector.Gateway.Data.Entities.CronJobEntity
+                {
+                    Id = id, TenantId = A.Value, Name = "DevThrottle - Writer", Enabled = enabled,
+                    ScheduleKind = CronSchedule.KindRecurring, CronExpression = "0 0 31 2 *", TimeZoneId = "Europe/Copenhagen",
+                    Factory = TheFactory, Seat = "writer", Target = new CronJobTarget { Machine = "SOREN_NORTH" },
+                    Action = new CronJobAction { RepoPath = "", Seed = prompt }, PreventOverlap = true,
+                    NotifyOn = CronNotify.None, CreatedUtc = Now.AddDays(-2),
+                });
+            ctx.SaveChanges();
+        }
+        await Send("PUT", FactoryPath + "/draft", AsAPerson, SaveBody(DefinitionFixture.PublishableWith("seats/writer.yaml", """
+            seat: writer
+            name: Writer
+            role: Writer
+            brief: Answer the mail.
+            starts:
+              - cron: "0 8 * * *"
+                timeZone: Europe/Copenhagen
+                prompt: Morning mail, from the kit.
+              - cron: "30 12 * * *"
+                timeZone: Europe/Copenhagen
+                prompt: Midday mail, from the kit.
+              - cron: "30 16 * * *"
+                timeZone: Europe/Copenhagen
+                prompt: Afternoon mail, from the kit.
+            """), 0));
+
+        // Act
+        var diff = await Send("GET", FactoryPath + "/diff", AsAPerson);
+
+        // Assert
+        var plan = diff.Body.GetProperty("plan");
+        Assert.Empty(plan.GetProperty("steps").EnumerateArray());
+        Assert.StartsWith("The live factory cannot take this definition without a guess:", plan.GetProperty("refused").GetString());
+        var finding = Assert.Single(plan.GetProperty("findings").EnumerateArray());
+        Assert.Equal("seats/writer.yaml", finding.GetProperty("file").GetString());
+        Assert.StartsWith("Starts 1, 2 and 3 cannot be paired with the live schedules cj_a (DevThrottle - Writer, enabled), " +
+                          "cj_b (DevThrottle - Writer, paused) and cj_c (DevThrottle - Writer, paused) without a guess:",
+            finding.GetProperty("message").GetString());
+    }
+
     // ---------- phase 5b: an interval check publishes, and the state its check keeps ----------
 
     /// <summary>Publish the valid definition, whose outreach seat checks mail every 10 minutes, and return its trigger.</summary>

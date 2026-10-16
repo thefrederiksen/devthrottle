@@ -199,7 +199,8 @@ public static class FactoryDefinitionChanges
     /// in one fixed order (what the start is, not where it sits); then each old start takes the closest unpaired new
     /// start of the SAME kind - a time with a time, an interval with an interval - preferring the same prompt, then
     /// the same check, then the same time zone. A start whose kind changes is honestly a start switched off and
-    /// another created, never "moved". Deterministic: ties keep list order.
+    /// another created, never "moved". Deterministic: ties keep list order - and where a tie decided which live row a
+    /// start takes, <see cref="Undecided"/> names it, so a publish refuses it rather than guess (issue 4056).
     /// </summary>
     internal static StartPairing PairStarts(IReadOnlyList<SeatStartDefinition> oldStarts, IReadOnlyList<SeatStartDefinition> newStarts)
     {
@@ -231,7 +232,7 @@ public static class FactoryDefinitionChanges
             {
                 var candidate = newStarts[added[i]];
                 if ((candidate.Cron is null) != (old.Cron is null)) continue;
-                var score = (candidate.Prompt == old.Prompt ? 4 : 0) + (candidate.Check == old.Check ? 2 : 0) + (candidate.TimeZone == old.TimeZone ? 1 : 0);
+                var score = Score(old, candidate);
                 if (score > bestScore) { best = i; bestScore = score; }
             }
             if (best < 0) { unpairedOld.Add(o); continue; }
@@ -240,6 +241,100 @@ public static class FactoryDefinitionChanges
         }
         return new StartPairing(pairs, unpairedOld, added);
     }
+
+    // How close an old start is to a new one of the same kind: the same prompt, then the same check, then the same zone.
+    private static int Score(SeatStartDefinition old, SeatStartDefinition candidate)
+        => (candidate.Prompt == old.Prompt ? 4 : 0) + (candidate.Check == old.Check ? 2 : 0) + (candidate.TimeZone == old.TimeZone ? 1 : 0);
+
+    /// <summary>
+    /// WHERE THE PAIRING GUESSED (issue 4056): the groups of old and new positions whose pairing nothing in the draft
+    /// decided, so a different pairing is at least as good and would give a live row - with its switch - to a different
+    /// start. Empty when every pairing was decided.
+    ///
+    /// The pairing's score never weighs time: past the score, its order is the ordinal text of the cron expression, which
+    /// is not closeness. So a choice is judged here by what the draft says, a kept time counting as much as a kept prompt
+    /// (then the check, then the zone): a choice is DECIDED only when it beats every swap. That covers two paired old
+    /// starts (swap their new starts), a paired and an unpaired old start (the unpaired one could have taken the new
+    /// start), and a paired and an unpaired new start (the old start could have taken the unpaired one), at any times.
+    /// An exact pair is a guess too when another old start, not paired exactly, is written the same as its new start:
+    /// which of the two was kept as it is was the list order.
+    ///
+    /// A tie that changes nothing is not a guess: two old starts <paramref name="interchangeable"/> says are alike in
+    /// everything a publish keeps, or two new starts written the same. The pairing itself is not changed.
+    /// </summary>
+    internal static IReadOnlyList<UndecidedStarts> Undecided(StartPairing pairing, IReadOnlyList<SeatStartDefinition> oldStarts,
+        IReadOnlyList<SeatStartDefinition> newStarts, Func<int, int, bool> interchangeable)
+    {
+        ArgumentNullException.ThrowIfNull(pairing);
+        ArgumentNullException.ThrowIfNull(oldStarts);
+        ArgumentNullException.ThrowIfNull(newStarts);
+        ArgumentNullException.ThrowIfNull(interchangeable);
+        var pairs = pairing.Pairs.Where(p => !p.Exact).ToList();
+        // One node per old position and one per new position; a guess joins the nodes it could have swapped.
+        var parent = new Dictionary<(bool IsNew, int At), (bool, int)>();
+        (bool, int) Root((bool, int) node)
+        {
+            while (parent.TryGetValue(node, out var up) && up != node) node = up;
+            return node;
+        }
+        void Join(params (bool, int)[] nodes)
+        {
+            foreach (var node in nodes) parent.TryAdd(node, node);
+            for (var i = 1; i < nodes.Length; i++) parent[Root(nodes[i])] = Root(nodes[0]);
+        }
+        // What the draft says for one choice: a kept time as much as a kept prompt, then the check, then the zone.
+        int Said(int o, int n) => Score(oldStarts[o], newStarts[n]) + (SameWhen(oldStarts[o], newStarts[n]) ? 4 : 0);
+        static bool SameKind(SeatStartDefinition a, SeatStartDefinition b) => (a.Cron is null) == (b.Cron is null);
+
+        for (var i = 0; i < pairs.Count; i++)
+        {
+            var (o1, n1) = (pairs[i].Old, pairs[i].New);
+            var here = Said(o1, n1);
+            for (var j = i + 1; j < pairs.Count; j++)
+            {
+                var (o2, n2) = (pairs[j].Old, pairs[j].New);
+                if (interchangeable(o1, o2) || SameStart(newStarts[n1], newStarts[n2])) continue;
+                if (Said(o1, n2) + Said(o2, n1) < here + Said(o2, n2)) continue;
+                Join((false, o1), (false, o2), (true, n1), (true, n2));
+            }
+            foreach (var o2 in pairing.UnpairedOld)
+            {
+                if (!SameKind(oldStarts[o1], oldStarts[o2]) || interchangeable(o1, o2)) continue;
+                if (Said(o2, n1) < here) continue;
+                Join((false, o1), (false, o2), (true, n1));
+            }
+            foreach (var n2 in pairing.UnpairedNew)
+            {
+                if (!SameKind(newStarts[n1], newStarts[n2]) || SameStart(newStarts[n1], newStarts[n2])) continue;
+                if (Said(o1, n2) < here) continue;
+                Join((false, o1), (true, n1), (true, n2));
+            }
+        }
+
+        // An exact pair whose new start another old start, not paired exactly, is also written the same as.
+        var exactOld = pairing.Pairs.Where(p => p.Exact).Select(p => p.Old).ToHashSet();
+        var partner = pairs.ToDictionary(p => p.Old, p => p.New);
+        foreach (var exact in pairing.Pairs.Where(p => p.Exact))
+        {
+            for (var o2 = 0; o2 < oldStarts.Count; o2++)
+            {
+                if (exactOld.Contains(o2) || !SameStart(oldStarts[o2], newStarts[exact.New]) || interchangeable(exact.Old, o2)) continue;
+                Join((false, exact.Old), (false, o2), (true, exact.New));
+                if (partner.TryGetValue(o2, out var n2)) Join((false, o2), (true, n2));
+            }
+        }
+
+        return parent.Keys.GroupBy(Root)
+            .Select(g => new UndecidedStarts(
+                g.Where(k => !k.IsNew).Select(k => k.At).OrderBy(x => x).ToList(),
+                g.Where(k => k.IsNew).Select(k => k.At).OrderBy(x => x).ToList()))
+            .OrderBy(u => u.New.Count == 0 ? int.MaxValue : u.New[0]).ThenBy(u => u.Old.Count == 0 ? int.MaxValue : u.Old[0])
+            .ToList();
+    }
+
+    // The same kind and the same time: a cron expression and its zone, or an interval.
+    private static bool SameWhen(SeatStartDefinition a, SeatStartDefinition b)
+        => (a.Cron is null) == (b.Cron is null) && a.Cron == b.Cron && a.TimeZone == b.TimeZone && a.EverySeconds == b.EverySeconds;
 
     // Positions in the one fixed order of what the starts are; equal starts keep their list order.
     private static List<int> Canonical(List<int> positions, IReadOnlyList<SeatStartDefinition> starts)
@@ -280,7 +375,8 @@ public static class FactoryDefinitionChanges
         return details;
     }
 
-    private static bool SameStart(SeatStartDefinition a, SeatStartDefinition b)
+    /// <summary>True when two starts are written the same in every part.</summary>
+    internal static bool SameStart(SeatStartDefinition a, SeatStartDefinition b)
         => a.Cron == b.Cron && a.TimeZone == b.TimeZone && a.EverySeconds == b.EverySeconds && a.Check == b.Check
            && a.Prompt == b.Prompt && a.PreventOverlap == b.PreventOverlap && SameSet(a.Secrets, b.Secrets);
 
@@ -532,3 +628,9 @@ internal sealed record StartPair(int Old, int New, bool Exact);
 /// left unpaired (in the fixed order of what they are), then the new positions left unpaired (in that order too).
 /// </summary>
 internal sealed record StartPairing(IReadOnlyList<StartPair> Pairs, IReadOnlyList<int> UnpairedOld, IReadOnlyList<int> UnpairedNew);
+
+/// <summary>
+/// One guess of a pairing (<see cref="FactoryDefinitionChanges.Undecided"/>): the old positions and the new positions,
+/// each in list order, whose pairing nothing but list order decided.
+/// </summary>
+internal sealed record UndecidedStarts(IReadOnlyList<int> Old, IReadOnlyList<int> New);
