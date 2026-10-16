@@ -108,6 +108,38 @@ their folder paths with `factory.yaml` at its root; every entry was compared wit
 After his import he sees the draft and its "what changes" against today in the same tab, and he publishes. The draft
 version, its "what changes" sentence and an export round trip on the hosted Gateway are recorded after his import.
 
+## Version 2: nothing reads the separate clone
+
+Version 1 is faithful to today, so nine seats still read the separate clone. Version 2 is version 1 with only the
+lines that read it changed (10 of 31 files):
+
+- the nine seats' repository becomes `devthrottle_internal` (the same remote as the clone), and `devthrottle-factory`
+  leaves the factory's repositories;
+- in 11 prompts the "bring the factory clone up to date" sentence is removed, and the brief and the factory documents
+  are read from the run kit; the Boss memo names the Boss, not a person (D4);
+- in the nine briefs, step 0's clone update and every "in this folder" that names the factory documents point at the
+  kit, and Onboarding's website worktree is cut from `devthrottle_internal`.
+
+Proven on the same kind of throwaway Gateway, seeded with today: import version 1, then version 2.
+
+| Step | Result |
+|---|---|
+| What changes, version 1 to version 2 | "1 factory setting changed, 9 seats changed, 11 starts changed", and nothing else. |
+| Export of version 2 against its folder | 31 files identical, 0 differ. |
+| Publish version 1, then version 2 | Every seat's time and switch as today: 20 of 20. Schedule ids kept: 19 of 20 (the 20th is choice 3). The version 2 publish changes only the 11 prompts; every other schedule is kept as it is. |
+
+**The order matters, and it is a finding.** A publish pairs each start with a live schedule: an exact match first,
+then the rest in one fixed order, time first. Today the three Mail Desk schedules all hold 31 February, so they sort
+by prompt; version 2 changes all three prompts, so publishing version 2 straight over today pairs them wrongly and
+moves the ENABLED 08:00 schedule to 16:30 (the throwaway's preview shows it). Publishing version 1 first pairs every
+start exactly, and version 2 then pairs by time. So the owner imports the version 1 zip and the version 2 zip, and,
+after the desktop release with phases 5 and 5b is installed on SOREN_NORTH (an older Director refuses every defined
+start), publishes version 1 and then version 2 straight away.
+
+The clone's five linked worktrees were checked, and nothing was touched: none has uncommitted files; one's commits are
+in a merged pull request, one is the head of an open pull request (so its work is on GitHub), three are detached
+checkouts with no commits of their own. Renaming the clone away for a day loses nothing in them.
+
 ## What the second half needs
 
 Version 1 is faithful to today, so it still reads the separate clone: nine seats name its repository, and the
