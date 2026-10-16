@@ -6128,6 +6128,27 @@ internal static partial class GatewayEndpoints
     }
 
     /// <summary>
+    /// Every session ONE Director of the account reports under exactly this name with a SCHEDULE's origin, in the
+    /// roster's order (review of P10, and its follow-up findings 1 and 2). How a scheduled run whose start's outcome was
+    /// not known finds the session the Director created anyway: the name carries the schedule and the minute of the run,
+    /// the origin surface narrows it to schedule starts, as <see cref="LastKnownTriggerSessionByName"/> does for
+    /// triggers, and the Director is the one the create went to, so a schedule of the same name on another machine is
+    /// never looked at. ALL of them, not the first: two runs in one minute share a name, and the caller skips the
+    /// sessions another run already holds.
+    /// </summary>
+    internal static IReadOnlyList<string> LastKnownScheduleSessionsByName(
+        Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string directorId, string name)
+    {
+        if (pushedSessions is null || string.IsNullOrEmpty(directorId) || string.IsNullOrEmpty(name)) return Array.Empty<string>();
+        return pushedSessions.GetLastKnown(tenant, directorId).Sessions
+            .Where(s => string.Equals(s.Name, name, StringComparison.Ordinal)
+                        && string.Equals(s.OriginSurface, CcDirector.Core.Sessions.SessionOriginSurfaces.Cron, StringComparison.Ordinal)
+                        && !string.IsNullOrEmpty(s.SessionId))
+            .Select(s => s.SessionId)
+            .ToList();
+    }
+
+    /// <summary>
     /// Serve a roster answer (traffic optimization, phase 2). A request that asked for <c>clockFields=absolute</c>
     /// gets the answer without the fields recomputed from the clock on every read, plus the instant they would
     /// have been measured against in <see cref="RosterClockFields.GatewayTimeHeader"/> - so an unchanged roster can

@@ -79,6 +79,18 @@ public sealed class RunNowOutlivesTheCallerTests : IDisposable
             => Task.FromResult(new DirectorTargetResult("08520f72", null));
     }
 
+    /// <summary>No Director is running on the machine: the resolver is still waiting for a launched one to register,
+    /// as <see cref="RegistryDirectorTargetResolver"/> polls, until its token is cancelled.</summary>
+    private sealed class StillLaunching(TaskCompletionSource waiting) : IDirectorTargetResolver
+    {
+        public async Task<DirectorTargetResult> ResolveAsync(string machine, string? director, CancellationToken ct)
+        {
+            waiting.TrySetResult();
+            await Task.Delay(Timeout.Infinite, ct);
+            throw new InvalidOperationException("unreachable: the wait ends only by cancellation");
+        }
+    }
+
     private sealed class UnusedWorkListRunner : ICronWorkListRunner
     {
         public Task<CronWorkListOutcome> TriggerAsync(CronJobDto job, CancellationToken ct) =>
@@ -132,9 +144,9 @@ public sealed class RunNowOutlivesTheCallerTests : IDisposable
     });
 
     /// <summary>The route, wired as the host wires it, with <paramref name="runLifetime"/> as the Gateway's own lifetime.</summary>
-    private Routes Map(bool defined, CancellationToken runLifetime)
+    private Routes Map(bool defined, CancellationToken runLifetime, IDirectorTargetResolver? resolver = null)
     {
-        var spawner = new MachineSessionSpawner(new OneDirector(), Director) { RefuseSeatStart = (_, _) => null };
+        var spawner = new MachineSessionSpawner(resolver ?? new OneDirector(), Director) { RefuseSeatStart = (_, _) => null };
         var starter = new DirectorCronSessionStarter(spawner, new FixedClock(), refuseFactoryWork: _ => null,
             seatWithABrief: j => j.Seat is null ? null : Registered(),
             definitionOf: j => defined && j.Factory is not null ? Published() : null);
@@ -242,5 +254,93 @@ public sealed class RunNowOutlivesTheCallerTests : IDisposable
         using var body = await JsonDocument.ParseAsync(ctx.Response.Body);
         Assert.Equal("sid-plain", body.RootElement.GetProperty("sessionId").GetString());
         Assert.Equal("started", body.RootElement.GetProperty("infraStatus").GetString());
+    }
+
+    // ---------- the bounds: the create's own limit, and the Gateway stopping (review of P10, findings 1 and 2) ----------
+
+    private static readonly string TimedOut = DirectorCommandRouter.DescribeTimeout(null, DirectorCommandRouter.DefaultCommandTimeout);
+
+    /// <summary>Run now with the caller waiting, and return the answer's body and the run as recorded.</summary>
+    private async Task<(JsonElement Answer, CronRunRecord Run)> RunNowWaiting(bool defined, CancellationToken runLifetime,
+        IDirectorTargetResolver? resolver = null, Action? whileItRuns = null, Task? runningWhen = null)
+    {
+        var job = Schedule(defined);
+        var (answered, ctx) = RunNow(Map(defined, runLifetime, resolver), job.Id, CancellationToken.None);
+        if (runningWhen is not null)
+        {
+            await runningWhen.WaitAsync(TimeSpan.FromSeconds(30));
+            whileItRuns!();
+        }
+        await answered.WaitAsync(TimeSpan.FromSeconds(30));
+        ctx.Response.Body.Position = 0;
+        using var body = await JsonDocument.ParseAsync(ctx.Response.Body);
+        return (body.RootElement.Clone(), Assert.Single(_runs.List(job.Id)));
+    }
+
+    [Fact]
+    public async Task RunNow_TheGatewayStopsWaitingForTheCreate_IsRecordedStartUnknown_NeverDidNotRun()
+    {
+        // The router's own limit, as it reports it: no clock is needed to be past it.
+        _directorAnswer.TrySetResult(DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, TimedOut));
+
+        var (answer, run) = await RunNowWaiting(defined: true, CancellationToken.None);
+
+        Assert.Null(run.SessionId);
+        Assert.Equal("start-unknown", run.InfraStatus);
+        Assert.Equal(CronRunResults.StartUnknown, run.Result);
+        Assert.Null(run.Problem);
+        Assert.Equal("whether it started a session is not known: " + TimedOut, run.ResultReason);
+        // The exact name the create asked for, which the heal by name later matches the Director's session by.
+        Assert.Equal("DevThrottle - Boss - 2026-10-16 04:05", run.SessionName);
+        // The answer carries the Gateway's words and tone, which every client renders as given.
+        Assert.Equal("start-unknown", answer.GetProperty("infraStatus").GetString());
+        Assert.Equal("warn", answer.GetProperty("infraTone").GetString());
+        Assert.Equal(CronRunEndings.StartUnknown, answer.GetProperty("ending").GetString());
+        Assert.Equal("may have started - the Gateway did not learn whether its session started", answer.GetProperty("endingText").GetString());
+        Assert.Equal("start-unknown", _schedules.ListAll().Single().LastStatus);
+    }
+
+    [Fact]
+    public async Task RunNow_UNDEFINED_FACTORY_TheGatewayStopsWaitingForTheCreate_IsRecordedStartUnknown()
+    {
+        _directorAnswer.TrySetResult(DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, TimedOut));
+
+        var (_, run) = await RunNowWaiting(defined: false, CancellationToken.None);
+
+        Assert.Equal("start-unknown", run.InfraStatus);
+        Assert.Equal(CronRunResults.StartUnknown, run.Result);
+        Assert.Equal("whether it started a session is not known: " + TimedOut, run.ResultReason);
+    }
+
+    [Fact]
+    public async Task RunNow_TheGatewayStopsWhileTheCreateIsOut_IsRecordedStartUnknown_AndSaysTheGatewayStopped()
+    {
+        using var gateway = new CancellationTokenSource();
+
+        var (_, run) = await RunNowWaiting(defined: true, gateway.Token, runningWhen: _createSent.Task, whileItRuns: gateway.Cancel);
+
+        Assert.Equal("create", Assert.Single(_sent).Verb);
+        Assert.Null(run.SessionId);
+        Assert.Equal("start-unknown", run.InfraStatus);
+        Assert.Equal(CronRunResults.StartUnknown, run.Result);
+        Assert.Equal("whether it started a session is not known: " + DirectorCronSessionStarter.GatewayStoppedDuringCreate, run.ResultReason);
+        Assert.DoesNotContain("dropped", run.ResultReason);
+    }
+
+    [Fact]
+    public async Task RunNow_TheGatewayStopsWhileItWaitsForADirectorToStart_WritesTheRunSayingSo()
+    {
+        using var gateway = new CancellationTokenSource();
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var (_, run) = await RunNowWaiting(defined: true, gateway.Token, new StillLaunching(waiting),
+            runningWhen: waiting.Task, whileItRuns: gateway.Cancel);
+
+        Assert.Empty(_sent);
+        Assert.Null(run.SessionId);
+        Assert.Equal("not-started", run.InfraStatus);
+        Assert.Equal(CronRunResults.Problem, run.Result);
+        Assert.Equal(CronRunProblems.DidNotRun, run.Problem);
+        Assert.Equal("it did not start a session: " + DirectorCronSessionStarter.GatewayStoppedBeforeCreate("SOREN_NORTH"), run.ResultReason);
     }
 }

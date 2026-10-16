@@ -294,6 +294,76 @@ public sealed class CronRunHistoryStore
     public IReadOnlyList<JobRun> PendingRuns(Core.Tenancy.TenantId tenant) =>
         RunsWhere(tenant, e => e.Result == CronRunResults.Pending);
 
+    /// <summary>Every run of this account whose start's outcome is still not known, oldest first (review of P10).</summary>
+    public IReadOnlyList<JobRun> StartUnknownRuns(Core.Tenancy.TenantId tenant) =>
+        RunsWhere(tenant, e => e.Result == CronRunResults.StartUnknown && e.SessionId == null);
+
+    /// <summary>
+    /// A start whose outcome was not known turned out to have started <paramref name="sessionId"/>: the run takes the
+    /// session, its status becomes <c>started</c> and its result <c>pending</c> - the run now owes its report like every
+    /// started run. Applied only while the run is still start-unknown with no session, and only when no run of the
+    /// account already holds <paramref name="sessionId"/> - checked under the same lock as the write, so two callers
+    /// settling at once (the minute sweep and a refused report) cannot both give one session to two runs. Returns the
+    /// run as it now stands, or null when it is not applied.
+    /// </summary>
+    public CronRunRecord? AdoptStartUnknown(Core.Tenancy.TenantId tenant, Guid runId, string sessionId, string? directorId)
+    {
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null || row.Result != CronRunResults.StartUnknown || row.SessionId is not null)
+            {
+                FileLog.Write($"[CronRunHistoryStore] AdoptStartUnknown NOT APPLIED: run={runId}, found={row?.Result ?? "no row"}");
+                return null;
+            }
+            if (ctx.CronRuns.AsNoTracking().Any(e => e.SessionId == sessionId))
+            {
+                FileLog.Write($"[CronRunHistoryStore] AdoptStartUnknown NOT APPLIED: run={runId}: session {sessionId} is already another run's");
+                return null;
+            }
+            row.SessionId = sessionId;
+            if (!string.IsNullOrWhiteSpace(directorId)) row.TargetDirectorId = directorId;
+            row.InfraStatus = "started";
+            row.Result = CronRunResults.Pending;
+            row.ResultReason = null;
+            row.ResultUtc = null;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] AdoptStartUnknown: run={runId}, job={row.JobId}, session={sessionId}");
+            return ToRecord(row);
+        }
+    }
+
+    /// <summary>
+    /// A start whose outcome was not known, and no session of its name appeared within the run's window: the run did not
+    /// run, with <paramref name="reason"/>, and owes its factory the failed row from now. Applied only while the run is
+    /// still start-unknown with no session. Returns the run as it now stands, or null when it is not.
+    /// </summary>
+    public CronRunRecord? LapseStartUnknown(Core.Tenancy.TenantId tenant, Guid runId, string reason, DateTime nowUtc)
+    {
+        if (!tenant.IsValid) return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.CronRuns.FirstOrDefault(e => e.Id == runId);
+            if (row is null || row.Result != CronRunResults.StartUnknown || row.SessionId is not null)
+            {
+                FileLog.Write($"[CronRunHistoryStore] LapseStartUnknown NOT APPLIED: run={runId}, found={row?.Result ?? "no row"}");
+                return null;
+            }
+            row.InfraStatus = "not-started";
+            row.Result = CronRunResults.Problem;
+            row.Problem = CronRunProblems.DidNotRun;
+            row.ResultReason = TruncateReason(reason);
+            row.ResultUtc = nowUtc;
+            row.ActivityDue = true;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronRunHistoryStore] LapseStartUnknown: run={runId}, job={row.JobId}: {row.ResultReason}");
+            return ToRecord(row);
+        }
+    }
+
     /// <summary>Every run of this account that still owes the factory activity record a row, oldest first.</summary>
     public IReadOnlyList<JobRun> ActivityDueRuns(Core.Tenancy.TenantId tenant) =>
         RunsWhere(tenant, e => e.ActivityDue);
@@ -798,6 +868,7 @@ public sealed class CronRunHistoryStore
         MissedNotListed = r.MissedNotListed,
         BriefVersion = r.BriefVersion,
         BriefVersionKind = r.BriefVersionKind,
+        SessionName = r.SessionName,
     };
 
     /// <summary>True when the schedule belongs to a factory and runs as one of its seats.</summary>
@@ -827,6 +898,7 @@ public sealed class CronRunHistoryStore
         MissedNotListed = e.MissedNotListed,
         BriefVersion = e.BriefVersion,
         BriefVersionKind = e.BriefVersionKind,
+        SessionName = e.SessionName,
         CheckCount = e.CheckCount,
         CheckedUtc = SpecifyUtc(e.CheckedUtc),
     };

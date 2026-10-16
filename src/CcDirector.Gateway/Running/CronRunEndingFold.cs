@@ -45,6 +45,7 @@ public static class CronRunEndingFold
             run.Ending = ending;
             run.EndingText = TextOf(ending, run.FiredUtc, endedUtc, nowUtc);
             run.TaskStatus = TaskStatusOf(run);
+            run.InfraTone = ToneOf(run.InfraStatus);
         }
     }
 
@@ -91,6 +92,8 @@ public static class CronRunEndingFold
             // Neither is a fire that did not run.
             if (run.Result == CronRunResults.Checking) return (CronRunEndings.Checking, null);
             if (run.Result == CronRunResults.NothingToDo) return (CronRunEndings.NothingToDo, null);
+            // The create was sent and its outcome is not known (review of P10): never "did not start a session".
+            if (run.Result == CronRunResults.StartUnknown) return (CronRunEndings.StartUnknown, null);
             // A work-list fire records no session BY DESIGN (CronEngine: a drain starts many), so a drain that started -
             // or found its list empty, which starts nothing on purpose - is not a failed start. Every other work-list
             // outcome (no such list, no Director, the machine busy, already claimed) is a fire that did not run.
@@ -125,6 +128,7 @@ public static class CronRunEndingFold
         return ending switch
         {
             CronRunEndings.NoSession => "did not start a session",
+            CronRunEndings.StartUnknown => "may have started - the Gateway did not learn whether its session started",
             CronRunEndings.Checking => "checking - its check has not reported yet",
             CronRunEndings.NothingToDo => "nothing to do - its check found no work, so no session was needed",
             CronRunEndings.WorkList => "a work-list drain - its sessions are not tracked here",
@@ -140,6 +144,20 @@ public static class CronRunEndingFold
             _ => "no record of how it ended",
         };
     }
+
+    /// <summary>
+    /// How a run's infrastructure status is shown - <c>ok</c>, <c>warn</c>, <c>err</c> or <c>dim</c> - ruled here once so
+    /// no client decides what a status means (CLAUDE.md rule 7). The ruling the Cockpit used to make itself, moved
+    /// unchanged, plus a start whose outcome is not known, which is a warning: it may have started (review of P10).
+    /// </summary>
+    public static string ToneOf(string? infraStatus) => infraStatus switch
+    {
+        "started" or WorkListStarted => "ok",
+        "catch-up" or CronEngine.StartUnknownStatus => "warn",
+        "not-started" => "err",
+        { } s when s.StartsWith("worklist-", StringComparison.Ordinal) => "warn",
+        _ => "dim",
+    };
 
     /// <summary>What one run says about whether its schedule's sessions close themselves.</summary>
     public enum RunJudgement
@@ -176,6 +194,8 @@ public static class CronRunEndingFold
             CronRunEndings.StillOpen when nowUtc - run.FiredUtc >= LeftOpenAfter => RunJudgement.LeftOpen,
             CronRunEndings.StillOpen => RunJudgement.NotJudged,
             CronRunEndings.NoSession => RunJudgement.DidNotStart,
+            // Not known to have started, so it says nothing about whether sessions close themselves.
+            CronRunEndings.StartUnknown => RunJudgement.NotJudged,
             // A run waiting on its check, or whose check found nothing to do, opened nothing to close.
             CronRunEndings.Checking or CronRunEndings.NothingToDo => RunJudgement.NotJudged,
             CronRunEndings.WorkList or CronRunEndings.ClosedNotRecorded or CronRunEndings.DirectorStopped
