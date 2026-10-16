@@ -24,6 +24,13 @@ export type SessionDto = components["schemas"]["SessionDto"] & {
    *  an older Gateway does not stamp it and a Director-local response leaves it null - see
    *  machineCanBeActedOn, which treats only an explicit false as unreachable. */
   machineReachable?: boolean | null;
+  /** The repository this session's folder is a linked worktree of, as the owning machine read it off the disk when the
+   *  session started (C# SessionDto.PrimaryRepoPath). Null when the session runs in a repository itself, when the
+   *  repository could not be proved, and from an older Director. The Repo filter groups by it - see repoOf. */
+  primaryRepoPath?: string | null;
+  /** The pooled worktree slot this session runs in, when it came from a pool (C# PooledWorktreeRef); `repo` is the
+   *  repository the pool belongs to. Null for almost every session. */
+  pooledWorktree?: { repo?: string | null; slot?: string | null; path?: string | null } | null;
   /** The model this session's agent is running right now, exactly as the agent's own records spell it
    *  (`claude-fable-5`, `gpt-5.6-sol`). Re-read at every turn-end by the owning Director, so a mid-session
    *  model switch is reflected. Null when no turn has finished yet or when the agent cannot report a model
