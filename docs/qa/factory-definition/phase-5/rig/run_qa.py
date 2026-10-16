@@ -361,9 +361,12 @@ def stop_director(pid):
 
 POINTER = "\u276f"          # the marker Claude Code draws beside the chosen line of a menu
 TENDED = {}
+TRUST_SEEN = set()    # every session whose screen ever drew Claude Code's folder-trust question
 # What the rig saw while sessions ran. A scheduled run closes itself when it is done and its kit goes with it, so the
 # kits, the sessions' rows, the agents' command lines and the worktrees' status are read on every turn of the wait.
-OBSERVED = {"sessions": {}, "kits": {}, "processes": {}, "git": {}}
+OBSERVED = {"sessions": {}, "kits": {}, "processes": {}, "git": {}, "lock": {}}
+CLAUDE_LOCK = Path.home() / ".claude.json.lock"   # the lock Claude Code takes to write its own configuration
+LAST_JOB = []   # the schedule the rig fired last, whose runs are recorded if the wait after it fails
 
 
 def listed_sessions():
@@ -410,6 +413,8 @@ def tend_sessions():
         # The screen can arrive with its spaces and line breaks drawn as cursor moves, so it is read with every
         # blank removed, and the choice is the word right after the LAST pointer drawn.
         flat = re.sub(r"\s+", "", screen)
+        if "Itrustthisfolder" in flat:
+            TRUST_SEEN.add(sid)
         if TENDED.get(sid):     # answered once; the old question stays in the screen's history
             continue
         if "Itrustthisfolder" not in flat or "No,exit" not in flat or POINTER not in flat:
@@ -454,6 +459,11 @@ def observe_machine():
             continue
         OBSERVED["kits"][kit.name] = {"kind": meta.get("kind"), "seat": meta.get("seat"),
                                       "version": meta.get("version"), "files": files}
+    try:
+        age = time.time() - CLAUDE_LOCK.stat().st_mtime
+        OBSERVED["lock"][datetime.now(timezone.utc).strftime("%H:%M:%S")] = f"present, last modified {age:.1f}s before"
+    except OSError:
+        pass
     out = ps("Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | ForEach-Object { $_.CommandLine }",
              check=False)
     for line in out.splitlines():
@@ -476,6 +486,8 @@ def record_observed(title):
     for folder, status in OBSERVED["git"].items():
         lines.append(f"  {folder}:")
         lines += [f"      {x}" for x in status.splitlines()] or ["      (clean)"]
+    lines.append("<home>/.claude.json.lock, each time it was seen (it is absent the rest of the time):")
+    lines += [f"  {t}: {v}" for t, v in OBSERVED["lock"].items()] or ["  (never seen)"]
     record(f"{title} - seen while the sessions ran", "\n".join(f"  {x}" for x in lines))
     for key in OBSERVED:
         OBSERVED[key] = {}
@@ -786,9 +798,9 @@ def section_publish(since):
          "the first definition"], 0)
     cli(["factory", "definition", "diff", FACTORY], 0)
     cli(["factory", "definition", "publish", FACTORY, "--version", "1", "--replaces", "0"], 0)
-    note("FINDING - the plain schedule list refuses once a defined factory's schedule carries no folder (phase 5 "
-         "writes it empty on purpose); --json still answers.")
-    cli(["schedule", "list", "--fields", "id,name,enabled,cron,machine"], None)
+    note("Finding 5 (fixed in P8) - the plain schedule list, whose folder column a defined factory's schedule leaves "
+         "empty on purpose.")
+    cli(["schedule", "list"], None)
     schedules()
 
 
@@ -812,12 +824,12 @@ def schedules():
 
 
 def run_now(job):
-    """Fire a schedule now. The command line gives up after 10 seconds while the Gateway still waits on the Director
-    (a repository seat's start takes a pooled slot first), so a timeout is recorded and the run is then read from its
-    schedule's runs, which say whether it started."""
-    r = cli(["schedule", "run", job], None)
-    if r.returncode != 0 and "did not respond within" not in r.stdout + r.stderr:
-        raise SystemExit(f"schedule run {job} failed: {r.stdout}{r.stderr}")
+    """Fire a schedule now, by the Gateway route the command line calls, waiting as long as the start takes. The
+    command line gives up after 10 seconds, and the Gateway passes that request's cancellation down into the
+    Director command: a start slower than 10 seconds is then recorded as not started while the seat runs (the
+    finding in the report). So the rig waits on the route itself, and the run record says how the start went."""
+    LAST_JOB[:] = [job]
+    raw("POST", f"/cron/jobs/{job}/run", None, 200)
 
 
 def job_of(seat):
@@ -1049,6 +1061,13 @@ def main():
             section_ask(db, time.time())
         if only == ["second"]:
             section_second()
+        record("Claude Code's folder-trust question over the whole run",
+               f"  sessions whose screen drew it: {len(TRUST_SEEN)}; answered by the rig: {sum(TENDED.values())}")
+    except SystemExit:
+        if LAST_JOB:
+            cli(["schedule", "runs", LAST_JOB[0], "--json"], None)
+            record_observed("the wait that failed")
+        raise
     finally:
         try:
             if director is not None and director in director_processes():
