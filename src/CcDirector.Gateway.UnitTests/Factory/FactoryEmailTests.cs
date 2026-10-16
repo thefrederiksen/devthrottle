@@ -62,7 +62,9 @@ public sealed class FactoryEmailTests : IDisposable
         zoneOf: _ => Toronto,
         writeActivity: (tenant, run, row, correction) => Runs.WriteActivityRow(tenant, run, row, correction),
         nowUtc: () => _now,
-        triggers: Triggers);
+        triggers: Triggers,
+        scheduleSessionByName: (_, _) => null,
+        settleLastStatus: (_, _, _) => false);
 
     private CcDirector.Gateway.Factory.Triggers.TriggerStore? _triggers;
     private CcDirector.Gateway.Factory.Triggers.TriggerStore Triggers => _triggers ??= new(Db);

@@ -179,11 +179,11 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         {
             FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={job.Target.Machine}, outcomeUnknown={unknown}, {error}");
             return new CronRunStart(null, directorId, error ?? "could not start a session on the target machine", BriefVersion: null)
-                { OutcomeUnknown = unknown };
+                { OutcomeUnknown = unknown, SessionName = req.Name };
         }
 
         FileLog.Write($"[DirectorCronSessionStarter] started: job={job.Id}, sid={dto.SessionId}, director={directorId}");
-        return new CronRunStart(dto.SessionId, directorId, null, seat?.Brief.Version, seat?.Brief.Kind);
+        return new CronRunStart(dto.SessionId, directorId, null, seat?.Brief.Version, seat?.Brief.Kind) { SessionName = req.Name };
     }
 
     /// <summary>
@@ -248,11 +248,11 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
         {
             FileLog.Write($"[DirectorCronSessionStarter] start FAILED: job={job.Id}, machine={built.Machine}, outcomeUnknown={unknown}, {error}");
             return new CronRunStart(null, directorId, error ?? "could not start a session on the target machine", BriefVersion: null)
-                { OutcomeUnknown = unknown };
+                { OutcomeUnknown = unknown, SessionName = req.Name };
         }
 
         FileLog.Write($"[DirectorCronSessionStarter] started (defined): job={job.Id}, sid={dto.SessionId}, director={directorId}");
-        return new CronRunStart(dto.SessionId, directorId, null, opened.Brief.Version, opened.Brief.Kind);
+        return new CronRunStart(dto.SessionId, directorId, null, opened.Brief.Version, opened.Brief.Kind) { SessionName = req.Name };
     }
 
     /// <summary>The sentence of a run whose create was out when the Gateway stopped.</summary>

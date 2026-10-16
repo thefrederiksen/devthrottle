@@ -356,6 +356,30 @@ public sealed class CronJobStore
     }
 
     /// <summary>
+    /// Correct a job's last status once a fire's outcome is learned later (review of P10, the heal by name): applied
+    /// only while the job's last fire is still <paramref name="firedUtc"/>, so a newer fire's status is never
+    /// overwritten. Nothing else on the job changes. Returns true when it was applied.
+    /// </summary>
+    public bool SettleLastStatus(string id, DateTime firedUtc, string lastStatus)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var entity = ctx.CronJobs.FirstOrDefault(e => e.Id == id);
+            if (entity?.LastFiredUtc is not { } last || DateTime.SpecifyKind(last, DateTimeKind.Utc) != DateTime.SpecifyKind(firedUtc, DateTimeKind.Utc))
+            {
+                FileLog.Write($"[CronJobStore] SettleLastStatus NOT APPLIED: id={id}, fired={firedUtc:o}, last fired={entity?.LastFiredUtc:o}");
+                return false;
+            }
+            entity.LastStatus = lastStatus;
+            ctx.SaveChanges();
+            FileLog.Write($"[CronJobStore] SettleLastStatus: id={id}, fired={firedUtc:o}, status={lastStatus}");
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Move a job on to its next run WITHOUT a fire: its last status says why, and its last fire time is left alone
     /// because nothing ran. The engine uses it for a window schedule's catch-up found after its deadline.
     /// </summary>

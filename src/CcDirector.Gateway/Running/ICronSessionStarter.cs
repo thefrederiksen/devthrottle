@@ -67,4 +67,8 @@ public sealed record CronRunStart(string? SessionId, string? DirectorId, string?
     /// sentence saying so. Always false when <see cref="SessionId"/> is set.
     /// </summary>
     public bool OutcomeUnknown { get; init; }
+
+    /// <summary>The exact name the start asked its session to be given, or null when no create was built (a start
+    /// refused before it). Recorded on the run (<see cref="Contracts.CronRunRecord.SessionName"/>).</summary>
+    public string? SessionName { get; init; }
 }

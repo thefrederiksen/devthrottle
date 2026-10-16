@@ -290,6 +290,8 @@ public sealed class RunNowOutlivesTheCallerTests : IDisposable
         Assert.Equal(CronRunResults.StartUnknown, run.Result);
         Assert.Null(run.Problem);
         Assert.Equal("whether it started a session is not known: " + TimedOut, run.ResultReason);
+        // The exact name the create asked for, which the heal by name later matches the Director's session by.
+        Assert.Equal("DevThrottle - Boss - 2026-10-16 04:05", run.SessionName);
         // The answer carries the Gateway's words and tone, which every client renders as given.
         Assert.Equal("start-unknown", answer.GetProperty("infraStatus").GetString());
         Assert.Equal("warn", answer.GetProperty("infraTone").GetString());

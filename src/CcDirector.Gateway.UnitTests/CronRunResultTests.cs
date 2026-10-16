@@ -36,6 +36,10 @@ public sealed class CronRunResultTests : IDisposable
     private int _activityFailures;
     // How many factory activity writes still fail AFTER their write committed (the process stopped on the way back).
     private int _failuresAfterTheWrite;
+    // The sessions the account's Directors report, by exact name, with a schedule's origin (the heal by name).
+    private readonly Dictionary<string, NamedScheduleSession> _named = new(StringComparer.Ordinal);
+    // Every schedule last status the service corrected: (schedule, its fire, the status).
+    private readonly List<(string JobId, DateTime FiredUtc, string Status)> _settled = new();
 
     public void Dispose() => _h.Dispose();
 
@@ -72,7 +76,13 @@ public sealed class CronRunResultTests : IDisposable
                 return written;
             },
             nowUtc: () => _now,
-            triggers: Triggers);
+            triggers: Triggers,
+            scheduleSessionByName: (_, name) => _named.TryGetValue(name, out var s) ? s : null,
+            settleLastStatus: (jobId, firedUtc, status) =>
+            {
+                _settled.Add((jobId, firedUtc, status));
+                return true;
+            });
         return (service, runs, activity);
     }
 
@@ -1286,5 +1296,154 @@ public sealed class CronRunResultTests : IDisposable
     {
         public Task<CronWorkListOutcome> TriggerAsync(CronJobDto job, CancellationToken ct) =>
             throw new InvalidOperationException("these schedules are seed jobs");
+    }
+
+    // ---- the heal by name: a start whose outcome was not known (review of P10) --------------------------------
+
+    private const string RunName = "Eric - Mail Desk - 2026-10-16 09:09";
+    private const string Unknown30 = "whether it started a session is not known: The Director did not answer within 30 seconds. It is not known whether the command was carried out.";
+
+    // A run whose create was sent and whose outcome the Gateway never learned, as the engine records it.
+    private static CronRunRecord StartUnknown(DateTime firedUtc, string? name = RunName) => new()
+    {
+        ScheduledUtc = firedUtc,
+        FiredUtc = firedUtc,
+        Machine = "SOREN_NORTH",
+        TargetDirectorId = "",
+        SessionId = null,
+        InfraStatus = CronEngine.StartUnknownStatus,
+        TaskStatus = CronRunHistoryStore.TaskStatusUnknown,
+        Result = CronRunResults.StartUnknown,
+        ResultReason = Unknown30,
+        ResultUtc = firedUtc,
+        SessionName = name,
+    };
+
+    [Fact]
+    public void SettleUnknownStarts_TheDirectorReportsASessionOfTheRunsName_TheRunTakesIt_AndOwesItsReport()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail", "eric", "mail-desk");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_mail", Linked("cj_mail", StartUnknown(fired)));
+        // Phase 7: the Director answered the create eight minutes after it was sent.
+        _now = fired.AddMinutes(8);
+        _named[RunName] = new NamedScheduleSession("sid-eric", "dir-7");
+
+        var settled = service.SettleUnknownStarts(TenantId.Local);
+
+        Assert.Equal(1, settled);
+        var run = Assert.Single(runs.List("cj_mail"));
+        Assert.Equal(("sid-eric", "dir-7", "started"), (run.SessionId, run.TargetDirectorId, run.InfraStatus));
+        Assert.Equal(CronRunResults.Pending, run.Result);
+        Assert.Null(run.ResultReason);
+        Assert.Equal(RunName, run.SessionName);
+        Assert.Equal(("cj_mail", fired, "started"), Assert.Single(_settled));
+    }
+
+    [Fact]
+    public void Report_TheSessionOfARunWhoseStartWasNotKnownReportsOk_IsAccepted()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail", "eric", "mail-desk");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_mail", Linked("cj_mail", StartUnknown(fired)));
+        _now = fired.AddMinutes(20);
+        _named[RunName] = new NamedScheduleSession("sid-eric", "dir-7");
+
+        var outcome = service.Report(TenantId.Local, "sid-eric", "ok", "inbox read, two replies drafted");
+
+        Assert.Null(outcome.Refusal);
+        var run = Assert.Single(runs.List("cj_mail"));
+        Assert.Equal(("sid-eric", "started", CronRunResults.Ok), (run.SessionId, run.InfraStatus, run.Result));
+    }
+
+    [Fact]
+    public void Report_ASessionNoScheduleStarted_IsStillRefused_WhenARunWhoseStartWasNotKnownWaitsForAnotherName()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_mail", StartUnknown(fired));
+        _now = fired.AddMinutes(20);
+
+        var outcome = service.Report(TenantId.Local, "sid-someone-else", "ok", null);
+
+        Assert.Equal(404, outcome.StatusCode);
+        Assert.Contains("was not started by a schedule", outcome.Refusal);
+        Assert.Equal(CronRunResults.StartUnknown, Assert.Single(runs.List("cj_mail")).Result);
+    }
+
+    [Fact]
+    public void SettleUnknownStarts_NoSessionOfThatNameByTheEndOfItsShift_TheRunDidNotRun_SayingSo()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_mail", StartUnknown(fired));
+
+        _now = TorontoTime(2026, 10, 16, 15, 59);
+        Assert.Equal(0, service.SettleUnknownStarts(TenantId.Local));
+        Assert.Equal(CronRunResults.StartUnknown, Assert.Single(runs.List("cj_mail")).Result);
+
+        _now = TorontoTime(2026, 10, 16, 16, 0);
+        Assert.Equal(1, service.SettleUnknownStarts(TenantId.Local));
+
+        var run = Assert.Single(runs.List("cj_mail"));
+        Assert.Equal(("not-started", CronRunResults.Problem, CronRunProblems.DidNotRun), (run.InfraStatus, run.Result, run.Problem));
+        Assert.Equal($"whether it started a session was not known, and no session named '{RunName}' appeared by 2026-10-16 20:00 UTC, when its window closed", run.ResultReason);
+        Assert.Null(run.SessionId);
+        Assert.Equal(("cj_mail", fired, "not-started"), Assert.Single(_settled));
+    }
+
+    [Fact]
+    public void SettleUnknownStarts_ARunThatFiredJustBeforeItsShiftEnded_IsGivenThirtyMinutes()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail");
+        var fired = TorontoTime(2026, 10, 16, 15, 50);
+        runs.Append("cj_mail", StartUnknown(fired));
+
+        _now = TorontoTime(2026, 10, 16, 16, 19);
+        Assert.Equal(0, service.SettleUnknownStarts(TenantId.Local));
+
+        _now = TorontoTime(2026, 10, 16, 16, 20);
+        Assert.Equal(1, service.SettleUnknownStarts(TenantId.Local));
+        Assert.Equal(CronRunProblems.DidNotRun, Assert.Single(runs.List("cj_mail")).Problem);
+    }
+
+    [Fact]
+    public void SettleUnknownStarts_ASessionOfThatNameAlreadyAnotherRuns_IsNotTaken()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail");
+        Job("cj_other");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_other", Started("sid-eric", fired));
+        runs.Append("cj_mail", StartUnknown(fired));
+        _now = fired.AddMinutes(8);
+        _named[RunName] = new NamedScheduleSession("sid-eric", "dir-7");
+
+        Assert.Equal(0, service.SettleUnknownStarts(TenantId.Local));
+
+        var run = Assert.Single(runs.List("cj_mail"));
+        Assert.Null(run.SessionId);
+        Assert.Equal(CronRunResults.StartUnknown, run.Result);
+        Assert.Empty(_settled);
+    }
+
+    [Fact]
+    public void SettleUnknownStarts_ARunThatRecordedNoName_LapsesWhenItsWindowCloses_SayingItHadNoNameToLookFor()
+    {
+        var (service, runs, _) = Build();
+        Job("cj_mail");
+        var fired = TorontoTime(2026, 10, 16, 9, 9);
+        runs.Append("cj_mail", StartUnknown(fired, name: null));
+        _now = TorontoTime(2026, 10, 16, 16, 0);
+
+        Assert.Equal(1, service.SettleUnknownStarts(TenantId.Local));
+
+        Assert.Equal("whether it started a session was not known, and it recorded no session name to look for by 2026-10-16 20:00 UTC, when its window closed",
+            Assert.Single(runs.List("cj_mail")).ResultReason);
     }
 }

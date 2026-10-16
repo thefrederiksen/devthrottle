@@ -26,6 +26,14 @@ public sealed class CronRunRecord
     /// <summary>The session the fire started, or null if no session started.</summary>
     public string? SessionId { get; set; }
 
+    /// <summary>
+    /// The exact name the run asked its session to be given, for example "Eric - Mail Desk - 2026-10-16 09:09". Fixed
+    /// when the run is recorded. A run whose start's outcome was not known (<see cref="CronRunResults.StartUnknown"/>)
+    /// is matched by it to the session the Director reports under that name, and only by it - never by a name worked
+    /// out again from the schedule, which can be renamed meanwhile. Null for a work-list drain and a checked run's due row.
+    /// </summary>
+    public string? SessionName { get; set; }
+
     /// <summary>Did the session START? (e.g. <c>started</c> / <c>not-started</c> / <c>catch-up</c>.)</summary>
     public string InfraStatus { get; set; } = "";
 

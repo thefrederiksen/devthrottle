@@ -242,6 +242,7 @@ public sealed class CronEngine
             string? briefVersionKind = null;     // and which kind of version that is: the brief's own, or the definition's
             bool started;
             bool startUnknown = false;           // the create was sent and its outcome is not known
+            string? sessionName = null;          // the exact name the start asked its session to be given
             string baseStatus;
             if (isWorkList)
             {
@@ -259,6 +260,7 @@ public sealed class CronEngine
                 // A create whose outcome is not known may have started its session (review of P10, finding 1): it is
                 // its own status and result, never a run that did not run.
                 startUnknown = !started && start.OutcomeUnknown;
+                sessionName = start.SessionName;
                 baseStatus = started ? "started" : startUnknown ? StartUnknownStatus : "not-started";
             }
 
@@ -278,6 +280,8 @@ public sealed class CronEngine
                 // Which brief this run was given, fixed on the run: the brief can be published again a minute later.
                 BriefVersion = briefVersion,
                 BriefVersionKind = briefVersionKind,
+                // What a start whose outcome is not known is later matched by (review of P10, the heal by name).
+                SessionName = sessionName,
             };
             // How the run went (Factory Control, step 1). A started session owes its report. A fire that started
             // nothing did not run. A work-list drain starts many sessions and records none, so no one session can

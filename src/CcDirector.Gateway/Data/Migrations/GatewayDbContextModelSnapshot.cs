@@ -357,6 +357,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("SessionId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("TargetDirectorId")
                         .IsRequired()
                         .HasColumnType("TEXT");

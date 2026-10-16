@@ -365,6 +365,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("SessionId")
                         .HasColumnType("text");
 
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
                     b.Property<string>("TargetDirectorId")
                         .IsRequired()
                         .HasColumnType("text");
