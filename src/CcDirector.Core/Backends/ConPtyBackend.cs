@@ -27,6 +27,9 @@ public sealed class ConPtyBackend : ISessionBackend
     public CircularTerminalBuffer? Buffer => _buffer;
     public string WorkingDirectory => _workingDir;
 
+    /// <inheritdoc />
+    public string PromptFileDirectory { get; private set; } = string.Empty;
+
     public event Action<string>? StatusChanged;
     public event Action<int>? ProcessExited;
 
@@ -45,6 +48,8 @@ public sealed class ConPtyBackend : ISessionBackend
             throw new InvalidOperationException("Backend already started.");
 
         _workingDir = workingDir;
+        // The kit this session is started with decides where its prompt files go; no kit, today's .temp/.
+        PromptFileDirectory = CcDirector.Core.Sessions.FactoryRunKit.PromptDirectoryFor(environmentVars);
         SetStatus("Starting...");
 
         // Create ConPTY with terminal dimensions

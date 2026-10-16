@@ -636,9 +636,9 @@ public static class TerminalSubmit
         bool throwWhenParked = true,
         Func<(ComposerReading Reading, string Text)>? composerRegion = null)
     {
-        var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
+        var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory, backend.PromptFileDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
-        var atReference = $"@{relRef}";
+        var atReference = LargeInputHandler.AtReference(relRef);
         SendTrail.Step(driverTag, $"SharedSubmit: large input ({text.Length} chars), using temp file reference: {atReference}");
 
         await EchoVerifiedInlineSubmitAsync(
@@ -671,7 +671,7 @@ public static class TerminalSubmit
         bool throwWhenParked = true,
         Func<(ComposerReading Reading, string Text)>? composerRegion = null)
     {
-        var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
+        var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory, backend.PromptFileDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
         var fileName = Path.GetFileName(tempPath);
         // SHORT AND NEUTRAL (issue #3290). The instruction is typed key by key, and a Codex on a loaded machine takes

@@ -86,6 +86,7 @@ public sealed class FactoryRunKitTests : IDisposable
     [InlineData("/etc/passwd", "The kit file '/etc/passwd' is not a relative path with forward slashes, so the kit was not written.")]
     [InlineData("files\\x.py", "The kit file 'files\\x.py' is not a relative path with forward slashes, so the kit was not written.")]
     [InlineData("work/notes.md", "The kit file 'work/notes.md' is inside work/, which is the seat's own folder, so the kit was not written.")]
+    [InlineData("prompts/input.txt", "The kit file 'prompts/input.txt' is inside prompts/, where the Director saves the prompts it sends the seat, so the kit was not written.")]
     public void Write_AFilePathThatLeavesTheFolderOrEntersWork_IsRefusedAndNothingIsWritten(string path, string refusal)
     {
         var id = Guid.NewGuid();
@@ -319,4 +320,21 @@ public sealed class FactoryRunKitTests : IDisposable
     [Fact]
     public void HoldsCheck_AFolderWithNoCheckJson_IsFalse()
         => Assert.False(FactoryRunKit.HoldsCheck(FactoryRunKit.Write(Guid.NewGuid(), ComposedKit(), root: _root)));
+
+    [Fact]
+    public void PromptDirectoryFor_AnEnvironmentNamingAKit_IsThatKitsPromptsFolder()
+    {
+        var kit = FactoryRunKit.DirectoryFor(Guid.NewGuid(), _root);
+
+        var folder = FactoryRunKit.PromptDirectoryFor(new Dictionary<string, string> { [FactoryRunKit.DirectoryEnvVar] = kit });
+
+        Assert.Equal(Path.Combine(kit, "prompts"), folder);
+    }
+
+    [Fact]
+    public void PromptDirectoryFor_UNDEFINED_FACTORY_AnEnvironmentNamingNoKit_IsEmpty()
+    {
+        Assert.Equal("", FactoryRunKit.PromptDirectoryFor(null));
+        Assert.Equal("", FactoryRunKit.PromptDirectoryFor(new Dictionary<string, string> { ["CC_SESSION_ID"] = "x" }));
+    }
 }

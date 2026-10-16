@@ -431,7 +431,12 @@ public partial class App : Application
         UpdateSplashStatus(splash, "Initializing sessions...");
         // The ONE place skill placement is turned on. It writes into the user's own home directory, so
         // it is opt-in and the running app is what opts in - see SessionManager.PlacesSkillsOnLaunch.
-        SessionManager = new SessionManager(Options, log) { PlacesSkillsOnLaunch = true };
+        SessionManager = new SessionManager(Options, log)
+        {
+            PlacesSkillsOnLaunch = true,
+            // A Claude Code seat's own folders are marked trusted before its agent starts (Factory Definition, phase 5).
+            ClaudeFolderTrust = new CcDirector.Core.Claude.ClaudeFolderTrust(CcDirector.Core.Claude.ClaudeFolderTrust.ConfigPathForThisUser()),
+        };
         // A change of a session's owner is written to disk the moment it happens (the Fleet Manager mission, step 8).
         SessionManager.DurableStateStore = SessionStateStore;
         SessionManager.ScanForOrphans();

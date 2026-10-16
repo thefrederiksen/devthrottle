@@ -12,6 +12,7 @@ internal sealed class RecordingSessionBackend : ISessionBackend
     public bool HasExited => false;
     public CircularTerminalBuffer? Buffer { get; init; }
     public string WorkingDirectory { get; init; } = string.Empty;
+    public string PromptFileDirectory { get; init; } = string.Empty;
 
     public List<byte[]> WrittenBytes { get; } = new();
     public List<string> SentTexts { get; } = new();

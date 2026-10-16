@@ -1,0 +1,79 @@
+Claude Code: 2.1.301 (Claude Code)
+Configuration file: <home>\.claude.json
+Scratch root: <home>/AppData/Local/Temp/fd-p7-trust-90f52f51
+  ancestor <home>/AppData/Local/Temp: hasTrustDialogAccepted=None
+  ancestor <home>/AppData/Local: hasTrustDialogAccepted=None
+  ancestor <home>/AppData: hasTrustDialogAccepted=None
+  ancestor <home>: hasTrustDialogAccepted=False
+  ancestor C:/Users: hasTrustDialogAccepted=None
+  ancestor C:/: hasTrustDialogAccepted=None
+
+CASE A - a new plain folder, nothing trusted. Accept the question, then read what was recorded.
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/plain-a: TRUST QUESTION
+    | <home>\AppData\Local\Temp\fd-p7-trust-90f52f51\plain-a
+    | Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+    | ? No, exit
+    | Yes, I trust this folder
+  after choosing 'Yes, I trust this folder': the question is gone
+  recorded: projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/plain-a'].hasTrustDialogAccepted = True
+  the same folder again:
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/plain-a: READY PROMPT
+
+CASE B - a trusted PARENT (not a git repository): a new folder two levels beneath it.
+  wrote projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/factory-run'].hasTrustDialogAccepted = true
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/factory-run/11111111-2222-3333-4444-555555555555/work: READY PROMPT
+  a sibling of the trusted parent, for contrast:
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/factory-run-sibling/work: TRUST QUESTION
+    | <home>\AppData\Local\Temp\fd-p7-trust-90f52f51\factory-run-sibling\work
+    | Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+    | ? No, exit
+    | Yes, I trust this folder
+
+CASE C - a git worktree (a pooled slot) of an untrusted repository. Accept, then read what was recorded.
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo.worktrees/wt01: TRUST QUESTION
+    | <home>\AppData\Local\Temp\fd-p7-trust-90f52f51\repo.worktrees\wt01
+    | Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+    | ? No, exit
+    | Yes, I trust this folder
+  after choosing 'Yes, I trust this folder': the question is gone
+  recorded: projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo'].hasTrustDialogAccepted = True
+  (case C's answer trusted that repository, so cases D and E each use a repository of their own)
+
+CASE D - the POOL ROOT (repo3.worktrees, not itself a repository) trusted: a new slot beneath it.
+  control, before the pool root is trusted:
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo3.worktrees/wt01: TRUST QUESTION
+    | <home>\AppData\Local\Temp\fd-p7-trust-90f52f51\repo3.worktrees\wt01
+    | Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+    | ? No, exit
+    | Yes, I trust this folder
+  wrote projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo3.worktrees'].hasTrustDialogAccepted = true
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo3.worktrees/wt02: TRUST QUESTION
+    | <home>\AppData\Local\Temp\fd-p7-trust-90f52f51\repo3.worktrees\wt02
+    | Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+    | ? No, exit
+    | Yes, I trust this folder
+
+CASE E - the slot's OWN folder trusted, written before Claude Code ever opened it (repository untrusted).
+  wrote projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo4.worktrees/wt01'].hasTrustDialogAccepted = true
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo4.worktrees/wt01: READY PROMPT
+  the slot beside it, not trusted, for contrast:
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo4.worktrees/wt02: TRUST QUESTION
+    | <home>\AppData\Local\Temp\fd-p7-trust-90f52f51\repo4.worktrees\wt02
+    | Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+    | ? No, exit
+    | Yes, I trust this folder
+
+CASE F - a different repository's main checkout trusted: a new worktree of it (for the record).
+  wrote projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo2'].hasTrustDialogAccepted = true
+  first screen in <home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo2.worktrees/wt01: READY PROMPT
+
+CLEAN-UP
+  removed projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/factory-run']
+  removed projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/plain-a']
+  removed projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo']
+  removed projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo2']
+  removed projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo3.worktrees']
+  removed projects['<home>/AppData/Local/Temp/fd-p7-trust-90f52f51/repo4.worktrees/wt01']
+  entries left under the scratch root: 0
+  scratch root exists afterwards: False
+  .claude.json.lock exists afterwards: False

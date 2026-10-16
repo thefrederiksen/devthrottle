@@ -37,6 +37,14 @@ public static class FactoryRunKit
     public const string WorkFolderName = "work";
 
     /// <summary>
+    /// The folder inside the kit where the Director saves a prompt it sends as a file (<see cref="Input.LargeInputHandler"/>).
+    /// Every seat's first prompt is one, and before phase 5's P7 it went to <c>&lt;working folder&gt;/.temp/</c>, which for
+    /// a repository seat is the checkout: the seat's brief was left in an untracked file there, and that file kept the
+    /// pooled slot from going back to its pool. Here it is deleted with the kit. Never written by the kit itself.
+    /// </summary>
+    public const string PromptFolderName = "prompts";
+
+    /// <summary>
     /// The file phase 5b's check writes beside the kit, which a refresh KEEPS like <c>work/</c>: a restored check seat
     /// still has the check it was started for. When the caller passes a new one among its extra files, that one is
     /// written over it.
@@ -142,6 +150,17 @@ public static class FactoryRunKit
 
     /// <summary>The <c>work/</c> folder of a kit folder.</summary>
     public static string WorkDirectoryOf(string kitDirectory) => Path.Combine(kitDirectory, WorkFolderName);
+
+    /// <summary>
+    /// Where a session's prompts sent as files are saved: the <see cref="PromptFolderName"/> folder of the kit that
+    /// <paramref name="environment"/> names in <see cref="DirectoryEnvVar"/>, or an empty string for a session with no
+    /// kit - which keeps today's <c>&lt;working folder&gt;/.temp/</c> exactly. The environment is the one the session's
+    /// agent is started with, so the folder follows the kit the session was actually given and nothing else.
+    /// </summary>
+    public static string PromptDirectoryFor(IReadOnlyDictionary<string, string>? environment)
+        => environment is not null && environment.TryGetValue(DirectoryEnvVar, out var kit) && !string.IsNullOrWhiteSpace(kit)
+            ? Path.Combine(kit, PromptFolderName)
+            : string.Empty;
 
     /// <summary>
     /// Write a session's kit, replacing anything already in its folder, create its <c>work/</c> folder, and return the
@@ -279,6 +298,8 @@ public static class FactoryRunKit
             return $"The kit file '{path}' has an empty, '.' or '..' part, so the kit was not written.";
         if (string.Equals(segments[0], WorkFolderName, StringComparison.OrdinalIgnoreCase))
             return $"The kit file '{path}' is inside {WorkFolderName}/, which is the seat's own folder, so the kit was not written.";
+        if (string.Equals(segments[0], PromptFolderName, StringComparison.OrdinalIgnoreCase))
+            return $"The kit file '{path}' is inside {PromptFolderName}/, where the Director saves the prompts it sends the seat, so the kit was not written.";
         return null;
     }
 
