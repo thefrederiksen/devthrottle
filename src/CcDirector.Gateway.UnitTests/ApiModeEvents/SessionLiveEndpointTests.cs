@@ -7,6 +7,7 @@ using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
 using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
@@ -23,12 +24,11 @@ namespace CcDirector.Gateway.Tests.ApiModeEvents;
 /// <summary>
 /// The live relay of an API-mode session's events (mission #4070, phase 2): <c>GET /sessions/{sid}/live</c> and its
 /// poll form <c>GET /sessions/{sid}/live/items</c>, driven over HTTP on an in-memory host (TestServer: no listener, no
-/// port) against the REAL in-memory event buffer, a REAL pushed-session roster and a REAL tenant boundary, with the
-/// Gateway's own compression middleware in front, as in production.
-///
-/// Events reach the buffer the way the ingest hands them over (<see cref="ApiModeEventBuffer.Apply"/>). The ruling is a
-/// stand-in that names each event, so a test can tell which events were relayed and that only the ruling's output is
-/// sent; it answers nothing for <see cref="ConnectionReady"/>, which proves an event with nothing to show is skipped.
+/// port) with the REAL pieces around it: the Gateway's ingest, which writes each batch to the REAL receipt store (over the
+/// harness database) and then the REAL in-memory event buffer; the REAL live-item ruling
+/// (<see cref="CcDirector.Gateway.ApiModeDisplay.ApiModeLiveRuling"/>); a REAL pushed-session roster and a REAL tenant
+/// boundary; and the Gateway's own compression middleware in front, as in production. A turn starting shows nothing in
+/// the ruling, which is how these tests prove an event with nothing to show sends no frame.
 ///
 /// No sleep and no clock decides a result: every wait is on the stream itself or on a signal the code raises. The
 /// <see cref="HangGuard"/> only turns a hang into a failure.
@@ -48,8 +48,11 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
 
     private readonly GatewayDbTestHarness _harness = new();
+    private readonly AsyncLocalTenantContext _ambient = new();
     private readonly HostedTenantBoundary _boundary;
     private readonly ApiModeEventBuffer _buffer = new();
+    private readonly ApiModeReceiptStore _receipts;
+    private readonly ApiModeEventIngest _ingest;
     private readonly CountingFeed _feed;
     private DateTime _now = T0.UtcDateTime;
     private readonly PushedSessionStore _pushed;
@@ -59,7 +62,9 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
     public SessionLiveEndpointTests()
     {
-        _boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _harness.OpenDevices(), hosted: false);
+        _boundary = new HostedTenantBoundary(_ambient, _harness.OpenDevices(), hosted: false);
+        _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
+        _ingest = new ApiModeEventIngest(_buffer, _receipts, _boundary);
         _feed = new CountingFeed(_buffer);
         _pushed = new PushedSessionStore(() => _now);
         _pushed.RegisterConnection(Alice, AliceDirector, "conn-alice");
@@ -92,11 +97,13 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         PushA(Text(4, "PONG"));
         var live = await stream.NextAsync();
 
-        // ConnectionReady (sequence 1) was ruled to nothing, so it is not sent; every other event is, in order, and
-        // each event's id is its cursor.
-        Assert.Equal(("item", "gen-a:2", "PromptDelivered", 2L), (first!.Event, first.Id, Kind(first), Sequence(first)));
-        Assert.Equal(("item", "gen-a:3", "TurnStarted"), (second!.Event, second.Id, Kind(second)));
-        Assert.Equal(("item", "gen-a:4", "MessageText"), (live!.Event, live.Id, Kind(live)));
+        // Each frame is the ruling's items for one event, under that event's cursor. The turn starting (sequence 3)
+        // shows nothing, so it sends no frame.
+        Assert.Equal(("items", "gen-a:1", ApiModeLiveItemKinds.Connection), (first!.Event, first.Id, Single(first).Kind));
+        Assert.Equal(("items", "gen-a:2", ApiModeLiveItemKinds.Receipt, "Delivered", "p1", 2L),
+            (second!.Event, second.Id, Single(second).Kind, Single(second).Text, Single(second).PromptId, Single(second).Sequence));
+        Assert.Equal(("items", "gen-a:4", ApiModeLiveItemKinds.ReplyText, "PONG", ApiModeLiveItemModes.Append),
+            (live!.Event, live.Id, Single(live).Kind, Single(live).Text, Single(live).Mode));
         Assert.Equal(1, _feed.Active);
     }
 
@@ -149,13 +156,19 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         var reset = await stream.NextAsync();
         var next = await stream.NextAsync();
 
+        var after = await stream.NextAsync();
+
         Assert.Equal("reset", reset!.Event);
         Assert.Equal("", reset.Id);   // clears the browser's Last-Event-ID
         var body = Reset(reset);
         Assert.Equal(ApiModeLiveResetCodes.NewGeneration, body.Code);
         Assert.Equal(new[] { $"/sessions/{ApiSession}/receipts", $"/sessions/{ApiSession}/history" }, body.RebuildFrom);
         Assert.False(string.IsNullOrWhiteSpace(body.Message));
-        Assert.Equal(("item", "gen-b:2"), (next!.Event, next.Id));   // gen-b:1 is ConnectionReady, ruled to nothing
+        // Then the stored receipts, with no id (they are not an event), so what follows continues from them...
+        Assert.Null(next!.Id);
+        Assert.Equal(new[] { ("p1", "Delivered", 0L), ("p2", "Delivered", 0L) }, Items(next).Select(i => (i.PromptId!, i.Text, i.Sequence)));
+        // ...and the new generation's events: its connection line; p2's delivery is already in the receipts, so it adds nothing.
+        Assert.Equal(("gen-b:1", ApiModeLiveItemKinds.Connection), (after!.Id, Single(after).Kind));
     }
 
     [Fact]
@@ -186,7 +199,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         var live = await stream.NextAsync();
 
         Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
-        Assert.Equal(("item", "gen-a:8"), (live!.Event, live.Id));
+        Assert.Equal(("items", "gen-a:8", "Delivered"), (live!.Event, live.Id, Single(live).Text));
     }
 
     [Fact]
@@ -197,12 +210,17 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession);
         Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
-        PushB(Delivered(1, "p2"));
+        PushB(Delivered(1, "p2"), Text(2, "hello"));
         var reset = await stream.NextAsync();
+        var receipts = await stream.NextAsync();
         var next = await stream.NextAsync();
 
         Assert.Equal(("reset", "", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, reset.Id, Reset(reset).Code));
-        Assert.Equal(("item", "gen-b:1"), (next!.Event, next.Id));
+        // The ruling starts again from the stored receipts, which the ingest wrote before the buffer handed the events
+        // on: p2 is already Delivered there, so its event adds nothing and the reply follows.
+        Assert.Null(receipts!.Id);
+        Assert.Equal(new[] { "p1", "p2" }, Items(receipts).Select(i => i.PromptId));
+        Assert.Equal(("items", "gen-b:2", "hello"), (next!.Event, next.Id, Single(next).Text));
     }
 
     [Fact]
@@ -232,7 +250,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         await using var stream = await OpenStreamAsync(Alice, ApiSession);
         var first = await stream.NextAsync();
 
-        Assert.Equal(("item", "gen-a:5"), (first!.Event, first.Id));
+        Assert.Equal(("items", "gen-a:5"), (first!.Event, first.Id));
     }
 
     [Fact]
@@ -247,7 +265,76 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         PushA(Delivered(1, "p1"));
         var first = await stream.NextAsync();
 
-        Assert.Equal(("item", "gen-a:1", "PromptDelivered"), (first!.Event, first.Id, Kind(first)));
+        Assert.Equal(("items", "gen-a:1", ApiModeLiveItemKinds.Receipt), (first!.Event, first.Id, Single(first).Kind));
+    }
+
+    // ----- the ruling, per reader -----
+
+    [Fact]
+    public async Task Stream_ATurnThatFails_SendsItsLineAndTheReceiptBesideDeliveredInOneFrame()
+    {
+        // Event model rule 5: a receipt shows its turn's outcome beside Delivered. One event, two items, one frame.
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
+        PushA(Failed(3, "Pi exited during the turn (exit code 137)"));
+        var frame = await stream.NextAsync();
+
+        Assert.Equal("gen-a:3", frame!.Id);
+        Assert.Equal(new[]
+        {
+            (ApiModeLiveItemKinds.TurnEnded, "Turn failed: Pi exited during the turn (exit code 137)"),
+            (ApiModeLiveItemKinds.Receipt, "Delivered - the turn failed: Pi exited during the turn (exit code 137)"),
+        }, Items(frame).Select(i => (i.Kind, i.Text)));
+    }
+
+    [Fact]
+    public async Task Stream_AToolThatStartedBeforeTheCursor_KeepsItsTitleWhenItFinishes()
+    {
+        // The finish carries no tool name. A reader resuming between the start and the finish still gets the real title,
+        // because its ruling is fed the held events up to its cursor before anything is sent.
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), ToolStart(3, "bash", "ls -la"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:3");
+        PushA(ToolEnd(4));
+        var card = Single((await stream.NextAsync())!);
+
+        Assert.Equal((ApiModeLiveItemKinds.ToolCard, "bash", "done", "ls -la"), (card.Kind, card.Text, card.Status, card.Detail));
+    }
+
+    [Fact]
+    public async Task Items_AToolAcrossTwoPolls_KeepsItsTitleWhenItFinishes()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), ToolStart(3, "bash", "ls -la"));
+        var first = await GetPageAsync(Alice, ApiSession);
+        PushA(ToolEnd(4));
+
+        var second = await GetPageAsync(Alice, ApiSession, after: first.Next);
+
+        var card = Assert.Single(second.Items);
+        Assert.Equal(("bash", "done"), (card.Text, card.Status));
+    }
+
+    [Fact]
+    public async Task Stream_NoCursorOnAGenerationHeldFromItsMiddle_OpensWithTheStoredReceipts()
+    {
+        // The Gateway holds this generation only from sequence 5 (it restarted), so the ruling starts from the stored
+        // receipts and they open the stream, with no reset: the client holds nothing to reset.
+        await StartAsync();
+        RecordDelivered("p0");
+        PushA(Text(5, "a"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await stream.NextAsync();
+        var first = await stream.NextAsync();
+
+        Assert.Equal(("items", (string?)null), (opening!.Event, opening.Id));
+        Assert.Equal(("receipt:p0", "Delivered"), (Single(opening).ItemId, Single(opening).Text));
+        Assert.Equal("gen-a:5", first!.Id);
     }
 
     // ----- the stream: the client's side -----
@@ -303,7 +390,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         await using var stream = await OpenStreamAsync(Alice, ApiSession, acceptCompression: true);
         Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
-        PushA(Started(2));
+        PushA(Text(2, "a"));
 
         Assert.Equal("gen-a:2", (await stream.NextAsync())!.Id);
         Assert.Empty(stream.Response.Content.Headers.ContentEncoding);
@@ -321,9 +408,8 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         var page = await GetPageAsync(Alice, ApiSession);
 
         Assert.Null(page.Reset);
-        Assert.Equal(new[] { "gen-a:2", "gen-a:3" }, page.Items.Select(i => i.Cursor));
-        Assert.Equal("PromptDelivered", ((JsonElement)page.Items[0].Item!).GetProperty("kind").GetString());
-        Assert.Equal("gen-a:3", page.Next);
+        Assert.Equal(new[] { (ApiModeLiveItemKinds.Connection, 1L), (ApiModeLiveItemKinds.Receipt, 2L) }, page.Items.Select(i => (i.Kind, i.Sequence)));
+        Assert.Equal("gen-a:3", page.Next);   // past the turn starting, which shows nothing
     }
 
     [Fact]
@@ -349,7 +435,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         var second = await GetPageAsync(Alice, ApiSession, after: first.Next);
         var third = await GetPageAsync(Alice, ApiSession, after: second.Next);
 
-        Assert.Equal(new[] { "gen-a:3" }, second.Items.Select(i => i.Cursor));
+        Assert.Equal(new[] { ("PONG", 3L) }, second.Items.Select(i => (i.Text, i.Sequence)));
         Assert.Empty(third.Items);
         Assert.Null(third.Reset);
         Assert.Equal("gen-a:3", third.Next);   // nothing new: keep the same cursor
@@ -359,11 +445,11 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     public async Task Items_LastEventRuledToNothing_NextStillMovesPastIt()
     {
         await StartAsync();
-        PushA(Delivered(1, "p1"), Ready(2));
+        PushA(Delivered(1, "p1"), Started(2));
 
         var page = await GetPageAsync(Alice, ApiSession);
 
-        Assert.Equal(new[] { "gen-a:1" }, page.Items.Select(i => i.Cursor));
+        Assert.Equal(new[] { 1L }, page.Items.Select(i => i.Sequence));
         Assert.Equal("gen-a:2", page.Next);
     }
 
@@ -377,7 +463,8 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         var page = await GetPageAsync(Alice, ApiSession, after: "gen-a:1");
 
         Assert.Equal(ApiModeLiveResetCodes.NewGeneration, page.Reset!.Code);
-        Assert.Equal(new[] { "gen-b:1", "gen-b:2" }, page.Items.Select(i => i.Cursor));
+        // The stored receipts lead; the new generation's events add nothing they do not already say.
+        Assert.Equal(new[] { ("p1", 0L), ("p2", 0L) }, page.Items.Select(i => (i.PromptId!, i.Sequence)));
         Assert.Equal("gen-b:2", page.Next);
     }
 
@@ -501,7 +588,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         var page = await GetPageAsync(Alice, ApiSession);
 
-        Assert.Equal(new[] { "gen-a:1" }, page.Items.Select(i => i.Cursor));
+        Assert.Equal(new[] { "receipt:p1" }, page.Items.Select(i => i.ItemId));
     }
 
     [Fact]
@@ -574,18 +661,12 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
             await next();
         });
         GatewayResponseCompression.Use(app);
-        SessionLiveEndpoint.Map(app, _feed, Rule, _pushed, StaleAfter, _boundary, liveBacklog);
+        SessionLiveEndpoint.Map(app, _feed, _receipts, _pushed, StaleAfter, _boundary, liveBacklog);
 
         await app.StartAsync();
         _app = app;
         _client = app.GetTestServer().CreateClient();
     }
-
-    /// <summary>The stand-in ruling: names the event. Nothing to show for ConnectionReady.</summary>
-    private static object? Rule(TenantId tenant, ApiModeHeldEvent held) =>
-        held.Event is ConnectionReady ? null : new RuledItem(held.Event.GetType().Name, held.Event.Sequence);
-
-    private sealed record RuledItem(string Kind, long Sequence);
 
     private async Task<LiveStream> OpenStreamAsync(TenantId tenant, string sid, string? after = null, string? lastEventId = null, bool acceptCompression = false)
     {
@@ -623,23 +704,43 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     private void PushA(params SessionEvent[] events) => Push("gen-a", GenAStarted, events);
     private void PushB(params SessionEvent[] events) => Push("gen-b", GenBStarted, events);
 
+    /// <summary>Through the Gateway's own ingest, as the Director's batches arrive: receipts first, then the buffer.</summary>
     private void Push(string generation, DateTime started, SessionEvent[] events)
     {
-        var incoming = events.Select(e => new ApiModeEventBuffer.Incoming(e, JsonSerializer.Serialize(e, SessionEventJson.Options).Length)).ToList();
-        var result = _buffer.Apply(Alice, ApiSession, generation, started, incoming, _ => { });
-        Assert.False(result.Refused);
+        foreach (var chunk in events.Chunk(ApiModeEventBatch.MaxEvents))
+        {
+            var watermark = _ingest.Accept(Alice, AliceDirector, new ApiModeEventBatch
+            {
+                SessionId = ApiSession,
+                Generation = generation,
+                GenerationStartedUtc = started,
+                Events = chunk.Select(e => JsonSerializer.Serialize(e, SessionEventJson.Options)).ToList(),
+            });
+            Assert.NotNull(watermark);
+        }
+    }
+
+    /// <summary>A receipt already in the durable store, from before what the buffer holds.</summary>
+    private void RecordDelivered(string prompt)
+    {
+        using (_boundary.EnterScope(Alice))
+            _receipts.RecordDelivered(AliceDirector, ApiSession, prompt, "started", "{}", new ApiModeEventPosition("gen-a", GenAStarted, 0), T0.UtcDateTime);
     }
 
     private static ConnectionReady Ready(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, AgentSessionId = "e173b676-b5d6-4605-bc6c-cdbc82fd42a7", Model = "gpt-5.6-sol" };
     private static PromptDelivered Delivered(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Disposition = PromptDisposition.Started, Acknowledgement = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""" };
     private static TurnStarted Started(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", PromptIds = new[] { "p1" } };
     private static MessageText Text(long seq, string text) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", MessageId = "m1", Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Delta, Text = text };
+    private static ToolCallStarted ToolStart(long seq, string name, string input) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = "tc1", ToolName = name, Kind = ToolCallKind.Execute, Input = input };
+    private static ToolCallFinished ToolEnd(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = "tc1", Outcome = ToolCallOutcome.Succeeded, Output = "total 0", DurationMilliseconds = 12 };
+    private static TurnEnded Failed(long seq, string reason) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", Outcome = TurnOutcome.Failed, Reason = reason, AgentStopReason = null, Usage = new TurnUsage { Input = 0, Output = 0, CacheRead = 0, CacheWrite = 0 } };
     private static ApiModeHeldEvent Held(long seq) => new("gen-a", Text(seq, "x"));
 
     // ----- reading frames -----
 
-    private static string Kind(Frame frame) => JsonDocument.Parse(frame.Data).RootElement.GetProperty("kind").GetString()!;
-    private static long Sequence(Frame frame) => JsonDocument.Parse(frame.Data).RootElement.GetProperty("sequence").GetInt64();
+    private static List<ApiModeLiveItem> Items(Frame frame) =>
+        JsonSerializer.Deserialize<List<ApiModeLiveItem>>(frame.Data, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+    private static ApiModeLiveItem Single(Frame frame) => Assert.Single(Items(frame));
     private static ApiModeLiveResetDto Reset(Frame frame) => JsonSerializer.Deserialize<ApiModeLiveResetDto>(frame.Data, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
     /// <summary>One event of the stream. <see cref="Id"/> is null when the frame had no id line, empty when it cleared it.</summary>

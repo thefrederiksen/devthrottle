@@ -1229,15 +1229,6 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>The ONE read side of the API-mode events: the display fold and the live relay build on this.</summary>
     internal ApiModeEvents.IApiModeEventFeed ApiModeEventFeed => _apiModeEventBuffer;
-
-    /// <summary>
-    /// The ONE ruling of a session event into the display item the live relay sends (CLAUDE.md rule 7).
-    /// TEMPORARY until the display fold's live-item ruling lands (phase 2, branch api-mode-p2-display-fold): it passes the
-    /// event through as the event model writes it. It is swapped for the fold before the relay's pull request opens, and
-    /// is never a second ruling.
-    /// </summary>
-    private static object? RuleApiModeLiveItem(Core.Tenancy.TenantId tenant, ApiModeEvents.ApiModeHeldEvent held) =>
-        System.Text.Json.JsonSerializer.SerializeToNode(held.Event, Contracts.ApiMode.SessionEventJson.Options);
     /// <summary>The judged stops (the Wingman-on-every-turn mission): what the Wingman said each turn end
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
@@ -5257,7 +5248,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.SessionReceiptsEndpoint.Map(_app, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary);
         // The live relay of an API-mode session's events (mission #4070, phase 2): the stream and its poll form. Literal
         // routes, so they outrank the /sessions/{sid}/{**rest} catch-all and never travel to the Director.
-        Api.SessionLiveEndpoint.Map(_app, _apiModeEventBuffer, RuleApiModeLiveItem, PushedSessions, _streamStaleAfter, _tenantBoundary);
+        Api.SessionLiveEndpoint.Map(_app, _apiModeEventBuffer, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary);
 
         GatewayWingmanVoiceEndpoint.Map(_app, Hosted, Registry, WingmanBrainAsync, _keyVault, _voiceService, _tenantSettingsResolver,
             // The manual "generate the narration now" route reads the stored conversation too, through the

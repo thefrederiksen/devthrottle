@@ -1,22 +1,6 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// One item of an API-mode session's live relay (mission #4070, phase 2): <c>GET /sessions/{sid}/live</c> sends it as
-/// the <c>data</c> of an <c>item</c> event, and <c>GET /sessions/{sid}/live/items</c> lists it.
-/// </summary>
-public sealed class ApiModeLiveItemDto
-{
-    /// <summary>Where this item stands in the session's stream, <c>&lt;generation&gt;:&lt;sequence&gt;</c>. Hand it back as
-    /// <c>after</c> (or, on the stream, it is the event's <c>id</c>, which a browser sends back as <c>Last-Event-ID</c>) to
-    /// get what comes after it.</summary>
-    public string Cursor { get; set; } = "";
-
-    /// <summary>The display item the Gateway ruled from the session event (CLAUDE.md rule 7): a client renders it as it
-    /// is and never interprets the event behind it.</summary>
-    public object? Item { get; set; }
-}
-
-/// <summary>
 /// The relay's one explicit gap: the client missed events and must not append what follows to what it holds. It
 /// rebuilds the session from durable state instead - the receipts (<c>GET /sessions/{sid}/receipts</c>) and the
 /// stored conversation (<c>GET /sessions/{sid}/history</c>) - and then carries on with the items that follow the reset.
@@ -50,7 +34,8 @@ public static class ApiModeLiveResetCodes
 }
 
 /// <summary>
-/// <c>GET /sessions/{sid}/live/items</c>: the same items the stream sends, for a client that polls.
+/// <c>GET /sessions/{sid}/live/items</c>: the same items the stream sends (<see cref="ApiModeLiveItem"/>, ruled by the
+/// Gateway), for a client that polls.
 /// </summary>
 public sealed class ApiModeLivePageDto
 {
@@ -60,8 +45,9 @@ public sealed class ApiModeLivePageDto
     /// from the cursor it sent.</summary>
     public ApiModeLiveResetDto? Reset { get; set; }
 
-    /// <summary>The items after the cursor, oldest first.</summary>
-    public List<ApiModeLiveItemDto> Items { get; set; } = new();
+    /// <summary>The items ruled from the events after the cursor, in the order a client applies them. After a reset
+    /// they start with the stored receipts.</summary>
+    public List<ApiModeLiveItem> Items { get; set; } = new();
 
     /// <summary>The cursor to send as <c>after</c> on the next poll; null means send none.</summary>
     public string? Next { get; set; }

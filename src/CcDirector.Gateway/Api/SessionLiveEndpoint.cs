@@ -4,8 +4,10 @@ using System.Text.Json;
 using System.Threading.Channels;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Streaming;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -15,19 +17,14 @@ using Microsoft.AspNetCore.Routing;
 namespace CcDirector.Gateway.Api;
 
 /// <summary>
-/// The Gateway's ruling of one session event into the display item a client renders (CLAUDE.md rule 7). The relay
-/// never rules for itself: whatever this answers is what every client gets. Null means the event has nothing to show;
-/// it is then not sent, though its cursor still counts (a poll's <c>next</c> moves past it).
-/// </summary>
-public delegate object? ApiModeLiveRuling(TenantId tenant, ApiModeHeldEvent held);
-
-/// <summary>
 /// The live relay of an API-mode session's events to clients (mission #4070, phase 2), in two forms over the same
 /// items:
 /// <list type="bullet">
 /// <item><c>GET /sessions/{sid}/live</c> - a Server-Sent Events stream. It replays what the Gateway holds after the
-/// client's cursor, then follows live. Every <c>item</c> event's <c>id</c> is its cursor, so a browser's
-/// <c>EventSource</c> resumes on its own by sending it back as <c>Last-Event-ID</c>.</item>
+/// client's cursor, then follows live. Each session event that shows anything is one <c>items</c> event whose data is
+/// the JSON array of the <see cref="ApiModeLiveItem"/>s ruled from it, and whose <c>id</c> is that event's cursor, so
+/// a browser's <c>EventSource</c> resumes on its own by sending it back as <c>Last-Event-ID</c>. One frame per session
+/// event keeps an event's items together: a reconnect can never split them.</item>
 /// <item><c>GET /sessions/{sid}/live/items</c> - the same items as JSON with the <c>next</c> cursor, for a client that
 /// polls. A sibling route rather than a query switch on the stream, so each path has one content type: the stream path
 /// is kept away from the compressor (<see cref="Util.GatewayResponseCompression.IsStreamingPath"/>), and the poll,
@@ -39,16 +36,28 @@ public delegate object? ApiModeLiveRuling(TenantId tenant, ApiModeHeldEvent held
 /// the address still carries whatever <c>after</c> the page first opened with. No cursor means everything the Gateway
 /// holds. A client using <c>EventSource</c> should open the stream with no <c>after</c> and let the header carry it.</para>
 ///
-/// <para><b>Starting.</b> A client with no cursor holds nothing of the session yet, so it always starts from durable
-/// state - the receipts and the stored conversation - and then follows the items. It is never sent a reset on
-/// attaching: there is nothing it holds that could be continued wrongly. That is also why a brand-new session, which
-/// has nothing held yet (the feed answers such a replay as not complete), streams cleanly and does not look broken.</para>
+/// <para><b>THE CONTRACT FOR A CLIENT (phase 3): load durable state first, then attach.</b> A client opening a session
+/// first reads its receipts (<c>GET /sessions/{sid}/receipts</c>) and its stored conversation
+/// (<c>GET /sessions/{sid}/history</c>), and only then attaches here with NO cursor. From then on it applies every item
+/// as the item says (append or replace, by <see cref="ApiModeLiveItem.ItemId"/>) and keeps the cursor of the last
+/// frame. A client with no cursor is never sent a reset on attaching: it holds nothing that could be continued wrongly.
+/// That is also why a brand-new session, which has nothing held yet (the feed answers such a replay as not complete),
+/// streams cleanly and does not look broken.</para>
+///
+/// <para><b>The ruling.</b> Every item is ruled by the Gateway's <see cref="ApiModeLiveRuling"/> (CLAUDE.md rule 7);
+/// the relay rules nothing itself and sends nothing else. The ruling remembers per reader (a tool card's title, the
+/// prompts a turn carried), so each stream and each poll gets its own, brought to the reader's cursor before anything
+/// is sent: it is fed the held events up to the cursor, without sending them. When the replay is complete the ruling
+/// starts empty. When it is not (a reset, or a client with no cursor joining a generation this Gateway holds only from
+/// its middle, or not at all), the ruling starts from the stored receipts, and those receipts are sent first as items
+/// (with no id: they are not an event), so the items that follow continue from them.</para>
 ///
 /// <para><b>Never a silent gap.</b> When a client that DID send a cursor cannot be handed every event after it - the
 /// buffer let them go, this Gateway process never held them (it restarted mid-generation), or the Director restarted
 /// (a new generation, whose sequence starts again at 1) - it is sent one explicit <c>reset</c>
 /// (<see cref="ApiModeLiveResetDto"/>) telling it to rebuild from the receipts and the stored conversation, and then
-/// the items continue. A client following the stream when the Director restarts gets the same reset. On the stream the
+/// the stored receipts and the items continue. A client following the stream when the Director restarts gets the same
+/// reset, followed by the stored receipts. On the stream the
 /// reset carries an empty <c>id</c>, which clears the browser's <c>Last-Event-ID</c>, so a reconnect after it does not
 /// resend the cursor that could not be honoured.</para>
 ///
@@ -89,11 +98,11 @@ public static class SessionLiveEndpoint
         "The computer running this session is not connected right now, so the Gateway cannot tell whether the session "
         + "is in API mode, and it holds no API-mode events for it. Try again once that computer is back.";
 
-    /// <summary>Map both routes. <paramref name="ruling"/> is the ONE ruling of an event into a display item.</summary>
+    /// <summary>Map both routes. <paramref name="receipts"/> is where a ruling that cannot start empty starts from.</summary>
     public static void Map(
         IEndpointRouteBuilder app,
         IApiModeEventFeed feed,
-        ApiModeLiveRuling ruling,
+        ApiModeReceiptStore receipts,
         PushedSessionStore pushedSessions,
         TimeSpan staleAfter,
         Tenancy.HostedTenantBoundary? tenantBoundary,
@@ -101,7 +110,7 @@ public static class SessionLiveEndpoint
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(feed);
-        ArgumentNullException.ThrowIfNull(ruling);
+        ArgumentNullException.ThrowIfNull(receipts);
         ArgumentNullException.ThrowIfNull(pushedSessions);
         if (liveBacklog < 1) throw new ArgumentOutOfRangeException(nameof(liveBacklog), liveBacklog, "the live backlog must be at least one event");
 
@@ -109,7 +118,7 @@ public static class SessionLiveEndpoint
         {
             try
             {
-                await StreamAsync(ctx, sid, feed, ruling, pushedSessions, staleAfter, tenantBoundary, liveBacklog);
+                await StreamAsync(ctx, sid, feed, receipts, pushedSessions, staleAfter, tenantBoundary, liveBacklog);
             }
             catch (OperationCanceledException) when (ctx.RequestAborted.IsCancellationRequested)
             {
@@ -130,7 +139,7 @@ public static class SessionLiveEndpoint
         {
             try
             {
-                return ReadItems(ctx, sid, feed, ruling, pushedSessions, staleAfter, tenantBoundary);
+                return ReadItems(ctx, sid, feed, receipts, pushedSessions, staleAfter, tenantBoundary);
             }
             catch (Exception ex)
             {
@@ -147,7 +156,7 @@ public static class SessionLiveEndpoint
         HttpContext ctx,
         string sid,
         IApiModeEventFeed feed,
-        ApiModeLiveRuling ruling,
+        ApiModeReceiptStore receipts,
         PushedSessionStore pushedSessions,
         TimeSpan staleAfter,
         Tenancy.HostedTenantBoundary? tenantBoundary)
@@ -164,12 +173,11 @@ public static class SessionLiveEndpoint
             page.Reset = ResetFor(sid, ResetCodeFor(after.Value, replay.Generation));
             FileLog.Write($"[SessionLive] items sid={sid} tenant={tenant.ToLogString()} after={Format(after)}: RESET {page.Reset.Code} (held generation={replay.Generation ?? "(none)"}, {replay.Events.Count} event(s))");
         }
+        // A poll is a reader of its own: its ruling is brought to the cursor first, exactly as a stream's is.
+        var (ruling, opening) = StartRuling(feed, receipts, tenantBoundary, tenant, sid, after, replay.Complete);
+        page.Items.AddRange(opening);
         foreach (var held in replay.Events)
-        {
-            var item = ruling(tenant, held);
-            if (item is not null)
-                page.Items.Add(new ApiModeLiveItemDto { Cursor = Format(held.Cursor), Item = item });
-        }
+            page.Items.AddRange(ruling.Rule(held.Event));
 
         // Past the last event read, even one the ruling had nothing to show for. With nothing new: the cursor the
         // client sent when the answer continues from it, or none when it could not be honoured (so the next poll asks
@@ -187,7 +195,7 @@ public static class SessionLiveEndpoint
         HttpContext ctx,
         string sid,
         IApiModeEventFeed feed,
-        ApiModeLiveRuling ruling,
+        ApiModeReceiptStore receipts,
         PushedSessionStore pushedSessions,
         TimeSpan staleAfter,
         Tenancy.HostedTenantBoundary? tenantBoundary,
@@ -221,6 +229,11 @@ public static class SessionLiveEndpoint
             if (!subscription.Replay.Complete && after is not null)
                 await WriteResetAsync(ctx, sid, ResetCodeFor(after.Value, subscription.Replay.Generation), options, ct);
 
+            // The ruling is used by this loop only (it is not thread-safe): the feed's handler just queues events.
+            var (ruling, opening) = StartRuling(feed, receipts, tenantBoundary, tenant, sid, after, subscription.Replay.Complete);
+            if (opening.Count > 0)
+                await ctx.Response.WriteAsync(ItemsFrame(null, opening, options), ct);
+
             // Flush the response start now even when there was nothing to send (the /events convention): a client
             // may treat "headers received" as "attached".
             await ctx.Response.Body.FlushAsync(ct);
@@ -234,12 +247,17 @@ public static class SessionLiveEndpoint
                     {
                         FileLog.Write($"[SessionLive] stream sid={sid}: the Director moved from generation={generation} to generation={held.Generation}; RESET sent");
                         await WriteResetAsync(ctx, sid, ApiModeLiveResetCodes.NewGeneration, options, ct);
+                        // The client rebuilds from durable state, so the ruling does too, and the stored receipts lead.
+                        var stored = StoredReceipts(receipts, tenantBoundary, tenant, sid);
+                        ruling = new ApiModeLiveRuling(stored);
+                        if (stored.Count > 0)
+                            await ctx.Response.WriteAsync(ItemsFrame(null, ReceiptItems(stored), options), ct);
                     }
                     generation = held.Generation;
 
-                    var item = ruling(tenant, held);
-                    if (item is null) continue;
-                    await ctx.Response.WriteAsync(ItemFrame(held, item, options), ct);
+                    var items = ruling.Rule(held.Event);
+                    if (items.Count == 0) continue;
+                    await ctx.Response.WriteAsync(ItemsFrame(held.Cursor, items, options), ct);
                     sent++;
                 }
                 if (connection.FellBehind) break;
@@ -425,13 +443,62 @@ public static class SessionLiveEndpoint
         await ctx.Response.WriteAsync("id: \nevent: reset\ndata: " + data + "\n\n", ct);
     }
 
-    private static string ItemFrame(ApiModeHeldEvent held, object item, JsonSerializerOptions options)
+    /// <summary>One <c>items</c> frame: the items of one session event under its cursor, or the stored receipts with
+    /// no id (they are not an event, so they must not move the browser's <c>Last-Event-ID</c>).</summary>
+    private static string ItemsFrame(ApiModeEventCursor? cursor, IReadOnlyList<ApiModeLiveItem> items, JsonSerializerOptions options)
     {
-        var data = JsonSerializer.Serialize(item, item.GetType(), options);
-        return new StringBuilder(data.Length + 64)
-            .Append("id: ").Append(Format(held.Cursor)).Append('\n')
-            .Append("event: item\n")
+        var data = JsonSerializer.Serialize(items, options);
+        var frame = new StringBuilder(data.Length + 64);
+        if (cursor is { } c) frame.Append("id: ").Append(Format(c)).Append('\n');
+        return frame.Append("event: items\n")
             .Append("data: ").Append(data).Append("\n\n")
             .ToString();
     }
+
+    /// <summary>
+    /// The ruling one reader uses, and the items it opens with. A complete replay: a ruling that starts empty and is fed
+    /// the held events up to the cursor without sending them, so it knows what the reader already has (a tool card's
+    /// title, the prompts a turn carried). Not complete: a ruling that starts from the stored receipts, which open the
+    /// reader's items.
+    /// </summary>
+    internal static (ApiModeLiveRuling Ruling, IReadOnlyList<ApiModeLiveItem> Opening) StartRuling(
+        IApiModeEventFeed feed, ApiModeReceiptStore receipts, Tenancy.HostedTenantBoundary? tenantBoundary,
+        TenantId tenant, string sid, ApiModeEventCursor? after, bool replayComplete)
+    {
+        if (!replayComplete)
+        {
+            var stored = StoredReceipts(receipts, tenantBoundary, tenant, sid);
+            return (new ApiModeLiveRuling(stored), ReceiptItems(stored));
+        }
+
+        var ruling = new ApiModeLiveRuling();
+        if (after is { } cursor)
+        {
+            var held = feed.Read(tenant, sid);
+            var caughtUp = 0;
+            if (string.Equals(held.Generation, cursor.Generation, StringComparison.Ordinal))
+                foreach (var earlier in held.Events.TakeWhile(e => e.Event.Sequence <= cursor.Sequence))
+                {
+                    ruling.Rule(earlier.Event);
+                    caughtUp++;
+                }
+            FileLog.Write($"[SessionLive] sid={sid} after={Format(cursor)}: the ruling caught up on {caughtUp} held event(s)");
+        }
+        return (ruling, Array.Empty<ApiModeLiveItem>());
+    }
+
+    /// <summary>The session's stored receipts, read inside the caller's tenant scope (the store is partitioned by it).</summary>
+    private static IReadOnlyList<ApiModeReceiptDto> StoredReceipts(
+        ApiModeReceiptStore receipts, Tenancy.HostedTenantBoundary? tenantBoundary, TenantId tenant, string sid)
+    {
+        using (tenantBoundary?.EnterScope(tenant))
+            return receipts.Read(sid);
+    }
+
+    /// <summary>
+    /// The stored receipts as items, ruled by the one receipt ruling. Their <see cref="ApiModeLiveItem.Sequence"/> is 0:
+    /// they come from durable state, not from an event of the stream.
+    /// </summary>
+    private static IReadOnlyList<ApiModeLiveItem> ReceiptItems(IReadOnlyList<ApiModeReceiptDto> stored) =>
+        stored.Select(r => ApiModeLiveRuling.ReceiptItem(r, 0)).ToList();
 }
