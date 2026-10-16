@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.ApiModeEvents;
@@ -30,8 +31,9 @@ namespace CcDirector.Gateway.Tests.ApiModeEvents;
 /// boundary; and the Gateway's own compression middleware in front, as in production. A turn starting shows nothing in
 /// the ruling, which is how these tests prove an event with nothing to show sends no frame.
 ///
-/// No sleep and no clock decides a result: every wait is on the stream itself or on a signal the code raises. The
-/// <see cref="HangGuard"/> only turns a hang into a failure.
+/// No sleep and no clock decides a result: every wait is on the stream itself or on a signal the code raises, and the
+/// keep-alive is timed by a fake clock the tests move by hand. The <see cref="HangGuard"/> only turns a hang into a
+/// failure.
 /// </summary>
 public sealed class SessionLiveEndpointTests : IAsyncDisposable
 {
@@ -57,6 +59,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     private DateTime _now = T0.UtcDateTime;
     private readonly PushedSessionStore _pushed;
     private readonly Gate _gate = new();
+    private readonly SignallingClock _clock = new(T0);
     private WebApplication? _app;
     private HttpClient? _client;
 
@@ -335,6 +338,147 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         Assert.Equal(("items", (string?)null), (opening!.Event, opening.Id));
         Assert.Equal(("receipt:p0", "Delivered"), (Single(opening).ItemId, Single(opening).Text));
         Assert.Equal("gen-a:5", first!.Id);
+    }
+
+    // ----- the stream: a continued cursor never shows a wrong picture (review of pull request #4083, finding 1) -----
+
+    [Fact]
+    public async Task Stream_AToolWhoseStartTheBufferLetGo_ResetsRatherThanReplaceItsTitle()
+    {
+        // The client followed from the start, so it shows the card "bash". 2,000 more events push the tool's start out of
+        // the buffer while the tool runs; the client reconnects at its newest cursor, which the buffer can still continue.
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2), ToolStart(3, "bash", "ls -la"));
+        PushA(Enumerable.Range(4, ApiModeEventBuffer.MaxEventsPerSession).Select(i => (SessionEvent)Text(i, "x")).ToArray());
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2003");
+        PushA(ToolEnd(2004));
+        var reset = await stream.NextAsync();
+        var receipts = await stream.NextAsync();
+        var card = await stream.NextAsync();
+
+        // A reset, then the stored receipts, and only then the card: the client rebuilt before it was told the finish.
+        Assert.Equal(("reset", "", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, reset.Id, Reset(reset).Code));
+        Assert.Equal(((string?)null, "receipt:p1", "Delivered"), (receipts!.Id, Single(receipts).ItemId, Single(receipts).Text));
+        Assert.Equal(("gen-a:2004", "tool:tc1", "done"), (card!.Id, Single(card).ItemId, Single(card).Status));
+    }
+
+    [Fact]
+    public async Task Stream_ATurnWhoseStartTheBufferLetGo_ResetsAndTheReceiptShowsTheFailedTurn()
+    {
+        // The turn's start and its prompt's delivery are let go while the turn runs; the client reconnects, and the
+        // turn then fails. Continued, the client would keep a plain "Delivered" (event model rule 5 forbids it).
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2));
+        PushA(Enumerable.Range(3, ApiModeEventBuffer.MaxEventsPerSession).Select(i => (SessionEvent)Text(i, "x")).ToArray());
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2002");
+        PushA(Failed(2003, "Pi exited during the turn (exit code 137)"));
+        var reset = await stream.NextAsync();
+        var receipts = await stream.NextAsync();
+        var ended = await stream.NextAsync();
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.MissedEvents), (reset!.Event, Reset(reset).Code));
+        Assert.Equal(("receipt:p1", "Delivered - the turn failed: Pi exited during the turn (exit code 137)"),
+            (Single(receipts!).ItemId, Single(receipts!).Text));
+        Assert.Equal(("gen-a:2003", ApiModeLiveItemKinds.TurnEnded, "Turn failed: Pi exited during the turn (exit code 137)"),
+            (ended!.Id, Single(ended).Kind, Single(ended).Text));
+    }
+
+    [Fact]
+    public async Task Items_ATurnWhoseStartTheBufferLetGo_AnswersAResetWithTheFailedTurnBesideDelivered()
+    {
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2));
+        PushA(Enumerable.Range(3, ApiModeEventBuffer.MaxEventsPerSession).Select(i => (SessionEvent)Text(i, "x")).ToArray());
+        PushA(Text(2003, "y"), Failed(2004, "Pi exited during the turn (exit code 137)"));
+
+        var page = await GetPageAsync(Alice, ApiSession, after: "gen-a:2002");
+
+        // The reply piece before the gap is dropped with the rest of the continued page: the client rebuilds instead.
+        Assert.Equal(ApiModeLiveResetCodes.MissedEvents, page.Reset!.Code);
+        Assert.Equal(new[]
+        {
+            ("receipt:p1", "Delivered - the turn failed: Pi exited during the turn (exit code 137)"),
+            ("turn:t1", "Turn failed: Pi exited during the turn (exit code 137)"),
+        }, page.Items.Select(i => (i.ItemId, i.Text)));
+        Assert.Equal("gen-a:2004", page.Next);
+    }
+
+    [Fact]
+    public async Task Stream_HeldFromTheMiddleButEverythingOpenIsHeld_ContinuesWithNoReset()
+    {
+        // The buffer let the oldest events go, but the turn, its prompt and its tool all started after them: the
+        // ruling remembers what the client shows, so the client is continued.
+        await StartAsync();
+        PushA(Enumerable.Range(1, ApiModeEventBuffer.MaxEventsPerSession + 5).Select(i => (SessionEvent)Text(i, "x")).ToArray());
+        PushA(Delivered(2006, "p1"), Started(2007), ToolStart(2008, "bash", "ls -la"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2008");
+        PushA(ToolEnd(2009), Failed(2010, "the model errored"));
+        var card = await stream.NextAsync();
+        var ended = await stream.NextAsync();
+
+        Assert.Equal(("gen-a:2009", "bash", "done", "ls -la"), (card!.Id, Single(card).Text, Single(card).Status, Single(card).Detail));
+        Assert.Equal(new[]
+        {
+            ("turn:t1", "Turn failed: the model errored"),
+            ("receipt:p1", "Delivered - the turn failed: the model errored"),
+        }, Items(ended!).Select(i => (i.ItemId, i.Text)));
+    }
+
+    // ----- the stream: the keep-alive (review of pull request #4083, finding 3) -----
+
+    [Fact]
+    public async Task Stream_QuietForTheKeepAliveInterval_SendsAKeepAliveCommentEachTime()
+    {
+        await StartAsync();
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+
+        await _clock.TimerCreatedAsync();
+        _clock.Advance(SessionLiveEndpoint.KeepAliveInterval);
+        var first = (await stream.NextLineAsync(), await stream.NextLineAsync());
+        await _clock.TimerCreatedAsync();
+        _clock.Advance(SessionLiveEndpoint.KeepAliveInterval);
+        var second = (await stream.NextLineAsync(), await stream.NextLineAsync());
+        PushA(Text(1, "a"));
+        var live = await stream.NextAsync();
+
+        Assert.Equal((": keep-alive", ""), first);
+        Assert.Equal((": keep-alive", ""), second);
+        Assert.Equal("gen-a:1", live!.Id);   // the stream carries on after them
+    }
+
+    [Fact]
+    public async Task Stream_AnEventBeforeTheInterval_IsSentWithNoKeepAliveBeforeIt()
+    {
+        await StartAsync();
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+
+        await _clock.TimerCreatedAsync();
+        _clock.Advance(SessionLiveEndpoint.KeepAliveInterval - TimeSpan.FromTicks(1));
+        PushA(Text(1, "a"));
+
+        Assert.Equal("id: gen-a:1", await stream.NextLineAsync());
+    }
+
+    [Fact]
+    public async Task Stream_AClientThatVanishedWithoutClosing_IsFoundByTheKeepAliveAndReleased()
+    {
+        // The session is quiet, so no event would ever write to the client. The keep-alive's write fails, which ends
+        // the response and lets the subscription go.
+        await StartAsync();
+        PushA(Delivered(1, "p1"));
+        var stream = await OpenStreamAsync(Alice, ApiSession);
+        Assert.Equal("gen-a:1", (await stream.NextAsync())!.Id);
+        await _clock.TimerCreatedAsync();
+
+        _gate.Break();
+        _clock.Advance(SessionLiveEndpoint.KeepAliveInterval);
+        await _feed.Released.WaitAsync(HangGuard);
+
+        Assert.Equal(0, _feed.Active);
+        await stream.DisposeAsync();
     }
 
     // ----- the stream: the client's side -----
@@ -661,7 +805,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
             await next();
         });
         GatewayResponseCompression.Use(app);
-        SessionLiveEndpoint.Map(app, _feed, _receipts, _pushed, StaleAfter, _boundary, liveBacklog);
+        SessionLiveEndpoint.Map(app, _feed, _receipts, _pushed, StaleAfter, _boundary, _clock, liveBacklog);
 
         await app.StartAsync();
         _app = app;
@@ -752,7 +896,11 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
         public HttpResponseMessage Response => response;
 
-        /// <summary>The next event, or null at the end of the stream.</summary>
+        /// <summary>The next line exactly as sent, comments included.</summary>
+        public Task<string?> NextLineAsync() => _reader.ReadLineAsync().WaitAsync(HangGuard);
+
+        /// <summary>The next event, or null at the end of the stream. Comment lines (the keep-alive) are skipped, as
+        /// every Server-Sent Events parser skips them.</summary>
         public async Task<Frame?> NextAsync()
         {
             string? id = null, type = null, data = null;
@@ -833,12 +981,35 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         public void Close() => _open = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         public void Open() => _open.TrySetResult();
 
+        /// <summary>The client is gone: every write from now on fails, as on a connection the network dropped.</summary>
+        public void Break()
+        {
+            var broken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            broken.SetException(new IOException("the client is gone"));
+            _open = broken;
+        }
+
         private static TaskCompletionSource Opened()
         {
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             tcs.SetResult();
             return tcs;
         }
+    }
+
+    /// <summary>A fake clock that signals each timer created on it, so a test moves time only once the relay is waiting.</summary>
+    private sealed class SignallingClock(DateTimeOffset start) : FakeTimeProvider(start)
+    {
+        private readonly SemaphoreSlim _created = new(0);
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            _created.Release();
+            return timer;
+        }
+
+        public async Task TimerCreatedAsync() => Assert.True(await _created.WaitAsync(HangGuard), "the relay never started waiting");
     }
 
     /// <summary>One response's body, behind the <see cref="Gate"/>.</summary>

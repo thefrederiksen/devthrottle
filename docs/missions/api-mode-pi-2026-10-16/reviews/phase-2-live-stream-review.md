@@ -128,7 +128,37 @@ case 2 durably (the store records each receipt's turn) but not case 1, since not
 tool's title. A third shape, a `replace` that carries no title and lets the client keep its own, is
 not open to us: the client is dumb and must not decide to keep anything.
 
-Developer's answer:
+Developer's answer: **Accepted and fixed** (the Tech Lead ruled FIX). Both cases are now honest, and both
+throwaway tests are real tests.
+
+The fix reads what the ruling needs instead of trusting `Complete` for it. `ApiModeLiveRuling` gains one
+question, `Remembers(SessionEvent)`: for a `ToolCallFinished` it answers whether the ruling saw that tool's start,
+and for a `TurnEnded` whether it saw the turn's start and the receipt of every prompt the turn carried. Every
+other event builds on nothing earlier, so the answer is yes. In the relay, `StartRuling` now also says whether
+the ruling it built is **vouched for**: it is when it started empty on the whole generation (no cursor, complete
+replay), when it started from the stored receipts, or when it was caught up from held events that reach back
+to the generation's first event with nothing let go (`feed.Read` with no cursor answers `Complete`). Only a
+ruling caught up from a window that the bound or a Gateway restart cut at the front is not vouched for. That
+reader asks `Remembers` before each event. The first time the answer is no, it gets a `missed_events` reset at
+that event, the stored receipts, and a ruling rebuilt from them, and from then on it is vouched for. The stream
+and the poll do the same. On the poll the page becomes a reset page, and the items from before the gap are dropped
+with it.
+
+Why the lazy check rather than resetting every cursor whose window does not reach the start: a reply streams
+one event per delta, so 2,000 events is a few turns, and an eager rule would reset nearly every reconnect on any
+real session. The lazy check resets only when an event actually needs what was let go. I also tried judging it
+eagerly at attach, from the stored receipts, and dropped that. The store is ahead of the cursor (the ingest writes
+it before the buffer hands the event on), so a receipt that has already taken its turn's ending cannot be used to
+start a ruling that has not yet sent that ending. After the reset, the client has rebuilt from durable state, so
+the stored receipts already show the turn's outcome. A tool that finishes after the reset still reads "A tool
+that started before this view began". That is the ruling's existing words for a reader that started from
+durable state, and the client no longer holds a card it could overwrite.
+
+Tests (`SessionLiveEndpointTests`): `Stream_AToolWhoseStartTheBufferLetGo_ResetsRatherThanReplaceItsTitle`,
+`Stream_ATurnWhoseStartTheBufferLetGo_ResetsAndTheReceiptShowsTheFailedTurn`,
+`Items_ATurnWhoseStartTheBufferLetGo_AnswersAResetWithTheFailedTurnBesideDelivered`, and the case that must NOT
+reset, `Stream_HeldFromTheMiddleButEverythingOpenIsHeld_ContinuesWithNoReset`. In `ApiModeLiveRulingTests`, six
+`Remembers_*` tests. Mutation check: switching off the check fails exactly the first three.
 
 ### Finding 2. The "second ending" log line fires for every replayed delivery after a reset, and calls correct behaviour a Director defect
 
@@ -157,7 +187,19 @@ state, so it can tell the ruling the cursor the receipts cover and have `IsFinal
 event at or below it; or the ruling can keep, per receipt, the sequence that ended it (the store
 has the position) and log only when a LATER ending arrives. Either keeps the one honest line.
 
-Developer's answer:
+Developer's answer: **Accepted and fixed**, in the ruling, kept small as ruled (one field, two lines in the
+constructor, three in `IsFinal`, which becomes an instance method). A ruling started from the stored receipts
+remembers which prompts' endings it took from the store. The first replayed ending of the same kind for such a
+prompt (a `PromptDelivered` for a stored Delivered, a `PromptRefused` for a stored Refused) is the event the
+receipt was built from, so it changes nothing and is not logged. Any later ending, or one of the other kind, is a
+real second ending and is still logged with the same words. A ruling that started empty is unchanged.
+`SecondEndingsLogged` (internal) counts the log lines, so the tests can see them:
+`Rule_TheEndingAStoredReceiptWasBuiltFrom_IsNotLoggedAsASecondEnding`,
+`Rule_AnEndingAfterTheOneAStoredReceiptWasBuiltFrom_IsLoggedAsASecondEnding`,
+`Rule_AStoredDeliveryThenAReplayedRefusal_IsLoggedAsASecondEnding`, `Rule_ASecondEndingWithNoStoredReceipt_IsLogged`.
+Mutation check: removing the quiet pass fails the first two. One edge stays: if the bound let go of the first
+ending and kept only a real second one, that second one is taken for the replay and not logged. The receipt is
+still right, because the first ending stands, so only that one log line is lost.
 
 ### Finding 3. No keep-alive on the stream: it does not break a browser, but it cuts every quiet stream on the hosted Gateway about every four minutes and leaves a vanished client's subscription in place until the session's next event
 
@@ -191,7 +233,21 @@ cutting the stream, and it is the write that detects a vanished client. It can b
 real clock deciding a test: the wait is `WaitToReadAsync` raced against a delay from an injected
 delay function, which the tests replace.
 
-Developer's answer:
+Developer's answer: **Accepted and fixed.** While no event comes, the stream now writes `: keep-alive` and a blank
+line every `SessionLiveEndpoint.KeepAliveInterval`, which is 20 seconds. That is under the front end's 230 seconds
+and under the minute that common reverse proxies allow. The loop waits for whichever comes first: the channel
+(`WaitToReadAsync`) or a `Task.Delay` on an injected `TimeProvider`. `Map` takes the clock, and `GatewayHost` passes
+`TimeProvider.System`. A timer is created only when the loop has to wait, so a busy stream creates none. The
+keep-alive is the write that finds a vanished client: the write fails, the response ends, and the `using`
+releases the subscription, with its channel and its hold on the session's buffer state.
+
+Tests, on a fake clock that signals each timer created, so time moves only once the relay is waiting (no sleep):
+`Stream_QuietForTheKeepAliveInterval_SendsAKeepAliveCommentEachTime`,
+`Stream_AnEventBeforeTheInterval_IsSentWithNoKeepAliveBeforeIt` (moved one tick short of the interval), and
+`Stream_AClientThatVanishedWithoutClosing_IsFoundByTheKeepAliveAndReleased`, where the client's writes start
+failing on a quiet session, the clock moves, and the subscription is released. Your part 2 (the stream may end
+without a reset, and a client that is not a browser must reconnect itself) is written into the route's
+documentation, under finding 4. `GET /events` has the same gap and is outside this pull request.
 
 ### Finding 4. Two things the contract leaves a phase 3 client to guess
 
@@ -214,7 +270,21 @@ contract paragraph on `SessionLiveEndpoint`.
    a client that keys its loaded conversation by the same message id will not show text twice once
    the final lands. Without that sentence, phase 3 will discover it by seeing doubled text.
 
-Developer's answer:
+Developer's answer: **Accepted and fixed**, both.
+
+1. `ApiModeLiveItem.Sequence` now says that 0 means the item came from durable state (the stored receipts the
+   relay sends when a reader starts from them), that a real sequence starts at 1, and that a client applies items
+   in the order they arrive and never sorts by it, because the sequence starts again with every generation. The
+   relay's class documentation says the same in its own paragraph.
+2. The contract paragraph on `SessionLiveEndpoint` now says what a no-cursor attach replays over what the client
+   just loaded. Every item is applied by `ItemId`, and receipts, tool cards, turn lines and connection lines are
+   all `replace`. A reply's deltas `append` to `reply:<messageId>`, and its `final` replaces what they built, so a
+   replayed reply is whole again once its final arrives. One thing I did not write, because I cannot check it from
+   phase 2: that the stored conversation (`/history`) carries the same message id, so that a client can match a
+   loaded reply to its live item. That is phase 3's to settle with whoever owns the history of an API-mode
+   session, and I have raised it with the Tech Lead rather than write it as fact. A third paragraph covers your
+   finding 3, part 2: the stream can end at any time without a reset, the client reconnects with the cursor of the
+   last frame it applied (a browser does this on its own), and keep-alive comment lines carry no event.
 
 ## 4. Notes that are not findings
 

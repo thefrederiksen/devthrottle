@@ -41,6 +41,9 @@ public sealed class ApiModeLiveRuling
     private readonly Dictionary<string, string> _shownReceiptWords = new(StringComparer.Ordinal);
     private readonly Dictionary<string, List<string>> _turnPrompts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ToolCallStarted> _tools = new(StringComparer.Ordinal);
+    // The prompts whose ending this ruling took from the store, not from an event. A reader started from the stored
+    // receipts is then handed, again, the very event that ended each of them; that replay is not a second ending.
+    private readonly HashSet<string> _endingsFromStore = new(StringComparer.Ordinal);
 
     /// <summary>A ruling for a reader that starts at the first event of a complete replay.</summary>
     public ApiModeLiveRuling()
@@ -58,6 +61,8 @@ public sealed class ApiModeLiveRuling
             var copy = Copy(stored);
             _receipts[copy.PromptId] = copy;
             _shownReceiptWords[copy.PromptId] = ReceiptWords(copy);
+            if (copy.State != ApiModeReceiptState.Queued)
+                _endingsFromStore.Add(copy.PromptId);
             if (copy.TurnId is { } turn)
                 PromptsOf(turn).Add(copy.PromptId);
         }
@@ -130,6 +135,28 @@ public sealed class ApiModeLiveRuling
             _ => throw new InvalidOperationException($"ApiModeLiveRuling has no ruling for the event type {e.GetType().Name}"),
         };
     }
+
+    /// <summary>
+    /// Whether this ruling remembers what <paramref name="e"/> builds on: the start of the tool it finishes, or the start
+    /// of the turn it ends and the receipt of every prompt that turn carried. Every other event builds on nothing
+    /// earlier. A reader whose ruling was brought to its cursor from held events that do not reach back to the start of
+    /// the generation asks this before each event: when the answer is no, ruling the event would show a wrong picture (a
+    /// tool card losing the title the reader already shows, a receipt left plain beside a failed turn), so that reader is
+    /// reset instead.
+    /// </summary>
+    public bool Remembers(SessionEvent e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+        return e switch
+        {
+            ToolCallFinished t => _tools.ContainsKey(t.ToolCallId),
+            TurnEnded t => _turnPrompts.TryGetValue(t.TurnId, out var prompts) && prompts.All(_receipts.ContainsKey),
+            _ => true,
+        };
+    }
+
+    /// <summary>How many second endings this ruling has logged (a Director defect each), for the tests.</summary>
+    internal int SecondEndingsLogged { get; private set; }
 
     // ----- the receipt's words: ONE function for the stored read and the live stream -----
 
@@ -228,10 +255,14 @@ public sealed class ApiModeLiveRuling
     }
 
     /// <summary>Delivered and Refused are final (event model rule 1): a second ending is a Director defect, logged, and
-    /// the first one stands - as the receipt store keeps it.</summary>
-    private static bool IsFinal(ApiModeReceiptDto receipt, SessionEvent e)
+    /// the first one stands - as the receipt store keeps it. The first replay of the ending a stored receipt was built
+    /// from is that same ending, not a second one, and is not logged.</summary>
+    private bool IsFinal(ApiModeReceiptDto receipt, SessionEvent e)
     {
         if (receipt.State == ApiModeReceiptState.Queued) return false;
+        var sameEnding = (e is PromptDelivered) == (receipt.State == ApiModeReceiptState.Delivered);
+        if (sameEnding && _endingsFromStore.Remove(receipt.PromptId)) return true;
+        SecondEndingsLogged++;
         FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={receipt.PromptId} sequence={e.Sequence}: a second ending ({e.GetType().Name}) after {receipt.State}; the first stands");
         return true;
     }

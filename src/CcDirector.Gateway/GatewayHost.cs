@@ -5248,7 +5248,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.SessionReceiptsEndpoint.Map(_app, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary);
         // The live relay of an API-mode session's events (mission #4070, phase 2): the stream and its poll form. Literal
         // routes, so they outrank the /sessions/{sid}/{**rest} catch-all and never travel to the Director.
-        Api.SessionLiveEndpoint.Map(_app, _apiModeEventBuffer, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary);
+        Api.SessionLiveEndpoint.Map(_app, _apiModeEventBuffer, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary, TimeProvider.System);
 
         GatewayWingmanVoiceEndpoint.Map(_app, Hosted, Registry, WingmanBrainAsync, _keyVault, _voiceService, _tenantSettingsResolver,
             // The manual "generate the narration now" route reads the stored conversation too, through the
