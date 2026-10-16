@@ -16,4 +16,33 @@
     <ProjectReference Include="../CcDirector.Core/CcDirector.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="CcDirector.DeliveryQualification.Tests" />
+  </ItemGroup>
+
+  <!-- THE COMMIT THE RIG WAS BUILT FROM, stamped at build time (review of pull request 4069, finding 1): every
+       ledger row names the product code it measured, with "+local-changes" when Core or ControlApi had
+       uncommitted changes. The pathspecs are anchored at the repository root (":/"), because git resolves a
+       plain pathspec against its working directory. No git, or not a checkout: the stamp is empty and the
+       ledger says "unknown". -->
+  <Target Name="StampBuildCommit" BeforeTargets="CoreCompile">
+    <Exec Command="git rev-parse --short=12 HEAD" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true"
+          StandardOutputImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="RigBuildHead" />
+    </Exec>
+    <Exec Command="git status --porcelain -- :/src/CcDirector.Core :/src/CcDirector.ControlApi" WorkingDirectory="$(MSBuildProjectDirectory)"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="RigBuildDirty" />
+    </Exec>
+    <PropertyGroup>
+      <RigBuildStamp>$(RigBuildHead)</RigBuildStamp>
+      <RigBuildStamp Condition="'$(RigBuildHead)' != '' And '$(RigBuildDirty)' != ''">$(RigBuildHead)+local-changes</RigBuildStamp>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)BuildCommit.g.cs" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="namespace CcDirector.DeliveryQualification%3B internal static class BuildCommit { public const string Value = &quot;$(RigBuildStamp)&quot;%3B }" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)BuildCommit.g.cs" />
+    </ItemGroup>
+  </Target>
+
 </Project>

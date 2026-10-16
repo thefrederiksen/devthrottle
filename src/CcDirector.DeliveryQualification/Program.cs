@@ -32,10 +32,12 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --claude-doorbell-capture [--cols 120] [--rows 40]   (dump Claude Code's screens with a background task running)
 ///   CcDirector.DeliveryQualification --claude-suggestion-capture [--cols 120] [--rows 40]   (dump Claude Code's grey prompt suggestion and a short prompt typed over it)
 ///   CcDirector.DeliveryQualification --claude-titled-capture [--cols 120] [--rows 40]   (dump Claude Code's composer with the session name in its top rule; nothing is submitted)
+///   CcDirector.DeliveryQualification --scenarios all|name,name [--agents claude,pi] [--repeat 3]   (the delivery scenarios; every attempt goes to the ledger)
+///   CcDirector.DeliveryQualification --rates [--ledger FILE]   (the success rate per product commit, agent and scenario, from the ledger)
 /// </summary>
 public static class Program
 {
-    private static readonly Dictionary<string, (AgentKind Kind, string Args)> Agents = new()
+    internal static readonly Dictionary<string, (AgentKind Kind, string Args)> Agents = new()
     {
         ["claude"] = (AgentKind.ClaudeCode, "--dangerously-skip-permissions --model claude-haiku-4-5-20251001"),
         ["codex"] = (AgentKind.Codex, "--dangerously-bypass-approvals-and-sandbox -m gpt-5.6-luna -c model_reasoning_effort=low"),
@@ -52,7 +54,7 @@ public static class Program
         if (args.Length == 4 && args[0] == "--check")
         {
             var v = AgentRecords.Check(args[1], DateTime.Parse(args[2]).ToUniversalTime(), File.ReadAllText(args[3]),
-                Enumerable.Range(1, 4).Select(i => $@"D:\ReposFred\_delivery-qa\repo-{i}").ToList());
+                Enumerable.Range(1, 4).Select(i => Path.Combine(Options.DefaultRepoRoot, $"repo-{i}")).ToList());
             Console.WriteLine(v);
             return v.Found ? 0 : 1;
         }
@@ -62,6 +64,11 @@ public static class Program
             return ScreenReplay.Run(args[1], short.Parse(args[2]), short.Parse(args[3]));
 
         var opts = Options.Parse(args);
+        if (opts.Rates)
+        {
+            Console.WriteLine(Ledger.Rates(Ledger.Read(opts.LedgerPath)));
+            return 0;
+        }
         AgentRecords.RigStartedUtc = DateTime.UtcNow;
         Directory.CreateDirectory(opts.Out);
 
@@ -159,6 +166,9 @@ public static class Program
             return 0;
         }
 
+        if (opts.ScenarioNames is { } scenarioNames)
+            return await RunScenariosAsync(manager, agentOptions, opts, scenarioNames);
+
         var repos = Enumerable.Range(1, opts.Parallel).Select(i => Rig.EnsureRepo(Path.Combine(opts.RepoRoot, $"repo-{i}"))).ToList();
         var freeRepos = new System.Collections.Concurrent.ConcurrentQueue<string>(repos);
         var slots = new SemaphoreSlim(opts.Parallel);
@@ -197,6 +207,53 @@ public static class Program
         Report.Print(results);
         File.WriteAllText(Path.Combine(opts.Out, "summary.txt"), Report.Render(results));
         return results.All(r => r.Truth == "ARRIVED" && r.Director == "OK") ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The delivery scenarios (<see cref="Scenarios"/>): each named scenario, on each agent it applies to, repeated
+    /// <see cref="Options.Repeat"/> times. Every attempt is appended to the ledger as it ends, so a run that is stopped
+    /// part way keeps what it measured. Exit code 0 only when every counted attempt passed.
+    /// </summary>
+    private static async Task<int> RunScenariosAsync(SessionManager manager, AgentOptions agentOptions, Options opts, IReadOnlyList<string> names)
+    {
+        var runId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+        var commit = Ledger.ProductCommit();
+        var repo = Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1"));
+        var repos = new List<string> { repo };
+        var entries = new List<LedgerEntry>();
+        Console.WriteLine($"[rig] scenario run {runId} on product {commit}; ledger {opts.LedgerPath}");
+        foreach (var agent in opts.Agents)
+        {
+            if (!Agents.TryGetValue(agent, out var a)) throw new ArgumentException($"Unknown agent '{agent}'.");
+            var executable = agent switch
+            {
+                "claude" => agentOptions.ClaudePath, "codex" => agentOptions.CodexPath, "pi" => agentOptions.PiPath, _ => null,
+            } ?? agent;
+            var version = Ledger.AgentVersion(executable);
+            var args = opts.ArgsOverride.TryGetValue(agent, out var o) ? o : a.Args;
+            Console.WriteLine($"[rig] {agent}: {executable} ({version}), args: {args}");
+            foreach (var name in names.Where(n => Scenarios.AppliesTo(n, agent)))
+            for (var i = 0; i < opts.Repeat; i++)
+            {
+                var r = await Scenarios.RunAsync(name, manager, agent, a.Kind, string.IsNullOrWhiteSpace(args) ? null : args, repo, opts.RepoRoot, repos);
+                var entry = new LedgerEntry(runId, DateTime.UtcNow, commit, Environment.MachineName, System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                    agent, version, r.Scenario, r.Length, r.Director, r.Truth, r.Pass, r.Seconds, r.Detail, r.Screen);
+                Ledger.Append(opts.LedgerPath, entry);
+                entries.Add(entry);
+            }
+        }
+        var report = Ledger.Rates(entries);
+        Console.WriteLine();
+        Console.WriteLine(report);
+        File.WriteAllText(Path.Combine(opts.Out, "rates.txt"), report);
+        // A run that counted nothing measured nothing, and says so (review finding 4): exit 2, never success.
+        var counted = Ledger.Counted(entries);
+        if (counted.Count == 0)
+        {
+            Console.WriteLine("[rig] NOTHING WAS MEASURED: no scenario applied to these agents, or every attempt failed before its prompt was sent.");
+            return 2;
+        }
+        return counted.All(e => e.Pass) ? 0 : 1;
     }
 
     private static async Task<List<SendResult>> RunSessionAsync(
@@ -302,8 +359,19 @@ public sealed class Options
     public int Parallel { get; private set; } = 1;
     public int CpuLoadThreads { get; private set; }
     public int FirstWaitSeconds { get; private set; } = 30;
-    public string RepoRoot { get; private set; } = @"D:\ReposFred\_delivery-qa";
-    public string Out { get; private set; } = Path.Combine(@"D:\ReposFred\_delivery-qa\runs", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+    /// <summary>Where the rig's scratch repositories live: the Windows path the rig has always used, and beside the
+    /// owner's other repositories elsewhere.</summary>
+    public static string DefaultRepoRoot => OperatingSystem.IsWindows()
+        ? @"D:\ReposFred\_delivery-qa"
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ReposFred", "_delivery-qa");
+
+    public string RepoRoot { get; private set; } = DefaultRepoRoot;
+    public string Out { get; private set; } = Path.Combine(DefaultRepoRoot, "runs", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+    public IReadOnlyList<string>? ScenarioNames { get; private set; }
+    public int Repeat { get; private set; } = 1;
+    public bool Rates { get; private set; }
+    private string? _ledger;
+    public string LedgerPath => _ledger ?? Path.Combine(RepoRoot, "ledger.jsonl");
     public Dictionary<string, string> ArgsOverride { get; } = new();
     public string? KeysAgent { get; private set; }
     public string? CharsAgent { get; private set; }
@@ -335,7 +403,13 @@ public sealed class Options
                 case "--parallel": o.Parallel = int.Parse(Next()); break;
                 case "--cpu-load": o.CpuLoadThreads = int.Parse(Next()); break;
                 case "--first-wait": o.FirstWaitSeconds = int.Parse(Next()); break;
-                case "--repo-root": o.RepoRoot = Next(); break;
+                case "--repo-root":
+                    o.RepoRoot = Next();
+                    // The records witness finds the rig's conversations by this word in their folder name, so a root
+                    // without it would record every attempt as lost (review note).
+                    if (!o.RepoRoot.Contains("delivery-qa", StringComparison.OrdinalIgnoreCase))
+                        throw new ArgumentException($"--repo-root must contain 'delivery-qa' in its path (the records witness finds the rig's conversations by it): {o.RepoRoot}");
+                    break;
                 case "--out": o.Out = Next(); break;
                 case "--keys": o.KeysAgent = Next(); break;
                 case "--chars": o.CharsAgent = Next(); break;
@@ -349,6 +423,14 @@ public sealed class Options
                 case "--cols": o.CaptureCols = short.Parse(Next()); break;
                 case "--rows": o.CaptureRows = short.Parse(Next()); break;
                 case "--thaw-wait": o.ThawWaitSeconds = int.Parse(Next()); break;
+                case "--scenarios":
+                    var sc = Next();
+                    o.ScenarioNames = sc == "all" ? Scenarios.All.Select(x => x.Name).ToList() : sc.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    foreach (var n in o.ScenarioNames) Scenarios.AppliesTo(n, "claude");
+                    break;
+                case "--repeat": o.Repeat = int.Parse(Next()); break;
+                case "--rates": o.Rates = true; break;
+                case "--ledger": o._ledger = Next(); break;
                 default:
                     if (args[i].StartsWith("--args-", StringComparison.Ordinal)) { o.ArgsOverride[args[i]["--args-".Length..]] = Next(); break; }
                     throw new ArgumentException($"Unknown option {args[i]}");
