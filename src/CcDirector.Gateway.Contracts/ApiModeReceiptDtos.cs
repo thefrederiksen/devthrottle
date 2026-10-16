@@ -66,6 +66,15 @@ public sealed class ApiModeReceiptDto
 
     /// <summary>When the Gateway last changed this receipt.</summary>
     public DateTime UpdatedAtUtc { get; set; }
+
+    /// <summary>The receipt's finished words, rendered verbatim (event model rule 5): <c>Queued: &lt;why&gt;</c>,
+    /// <c>Delivered</c>, <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>, or
+    /// <c>Refused: &lt;reason&gt;</c>. Ruled on the Gateway (<c>ApiModeLiveRuling.ReceiptWords</c>); a client never
+    /// composes a receipt.</summary>
+    public string Words { get; set; } = "";
+
+    /// <summary>Render hint for the colour ONLY: <c>green</c>, <c>yellow</c>, <c>red</c> or <c>neutral</c>.</summary>
+    public string Tone { get; set; } = "";
 }
 
 /// <summary>
