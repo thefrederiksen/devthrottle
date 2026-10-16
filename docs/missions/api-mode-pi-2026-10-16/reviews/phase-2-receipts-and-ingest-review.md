@@ -267,4 +267,28 @@ parameterless registry or a default machine path. Their only files are per-test 
 `Path.GetTempPath()` folder named with a fresh identifier for the Director registry and the statistics file), which the
 gate script places inside its own run folder. The same collision exists in two tests that are not mine,
 `DirectorHubTests` and `ApiModeVerbEndpointTests`, both on `origin/main`; reproduced with only those two classes, and
-reported to the Tech Lead rather than changed here.
+reported to the Tech Lead.
+
+**A further note, from the Tech Lead:** fix the same collision in `ApiModeVerbEndpointTests` (from this phase, #4079)
+and `DirectorHubTests`, changing nothing else in them, and list any other Gateway unit test that still uses the
+parameterless `DeviceRegistry`.
+
+Developer's answer: **Accepted, fixed in this pull request.** Both classes now build their tenant boundary once per
+test over a `DeviceRegistry` on their own harness database (`DirectorHubTests` already had one; `ApiModeVerbEndpointTests`
+had none, so it gains a `GatewayDbTestHarness` field and disposes it - the least the fix needs; nothing else in either
+file changed). Proof: the two classes run together 8 times, 88 of 88 each time, where before 2 of 4 runs failed on
+`device_import_markers.SourcePath`.
+
+Still using the parameterless `DeviceRegistry()` on this branch, NOT changed here (fix only the two, as instructed):
+beside a harness, `DictionarySuggestionDailySweepTests`, `Wingman/VoiceAnswerObserverTests`,
+`Wingman/TurnVerdictTraceStoreTests`, `Wingman/TurnVerdictFeedbackRouteTests`, `Tenancy/TenantScopedSweepTests`,
+`SessionStateEventEmitterTests`, `SessionFilters/SavedSessionFilterRoutesThroughThePipelineTests`,
+`SessionFilters/SavedSessionFilterEndpointsTests`, `Licenses/PushLicenseUsageHubTests`,
+`History/TheRegistryReachesTheCatalogTests`, `Factory/Talk/FactoryTalkEndpointTests`,
+`Factory/Memory/FactoryMembershipThroughTheCallersTests`, `Factory/FactoryEmailTests` and
+`Api/SessionKeyErrorReportTests`; with no harness at all, `Wingman/TurnVerdictAnswerRouteExitTests`,
+`Wingman/NoRedFrameBeforeTheWingmanReadsTests`, `Teams/Mentor/TeamMentorWeeklySweepTests`,
+`Teams/Mentor/TeamMentorEndpointsTests`, `Factory/Definition/FactorySeatThroughTheDoorsTests`,
+`Factory/Definition/FactorySeatStartRefusalTests`, `Factory/Definition/FactoryKitHelloTests`,
+`Api/SessionConnectionFieldsTests`, `Api/GatewayRequestErrorsTests`, `Api/DirectorErrorEndToEndTests` and
+`Api/ClientErrorEndpointsTests`.

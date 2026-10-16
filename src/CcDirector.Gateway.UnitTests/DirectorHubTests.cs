@@ -51,8 +51,11 @@ public sealed class DirectorHubTests : IDisposable
 
     // The boundary is required and non-nullable now (finding I1-01). These are self-host hub tests, so they
     // get the REAL self-host boundary: built over the SingleTenantContext, it always resolves Local.
-    private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>
-        new(new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
+    // The device registry lives over this test's own harness database, never the machine's default registry: that one is
+    // shared by every test class in the process, and two building it at once collide on its import marker.
+    private CcDirector.Gateway.Tenancy.HostedTenantBoundary? _boundary;
+    private CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() =>
+        _boundary ??= new(new CcDirector.Core.Tenancy.SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(_h.Open(), _h.LegacyPath("devices.json")), hosted: false);
 
     private (DirectorHub hub, FakeHubCallerContext ctx) NewHub(string connectionId)
     {
