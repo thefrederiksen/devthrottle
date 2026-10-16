@@ -744,6 +744,8 @@ public sealed class SessionManager : IDisposable
         using var creation = EnterCreation();
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
+        if (forcePooledWorktree && factoryKit is null)
+            throw new ArgumentException("A pooled worktree is forced only for a seat, which always comes with its kit.", nameof(forcePooledWorktree));
         var home = factoryKit?.Home == true;
         if (!home && !Directory.Exists(repoPath))
             throw new DirectoryNotFoundException($"Repository path not found: {repoPath}");
@@ -804,7 +806,7 @@ public sealed class SessionManager : IDisposable
             pooled = home ? null
                 : reattachPooledWorktree is not null
                     ? ReattachPooledWorktree(reattachPooledWorktree, id, birthName)
-                    : AcquirePooledWorktree(repoPath, id, birthName, forcePooledWorktree);
+                    : AcquirePooledWorktree(repoPath, id, birthName, forcePooledWorktree ? factoryKit : null);
         }
         catch (Exception ex)
         {
@@ -1596,8 +1598,9 @@ public sealed class SessionManager : IDisposable
         return pooled;
     }
 
-    private Git.PooledWorktree? AcquirePooledWorktree(string repoPath, Guid id, string? birthName, bool force = false)
+    private Git.PooledWorktree? AcquirePooledWorktree(string repoPath, Guid id, string? birthName, FactoryKitRequest? forSeat = null)
     {
+        var force = forSeat is not null;
         Git.WorktreePoolSetting setting;
         try
         {
@@ -1649,6 +1652,10 @@ public sealed class SessionManager : IDisposable
             var message = $"No session was opened. {why}, and cc-worktrees refused: {ex.Message}.{help}";
             FileLog.Write($"[SessionManager] AcquirePooledWorktree FAILED (refused): code={ex.Code}, exit={ex.ExitCode}, message={ex.Message}");
             _log?.Invoke(message);
+            // A slot forced for a seat that the pool refused is the seat's REFUSAL, not a fault: the person gives a slot
+            // back and tries again, so the Gateway answers it as a 409 with this sentence (QA finding 6, review finding 1).
+            if (forSeat is not null)
+                throw new FactorySeatRefusedException(forSeat, message, ex);
             throw new InvalidOperationException(message, ex);
         }
     }

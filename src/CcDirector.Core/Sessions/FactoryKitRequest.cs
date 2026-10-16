@@ -44,7 +44,7 @@ public sealed class FactoryKitUnavailableException : InvalidOperationException
 /// </summary>
 public sealed class FactorySeatRefusedException : InvalidOperationException
 {
-    public FactorySeatRefusedException(FactoryKitRequest kit, string reason) : base(reason)
+    public FactorySeatRefusedException(FactoryKitRequest kit, string reason, Exception? inner = null) : base(reason, inner)
     {
         Kit = kit;
     }

@@ -198,16 +198,41 @@ public sealed class FactoryKitAtLaunchTests : IDisposable
     }
 
     [Fact]
-    public void CreateSession_AForcedSeatWhosePoolIsRefused_SaysASeatAlwaysWorksInAPooledWorktree()
+    public void CreateSession_AForcedSeatWhosePoolIsRefused_IsTheSeatsRefusal_SayingASeatAlwaysWorksInAPooledWorktree()
     {
         using var manager = Manager(poolSettingOn: false);
         var repo = Repo();
         _pool.RefuseWith = "every slot is in use";
 
-        var ex = Assert.Throws<InvalidOperationException>(() => Create(manager, repo, Seat(), force: true));
+        // A refusal, not a fault (review finding 1): the Director answers it Conflict, and the Gateway a 409.
+        var ex = Assert.Throws<FactorySeatRefusedException>(() => Create(manager, repo, Seat(), force: true));
 
         Assert.Equal($"No session was opened. A seat of a defined factory always works in a pooled worktree of {repo}, " +
                      "and cc-worktrees refused: every slot is in use.", ex.Message);
+    }
+
+    [Fact]
+    public void CreateSession_UNDEFINED_FACTORY_ASessionWhoseOwnPoolSettingIsRefused_IsStillAFault()
+    {
+        using var manager = Manager(poolSettingOn: true);
+        var repo = Repo();
+        _pool.RefuseWith = "every slot is in use";
+
+        var ex = Assert.Throws<InvalidOperationException>(() => Create(manager, repo));
+
+        Assert.IsNotType<FactorySeatRefusedException>(ex);
+        Assert.Equal($"No session was opened. {repo} is set to run its sessions in a pooled worktree, " +
+                     "and cc-worktrees refused: every slot is in use.", ex.Message);
+    }
+
+    [Fact]
+    public void CreateSession_AForcedPooledWorktreeWithNoSeat_IsRefusedBeforeAnythingStarts()
+    {
+        using var manager = Manager();
+
+        var ex = Assert.Throws<ArgumentException>(() => Create(manager, Repo(), kit: null, force: true));
+
+        Assert.StartsWith("A pooled worktree is forced only for a seat, which always comes with its kit.", ex.Message);
     }
 
     // The writer's refresh, reached through the create with the first session still alive. The restore that exists -

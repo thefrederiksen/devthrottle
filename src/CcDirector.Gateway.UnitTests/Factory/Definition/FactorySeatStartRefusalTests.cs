@@ -166,6 +166,32 @@ public sealed class FactorySeatStartRefusalTests : IDisposable
         Assert.Equal(DirectorCommandStatus.Conflict, SessionCommandExecutor.CreateFailureStatus(refused));
     }
 
+    /// <summary>The Director's sentence for a seat whose machine's worktree pool refused a slot (review finding 1).</summary>
+    private const string PoolFull =
+        "No session was opened. A seat of a defined factory always works in a pooled worktree of D:\\ReposFred\\devthrottle, " +
+        "and cc-worktrees refused: every slot is in use.";
+
+    [Fact]
+    public void CreateFailureStatus_ASeatWhosePoolIsFull_IsAConflict()
+    {
+        var refused = new FactorySeatRefusedException(new FactoryKitRequest(TheFactory, 4, "keeper", FactoryKits.Seat), PoolFull,
+            new InvalidOperationException("every slot is in use"));
+
+        Assert.Equal(DirectorCommandStatus.Conflict, SessionCommandExecutor.CreateFailureStatus(refused));
+        Assert.Equal(PoolFull, refused.Message);
+    }
+
+    [Fact]
+    public async Task DirectorDoor_ATalkWhosePoolIsFull_Is409WithTheDirectorsSentenceAlone()
+    {
+        _directorAnswers = DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, PoolFull);
+
+        var outcome = await GatewayEndpoints.StartSessionOnDirectorAsync(TalkFromAPerson(), DirectorId, TalkSeatStart(), Door());
+
+        Assert.Equal(StatusCodes.Status409Conflict, StatusOf(outcome.Refusal));
+        Assert.Equal(PoolFull, ErrorOf(outcome.Refusal));
+    }
+
     [Fact]
     public void CreateFailureStatus_AKitThatCouldNotBeHad_IsStillAnError()
     {
@@ -328,7 +354,7 @@ public sealed class FactorySeatStartRefusalTests : IDisposable
     };
 
     [Fact]
-    public async Task ScheduledRun_ADefinedSeatTheDirectorRefused_RecordsTheDirectorsSentenceAlone()
+    public async Task ScheduledRun_ADefinedSeatTheDirectorRefused_ReportsTheDirectorsSentenceAloneAsItsError()
     {
         var published = new PublishedFactoryDefinition(3, FactoryDefinitionCheck.Read(DefinitionFixture.Publishable()).Definition!);
 
