@@ -99,10 +99,17 @@ internal static partial class GatewayEndpoints
     /// back while the terminal is mid-turn) is passed through in the Director's own words with its own status, and a
     /// Director that is not connected is answered the way interrupt answers it.
     ///
-    /// The Gateway's ruling reads a pushed state, which can be a push behind the Director. That is safe: the
-    /// Director holds the ownership lock and refuses anything its own state does not allow, and that refusal comes
-    /// back through here verbatim. The Gateway's ruling exists so the common refusals are answered at once and in
-    /// one set of words for every client (CLAUDE.md rule 7).
+    /// The Gateway's ruling reads a pushed state, which can be a push behind the Director. In one direction that is
+    /// safe on its own: a request the stale state lets through is refused by the Director, which holds the ownership
+    /// lock, and that refusal comes back through here verbatim. In the other direction it would not be: a hand back
+    /// sent the moment a take was answered would read the old holder and be refused with a sentence that is untrue.
+    /// That is closed by a CONTRACT ON THE DIRECTOR (review finding 3, carried to phase 4): before it returns its reply
+    /// to <c>wheel-take</c> or <c>wheel-hand-back</c>, the Director has finished sending <c>PushDelta</c> with the
+    /// session's new holder on the same hub connection (awaited, not the fire-and-forget <c>NotifyDelta</c>). The reply
+    /// is a client result on that connection and the hub runs one call per connection at a time, so the Gateway has
+    /// applied the new holder before the caller hears the reply. The
+    /// Gateway's ruling exists so the common refusals are answered at once and in one set of words for every client
+    /// (CLAUDE.md rule 7).
     /// </summary>
     internal static async Task<IResult> MoveSessionWheelAsync(
         HttpContext ctx,
@@ -145,9 +152,14 @@ internal static partial class GatewayEndpoints
             return WheelRefusal(WheelRefusalCodes.AlreadyHeld, WheelAlreadyHeldReason, StatusCodes.Status409Conflict);
         }
 
-        if (move == WheelMove.HandBack && state.Holder != WheelHolders.User)
+        // Hand back is refused only while the PROTOCOL holds the conversation: that is the one holder that says the
+        // session is running in API mode, which is what the refusal's sentence tells the user. A holder of none (no
+        // process holds it - for example the terminal the user took ended on its own) goes to the Director, exactly as
+        // a take on none does: what none means after the user held the wheel is the Director's to rule, and hand back
+        // may be the very verb that resumes the session (review finding 2).
+        if (move == WheelMove.HandBack && state.Holder == WheelHolders.Protocol)
         {
-            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: the user does not hold the wheel (holder={state.Holder})");
+            FileLog.Write($"[GatewayEndpoints] MoveSessionWheelAsync: sid={sid} move={move} REFUSED: the protocol holds the wheel, not the user");
             return WheelRefusal(WheelRefusalCodes.NotHeld, WheelNotHeldReason, StatusCodes.Status409Conflict);
         }
 

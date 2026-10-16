@@ -56,7 +56,7 @@ They are unrelated to this change. The branch touches six files; none of the thr
 
 **Why it is a finding and not a note.** Phase 6 will be built against the check as written; if this is discovered then, the proof either silently shrinks (the wheel steps are dropped and the check reads as passed) or phase 6 reopens phase 2. It should be settled now, by the Tech Lead, as a recorded decision. The options I can see, in no order: (a) the owner raises the proof session once before the run and the check is amended to say so; (b) a session key may take and hand back the wheel of a session it owns, the way the prompt route already lets an owned session be typed into (`OwnedSessionInput`), with the route checking ownership; (c) the proof script drives the Director's command path directly for the two wheel steps and the Gateway refusal is proven separately by the unit tests that already exist. Option (b) weakens the stated reasoning (an agent would then be able to open a terminal on a session it spawned), so it is a product decision, not a reviewer's.
 
-Developer's answer:
+Developer's answer: **Pending the Delivery Lead's ruling.** The Tech Lead has put this product decision to the Delivery Lead. No code change in this pull request until the ruling comes. The reviewer is right on the facts: raising a session is the owner's own device's action, so both ways out need a human. That makes "run by an agent with no human" and this ruling incompatible for proof steps 4 and 5 and the two wheel failure cases. If the ruling is option (b), the change is small and local: the wheel paths join the prompt route's "session it owns" path in `SessionKeyGuard`, and `MoveSessionWheelAsync` checks ownership through `OwnedSessionInput` before it sends.
 
 ### Finding 2. A hand back while the holder is `none` is refused by the Gateway with a sentence that may be false, and the Gateway cannot know
 
@@ -66,7 +66,7 @@ Developer's answer:
 
 **Why it is a finding.** The brief for this review asks that every refusal be correct. This one is correct only under an assumption about phase 4 that is not written anywhere. Either the pull request records that assumption as a contract phase 4 must meet (`none` never follows `user` without the Director itself resuming the protocol), or the hand back on `none` goes to the Director as the take does. The Developer decides which.
 
-Developer's answer:
+Developer's answer: **Accepted, fixed.** A hand back is now refused at the Gateway only while the holder is `protocol`, the one holder for which the sentence "it is still running in API mode" is true. A hand back while the holder is `none` goes to the Director, the same as a take on `none`. After the user held the wheel, what `none` means is the Director's to rule, and hand back may be the very verb that resumes the session. This needs no promise from phase 4. The test `MoveSessionWheelAsync_HandBackWhileTheUserDoesNotHoldTheWheel_IsRefused(none)` is replaced by `MoveSessionWheelAsync_HandBackWhileNobodyHoldsTheWheel_IsSentToTheDirectorToRule`, which asserts 200 and one `wheel-hand-back` sent. The `protocol` case keeps its own refusal test.
 
 ### Finding 3. The Gateway's ruling on a pushed state can refuse what the Director would allow, and the pull request describes the risk in one direction only
 
@@ -76,10 +76,18 @@ Developer's answer:
 
 **Why it is a finding.** The two 409 rulings exist "so the common refusals are answered at once and in one set of words"; that is a fair reason, but a ruling on a state the Gateway knows can be stale is a ruling that is sometimes wrong, and the pull request should say so and say what the client or the proof does about it. Possible answers, the Developer's to choose: phase 4 pushes the delta before it replies to the wheel command, so the reply never outruns the state (this makes the window zero by construction and is the strongest answer); or the Gateway rules only when the pushed row is newer than the last wheel command it forwarded for that session; or the window is accepted and recorded in the phase 6 proof as "retry once on 409 within two seconds of a wheel reply". What should not happen is the proof script hitting this on its first run with nothing written down to explain it.
 
-Developer's answer:
+Developer's answer: **Accepted, answered with the first option: a contract on the Director (phase 4), carried by the Tech Lead.** The contract: *before it returns its reply to `wheel-take` or `wheel-hand-back`, the Director has finished sending `PushDelta` with the session's new `WheelHolder` on the same hub connection (awaited, not the fire-and-forget `NotifyDelta`).*
+
+Why this closes the window by construction, checked on origin/main: the Gateway sends the command as a SignalR client result on the Director's hub connection (`hub.Clients.Client(connectionId).InvokeAsync<DirectorCommandResult>("Command", ...)` in `GatewayHost`). The delta arrives on that same connection as the hub method `DirectorHub.PushDelta`, which applies it to the pushed store inline. The hub runs one call per connection at a time (`MaximumParallelInvocationsPerClient` is not raised anywhere, so it is the default of 1). A delta the Director finished sending before its reply is therefore applied before the Gateway completes the command and answers the caller. Any later request then reads the new holder. The stale-state paragraph in `MoveSessionWheelAsync`'s summary now states both directions and this contract.
+
+The two other options were weighed and not chosen. A Gateway-side "rule only when the row is newer than the last forwarded command" adds state to the Gateway and still answers wrongly if the delta is lost. A retry in the proof would hide a false sentence that a person also sees. If phase 4 cannot meet the contract, the fallback is to drop the two holder rulings and let the Director rule them. That is a one-line change here, and I would want the Tech Lead's word before making it.
 
 ## Notes, not findings
 
 - `SessionKeyGuardRaisedTests.cs` gains a byte order mark on its first line (the diff shows `-using` then `+﻿using`). Harmless, but it is a change the pull request does not intend.
+
+  Developer's answer: Accepted, fixed. The mark is removed; the file's first bytes match origin/main again.
 - The pull request table says a Director status other than Conflict, Locked, BadRequest or NotFound maps to 502. `MapDirectorFailure` maps `Timeout` to 504. The code is right; the table is slightly off.
+
+  Developer's answer: Accepted, fixed in the pull request description: `Timeout` is 504, and anything else is 502.
 - The pull request lists a reviewed count of "502 passed" for new and touched tests; confirmed on this machine.

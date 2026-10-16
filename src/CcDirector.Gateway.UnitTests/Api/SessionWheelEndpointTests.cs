@@ -138,16 +138,28 @@ public sealed class SessionWheelEndpointTests : IDisposable
         AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.AlreadyHeld, GatewayEndpoints.WheelAlreadyHeldReason);
     }
 
-    [Theory]
-    [InlineData(WheelHolders.Protocol)]
-    [InlineData(WheelHolders.None)]
-    public async Task MoveSessionWheelAsync_HandBackWhileTheUserDoesNotHoldTheWheel_IsRefused(string holder)
+    [Fact]
+    public async Task MoveSessionWheelAsync_HandBackWhileTheProtocolHoldsTheWheel_IsRefused()
     {
-        var sid = Seat(ConnectionModes.Api, holder);
+        var sid = Seat(ConnectionModes.Api, WheelHolders.Protocol);
 
         var result = await MoveAsync(sid, WheelMove.HandBack);
 
         AssertRefused(result, StatusCodes.Status409Conflict, GatewayEndpoints.WheelRefusalCodes.NotHeld, GatewayEndpoints.WheelNotHeldReason);
+    }
+
+    [Fact]
+    public async Task MoveSessionWheelAsync_HandBackWhileNobodyHoldsTheWheel_IsSentToTheDirectorToRule()
+    {
+        // Review finding 2. No process holds the conversation - for example the terminal the user took ended on its
+        // own. The Gateway cannot say the session "is still running in API mode", and hand back may be exactly the
+        // verb that resumes it, so the Director, which knows, rules - as it does for a take on none.
+        var sid = Seat(ConnectionModes.Api, WheelHolders.None);
+
+        var result = await MoveAsync(sid, WheelMove.HandBack);
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        Assert.Equal((DirectorId, "wheel-hand-back", sid), Assert.Single(_sent));
     }
 
     [Theory]

@@ -1,4 +1,4 @@
-﻿using CcDirector.Gateway.Util;
+using CcDirector.Gateway.Util;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
