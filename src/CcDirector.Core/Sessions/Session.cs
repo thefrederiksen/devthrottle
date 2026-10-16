@@ -3553,12 +3553,14 @@ public sealed class Session : IDisposable
     /// for its age check at the first keystroke; null for every send that is not a Gateway prompt (the owner's own
     /// input, the framework, the fleet), which the check does not apply to.</param>
     /// <returns>Delivered, or still delivering, or refused before typing (see <see cref="TextSendOutcome"/>). A send that did not deliver throws.</returns>
-    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null)
+    /// <param name="deliveryId">The Gateway's delivery id for this prompt (<see cref="PromptRequest.DeliveryId"/>), or null. An
+    /// API-mode session carries it as the prompt id on every event about the prompt; a terminal session does not read it.</param>
+    public async Task<TextSendOutcome> SendTextAsync(string text, SubmissionProvenance provenance, SendSource source = SendSource.UserInput, InputOrigin? origin = null, DateTime? sentAtUtc = null, string? deliveryId = null)
     {
         ArgumentNullException.ThrowIfNull(provenance);
         // API mode (issue #4070): the prompt goes to the agent's own protocol and its receipt is the agent's
         // acknowledgement, so none of the typing, echo or records checks below runs for it.
-        if (_apiMode is { } apiMode) return await SendApiModePromptAsync(apiMode, text, source);
+        if (_apiMode is { } apiMode) return await SendApiModePromptAsync(apiMode, text, source, deliveryId);
         // Unchanged by the Voice Delivery mission: a send to a session that has already ended is a no-op, as it always was.
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return TextSendOutcome.Delivered;
 
@@ -3587,7 +3589,7 @@ public sealed class Session : IDisposable
     /// for its age check at receipt and at the first keystroke; null for a prompt the check does not apply to.</param>
     /// <returns>Sent, or why nothing was submitted.</returns>
     public async Task<GuardedSendResult> SendTextOnlyWhenWaitingForInputAsync(
-        string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter, DateTime? sentAtUtc = null)
+        string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter, DateTime? sentAtUtc = null, string? deliveryId = null)
     {
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(provenance);
@@ -3605,7 +3607,7 @@ public sealed class Session : IDisposable
         }
 
         // API mode (issue #4070): there is nothing to type into; the prompt goes to the agent only if it can go now.
-        if (_apiMode is { } apiMode) return await SendApiModePromptOnlyWhenWaitingAsync(apiMode, text, source);
+        if (_apiMode is { } apiMode) return await SendApiModePromptOnlyWhenWaitingAsync(apiMode, text, source, deliveryId);
 
         GuardedInputSection section;
         lock (_inputLock)
@@ -4691,10 +4693,10 @@ public sealed class Session : IDisposable
     /// the agent's own acknowledgement - delivered, or refused with the reason. A prompt queued behind a running turn
     /// waits here until it is written and acknowledged; the caller's own answer budget covers that wait.
     /// </summary>
-    private async Task<TextSendOutcome> SendApiModePromptAsync(ApiModeSessionBackend apiMode, string text, SendSource source)
+    private async Task<TextSendOutcome> SendApiModePromptAsync(ApiModeSessionBackend apiMode, string text, SendSource source, string? deliveryId)
     {
-        FileLog.Write($"[Session] SendApiModePromptAsync: session={Id}, source={source}, len={text.Length}");
-        var receipt = await apiMode.Host.SendPromptAsync(text, CancellationToken.None);
+        FileLog.Write($"[Session] SendApiModePromptAsync: session={Id}, source={source}, len={text.Length}, deliveryId={deliveryId ?? "(none)"}");
+        var receipt = await apiMode.Host.SendPromptAsync(text, deliveryId, CancellationToken.None);
         if (receipt.Delivered)
         {
             FileLog.Write($"[Session] SendApiModePromptAsync done: session={Id}, prompt={receipt.PromptId}, delivered");
@@ -4709,12 +4711,12 @@ public sealed class Session : IDisposable
     /// now - its conversation named, no prompt in flight, none queued - and never waits behind other work. Refused busy
     /// otherwise, with nothing sent; refused busy too when the agent refuses it, with the agent's reason.
     /// </summary>
-    private async Task<GuardedSendResult> SendApiModePromptOnlyWhenWaitingAsync(ApiModeSessionBackend apiMode, string text, SendSource source)
+    private async Task<GuardedSendResult> SendApiModePromptOnlyWhenWaitingAsync(ApiModeSessionBackend apiMode, string text, SendSource source, string? deliveryId)
     {
-        FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync: session={Id}, source={source}, len={text.Length}");
+        FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync: session={Id}, source={source}, len={text.Length}, deliveryId={deliveryId ?? "(none)"}");
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed)
             return GuardedSendResult.NotRunning(ActivityState);
-        var receipt = await apiMode.Host.TrySendPromptNowAsync(text, CancellationToken.None);
+        var receipt = await apiMode.Host.TrySendPromptNowAsync(text, deliveryId, CancellationToken.None);
         if (receipt is null)
             return GuardedSendResult.Busy(ActivityState, "the agent is not waiting for a prompt (one is running or waiting to be sent, or it is starting); nothing was sent");
         if (receipt.Delivered)

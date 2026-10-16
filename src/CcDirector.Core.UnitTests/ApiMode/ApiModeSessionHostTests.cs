@@ -495,6 +495,84 @@ public sealed class ApiModeSessionHostTests
         Assert.Equal("Pi exited (exit code 0)", ended.Reason);
     }
 
+    [Fact]
+    public async Task SendPromptAsync_GatewayIdsWhileOneIsInFlight_ComeBackUnchangedOnQueuedDeliveredAndTurnStarted()
+    {
+        // Arrange: Pi answers only when the test says so, so the second prompt is certainly queued.
+        var pi = new ScriptedPi("plain") { AutoRespond = false, RepeatFirstPromptAnswer = true };
+        await using var rig = StartHost(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        var first = rig.Host.SendPromptAsync("First", "upload-7f3a", CancellationToken.None);
+        await pi.WaitForWrittenAsync("prompt");
+        var second = rig.Host.SendPromptAsync("Second", "upload-91bc", CancellationToken.None);
+        var queued = await rig.Sink.WaitForAsync<PromptQueued>();
+        pi.RespondToNext();
+        await pi.WaitForWrittenAsync("prompt", occurrence: 2);
+        pi.RespondToNext();
+        var firstReceipt = await ScriptedPi.WithinHangGuard(first, "the first prompt's receipt");
+        var secondReceipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
+        await rig.Sink.WaitForAsync<TurnStarted>(t => t.TurnId == "turn-2");
+
+        // Assert: every event about each prompt names it by the Gateway's own id.
+        Assert.Equal("upload-91bc", queued.PromptId);
+        Assert.Equal(["upload-7f3a", "upload-91bc"], rig.Sink.Events.OfType<PromptDelivered>().Select(d => d.PromptId));
+        Assert.Equal([["upload-7f3a"], ["upload-91bc"]], rig.Sink.Events.OfType<TurnStarted>().Select(t => t.PromptIds.ToArray()));
+        Assert.Equal("upload-7f3a", firstReceipt.PromptId);
+        Assert.Equal("upload-91bc", secondReceipt.PromptId);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_GatewayIdThatPiRefuses_ComesBackUnchangedOnRefused()
+    {
+        // Arrange
+        await using var rig = StartHost(new ScriptedPi("refusal") { PromptAnswers = [2] });
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        var receipt = await rig.Host.SendPromptAsync("A second prompt", "upload-55d0", CancellationToken.None);
+
+        // Assert
+        Assert.Equal("upload-55d0", receipt.PromptId);
+        Assert.Equal("upload-55d0", Assert.Single(rig.Sink.Events.OfType<PromptRefused>()).PromptId);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_NoGatewayId_GetsADirectorId()
+    {
+        // Arrange
+        await using var rig = StartHost(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        var receipt = await rig.Host.SendPromptAsync("Reply with exactly the word PONG", gatewayPromptId: null, CancellationToken.None);
+
+        // Assert
+        Assert.Equal("prompt-1", receipt.PromptId);
+        Assert.Equal("prompt-1", Assert.Single(rig.Sink.Events.OfType<PromptDelivered>()).PromptId);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_AGatewayIdSentAgain_IsANewAttemptOfThatIdAndNoIdIsUsedTwice()
+    {
+        // Arrange: Pi has ended, so every prompt is refused at once and nothing else varies.
+        await using var rig = StartHost(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        await rig.ShutdownAsync();
+
+        // Act: a Gateway id, the same id again (a retry), a Gateway id that looks like a Director id, then no id.
+        var ids = new List<string>();
+        foreach (var gatewayId in new string?[] { "upload-1", "upload-1", "prompt-1", null })
+            ids.Add((await rig.Host.SendPromptAsync("Too late", gatewayId, CancellationToken.None)).PromptId);
+
+        // Assert: the retry names its delivery and its attempt; the minted id skips the one the Gateway already used.
+        Assert.Equal(["upload-1", "upload-1:attempt-2", "prompt-1", "prompt-2"], ids);
+        Assert.Equal(ids, rig.Sink.Events.OfType<PromptRefused>().Select(r => r.PromptId));
+    }
+
     public static TheoryData<string> Scenarios => ["plain", "tool", "abort", "resume", "exit", "exit-before-ack"];
 
     [Theory]
