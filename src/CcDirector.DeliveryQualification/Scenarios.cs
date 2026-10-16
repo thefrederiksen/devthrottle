@@ -174,8 +174,27 @@ public static class Scenarios
             await Task.Delay(TimeSpan.FromSeconds(2));
             var before = DoorbellSafety.ReadComposer(kind, s.SnapshotLiveFrame());
             var text = TextCatalogue.Named("short").Build(Token());
-            var r = await SendAndJudgeAsync("menu-open", agent, s, text, repos, () => s.SendTextAsync(text, RigTyped));
-            return r with { Detail = $"composer before the send: {before}. {r.Detail}" };
+            var first = await SendAndJudgeAsync("menu-open", agent, s, text, repos, () => s.SendTextAsync(text, RigTyped));
+
+            // A prompt cannot arrive through a menu. What the owner needs is one plain refusal, and then the NEXT prompt,
+            // once the menu is answered, to go through: on 15 October every later send was refused instead. So the menu
+            // is closed (Escape, as an owner dismissing the question would) and a second prompt is sent; the scenario
+            // passes when the first was refused or arrived, nothing was lost silently, and the second ARRIVED.
+            s.SendInput([0x1B], null, SubmissionProvenance.Typed("desktop-terminal", "owner"));
+            if (!await WaitForAsync(() => DoorbellSafety.ReadComposer(kind, s.SnapshotLiveFrame()) is ComposerReading.Empty or ComposerReading.HoldsText
+                                          && Idle(s), TimeSpan.FromSeconds(60)))
+                return first with { Pass = false, Detail = $"composer before the send: {before}. The menu never closed after Escape. {first.Detail}" };
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            var nextText = TextCatalogue.Named("short").Build(Token());
+            var next = await SendAndJudgeAsync("menu-open (next prompt)", agent, s, nextText, repos, () => s.SendTextAsync(nextText, RigTyped));
+            var refusedPlainly = first.Truth == "LOST" && first.Director is "FAILED" or "REFUSED";
+            var pass = (first.Pass || refusedPlainly) && next.Pass;
+            return first with
+            {
+                Pass = pass,
+                Detail = $"composer before the send: {before}. First: director={first.Director} truth={first.Truth}. " +
+                         $"Next prompt after the menu closed: director={next.Director} truth={next.Truth} {next.Detail}. {first.Detail}",
+            };
         });
 
     /// <summary>
