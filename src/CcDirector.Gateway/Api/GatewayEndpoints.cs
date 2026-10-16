@@ -1934,6 +1934,7 @@ internal static partial class GatewayEndpoints
                             FactoryDefinitionVersion = s.FactoryDefinitionVersion,
                             FactoryKit = s.FactoryKit,
                             LaunchModel = s.LaunchModel,
+                            ConnectionMode = s.ConnectionMode,
                             DeadDirectorId = j.DirectorId,
                             DeadPid = j.Pid,
                             MachineName = j.MachineName,
@@ -6252,6 +6253,10 @@ internal static partial class GatewayEndpoints
             FactoryKit = string.IsNullOrWhiteSpace(row.FactoryKit) ? null : row.FactoryKit.Trim(),
             // The model it was started on, so the continuation relaunches on it.
             Model = string.IsNullOrWhiteSpace(row.LaunchModel) ? null : row.LaunchModel.Trim(),
+            // And the way it was driven (API mode mission, issue #4070): an API-mode session continues in API mode. Absent
+            // - a terminal session, or a journal written before the field existed - is terminal. The Director refuses a
+            // word that is not a connection mode, so nothing here guesses one.
+            ConnectionMode = string.IsNullOrWhiteSpace(row.ConnectionMode) ? null : row.ConnectionMode.Trim(),
         };
 
     /// <summary>
