@@ -2410,6 +2410,13 @@ public sealed class Session : IDisposable
             : backend;
         BackendType = backendType;
         _apiMode = backend as ApiModeSessionBackend;
+        // API mode has no screen to detect a turn on: the agent's own events say when one runs (issue #4070).
+        // It starts as starting, not waiting: it is waiting for a prompt only once the agent has named its conversation.
+        if (_apiMode is not null)
+        {
+            ActivityState = ActivityState.Starting;
+            _apiMode.EventsPublished += OnApiModeEvents;
+        }
         CreatedAt = createdAt ?? DateTimeOffset.UtcNow;
         Status = SessionStatus.Starting;
 
@@ -3597,6 +3604,9 @@ public sealed class Session : IDisposable
             return GuardedSendResult.TooOld(ActivityState, reason);
         }
 
+        // API mode (issue #4070): there is nothing to type into; the prompt goes to the agent only if it can go now.
+        if (_apiMode is { } apiMode) return await SendApiModePromptOnlyWhenWaitingAsync(apiMode, text, source);
+
         GuardedInputSection section;
         lock (_inputLock)
         {
@@ -4694,6 +4704,50 @@ public sealed class Session : IDisposable
         return TextSendOutcome.Refused(receipt.RefusalReason!);
     }
 
+    /// <summary>
+    /// The guarded send for an API-mode session (issue #4070): the prompt goes to the agent only if the agent can take it
+    /// now - its conversation named, no prompt in flight, none queued - and never waits behind other work. Refused busy
+    /// otherwise, with nothing sent; refused busy too when the agent refuses it, with the agent's reason.
+    /// </summary>
+    private async Task<GuardedSendResult> SendApiModePromptOnlyWhenWaitingAsync(ApiModeSessionBackend apiMode, string text, SendSource source)
+    {
+        FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync: session={Id}, source={source}, len={text.Length}");
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed)
+            return GuardedSendResult.NotRunning(ActivityState);
+        var receipt = await apiMode.Host.TrySendPromptNowAsync(text, CancellationToken.None);
+        if (receipt is null)
+            return GuardedSendResult.Busy(ActivityState, "the agent is not waiting for a prompt (one is running or waiting to be sent, or it is starting); nothing was sent");
+        if (receipt.Delivered)
+        {
+            FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync done: session={Id}, prompt={receipt.PromptId}, delivered");
+            return GuardedSendResult.Sent(ActivityState);
+        }
+        FileLog.Write($"[Session] SendApiModePromptOnlyWhenWaitingAsync done: session={Id}, prompt={receipt.PromptId}, REFUSED by {receipt.RefusedBy} - {receipt.RefusalReason}");
+        return GuardedSendResult.Busy(ActivityState, receipt.RefusalReason!);
+    }
+
+    /// <summary>
+    /// An API-mode session's activity, read from the agent's own events (issue #4070), the way a terminal session's is
+    /// read from its screen: working from the turn's start to its end, waiting for a prompt once the agent named its
+    /// conversation and whenever a turn ends. The process's end is the ordinary exit path.
+    /// </summary>
+    private void OnApiModeEvents(IReadOnlyList<Gateway.Contracts.ApiMode.SessionEvent> events)
+    {
+        foreach (var e in events)
+        {
+            switch (e)
+            {
+                case Gateway.Contracts.ApiMode.ConnectionReady:
+                case Gateway.Contracts.ApiMode.TurnEnded:
+                    SetActivityState(ActivityState.WaitingForInput);
+                    break;
+                case Gateway.Contracts.ApiMode.TurnStarted:
+                    SetActivityState(ActivityState.Working);
+                    break;
+            }
+        }
+    }
+
     /// <summary>Stop the running turn of an API-mode session with the agent's own abort, and wait for the agent to
     /// confirm it (issue #4070).</summary>
     private async Task StopApiModeTurnAsync(ApiModeSessionBackend apiMode)
@@ -5362,6 +5416,8 @@ public sealed class Session : IDisposable
 
         _backend.ProcessExited -= OnBackendProcessExited;
         _backend.StatusChanged -= OnBackendStatusChanged;
+        if (_apiMode is not null)
+            _apiMode.EventsPublished -= OnApiModeEvents;
         if (_screenFeed is not null && _backend.Buffer is not null)
             _backend.Buffer.OnBytesWritten -= _screenFeed;
         _isAlternateScreen = false;
