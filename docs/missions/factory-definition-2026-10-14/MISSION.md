@@ -68,8 +68,15 @@ True at the end, each shown in a QA report with the flow AND the failure cases:
 12. Journals, working documents and attachments are on the Gateway. Two runs writing the ledger at once: one is
     refused with the current text, and nothing is lost. The one-time upload from SOREN_NORTH counts what it read
     against what it stored, and they match.
-13. The DevThrottle factory is recreated from files, published by the owner, and runs one full day of its shifts with
-    its repository folder and its separate clone no longer read.
+13. The first real factory is Eric's email factory, built from nothing: one seat starts every morning at 08:00,
+    checks a mailbox itself, and when the email is there, runs the owner's instructions. It is published by the owner,
+    reviewed in the Cockpit and watched running. This is the owner's decision of 16 October 2026: the switch-over goes
+    one factory at a time, starting from nothing; he archives all of his existing factories, and the first real
+    factory is a new, simple one for Eric. By the owner's word the same day, it starts with no check: "let the agent
+    deal with the email check every morning at 8am". The DevThrottle factory - recreated from files, published by the owner, and running one full day of its
+    shifts with its repository folder and its separate clone no longer read - comes after phase 7, on the owner's word.
+    Its two versions are already prepared: version 1, faithful to today's files, and version 2, which no longer reads
+    the clone.
 14. A factory with no definition keeps working exactly as it does today, until the owner recreates it.
 15. A seat can be started by a check: a Python file held in the definition, run by the Director on the seat's machine
     with no model, on a schedule or on an interval, given only the secret names it declares. When it finds nothing, no
@@ -445,7 +452,7 @@ A Tech Lead is seated for phases 1, 4 and 5, which carry real back and forth; th
 | 5. The run kit | Seat and definition version on request, session, history and `SpawnFactory`; the `FactoryWorktree`, `FactoryHome` and `Model` request fields with their hello capabilities; download at start, `CC_FACTORY_KIT_DIR` and its strip; rules merged into the launch settings file; rules-only kit for children; start-time secret check and the publish-time verb; records in the kit; factory skills in the kit, visible to that session only. Needs a desktop release to reach machines (question 3). | After 2 and 4 | Yes |
 | 5b. Checks | Checks from the definition on the Director (download to `factory-checks`, Python and `uv`, secrets through `cc-secrets run` with the one variable-name rule, `context`, the state file, `factory_check_state`, the output cap raised); due checks for timed starts through the existing trigger pull and report, claimed, the start pinned; `PreventOverlap` forced on; the **nothing to do** run result; failed checks into the problems fold and the 08:00 email; the interpreter and "allowed for run" questions at publish; the email check as the first real one. | Beside 5, after 4 | Yes |
 | 6. The Cockpit | Definition tab replacing Documents, and Records tab. Desktop only. | After 4; the Records tab after 2 | No |
-| 7. The first real factory | The DevThrottle factory written as a folder from today's files, imported, shown to the owner as a draft; he publishes. Its schedules switch to the definition; one full day of shifts runs from the Gateway alone with its folder and clone not read (proven by renaming the folder away for the day). The owner then recreates the others by import. | After 5 and 6 | No |
+| 7. The first real factory | Eric's email factory, built from nothing (the owner's decision of 16 October 2026): one seat on SOREN_NORTH with no repository and no check (by the owner's word: the agent checks the mailbox itself), one daily start at 08:00 America/Toronto, and a brief that says where the owner's instructions go. Proven on a throwaway Gateway and a test Director, then imported and published by the owner, reviewed in the Cockpit and watched running. After phase 7, on the owner's word: the DevThrottle factory, from its two prepared versions (version 1, faithful to today's files; version 2, which no longer reads the clone), published by the owner, runs one full day of shifts from the Gateway alone with its folder and clone not read (proven by renaming the folder away for the day). | After 5 and 6 | No |
 
 ## 7. The check
 
@@ -496,7 +503,11 @@ Then the phase's QA report under `docs/qa/factory-definition/<phase>/`, the flow
 - Phase 5 also: a seat with a factory skill uses it; a second session on the same machine, and the seat's own child,
   do not have it; nothing written into the checkout or the user's skills folder.
 - Phase 6: desktop screenshots of every state above.
-- Phase 7: the day's runs, each with its definition version, and the folder absent for the whole day.
+- Phase 7: Eric's factory on a throwaway Gateway and a test Director: imported, published, its daily start firing
+  (at a near time on the rig) and starting exactly one session from its kit with the brief in its first prompt;
+  pictures of the Definition tab and the schedule's runs. Then the owner's publish, and its runs watched. The DevThrottle factory, after
+  phase 7 on the owner's word: the day's runs, each with its definition version, and the folder absent for the whole
+  day.
 
 A refusal is proven by the response that carries it, quoted. "No error appeared" proves nothing.
 

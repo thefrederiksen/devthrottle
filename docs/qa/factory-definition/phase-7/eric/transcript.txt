@@ -1,0 +1,433 @@
+# the shared cc-director-launch task before this run (read only; this rig never changes it)
+  D:\ReposFred\devthrottle\scripts\local-build\cc-director5.exe  (in D:\ReposFred\devthrottle\scripts\local-build)
+
+# Gateway: http://127.0.0.1:7992, built from this tree, storage root <rig>\gateway-root made empty for this run, serving this tree's Cockpit build. The slot 7 Director (pid 64104, id 7cdcc3e8-f984-4e5f-8fc0-eba4109b28a8) was started by its own cc-director-launch-p7 scheduled task through <rig>\start-director7.cmd, storage root <rig>\director-root, and connected on <machine>.
+
+# STEP 1 - the folder AS WRITTEN, imported as a person, every TO FILL: still open: what the owner's own import sees.
+
+# the folder as written: every file (sizes and hashes; the folder is private)
+  factory.yaml  189 bytes  sha256 4132cc0fbbba0494121b19d877e3bfde87310ab2936085d05cc1cf6d83551d1f
+  files/instructions.md  686 bytes  sha256 5a4bc5196119484aa37591229eefd2619dca4ecff4c2322cd46a055a02a92701
+  seats/mail-desk.yaml  1416 bytes  sha256 f92ed39a4034abf20b20c9fb7419ee678fa42a8a78dbf7fdbbe45e6533bf856f
+
+$ cc-devthrottle factory import <eric folder> --note "Eric's factory as written, every TO FILL: still open" --json      (as a person: the rig's enrolled browser device)
+{
+  "factory": "eric",
+  "version": 1,
+  "state": "draft",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "changeNote": "Eric's factory as written, every TO FILL: still open",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-16T13:04:15.6886433Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "contentBytes": 2291,
+  "fileCount": 3,
+  "newestVersion": 1,
+  "publishedVersion": null,
+  "files": null,
+  "created": true,
+  "findings": [],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition diff eric      (as a person: the rig's enrolled browser device)
+eric: from nothing published to version 1.
+published version: none
+what changes: First publish: 5 factory settings set, 1 seat added, 1 start created, 1 file added.
+  factory eric
+  title Eric
+  purpose Checks a mailbox every morning at 08:00 and, when the email is there, runs the owner's instructions.
+  defaults.machine <machine>
+  defaults.agent ClaudeCode
+  Seat Mail Desk (mail-desk) added.
+    role Mail Desk
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    file files/instructions.md added
+    brief: 17 lines
+      + You are the Mail Desk of Eric's factory. You start every morning at 08:00, Toronto time.
+      + 
+      + Everything you need is in the folder named by CC_FACTORY_KIT_DIR. The owner's instructions are in
+      + files/instructions.md there. They say which mailbox to check and how you read it, which email to look for, and
+      + what to do when it is there. Nothing in this brief adds to them.
+      + 
+      + Each morning:
+      + 1. Read files/instructions.md. If it still has a line beginning "TO FILL:", the owner has not finished it: do
+      +    not open any mailbox, write the journal line in step 4 saying "Not set up yet: files/instructions.md still has
+      +    TO FILL:", and stop.
+      + 2. Check the mailbox the way the instructions say, for the email they describe.
+      + 3. If the email is there, follow the instructions for it.
+      + 4. Write ONE line in the seat's journal saying what you found and what you did, and stop. When the email is not
+      +    there, that one line is all you do:
+      +      echo "<the line>" | cc-devthrottle factory journal add --factory eric --seat mail-desk --file -
+      + 
+      + You have no repository. Work only in the work/ folder inside the folder named by CC_FACTORY_KIT_DIR.
+  Mail Desk: start created, Daily 08:00 America/Toronto.
+    prompt "Good morning. It is time for the 08:00 mail check. Do what your brief says."
+  File files/instructions.md added: 18 lines.
+      + # The Mail Desk's instructions
+      + 
+      + The owner writes these. Each morning the seat follows them, and does nothing else.
+      + 
+      + ## The mailbox
+      + 
+      + TO FILL: which mailbox the seat checks (its address), and how the seat reads it - the tool or command it uses, and
+      + the name of the cc-secrets entry that holds what it signs in with. Never write a password or a key here.
+      + 
+      + ## The email to act on
+      + 
+      + TO FILL: which email counts - for example who it comes from and what its subject says - and how far back the seat
+      + looks each morning.
+      + 
+      + ## What to do when it is there
+      + 
+      + TO FILL: what the seat does with that email, as plain steps - what it reads in it, what it does, what it writes and
+      + where, and whom it tells.
+What publishing version 1 would do to the live factory now:
+  Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
+  A new schedule (Eric - Mail Desk) for seat mail-desk: Daily 08:00 America/Toronto.
+help[2]:
+  cc-devthrottle factory definition publish eric --version 1 --replaces 0
+  cc-devthrottle factory definition history eric
+[exit 0]
+
+$ GET /gateway/factories/eric      (raw HTTP, as a person)
+  status: 404
+  answer: {"error":"There is no registered factory 'eric'. A factory is registered with cc-devthrottle factory register."}
+
+# no picture of the draft before the first publish
+  GET /gateway/factories/eric answered 404 before the first publish: the factory has no page to open until its first publish registers it
+
+# STEP 2 - version 2, the rig's copy (the start moved to 09:09 America/Toronto, 2026-10-16T13:09:00Z UTC), saved and published as the rig's person.
+
+# version 2, the rig's copy: the one line it changes (every other line and file is the folder's)
+  seats/mail-desk.yaml:  - cron: "0 8 * * *"  ->  - cron: "9 9 * * *"
+
+# version 2, the rig's copy: every file
+  factory.yaml  189 bytes  sha256 4132cc0fbbba0494121b19d877e3bfde87310ab2936085d05cc1cf6d83551d1f
+  files/instructions.md  686 bytes  sha256 5a4bc5196119484aa37591229eefd2619dca4ecff4c2322cd46a055a02a92701
+  seats/mail-desk.yaml  1416 bytes  sha256 525fadca0a6dfeea9f8dd246ff1ea7465a208dcda8873f492f18be4c6cbed80e
+
+$ cc-devthrottle factory definition save eric --dir <rig>\definitions\v-rig --expected-version 1 --note "the QA rig's copy: the start moved to a few minutes from now" --json      (as a person: the rig's enrolled browser device)
+{
+  "factory": "eric",
+  "version": 2,
+  "state": "draft",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "changeNote": "the QA rig's copy: the start moved to a few minutes from now",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-16T13:04:21.0157976Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "contentBytes": 2291,
+  "fileCount": 3,
+  "newestVersion": 2,
+  "publishedVersion": null,
+  "files": null,
+  "created": null,
+  "findings": [],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition diff eric --from 1 --to 2      (as a person: the rig's enrolled browser device)
+eric: from version 1 to version 2.
+published version: none
+what changes: 1 start moved.
+  Mail Desk: start moved, Daily 08:00 America/Toronto -> Daily 09:09 America/Toronto.
+What publishing version 2 would do to the live factory now:
+  Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
+  A new schedule (Eric - Mail Desk) for seat mail-desk: Daily 09:09 America/Toronto.
+help[2]:
+  cc-devthrottle factory definition publish eric --version 2 --replaces 0
+  cc-devthrottle factory definition history eric
+[exit 0]
+
+$ cc-devthrottle factory definition publish eric --version 2 --replaces 0      (as a person: the rig's enrolled browser device)
+Published: version 2 of the definition of eric. Version 2 is now the published definition.
+what changes: First publish: 5 factory settings set, 1 seat added, 1 start created, 1 file added.
+  factory eric
+  title Eric
+  purpose Checks a mailbox every morning at 08:00 and, when the email is there, runs the owner's instructions.
+  defaults.machine <machine>
+  defaults.agent ClaudeCode
+  Seat Mail Desk (mail-desk) added.
+    role Mail Desk
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    file files/instructions.md added
+    brief: 17 lines
+      + You are the Mail Desk of Eric's factory. You start every morning at 08:00, Toronto time.
+      + 
+      + Everything you need is in the folder named by CC_FACTORY_KIT_DIR. The owner's instructions are in
+      + files/instructions.md there. They say which mailbox to check and how you read it, which email to look for, and
+      + what to do when it is there. Nothing in this brief adds to them.
+      + 
+      + Each morning:
+      + 1. Read files/instructions.md. If it still has a line beginning "TO FILL:", the owner has not finished it: do
+      +    not open any mailbox, write the journal line in step 4 saying "Not set up yet: files/instructions.md still has
+      +    TO FILL:", and stop.
+      + 2. Check the mailbox the way the instructions say, for the email they describe.
+      + 3. If the email is there, follow the instructions for it.
+      + 4. Write ONE line in the seat's journal saying what you found and what you did, and stop. When the email is not
+      +    there, that one line is all you do:
+      +      echo "<the line>" | cc-devthrottle factory journal add --factory eric --seat mail-desk --file -
+      + 
+      + You have no repository. Work only in the work/ folder inside the folder named by CC_FACTORY_KIT_DIR.
+  Mail Desk: start created, Daily 09:09 America/Toronto.
+    prompt "Good morning. It is time for the 08:00 mail check. Do what your brief says."
+  File files/instructions.md added: 18 lines.
+      + # The Mail Desk's instructions
+      + 
+      + The owner writes these. Each morning the seat follows them, and does nothing else.
+      + 
+      + ## The mailbox
+      + 
+      + TO FILL: which mailbox the seat checks (its address), and how the seat reads it - the tool or command it uses, and
+      + the name of the cc-secrets entry that holds what it signs in with. Never write a password or a key here.
+      + 
+      + ## The email to act on
+      + 
+      + TO FILL: which email counts - for example who it comes from and what its subject says - and how far back the seat
+      + looks each morning.
+      + 
+      + ## What to do when it is there
+      + 
+      + TO FILL: what the seat does with that email, as plain steps - what it reads in it, what it does, what it writes and
+      + where, and whom it tells.
+applied:
+  Definition: version 2 published.
+  Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
+  Schedule cj_1a0182 (Eric - Mail Desk) created for seat mail-desk: Daily 09:09 America/Toronto.
+help[2]:
+  cc-devthrottle factory definition get eric
+  cc-devthrottle factory definition history eric
+[exit 0]
+
+$ cc-devthrottle factory definition history eric      (as a person: the rig's enrolled browser device)
+count: 2 of 2. Version 2 is the published definition.
+versions[2]{version,state,written,by,files,bytes,note}:
+  v2,PUBLISHED NOW,2026-10-16T13:04:21.0157976Z,person device browser qa-browser,3,2291,"the QA rig's copy: the start moved to a few minutes from now"
+  v1,draft,2026-10-16T13:04:15.6886433Z,person device browser qa-browser,3,2291,"Eric's factory as written, every TO FILL: still open"
+help[2]:
+  cc-devthrottle factory definition get eric --version <version>
+  cc-devthrottle factory definition diff eric --to <version>
+[exit 0]
+
+$ cc-devthrottle schedule list      (as a person: the rig's enrolled browser device)
+count: 1 (enabled 1)
+schedules[1]{id,name,enabled,kind,next-run}:
+  cj_1a0182,Eric - Mail Desk,yes,recurring,2026-10-16T13:09:00Z
+help[5]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --fields id,name,enabled,next-run,machine,kind,cron,run-at,time-zone,work-list,path,last-fired,last-status,notify,created
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+[exit 0]
+
+# STEP 3 - the start fires. Expected: exactly one run and one session, started from its kit, the brief in its first prompt; the agent follows the brief as written (instructions still TO FILL:): no mailbox opened, one journal line, done.
+
+# STEP 3 - the run's row as the Gateway keeps it, once the session exists
+#   read from the rig's gateway.db: SELECT Id, JobName, Seat, FiredUtc, Result, InfraStatus, SessionId, ResultReason FROM cron_runs WHERE Factory = ? ORDER BY FiredUtc ['eric']
+  Id, JobName, Seat, FiredUtc, Result, InfraStatus, SessionId, ResultReason
+  68BFDC4A-0E21-45B3-92C1-9EBAD81880BA, Eric - Mail Desk, mail-desk, 2026-10-16 13:10:13.7746778, problem, not-started, None, it did not start a session: The Director did not answer within 30 seconds. It is not known whether the command was carried out.
+  (1 rows)
+
+# STEP 3 - the first prompt, as the Director saved it in the kit's prompts/ folder before sending it
+  You are Mail Desk, Mail Desk of Eric (factory id: eric; your agent id: mail-desk).
+  
+  This is one of your scheduled runs: the schedule "Eric - Mail Desk" (cj_1a0182). Your brief is given to you here in full, as the Gateway holds it (definition version 2, part of the factory's definition); it is not a file in the factory's folder. With it comes what this schedule asks of this run.
+  
+  --- your brief, definition version 2 ---
+  You are the Mail Desk of Eric's factory. You start every morning at 08:00, Toronto time.
+  
+  Everything you need is in the folder named by CC_FACTORY_KIT_DIR. The owner's instructions are in
+  files/instructions.md there. They say which mailbox to check and how you read it, which email to look for, and
+  what to do when it is there. Nothing in this brief adds to them.
+  
+  Each morning:
+  1. Read files/instructions.md. If it still has a line beginning "TO FILL:", the owner has not finished it: do
+     not open any mailbox, write the journal line in step 4 saying "Not set up yet: files/instructions.md still has
+     TO FILL:", and stop.
+  2. Check the mailbox the way the instructions say, for the email they describe.
+  3. If the email is there, follow the instructions for it.
+  4. Write ONE line in the seat's journal saying what you found and what you did, and stop. When the email is not
+     there, that one line is all you do:
+       echo "<the line>" | cc-devthrottle factory journal add --factory eric --seat mail-desk --file -
+  
+  You have no repository. Work only in the work/ folder inside the folder named by CC_FACTORY_KIT_DIR.
+  --- end of your brief, definition version 2 ---
+  
+  Your kit is in the folder the environment variable CC_FACTORY_KIT_DIR names: brief.md in it holds this same brief, and grants.md what you are allowed to do, with its limits. Read grants.md before you act on anything it covers.
+  
+  The factory's goal is part of its definition. If it should change, save a draft of the definition with the new goal (cc-devthrottle factory definition save); the owner publishes it.
+  
+  Good morning. It is time for the 08:00 mail check. Do what your brief says.
+  
+  When you have finished, the last thing you do is report how this scheduled run went: run `cc-devthrottle run result ok`, or `cc-devthrottle run result problem "<one line why>"` if something went wrong.
+
+# STEP 3 - its first prompt holds the brief and the start's prompt
+  the brief's first line ('You are the Mail Desk of Eric's factory'): True
+  the start's prompt ('It is time for the 08:00 mail check'): True
+
+# STEP 3 - the session's kit folder while it runs (<rig>/director-root/instances/default/factory-run/<session>)
+  brief.md (1119 bytes)
+  files/
+  files/instructions.md (686 bytes)
+  grants.md (61 bytes)
+  kit.json (823 bytes)
+  prompts/
+  prompts/input_20261016_091816_bnypfo.txt (2280 bytes)
+  records/
+  records/documents.md (500 bytes)
+  records/journal.md (386 bytes)
+  rules.json (62 bytes)
+  work/
+
+# STEP 3 - the session the start started - read from the session's own Claude Code transcript
+  transcript: <home>/.claude/projects/<rig>-director-root-instances-default-factory-run-f559f608-514a-42fd-9d60-5d91ac8f67d5-work/fc84cc51-b8e5-4dec-a726-4ce739a9fd6d.jsonl
+  its first prompt, as the session received it:
+      @<rig>/director-root/instances/default/factory-run/f559f608-514a-42fd-9d60-5d91ac8f67d5/prompts/input_20261016_091816_bnypfo.txt
+  tool call: Bash {"command": "cd \"$CC_FACTORY_KIT_DIR\" && pwd && ls -R . | head -50 && echo ---- && cat files/instructions.md && echo ---- && cat grants.md", "description": "Read kit instructions and grants"}
+  tool result: /tmp/factory-definition-p7-eric/director-root/instances/default/factory-run/f559f608-514a-42fd-9d60-5d91ac8f67d5
+.:
+brief.md
+files
+grants.md
+kit.json
+prompts
+records
+rules.json
+work
+
+./files:
+instructions.md
+
+./prompts:
+input_20261016_091816_bnypfo.txt
+
+./records:
+documents.md
+journal.md
+
+./work:
+----
+# The Mail Desk's instructions
+
+The owner writes these. Each morning the seat follows them, and does nothing else.
+
+## The mailbox
+
+TO FILL: which mailbox the seat checks (its address), and how the seat reads it - the tool or command it uses, and
+the name of the cc-secrets entry that holds what it signs in with. Never write a password or a key here.
+
+## The email to act on
+
+TO FILL: which email counts - for example who it comes from and what its subject says - and how far back the seat
+looks each morning.
+
+## What to do when it is there
+
+TO FILL: what the seat does with that email, as plain steps - what it reads in it, what it does, what it writes and
+where, and whom it tells.
+----
+# The grants of the seat mail-desk
+
+This seat uses no grant.
+  agent: Instructions still have TO FILL lines. Writing the journal line and stopping.
+  tool call: Bash {"command": "echo \"Not set up yet: files/instructions.md still has TO FILL:\" | cc-devthrottle factory journal add --factory eric --seat mail-desk --file - && cc-devthrottle run result ok", "description": "Write journal line and report run result"}
+  tool result (error): Exit code 1
+Added: entry 0699e101-5535-4286-8a34-00c414bbfb10 for 2026-10-16 to the journal of mail-desk (57 bytes).
+help[1]:
+  cc-devthrottle factory journal get --factory eric --id 0699e101-5535-4286-8a34-00c414bbfb10
+Error: Session f559f608-514a-42fd-9d60-5d91ac8f67d5 was not started by a schedule, so it has no run to report on. Only a scheduled run's session reports its result. Nothing was recorded.
+help[1]:
+  cc-devthrottle run problems
+  agent: I didn't open any mailbox this morning, because the Mail Desk isn't set up yet. All three sections of `files/instructions.md` (the mailbox, the email to act on, and what to do with it) still start with "TO FILL:".
+
+- **Journal:** I added the line "Not set up yet: files/instructions.md still has TO FILL:" to the mail-desk journal for 2026-10-16.
+- **Run result: not recorded.** `cc-devthrottle run result ok` failed with: "Session f559f608-514a-42fd-9d60-5d91ac8f67d5 was not started by a schedule, so it has no run to report on." The prompt says this is a run of the "Eric - Mail Desk" schedule (cj_1a0182), but the CLI doesn't see the session as linked to it. So this morning's run has no recorded outcome, and the schedule-to-session link probably needs checking.
+
+To get the desk working, someone needs to fill in all three sections of `files/instructions.md`, including the name of the cc-secrets entry for signing in to the mailbox.
+
+# STEP 3 - the session the start started - GET /sessions, the fields that say where and by whom it runs
+{
+  "sessionId": "f559f608-514a-42fd-9d60-5d91ac8f67d5",
+  "name": "Eric - Mail Desk - 2026-10-16 09:09",
+  "repoPath": "<rig>\\director-root\\instances\\default\\factory-run\\f559f608-514a-42fd-9d60-5d91ac8f67d5\\work",
+  "factoryKitDirectory": "<rig>\\director-root\\instances\\default\\factory-run\\f559f608-514a-42fd-9d60-5d91ac8f67d5",
+  "factory": "eric",
+  "factorySeat": "mail-desk",
+  "factoryDefinitionVersion": 2,
+  "directorId": "7cdcc3e8-f984-4e5f-8fc0-eba4109b28a8",
+  "machineName": "<machine>",
+  "agent": "ClaudeCode",
+  "status": "Running"
+}
+
+# STEP 3 - its session history row
+#   read from the rig's gateway.db: SELECT SessionId, DirectorId, Factory, FactorySeat, FactoryDefinitionVersion, RepoPath FROM session_history WHERE SessionId = ? COLLATE NOCASE ['f559f608-514a-42fd-9d60-5d91ac8f67d5']
+  SessionId, DirectorId, Factory, FactorySeat, FactoryDefinitionVersion, RepoPath
+  f559f608-514a-42fd-9d60-5d91ac8f67d5, 7cdcc3e8-f984-4e5f-8fc0-eba4109b28a8, eric, mail-desk, 2, <rig>\director-root\instances\default\factory-run\f559f608-514a-42fd-9d60-5d91ac8f67d5\work
+  (1 rows)
+
+# STEP 3 - every run of the factory's schedule, a minute after the session finished
+#   read from the rig's gateway.db: SELECT Id, JobName, Seat, FiredUtc, Result, InfraStatus, SessionId, ResultReason FROM cron_runs WHERE Factory = ? ORDER BY FiredUtc ['eric']
+  Id, JobName, Seat, FiredUtc, Result, InfraStatus, SessionId, ResultReason
+  68BFDC4A-0E21-45B3-92C1-9EBAD81880BA, Eric - Mail Desk, mail-desk, 2026-10-16 13:10:13.7746778, problem, not-started, None, it did not start a session: The Director did not answer within 30 seconds. It is not known whether the command was carried out.
+  (1 rows)
+
+# STEP 3 - exactly one
+  runs of the schedule: 1
+  sessions of the factory listed now: 1 ['f559f608-514a-42fd-9d60-5d91ac8f67d5']
+  session history rows of the factory: 1
+
+$ cc-devthrottle schedule runs cj_1a0182      (as a person: the rig's enrolled browser device)
++------------------------------------------------------------------------------------------------------------------------------+
+| Scheduled (UTC)      | Fired (UTC)                  | Target                               | Session | Infra       | Task    |
+|----------------------+------------------------------+--------------------------------------+---------+-------------+---------|
+| 2026-10-16T13:09:00Z | 2026-10-16T13:10:13.7746778Z | 7cdcc3e8-f984-4e5f-8fc0-eba4109b28a8 | -       | not-started | unknown |
++------------------------------------------------------------------------------------------------------------------------------+
+[exit 0]
+
+$ cc-devthrottle factory journal list --factory eric --seat mail-desk      (as a person: the rig's enrolled browser device)
+count: 1 of 1.
+0699e101-5535-4286-8a34-00c414bbfb10  2026-10-16  mail-desk  57 bytes  session f559f608-514a-42fd-9d60-5d91ac8f67d5
+help[1]:
+  cc-devthrottle factory journal get --factory eric --id <id>
+[exit 0]
+
+# picture 02-definition-tab-published.png
+  /factories/eric/definition
+
+# picture 03-schedule-runs.png
+  /schedule
+
+# picture 04-seat-page.png
+  /factories/eric/seats/mail-desk
+
+$ cc-devthrottle session stop f559f608-514a-42fd-9d60-5d91ac8f67d5 --reason "the phase 5b QA rig is done with this session"      (as a person: the rig's enrolled browser device)
+stopped f559f608 - process 43004 ended, row removed
+the worktree <rig>\director-root\instances\default\factory-run\f559f608-514a-42fd-9d60-5d91ac8f67d5\work was left untouched - whether it has uncommitted changes could not be determined
+reason: the phase 5b QA rig is done with this session
+help[2]:
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+[exit 0]
+
+# the slot 7 Director stopped by its named shutdown signal
+  signal set: Local\cc-director-shutdown-7cdcc3e8-f984-4e5f-8fc0-eba4109b28a8
+  cc-director7 processes afterwards: []
+
+# cc-director-launch-p7 unregistered
+  Get-ScheduledTask -TaskName 'cc-director-launch-p7' afterwards answered: (no task of that name)
+
+# the shared cc-director-launch task after this run (read only; this rig never changes it)
+  D:\ReposFred\devthrottle\scripts\local-build\cc-director5.exe  (in D:\ReposFred\devthrottle\scripts\local-build)
