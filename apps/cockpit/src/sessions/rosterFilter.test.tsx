@@ -410,11 +410,13 @@ describe("the filter panel", () => {
     expect(screen.queryByRole("button", { name: /^fd-p5/ })).toBeNull();
     expect(screen.queryByText("fd-p5-p6")).toBeNull();
 
-    const toggle = screen.getByRole("button", { name: "Show the worktrees of devthrottle" });
+    const toggle = screen.getByRole("button", { name: "Show 2 worktrees of devthrottle" });
     expect(toggle.textContent).toBe("▸ 2 worktrees");
     fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
 
     const list = screen.getByRole("list", { name: "Worktrees of devthrottle" });
+    expect(toggle.getAttribute("aria-controls")).toBe(list.id);
     expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual(["main checkout2", "fd-p5-p61", "fd-p5-p82"]);
     expect(within(list).queryAllByRole("button")).toHaveLength(0);
 

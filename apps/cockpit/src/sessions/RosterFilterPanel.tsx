@@ -402,7 +402,8 @@ function FilterFacet({
                   type="button"
                   className="rf-worktree-toggle"
                   aria-expanded={open}
-                  aria-label={`${open ? "Hide" : "Show"} the worktrees of ${opt.value}`}
+                  aria-controls={`rf-worktrees-${opt.value}`}
+                  aria-label={`${open ? "Hide" : "Show"} ${worktreeCount} ${worktreeCount === 1 ? "worktree" : "worktrees"} of ${opt.value}`}
                   onClick={() => setExpanded((e) => toggleValue(e, opt.value))}
                 >
                   {open ? "▾" : "▸"} {worktreeCount} {worktreeCount === 1 ? "worktree" : "worktrees"}
@@ -410,7 +411,7 @@ function FilterFacet({
               )}
             </div>
             {open && worktreeCount > 0 && (
-              <ul className="rf-worktrees" aria-label={`Worktrees of ${opt.value}`}>
+              <ul id={`rf-worktrees-${opt.value}`} className="rf-worktrees" aria-label={`Worktrees of ${opt.value}`}>
                 {worktrees.map((w) => (
                   <li key={w.value} className={`rf-worktree${w.value === MAIN_CHECKOUT ? " main" : ""}`}>
                     <span className="rf-opt-label">{w.value === MAIN_CHECKOUT ? "main checkout" : w.value}</span>
