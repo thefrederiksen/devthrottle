@@ -216,8 +216,9 @@ def _fail(message: str, next_commands: List[str]) -> None:
 
 
 def _fail_unknown(message: str, next_commands: List[str]) -> None:
-    """Report an outcome this tool could not learn - not a failure - on standard error, and exit 1."""
-    axi_cli.fail(message, next_commands, label="Not known yet:")
+    """Report an outcome this tool could not learn - not a failure - on standard error, and exit 1. The label is
+    the one `session stop` uses for the same case."""
+    axi_cli.fail(message, next_commands, label="Outcome unknown:")
 
 
 def _create_usage_error(message: str) -> None:
@@ -556,6 +557,7 @@ def list_runs(job_id: str, json_output: bool) -> None:
     table.add_column("Target")
     table.add_column("Session")
     table.add_column("Infra")
+    table.add_column("How it ended")
     table.add_column("Task")
 
     for run in history:
@@ -565,6 +567,8 @@ def list_runs(job_id: str, json_output: bool) -> None:
             _fmt(run.get("targetDirectorId")),
             _fmt(run.get("sessionId")),
             _fmt(run.get("infraStatus")),
+            # The Gateway's own words for how the run went (review of P10), never a status this tool interprets.
+            _fmt(run.get("endingText")),
             _fmt(run.get("taskStatus")),
         )
     console.print(table)
@@ -827,8 +831,8 @@ def show_plan(job_id: str, days: int, json_output: bool) -> None:
 def run_now_gave_up(seconds: int) -> str:
     """What `schedule run` says when it stops waiting. Never that the run failed: the Gateway goes on starting it
     once it has decided to run (QA finding 9), and only the schedule's runs can say how that went."""
-    return (f"the Gateway did not answer within {seconds} seconds, so whether the run started is not known yet. "
-            "It may still be starting: the Gateway goes on with it after this command stops waiting. "
+    return (f"the Gateway did not answer within {seconds} seconds. "
+            "The run may still be starting: the Gateway goes on with it after this command stops waiting. "
             "The schedule's runs show how it went.")
 
 

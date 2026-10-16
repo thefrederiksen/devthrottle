@@ -118,6 +118,8 @@ export interface CronRunRecord {
   targetDirectorId: string;
   sessionId?: string | null;
   infraStatus: string;
+  /** How infraStatus is shown - "ok", "warn", "err" or "dim" - folded by the Gateway on every read. Render it as given. */
+  infraTone?: string | null;
   taskStatus: string;
   /** How the run's session ended, folded by the Gateway (CronRunEndings), for example "closed-itself". Read-only. */
   ending?: string | null;

@@ -45,6 +45,10 @@ public sealed class CronEngine
     /// <summary>The last status of a window schedule whose missed run was not started because its deadline had passed.</summary>
     public const string SkippedPastDeadline = "skipped: past its deadline";
 
+    /// <summary>The infrastructure status of a run whose create was sent and whose outcome the Gateway never learned
+    /// (<see cref="CronRunResults.StartUnknown"/>) - never "not-started", because its session may have started.</summary>
+    public const string StartUnknownStatus = "start-unknown";
+
     private readonly CronJobStore _store;
     private readonly CronRunHistoryStore _history;
     private readonly ICronSessionStarter _starter;
@@ -237,6 +241,8 @@ public sealed class CronEngine
             int? briefVersion = null;            // the seat's brief the Gateway gave the run, when it gave one
             string? briefVersionKind = null;     // and which kind of version that is: the brief's own, or the definition's
             bool started;
+            bool startUnknown = false;           // the create was sent and its outcome is not known
+            string? sessionName = null;          // the exact name the start asked its session to be given
             string baseStatus;
             if (isWorkList)
             {
@@ -248,9 +254,14 @@ public sealed class CronEngine
             }
             else
             {
-                (sessionId, resolvedDirectorId, error, briefVersion, briefVersionKind) = await _starter.StartRunAsync(job, ct);
+                var start = await _starter.StartRunAsync(job, ct);
+                (sessionId, resolvedDirectorId, error, briefVersion, briefVersionKind) = start;
                 started = sessionId is not null;
-                baseStatus = started ? "started" : "not-started";
+                // A create whose outcome is not known may have started its session (review of P10, finding 1): it is
+                // its own status and result, never a run that did not run.
+                startUnknown = !started && start.OutcomeUnknown;
+                sessionName = start.SessionName;
+                baseStatus = started ? "started" : startUnknown ? StartUnknownStatus : "not-started";
             }
 
             var firedUtc = _clock.UtcNow;
@@ -269,11 +280,19 @@ public sealed class CronEngine
                 // Which brief this run was given, fixed on the run: the brief can be published again a minute later.
                 BriefVersion = briefVersion,
                 BriefVersionKind = briefVersionKind,
+                // What a start whose outcome is not known is later matched by (review of P10, the heal by name).
+                SessionName = sessionName,
             };
             // How the run went (Factory Control, step 1). A started session owes its report. A fire that started
             // nothing did not run. A work-list drain starts many sessions and records none, so no one session can
             // report for it - it is untracked, as is a drain that found its list empty (nothing was due).
-            if (!started)
+            if (startUnknown)
+            {
+                record.Result = CronRunResults.StartUnknown;
+                record.ResultReason = StartUnknownReason(error);
+                record.ResultUtc = firedUtc;
+            }
+            else if (!started)
             {
                 record.Result = CronRunResults.Problem;
                 record.Problem = CronRunProblems.DidNotRun;
@@ -310,8 +329,9 @@ public sealed class CronEngine
                 _store.MarkFired(job.Id, firedUtc, infraStatus, next, enabled: true);
             }
 
-            // Only once the schedule has moved on: a failure telling the factory must never leave the job due again.
-            if (!started)
+            // Only once the schedule has moved on: a failure telling the factory must never leave the job due again. A
+            // start whose outcome is not known owes its factory no row: it is neither a failure nor a result.
+            if (!started && !startUnknown)
                 _onResultRecorded?.Invoke(tenant, job, record);
 
             if (error is not null)
@@ -442,6 +462,11 @@ public sealed class CronEngine
 
         await _notifier.NotifyRunCompletedAsync(job, directorId ?? "", payload, ct);
     }
+
+    private static string StartUnknownReason(string? error) =>
+        string.IsNullOrWhiteSpace(error)
+            ? "whether it started a session is not known"
+            : $"whether it started a session is not known: {error}";
 
     private static string DidNotStartReason(bool isWorkList, string? error) =>
         string.IsNullOrWhiteSpace(error)

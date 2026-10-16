@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261016143241_AddApiModeReceipts")]
-    partial class AddApiModeReceipts
+    [Migration("20261016140259_AddSessionNameToCronRuns")]
+    partial class AddSessionNameToCronRuns
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -188,108 +188,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId", "SessionId", "OccurredUtc");
 
                     b.ToTable("activity_events", "gateway");
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeReceiptEntity", b =>
-                {
-                    b.Property<string>("TenantId")
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("SessionId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .UseCollation("C");
-
-                    b.Property<string>("PromptId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .UseCollation("C");
-
-                    b.Property<string>("Acknowledgement")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("DeliveredAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DirectorId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("Disposition")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<DateTime>("FirstGenerationStartedUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("FirstSequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("LastGeneration")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTime>("LastGenerationStartedUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("LastSequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("QueueReason")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<DateTime?>("QueuedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RefusalReason")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("RefusedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RefusedBy")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<DateTime?>("TurnEndedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TurnId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .UseCollation("C");
-
-                    b.Property<string>("TurnOutcome")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("TurnOutcomeReason")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("TenantId", "SessionId", "PromptId");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "UpdatedAtUtc");
-
-                    b.HasIndex("TenantId", "SessionId", "TurnId");
-
-                    b.ToTable("api_mode_receipts", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.CronJobEntity", b =>
@@ -469,6 +367,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<string>("SessionId")
                         .HasColumnType("text");
+
+                    b.Property<string>("SessionName")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
 
                     b.Property<string>("TargetDirectorId")
                         .IsRequired()

@@ -27,7 +27,10 @@ public sealed class PushApiModeEventsHubTests : IDisposable
     private readonly PushedSessionStore _store = new(() => T0.UtcDateTime);
     private readonly GatewayInputStatsAggregator _inputStats;
     private readonly GatewayDbTestHarness _harness = new();
-    private readonly HostedTenantBoundary _boundary = new(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(), hosted: false);
+    // The device registry lives over this test's own harness database. The parameterless registry opens the default store
+    // every test class shares, and two classes building it at once collide on its import marker (a UNIQUE failure on
+    // device_import_markers that failed this class beside DirectorHubTests).
+    private readonly HostedTenantBoundary _boundary;
     private readonly ApiModeReceiptStore _receipts;
     private readonly ApiModeEventBuffer _buffer = new();
 
@@ -37,6 +40,9 @@ public sealed class PushApiModeEventsHubTests : IDisposable
         _registry = new DirectorRegistry(_tempDir);
         _inputStats = new GatewayInputStatsAggregator(Path.Combine(_tempDir, "gateway-stats.db"));
         _receipts = new ApiModeReceiptStore(_harness.Open(), () => T0.UtcDateTime);
+        var devices = _harness.LegacyPath("devices.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(devices)!);
+        _boundary = new HostedTenantBoundary(new SingleTenantContext(), new CcDirector.Gateway.Pairing.DeviceRegistry(_harness.Open(), devices), hosted: false);
     }
 
     public void Dispose()

@@ -98,8 +98,10 @@ public static class FactoryPublishPlan
             var pairing = FactoryDefinitionChanges.PairStarts(liveStarts, timedStarts);
             foreach (var guess in FactoryDefinitionChanges.Undecided(pairing, liveStarts, timedStarts,
                          (a, b) => Interchangeable(live[a], live[b])))
-                guesses.Add(Error(SeatFile(seat), ScheduleGuess(guess.New.Select(n => timed[n] + 1).ToList(),
-                    guess.Old.Select(o => live[o]).ToList())));
+                guesses.Add(Error(SeatFile(seat), guess.TooMany
+                    ? TooManyToJudge(guess.Old.Count, guess.New.Count, "schedule")
+                    : ScheduleGuess(guess.New.Select(n => timed[n] + 1).ToList(), guess.Old.Select(o => live[o]).ToList(),
+                        guess.New.Select(n => timedStarts[n]).ToList(), guess.PairedWorse)));
             var ids = new List<string>();
             var ofSeat = new List<PlannedSchedule>();
             foreach (var pair in pairing.Pairs)
@@ -280,43 +282,69 @@ public static class FactoryPublishPlan
             foreach (var guess in FactoryDefinitionChanges.Undecided(pairing, liveStarts, intervalStarts,
                          (a, b) => live[a].Paused == live[b].Paused
                                    && FactoryDefinitionChanges.SameStart(liveStarts[a], liveStarts[b])))
-                yield return Error(SeatFile(seat), TriggerGuess(guess.New.Select(n => interval[n] + 1).ToList(),
-                    guess.Old.Select(o => live[o]).ToList()));
+                yield return Error(SeatFile(seat), guess.TooMany
+                    ? TooManyToJudge(guess.Old.Count, guess.New.Count, "trigger")
+                    : TriggerGuess(guess.New.Select(n => interval[n] + 1).ToList(), guess.Old.Select(o => live[o]).ToList(),
+                        guess.New.Select(n => intervalStarts[n]).ToList(), guess.PairedWorse));
         }
     }
 
     /// <summary>
     /// The refusal of a guessed pairing of schedules, on the seat's file: the starts by number (their place in the
-    /// seat's list, counting from 1), the live schedules by id, name and switch, and the way to publish it.
+    /// seat's list, counting from 1), the live schedules by id, name and switch, and the way to publish it - chosen by
+    /// what the schedules have in common (<see cref="Remedy"/>).
     /// </summary>
-    internal static string ScheduleGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<CronJobEntity> schedules)
+    internal static string ScheduleGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<CronJobEntity> schedules,
+        IReadOnlyList<SeatStartDefinition> starts, bool pairedWorse)
         => Guess(startNumbers, schedules.Count == 1 ? "schedule" : "schedules",
             schedules.Select(j => $"{j.Id} ({j.Name}, {(j.Enabled ? "enabled" : "paused")})").ToList(), "schedule",
-            SharePrompt(schedules.Select(j => j.Action.Seed ?? "").ToList()), "pause or enable");
+            Remedy(schedules.Select(AsStart).ToList(), starts, pairedWorse, "schedule", "time", "move them",
+                "first make them alike in their switch, notifications, webhook, work list and whether their runs close themselves, then publish"));
 
     /// <summary>The refusal of a guessed pairing of definition triggers, as <see cref="ScheduleGuess"/>.</summary>
-    internal static string TriggerGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<TriggerEntity> triggers)
+    internal static string TriggerGuess(IReadOnlyList<int> startNumbers, IReadOnlyList<TriggerEntity> triggers,
+        IReadOnlyList<SeatStartDefinition> starts, bool pairedWorse)
         => Guess(startNumbers, triggers.Count == 1 ? "trigger" : "triggers",
             triggers.Select(t => $"{t.Name} ({(t.Paused ? "paused" : "running")})").ToList(), "trigger",
-            SharePrompt(triggers.Select(t => t.Prompt).ToList()), "pause or resume");
+            Remedy(triggers.Select(AsStart).ToList(), starts, pairedWorse, "trigger", "interval", "change the intervals",
+                "first pause or resume them so their pause switches match, then publish"));
 
-    // Two of the rows already hold one prompt, so an unchanged prompt cannot tell them apart.
-    private static bool SharePrompt(IReadOnlyList<string> prompts) => prompts.Distinct(StringComparer.Ordinal).Count() < prompts.Count;
+    /// <summary>The refusal when a seat has more pairings to try than <see cref="FactoryDefinitionChanges.MaxPairingsJudged"/>.</summary>
+    internal static string TooManyToJudge(int rows, int starts, string row)
+        => $"This seat's {rows} live {row}s and {starts} starts that are not written exactly as one can be paired in more " +
+           $"than {FactoryDefinitionChanges.MaxPairingsJudged.ToString("N0", System.Globalization.CultureInfo.InvariantCulture)} ways, more than a publish checks for a guess. Publish " +
+           "the changes in steps, changing fewer of these starts at a time.";
 
     /// <summary>
-    /// The finding: which starts and rows, why, and what to do. When two of the rows already share a prompt, publishing
-    /// the prompts unchanged would be refused again, so the person matches the switches or makes the prompts differ.
+    /// WHAT TO DO, BY SHAPE (review of 4063, finding 5), so following the instruction never meets the same refusal:
+    /// two rows with the same time and the same prompt can only be told apart by what a publish keeps, so the person
+    /// makes them alike in it; two rows with the same prompt at different times are told apart by a kept time, so the
+    /// edits go first and the move after. When a start is written with a prompt one of the rows holds today, or the
+    /// pairing made scores less than another (review of 4067, finding 6), keeping the prompts unchanged is the live
+    /// factory itself and the edits after it the same refusal, so the starts are changed one at a time: one changed start
+    /// over the rest kept exactly is paired with no choice to make. Otherwise a kept prompt tells them apart, so the move
+    /// goes first and the edits after.
     /// </summary>
-    private static string Guess(IReadOnlyList<int> startNumbers, string rows, IReadOnlyList<string> named, string row,
-        bool sharePrompt, string pauseOr)
+    private static string Remedy(IReadOnlyList<SeatStartDefinition> rows, IReadOnlyList<SeatStartDefinition> starts,
+        bool pairedWorse, string row, string time, string thenMove, string makeAlike)
+    {
+        var pairs = rows.SelectMany((a, i) => rows.Skip(i + 1).Select(b => (a, b))).Where(x => x.a.Prompt == x.b.Prompt).ToList();
+        if (pairs.Any(x => FactoryDefinitionChanges.SameWhen(x.a, x.b)))
+            return $"These {row}s share a {time} and a prompt, so {makeAlike}.";
+        if (pairs.Count > 0)
+            return $"These {row}s share a prompt, so publish once with these starts' {time}s unchanged, so each pairs with " +
+                   $"its own {row} by its {time}, then {thenMove}.";
+        if (pairedWorse || starts.Any(s => rows.Any(r => r.Prompt == s.Prompt)))
+            return "Change these starts one at a time, publishing after each.";
+        return $"Publish once with these starts' prompts unchanged, so each pairs with its own {row} by its prompt, then " +
+               "publish the prompt edits.";
+    }
+
+    /// <summary>The finding: which starts and rows, why, and what to do.</summary>
+    private static string Guess(IReadOnlyList<int> startNumbers, string rows, IReadOnlyList<string> named, string row, string remedy)
         => $"{(startNumbers.Count == 1 ? "Start" : "Starts")} {JoinAnd(startNumbers.Select(n => n.ToString()).ToList())} " +
            $"cannot be paired with the live {rows} {JoinAnd(named)} without a guess: nothing in the draft tells them " +
-           $"apart, so a publish could give a {row}'s switch to the wrong start. " +
-           (sharePrompt
-               ? $"These {row}s share a prompt, so first {pauseOr} them so their switches match, or give these starts " +
-                 "different prompts."
-               : $"Publish once with these starts' prompts unchanged, so each pairs with its own {row} by its prompt, " +
-                 "then publish the prompt edits.");
+           $"apart, so a publish could give a {row}'s switch to the wrong start. {remedy}";
 
     private static string JoinAnd(IReadOnlyList<string> items)
         => items.Count == 1 ? items[0] : string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1];

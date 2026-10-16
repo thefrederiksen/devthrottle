@@ -91,6 +91,10 @@ public sealed class CronRunEntity : GatewayMintedKeyEntity
     /// and every one of them was a brief version.</summary>
     public string? BriefVersionKind { get; set; }
 
+    /// <summary>The exact name the run asked its session to be given (<see cref="Contracts.CronRunRecord.SessionName"/>).
+    /// Null for a work-list drain, a checked run's due row, and every row recorded before this column existed.</summary>
+    public string? SessionName { get; set; }
+
     // ---- Factory Definition, phase 5b: the due check of a schedule with a check. Null on every other run. ----
 
     /// <summary>The Director that holds this run's check, while the run is <c>checking</c>: it was handed the check and

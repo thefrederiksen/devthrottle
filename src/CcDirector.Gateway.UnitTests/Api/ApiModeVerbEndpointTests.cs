@@ -39,6 +39,8 @@ public sealed class ApiModeVerbEndpointTests : IDisposable
     private static readonly TenantId OtherAccount = new("tenant-b");
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-wheel-" + Guid.NewGuid().ToString("N"));
+    private readonly CcDirector.Gateway.Tests.Data.GatewayDbTestHarness _harness = new();
+    private HostedTenantBoundary? _boundary;
     private readonly DirectorRegistry _registry;
     private readonly PushedSessionStore _pushed = new(() => Now);
     private readonly List<(string DirectorId, string Verb, string SessionId)> _sent = new();
@@ -55,6 +57,7 @@ public sealed class ApiModeVerbEndpointTests : IDisposable
     public void Dispose()
     {
         _registry.Dispose();
+        _harness.Dispose();
         try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); } catch (IOException) { /* test cleanup */ }
     }
 
@@ -519,8 +522,10 @@ public sealed class ApiModeVerbEndpointTests : IDisposable
         return Task.FromResult(_director(command));
     }
 
-    private static HostedTenantBoundary SelfHostBoundary() =>
-        new(new SingleTenantContext(), new DeviceRegistry(), hosted: false);
+    // The device registry lives over this test's own harness database, never the machine's default registry: that one is
+    // shared by every test class in the process, and two building it at once collide on its import marker.
+    private HostedTenantBoundary SelfHostBoundary() =>
+        _boundary ??= new(new SingleTenantContext(), new DeviceRegistry(_harness.Open(), _harness.LegacyPath("devices.json")), hosted: false);
 
     private Task<IResult> MoveAsync(string sid, ApiModeVerb verb, HttpContext? ctx = null) =>
         GatewayEndpoints.RunApiModeVerbAsync(ctx ?? new DefaultHttpContext(), sid, verb, SelfHostBoundary(), _registry, _pushed,

@@ -576,7 +576,7 @@ export function ScheduleView() {
                     <td className="mono">{fmtUtc(r.scheduledUtc)}</td>
                     <td className="mono">{fmtUtc(r.firedUtc)}</td>
                     <td>
-                      <span className={`sched-st ${infraClass(r.infraStatus)}`}>{r.infraStatus}</span>
+                      <span className={`sched-st ${r.infraTone ?? ""}`} data-testid="sched-run-infra">{r.infraStatus}</span>
                     </td>
                     <td className="dim">{r.shiftText ?? "-"}</td>
                     <td className="dim">{r.endingText ?? r.taskStatus}</td>
@@ -934,10 +934,3 @@ function runRecordRank(verdict: string | null | undefined): number {
   return 1;
 }
 
-function infraClass(infra: string): string {
-  if (infra === "started" || infra === "worklist-started") return "ok";
-  if (infra === "catch-up") return "warn";
-  if (infra === "not-started") return "err";
-  if (infra.startsWith("worklist-") && infra !== "worklist-started") return "warn";
-  return "dim";
-}

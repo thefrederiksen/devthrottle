@@ -32,6 +32,16 @@ public sealed class CronRunRecordReader
         return runs;
     }
 
+    /// <summary>One run just recorded - the answer of a run now - with its ending and tone folded on, exactly as the run
+    /// table shows it, so every reader of a run gets the Gateway's words (review of P10).</summary>
+    public CronRunRecord Folded(CronRunRecord run, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        var one = new[] { run };
+        CronRunEndingFold.Stamp(one, _endingsOf(SessionIdsOf(one)), nowUtc);
+        return run;
+    }
+
     /// <summary>The run record of each of these schedules, keyed by job id. A schedule that never ran is absent.</summary>
     public IReadOnlyDictionary<string, CronRunRecordSummaryDto> SummariesOf(IReadOnlyCollection<string> jobIds, DateTime nowUtc)
     {
