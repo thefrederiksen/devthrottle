@@ -92,6 +92,10 @@ public class PersistedSession
     /// session relaunches on the model it was started with.</summary>
     public string? LaunchModel { get; set; }
 
+    /// <summary>How the Director drove the agent (issue #4070): <c>api</c>, or null for terminal (absent in a file
+    /// written before the field existed).</summary>
+    public string? ConnectionMode { get; set; }
+
     /// <summary>True when the name was auto-composed at birth (automatic session roles, chunk 3). Persisted
     /// so an explicit human/self rename is never re-auto-named after a restart.</summary>
     public bool IsAutoNamed { get; set; }

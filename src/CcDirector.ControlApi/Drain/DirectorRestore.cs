@@ -761,6 +761,8 @@ public sealed class DirectorRestore
             FactoryKit = seat.FactoryKit,
             // And the model it was started on, so the restored seat relaunches on it rather than on the default.
             Model = seat.LaunchModel,
+            // And the way it was driven, so an API-mode seat comes back in API mode on its own conversation (issue #4070).
+            ConnectionMode = seat.ConnectionMode,
             // THE SEAT'S KIT FOLDER, HANDED BACK (Factory Definition, phase 5): the restored seat resumes in the folder
             // it ran in, and the Director refreshes the kit there and keeps its work/.
             FactoryKitDirectory = string.IsNullOrWhiteSpace(seat.FactoryKitDirectory) ? null : seat.FactoryKitDirectory,

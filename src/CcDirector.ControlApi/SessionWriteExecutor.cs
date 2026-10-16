@@ -66,6 +66,8 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         // REST lambda verbatim, so the (Phase-4-DEFERRED) REST path and the tunnel verb share one core and
         // cannot drift.
         "repo-add", "repo-rename", "handover-create", "handover-delete",
+        // API mode (issue #4070): Stop for an API-mode session, sent by the Gateway's POST /sessions/{id}/turn/stop.
+        "turn-stop",
     };
 
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
@@ -75,6 +77,7 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         {
             "prompt" => await SessionCommandExecutor.PromptAsync(sessionManager, command, context.Source),
             "interrupt" => await SessionCommandExecutor.InterruptAsync(sessionManager, command),
+            "turn-stop" => await SessionCommandExecutor.TurnStopAsync(sessionManager, command),
             "escape" => await SessionCommandExecutor.EscapeAsync(sessionManager, command),
             "hold" => SessionCommandExecutor.Hold(sessionManager, command),
             "kill" => await SessionCommandExecutor.KillAsync(sessionManager, command),

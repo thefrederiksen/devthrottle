@@ -844,6 +844,42 @@ internal static class SessionCommandExecutor
         return await InterruptCoreAsync(session);
     }
 
+    /// <summary>The words a terminal session's Stop is refused with: it has no protocol to abort over.</summary>
+    internal const string TurnStopNotApiModeReason =
+        "This session is not in API mode, so there is no protocol turn to stop. Use interrupt for a terminal session.";
+
+    /// <summary>
+    /// The <c>turn-stop</c> verb (API mode mission, issue #4070): Stop an API-mode session's running turn with the
+    /// agent's own abort, and answer once the agent has confirmed it - the turn ended cancelled, or nothing was running.
+    /// A terminal session is refused (Conflict) with a sentence that points at interrupt; nothing is sent to it.
+    /// </summary>
+    internal static async Task<DirectorCommandResult> TurnStopAsync(SessionManager sessionManager, DirectorCommand command)
+    {
+        FileLog.Write($"[SessionCommandExecutor] TurnStopAsync: session={command.SessionId}");
+        if (!Guid.TryParse(command.SessionId, out var guid))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
+
+        var session = sessionManager.GetSession(guid);
+        if (session is null)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+        return await TurnStopCoreAsync(session);
+    }
+
+    /// <summary>The turn-stop core, past the guards: refuse a terminal session, otherwise Pi's abort, confirmed.</summary>
+    internal static async Task<DirectorCommandResult> TurnStopCoreAsync(Session session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (session.ConnectionMode != Core.ApiMode.SessionConnectionMode.Api)
+        {
+            FileLog.Write($"[SessionCommandExecutor] TurnStopCoreAsync: REFUSED session={session.Id}: not in API mode");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, TurnStopNotApiModeReason);
+        }
+
+        await session.CancelTurnAsync();
+        FileLog.Write($"[SessionCommandExecutor] TurnStopCoreAsync: session={session.Id}, the agent confirmed the stop");
+        return DirectorCommandResult.Success();
+    }
+
     /// <summary>The interrupt core, past the guards. A driver's <see cref="NotSupportedException"/> is the
     /// expected "this CLI has no safe hard interrupt" signal, surfaced as a typed Conflict result.</summary>
     internal static async Task<DirectorCommandResult> InterruptCoreAsync(Session session)
@@ -1675,6 +1711,18 @@ internal static class SessionCommandExecutor
             controllerSessionId = parsedControllerId;
         }
 
+        // HOW THE AGENT IS DRIVEN (API mode mission, issue #4070): absent is terminal, as before the field existed. An
+        // unknown word is refused here, in words, rather than started as something nobody asked for.
+        Core.ApiMode.SessionConnectionMode connectionMode;
+        try
+        {
+            connectionMode = Core.ApiMode.SessionConnectionModeWords.FromWord(req.ConnectionMode);
+        }
+        catch (ArgumentException ex)
+        {
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
+        }
+
         // A RESTORED SEAT BRINGS ITS OWN SLOT. Only a complete record is honoured - all four of
         // repository, slot, path and lease - because the lease is the whole point of carrying it and
         // a record missing any part of itself names a slot this Director could not give back. An
@@ -1747,7 +1795,8 @@ internal static class SessionCommandExecutor
                 },
                 reattachPooledWorktree: reattachPooledWorktree,
                 factoryKit: factoryKit,
-                forcePooledWorktree: forcePooledWorktree);
+                forcePooledWorktree: forcePooledWorktree,
+                connectionMode: connectionMode);
         }
         catch (Exception ex)
         {

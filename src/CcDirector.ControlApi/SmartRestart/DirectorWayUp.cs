@@ -1040,6 +1040,8 @@ public sealed class DirectorWayUp : IDirectorWayUp
             FactoryKit = seat.FactoryKit,
             // And the model it was started on, so the restored seat relaunches on it rather than on the default.
             Model = seat.LaunchModel,
+            // And the way it was driven, so an API-mode seat reopens in API mode on its own conversation (issue #4070).
+            ConnectionMode = seat.ConnectionMode,
             // The seat's kit folder, handed back for the reason DirectorRestore.BuildRequest gives (phase 5). A reopen
             // RESUMES the conversation, and Claude Code finds it by the folder, so the folder must be the same one.
             FactoryKitDirectory = string.IsNullOrWhiteSpace(seat.FactoryKitDirectory) ? null : seat.FactoryKitDirectory,

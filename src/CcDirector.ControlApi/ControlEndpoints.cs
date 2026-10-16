@@ -321,6 +321,11 @@ internal static class ControlEndpoints
             // Who started the current work (the Message Load mission): the Gateway's working edge spares an
             // armed snooze for agent-origin work only. A fact, like the one above; the Gateway rules on it.
             WorkingOrigin = s.WorkingOrigin,
+            // API mode (issue #4070): how the Director drives the agent, and who holds the conversation. Facts; the
+            // Gateway rules on what they mean.
+            ConnectionMode = Core.ApiMode.SessionConnectionModeWords.ToWord(s.ConnectionMode),
+            WheelHolder = Core.ApiMode.SessionConnectionModeWords.WheelHolderOf(
+                s.ConnectionMode, s.Status is SessionStatus.Exited or SessionStatus.Failed),
             // Prompts that did not go (issue internal#811). Only this machine can see a delivery fail, so
             // the counts and the unresolved flag are reported here as FACTS; the Gateway folds the words.
             // Before this they existed solely as a line in a Director log file, which is how two spoken

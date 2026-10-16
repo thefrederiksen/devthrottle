@@ -151,6 +151,9 @@ public static class WorkspaceCapture
             FactoryDefinitionVersion = s.FactoryDefinitionVersion,
             FactoryKit = string.IsNullOrWhiteSpace(s.FactoryKit) ? null : s.FactoryKit,
             LaunchModel = string.IsNullOrWhiteSpace(s.LaunchModel) ? null : s.LaunchModel,
+            // How the agent was driven (API mode mission, issue #4070): kept only when it is API mode, so a terminal
+            // seat's record is exactly what it was before the field existed.
+            ConnectionMode = s.ConnectionMode == ConnectionModes.Api ? ConnectionModes.Api : null,
 
             // The seat's kit folder, captured so the restore resumes the seat in it (Factory Definition, phase 5).
             FactoryKitDirectory = string.IsNullOrWhiteSpace(s.FactoryKitDirectory) ? null : s.FactoryKitDirectory,

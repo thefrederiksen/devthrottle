@@ -2378,6 +2378,7 @@ public sealed class SessionManager : IDisposable
                 FactoryKit = s.FactoryKit,
                 FactoryStartOverride = s.FactoryStartOverride,
                 LaunchModel = s.LaunchModel,
+                ConnectionMode = s.ConnectionMode == SessionConnectionMode.Api ? SessionConnectionModeWords.ToWord(s.ConnectionMode) : null,
                 IsAutoNamed = s.IsAutoNamed,
                 MissionId = s.MissionId,
                 MissionName = s.MissionName,
