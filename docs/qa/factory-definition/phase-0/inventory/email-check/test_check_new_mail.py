@@ -281,3 +281,34 @@ def test_redact_SenderAndSubject_KeepsOnlyTheDomainAndABounceMarker():
         "2026-10-14T09:01:00Z from <someone>@mail.example - Undeliverable: <rest withheld> [archive]",
         "(3 more not shown)",
     ]
+
+
+def test_run_NoAddressesInTheRules_SignsInAndReadsAtMicrosoft(setup):
+    go, _ = setup
+    _, fake = go({})
+    assert fake.calls[0] == ("POST", "https://login.microsoftonline.com/tenant/oauth2/v2.0/token")
+    assert all(url.startswith("https://graph.microsoft.com/v1.0/users/") for _, url in fake.calls[1:])
+
+
+def test_run_RulesNameAFakeMailbox_SignsInAndReadsThereOnly(tmp_path, monkeypatch):
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(json.dumps({"people": [{"address": "cto@firm-b.example", "sent": "2026-10-08"}]}), encoding="utf-8")
+    rules = {"mailbox": "outreach@example.com", "folders": ["inbox"], "ledger": str(ledger),
+             "bounceSubjectMarkers": [], "firstRunLookbackHours": 24, "secrets": SECRETS,
+             "graph": "http://127.0.0.1:7990/v1.0", "signIn": "http://127.0.0.1:7990/sign-in"}
+    state = tmp_path / "state.json"
+    state.write_text("", encoding="utf-8")
+    calls = []
+
+    def fake(method, url, headers=None, form=None):
+        calls.append((method, url))
+        if "/sign-in/" in url:
+            return {"access_token": "token"}
+        return {"value": [msg("1", "2026-10-14T09:00:00Z", "cto@firm-b.example", "Re: hello")]}
+
+    monkeypatch.setattr(cnm, "http_json", fake)
+    result = cnm.run(rules, ENV, str(state), NOW)
+    assert result["count"] == 1
+    assert calls[0] == ("POST", "http://127.0.0.1:7990/sign-in/tenant/oauth2/v2.0/token")
+    assert calls[1][1].startswith("http://127.0.0.1:7990/v1.0/users/outreach%40example.com/mailFolders/inbox/messages?")
+    assert len(calls) == 2

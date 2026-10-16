@@ -198,7 +198,9 @@ with `--env-name` set to the rule's names, so the check itself is not affected.
 with `--via env --env-name`, and the Director tells the check where each arrived in `CC_CHECK_SECRET_VARS`. The email
 check now reads its three entries through that variable, by the entry names `mail-rules.json` gives (`secrets`), and
 a folder with more than 500 new messages no longer fails forever: the check reads the oldest 500, advances that
-folder's state past them and says "more not shown" (the state is kept per folder for that reason).
+folder's state past them and says "more not shown" (the state is kept per folder for that reason). Two optional
+rules keys, `graph` and `signIn`, say where Graph and its sign-in are (the real Microsoft addresses when left out);
+only the phase 5b QA rig sets them, to point the check at a fake mailbox on the machine.
 
 ### Refusals
 
