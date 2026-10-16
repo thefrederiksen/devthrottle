@@ -9,8 +9,11 @@ namespace CcDirector.DeliveryQualification;
 
 public static class Rig
 {
-    /// <summary>A small git repository for one rig slot, with the README the at-reference text names.</summary>
-    public static string EnsureRepo(string dir)
+    /// <summary>A small git repository for one rig slot, with the README the at-reference text names. With
+    /// <paramref name="trust"/> it is marked trusted for Claude Code through the product's own writer, as an owner who
+    /// had opened it once would have - so the rig measures delivery, not the folder-trust question, which is a
+    /// scenario of its own (untrusted-folder).</summary>
+    public static string EnsureRepo(string dir, bool trust = true)
     {
         Directory.CreateDirectory(dir);
         var readme = Path.Combine(dir, "README.md");
@@ -21,6 +24,11 @@ public static class Rig
             Git(dir, "init -q");
             Git(dir, "add README.md");
             Git(dir, "-c user.name=rig -c user.email=rig@delivery-qa.invalid commit -q -m init");
+        }
+        if (trust)
+        {
+            var folderTrust = new CcDirector.Core.Claude.ClaudeFolderTrust(CcDirector.Core.Claude.ClaudeFolderTrust.ConfigPathForThisUser());
+            if (!folderTrust.IsRecorded(dir)) folderTrust.Trust(dir);
         }
         return dir;
     }
