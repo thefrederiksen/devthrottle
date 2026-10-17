@@ -169,3 +169,94 @@ released by hand back could only be read from the queue code it will use (sectio
    waiting. Not reachable today; worth a check in `BuildPrompt`'s one caller if that ever changes.
 8. **Hand back** will carry the text if, and only if, it releases prompts through the existing queue
    entries. A hand back that re-reads prompts from anywhere else would need its own proof.
+
+## 4. Second review: `promptText` made optional on the wire
+
+Pull request #4121 at its new head `1b4df19be`, reviewed on 17 October 2026 on devlinux by a second
+Reviewer seat (session 134), in its own worktree cut from `origin/apimode/p4-prompt-text`. Scope: the
+one commit after `b4c0c84cb` other than the merge of `origin/main`, which makes `PromptText` optional
+(`string?`, null when absent) on `PromptQueued`, `PromptDelivered` and `PromptRefused` by the Delivery
+Lead's ruling. It touches five files: the contract, `event-model.md`, one Core contract test and two
+Gateway ingest test files. Everything else in the pull request was held by the review above and was not
+re-read. Not run: the whole local gate, the rest of the Gateway unit suite, any real Pi, and no deploy.
+
+**Verdict: the change holds. No finding proves harm.** An event without the field is read with null text
+and accepted everywhere the Gateway reads events; nothing on the Gateway dereferences the field; every
+Director writer still fills it; the new tests are real proofs through the real ingest and store; and the
+document says what the code does.
+
+### What was checked, and found right
+
+1. **Nothing on the Gateway reads `PromptText` at all, so nothing can dereference a null.** A search of
+   `src/CcDirector.Gateway`, `Gateway.Contracts` and `Gateway.Abstractions` for the name finds only the
+   three declarations in `SessionEvents.cs` (and the unrelated `VoiceCommandResponse.PromptText`). In
+   particular: `ApiModeEventIngest.FeedReceipts` passes `PromptId`, `Reason`, `Disposition`,
+   `Acknowledgement` and `RefusedBy` to the receipt store and never the text; `CheckFields` checks the id,
+   the acknowledgement and the refusal reason and never the text, so no `Text(...)` check can throw on it;
+   `ApiModeReceiptStore.RecordQueued`, `RecordDelivered` and `RecordRefused` take no text parameter and
+   the store has no text column; `ApiModeLiveRuling` folds the three prompt events by `Sequence` and
+   `PromptId` only; and `SessionLiveEndpoint` serialises folded `ApiModeLiveItem` rows, never the raw
+   events, so a null never reaches a client. The Cockpit and the mobile app have no `promptText` reader.
+2. **An event without the field is accepted on every read path.** `Parse` reads each event with
+   `SessionEventJson.Options`, which are the default options plus out-of-order metadata; with the
+   `required` modifier gone, a missing `promptText` is simply null and no `JsonException` is raised, so
+   the batch is no longer turned into an `ArgumentException` and dropped. The buffer and the receipt feed
+   then see an ordinary event. Confirmed by running the tests (below), not only by reading.
+3. **The Director still fills it for every prompt.** The four writers are unchanged by this commit and
+   each assigns a non-null string: `ApiModeSessionHost` line 237 (`PromptText = text`, the queued
+   prompt's text) and `RefusedByDirector` at line 786 (`PromptText = promptText`, a `string` parameter);
+   `PiDialect.OnPromptResponse` at line 455 and `PiDialect.Refuse` at line 781, both from `promptText`
+   taken from the written `PiCommand`. All seven paths the first review traced (section 2, point 2) end in
+   one of these four. The guard in `OnCommandWritten` that refuses a text-less prompt command is still
+   there, so a `PiCommand` with no text cannot become a `PromptDelivered` with null text.
+4. **The tests prove the three questions the ruling raises.**
+   `SessionEventJsonTests.Deserialize_PromptEventWithoutItsText_ReadsWithNullText` is the inverted
+   former `_Throws` test: for each of the three events it reads JSON with no `promptText`, asserts the
+   runtime type, the prompt id and a null text, so it proves the read and not merely the absence of a
+   throw. `ApiModeEventIngestTests.Parse_APromptEventWithoutItsText_ReadsWithNullTextAndIsNotRefused`
+   does the same through the real `ApiModeEventIngest.Parse`, and first asserts the string really lacks the
+   key. `Accept_ABatchFromADirectorOlderThanPromptText_IsAcceptedWholeAndFeedsTheReceipts` pushes a
+   six-event batch with the key removed from every event through the real `Accept`, over the real buffer
+   and a real `ApiModeReceiptStore` on the test harness's database, and asserts the watermark, all six
+   held sequences, the delivered receipt's state, acknowledgement and turn outcome, and the refused
+   receipt's state and reason. The helper `JsonWithoutPromptText` serialises the event with the shared
+   options and removes the key by name, so the stripped JSON is exactly what an older Director writes
+   minus one field. None reads the clock, sleeps or opens a port.
+5. **Run here, one project at a time, filtered** (no other test run was going each time):
+
+   | Project | Filter | Result |
+   |---|---|---|
+   | `CcDirector.Core.UnitTests` | `SessionEventJsonTests` | 33 passed, 0 failed |
+   | `CcDirector.Core.UnitTests` | `ApiModeSessionHostTests`, `PiDialectTests`, `ApiModeSessionTests`, `TextDeliveryTests` | 143 passed, 0 failed |
+   | `CcDirector.Gateway.UnitTests` (built with `-p:RunWorkspaceTypecheck=false`) | `ApiModeEventIngestTests` | 28 passed, 0 failed |
+
+   The second row is the Director's own proof that every prompt still carries its text verbatim, re-run
+   against the loosened type; the Gateway build under `TreatWarningsAsErrors` passed, so no reader was
+   left assigning the now-nullable field to a non-nullable one.
+6. **`event-model.md` is right.** The sentence on which fields may be null now names `promptText` as
+   one that may be absent; the bold paragraph says it is present whenever the Director knows it; the new
+   paragraph says it may be absent from a Director older than the field, why (the Gateway deploys first),
+   what the Gateway does (reads null, accepts the batch), what would have happened otherwise (the pusher
+   drops the batch for good, which matches the first review's note 1 and the pusher's behaviour), and that
+   absence means only "this Director predates the field", never "the prompt had no text". Each of those
+   statements matches the code read above.
+7. The commit, the pull request title and body carry no assistant attribution.
+
+### Notes for the seats that build on this (not findings against this pull request)
+
+1. **The compile-time guarantee is gone, and only the tests hold the line now.** `required` made every
+   construction of the three events name the text or fail to compile. A future writer that forgets it
+   compiles and sends null, and the Gateway, by the document's own words, reads that as "an older
+   Director", so the mistake would be silent. Today all four writers set it and the Core tests in row two
+   above compare the text of every event against the exact line written to Pi, so the line holds. Any new
+   writer must be added to those proofs.
+2. **The follow-on that stores the text must treat null as "not known", not as empty.** Nothing on the
+   Gateway reads the field yet, so there is no wrong behaviour to find; but the first store of it
+   (first review, section 3, note 2) must keep the receipt row's text nullable and never write `""` for
+   an absent value, or a receipt would claim an empty prompt was sent. The same goes for any display: show
+   "text not reported by this Director", not a blank prompt.
+3. **The helper does not assert the key was there before it was removed.** `JsonWithoutPromptText` calls
+   `node.Remove("promptText")` and discards its answer. If the wire name were ever changed, the helper
+   would strip nothing and the three new tests would pass while proving nothing. The existing round-trip
+   tests in `SessionEventJsonTests` pin the name `promptText`, so this is covered indirectly today; a
+   one-line `Assert.True(node.Remove(...))` would make the proof stand on its own.
