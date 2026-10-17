@@ -138,3 +138,18 @@ Gate at e38673081, tree clean: `.\scripts\test-local.ps1` RESULT GREEN; `.\scrip
 TEMP and TMP on D: RESULT GREEN, every suite Completed - `CcDirector.Gateway.UnitTests` 13,986,
 `CcDirector.Gateway.Tests` 1,775 executed of 1,778 (three reported skipped in shard 3), `CcDirector.Core.Tests` 4,538,
 `CcDirector.Core.UnitTests` 2,213, `CcDirector.Reclaim.Tests` 305 with no failure.
+
+## Gate after the rebase onto main (17 October)
+
+Main had added `TakeHandSwitches` to `ILicenseCommandLine` and to `FakeLicenseCommandLine`; the rebase keeps both that
+and this pull request's `CheckApproverAsync`, and every test from both sides. The other track's new fake in
+`LicenseHandSwitchTests` now answers `CheckApproverAsync` by refusing, as it refuses every verb it does not use.
+Both gates were run with TEMP and TMP on `D:\cc-gate-temp`:
+
+- `.\scripts	est-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Core.UnitTests 253, Avalonia.Tests 32,
+  Gateway.Tests 23, Gateway.UnitTests 1067, every suite outcome=Completed.
+- `.\scripts	est-local.ps1` (default): every suite green except one test in Core.UnitTests,
+  `BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne`
+  ("tools/cc-director-setup-engine/LauncherSelfUpdate.cs has 3 site(s) in code, the register says 2"). Neither that
+  file nor `docs/BackgroundWork.md` is touched here; the third site came to main with #4162 without its row, so it is
+  red on main.
