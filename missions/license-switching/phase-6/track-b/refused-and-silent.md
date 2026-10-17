@@ -205,3 +205,19 @@ Passed: 860, Total: 860" (the three new two-Director tests included). The gate l
   `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused`, with "Windows returned ... as the
   short form of ...". The D: volume keeps no short file names, so this test cannot pass with TEMP on D:; the Delivery
   Lead reports the same failure on clean main. In the default run above, with TEMP on C:, Reclaim passed 305 of 305.
+
+**Rebased again onto origin/main `617912aab`** (16 commits, among them the license alarm #4110, the approver work of
+Track C #4109 / #4127 and "switch every ready machine at once" #4105). Conflicts in the store, the fold and the
+engine were resolved by keeping both sides. Where #4105 had moved two helpers out of the engine, only this piece's
+`ReportsRefusedWhy` was kept. One test call gained the `nowUtc` argument main added to `LicenseSignInFold.Apply`.
+
+- License unit tests on `66f94549a`: "Passed! - Failed: 0, Passed: 1015, Total: 1015".
+- `.\scripts\test-local.ps1` on `66f94549a`: "RESULT: GREEN at commit 66f94549a..., tree clean". Every suite
+  Completed, Avalonia 1063 included.
+- `produce_overview_example.py`: "0 differences, 0 fields added". Cockpit `tsc --noEmit` is clean.
+- Cockpit `vitest src/licenses`: 81 passed, 1 failed. The failure is `fixtures.test.ts` ("are, each one, the example
+  of the shapes document as it stands"), and it is red on origin/main without this piece: main's `cockpit-api.md`
+  has four `browserProfileName` approver fields (from #4127) that main's `fixtures.ts` does not have. Running
+  `copy_fixtures.py` would bring them in, and then `tsc` fails, because the client's `LicenseApprover` type has no
+  such field. That is Track C's to fix, so it is left alone here.
+- The parked run of this round, above, was on `43a340bcd`, before this rebase.
