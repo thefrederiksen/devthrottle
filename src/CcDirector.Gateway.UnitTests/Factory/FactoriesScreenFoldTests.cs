@@ -132,6 +132,57 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
+    public void List_NextStart_AStoredDueTimeAlreadyPast_IsNotANextStart()
+    {
+        // The store holds the due time; one the engine has not moved on yet is behind us, and is no next start.
+        var jobs = new[] { Job("cj_ceo", "15 6 * * *"), Job("cj_save", "0 12 * * *") };
+        jobs[0].NextRunUtc = Now.AddHours(-4);
+        jobs[1].NextRunUtc = new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc);
+
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0];
+
+        Assert.Equal("Next start today 12:00 (Savings Engineer)", row.NextStartText);
+    }
+
+    [Fact]
+    public void List_NextStart_OnlyPastDueTimes_LeavesItOut()
+    {
+        var jobs = Running();
+        jobs[0].NextRunUtc = Now.AddDays(-1);
+        Assert.Null(FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0].NextStartText);
+    }
+
+    [Fact]
+    public void List_NextStart_WhilePauseEverythingIsOn_IsLeftOut()
+    {
+        var jobs = Running();
+        jobs[0].NextRunUtc = new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc);
+        var input = Inputs(new[] { WarmForward() }, jobs: jobs) with { SchedulerPaused = true };
+
+        Assert.Null(FactoriesScreenFold.List(input).Rows[0].NextStartText);
+    }
+
+    [Fact]
+    public void List_LastRun_ARunOlderThanTheWindow_FromTheOlderRows_SaysHowItEnded()
+    {
+        // A weekly seat: its run three days ago is not in the list's 24-hour window, but its rows are handed in whatever
+        // their age, and the card says how it ended - not "- started" from its schedule's firing.
+        var at = Now.AddDays(-3);
+        var older = new[]
+        {
+            Row("warmforward", "value-hunter", FactoryActivityOutcome.Started, "Started.", at, session: "s9"),
+            Row("warmforward", "value-hunter", FactoryActivityOutcome.Done, "Done.", at.AddMinutes(30), session: "s9"),
+        };
+        var jobs = new[] { Job("cj_value", "0 10 * * 6", lastFired: at) };
+        var input = Inputs(new[] { WarmForward() }, jobs: jobs) with { LastRunRows = older };
+
+        var row = FactoriesScreenFold.List(input).Rows[0];
+
+        Assert.Equal("Last run: Value Hunter, 3 Oct 10:00 - succeeded", row.LastRunText);
+        Assert.Equal(FactoryTone.Ok, row.LastRunTone);
+    }
+
+    [Fact]
     public void List_NothingDueAndNothingRun_LeavesNextStartAndLastRunOut()
     {
         var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() })).Rows[0];

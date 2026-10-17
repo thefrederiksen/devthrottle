@@ -158,6 +158,19 @@ describe("Factories - pause everything (issue #3910)", () => {
     expect(cronClient.setCronJobEnabled).not.toHaveBeenCalled();
   });
 
+  it("reads the list again when everything is paused or resumed, since the Gateway then sends no next start", async () => {
+    cronClient.setCronPause.mockImplementation(async (paused: boolean) => (paused ? SCHEDULER_PAUSED : SCHEDULER_RUNNING));
+    renderAt("/factories");
+    await screen.findByTestId("fa-factories-list");
+    const before = screenClient.getFactoriesList.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pause everything" }));
+    await waitFor(() => expect(screenClient.getFactoriesList.mock.calls.length).toBe(before + 1));
+
+    fireEvent.click(within(await screen.findByTestId("schedules-paused-banner")).getByRole("button", { name: "Resume everything" }));
+    await waitFor(() => expect(screenClient.getFactoriesList.mock.calls.length).toBe(before + 2));
+  });
+
   it("opens with the banner when the Gateway says everything is paused", async () => {
     cronClient.getCronPause.mockResolvedValue(SCHEDULER_PAUSED);
     renderAt("/factories");

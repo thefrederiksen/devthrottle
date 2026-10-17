@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   getFactoriesList,
@@ -35,8 +35,9 @@ import {
 } from "./factoriesSort";
 import "./factory.css";
 
-// Factories (Factories screen mission, mockups 1 and 4): three tabs - Factories, Activity and Reports. The Factories
-// tab is one row per factory - name, what is waiting on the owner, status, and the boss's Talk button. Every word and
+// Factories (Factories screen mission, mockups 1 and 4): four tabs - Factories, Activity, Reports and Factory Manager,
+// as the Gateway lists them. The Factories tab is one row per factory - name, what is waiting on the owner, status,
+// and the boss's Talk button. Every word and
 // tone is the Gateway's (FactoriesScreenFold), rendered verbatim (rule 7). The ORDER is the owner's: a "Sort by"
 // control and clickable column headings (factoriesSort.ts), remembered in this browser, Name A to Z the first time.
 // The page keeps the chosen tab in the address. At phone width the same rows become cards (factory.css).
@@ -65,6 +66,16 @@ export function FactoriesView() {
 
   // Pause everything (issue #3910): the same switch and banner as the Schedule page.
   const schedulerPause = useSchedulerPause("cockpit-factories");
+  // While everything is paused the Gateway sends no next start, so the list is read again when the switch flips.
+  const paused = schedulerPause.pause?.paused;
+  const reloadFrame = frame.reload;
+  const pausedSeen = useRef(paused);
+  useEffect(() => {
+    if (pausedSeen.current === paused) return;
+    const known = pausedSeen.current !== undefined;
+    pausedSeen.current = paused;
+    if (known) reloadFrame();
+  }, [paused, reloadFrame]);
 
   const selectTab = (t: TabKey) => setParams(t === "factories" ? {} : { tab: t });
 
