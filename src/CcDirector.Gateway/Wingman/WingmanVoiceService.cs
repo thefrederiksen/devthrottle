@@ -1494,14 +1494,17 @@ public sealed class WingmanVoiceService
         var latest = verdicts.Latest(tenant, sid);
         // The same screen, or the same stop on a redrawn one: the verdict service's own rule, asked of it, so a redraw
         // spends no slot here and no call there.
-        var judgeWouldBeAsked = (latest is null || !verdicts.SweepFindsTheStopItRead(tenant, sid, latest, hash, rows))
-                                && verdicts.SweepWouldReachTheJudge(tenant, sid);
+        var judgeWouldBeAsked = latest is null || !verdicts.SweepFindsTheStopItRead(tenant, sid, latest, hash, rows);
         var speechWouldBeMade = !judgeWouldBeAsked
                                 && latest is not null
                                 && HasWordsOrWillGetThem(tenant, sid, latest)
                                 && ShouldRegenerate(tenant, sid, latest.VerdictId)
                                 && SpeechAttemptAllowed(StateFor(tenant), sid, latest.VerdictId);
-        return new SweepGenerationInput(screenGrid, judgeWouldBeAsked || speechWouldBeMade);
+        // THE FLIGHT STANDS DOWN BEFORE EITHER ARM on the session's state and its plan, so an attempt it will skip reaches
+        // no provider whatever the stored reading holds - a brand-new session with no reading, or a plan that stands the
+        // reading down over a reading that has words. Asked only when an arm would otherwise count (issue #4154).
+        var wouldReachProvider = (judgeWouldBeAsked || speechWouldBeMade) && verdicts.SweepWouldReachTheJudge(tenant, sid);
+        return new SweepGenerationInput(screenGrid, wouldReachProvider);
     }
 
     /// <summary>
