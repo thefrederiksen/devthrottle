@@ -167,7 +167,8 @@ public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
     /// <summary><c>switch</c>, <c>spare-added</c>, <c>spare-removed</c>, <c>no-room</c> or <c>renewal-failed</c>
     /// (<c>Licenses.LicenseLogKinds</c>), or
     /// <c>sign-in</c> (<c>Licenses.LicenseSignInLog.Kind</c>): a sign-in started from the Cockpit, whose identifier is in
-    /// <see cref="SwitchId"/> and whose account is in <see cref="ToAccountEmail"/>.</summary>
+    /// <see cref="SwitchId"/> and whose account is in <see cref="ToAccountEmail"/>, or <c>approval</c>
+    /// (<c>Licenses.LicenseApprovalLog.Kind</c>): an approval the relay passed between machines, in the same columns.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>For a switch row: the Gateway-minted identifier the command carries (32 lower-case hexadecimal characters). Null on a spare row.</summary>

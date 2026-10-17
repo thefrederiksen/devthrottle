@@ -32,6 +32,9 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     // address this fake advertises as dead (issue #1156).
     private readonly DeadPortReservation _deadEndpoint;
     private Func<DirectorCommand, DirectorCommandResult> _dispatch;
+
+    // Set by OnCommandAsync: a dispatcher that awaits real Director code. Null while the plain one answers.
+    private volatile Func<DirectorCommand, Task<DirectorCommandResult>>? _dispatchAsync;
     private long _sequence;
 
     /// <summary>The id this Director registered + connected under.</summary>
@@ -116,10 +119,13 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
             dispatch ?? (cmd => DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {cmd.Verb}")),
             deadEndpoint);
 
+        // Registered with a result, as the real Director's handler is, so the client runs commands concurrently: a
+        // command that waits (a sign-in waiting for its approval) does not hold up the next one on this connection.
         conn.On<DirectorCommand, DirectorCommandResult>("Command", cmd =>
         {
             fake._received.Enqueue(cmd);
-            return fake._dispatch(cmd);
+            var dispatchAsync = fake._dispatchAsync;
+            return dispatchAsync is not null ? dispatchAsync(cmd) : Task.FromResult(fake._dispatch(cmd));
         });
 
         await conn.StartAsync();
@@ -159,7 +165,15 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     public Task RemoveSessionAsync(string sessionId) => _conn.InvokeAsync("RemoveSession", ++_sequence, sessionId);
 
     /// <summary>Replace the per-verb dispatcher (e.g. after arranging test state).</summary>
-    public void OnCommand(Func<DirectorCommand, DirectorCommandResult> dispatch) => _dispatch = dispatch;
+    public void OnCommand(Func<DirectorCommand, DirectorCommandResult> dispatch)
+    {
+        _dispatchAsync = null;
+        _dispatch = dispatch;
+    }
+
+    /// <summary>Answer every verb with <paramref name="dispatch"/>, which may await - for a test that runs the real
+    /// Director code behind this fake. Replaces any dispatcher set before.</summary>
+    public void OnCommandAsync(Func<DirectorCommand, Task<DirectorCommandResult>> dispatch) => _dispatchAsync = dispatch;
 
     /// <summary>Push a session snapshot into the Gateway push store. Each call bumps the sequence.</summary>
     public Task PushSnapshotAsync(params SessionDto[] sessions) =>

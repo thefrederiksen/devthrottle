@@ -52,6 +52,10 @@ public static class LicenseLogKinds
 
     /// <summary>A silent machine is reporting again. Final when written.</summary>
     public const string ReportingAgain = "reporting-again";
+
+    /// <summary>An approval the relay passed between machines (<see cref="LicenseApprovalLog"/>): who asked, for which
+    /// account, who was set to approve it, and whether it was approved. Final when written.</summary>
+    public const string Approval = "approval";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>
