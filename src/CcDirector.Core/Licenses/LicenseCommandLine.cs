@@ -13,6 +13,11 @@ namespace CcDirector.Core.Licenses;
 /// </summary>
 public interface ILicenseCommandLine
 {
+    /// <summary>Whether the tool is there to run. It is the very lookup every call below makes before it starts the
+    /// tool - never a second one - so the usage report can say a switch cannot run for exactly the reason a switch
+    /// would fail (contract section 10.1). A file lookup: cheap enough to ask on every report.</summary>
+    bool IsInstalled { get; }
+
     /// <summary>Every holding this machine has, with no provider read and no numbers (<c>license list</c>).
     /// Throws <see cref="LicenseCommandLineException"/> when the tool did not give a readable answer.</summary>
     Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken cancellationToken);
@@ -172,6 +177,8 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
     /// search path and prove it is not taken without changing this process's own environment.</summary>
     internal static string? ResolveOwnCopy(string toolDirectory, string? searchPath, string? pathExt) =>
         ExecutableResolver.Resolve(Path.Combine(toolDirectory, ToolName), searchPath, pathExt);
+
+    public bool IsInstalled => _resolveTool() is not null;
 
     public async Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken cancellationToken)
     {

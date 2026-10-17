@@ -23,6 +23,10 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
     /// <summary>When set, the next calls fail as a tool that gave no readable answer.</summary>
     public string? FailWith { get; set; }
 
+    /// <summary>False stands in for a tool missing from the Python tool environment: every call then fails as the real
+    /// one does when it cannot find the tool.</summary>
+    public bool IsInstalled { get; set; } = true;
+
     /// <summary>When set, SwitchAsync answers this instead of exchanging.</summary>
     public LicenseExchangeAnswer? SwitchAnswer { get; set; }
 
@@ -168,6 +172,7 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
 
     private void ThrowIfFailing()
     {
+        if (!IsInstalled) throw new LicenseCommandLineException("cc-devthrottle is not installed in this machine's Python tool environment (the fake's).");
         if (FailWith is not null) throw new LicenseCommandLineException(FailWith);
     }
 }

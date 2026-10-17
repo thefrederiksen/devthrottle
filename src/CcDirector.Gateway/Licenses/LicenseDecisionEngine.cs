@@ -21,7 +21,10 @@ namespace CcDirector.Gateway.Licenses;
 /// Who decides "which machines": the machines that are on the account and can be sent a switch now. A
 /// stale machine (no accepted report for <see cref="LicenseContract.MachineStaleAfter"/>) or one with an
 /// open switch is skipped and does not take part in the target choice, because its holdings are not known
-/// to be current - letting it veto a target would hold back the machines whose state is known.
+/// to be current - letting it veto a target would hold back the machines whose state is known. A machine whose report
+/// says it cannot run a switch (contract section 10.1) is skipped the same way, and the skip names why: sending it a
+/// switch would only fail. When a later report says it can again, it is a machine on a tired account like any other,
+/// and the next tick switches it. A Director too old to say is not skipped for it.
 ///
 /// A SWITCH THAT KEEPS FAILING. A machine whose latest switch was at least the second in a row to fail the same
 /// way is HELD (<see cref="IsHeld"/>): the automatic decision leaves it out until its hold has passed, and it takes
@@ -448,6 +451,8 @@ public static class LicenseDecisionEngine
                 why = "a switch sent to it has not finished";
             else if (machine.SwitchInProgressId is not null)
                 why = "it reports a switch in progress";
+            else if (machine.CannotSwitchReason is { } reason)
+                why = $"it reports it cannot run a switch: {LicenseStore.CannotSwitchSentence(reason)}";
 
             if (why is null)
                 eligible.Add(machine);

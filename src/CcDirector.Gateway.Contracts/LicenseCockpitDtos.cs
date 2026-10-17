@@ -110,6 +110,9 @@ public static class LicenseMachineStatuses
     /// <summary>A switch sent to it has not finished.</summary>
     public const string Switching = "switching";
 
+    /// <summary>Its report says it cannot run a switch now (contract section 10.1); the status text says why.</summary>
+    public const string CannotSwitch = "cannot-switch";
+
     /// <summary>Reporting, and signed in to no account.</summary>
     public const string SignedOut = "signed-out";
 

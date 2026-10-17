@@ -33,6 +33,14 @@ public interface ILicenseReportSink
 /// A failed read of a holding keeps its PREVIOUS numbers and their old read time, and sets the error, so the Gateway
 /// sees how old the numbers are and never a zero standing in for "unknown".
 ///
+/// WHETHER A SWITCH CAN RUN (contract section 10.1). Every report says it: <see cref="LicenseUsageReport.CanSwitch"/>,
+/// from <see cref="ILicenseCommandLine.IsInstalled"/> - the same lookup the switch itself makes - asked afresh on every
+/// tick, so the report flips back the moment the tool is back. The report is built from the tool's own answers, so
+/// while the tool is missing there is nothing new to read: the report then carries the holdings of the last report
+/// sent, with their own old read times, exactly as a failed read keeps its previous numbers. A Director that has never
+/// sent a report has no such holdings and sends nothing, because the Gateway would read an empty list as every holding
+/// removed.
+///
 /// This reader REPLACES the usage poll retired on 22 September 2026, for a reader that now exists: what it reads
 /// reaches <c>PushLicenseUsage</c> (NoUnreadUsagePollTests holds it to that).
 /// </summary>
@@ -59,6 +67,8 @@ public sealed class LicenseUsageReporter
     private DateTime? _lastSpareReadUtc;
     private DateTime? _lastSentUtc;
     private string? _lastSentShape;
+    private List<LicenseHolding>? _lastSentHoldings;
+    private bool _toolMissingLogged;
     private string? _lastFailure;
     private volatile ILicenseReportSink? _sink;
     private BackgroundJob? _job;
@@ -178,6 +188,13 @@ public sealed class LicenseUsageReporter
             if (sink is null || !sink.CanSend) return null;
 
             var trigger = TakePendingTrigger();
+            if (!_tool.IsInstalled)
+                return await SendWithoutToolAsync(sink, trigger, cancellationToken);
+            if (_toolMissingLogged)
+            {
+                FileLog.Write("[LicenseUsageReporter] the license tool is back in the Python tool environment; reports say a switch can run");
+                _toolMissingLogged = false;
+            }
             IReadOnlyList<LicenseHolding>? listing = null;
             if (trigger is null)
             {
@@ -188,7 +205,7 @@ public sealed class LicenseUsageReporter
                 else
                 {
                     listing = await RunToolAsync(() => _tool.ListAsync(cancellationToken));
-                    if (listing is null || ShapeOf(listing.Select(h => (h.AccountEmail, h.IsActive, ErrorOf(h.AccountEmail)))) == _lastSentShape)
+                    if (listing is null || ShapeOf(listing.Select(h => (h.AccountEmail, h.IsActive, ErrorOf(h.AccountEmail))), canSwitch: true) == _lastSentShape)
                         return null;
                     trigger = LicenseReportTriggers.Changed;
                 }
@@ -203,24 +220,73 @@ public sealed class LicenseUsageReporter
                 return null;
             }
 
-            try
-            {
-                await sink.SendAsync(report, cancellationToken);
-            }
-            catch
-            {
-                Requeue(trigger);
-                throw;
-            }
-            _lastSentUtc = report.SentAtUtc;
-            _lastSentShape = ShapeOf(report.Holdings.Select(h => (h.AccountEmail, h.IsActive, h.ReadError)));
-            FileLog.Write($"[LicenseUsageReporter] sent: trigger={trigger}, holdings={report.Holdings.Count}, active={report.Holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail ?? "-"}, switch={report.SwitchInProgressId ?? "-"}");
-            return report;
+            return await SendAsync(sink, report, trigger, cancellationToken);
         }
         finally
         {
             _oneAtATime.Release();
         }
+    }
+
+    private async Task<LicenseUsageReport> SendAsync(ILicenseReportSink sink, LicenseUsageReport report, string trigger, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await sink.SendAsync(report, cancellationToken);
+        }
+        catch
+        {
+            Requeue(trigger);
+            throw;
+        }
+        _lastSentUtc = report.SentAtUtc;
+        _lastSentShape = ShapeOf(report.Holdings.Select(h => (h.AccountEmail, h.IsActive, h.ReadError)), report.CanSwitch == true);
+        _lastSentHoldings = report.Holdings;
+        FileLog.Write($"[LicenseUsageReporter] sent: trigger={trigger}, holdings={report.Holdings.Count}, active={report.Holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail ?? "-"}, switch={report.SwitchInProgressId ?? "-"}, canSwitch={report.CanSwitch}");
+        return report;
+    }
+
+    /// <summary>
+    /// The tool is not in the Python tool environment, so nothing can be read and no switch can run. Send what the last
+    /// report held, saying a switch cannot run: at once the first time (the readiness is part of what changed), then on
+    /// the interval. Null when nothing was sent - no earlier report to repeat, or nothing due.
+    /// </summary>
+    private async Task<LicenseUsageReport?> SendWithoutToolAsync(ILicenseReportSink sink, string? trigger, CancellationToken cancellationToken)
+    {
+        if (!_toolMissingLogged)
+        {
+            FileLog.Write($"[LicenseUsageReporter] the license tool is missing from the Python tool environment ({CcDevthrottleLicenseCommandLine.OwnToolDirectory()}); reports say a switch cannot run");
+            _toolMissingLogged = true;
+        }
+        if (_lastSentHoldings is null)
+        {
+            // not-an-error: the line above already said the tool is missing; with no report sent yet there is nothing
+            // true to send, and an empty list would tell the Gateway every holding was removed.
+            if (trigger is not null) Requeue(trigger);
+            return null;
+        }
+        if (trigger is null)
+        {
+            var shape = ShapeOf(_lastSentHoldings.Select(h => (h.AccountEmail, h.IsActive, h.ReadError)), canSwitch: false);
+            if (_lastSentUtc is null || _utcNow() - _lastSentUtc.Value >= LicenseContract.ReportInterval)
+                trigger = LicenseReportTriggers.Interval;
+            else if (shape != _lastSentShape)
+                trigger = LicenseReportTriggers.Changed;
+            else
+                return null;
+        }
+        var report = new LicenseUsageReport
+        {
+            MachineName = _machineName,
+            OsUser = _osUser,
+            SentAtUtc = _utcNow(),
+            Trigger = trigger,
+            SwitchInProgressId = _switchInProgressId,
+            Holdings = _lastSentHoldings,
+            CanSwitch = false,
+            CannotSwitchReason = LicenseCannotSwitchReasons.ToolMissing,
+        };
+        return await SendAsync(sink, report, trigger, cancellationToken);
     }
 
     private void Requeue(string trigger)
@@ -306,6 +372,7 @@ public sealed class LicenseUsageReporter
             Trigger = trigger,
             SwitchInProgressId = _switchInProgressId,
             Holdings = holdings,
+            CanSwitch = true,
         };
     }
 
@@ -358,8 +425,9 @@ public sealed class LicenseUsageReporter
         lock (_gate) return _readings.TryGetValue(accountEmail, out var h) ? h.ReadError : null;
     }
 
-    private static string ShapeOf(IEnumerable<(string Email, bool Active, string? Error)> holdings) =>
-        string.Join("|", holdings.OrderBy(h => h.Email, StringComparer.Ordinal).Select(h => $"{h.Email}:{h.Active}:{h.Error}"));
+    private static string ShapeOf(IEnumerable<(string Email, bool Active, string? Error)> holdings, bool canSwitch) =>
+        string.Join("|", holdings.OrderBy(h => h.Email, StringComparer.Ordinal).Select(h => $"{h.Email}:{h.Active}:{h.Error}"))
+        + (canSwitch ? "" : "|cannot-switch");
 
     /// <summary>Runs one tool call; a tool failure is logged once per distinct message (it repeats every 30 seconds
     /// otherwise) and answers null.</summary>

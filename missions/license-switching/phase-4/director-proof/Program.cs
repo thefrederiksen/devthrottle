@@ -276,6 +276,7 @@ internal static class Program
     /// so nothing in this proof contacts a provider with a made-up key.</summary>
     private sealed class TargetTool(CcDevthrottleLicenseCommandLine real) : ILicenseCommandLine
     {
+        public bool IsInstalled => real.IsInstalled;
         public Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken ct) => real.ListAsync(ct);
         public async Task<IReadOnlyList<LicenseHolding>> ReadUsageAsync(bool activeOnly, CancellationToken ct) =>
             (await real.ListAsync(ct)).Where(h => !activeOnly || h.IsActive).ToList();
@@ -299,6 +300,7 @@ internal static class Program
     /// <summary>The approving machine's license tool: it holds nothing, and its browser approval is a fixed answer.</summary>
     private sealed class ApproverTool : ILicenseCommandLine
     {
+        public bool IsInstalled => true;
         public string? Refuse { get; set; }
 
         public Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<LicenseHolding>>(Array.Empty<LicenseHolding>());

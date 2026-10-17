@@ -2701,6 +2701,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CannotSwitchReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<double>("ClockSkewSeconds")
                         .HasColumnType("REAL");
 

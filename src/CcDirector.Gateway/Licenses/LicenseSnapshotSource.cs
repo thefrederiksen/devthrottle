@@ -110,7 +110,8 @@ public sealed class LicenseSnapshotSource
                 m.Holdings.FirstOrDefault(h => h.IsActive)?.SignInExpiresAtUtc,
                 holdByMachine.TryGetValue(m.MachineId, out var held)
                     ? new LicenseHold(DateTime.SpecifyKind(held.HeldUntilUtc!.Value, DateTimeKind.Utc), held.FromAccountEmail, held.ToAccountEmail, held.ReasonCode)
-                    : null))
+                    : null,
+                m.CannotSwitchReason))
             .ToList();
 
         // The store hands over only the bars still in force, and the engine ignores one whose time has passed.
