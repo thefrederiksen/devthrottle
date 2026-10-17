@@ -72,7 +72,20 @@ The approver alarm's identical line is not covered either. The live proof below 
 
 ## The gate
 
-GATE_LINES_GO_HERE
+Run on commit `9b7cdda8c`, with TEMP and TMP on D:. The next commit changes only this file.
+
+- **`-Parked -Filter License`: GREEN**, tree clean. Gateway.UnitTests: 1074 run, 1074 passed. Gateway.Tests: 23 run,
+  23 passed (shard 3 of 4). Core.UnitTests: 199. Avalonia.Tests: 32.
+- **The default run: not green, for reasons outside this change.**
+  - Three suites were stopped at the 120-second ceiling on a loaded machine (Core.UnitTests, Avalonia.Tests,
+    setup-engine.Tests). Every other suite completed with no failure, including Gateway.UnitTests (5027 run).
+  - Run alone, Avalonia.Tests passed 1089 of 1089 and setup-engine.Tests passed 919 of 919.
+  - Core.UnitTests failed 1 of 2219, twice in a row:
+    `BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne`.
+    The message was "COUNT DIFFERS: tools/cc-director-setup-engine/LauncherSelfUpdate.cs has 3 site(s) in code, the
+    register says 2". This change touches neither that file nor `docs/BackgroundWork.md`, and its base is the current
+    origin/main (`9a5032dc2`). So that test is red on main itself, from the launcher work, and is reported to the
+    Tech Lead. It is not fixed here.
 
 ## What the live proof should look for (after a deploy; this piece deploys nothing)
 
