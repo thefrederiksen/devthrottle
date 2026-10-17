@@ -55,6 +55,8 @@ public static class Scenarios
         ("leftover-line", "claude,pi", "a prompt sent while an unsubmitted framework line sits in the composer"),
         ("resume", "claude", "the first prompt of a session resumed on an existing conversation (#3360)"),
         ("untrusted-folder", "claude", "the first prompt of a session in a folder Claude Code has never trusted (#2898)"),
+        ("claude-trusted-folder", "codex", "the first prompt of a Codex session in a repository the owner trusts in Claude Code but never opened in Codex"),
+        ("trusted-worktree", "claude", "the first prompt of a session in a new git worktree of a repository the owner trusts (#2898)"),
     ];
 
     public static bool AppliesTo(string scenario, string agent)
@@ -85,6 +87,8 @@ public static class Scenarios
                 "leftover-line" => await LeftInComposerAsync(manager, agent, kind, args, repo, repos, ownerTyped: false),
                 "resume" => await ResumeAsync(manager, agent, kind, args, repo, repos),
                 "untrusted-folder" => await UntrustedAsync(manager, agent, kind, args, repoRoot),
+                "claude-trusted-folder" => await ClaudeTrustedFolderAsync(manager, agent, kind, args, repoRoot),
+                "trusted-worktree" => await TrustedWorktreeAsync(manager, agent, kind, args, repo, repoRoot),
                 _ when scenario.StartsWith("idle-", StringComparison.Ordinal) =>
                     await IdleAsync(manager, agent, kind, args, repo, repos, TextCatalogue.Named(scenario["idle-".Length..])),
                 _ => throw new ArgumentException($"No scenario named '{scenario}'."),
@@ -285,6 +289,41 @@ public static class Scenarios
             // The gate's own limit is ten minutes; the rig gives it ninety seconds, which is plenty for an agent that is
             // going to start at all on this machine, and reports the gate's own words.
             return await SendAndJudgeAsync("untrusted-folder", agent, session, text, [folder],
+                () => session.DeliverFirstPromptAsync(text, SubmissionProvenance.FrameworkText(), TimeSpan.FromSeconds(90)));
+        }
+        finally { await EndAsync(m, session); }
+    }
+
+    /// <summary>
+    /// A repository the owner has trusted in Claude Code and never opened in Codex - how a Codex reviewer seat starts in
+    /// a repository the fleet works in every day. Codex keeps its own record, so it asks "Trust this folder?" first.
+    /// </summary>
+    private static async Task<ScenarioResult> ClaudeTrustedFolderAsync(SessionManager m, string agent, AgentKind kind, string? args, string repoRoot)
+    {
+        var folder = Rig.EnsureRepo(Path.Combine(repoRoot, "claude-trusted", "c" + Guid.NewGuid().ToString("N")[..8]), trust: true);
+        var session = m.CreateSession(folder, kind, args, SessionBackendType.ConPty, null);
+        try
+        {
+            var text = TextCatalogue.Named("short").Build(Token());
+            return await SendAndJudgeAsync("claude-trusted-folder", agent, session, text, [folder],
+                () => session.DeliverFirstPromptAsync(text, SubmissionProvenance.FrameworkText(), TimeSpan.FromSeconds(90)));
+        }
+        finally { await EndAsync(m, session); }
+    }
+
+    /// <summary>
+    /// A new git worktree of a repository the owner has trusted - how every reviewer and gate seat starts. Claude Code's
+    /// walk up the parents stops at the worktree's own git root, so the main checkout's trust does not cover it, and the
+    /// agent stops on its folder-trust question unless the Director carries that trust over.
+    /// </summary>
+    private static async Task<ScenarioResult> TrustedWorktreeAsync(SessionManager m, string agent, AgentKind kind, string? args, string repo, string repoRoot)
+    {
+        var folder = Rig.AddWorktree(repo, Path.Combine(repoRoot, "worktrees", "w" + Guid.NewGuid().ToString("N")[..8]));
+        var session = m.CreateSession(folder, kind, args, SessionBackendType.ConPty, null);
+        try
+        {
+            var text = TextCatalogue.Named("short").Build(Token());
+            return await SendAndJudgeAsync("trusted-worktree", agent, session, text, [folder],
                 () => session.DeliverFirstPromptAsync(text, SubmissionProvenance.FrameworkText(), TimeSpan.FromSeconds(90)));
         }
         finally { await EndAsync(m, session); }

@@ -1,0 +1,29 @@
+[rig] scenario run 20261017-142406 on product dfdb177818b8+local-changes; ledger /home/soren/ReposFred/_delivery-qa/ledger.jsonl
+[rig] claude: /home/soren/.local/bin/claude (2.1.302 (Claude Code)), args: --model haiku --allowedTools Bash(sleep:*)
+[scenario] first on claude: a new session's first prompt, gated, as a spawn sends it
+[scenario] first              claude  len=94     director=OK         truth=ARRIVED  PASS 5.1s 
+[scenario] first on claude: a new session's first prompt, gated, as a spawn sends it
+[scenario] first              claude  len=94     director=OK         truth=ARRIVED  PASS 2.6s 
+[scenario] idle-short on claude: a one-line prompt to a waiting session (a phone dictation)
+[scenario] idle-short         claude  len=94     director=OK         truth=ARRIVED  PASS 0.4s 
+[scenario] idle-short on claude: a one-line prompt to a waiting session (a phone dictation)
+[scenario] idle-short         claude  len=94     director=OK         truth=ARRIVED  PASS 0.4s 
+[scenario] idle-special on claude: backslashes, a literal backslash-t, quotes, shell characters (#2981)
+[scenario] idle-special       claude  len=267    director=OK         truth=ARRIVED  PASS 1.6s 
+[scenario] idle-special on claude: backslashes, a literal backslash-t, quotes, shell characters (#2981)
+[scenario] idle-special       claude  len=267    director=OK         truth=ARRIVED  PASS 1.6s 
+[scenario] trusted-worktree on claude: the first prompt of a session in a new git worktree of a repository the owner trusts (#2898)
+[scenario] trusted-worktree   claude  len=94     director=OK         truth=ARRIVED  PASS 2.6s 
+[scenario] trusted-worktree on claude: the first prompt of a session in a new git worktree of a repository the owner trusts (#2898)
+[scenario] trusted-worktree   claude  len=94     director=OK         truth=ARRIVED  PASS 2.6s 
+
+8 attempts counted (0 setup failures not counted).
+
+product dfdb177818b8+local-changes  (2026-10-17 14:24 to 14:26 UTC)
+  agent    scenario            pass   of   rate  95% interval   failures (director/truth)
+  claude   first                  2    2   100%    34% - 100%   
+  claude   idle-short             2    2   100%    34% - 100%   
+  claude   idle-special           2    2   100%    34% - 100%   
+  claude   trusted-worktree       2    2   100%    34% - 100%   
+  claude   ALL SCENARIOS          8    8   100%    68% - 100%   
+

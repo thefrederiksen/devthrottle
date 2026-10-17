@@ -1,0 +1,14 @@
+[rig] scenario run 20261017-141506 on product dfdb177818b8+local-changes; ledger /home/soren/ReposFred/_delivery-qa/ledger.jsonl
+[rig] codex: codex (codex-cli 0.163.0), args: --dangerously-bypass-approvals-and-sandbox -m gpt-5.6-luna -c model_reasoning_effort=low
+[scenario] claude-trusted-folder on codex: the first prompt of a Codex session in a repository the owner trusts in Claude Code but never opened in Codex
+[scenario] claude-trusted-folder codex   len=94     director=OK         truth=ARRIVED  PASS 2.3s 
+[scenario] claude-trusted-folder on codex: the first prompt of a Codex session in a repository the owner trusts in Claude Code but never opened in Codex
+[scenario] claude-trusted-folder codex   len=94     director=OK         truth=ARRIVED  PASS 2.7s 
+
+2 attempts counted (0 setup failures not counted).
+
+product dfdb177818b8+local-changes  (2026-10-17 14:15 to 14:15 UTC)
+  agent    scenario            pass   of   rate  95% interval   failures (director/truth)
+  codex    claude-trusted-folder     2    2   100%    34% - 100%   
+  codex    ALL SCENARIOS          2    2   100%    34% - 100%   
+

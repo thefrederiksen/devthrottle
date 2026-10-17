@@ -1,0 +1,17 @@
+]7501;?
+
+WARNING:ClaudeCoderunninginBypassPermissionsmode
+
+InBypassPermissionsmode,ClaudeCodewillnotaskforyourapprovalbeforerunningpotentiallydangerouscommands.
+Thismodeshouldonlybeusedinasandboxedcontainer/VMthathasrestrictedinternetaccessandcaneasilyberestoredifdamaged.
+
+Byproceeding,youacceptallresponsibilityforactionstakenwhilerunninginBypassPermissionsmode.
+
+https://code.claude.com/docs/en/security
+
+No,exit
+Yes,Iaccept
+
+EntertoconfirmEsctocancel
+
+Session terminated, killing shell... ...killed.
