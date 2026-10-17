@@ -221,3 +221,95 @@ last.
 **Note 5.** Attribution sweep of the commit message, the pull request body and the changed files: clean.
 Plain English: clean. `RecordTurnStarted` is unchanged, as the phase review required; the Director is
 unchanged.
+
+## 5. Re-review of the fix for finding 1 (head commit `7116f56fe`)
+
+Reviewer seat again, a different session from the Developer, 17 October 2026 on devlinux, reading only (no build, no
+test, by instruction). Read: the fix commit whole (eleven files), `ApiModeLiveRuling.cs`, `ApiModeReceiptStore.cs`,
+`ApiModeStoredReceipt.cs`, `ApiModeEventPosition.cs`, `IApiModeEventFeed.cs`, `ApiModeEventBuffer.cs` (`Apply`,
+`Read`, `Subscribe`, `ReplayOf`), `ApiModeEventIngest.cs` (where a batch's generation start comes from),
+`SessionLiveEndpoint.cs` (the poll, the stream loop, `RebuildAsync`, `StartRuling`, `StoredReceipts`), the entity and
+its one migration, and every changed test with its helpers.
+
+**Verdict: the review now holds. Finding 1 is fixed, and the fix introduces no defect I can find.**
+
+**Finding 1, the concrete case.** A ruling built from the store holds `gw-1` Refused with the position of the last
+event the store applied to that row, (generation A, 40). `PromptQueued` at 41 arrives as a held event with its
+position: 41 is after 40 in the same generation, the receipt is Refused, so `Supersedes` logs one supersede, clears the
+refusal, the state becomes Queued and the item "Queued: a turn is running" is sent. `PromptRefused` at 42 is after 40
+and after 41, the receipt is Queued, so the retry's reason is written and "Refused: Agent is already processing..." is
+sent. The screen and the receipts route now agree, which is what finding 1 asked for.
+`Rule_AStoredRefusalThenTheRetryQueuedAndRefusedLive_ShowsTheRetrysReason` is this exact sequence, asserting both items
+and the single supersede.
+
+**Every replay path hands a position.** There are three production callers of the ruling and all three hand a held
+event: the poll (`ReadItems`, both the ruling it starts with and the one it rebuilds mid-page on a missed-events
+reset), the stream loop (after `StartRuling`, after a `RebuildAsync` for a new generation, and after a `RebuildAsync`
+for missed events), and `StartRuling`'s catch-up loop, whose events are the feed's held events and whose ruling is a
+fresh one with no stored positions. The held event's position is built from the same batch fields
+(`Generation`, `GenerationStartedUtc`, the event's `Sequence`) the ingest hands the store, so the two sides compare like
+with like, and inside one generation the comparison is by sequence alone, so the start time cannot disagree there.
+
+- Reset with the buffer past its bound: the attach's replay is incomplete, `StartRuling` reads the positioned receipts,
+  and every later event is a held event. Replays at or before the row's position are quiet; the retry's events are
+  after it and are ruled. The ruling test above is this path's decision.
+- Gateway restart: the buffer holds nothing, `ReplayOf` answers not complete, and the stream opens from the store.
+  `Stream_StartedFromAStoredRefusal_ARetryRefusedLiveShowsTheReasonTheReceiptsRouteAnswers` is this path end to end: it
+  writes the refusal at 40 into the same store the endpoint is mapped with, opens the stream, pushes the retry through
+  the Gateway's own ingest (store first, then buffer), and asserts the opening frame, the two live frames with their
+  cursors, and that the last frame's words equal the stored receipt worded by `ReceiptWords`. The Director's re-send
+  of the old events after a Gateway restart (same generation, same sequences) is at or before the stored position and
+  so is quiet; a re-send is not simulated in the test, but the quiet-replay ruling test covers the decision.
+- A new generation mid-stream: `RebuildAsync` reads the positioned receipts and the loop continues with held events of
+  the new generation, whose later start makes every one of them "after" a position from the old generation, whatever
+  its sequence. `Rule_AStoredRefusalThenTheRetryInALaterGeneration_IsTheRetryWhateverItsSequence` pins that decision
+  with the retry at sequence 3 of generation B over a refusal at 40 of generation A.
+
+**Note 2's false supersede line is gone too.** `Rule_TheEventsAStoredRefusalWasBuiltFromReplayed_AreQuietAndLogNoSupersede`
+replays the exact sequence of note 2 (Queued 1, Refused 2, Queued 4, Refused 6 against a store position of 6) and
+asserts no item, no supersede and no second ending. I traced it: every event is at or before 6, so none reaches the
+rule.
+
+**The throw cannot take down a stream.** The new exception fires only when a receipt event for a prompt whose receipt
+came from the store is handed without a position, which is the plain `Rule(SessionEvent)` overload. No production
+code calls that overload: the three callers above all pass `ApiModeHeldEvent`. Two other ways a position could be
+missing are closed before the ruling sees anything: the ingest refuses a batch whose generation start is unset before
+the buffer holds it, so a held event's `Position` property always constructs; and the three position columns on the
+receipt row are non-nullable in the one migration that created the table (`20261016183035_AddApiModeReceipts`), so the
+positioned read cannot meet a row without them. `Rule_AReceiptEventForAStoredPromptWithoutItsPosition_Throws` pins the
+contract for any future caller; it is a guard test, not a path a user can reach.
+
+**The tests are real proofs.** Each new test arranges the stored state the finding describes, acts through the public
+surface a reader uses (`Rule(ApiModeHeldEvent)`, or the HTTP stream and the ingest), and asserts the words a client
+would see plus the counters that would betray a wrong path. The store test
+`ReadWithPositions_EachReceipt_CarriesThePositionOfTheLastEventTheStoreApplied` asserts the positioned read answers the
+same receipts in the same order as `Read`, that a retry's two events move the position to the last one applied, and
+that an ending the store refused (a second ending after Delivered) leaves the position where it was. Every earlier
+store-started ruling test was moved onto the positioned constructor with an explicit position, and no two-argument held
+event or unpositioned stored ruling remains anywhere under `src` (searched). The end-to-end test checks the store read
+the receipts route serves, worded by the one `ReceiptWords` function, rather than the route over HTTP; the route is a
+thin read of that store, so this is adequate.
+
+### New notes (none blocks the merge)
+
+**Note 6 (low, record only). A replay of an event the store refused is ruled again by each store-started reader.**
+The store does not move a row's position when it refuses an event (a second ending after Delivered, a `PromptQueued`
+after Delivered), so such an event sits after the stored position and a reader started from the store rules it: for a
+Delivered receipt the `PromptQueued` changes nothing silently, and a second `PromptDelivered` or `PromptRefused` is
+logged as a second ending and counted in `SecondEndingsLogged`. The wire output is right in every case (the delivery
+stands, nothing is sent). The only cost is that one Director defect, already logged once by the store, is logged again
+by every reader that resets while the event is still held. That is a true line about a real defect, not a false one,
+and the existing `Rule_AnEndingAfterTheOneAStoredReceiptWasBuiltFrom_IsLoggedAsASecondEnding` is this behaviour. Recorded
+so nobody reads the repeated line as a new defect.
+
+**Note 7.** Attribution sweep of the fix commit (message and every changed file): clean. Plain English: clean. The
+public `ApiModeReceiptDto` is unchanged, the entity is unchanged, and there is no new migration, as the finding asked.
+
+**Note 8 (low, a one-paragraph correction the Developer should make before the merge). The phase 2 phase review still
+records the removed behaviour.** The Developer's answer under finding 1 of `phase-2-phase-review.md` (the
+`ApiModeLiveRuling` bullet) still describes the same-kind guess ("until the event a stored ending was built from comes
+back, an earlier attempt's `PromptQueued` and the refusal a stored delivery superseded are taken as that replay") and
+still ends with the known limit this fix removed ("the stored receipts carry no positions ... the last item that reader
+is handed is always the stored one"). Both sentences are now false about the code on this branch: the stored receipts
+do carry positions, and the ruling decides by them. The code and this review are right; that record is stale, and a
+reader of the mission's record would be told a limit exists that does not. It does not change the verdict on the code.
