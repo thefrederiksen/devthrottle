@@ -140,6 +140,43 @@ public sealed class StaleLauncherUnitTests : IDisposable
     }
 
     [Fact]
+    public void Repair_DisableFails_KeepsTheFileAndStops()
+    {
+        File.WriteAllText(_unitPath, BrokenUnit);
+        (int, string) NoUserManager(string exe, string args)
+        {
+            _calls.Add($"{exe} {args}");
+            return (1, "Failed to connect to bus: No medium found");
+        }
+
+        var repair = StaleLauncherUnit.Repair(Name, _unitPath, dryRun: false, NoUserManager);
+
+        Assert.False(repair.Removed);
+        Assert.True(repair.StillBroken);
+        Assert.True(File.Exists(_unitPath));
+        Assert.Contains("could not be stopped", repair.Message);
+        Assert.DoesNotContain(_calls, c => c.Contains("daemon-reload"));
+    }
+
+    [Fact]
+    public void Repair_UnitWithADropIn_IsLeftInPlace()
+    {
+        // "systemctl --user edit" fixes the unit with a drop-in that resets ExecStart; the file alone then
+        // proves nothing about what systemd runs.
+        File.WriteAllText(_unitPath, BrokenUnit);
+        Directory.CreateDirectory(_unitPath + ".d");
+        File.WriteAllText(Path.Combine(_unitPath + ".d", "override.conf"),
+            "[Service]\nExecStart=\nExecStart=/opt/launcher/cc-launcher --managed\n");
+
+        var repair = StaleLauncherUnit.Repair(Name, _unitPath, dryRun: false, FakeSystemctl);
+
+        Assert.False(repair.Removed);
+        Assert.True(File.Exists(_unitPath));
+        Assert.Contains("drop-ins", repair.Message);
+        Assert.DoesNotContain(_calls, c => c.Contains("disable"));
+    }
+
+    [Fact]
     public void Repair_SystemdStillKnowsTheUnit_IsReportedNotCertified()
     {
         File.WriteAllText(_unitPath, BrokenUnit);
@@ -148,6 +185,7 @@ public sealed class StaleLauncherUnitTests : IDisposable
             _calls.Add($"{exe} {args}");
             if (args.Contains("LoadState")) return (0, "LoadState=loaded\nActiveState=activating\n");
             if (args.Contains(" show ")) return (0, "NRestarts=12\nActiveState=activating\nSubState=auto-restart\n");
+            if (args.Contains("disable")) return (0, "");
             return (1, "Failed to connect to bus");
         }
 

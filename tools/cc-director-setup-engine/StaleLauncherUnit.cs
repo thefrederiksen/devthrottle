@@ -8,8 +8,11 @@ namespace CcDirector.Setup.Engine;
 /// <param name="Restarts">systemd's <c>NRestarts</c> counter, or null when systemd did not answer.</param>
 /// <param name="ActiveState">systemd's <c>ActiveState</c> (active, activating, failed, inactive), or null.</param>
 /// <param name="SubState">systemd's <c>SubState</c> (running, auto-restart, dead), or null.</param>
+/// <param name="HasDropIns">True when a <c>&lt;unit&gt;.d</c> directory beside the unit file holds a <c>.conf</c>
+/// drop-in, which can replace the command the file names (<c>systemctl --user edit</c> writes one).</param>
 public sealed record UserUnitFinding(
-    string UnitName, string UnitPath, bool Exists, string? ExecStart, int? Restarts, string? ActiveState, string? SubState)
+    string UnitName, string UnitPath, bool Exists, string? ExecStart, int? Restarts, string? ActiveState, string? SubState,
+    bool HasDropIns = false)
 {
     /// <summary>The restart count from which a unit is called crash-looping. A healthy unit restarts a handful
     /// of times in its life; ten is already a unit that cannot stay up.</summary>
@@ -30,7 +33,9 @@ public sealed record UserUnitFinding(
         if (!Exists) return $"{UnitName}: no unit file";
         var state = ActiveState is null ? "state unknown" : $"{ActiveState}/{SubState}";
         var restarts = Restarts is null ? "restarts unknown" : $"{Restarts} restarts";
-        var problem = IsBareRuntimeHost
+        var problem = IsBareRuntimeHost && HasDropIns
+            ? $" - its file runs only the runtime host ({ExecStart}), but a drop-in may replace that command"
+            : IsBareRuntimeHost
             ? $" - its command is only the runtime host ({ExecStart}), so it can never start anything"
             : IsCrashLooping ? " - it is crash-looping" : "";
         return $"{UnitName}: {state}, {restarts}{problem}";
@@ -100,8 +105,11 @@ public static class StaleLauncherUnit
         props.TryGetValue("ActiveState", out var active);
         props.TryGetValue("SubState", out var sub);
 
+        var dropInDir = unitPath + ".d";
+        var hasDropIns = Directory.Exists(dropInDir) && Directory.EnumerateFiles(dropInDir, "*.conf").Any();
+
         var finding = new UserUnitFinding(unitName, unitPath, true, execStart, restarts,
-            string.IsNullOrEmpty(active) ? null : active, string.IsNullOrEmpty(sub) ? null : sub);
+            string.IsNullOrEmpty(active) ? null : active, string.IsNullOrEmpty(sub) ? null : sub, hasDropIns);
         EngineLog.Write($"[StaleLauncherUnit] Inspect: {finding.Describe()} (systemctl show exit={exit})");
         return finding;
     }
@@ -120,6 +128,15 @@ public static class StaleLauncherUnit
 
         if (!before.Exists)
             return new UserUnitRepair(false, false, $"{unitName}: none on this machine, nothing to do", steps);
+
+        if (before.IsBareRuntimeHost && before.HasDropIns)
+        {
+            // The file alone does not prove what systemd runs: a drop-in can set its own ExecStart, which is
+            // how a person fixes this unit by hand. Lean to keep.
+            return new UserUnitRepair(false, before.IsCrashLooping,
+                $"{unitName} has drop-ins in {unitPath}.d that may replace its command, so it was left in place; "
+                + $"look at it with: systemctl --user cat {unitName}", steps);
+        }
 
         if (!before.IsBareRuntimeHost)
         {
@@ -141,6 +158,14 @@ public static class StaleLauncherUnit
 
         var (disableExit, disableText) = run("systemctl", $"--user disable --now {unitName}");
         steps.Add($"systemctl --user disable --now {unitName} -> exit {disableExit} {Trim(disableText)}".TrimEnd());
+        if (disableExit != 0)
+        {
+            // Keep the file. Deleting it while systemd still runs the unit from memory - a shell that cannot
+            // reach the user manager, say - would leave a crash loop with nothing on disk to point at.
+            return new UserUnitRepair(false, true,
+                $"{unitName} could not be stopped (systemctl exit {disableExit}), so its file was kept; "
+                + $"from a desktop terminal run: systemctl --user disable --now {unitName}", steps);
+        }
 
         File.Delete(unitPath);
         steps.Add($"deleted {unitPath}");
