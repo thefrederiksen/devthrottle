@@ -456,7 +456,7 @@ finally:
 
 #: Which account a browser profile is signed in to claude.ai as: claude.ai's own account endpoint, read from a
 #: claude.ai tab so the profile's session is what answers. Prints one "RESULT " line: state "account" with the
-#: email, "signed-out" (refused as unauthorised), or "unreadable" with the status.
+#: email, "signed-out" (refused, saying the session is invalid), or "unreadable" with the status.
 _ACCOUNT_SCRIPT = r'''
 import json
 def finish(state, **extra):
@@ -466,12 +466,16 @@ tab = current_tab()
 try:
     wait_for_load()
     answer = js("""fetch('/api/account', {credentials: 'include'}).then(async r => {
+        const body = await r.text();
         let email = null;
-        if (r.status === 200) { try { email = (await r.json()).email_address || null; } catch (e) {} }
-        return {status: r.status, email: email};
+        if (r.status === 200) { try { email = JSON.parse(body).email_address || null; } catch (e) {} }
+        return {status: r.status, email: email, sessionInvalid: body.includes('account_session_invalid')};
     })""") or {}
     status = answer.get("status")
-    if status in (401, 403):
+    # Signed out is claude.ai's own answer for it, recorded on 16 October: "account_session_invalid", "Invalid
+    # authorization". A refusal without it - a bot challenge or an edge block answers 403 too - is not proof of a
+    # signed-out profile, so it is unreadable.
+    if status in (401, 403) and answer.get("sessionInvalid"):
         finish("signed-out")
     elif status == 200 and answer.get("email"):
         finish("account", email=answer["email"])
@@ -664,12 +668,14 @@ class ApproverCheck:
         }
 
 
-def _detail(state: str, profile: str, email: Optional[str], shown: Optional[str]) -> str:
+def _detail(state: str, profile: str, email: Optional[str]) -> str:
+    """This module's own sentence for a state. It never carries text from the page - not even the account the page
+    named, which travels in ``shownAccount`` where it is shape-checked."""
     who = f"The browser profile \"{profile}\""
     if state == CAN_APPROVE:
         return f"{who} can approve sign-ins for {email}."
     if state == PAGE_WRONG_ACCOUNT:
-        return f"{who} is signed in to claude.ai as {shown}, not {email}."
+        return f"{who} is signed in to claude.ai as another account, not {email}."
     if state == SIGNED_OUT:
         return f"{who} is not signed in to claude.ai."
     if state == PAGE_NEEDS_FRESH_SIGN_IN:
@@ -697,6 +703,45 @@ def _temporary_login_folder() -> str:
     return folder
 
 
+class _CheckResources:
+    """What one check opened, so every piece of it is put back whatever happened."""
+
+    def __init__(self) -> None:
+        self.browser: Optional[BrowserProfile] = None
+        self.login: Optional[LoginProcess] = None
+        self.folder: Optional[str] = None
+
+    def clean_up(self) -> List[str]:
+        """End the login, delete the folder, put the profile back - each step runs whatever the ones before did.
+        Returns what could not be done; an exception outside the expected ones still propagates, after every step."""
+        problems: List[str] = []
+        try:
+            if self.login is not None:
+                _cleanup_step(problems, "the throwaway login could not be ended", self.login.cancel)
+        finally:
+            try:
+                # The login is ended first, so nothing still holds a file in the folder.
+                if self.folder is not None and os.path.isdir(self.folder):
+                    folder = self.folder
+                    _cleanup_step(problems, f"the temporary folder {folder} could not be removed",
+                                  lambda: shutil.rmtree(folder))
+            finally:
+                if self.browser is not None:
+                    _cleanup_step(problems, "the browser profile could not be put back as it was found",
+                                  self.browser.stop)
+        return problems
+
+
+def _cleanup_step(problems: List[str], what: str, step: Callable[[], None]) -> None:
+    from cc_shared import gateway
+
+    try:
+        step()
+    except (OSError, subprocess.TimeoutExpired, gateway.GatewayError) as ex:
+        log.warning("check-approver cleanup: %s (%s: %s)", what, type(ex).__name__, ex)
+        problems.append(f"{what} ({type(ex).__name__})")
+
+
 def check_approver(profile: str, email: Optional[str] = None, *,
                    open_profile: Callable[[str], BrowserProfile] = director_browser,
                    run_harness: RunHarness = _run_harness,
@@ -707,30 +752,47 @@ def check_approver(profile: str, email: Optional[str] = None, *,
 
     With no ``email``, the account the profile is signed in to claude.ai as is read first; a signed-out profile is
     answered ``signed-out`` with no account. The page comes from a throwaway ``claude auth login`` into a new
-    temporary folder, which is cancelled and deleted on every path. Nothing on the page is pressed: no Authorize, no
-    typing, no sign-in - the code that would come back is never asked for, so this can never sign anything in.
+    temporary folder. Nothing on the page is pressed: no Authorize, no typing, no sign-in - the code that would come
+    back is never asked for, so this can never sign anything in.
 
-    Every failure of the check itself is answered ``check-failed`` with why, never raised: the Director reports it."""
-    browser: Optional[BrowserProfile] = None
-    login: Optional[LoginProcess] = None
-    folder: Optional[str] = None
+    Afterwards, on every path, the login is ended, the folder deleted and the profile put back as it was found, each
+    step whatever the one before did. Every failure of the check itself - a cleanup step that could not be done
+    included - is answered ``check-failed`` with why, never raised: the Director reports it."""
+    opened = _CheckResources()
+    try:
+        check = _check_once(profile, email, opened, open_profile, run_harness, start_login, make_folder)
+    except BaseException:
+        # Not a check result: raised as it is, but nothing it opened outlives it.
+        opened.clean_up()
+        raise
+    problems = opened.clean_up()
+    if problems:
+        return ApproverCheck(check.browser_profile, check.browser_profile_name, check.account_email, None,
+                             CHECK_FAILED, "The check could not clean up after itself: " + "; ".join(problems) + ".")
+    return check
+
+
+def _check_once(profile: str, email: Optional[str], opened: _CheckResources,
+                open_profile: Callable[[str], BrowserProfile], run_harness: RunHarness,
+                start_login: Optional[StartLogin], make_folder: Callable[[], str]) -> ApproverCheck:
+    """The check itself. What it opens goes into ``opened`` for ``check_approver`` to put back."""
     # Until the profile is found, the answer can only echo what the caller gave; after, it names the profile by its
     # identifier, whichever of identifier or name the caller used.
     profile_id, profile_name = profile, None
     try:
-        browser = open_profile(profile)
-        profile_id, profile_name = browser.id, browser.name
-        env = browser.environment()
+        opened.browser = open_profile(profile)
+        profile_id, profile_name = opened.browser.id, opened.browser.name
+        env = opened.browser.environment()
         if email is None:
             email = read_signed_in_account(env, run_harness)
             if email is None:
                 log.info("check-approver %s: signed out of claude.ai", profile)
                 return ApproverCheck(profile_id, profile_name, None, None, SIGNED_OUT,
-                                     _detail(SIGNED_OUT, profile_name, None, None))
+                                     _detail(SIGNED_OUT, profile_name, None))
         email = email.strip().lower()
-        folder = make_folder()
-        login = (start_login or start_claude_login)(folder, email)
-        url = login.authorize_url(URL_WAIT_SECONDS)
+        opened.folder = make_folder()
+        opened.login = (start_login or start_claude_login)(opened.folder, email)
+        url = opened.login.authorize_url(URL_WAIT_SECONDS)
         if not AUTHORIZE_URL.fullmatch(url.strip()):
             raise SignInError(LOGIN_FAILED, "claude auth login printed something that is not an authorize URL")
         answer = _result(run_harness(_page_script(_CHECK_SCRIPT, url, email), env, BROWSER_WAIT_SECONDS + 30))
@@ -739,19 +801,10 @@ def check_approver(profile: str, email: Optional[str] = None, *,
             raise SignInError(APPROVAL_FAILED, f"the browser step answered a state this tool does not know ({state!r})")
         shown = answer.get("shown") if isinstance(answer.get("shown"), str) else None
         log.info("check-approver %s for %s: %s", profile, email, state)
-        return ApproverCheck(profile_id, profile_name, email, shown, state, _detail(state, profile_name, email, shown))
+        return ApproverCheck(profile_id, profile_name, email, shown, state, _detail(state, profile_name, email))
     except SignInError as ex:
         log.warning("check-approver %s for %s: the check could not run (%s) %s", profile, email, ex.kind, ex)
         return ApproverCheck(profile_id, profile_name, email, None, CHECK_FAILED, f"The check could not run: {ex}")
-    finally:
-        if login is not None:
-            login.cancel()
-        # The login is ended first, so nothing still holds a file in the folder. A folder that cannot be removed is
-        # raised, never left behind quietly.
-        if folder is not None and os.path.isdir(folder):
-            shutil.rmtree(folder)
-        if browser is not None:
-            browser.stop()
 
 
 # ---------------------------------------------------------------------------------------------------

@@ -289,13 +289,29 @@ def test_checkApprover_NoEmail_ReadsTheSignedInAccountFirst_AndChecksThatOne(tmp
 
 @pytest.mark.parametrize("status", [401, 403])
 def test_checkApprover_NoEmail_SignedOutProfile_IsSignedOut_AndNoLoginStarts(tmp_path, status):
-    machine = Machine(tmp_path, FakeBrowser("consent", account={"status": status, "email": None}))
+    # claude.ai's own signed-out answer, recorded on 16 October: "account_session_invalid".
+    machine = Machine(tmp_path, FakeBrowser("consent", account={"status": status, "email": None,
+                                                                 "sessionInvalid": True}))
 
     check = machine.check(email=None)
 
     assert (check.account_email, check.shown_account, check.state) == (None, None, "signed-out")
     assert machine.logins == [] and machine.folders == []
     assert machine.profile.stopped == 1
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_checkApprover_NoEmail_RefusedWithoutTheSignedOutAnswer_IsCheckFailed_NotSignedOut(tmp_path, status):
+    # A bot challenge or an edge block refuses too. Only claude.ai's own "session invalid" proves a signed-out
+    # profile; anything else must not send the owner to sign in a profile that may be fine.
+    machine = Machine(tmp_path, FakeBrowser("consent", account={"status": status, "email": None,
+                                                                 "sessionInvalid": False}))
+
+    check = machine.check(email=None)
+
+    assert check.state == "check-failed" and f"status {status}" in check.detail
+    assert machine.logins == []
+    machine.assert_left_nothing()
 
 
 def test_checkApprover_NoEmail_AccountEndpointSaysNeither_IsCheckFailed(tmp_path):
@@ -358,6 +374,72 @@ def test_checkApprover_GivenTheNameOrTheIdentifier_AnswersTheIdentifier_AndTheNa
     check = machine.check(profile=given)
 
     assert (check.browser_profile, check.browser_profile_name) == ("work-chrome", "Work Chrome")
+
+
+def test_checkApprover_WrongAccount_DetailNeverCarriesTheAccountThePageShowed(tmp_path):
+    # The page's account goes in shownAccount, where the Gateway shape-checks it; the sentence is the tool's own.
+    machine = Machine(tmp_path, FakeBrowser("consent-other-account"))
+
+    check = machine.check()
+
+    assert check.shown_account == BOB
+    assert BOB not in check.detail
+    assert check.detail == 'The browser profile "Work Chrome" is signed in to claude.ai as another account, not alice@example.com.'
+
+
+def test_checkApprover_FolderCannotBeRemoved_ProfileIsStillPutBack_AndTheCheckFailsWithWhy(tmp_path, monkeypatch):
+    # Seen as a risk on Windows: something still holds a file in the folder a moment after the login is killed.
+    def locked(path):
+        raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+
+    monkeypatch.setattr(license_signin.shutil, "rmtree", locked)
+    machine = Machine(tmp_path, FakeBrowser("consent"))
+
+    check = machine.check()
+
+    assert check.state == "check-failed"
+    assert "could not clean up" in check.detail and "could not be removed" in check.detail
+    assert machine.logins[0].cancelled == 1
+    assert machine.profile.stopped == 1, "the profile is put back even though the folder could not be removed"
+
+
+def test_checkApprover_LoginCannotBeEnded_FolderAndProfileAreStillPutBack(tmp_path):
+    machine = Machine(tmp_path, FakeBrowser("consent"))
+
+    def stuck():
+        raise license_signin.subprocess.TimeoutExpired("claude", 10)
+
+    original = machine.start_login
+
+    def start(folder, email):
+        login = original(folder, email)
+        login.cancel = stuck
+        return login
+
+    machine.start_login = start
+
+    check = machine.check()
+
+    assert check.state == "check-failed" and "could not be ended" in check.detail
+    assert all(not folder.exists() for folder in machine.folders)
+    assert machine.profile.stopped == 1
+
+
+def test_checkApprover_ProfileCannotBePutBack_IsCheckFailed_AfterTheRestIsCleanedUp(tmp_path):
+    from cc_shared import gateway
+
+    machine = Machine(tmp_path, FakeBrowser("consent"))
+
+    def unreachable():
+        raise gateway.GatewayError("the Gateway did not answer")
+
+    machine.profile.stop = unreachable
+
+    check = machine.check()
+
+    assert check.state == "check-failed" and "could not be put back" in check.detail
+    assert machine.logins[0].cancelled == 1
+    assert all(not folder.exists() for folder in machine.folders)
 
 
 def test_checkApprover_DetailIsTheToolsOwnSentence_NeverPageText(tmp_path):

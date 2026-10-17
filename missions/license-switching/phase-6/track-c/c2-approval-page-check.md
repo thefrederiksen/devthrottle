@@ -118,9 +118,29 @@ C#:
   `CcDirector.Core.Tests` 4,538. One test failed, in a suite this change does not touch:
   `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused`, whose own message says Windows
   returned no short name for its folder - drive D: makes no short (8.3) names, and the folder was on D: only because
-  TEMP was. Re-run alone with `-RerunFailed` (TEMP back on C:) it passed: the gate's verdict is FLAKY, a test that
-  fails on correct code. It passed in the default run above too. It is reported to the Tech Lead, not deleted here:
-  that is a test-only pull request of its own.
+  TEMP was. That red is environmental: it comes from the drive the run's temporary folders were on, not from the
+  code. Re-run alone with `-RerunFailed` with TEMP back on C: it passed, and it passed in the default run above too.
+  It is reported to the Tech Lead, not touched here.
 
 After the identifier change (17 October): the four affected Python test files re-run in the clean environment,
 1,336 passed, 0 failed. Only the Python tool changed, so the C# gate results above stand.
+
+After the review of this pull request (`review-4116.md`, answered in `review-4116-answers.md`): the cleanup steps
+nested so the profile is always put back, the wrong-account sentence without the page's account, and signed-out read
+only from claude.ai's own "session invalid" answer. New tests:
+
+- `test_checkApprover_FolderCannotBeRemoved_ProfileIsStillPutBack_AndTheCheckFailsWithWhy` - the folder cannot be
+  removed (Windows "being used by another process"): the login was ended, the profile is put back, and the answer
+  is check-failed saying the folder could not be removed - not a crash.
+- `test_checkApprover_LoginCannotBeEnded_FolderAndProfileAreStillPutBack` - the login will not end: the folder is
+  still deleted and the profile still put back, and the answer says why.
+- `test_checkApprover_ProfileCannotBePutBack_IsCheckFailed_AfterTheRestIsCleanedUp` - the Gateway does not answer
+  the stop: check-failed, after the login and the folder were dealt with.
+- `test_checkApprover_WrongAccount_DetailNeverCarriesTheAccountThePageShowed` - the sentence names no account from
+  the page; that account is only in `shownAccount`.
+- `test_checkApprover_NoEmail_RefusedWithoutTheSignedOutAnswer_IsCheckFailed_NotSignedOut` - a 401 or 403 without
+  claude.ai's "account_session_invalid" is check-failed with its status, never signed-out; the signed-out test now
+  carries that answer, as recorded on 16 October.
+
+The whole Python tool suite after these changes, in the clean environment: 4,729 passed, 3 skipped, 0 failed. Only
+the Python tool changed, so the C# gate results above stand.
