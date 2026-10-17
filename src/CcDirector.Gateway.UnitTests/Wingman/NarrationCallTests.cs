@@ -370,6 +370,24 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     /// <summary>
+    /// The same starvation from a session with no reading at all (found in review): a brand-new session sitting at its
+    /// prompt is never read, so a pass over it asks nobody and stores nothing - and must not spend a slot on every cycle.
+    /// </summary>
+    [Fact]
+    public async Task ABrandNewVoiceSession_WithNoReading_SpendsNoSweepSlot()
+    {
+        var rig = Build();
+        rig.Env.Facts = sid => new SessionDto { SessionId = sid, ActivityState = "WaitingForInput", IsBrandNew = true };
+        var route = RouteServing("dir-1", () => Screen(Sid, "> "));
+        rig.Voice.Mark(Tenant, Sid);
+
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(0, rig.Env.JudgeCalls);
+        Assert.Null(rig.Env.Latest(Tenant, Sid));
+    }
+
+    /// <summary>
     /// ISSUE #4154, THE SWITCH. Switching voice on is a person asking for the stop in front of them. A late narration for this
     /// same stop that failed during an EARLIER voice period - voice mode switched off, by hand or by auto-off - must not leave
     /// the stop refused for good: switching voice on again gives the stop one more automatic attempt, and its words and clip
