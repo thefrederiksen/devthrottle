@@ -322,7 +322,7 @@ describe("LicensesView: Switch now", () => {
     const barred = within(dialog).getByRole("radio", { name: /account-c@example\.com/ }) as HTMLInputElement;
     expect(choosable.checked).toBe(true);
     expect(barred.disabled).toBe(true);
-    expect(within(dialog).getByText("the-mac holds no usable spare for account-c@example.com.")).toBeTruthy();
+    expect(within(dialog).getByText("account-c@example.com has no room: it is at 99% of its 5-hour window.")).toBeTruthy();
     expect(switchLicenseNow).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));

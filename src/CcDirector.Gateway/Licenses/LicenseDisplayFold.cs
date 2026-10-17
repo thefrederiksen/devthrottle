@@ -238,27 +238,35 @@ public static class LicenseDisplayFold
             return;
         }
 
-        var chosen = automatic.Accepted ? automatic.Switches[0].TargetAccountEmail : null;
+        // The automatic choice is the best account with room (the engine's NextTarget). The page sends Switch now with
+        // the target it shows, so the sentence is the answer for THAT target: the machines ready for it move, and each
+        // one that is not says why.
+        var best = LicenseDecisionEngine.NextTarget(snapshot, dto.AccountEmail);
+        LicenseManualSwitchVerdict? toBest = null;
         foreach (var other in snapshot.Accounts.Select(a => a.AccountEmail).Where(e => e != dto.AccountEmail).OrderBy(e => e, StringComparer.Ordinal))
         {
             var named = LicenseDecisionEngine.PreviewManual(snapshot, dto.AccountEmail, other);
+            if (other == best)
+                toBest = named;
             dto.SwitchTargets.Add(new LicenseSwitchTargetDto
             {
                 AccountEmail = other,
                 CanChoose = named.Accepted,
                 UnavailableText = named.RefusalMessage,
-                IsAutomaticChoice = other == chosen,
+                IsAutomaticChoice = other == best,
             });
         }
 
         dto.CanSwitchNow = dto.SwitchTargets.Any(t => t.CanChoose);
-        dto.SwitchNowTargetAccountEmail = chosen;
-        if (automatic.Accepted)
-            dto.SwitchNowText = $"Moves {Names(automatic.Switches.Select(s => names.Label(s.MachineName, s.OsUser)).ToList())} to {chosen}." + notSwitched;
+        var answer = toBest ?? automatic;
+        var leftOut = string.Concat(answer.Skipped.Select(s => $" {names.Label(s.MachineName, s.OsUser)} is not switched: {s.Why}."));
+        dto.SwitchNowTargetAccountEmail = toBest is { Accepted: true } ? best : null;
+        if (toBest is { Accepted: true })
+            dto.SwitchNowText = $"Moves {Names(toBest.Switches.Select(s => names.Label(s.MachineName, s.OsUser)).ToList())} to {best}." + leftOut;
         else if (dto.CanSwitchNow)
-            dto.SwitchNowText = $"{automatic.RefusalMessage} A target can still be chosen by hand." + notSwitched;
+            dto.SwitchNowText = $"{answer.RefusalMessage} A target can still be chosen by hand." + leftOut;
         else
-            dto.SwitchNowText = automatic.RefusalMessage + notSwitched;
+            dto.SwitchNowText = answer.RefusalMessage + leftOut;
     }
 
     // The bar that keeps this account out of the AUTOMATIC choice now, or null: the one that lasts longest when it
@@ -532,7 +540,9 @@ public static class LicenseDisplayFold
         var moves = inUse.ToDictionary(e => e, e => LicenseDecisionEngine.PreviewManual(snapshot, e, null), StringComparer.Ordinal);
         var readings = snapshot.Accounts.ToDictionary(r => r.AccountEmail, StringComparer.Ordinal);
         var accounts = forecast.Accounts
-            .Select(a => AccountForecast(a, readings[a.AccountEmail], moves.GetValueOrDefault(a.AccountEmail), EveryMachineHeldText(snapshot, a.AccountEmail), now))
+            .Select(a => AccountForecast(a, readings[a.AccountEmail], moves.GetValueOrDefault(a.AccountEmail),
+                moves.ContainsKey(a.AccountEmail) ? LicenseDecisionEngine.NextTarget(snapshot, a.AccountEmail) : null,
+                EveryMachineHeldText(snapshot, a.AccountEmail), now))
             .ToList();
         var expectedByAccount = accounts.ToDictionary(a => a.AccountEmail, a => a.ExpectedAtLimitUtc, StringComparer.Ordinal);
 
@@ -550,11 +560,12 @@ public static class LicenseDisplayFold
                     Window = next.Window,
                     WindowText = WindowLabel(next.Window),
                     TargetAccountEmail = next.TargetAccountEmail,
-                    Machines = LicenseDecisionEngine.SwitchableMachines(snapshot, next.FromAccountEmail).Select(m => names.Ref(m.MachineName, m.OsUser)).ToList(),
+                    // The machines that would move: a machine not ready for any account with room is not one of them.
+                    Machines = moves[next.FromAccountEmail].Switches.Select(s => names.Ref(s.MachineName, s.OsUser)).ToList(),
                 }
                 : null,
             NextSwitchText = forecast.NextSwitch is { } expected
-                ? NextSwitchText(expected, moves[expected.FromAccountEmail], now) + (EveryMachineHeldText(snapshot, expected.FromAccountEmail) is { } held ? " " + held : "")
+                ? NextSwitchText(expected, moves[expected.FromAccountEmail], names, now) + (EveryMachineHeldText(snapshot, expected.FromAccountEmail) is { } held ? " " + held : "")
                 : NoSwitchExpectedText,
             Accounts = accounts,
             Machines = picture.Overview.Machines.Select(m => MachineForecast(m, names, moves, expectedByAccount, HoldInForce(snapshot, m), now)).ToList(),
@@ -566,14 +577,24 @@ public static class LicenseDisplayFold
     // With no target the sentence gives the engine's own reason - no account has room, or no machine on the account
     // can be sent a switch - rather than assuming which it is. The forecaster and the engine choose a target by the
     // same code, so "no target" with no refusal is a defect, and it is not papered over with a guessed reason.
-    private static string NextSwitchText(LicenseNextSwitch next, LicenseManualSwitchVerdict move, DateTime now)
+    private static string NextSwitchText(LicenseNextSwitch next, LicenseManualSwitchVerdict move, MachineNames names, DateTime now)
     {
         var when = next.ExpectedAtUtc <= now
             ? $"{next.FromAccountEmail} has reached {Threshold} of its {WindowLabel(next.Window)}"
             : $"{next.FromAccountEmail} is expected to reach {Threshold} of its {WindowLabel(next.Window)} in about {Span(next.ExpectedAtUtc - now)}";
-        return next.TargetAccountEmail is { } target
-            ? $"{when}; its machines then move to {target}, the account the Gateway would choose today."
-            : $"{when}. {move.RefusalMessage ?? throw new InvalidOperationException("The forecast gives no target for the next switch, and Switch now would not refuse one.")} Nothing would be switched.";
+        if (next.TargetAccountEmail is not { } target || !move.Accepted)
+            return $"{when}. {move.RefusalMessage ?? throw new InvalidOperationException("The forecast gives no target for the next switch, and Switch now would not refuse one.")} Nothing would be switched.";
+        // Every ready machine moves; one that would not is named with its reason, so the schedule never says "its
+        // machines" of a machine that stays behind.
+        var leftOut = string.Concat(move.Skipped.Select(s => $" {names.Label(s.MachineName, s.OsUser)} would not move: {s.Why}."));
+        if (move.Switches.All(s => s.TargetAccountEmail == target) && move.Skipped.Count == 0)
+            return $"{when}; its machines then move to {target}, the account the Gateway would choose today.";
+        var moves = move.Switches
+            .GroupBy(s => s.TargetAccountEmail, StringComparer.Ordinal)
+            .Select(g => (Names: g.Select(s => names.Label(s.MachineName, s.OsUser)).ToList(), Target: g.Key))
+            .Select(g => $"{Names(g.Names)} then {(g.Names.Count == 1 ? "moves" : "move")} to {g.Target}"
+                         + (g.Target == target ? ", the account the Gateway would choose today" : $", the best account with room {(g.Names.Count == 1 ? "it is" : "they are")} ready for"));
+        return $"{when}; {string.Join("; ", moves)}." + leftOut;
     }
 
     // When every machine on the account that could be sent a switch is held because its switch keeps failing: the
@@ -588,7 +609,7 @@ public static class LicenseDisplayFold
     }
 
     private static LicenseAccountForecastDto AccountForecast(LicenseAccountForecast account, LicenseAccountReading reading,
-        LicenseManualSwitchVerdict? move, string? everyMachineHeld, DateTime now)
+        LicenseManualSwitchVerdict? move, string? nextTarget, string? everyMachineHeld, DateTime now)
     {
         var dto = new LicenseAccountForecastDto
         {
@@ -614,7 +635,8 @@ public static class LicenseDisplayFold
             dto.NextSwitchText = "Not in use, so there is nothing to switch.";
             return dto;
         }
-        dto.NextSwitchTargetAccountEmail = move.Accepted ? move.Switches[0].TargetAccountEmail : null;
+        // Named whenever an account has room, even while no machine on this one is ready for it (the sentence says why).
+        dto.NextSwitchTargetAccountEmail = nextTarget;
         var when = account.ExpectedTiredAtUtc is not { } tiredAt ? null
             : tiredAt <= now ? "now"
             : $"in about {Span(tiredAt - now)}";

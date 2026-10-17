@@ -44,8 +44,8 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
 
    The decision engine's own sentences follow the same rule: `switchTargets[].unavailableText`, the reason a machine
    is left out inside `switchNowText` and inside a forecast machine's `text`, a refusal of Switch now, and the owner
-   email all name a machine by its label ("the-windows-machine (second) holds no usable spare for
-   account-c@example.com.").
+   email all name a machine by its label ("account-c@example.com has room;
+   the-windows-machine (second) holds no sign-in for it.").
 
 **Decided here (the Tech Lead's rulings on the review of this pull request):**
 
@@ -252,7 +252,7 @@ show nothing. Section 6 has the sentences and the tone rule.
         {
           "accountEmail": "account-c@example.com",
           "canChoose": false,
-          "unavailableText": "the-mac holds no usable spare for account-c@example.com.",
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
           "isAutomaticChoice": false
         }
       ],
@@ -563,8 +563,8 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 
 | Field | Meaning |
 |---|---|
-| `nextSwitch` | Null when no switch is expected. Otherwise the soonest one: `fromAccountEmail`, `expectedAtUtc`, `window` (`five-hour` or `seven-day`), `windowText` ("5-hour window" or "weekly limit"), `targetAccountEmail` (null when nothing would be switched), `machines` (the machines that would be switched, each the four fields of rule 9). |
-| `nextSwitchText` | The sentence for it, or "No switch is expected.". When there is no target it gives the reason: no account has room, or no machine on the account can be sent a switch. When every machine that could be switched is held because its switch keeps failing (contract section 5.8), the sentence ends "The automatic switch keeps failing and is held: it is tried again in {how long}, at {yyyy-MM-dd HH:mm UTC}. Switch now still sends it at once." - and so does that account's own `nextSwitchText`. |
+| `nextSwitch` | Null when no switch is expected. Otherwise the soonest one: `fromAccountEmail`, `expectedAtUtc`, `window` (`five-hour` or `seven-day`), `windowText` ("5-hour window" or "weekly limit"), `targetAccountEmail` (the account the Gateway would switch to next - named whenever an account has room, even while no machine is ready for it; null only when no account has room), `machines` (the machines that would actually move - a machine not ready for any account with room is not listed - each the four fields of rule 9). |
+| `nextSwitchText` | The sentence for it, or "No switch is expected.". When nothing would be switched it gives the real reason: no account has room (with each account's reason), an account has room and no machine is ready for it ("account-b@example.com has room; machine-a holds no sign-in for it."), or no machine on the account can be sent a switch. When some machines would move and one would not, the sentence names the ones that move and ends with each one that would not and why ("machine-d would not move: it holds no sign-in for account-b@example.com."). When every machine that could be switched is held because its switch keeps failing (contract section 5.8), the sentence ends "The automatic switch keeps failing and is held: it is tried again in {how long}, at {yyyy-MM-dd HH:mm UTC}. Switch now still sends it at once." - and so does that account's own `nextSwitchText`. |
 | `accounts[]` | Per account: `isInUse`, `isStale`, the two windows, `expectedAtLimitUtc` and `expectedText` (when it is expected to reach 97% on either window), `nextSwitchTargetAccountEmail` and `nextSwitchText` (where its machines go at its next switch). |
 | `accounts[].fiveHour`, `.sevenDay` | The window in the overview's own words - `utilization`, `utilizationText`, `level`, `resetsAtUtc`, `resetsText`, exactly as section 2 gives them for the same window - and then the forecast: `percentPerHour` (null when there is no rate), `rateText` ("28.5% an hour", "Not rising", "No rate yet"), `expectedAtLimitUtc`, `expectedText`. The schedule colours a window by `level` and shows `resetsText`; it never compares `utilization` with 97 or `resetsAtUtc` with now, and it does not need the overview to do either. |
 | `machines[]` | Per machine: `machineId`, `machineName`, `osUser`, `label` (rule 9), `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." **For a machine that is held** `text` is "Next: {account}, not before {yyyy-MM-dd HH:mm UTC}: the automatic switch is held for this machine.", and `expectedSwitchAtUtc` is never earlier than the time it is held until. Why and for how long is the machine's own `heldText` of section 2, which the page draws in the same row; the two sentences do not repeat each other. |
@@ -1057,8 +1057,11 @@ sign-in left:
 
 Everything the page needs to DRAW the control is in section 2 (`canSwitchNow`, `switchNowText`,
 `switchNowTargetAccountEmail`, `switchTargets`). This route performs it. It is by ACCOUNT, because usage is counted
-per account: every machine on the account that can be sent a switch moves. The target is optional - null, blank or
-absent lets the Gateway choose, exactly as an automatic switch would:
+per account: every machine on the account that can be sent a switch AND is ready for the target moves (MISSION.md section 5:
+it holds a sign-in for the target that was not refused and does not expire before the switch could finish). A machine
+that is not ready stays where it is and is listed in `skipped` with its reason. The target is optional - null, blank or
+absent lets the Gateway choose, exactly as an automatic switch would, each machine to the best account with room it is
+ready for:
 
 ```json
 { "accountEmail": "account-a@example.com", "targetAccountEmail": null }
@@ -1099,11 +1102,11 @@ Nothing was written and nothing was sent:
 |---|---|---|
 | 409 | `no-machine-to-switch` | No machine is on the account (also the answer for an account of another DevThrottle account, or one that exists nowhere), or every machine on it is stale or has a switch that has not finished. |
 | 409 | `target-is-source` | The target named is the account the machines are already on. |
-| 409 | `target-not-held` | A machine to be switched holds no usable spare for the target. |
-| 409 | `target-sign-in-expiring` | A machine's sign-in for the target expires before a switch could finish. |
+| 409 | `target-not-held` | The target has room and no machine to be switched is ready for it; at least one holds no usable sign-in for it. The sentence names every machine and its reason: "account-b@example.com has room; machine-a holds no sign-in for it." Also the answer with no target named, when an account has room and no machine is ready for any account with room. |
+| 409 | `target-sign-in-expiring` | The same, when every machine's sign-in for the target expires before a switch could finish. |
 | 409 | `target-stale` | The latest reading of the target is too old to show it has room. |
 | 409 | `target-full` | The target has no room. |
-| 409 | `no-target` | No target was named and no other account has room for the machines. |
+| 409 | `no-target` | No target was named and no other account has room, judged on each account alone. The sentence gives each account's reason: "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit." |
 | 400 | `invalid_body` | The body was not sent as `application/json`, or is not a JSON object of this shape. |
 | 400 | `account_required` | `accountEmail` is missing or blank. |
 | 400 | `invalid_account` | `accountEmail` or `targetAccountEmail` is longer than 320 characters, or holds a control character, a line or paragraph separator, or a format character. |

@@ -235,7 +235,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
 
         Assert.Equal(409, status);
         Assert.Equal(new[] { "code", "error" }, Names(json));
-        Assert.Equal((LicenseManualRefusals.TargetNotHeld, $"{Windows} holds no usable spare for {C}."), Refusal(json));
+        Assert.Equal((LicenseManualRefusals.TargetNotHeld, $"{C} has room; {Windows} holds no sign-in for it."), Refusal(json));
         Assert.Equal(shown, json.GetProperty("error").GetString());
         Assert.Empty(_sent);
         Assert.Empty(Switches(TenantOne));
@@ -268,12 +268,14 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
             Assert.Contains(Refusal(json).Code, new[]
             {
                 LicenseManualRefusals.TargetIsSource, LicenseManualRefusals.TargetNotHeld, LicenseManualRefusals.NoMachineToSwitch,
+                // An account no machine reports is judged on its own first: no reading shows it has room.
+                LicenseManualRefusals.TargetStale,
             });
             codes.Add(Refusal(json).Code);
             Assert.EndsWith(".", Refusal(json).Error);
             Assert.DoesNotContain("  ", Refusal(json).Error);
         }
-        Assert.Equal(3, codes.Count);
+        Assert.Equal(4, codes.Count);
         Assert.Empty(_sent);
         Assert.Empty(Switches(TenantOne));
     }
@@ -448,13 +450,15 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     [Fact]
     public void TwoUsersOfOneComputer_AreNamedWithTheirUser_InARefusal_AndInAnAcceptedAnswer()
     {
-        Reports(TenantOne, Windows, "dir-first", A, new[] { B, C }, osUser: "first");
+        Reports(TenantOne, Windows, "dir-first", A, new[] { B }, osUser: "first");
         Reports(TenantOne, Windows, "dir-second", A, new[] { B }, osUser: "second");
+        Reports(TenantOne, Mac, "dir-mac", C, new[] { A });
 
         var refused = Post(TenantOne, Body(A, C));
         var accepted = Post(TenantOne, Body(A, B));
 
-        Assert.Equal((409, $"{Windows} (second) holds no usable spare for {C}."), (refused.Status, Refusal(refused.Json).Error));
+        Assert.Equal((409, $"{C} has room; {Windows} (first) holds no sign-in for it; {Windows} (second) holds no sign-in for it."),
+            (refused.Status, Refusal(refused.Json).Error));
         Assert.Equal(200, accepted.Status);
         Assert.Equal(new[] { $"{Windows} (first)", $"{Windows} (second)" },
             accepted.Json.GetProperty("switches").EnumerateArray().Select(s => s.GetProperty("label").GetString()).OrderBy(l => l, StringComparer.Ordinal));
