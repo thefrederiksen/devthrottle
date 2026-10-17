@@ -147,6 +147,40 @@ public static class LicenseEndpoints
         }
     }
 
+    /// <summary>
+    /// Map <c>GET /gateway/licenses/alarms</c>: the license alarms open now, with the banner's finished words, for the
+    /// caller's own account. Read by the shell of every Cockpit page and of the phone app. A read only: no route raises,
+    /// clears or changes an alarm - only the Gateway's own checks do (<see cref="LicenseAlarmService.RaiseAsync"/>).
+    /// </summary>
+    public static void MapAlarms(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, LicenseAlarmService alarms,
+        Func<DateTime> nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(alarms);
+        ArgumentNullException.ThrowIfNull(nowUtc);
+        app.MapGet(LicenseRoutes.Alarms, (HttpContext ctx) => Alarms(ctx, resolveTenant, alarms, nowUtc));
+        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Alarms}");
+    }
+
+    internal static IResult Alarms(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, LicenseAlarmService alarms,
+        Func<DateTime> nowUtc)
+    {
+        FileLog.Write("[LicenseEndpoints] GET alarms");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant)
+                return NoAccount();
+            var response = LicenseAlarmFold.Banner(alarms.ListOpen(tenant), nowUtc());
+            FileLog.Write($"[LicenseEndpoints] GET alarms: tenant={tenant.ToLogString()}, open={response.Count}");
+            return Results.Json(response);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses/alarms FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
     internal static IResult Log(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, LicenseStore store, Func<DateTime> nowUtc)
     {
         FileLog.Write("[LicenseEndpoints] GET log");

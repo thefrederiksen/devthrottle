@@ -783,6 +783,8 @@ public static class LicenseDisplayFold
             // on every machine. The row's message says which.
             NoRoomKind => NothingSwitchedKindText,
             LicenseRenewalFailureLog.Kind => "Renewal failing",
+            LicenseLogKinds.AlarmOpened => "Alarm opened",
+            LicenseLogKinds.AlarmClosed => "Alarm closed",
             _ => "Note",
         };
         var message = string.IsNullOrWhiteSpace(row.Message) ? null : row.Message;

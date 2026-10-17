@@ -26,7 +26,7 @@
      whichever bar it did not account for. The screens that are pinned out of the document flow
      (.terminal-screen) cannot be pushed down by anything rendered above them, so they
      read this directly; the screens in normal flow are pushed by body's padding-top below. */
-  --topbars-h: calc(var(--connbanner-h, 0px) + var(--voicemode-h, 0px) + var(--recbanner-h, 0px));
+  --topbars-h: calc(var(--connbanner-h, 0px) + var(--voicemode-h, 0px) + var(--recbanner-h, 0px) + var(--licensealarm-h, 0px));
 }
 
 * {
@@ -2594,6 +2594,59 @@ a.banner-btn {
   touch-action: manipulation;
 }
 
+/* The license alarm (License Switching phase 6): on every screen while a license alarm is open, parked below the
+   other three bars and publishing --licensealarm-h into --topbars-h. Nothing is drawn while no alarm is open. Red as
+   the recording banner is red. */
+.licensealarm-bar {
+  position: sticky;
+  top: calc(var(--connbanner-h, 0px) + var(--voicemode-h, 0px) + var(--recbanner-h, 0px));
+  z-index: 6;
+  width: 100%;
+}
+
+.licensealarm-bar .license-alarm-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #7f2d33;
+  background: #331116;
+  color: #fadfe1;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.licensealarm-bar .license-alarm-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.licensealarm-bar .license-alarm-banner-summary {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.licensealarm-bar .license-alarm-banner-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.licensealarm-bar .license-alarm-banner-lines li + li {
+  margin-top: 4px;
+}
+
+.licensealarm-bar .license-alarm-banner-link {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #7f2d33;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .recbanner-dot {
   flex: 0 0 auto;
   width: 10px;
@@ -4669,7 +4722,8 @@ a.banner-btn {
 
   /* The in-flow bars keep their measured height; a flex column would otherwise squeeze them. */
   #root > .voicemode-banner,
-  #root > .recbanner {
+  #root > .recbanner,
+  #root > .licensealarm-bar {
     flex: 0 0 auto;
   }
 

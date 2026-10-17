@@ -302,6 +302,9 @@ public sealed class PostgresProviderProofTests
             // the minted switch id and the closed words the engine selects on. Two emails Postgres considered equal and
             // SQLite did not would be one subscription on one provider and two on the other.
             ("license_accounts", "AccountEmail"),
+            // A license alarm is found again by its kind and its account (phase 6): one open alarm per identity.
+            ("license_alarms", "AccountEmail"),
+            ("license_alarms", "Kind"),
             ("license_bars", "AccountEmail"),
             ("license_bars", "Window"),
             ("license_holdings", "AccountEmail"),

@@ -398,6 +398,9 @@ public static class SessionKeyGuard
                 case "gateway/licenses":
                 case "gateway/licenses/forecast":
                 case "gateway/licenses/log":
+                // The license alarms open now (phase 6): the same words the red banner shows. A read only; nothing
+                // anywhere lets a session raise or clear an alarm.
+                case "gateway/licenses/alarms":
                 // Which machine and browser profile approve each account's sign-ins (contract section 8.3): an email,
                 // a machine name, a user and a profile name. An agent can say why a sign-in was not approved. Setting
                 // or removing an approver, and starting a sign-in, are NOT here: they are the owner's own actions.

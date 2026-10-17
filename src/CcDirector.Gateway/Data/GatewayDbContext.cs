@@ -406,6 +406,10 @@ public sealed class GatewayDbContext : DbContext
     public DbSet<LicenseSwitchLogEntity> LicenseSwitchLog => Set<LicenseSwitchLogEntity>();
     public DbSet<LicenseBarEntity> LicenseBars => Set<LicenseBarEntity>();
 
+    /// <summary>License Switching phase 6: the open and closed license alarms (one row for each time a problem was
+    /// open), each with what became of its one owner email.</summary>
+    public DbSet<LicenseAlarmEntity> LicenseAlarms => Set<LicenseAlarmEntity>();
+
     /// <summary>The factory triggers (the Website Business Factory mission, product track): a model-free check a
     /// Director runs on an interval, which has the Gateway start a session only when the check counts work.</summary>
     public DbSet<TriggerEntity> Triggers => Set<TriggerEntity>();
@@ -1339,6 +1343,19 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.AccountEmail, e.Window }).IsUnique();
         });
 
+        modelBuilder.Entity<LicenseAlarmEntity>(b =>
+        {
+            b.ToTable("license_alarms");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Kind).HasMaxLength(64);
+            b.Property(e => e.MachineName).HasMaxLength(128);
+            b.Property(e => e.AccountEmail).HasMaxLength(320);
+            b.Property(e => e.Problem).HasMaxLength(400);
+            b.Property(e => e.Action).HasMaxLength(400);
+            b.Property(e => e.EmailState).HasMaxLength(32);
+            b.HasIndex(e => new { e.TenantId, e.ClosedAtUtc });
+        });
+
         modelBuilder.Entity<FleetManagerEventEntity>(b =>
         {
             b.ToTable("fleet_manager_events");
@@ -2260,6 +2277,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<LicenseHoldingEntity>(modelBuilder);
         ApplyTenantScope<LicenseSwitchLogEntity>(modelBuilder);
         ApplyTenantScope<LicenseBarEntity>(modelBuilder);
+        ApplyTenantScope<LicenseAlarmEntity>(modelBuilder);
         ApplyTenantScope<TriggerEntity>(modelBuilder);
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
         ApplyTenantScope<FactoryEmailReportEntity>(modelBuilder);
@@ -2410,6 +2428,9 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<LicenseSwitchLogEntity>().Property(e => e.FromAccountEmail).UseCollation("C");
             modelBuilder.Entity<LicenseBarEntity>().Property(e => e.AccountEmail).UseCollation("C");
             modelBuilder.Entity<LicenseBarEntity>().Property(e => e.Window).UseCollation("C");
+            // An alarm is found again by its identity - its kind and its account - so both are exact keys.
+            modelBuilder.Entity<LicenseAlarmEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<LicenseAlarmEntity>().Property(e => e.AccountEmail).UseCollation("C");
             // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a
             // Director's registered machine name; trigger_runs: the outcome is a closed word.
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");

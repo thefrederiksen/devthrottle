@@ -2506,6 +2506,66 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("license_accounts", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseAlarmEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClosedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EmailSentAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EmailState")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("MachineId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OpenedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Problem")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ClosedAtUtc");
+
+                    b.ToTable("license_alarms", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseBarEntity", b =>
                 {
                     b.Property<Guid>("Id")

@@ -96,6 +96,21 @@ vi.mock("@devthrottle/client-core/teams/CurrentTeam", async (importActual) => ({
   }),
 }));
 
+// The license alarms open now (License Switching phase 6): the shell's red banner shows the Gateway's answer verbatim.
+// Unstaged, no alarm is open, so a test about something else sees the shell it always saw.
+const alarmRead = vi.hoisted(() => ({
+  answer: { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [] } as {
+    asOfUtc: string;
+    count: number;
+    summary: string | null;
+    linkText: string | null;
+    alarms: { alarmId: string; kind: string; machineName: string | null; accountEmail: string | null; text: string; openedAtUtc: string }[];
+  },
+}));
+vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
+  getLicenseAlarms: vi.fn(async () => alarmRead.answer),
+}));
+
 const reported = vi.hoisted(() => ({ calls: [] as unknown[][] }));
 vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual) => ({
   ...(await importActual<typeof import("@devthrottle/client-core/errors/reportClientError")>()),
@@ -623,5 +638,81 @@ describe("Cockpit demo mode", () => {
     expect(screen.queryByTestId("demo-mode-badge")).toBeNull();
     expect(document.querySelector(".shell")!.classList.contains("demo-mode")).toBe(false);
     vi.unstubAllGlobals();
+  });
+});
+
+// THE LICENSE ALARM BANNER (License Switching phase 6) is in the frame, so it is on every page of the whole app. Its
+// words are the Gateway's, shown exactly as sent; with no alarm open there is no banner at all.
+describe("Cockpit license alarm banner", () => {
+  const NONE = { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [] };
+  const alarm = (alarmId: string, text: string) => ({
+    alarmId,
+    kind: "not-ready-at-80",
+    machineName: "machine-a",
+    accountEmail: "alice@example.com",
+    text,
+    openedAtUtc: "2026-10-17T07:58:00Z",
+  });
+
+  beforeEach(() => {
+    cleanup();
+    myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
+    myTeams.held = null;
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    alarmRead.answer = NONE;
+  });
+
+  it("shows no banner when the Gateway has no alarm open", async () => {
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("license-alarm-banner")).toBeNull();
+  });
+
+  it("shows one alarm's line and the link in the Gateway's own words", async () => {
+    const line = "machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.";
+    alarmRead.answer = { ...NONE, count: 1, linkText: "Open Licenses", alarms: [alarm("a1", line)] };
+    render(
+      <MemoryRouter initialEntries={["/history"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const banner = await screen.findByTestId("license-alarm-banner");
+    expect(banner.getAttribute("role")).toBe("alert");
+    expect(within(banner).getAllByTestId("license-alarm-line").map((li) => li.textContent)).toEqual([line]);
+    expect(within(banner).queryByTestId("license-alarm-summary")).toBeNull();
+    const link = within(banner).getByTestId("license-alarm-link");
+    expect(link.textContent).toBe("Open Licenses");
+    expect(link.getAttribute("href")).toBe("/licenses");
+    // In the main pane, above the routed page: never inside the rail.
+    expect(document.querySelector(".main-pane")!.contains(banner)).toBe(true);
+  });
+
+  it("shows the summary and every alarm, in order, when several are open", async () => {
+    alarmRead.answer = {
+      ...NONE,
+      count: 2,
+      summary: "2 license problems need you.",
+      linkText: "Open Licenses",
+      alarms: [alarm("a1", "First problem. First thing to do."), alarm("a2", "Second problem. Second thing to do.")],
+    };
+    render(
+      <MemoryRouter initialEntries={["/directors"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const banner = await screen.findByTestId("license-alarm-banner");
+    expect(within(banner).getByTestId("license-alarm-summary").textContent).toBe("2 license problems need you.");
+    expect(within(banner).getAllByTestId("license-alarm-line").map((li) => li.textContent)).toEqual([
+      "First problem. First thing to do.",
+      "Second problem. Second thing to do.",
+    ]);
   });
 });
