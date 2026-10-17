@@ -77,6 +77,12 @@ public sealed class LicenseMachineEntity : GatewayMintedKeyEntity
     /// <summary>How far the machine's clock was from the Gateway's on the last report, in seconds (receive time minus
     /// <c>SentAtUtc</c>); 0 when within <c>LicenseContract.ClockSkewLoggedAbove</c>, where it is not corrected.</summary>
     public double ClockSkewSeconds { get; set; }
+
+    /// <summary>Why the machine said, in its last report, that it cannot run a switch (contract section 10.1): a
+    /// <c>LicenseCannotSwitchReasons</c> word, or <c>LicenseStore.CannotSwitchReasonNotKnown</c> for a word this build
+    /// does not know. Null when it said it can - AND when its Director is older than the field and says nothing, which
+    /// is treated exactly as before the field existed.</summary>
+    public string? CannotSwitchReason { get; set; }
 }
 
 /// <summary>

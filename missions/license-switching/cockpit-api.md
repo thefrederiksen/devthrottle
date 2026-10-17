@@ -134,7 +134,7 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `machineId` | Stable for this machine and operating system user; use it as the list item's identity. |
 | `machineName`, `osUser`, `label` | The machine, the operating system user whose Claude sign-ins these are, and what to call it (rule 9). |
 | `activeAccountEmail` | The account it is on; null when it is signed in to none. |
-| `status`, `statusText`, `statusTone` | `not-reporting` (Not reporting, warning), `switching` (Switching, neutral), `signed-out` (Signed out, warning), `reporting` (Reporting, good) - the first that applies. |
+| `status`, `statusText`, `statusTone` | `not-reporting` (Not reporting, warning), `switching` (Switching, neutral), `cannot-switch` ("Cannot switch: " and why, for example "Cannot switch: the DevThrottle tool is missing from its Python tool environment", warning; contract section 10.1), `signed-out` (Signed out, warning), `reporting` (Reporting, good) - the first that applies. |
 | `isStale` | Its last report is older than 6 minutes. It is not sent a switch until it reports again. |
 | `lastReportAtUtc`, `lastReportText` | When the Gateway took its last report, and "Last report 1 minute ago". |
 | `active` | Its active sign-in (the shape below); null when signed in to none. |
@@ -738,10 +738,10 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `cannot-switch` (Cannot switch), `can-switch-again` (Can switch again). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
 | `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A machine that is no longer listed in the overview still has its identifier and its label here. |
-| `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. |
+| `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. On `cannot-switch` and `can-switch-again` neither is set: they are about the machine. |
 | `why`, `whyText` | Why a switch was asked for: `threshold` (Threshold reached) or `manual` (By hand). Null and "" on other rows. |
 | `state`, `stateText`, `stateTone`, `isOpen` | Where the row stands, in the table below. `isOpen` is true while it has not reached its end. |
 | `reasonCode`, `reasonText` | When a switch is waiting or failed: the reason word and its sentence. On a `no-room` or `renewal-failed` row: what became of the owner email - `owner-emailed` ("The owner was emailed."), `owner-email-failed` ("The owner has not been emailed yet; it is tried again."), `no-owner-account` ("This Gateway has no DevThrottle account to email.") - and null before the first try. Null otherwise. |

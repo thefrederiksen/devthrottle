@@ -184,15 +184,17 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
     }
 
     [Fact]
-    public async Task InstallAsync_FailedVenvRebuild_LeavesNoManagedShim()
+    public async Task InstallAsync_FailedVenvRebuild_LeavesTheInstalledToolAndItsShimAlone()
     {
-        // Simulate a machine that already had a shim from a prior install. The rebuild gets past extract and
-        // fails at venv-create (stub python). The managed bin\cc-pdf.cmd shim must be GONE afterward (removed
-        // up front, never rewritten because the venv never became healthy) - so no shim points at a missing
-        // pyenv\Scripts\cc-pdf.exe target. Shim and target live and die together (issue #577).
-        Directory.CreateDirectory(_layout.BinDir);
-        var staleShim = Path.Combine(_layout.BinDir, "cc-pdf.cmd");
-        File.WriteAllText(staleShim, "@echo off\r\n");
+        // A machine with a working tool. The rebuild gets past extract and fails at venv-create. The new venv is
+        // built BESIDE the live one, so a failure there changes nothing installed: the console script and the
+        // shim that forwards to it are both still there and still agree (issue #577 - a shim never points at a
+        // missing target), and no version is recorded for a rebuild that did not happen.
+        Directory.CreateDirectory(_layout.PyenvBinDir);
+        var liveScript = PythonToolsInstaller.ConsoleScriptPath(_layout, "cc-pdf");
+        File.WriteAllText(liveScript, "installed console script");
+        new PythonToolsInstaller(_layout).WriteShims(new[] { "cc-pdf" });
+        var shim = Path.Combine(_layout.BinDir, "cc-pdf.cmd");
 
         var release = StageVenvFailRelease("9.9.9", "cc-pdf");
         var runs = new List<string>();
@@ -200,12 +202,12 @@ public sealed class PythonToolsHealAndShimTests : IDisposable
         var result = await installer.InstallAsync(release, new ReleaseSource());
 
         Assert.False(result.Success);
-        // It failed AT the venv create, which is the step after the shims are removed - not earlier, where a
-        // surviving shim would say nothing about the sequencing this test exists to check.
+        // It failed AT the venv create - not earlier, where an untouched machine would say nothing about it.
         Assert.Contains("venv creation failed", result.Message);
+        Assert.Contains("not touched", result.Message);
         Assert.Contains(runs, r => r.StartsWith("-m venv", StringComparison.Ordinal));
-        Assert.False(File.Exists(staleShim), "managed shim survived a failed venv rebuild (would point at a missing target)");
-        // And the version was not recorded for a failed rebuild either.
+        Assert.Equal("installed console script", File.ReadAllText(liveScript));
+        Assert.True(File.Exists(shim), "a failed rebuild took the shim of a tool that still works");
         Assert.Null(InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId));
     }
 

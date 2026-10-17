@@ -987,3 +987,54 @@ Raising is idempotent, so a check that runs every minute simply raises what it s
 `GET /gateway/licenses/alarms` (cockpit-api.md section 8) answers the open alarms with the banner's finished words. The
 Cockpit's frame and the phone's shell render them as a red banner on every page, verbatim, and draw nothing when no
 alarm is open. **There is no route that raises or clears an alarm** - only Gateway code calls `RaiseAsync`.
+
+## 10. Phase 6 - whether a machine can run a switch
+
+### 10.1 The report says whether a switch can run
+
+On 16 October 2026 the Gateway sent a switch to a machine whose license tool was missing from its Python
+tool environment for 47 seconds (a tools update was rebuilding it), and the switch failed. Nothing had told
+the Gateway. The cause is fixed at its source (the update no longer takes the tools away while it builds;
+`missions/license-switching/phase-6/track-b/tool-health.md`), and the report now says whether a switch can
+run, so the Gateway never sends one that cannot.
+
+```csharp
+public sealed class LicenseUsageReport
+{
+    // ...section 2.2, unchanged...
+    public bool? CanSwitch { get; set; }               // true, or false with CannotSwitchReason; NULL from an older Director
+    public string? CannotSwitchReason { get; set; }    // LicenseCannotSwitchReasons when CanSwitch is false, else null
+}
+```
+
+Reason words (`LicenseCannotSwitchReasons`): `"tool-missing"` - `cc-devthrottle` is not in the machine's
+Python tool environment, where the switch looks for it.
+
+**The Director** asks on every report, with the very lookup the switch makes before it starts the tool
+(`ILicenseCommandLine.IsInstalled`) - never a second one. It is a file lookup, so it costs nothing to ask
+every time, and the report flips back the moment the tool is back. A change of the answer is a change
+(`Trigger = "changed"`), sent at the next 30-second check, not at the next interval.
+
+The report is built from the tool's own answers, so while the tool is missing nothing new can be read.
+The report then carries **the holdings of the last report sent**, each with its own old `ReadAtUtc` -
+exactly the rule of section 2.2 for a failed read. A Director that has sent no report yet has no such
+holdings and sends nothing, because an empty `Holdings` would tell the Gateway every holding was removed.
+
+**The Gateway** stores the reason on the machine. A word it does not know - or `CanSwitch` false with no
+word - is stored as `not-known`: the word itself is never kept, but that the machine cannot switch is.
+Then:
+
+- The machine's status is `cannot-switch`, with the text "Cannot switch: the DevThrottle tool is missing
+  from its Python tool environment", folded on the Gateway (CLAUDE.md rule 7).
+- The decision engine skips it the way it skips a stale machine or one mid-switch: it is not sent a
+  switch, it takes no part in choosing the target, and the skip names why. When a later report says it
+  can, it is a machine on a tired account like any other and the next minute check switches it.
+- The Licenses log gets one `cannot-switch` row when a machine starts saying it cannot, and one
+  `can-switch-again` row when it says it can - never a row per report.
+
+**A Director older than this field** sends `CanSwitch` null, which means "this Director does not say":
+not "it cannot", and not a promise that it can. The Gateway treats such a machine exactly as it did
+before the field existed - its status, its switches and its log are unchanged - so nothing that works
+today stops working. When a machine that said it cannot is next reported by a Director that says
+nothing, the machine goes back to that rule, and no `can-switch-again` row is written, because nothing
+said it can.

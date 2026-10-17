@@ -67,6 +67,8 @@ public sealed record LicenseHold(DateTime HeldUntilUtc, string FromAccountEmail,
 /// <param name="ActiveSignInExpiresAtUtc">When the active holding's sign-in expires; null when not known.</param>
 /// <param name="Hold">The hold its latest switch row carries, when that row was a repeated failure; else null. Whether
 /// it is in force is <see cref="LicenseDecisionEngine.IsHeld"/>.</param>
+/// <param name="CannotSwitchReason">Why its latest report said it cannot run a switch (contract section 10.1); null when
+/// it said it can, and when its Director is older than that field and says nothing - which is treated as before.</param>
 public sealed record LicenseMachineState(
     string MachineName,
     string OsUser,
@@ -76,7 +78,8 @@ public sealed record LicenseMachineState(
     bool HasOpenSwitch,
     string? SwitchInProgressId,
     DateTime? ActiveSignInExpiresAtUtc = null,
-    LicenseHold? Hold = null);
+    LicenseHold? Hold = null,
+    string? CannotSwitchReason = null);
 
 /// <summary>
 /// An account that triggered a switch is not chosen as a target again until the window that triggered it

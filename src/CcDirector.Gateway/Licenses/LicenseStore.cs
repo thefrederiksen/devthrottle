@@ -30,6 +30,13 @@ public static class LicenseLogKinds
     /// <summary>A license alarm closed by itself, because the check that raised it no longer finds it true. Final when
     /// written.</summary>
     public const string AlarmClosed = "alarm-closed";
+
+    /// <summary>A machine's report started saying it cannot run a switch (contract section 10.1). Written once, when it
+    /// starts - never once per report.</summary>
+    public const string CannotSwitch = "cannot-switch";
+
+    /// <summary>A machine that said it cannot run a switch says it can again. Written once, when it stops.</summary>
+    public const string CanSwitchAgain = "can-switch-again";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>
@@ -146,6 +153,8 @@ public sealed class LicenseStore
             machine.ActiveAccountEmail = active is null ? null : NormalizeEmail(active.AccountEmail);
             machine.SwitchInProgressId = string.IsNullOrWhiteSpace(report.SwitchInProgressId) ? null : report.SwitchInProgressId.Trim();
             machine.ClockSkewSeconds = readAtShift.TotalSeconds;
+            var couldNotSwitch = machine.CannotSwitchReason;
+            machine.CannotSwitchReason = CannotSwitchReasonOf(report);
 
             var previous = first
                 ? new List<LicenseHoldingEntity>()
@@ -168,6 +177,16 @@ public sealed class LicenseStore
             }
 
             UpsertAccounts(ctx, report.Holdings, now);
+
+            // One row when the machine starts saying it cannot switch and one when it says it can again - never one per
+            // report. A Director that stops saying anything (an older one, after a downgrade) writes no row: it has not
+            // said it can.
+            if (couldNotSwitch is null && machine.CannotSwitchReason is { } reason)
+                ctx.LicenseSwitchLog.Add(SwitchReadinessRow(ctx, machine, directorId, LicenseLogKinds.CannotSwitch,
+                    $"{machine.MachineName} cannot be switched: {CannotSwitchSentence(reason)}.", now));
+            else if (couldNotSwitch is not null && machine.CannotSwitchReason is null && report.CanSwitch == true)
+                ctx.LicenseSwitchLog.Add(SwitchReadinessRow(ctx, machine, directorId, LicenseLogKinds.CanSwitchAgain,
+                    $"{machine.MachineName} can be switched again.", now));
 
             if (!first)
             {
@@ -278,6 +297,50 @@ public sealed class LicenseStore
             if (Trimmed(holding.RateLimitTier, 128) is { } tier) account.RateLimitTier = tier;
         }
     }
+
+    /// <summary>
+    /// What is stored as a machine's cannot-switch reason when its Director said it cannot switch with a word this build
+    /// does not know, or with none. The word itself is never stored - it could be whatever a newer or a broken Director
+    /// sent - but that the machine CANNOT switch is kept, because that is what the decision engine acts on.
+    /// </summary>
+    public const string CannotSwitchReasonNotKnown = "not-known";
+
+    /// <summary>
+    /// The cannot-switch reason to store for one report (contract section 10.1): null when the report says a switch can
+    /// run, and null when it says nothing (<see cref="LicenseUsageReport.CanSwitch"/> null - a Director older than the
+    /// field), which keeps such a machine exactly as it was before the field existed.
+    /// </summary>
+    public static string? CannotSwitchReasonOf(LicenseUsageReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        if (report.CanSwitch != false) return null;
+        return report.CannotSwitchReason is { } word && LicenseCannotSwitchReasons.All.Contains(word) ? word : CannotSwitchReasonNotKnown;
+    }
+
+    /// <summary>The clause that says why a machine cannot switch, for the machine's status and the Licenses log.</summary>
+    public static string CannotSwitchSentence(string reason) => reason switch
+    {
+        LicenseCannotSwitchReasons.ToolMissing => "the DevThrottle tool is missing from its Python tool environment",
+        _ => "its Director says it cannot run a switch, for a reason this Gateway does not know",
+    };
+
+    private static LicenseSwitchLogEntity SwitchReadinessRow(GatewayDbContext ctx, LicenseMachineEntity machine, string directorId,
+        string kind, string message, DateTime now) => new()
+    {
+        Kind = kind,
+        MachineId = machine.Id,
+        MachineName = machine.MachineName,
+        OsUser = machine.OsUser,
+        DirectorId = directorId,
+        FromAccountEmail = "",
+        ToAccountEmail = "",
+        State = LicenseLogStates.Recorded,
+        ReasonCode = kind == LicenseLogKinds.CannotSwitch ? machine.CannotSwitchReason : null,
+        Message = message,
+        CreatedAtUtc = now,
+        FinishedAtUtc = now,
+        TenantId = ctx.ActiveTenant!,
+    };
 
     private static LicenseSwitchLogEntity SpareRow(GatewayDbContext ctx, LicenseMachineEntity machine, string directorId,
         string kind, string email, bool wasActive, DateTime now)

@@ -1295,6 +1295,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.LastTrigger).HasMaxLength(32);
             b.Property(e => e.ActiveAccountEmail).HasMaxLength(320);
             b.Property(e => e.SwitchInProgressId).HasMaxLength(32);
+            b.Property(e => e.CannotSwitchReason).HasMaxLength(32);
             b.HasIndex(e => new { e.TenantId, e.MachineKey, e.OsUserKey }).IsUnique();
         });
 

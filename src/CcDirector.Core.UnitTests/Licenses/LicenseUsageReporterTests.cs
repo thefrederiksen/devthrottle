@@ -267,4 +267,93 @@ public sealed class LicenseUsageReporterTests : IDisposable
         var report = await _reporter.TickAsync(CancellationToken.None);
         Assert.Equal(LicenseReportTriggers.Connected, report!.Trigger);
     }
+
+    // ----- contract section 10.1: whether a switch can run -----
+
+    [Fact]
+    public async Task TickAsync_ToolPresent_ReportSaysASwitchCanRun()
+    {
+        // With the tool in place, every report says a switch can run, and gives no reason.
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.True(report!.CanSwitch);
+        Assert.Null(report.CannotSwitchReason);
+    }
+
+    [Fact]
+    public async Task TickAsync_ToolGoesMissing_SendsAtOnceThatASwitchCannotRunWithTheLastHoldings()
+    {
+        // The tool disappears between reports. The next tick - not the next interval - says a switch cannot run and
+        // why, carrying the holdings of the last report with their old read times, and asks the missing tool nothing.
+        var first = await _reporter.TickAsync(CancellationToken.None);
+        var usageCalls = _tool.UsageCalls.Count;
+        var listCalls = _tool.ListCalls;
+        _tool.IsInstalled = false;
+        _clock.Advance(LicenseUsageReporter.ChangeCheckInterval);
+
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.NotNull(report);
+        Assert.Equal(LicenseReportTriggers.Changed, report!.Trigger);
+        Assert.False(report.CanSwitch);
+        Assert.Equal(LicenseCannotSwitchReasons.ToolMissing, report.CannotSwitchReason);
+        Assert.Equal(first!.Holdings.Select(h => (h.AccountEmail, h.IsActive, h.ReadAtUtc)),
+            report.Holdings.Select(h => (h.AccountEmail, h.IsActive, h.ReadAtUtc)));
+        Assert.Equal(usageCalls, _tool.UsageCalls.Count);
+        Assert.Equal(listCalls, _tool.ListCalls);
+    }
+
+    [Fact]
+    public async Task TickAsync_ToolStillMissing_SendsNothingMoreUntilTheInterval()
+    {
+        // One report says it; the next ticks before the interval have nothing new to say, then the interval report
+        // says it again.
+        await _reporter.TickAsync(CancellationToken.None);
+        _tool.IsInstalled = false;
+        _clock.Advance(LicenseUsageReporter.ChangeCheckInterval);
+        await _reporter.TickAsync(CancellationToken.None);
+
+        _clock.Advance(LicenseUsageReporter.ChangeCheckInterval);
+        Assert.Null(await _reporter.TickAsync(CancellationToken.None));
+
+        _clock.Advance(LicenseContract.ReportInterval);
+        var report = await _reporter.TickAsync(CancellationToken.None);
+        Assert.Equal(LicenseReportTriggers.Interval, report!.Trigger);
+        Assert.False(report.CanSwitch);
+    }
+
+    [Fact]
+    public async Task TickAsync_ToolBack_TheNextTickSaysASwitchCanRunAgain()
+    {
+        // The tool is checked afresh on every tick, so the report flips back as soon as it is there - at once, not on
+        // the interval - with freshly read holdings.
+        await _reporter.TickAsync(CancellationToken.None);
+        _tool.IsInstalled = false;
+        _clock.Advance(LicenseUsageReporter.ChangeCheckInterval);
+        await _reporter.TickAsync(CancellationToken.None);
+        _tool.IsInstalled = true;
+        _clock.Advance(LicenseUsageReporter.ChangeCheckInterval);
+
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseReportTriggers.Changed, report!.Trigger);
+        Assert.True(report.CanSwitch);
+        Assert.Null(report.CannotSwitchReason);
+    }
+
+    [Fact]
+    public async Task TickAsync_ToolMissingBeforeAnyReport_SendsNothing()
+    {
+        // With no report sent yet there are no holdings to repeat, and an empty list would tell the Gateway that every
+        // holding was removed. So nothing is sent; once the tool is back the waiting "connected" report goes.
+        _tool.IsInstalled = false;
+
+        Assert.Null(await _reporter.TickAsync(CancellationToken.None));
+        Assert.Empty(_sink.Sent);
+
+        _tool.IsInstalled = true;
+        var report = await _reporter.TickAsync(CancellationToken.None);
+        Assert.Equal(LicenseReportTriggers.Connected, report!.Trigger);
+        Assert.True(report.CanSwitch);
+    }
 }

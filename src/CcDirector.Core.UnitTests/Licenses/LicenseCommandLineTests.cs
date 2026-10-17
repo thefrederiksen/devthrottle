@@ -148,6 +148,23 @@ public sealed class LicenseCommandLineTests
     }
 
     [Fact]
+    public async Task IsInstalled_AsksTheSameLookupEveryCallMakes()
+    {
+        // The report's "can a switch run" is the very lookup a switch makes before it starts the tool: one function,
+        // asked fresh each time. Missing, the report says no and a call fails as "not installed"; present, it says yes.
+        string? where = null;
+        var asked = 0;
+        var tool = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null), () => { asked++; return where; });
+
+        Assert.False(tool.IsInstalled);
+        var ex = await Assert.ThrowsAsync<LicenseCommandLineException>(() => tool.ListAsync(CancellationToken.None));
+        Assert.Contains("not installed", ex.Message);
+        where = "C:/machine-root/pyenv/Scripts/cc-devthrottle.exe";
+        Assert.True(tool.IsInstalled);
+        Assert.Equal(3, asked);
+    }
+
+    [Fact]
     public async Task ListAsync_ToolNotInstalled_ThrowsNamingTheToolDirectory()
     {
         var tool = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null), () => null);
