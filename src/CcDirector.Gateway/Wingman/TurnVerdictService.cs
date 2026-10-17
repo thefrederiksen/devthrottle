@@ -2013,17 +2013,22 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
-    /// Would the idle sweep's reading of this session reach the judge, or stand down before any call? The flight's own
-    /// first gates, asked the same way: the session-state skip (held, not live, brand new, exited, working) and the plan.
-    /// The voice sweep asks it before it spends a slot on a session whose stop is not the one already read: a brand-new
-    /// session is never read at all, so counting it as a cost let a few of them hold every slot for ever (issue #4154,
-    /// found in review). The flight asks all of it again inside its own boundary; this only decides whether the attempt
-    /// is counted.
+    /// Why the idle sweep's reading of this session would stand down before any call, or null when it would go on. The
+    /// flight's own first gates, asked the same way and answering with the same causes: the session-state skip (held, not
+    /// live, brand new, exited, working) and the plan. The voice sweep asks it before it spends a slot: a brand-new session
+    /// is never read at all, so counting it as a cost let a few of them hold every slot for ever (issue #4154, found in
+    /// review). The flight asks all of it again inside its own boundary; this only decides whether the attempt is counted,
+    /// and lets the caller record what the skipped flight would have recorded.
     /// </summary>
-    internal bool SweepWouldReachTheJudge(TenantId tenant, string sid)
+    internal string? SweepStandDownCause(TenantId tenant, string sid)
     {
-        if (SessionStateSkipCause(_env.ReadSessionState(tenant, sid), TurnVerdictTrigger.Sweep) is not null) return false;
-        return _env.PlanForNarration(tenant, sid) is not (NarrationPlan.NeedsPro or NarrationPlan.Unknown);
+        if (SessionStateSkipCause(_env.ReadSessionState(tenant, sid), TurnVerdictTrigger.Sweep) is { } cause) return cause;
+        return _env.PlanForNarration(tenant, sid) switch
+        {
+            NarrationPlan.NeedsPro => ActivityCauses.NotOnPlan,
+            NarrationPlan.Unknown => ActivityCauses.PlanUnknown,
+            _ => null,
+        };
     }
 
     /// <summary>
