@@ -92,6 +92,10 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// </summary>
     public IGatewayHold? GatewayHold => _gatewayClient;
 
+    /// <summary>The seam the desktop's Terminal tab wheel button calls (mission #4070); null when no Gateway client
+    /// exists.</summary>
+    public IGatewayWheel? GatewayWheel => _gatewayClient;
+
     /// <summary>
     /// The desktop's last-known copy of the user's snooze lengths and default, read FROM the Gateway. The
     /// session Snooze menu reads this because it must build without blocking, and because the setting

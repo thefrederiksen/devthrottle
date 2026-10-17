@@ -671,6 +671,29 @@ public sealed class Session : IDisposable
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler FAILED: {ex.Message}"); }
     }
 
+    /// <summary>The Gateway's Terminal tab wheel button for this API-mode session ("Take the wheel" / "Hand back",
+    /// whether it can be pressed and why not), or null when the Gateway says there is none - which is every
+    /// terminal-mode session, and every session until a Gateway has stamped one. Mission #4070, phase 4. The
+    /// Terminal view renders this verbatim; it never reads <see cref="ConnectionMode"/> to decide.</summary>
+    public ApiMode.GatewayWheelAction? GatewayWheelAction { get; private set; }
+
+    /// <summary>
+    /// Store the wheel button the Gateway ruled for this session, delivered with its folded display state. Stores
+    /// only what it was told; the Gateway is the authority. Fires <see cref="OnGatewayDisplayStateChanged"/> only on
+    /// a real change, so the Gateway re-stamping the same answer every sweep does not churn the screen. Null clears
+    /// it: no button.
+    /// </summary>
+    public void ApplyGatewayWheelAction(ApiMode.GatewayWheelAction? action)
+    {
+        if (Equals(GatewayWheelAction, action)) return;
+        GatewayWheelAction = action;
+
+        FileLog.Write($"[Session] ApplyGatewayWheelAction: session={Id}, verb={action?.Verb.ToString() ?? "(none)"}, "
+            + $"label={action?.Label ?? "(none)"}, enabled={action?.Enabled.ToString() ?? "(none)"}, reason={action?.DisabledReason ?? "(none)"}");
+        try { OnGatewayDisplayStateChanged?.Invoke(); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler FAILED: {ex.Message}"); }
+    }
+
     /// <summary>Set (or clear, on a null/blank value) this session's sticky explicit role. The value is
     /// validated against the role set by the caller; this only stores it.</summary>
     public void SetExplicitRole(string? role)
