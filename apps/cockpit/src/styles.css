@@ -1336,6 +1336,16 @@ body {
   color: #f5d060;
 }
 
+/* How the agent is connected, when it is not its terminal (API mode mission #4070): the Gateway's "API mode",
+   verbatim. Accent-edged so it reads as a fact about the session, not an alarm. Not uppercased: "API MODE" is not
+   the product's word. */
+.roster-tag.connection {
+  text-transform: none;
+  letter-spacing: 0;
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
 /* Which model this session is running (issue devthrottle_internal#1340). NOT uppercased and not
    letter-spaced: these are recorded model ids, and shouting "CLAUDE-FABLE-5" prints a name the agent's
    records do not contain. The full id is in the tooltip when the chip is shortened. */
