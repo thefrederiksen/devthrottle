@@ -87,6 +87,7 @@ public sealed class AutoModeSetupOfferTests : IDisposable
         Assert.Contains("devlinux", why);
         Assert.Contains("claude --permission-mode auto", why);
         Assert.Contains("does not answer it for the owner", why);
+        Assert.Contains("'Yes' runs a setup that reads", why);
     }
 
     [Fact]
@@ -186,6 +187,24 @@ public sealed class AutoModeSetupOfferTests : IDisposable
         Config(c => c["cachedGrowthBookFeatures"] = new JsonObject { ["tengu_auto_mode_config"] = new JsonObject { ["envOnboarding"] = false } });
         Assert.Null(Why());
     }
+
+    [Fact]
+    public void WhyItWouldStop_TheServerSettingAbsent_GoesAheadBecauseClaudeCodeAsksOnlyWhenItIsTrue()
+    {
+        Config(c => c["cachedGrowthBookFeatures"] = new JsonObject { ["tengu_auto_mode_config"] = new JsonObject { ["twoStageClassifier"] = true } });
+        Assert.Null(Why());
+    }
+
+    [Fact]
+    public void WhyItWouldStop_NothingEverFetchedFromTheServer_GoesAhead()
+    {
+        Config(c => c.Remove("cachedGrowthBookFeatures"));
+        Assert.Null(Why());
+    }
+
+    [Fact]
+    public void WhyItWouldStop_NoConfigurationFileAtAll_GoesAhead()
+        => Assert.Null(Why());
 
     [Fact]
     public void WhyItWouldStop_TheAutoModeWarningNotYetSeen_GoesAheadBecauseThisIsOfferedOnlyAfterIt()

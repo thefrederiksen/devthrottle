@@ -179,6 +179,11 @@ public sealed class ScratchClaudeConfig : IDisposable
 
         var ownerConfig = CcDirector.Core.Claude.ClaudeFolderTrust.ConfigPathForThisUser();
         var config = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(ownerConfig))!.AsObject();
+        // Claude Code asks only when its server setting says so; the copy keeps the owner's, so a machine that is not
+        // offered the question cannot run the scenario, and says so, instead of passing it (review of pull request 4180, finding 2).
+        if (config["cachedGrowthBookFeatures"]?["tengu_auto_mode_config"]?["envOnboarding"] is not System.Text.Json.Nodes.JsonValue offer
+            || !offer.TryGetValue<bool>(out var offered) || !offered)
+            throw new InvalidOperationException("Claude Code on this machine is not offered the auto mode question (its cached tengu_auto_mode_config.envOnboarding is not true), so the scenario cannot put a seat in front of it.");
         config["numStartups"] = 10;
         config["hasSeenAutoModeEntryWarning"] = true;
         config["autoModeEnvSetup"] = ownerChoseDontShowAgain

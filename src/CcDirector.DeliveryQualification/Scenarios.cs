@@ -375,8 +375,11 @@ public static class Scenarios
                 throw new InvalidOperationException("the first prompt never reached the agent's records");
             if (!await Rig.WaitUntilIdleAsync(session, TimeSpan.FromSeconds(120)))
                 throw new InvalidOperationException("the agent never went idle after the first prompt");
-            await Task.Delay(TimeSpan.FromSeconds(3));
-            var questionShown = ScreenHolds(session, "Teach auto mode about your environment?");
+            // The unsettled scenario counts only where the question was really put to the seat: a start that was not refused
+            // and never showed it says nothing about the fix (review of pull request 4180, finding 2).
+            var questionShown = await WaitForAsync(() => ScreenHolds(session, "Teach auto mode about your environment?"), TimeSpan.FromSeconds(settled ? 3 : 15));
+            if (!settled && !questionShown)
+                throw new InvalidOperationException("the seat started and Claude Code never showed the question, so this machine does not put it to a seat; the attempt says nothing about the fix");
             var text = TextCatalogue.Named("short").Build(Token());
             var r = await SendAndJudgeAsync(name, agent, session, text, [folder], () => session.SendTextAsync(text, RigTyped));
             var (pass, truth) = PassRules.AutoModeQuestion(settled, refusedAtStart: false, refusalNamesTheQuestion: false, r.Truth, r.Pass);

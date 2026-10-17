@@ -25,8 +25,10 @@ namespace CcDirector.Core.Claude;
 /// counting at five); the auto mode warning is not still to be shown; the owner has not answered "Don't show again"
 /// (<c>autoModeEnvSetup.dismissed</c>) or "Not now" in the last seven days (<c>autoModeEnvSetup.dismissedAt</c>); the
 /// setup is not turned off (<c>skillOverrides["auto-mode-setup"] = "off"</c>); and Claude Code's own server setting offers
-/// it (<c>tengu_auto_mode_config.envOnboarding</c>, as last fetched into its configuration file). Everything except that
-/// server setting is the owner's own record, and any one of them settles it.
+/// it - <c>tengu_auto_mode_config.envOnboarding</c>, as last fetched into its configuration file, is exactly true. When
+/// nothing was fetched (telemetry off, a third-party endpoint) Claude Code's built-in setting has no such key, and it
+/// never asks (review of pull request 4180, finding 1). Everything except that server setting is the owner's own record,
+/// and any one of them settles it.
 /// </summary>
 public static class ClaudeAutoModeSetupOffer
 {
@@ -66,6 +68,7 @@ public static class ClaudeAutoModeSetupOffer
     public static string? WhyItWouldStop(string? userArgs, string effectiveArgs, string workingDirectory, string machine,
         Func<string, string?>? environment = null, string? home = null, string? managedSettings = null, TimeProvider? clock = null)
     {
+        FileLog.Write($"[ClaudeAutoModeSetupOffer] WhyItWouldStop: folder={workingDirectory}, machine={machine}");
         environment ??= Environment.GetEnvironmentVariable;
         home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var configFolder = ClaudeSettingsFiles.ConfigFolder(environment, home);
@@ -74,7 +77,11 @@ public static class ClaudeAutoModeSetupOffer
         var local = ClaudeSettingsFiles.Read(Path.Combine(workingDirectory, ".claude", "settings.local.json"));
         var project = ClaudeSettingsFiles.Read(Path.Combine(workingDirectory, ".claude", "settings.json"));
 
-        if (!StartsInAutoMode(effectiveArgs, [managed, local, project, user])) return null;
+        if (!StartsInAutoMode(effectiveArgs, [managed, local, project, user]))
+        {
+            FileLog.Write("[ClaudeAutoModeSetupOffer] WhyItWouldStop: not auto mode; not asked");
+            return null;
+        }
         if (userArgs is not null && userArgs.Contains("--settings", StringComparison.Ordinal))
         {
             FileLog.Write("[ClaudeAutoModeSetupOffer] WhyItWouldStop: the line brings its own --settings, which may describe the environment; not refused");
@@ -87,9 +94,10 @@ public static class ClaudeAutoModeSetupOffer
             return null;
         }
         return $"No session was started: Claude Code would stop after its first reply on its question '{Question}', which nobody " +
-               $"would be there to answer, because it has never been answered on {machine}. The Director does not answer it for the owner. " +
-               "Open 'claude --permission-mode auto' once on that machine, send it one message, and answer the question when it appears " +
-               "('Don't show again' settles it for good; 'Not now' only for a week), or start the session without --permission-mode auto.";
+               $"would be there to answer, because it is not settled on {machine}. The Director does not answer it for the owner. " +
+               "Open 'claude --permission-mode auto' once on that machine, send it one message, and answer the question when it appears: " +
+               "'Yes' runs a setup that reads this machine's shell history and other repositories and settles it for good, " +
+               "'Don't show again' settles it for good, and 'Not now' only for a week. Or start the session without --permission-mode auto.";
     }
 
     /// <summary>The record that means Claude Code will not ask, in words for the log, or null when it will.
@@ -102,11 +110,16 @@ public static class ClaudeAutoModeSetupOffer
             return "the environment is described in autoMode.environment";
         if (settingsByPrecedence.Any(s => s?["skillOverrides"]?["auto-mode-setup"] is JsonValue v && v.TryGetValue<string>(out var o) && o == "off"))
             return "the auto mode setup is turned off";
+        // No configuration file: Claude Code has never started here (its count would be 1), and it is not asked.
         if (config is null)
-            return null;
-        if (config["cachedGrowthBookFeatures"]?["tengu_auto_mode_config"]?["envOnboarding"] is JsonValue offer
-            && offer.TryGetValue<bool>(out var offered) && !offered)
-            return "Claude Code's own setting does not offer it";
+            return "Claude Code has no configuration file here";
+        switch (config["cachedGrowthBookFeatures"]?["tengu_auto_mode_config"]?["envOnboarding"])
+        {
+            case null:
+                return "Claude Code's own server setting is absent, and it offers the question only when that is true";
+            case JsonValue offer when !(offer.TryGetValue<bool>(out var offered) && offered):
+                return "Claude Code's own server setting does not offer it";
+        }
         // Claude Code counts this start before it decides, so the count on disk is one short of the one it compares.
         if (Number(config["numStartups"]) + 1 < StartsBeforeOffer)
             return "Claude Code has not been started often enough";
