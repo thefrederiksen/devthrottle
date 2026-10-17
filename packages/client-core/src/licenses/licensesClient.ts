@@ -80,12 +80,24 @@ export interface LicenseApprover {
   /** What to call the machine. */
   label: string;
   canApproveNow: boolean;
-  /** ready | not-connected | never-reported. */
+  /** ready | cannot-approve | not-connected | never-reported. */
   status: string;
   statusText: string;
   statusTone: LicenseTone;
   /** The whole of it in one or two sentences. A page shows this. */
   text: string;
+  /** The profile's display name as its last check saw it; null until a check has named it. */
+  browserProfileName: string | null;
+  /** Who made the record: owner | registered. */
+  source: string;
+  /** Its health now: can-approve | signed-out | needs-fresh-sign-in | wrong-account | check-failed | not-checked. */
+  state: string;
+  /** When it was last checked; null when it never was. */
+  checkedAtUtc: string | null;
+  /** The finished sentence of its health, naming the account, the machine and the profile. */
+  healthText: string;
+  /** The one thing the owner must do so it can approve; null when it can. */
+  whatToDo: string | null;
 }
 
 export interface LicenseAccount {

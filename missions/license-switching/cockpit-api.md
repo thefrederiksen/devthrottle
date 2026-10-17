@@ -1703,7 +1703,13 @@ renewal of 7.4 was running and the Director on "the-mac" was not connected:
         "status": "not-connected",
         "statusText": "Not connected",
         "statusTone": "warning",
-        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
+        "browserProfileName": null,
+        "source": "registered",
+        "state": "can-approve",
+        "checkedAtUtc": "2026-10-11T00:12:00Z",
+        "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
+        "whatToDo": null
       },
       "approverText": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
       "approverTone": "warning"
@@ -1721,7 +1727,13 @@ renewal of 7.4 was running and the Director on "the-mac" was not connected:
         "status": "never-reported",
         "statusText": "Not reporting yet",
         "statusTone": "warning",
-        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+        "browserProfileName": null,
+        "source": "owner",
+        "state": "not-checked",
+        "checkedAtUtc": null,
+        "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
+        "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
       },
       "approverText": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
       "approverTone": "warning"
