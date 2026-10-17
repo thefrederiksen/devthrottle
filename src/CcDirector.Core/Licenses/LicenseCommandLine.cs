@@ -18,9 +18,9 @@ public interface ILicenseCommandLine
     Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken cancellationToken);
 
     /// <summary>Reads usage from the provider (<c>license usage</c>) for the active holding only, or for every
-    /// holding. A read of every holding first renews each spare whose key is due (<c>--refresh</c>): nothing else uses
-    /// an unused spare's key, so without it the key expires and the spare stops being a switch target. The active
-    /// key is never renewed here - the sessions using it keep it fresh.
+    /// holding, first renewing each key that is due (<c>--refresh</c>): nothing else uses an unused spare's key, so
+    /// without it the key expires and the spare stops being a switch target. The active key is renewed only when the
+    /// tool finds that no Claude Code session can be using it (phase 6) - otherwise the sessions keep it fresh.
     /// A failed read of one holding is that row's <see cref="LicenseHolding.ReadError"/>, not an exception.
     /// Throws <see cref="LicenseCommandLineException"/> when the tool did not give a readable answer.</summary>
     Task<IReadOnlyList<LicenseHolding>> ReadUsageAsync(bool activeOnly, CancellationToken cancellationToken);
@@ -193,7 +193,8 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
     public async Task<IReadOnlyList<LicenseHolding>> ReadUsageAsync(bool activeOnly, CancellationToken cancellationToken)
     {
         var args = new List<string> { "license", "usage" };
-        args.Add(activeOnly ? "--active" : "--refresh");
+        if (activeOnly) args.Add("--active");
+        args.Add("--refresh");
         var output = await RunForJsonAsync(args, cancellationToken);
         var rows = ReadUsageRows(output);
         KeepHandSwitches(output, "usage");
