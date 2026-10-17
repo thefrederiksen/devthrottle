@@ -242,9 +242,9 @@ public sealed class DirectorSupervisor
         //
         // AND IT WAS DEFENDING SOMETHING ALREADY DEFENDED. A second Director from the installed exe
         // cannot run: SingleInstanceGuard, acquired in the Director's own startup, is keyed on the exe
-        // path slot, so the second process raises the existing window and exits. That guard - not a
-        // refusal here - is what prevents two Directors on one instance home, and it works whether or
-        // not this launcher could read a registration file.
+        // path slot AND on the instance home (issue devthrottle_internal#2489), so a second process on
+        // either refuses and exits. That guard - not a refusal here - is what prevents two Directors on
+        // one instance home, and it works whether or not this launcher could read a registration file.
         //
         // So an unreadable claim is LOUD and not fatal. The evidence travels on DirectorStatus to the
         // callers that must act on it (an update pass reads it and can decline to stop a Director whose
