@@ -388,6 +388,32 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     /// <summary>
+    /// The flight stands down on the plan before it reaches either arm, so a reading that HAS words and no clip is not
+    /// spoken while the plan cannot be read - and a pass over it must spend no slot (found in review). The control: once
+    /// the plan reads again, the same pass is a real cost and the clip is made.
+    /// </summary>
+    [Fact]
+    public async Task AReadingWithWordsButNoClip_OnAPlanThatStandsTheReadingDown_SpendsNoSweepSlot()
+    {
+        var rig = Build();
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        rig.Voice.Unmark(Tenant, Sid);   // the clip goes; the reading keeps its words
+        rig.Voice.Mark(Tenant, Sid);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+
+        rig.Env.Plan = () => NarrationPlan.Unknown;
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+
+        rig.Env.Plan = () => NarrationPlan.Allowed;
+        Assert.Equal(1, await SweepPassAsync(rig, route));
+        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
+    }
+
+    /// <summary>
     /// ISSUE #4154, THE SWITCH. Switching voice on is a person asking for the stop in front of them. A late narration for this
     /// same stop that failed during an EARLIER voice period - voice mode switched off, by hand or by auto-off - must not leave
     /// the stop refused for good: switching voice on again gives the stop one more automatic attempt, and its words and clip
