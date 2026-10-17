@@ -146,18 +146,22 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         return Task.FromResult<bool?>(BrowserQuestionUnanswered ? null : LocalSignIns.ContainsKey(accountEmail));
     }
 
-    public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
+    /// <summary>When set, a sign-in waits for this before it answers, so a test can hold one running.</summary>
+    public TaskCompletionSource? SignInGate { get; set; }
+
+    public async Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
     {
         SignInCalls.Add((accountEmail, askAnotherMachineWhenNoBrowser));
+        if (SignInGate is { } gate) await gate.Task;
         if (LocalSignIns.TryGetValue(accountEmail, out var here))
-            return Task.FromResult(new LicenseSignInStart { Finished = here });
+            return new LicenseSignInStart { Finished = here };
         if (!askAnotherMachineWhenNoBrowser)
-            return Task.FromResult(new LicenseSignInStart { Finished = LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover) });
+            return new LicenseSignInStart { Finished = LicenseSignInAnswer.Failed(LicenseRenewalErrors.NoApprover) };
         if (RemoteStartFailure is not null)
-            return Task.FromResult(new LicenseSignInStart { Finished = RemoteStartFailure });
+            return new LicenseSignInStart { Finished = RemoteStartFailure };
         var waiting = new FakeRemoteSignIn(accountEmail, RemoteAnswer);
         RemoteSignIns.Add(waiting);
-        return Task.FromResult(new LicenseSignInStart { Waiting = waiting });
+        return new LicenseSignInStart { Waiting = waiting };
     }
 
     public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken)

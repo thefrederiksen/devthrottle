@@ -78,10 +78,13 @@ public sealed class LicenseBrowserLane
             wait = _changed.Task;
         }
         FileLog.Write($"[LicenseBrowserLane] EnterWorkAsync: {what} waits for the approver check that is running, at most {longestWait.TotalSeconds:0} seconds");
-        using var stopTimer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var tooLate = longestWait > TimeSpan.Zero ? _delay(longestWait, stopTimer.Token) : Task.CompletedTask;
+        CancellationTokenSource? stopTimer = null;
         try
         {
+            // Inside the try: a timer that could not be started must still stop this wait counting, or no check would
+            // ever run again.
+            stopTimer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var tooLate = longestWait > TimeSpan.Zero ? _delay(longestWait, stopTimer.Token) : Task.CompletedTask;
             while (true)
             {
                 var first = await Task.WhenAny(wait, tooLate);
@@ -117,7 +120,8 @@ public sealed class LicenseBrowserLane
         }
         finally
         {
-            stopTimer.Cancel();
+            stopTimer?.Cancel();
+            stopTimer?.Dispose();
         }
     }
 

@@ -59,6 +59,10 @@ public sealed class LicenseSignInAnswer
 
     public DateTime? SignInExpiresAtUtc { get; set; }
 
+    /// <summary>A sentence this Director wrote for this one answer, said instead of the reason's own; null for the
+    /// reason's own. Never the tool's words.</summary>
+    public string? Sentence { get; init; }
+
     public bool Succeeded => Outcome is LicenseSignInOutcomes.Added or LicenseSignInOutcomes.Renewed;
 
     public static LicenseSignInAnswer Failed(string reasonCode) => new() { Outcome = LicenseSignInOutcomes.Failed, ReasonCode = reasonCode };
