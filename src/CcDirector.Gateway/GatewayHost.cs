@@ -5441,7 +5441,9 @@ public sealed class GatewayHost : IAsyncDisposable
             (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false),
             // The factories New factory made that are not published yet (Factory Definition, phase 6b), each read from
             // its newest draft.
-            Api.FactoriesScreenEndpoints.UnpublishedFrom(FactoryDefinitions));
+            Api.FactoriesScreenEndpoints.UnpublishedFrom(FactoryDefinitions),
+            // Pause everything (issue #3910): while it is on, the list shows no next start.
+            SchedulerPaused: _cronPause.IsPaused);
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
