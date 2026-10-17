@@ -226,6 +226,19 @@ public sealed class LicenseApproverStoreTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => _store.List(One));
     }
 
+    [Theory]
+    [InlineData("anything")]
+    [InlineData("not-checked")]
+    public void ARecordWhoseStateIsNotAWordADirectorMayReport_IsAnError(string state)
+    {
+        _settings.Set(One, TenantSettingKeys.LicenseApprovers,
+            "[{\"accountEmail\":\"account-a@example.com\",\"machineName\":\"the-mac\",\"osUser\":\"owner\",\"browserProfile\":\"work\","
+            + $"\"source\":\"registered\",\"state\":\"{state}\",\"checkedAtUtc\":\"2026-10-11T03:00:00Z\"}}]", T0);
+
+        Assert.Throws<InvalidOperationException>(() => _store.List(One));
+        Assert.Throws<InvalidOperationException>(() => _store.Find(One, A));
+    }
+
     // A registered record, as LicenseApproverRegistration writes one.
     private void Registered(string account, string machine, string profile, DateTime checkedAt)
         => _store.Change(One, records =>

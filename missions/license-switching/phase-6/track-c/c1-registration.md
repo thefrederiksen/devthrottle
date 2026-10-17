@@ -84,6 +84,7 @@ on a throwaway SQLite file. Machine A (Director `dir-a`) holds accounts A and B;
 | `WhatIsStored_IsExactlyTheFieldsOfTheContract_WhoMadeTheRecordAndItsLastCheck` | The stored record has exactly the nine fields, and an owner's record says `owner`. Changed from the four-field test. |
 | `ARecordStoredBeforeSourcesExisted_ReadsAsOwnerSet_AndNeverChecked` | A record written before this change reads as owner-set and `not-checked` - so no registration can overwrite it, and it is never read as healthy. |
 | `ARecordWhoseSourceIsNotASourceWord_IsAnError` | A stored source the code does not know is an error, never guessed. |
+| `ARecordWhoseStateIsNotAWordADirectorMayReport_IsAnError` (2 cases) | A stored state that is not a reportable word - an unknown word, or the Gateway-only `not-checked` - is an error, never folded into a sentence. Added for review finding 1. |
 | `Remove_OfARegisteredRecord_LeavesARemovalRecordForThatAccountMachineUserAndProfile` | The owner's removal of a registration is remembered, with when. |
 | `Remove_OfAnOwnerSetRecord_LeavesNoRemovalRecord` | Removing the owner's own record leaves nothing behind. |
 | `Set_ClearsTheRemovalRecordsOfThatAccount_AndOnlyThatAccount` | The owner setting one account clears only that account's removals. |

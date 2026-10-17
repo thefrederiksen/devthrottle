@@ -280,8 +280,15 @@ public sealed class LicenseApproverStore
             return new List<LicenseApprover>();
         var read = JsonSerializer.Deserialize<List<LicenseApprover>>(raw, Json)
                    ?? throw new InvalidOperationException("The license approvers setting holds no list.");
-        return read.Select(WithSource).OrderBy(a => a.AccountEmail, StringComparer.Ordinal).ToList();
+        return read.Select(WithSource).Select(WithReportableState).OrderBy(a => a.AccountEmail, StringComparer.Ordinal).ToList();
     }
+
+    // A check's state is one of the words a Director may report, or none when the record was never checked. Anything
+    // else cannot be read, and is an error here rather than a sentence folded from a word nobody wrote.
+    private static LicenseApprover WithReportableState(LicenseApprover approver)
+        => approver.State is null || LicenseApproverStates.Reportable.Contains(approver.State)
+            ? approver
+            : throw new InvalidOperationException("The license approvers setting holds a record whose state is not a state word.");
 
     // A record stored before sources existed has none, and the owner set it: nothing else could set one then. Any
     // other word is a stored value that cannot be read, which is an error like any other.

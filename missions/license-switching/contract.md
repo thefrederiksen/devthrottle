@@ -1020,7 +1020,8 @@ reports for no machine of the tenant gets no assignments and every row of its re
 
 ### 10.3 The rule
 
-A report that is missing, has no rows, or has more than 32 rows fails the call and nothing of it is kept. Each row is
+A report that is missing, has no list of rows, or has more than 32 rows fails the call and nothing of it is kept.
+An empty list is taken and answered with an empty list: a machine with no profiles to report may send one. Each row is
 then decided under the approver store's lock, against the records as the earlier rows of the same report left them:
 
 1. A row with a field missing, too long or of the wrong shape is `invalid-row`: the profile must be a profile name;
