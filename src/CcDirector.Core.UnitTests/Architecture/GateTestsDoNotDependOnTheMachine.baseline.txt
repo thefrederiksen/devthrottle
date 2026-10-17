@@ -137,7 +137,6 @@ real-clock | src/CcDirector.Engine.Tests/Scheduling/ClaimCoversTheCommandTests.c
 real-clock | src/CcDirector.Engine.Tests/Scheduling/DatabaseDecidesOpenRunsTests.cs | 8
 real-clock | src/CcDirector.Engine.Tests/Scheduling/SchedulerTests.cs | 3
 real-clock | src/CcDirector.Engine.Tests/Scheduling/SharedEngineDatabaseTests.cs | 1
-process | src/CcDirector.Engine.Tests/Scheduling/UnconfirmedStopTests.cs | 3
 real-clock | src/CcDirector.Engine.Tests/Storage/EngineDatabaseSharedFileTests.cs | 38
 real-clock | src/CcDirector.Engine.Tests/Storage/EngineDatabaseTests.cs | 14
 real-clock | src/CcDirector.Engine.Tests/Storage/NoReleaseWithoutProofTests.cs | 7
