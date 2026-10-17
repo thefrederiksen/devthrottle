@@ -74,10 +74,22 @@ if ($PSBoundParameters.ContainsKey('Files')) { $selArgs.Files = $Files }
 $suites = & (Join-Path $PSScriptRoot "select-tests.ps1") @selArgs
 $changed = @($suites.Changed | ForEach-Object { $_ -replace '\\', '/' })
 
+# A git call whose error output is expected (a path absent at the merge base). Windows PowerShell 5.1 turns a
+# redirected native error line into a terminating error under "Stop", so the preference is lowered for exactly
+# this call; the exit code is the answer.
+function Invoke-GitQuiet([string[]] $GitArgs) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = @(& git -C $repoRoot @GitArgs 2>$null)
+        return [pscustomobject]@{ Ok = ($LASTEXITCODE -eq 0); Text = ($out -join "`n") }
+    } finally { $ErrorActionPreference = $previous }
+}
+
 $mergeBase = $null
 if (-not $PSBoundParameters.ContainsKey('Files')) {
-    $mergeBase = (& git -C $repoRoot merge-base $Base HEAD 2>$null)
-    if ($LASTEXITCODE -ne 0) { $mergeBase = $null }
+    $mb = Invoke-GitQuiet @("merge-base", $Base, "HEAD")
+    if ($mb.Ok) { $mergeBase = $mb.Text.Trim() }
 }
 
 # A file's text as the change left it, and as it was before. A deleted file has only the before; a new one
@@ -87,8 +99,9 @@ function Get-FileVersions([string] $Path) {
     $full = Join-Path $repoRoot $Path
     if (Test-Path -LiteralPath $full) { $texts += [System.IO.File]::ReadAllText($full) }
     if ($mergeBase) {
-        $old = & git -C $repoRoot show "${mergeBase}:$Path" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $old) { $texts += ($old -join "`n") }
+        # A file the change ADDED has no before; git says so on its error output, which is not a failure here.
+        $old = Invoke-GitQuiet @("show", "${mergeBase}:$Path")
+        if ($old.Ok -and $old.Text) { $texts += $old.Text }
     }
     return $texts
 }
@@ -134,9 +147,18 @@ foreach ($suite in $selectable) {
         foreach ($f in $changed) {
             if (-not $f.StartsWith("src/")) { continue }
             if ($f -match '\.cs$') {
-                if ($byPath.ContainsKey($f)) { $hit[$f] = "changed itself"; continue }
+                # A changed test file runs itself AND reaches the test files that use what it declares - a changed
+                # rig or fake is a change to every test built on it.
+                if ($byPath.ContainsKey($f)) { $hit[$f] = "changed itself" }
+                $before = $types.Count
                 foreach ($t in (Get-FileVersions $f)) {
                     foreach ($m in $declaration.Matches($t)) { [void]$types.Add($m.Groups[1].Value) }
+                }
+                if ($types.Count -eq $before -and -not $byPath.ContainsKey($f)) {
+                    # Top-level statements, global usings, assembly attributes: a change no type name leads from.
+                    $whole = $true
+                    $reasons.Add("$f changed and declares no type a test could name, so nothing can be ruled out")
+                    break
                 }
             } elseif ($f -notmatch '\.md$') {
                 # Not C#: the tests that read it name it. The file name without its folder, and without its
@@ -169,7 +191,9 @@ foreach ($suite in $selectable) {
 
     $classes = @()
     if (-not $whole) {
-        $classes = @($hit.Keys | ForEach-Object {
+        # Only files that HOLD tests name classes to run: a helper, rig or fake has none, and a filter naming only
+        # those would collect nothing and end the gate as a suite that never ran.
+        $classes = @($hit.Keys | Where-Object { $byPath[$_] -match '\[(Fact|Theory)\b' } | ForEach-Object {
             [regex]::Matches($byPath[$_], '\bclass\s+([A-Z][A-Za-z0-9_]*)') | ForEach-Object { $_.Groups[1].Value }
         } | Sort-Object -Unique)
         if ($classes.Count -gt $MaxClasses) {

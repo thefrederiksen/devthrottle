@@ -70,8 +70,24 @@ public sealed class GateRunsTheParkedTestsAChangeReachesTests
         Assert.Contains("changed and no test file names it, so nothing can be ruled out", script);
         Assert.Contains("if ($classes.Count -gt $MaxClasses) {\n            $whole = $true", script.Replace("\r\n", "\n"));
 
-        // A test file that changed is always run, and the types of both sides of a changed file are followed.
-        Assert.Contains("if ($byPath.ContainsKey($f)) { $hit[$f] = \"changed itself\"; continue }", script);
-        Assert.Contains("show \"${mergeBase}:$Path\"", script);
+        // A changed test file is run AND its declared types are followed, so a changed rig reaches its users.
+        var normalized = script.Replace("\r\n", "\n");
+        Assert.Contains("if ($byPath.ContainsKey($f)) { $hit[$f] = \"changed itself\" }\n                $before = $types.Count", normalized);
+        // A changed C# file that declares no type selects the whole suite rather than nothing.
+        Assert.Contains("changed and declares no type a test could name, so nothing can be ruled out", script);
+        // The before side is read without letting PowerShell 5.1 turn git's "not in that commit" into a crash.
+        Assert.Contains("$old = Invoke-GitQuiet @(\"show\", \"${mergeBase}:$Path\")", script);
+        Assert.Contains("$ErrorActionPreference = \"Continue\"", script);
+        // Only files holding tests name classes, so a filter can never consist of helpers alone.
+        Assert.Contains("Where-Object { $byPath[$_] -match '\\[(Fact|Theory)\\b' }", script);
+    }
+
+    [Fact]
+    public void SelectTests_SeesTheUncommittedChange_TheGateIsJudging()
+    {
+        var script = Script("select-tests.ps1");
+
+        Assert.Contains("@(& git -C $repoRoot diff --name-only HEAD)", script);
+        Assert.Contains("@(& git -C $repoRoot ls-files --others --exclude-standard)", script);
     }
 }
