@@ -128,6 +128,21 @@ back. `ToCrashJournalSession_AnApiModeSession_IsJournalledAsApiAndReadBack` asse
 the API-mode test failed in `Core.UnitTests`, so the default gate now catches that change. The end-to-end chain stays
 in `Gateway.UnitTests`, because it needs `GatewayEndpoints.ContinuationRequest`.
 
+Developer's answer, completed by the Developer who took the pull request over: the class now proves all three things
+the finding asks for, each through the real journal file on disk and the one translation the Director uses
+(`SessionConnectionModeWords.FromWord`), not only the raw field:
+
+- `ToCrashJournalSession_AnApiModeSession_IsJournalledAsApiAndReadBack`: the row carries `api` and reads back as API mode.
+- `ToCrashJournalSession_ATerminalSession_CarriesNoModeAndReadsBackAsTerminal`: the row carries no mode and reads back as
+  terminal.
+- `ReadLiveRoster_ARowWrittenWithoutTheField_ReadsBackAsTerminal` (new): a journal whose row has no `ConnectionMode`
+  property at all, as written by a Director from before the field, reads back as terminal.
+
+Run on devlinux after merging origin/main, one project and filtered:
+`dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~ApiModeSessionJournalRowTests|FullyQualifiedName~FactorySeatSurvivesARestartTests"`,
+10 passed, 0 failed. With the mode taken out of `ToCrashJournalSession` (the line set to `ConnectionMode = null`), the
+same run of `ApiModeSessionJournalRowTests` gave 1 failed, 2 passed: `ToCrashJournalSession_AnApiModeSession_IsJournalledAsApiAndReadBack` failed with expected "api", actual null. The line was then put back.
+
 ## Weighed and not raised
 
 Each of these was looked at and judged not to prove a harm that must change in this pull request. They

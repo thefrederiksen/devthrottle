@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using CcDirector.Core.Agents;
 using CcDirector.Core.ApiMode;
 using CcDirector.Core.Backends;
@@ -69,10 +70,11 @@ public sealed class ApiModeSessionJournalRowTests : IDisposable
 
         // Assert
         Assert.Equal(ConnectionModes.Api, row.ConnectionMode);
+        Assert.Equal(SessionConnectionMode.Api, SessionConnectionModeWords.FromWord(row.ConnectionMode));
     }
 
     [Fact]
-    public void ToCrashJournalSession_ATerminalSession_CarriesNoMode()
+    public void ToCrashJournalSession_ATerminalSession_CarriesNoModeAndReadsBackAsTerminal()
     {
         // Arrange
         var terminal = TerminalSession();
@@ -82,6 +84,28 @@ public sealed class ApiModeSessionJournalRowTests : IDisposable
 
         // Assert
         Assert.Null(row.ConnectionMode);
+        Assert.Equal(SessionConnectionMode.Terminal, SessionConnectionModeWords.FromWord(row.ConnectionMode));
+    }
+
+    [Fact]
+    public void ReadLiveRoster_ARowWrittenWithoutTheField_ReadsBackAsTerminal()
+    {
+        // Arrange: a journal written by a Director from before the field existed - the row has no ConnectionMode at all.
+        var journal = new DirectorCrashJournal("dir-1", 4242, "TEST_MACHINE", "tester", Now, _dir);
+        journal.Update([SessionManager.ToCrashJournalSession(TerminalSession())]);
+        var document = JsonNode.Parse(File.ReadAllText(journal.FilePath))!.AsObject();
+        var rows = document.First(p => string.Equals(p.Key, "Sessions", StringComparison.OrdinalIgnoreCase)).Value!.AsArray();
+        var written = rows.Single()!.AsObject();
+        var field = written.Select(p => p.Key).Single(k => string.Equals(k, "ConnectionMode", StringComparison.OrdinalIgnoreCase));
+        written.Remove(field);
+        File.WriteAllText(journal.FilePath, document.ToJsonString());
+
+        // Act
+        var row = Assert.Single(DirectorCrashJournal.ReadLiveRoster("dir-1", _dir)!.Sessions);
+
+        // Assert
+        Assert.Null(row.ConnectionMode);
+        Assert.Equal(SessionConnectionMode.Terminal, SessionConnectionModeWords.FromWord(row.ConnectionMode));
     }
 
     private sealed class NullBackend : ISessionBackend
