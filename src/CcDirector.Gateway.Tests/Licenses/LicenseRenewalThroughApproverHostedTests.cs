@@ -288,6 +288,8 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
             _holdings = holdings.ToList();
         }
 
+        public bool IsInstalled => true;
+
         public LicenseApproveAnswer? ApproveAnswer { get; set; }
 
         public List<(string Account, string Profile)> Approvals { get; } = new();

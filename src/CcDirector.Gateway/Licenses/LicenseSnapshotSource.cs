@@ -130,7 +130,8 @@ public sealed class LicenseSnapshotSource
                 holdByMachine.TryGetValue(m.MachineId, out var held)
                     ? new LicenseHold(DateTime.SpecifyKind(held.HeldUntilUtc!.Value, DateTimeKind.Utc), held.FromAccountEmail, held.ToAccountEmail, held.ReasonCode)
                     : null,
-                refusals.Any(r => LicenseStore.IsRefusalOf(r, m.MachineName, m.OsUser, m.DirectorId))))
+                refusals.Any(r => LicenseStore.IsRefusalOf(r, m.MachineName, m.OsUser, m.DirectorId)),
+                m.CannotSwitchReason))
             .ToList();
 
         // The store hands over only the bars still in force, and the engine ignores one whose time has passed.

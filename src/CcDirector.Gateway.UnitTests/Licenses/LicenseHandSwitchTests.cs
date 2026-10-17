@@ -128,6 +128,8 @@ public sealed class LicenseHandSwitchTests : IDisposable
     {
         private readonly List<LicenseHandSwitch> _healed = new();
 
+        public bool IsInstalled => true;
+
         public Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken cancellationToken)
         {
             _healed.AddRange(CcDevthrottleLicenseCommandLine.ReadHandSwitches(listAnswer, "list"));
