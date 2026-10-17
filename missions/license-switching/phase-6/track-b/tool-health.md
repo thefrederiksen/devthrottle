@@ -234,23 +234,34 @@ the Director's next tools check.
 
 ## The gate
 
-Run by the Track B Tech Lead on the rebased branch (base origin/main 0702c88ce), with TEMP on drive D, as the
-Delivery Lead's gate rule asks: the default gate, plus the parked suites filtered to the license tests.
+**On the commit that merges**, c3f3ab13c. That is the branch squashed and rebased onto origin/main 9a5032dc2, after
+the round-two review. The rebase resolved ten conflicts with eleven license changes on main, so the gate was run
+again on the result. It ran with TEMP on drive D, as the Delivery Lead's gate rule asks.
 
 ```
-.\scripts	est-local.ps1                    commit 700cba2be   RESULT: GREEN
-  all 11 suites outcome=Completed, among them:
-  CcDirector.Core.UnitTests                outcome=Completed    total=2133
-  cc-director-setup-engine.Tests           outcome=Completed    total=891
+.\scripts	est-local.ps1 -Parked -Filter License   commit c3f3ab13c   RESULT: GREEN
+  CcDirector.Core.UnitTests                outcome=Completed    total=205
+  CcDirector.Avalonia.Tests                outcome=Completed    total=32
+  CcDirector.Gateway.Tests.shard3of4       outcome=Completed    total=23
+  CcDirector.Gateway.UnitTests             outcome=Completed    total=1076
+  every other suite                        outcome=Completed    total=0 (no license tests in it)
 
-.\scripts	est-local.ps1 -Parked -Filter License   commit 255da59de   RESULT: GREEN
-  CcDirector.Gateway.UnitTests             outcome=Completed    total=872
-  CcDirector.Gateway.Tests                 outcome=Completed    total=21
-  CcDirector.Core.UnitTests                outcome=Completed    total=190
+.\scripts	est-local.ps1                    commit c3f3ab13c   RESULT: FAILED in 1 project, on a test this change does not reach
+  CcDirector.Core.UnitTests                Failed: 1, Passed: 2224 (Total 2225)
+    BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne:
+    "COUNT DIFFERS: tools/cc-director-setup-engine/LauncherSelfUpdate.cs has 3 site(s) in code, the register says 2"
+  every other suite                        outcome=Completed, no failures
+  (the default run also ran the parts of the parked Gateway unit suite, 14146, and Core.Tests, 4540, that this
+  change can reach: both Completed with no failures)
 ```
 
-The only change between 700cba2be and 255da59de is this document, so the default run covers the code at both. The
-earlier runs (on 08dec1140 and c4855f2ea, before the rebase) are replaced by these, as the review's finding 1 asked.
+**The one failure is red on main, not caused by this change.** `LauncherSelfUpdate.cs`, `docs/BackgroundWork.md` and
+the test are identical on this branch and on origin/main. The third waiting loop came with #4162, "A failed Launcher
+self-update never leaves the machine without a Launcher", without a row in the register.
+
+**Before this rebase,** the Track B Tech Lead's runs were green on the earlier base 0702c88ce:
+- the default gate at 700cba2be (all 11 suites Completed);
+- `-Parked -Filter License` at 255da59de (Gateway unit 872, Gateway 21, Core unit 190).
 
 ## What the live proof should look for
 

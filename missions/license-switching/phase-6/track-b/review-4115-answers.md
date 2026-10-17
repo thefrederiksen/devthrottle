@@ -97,7 +97,7 @@ tested. Its points:
 
 ## The second rebase, before merging
 
-The branch was rebased again, onto origin/main f37f6ec52, after the round-two review. Main had moved by eleven
+The branch was rebased again, onto origin/main 9a5032dc2, after the round-two review. Main had moved by eleven
 license changes since 0702c88ce, among them Track C's approvers (#4109, #4127, #4140), the hand-switch heal (#4106),
 "switch every ready machine at once" (#4105), the readiness check (#4151) and the refused-report and silent-machine
 statuses (#4113). Ten files conflicted. The six commits were first squashed into one on their merge base, so each
