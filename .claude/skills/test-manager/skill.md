@@ -309,9 +309,9 @@ host binds a port the operating system assigns, so runs share nothing that can c
 The gate now runs the suite as several concurrent processes, each given part of it by a filter
 (`scripts/gateway-test-shards.ps1`). A hand-run `dotnet test` of the suite blocks nobody.
 
-The gate script still does not queue: `test-local.ps1 -Parked` or `-Gateway` takes a release-gate
-lock before building and is refused with exit 6, naming the holder, when another release gate is in
-progress (`scripts/gate-lock.ps1`).
+The gate script takes no lock either. The release-gate lock that refused a second `-Parked` or
+`-Gateway` run with exit 6 was removed on 17 October 2026: gate runs in separate worktrees may run at
+the same time, limited only by the machine's memory and disk.
 
 ---
 

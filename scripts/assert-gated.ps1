@@ -11,7 +11,7 @@
     is the only thing between an ungated commit and the users.
 
     WHAT COUNTS AS GATED. The gate writes one record per green, unfiltered -Parked run, named by the
-    commit it ran on, in the directory scripts\gate-lock.ps1 derives (per user, per machine). A record
+    commit it ran on, in the directory scripts\gate-records.ps1 derives (per user, per machine). A record
     is accepted only when every one of these holds, and the refusal names the first that does not:
       - its commit is the commit asked about - a run at the parent, or at the pull-request head that
         was squashed into the candidate, is a run at a different commit;
@@ -67,7 +67,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
-. (Join-Path $PSScriptRoot "gate-lock.ps1")
+. (Join-Path $PSScriptRoot "gate-records.ps1")
 
 function Refuse([string] $Message, [string] $HowToFix) {
     Write-Host ""
