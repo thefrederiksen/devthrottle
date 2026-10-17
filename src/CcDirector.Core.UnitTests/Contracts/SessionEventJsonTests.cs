@@ -188,13 +188,26 @@ public sealed class SessionEventJsonTests
     [InlineData("PromptQueued", ",\"reason\":\"turnRunning\",\"position\":1")]
     [InlineData("PromptDelivered", ",\"disposition\":\"started\",\"acknowledgement\":\"{}\"")]
     [InlineData("PromptRefused", ",\"reason\":\"busy\",\"refusedBy\":\"agent\"")]
-    public void Deserialize_PromptEventWithoutItsText_Throws(string type, string rest)
+    public void Deserialize_PromptEventWithoutItsText_ReadsWithNullText(string type, string rest)
     {
-        // Arrange: a prompt event with no promptText - a receipt that cannot say what was sent must not be read.
+        // Arrange: a prompt event with no promptText, as a Director older than the field writes it. The Gateway deploys
+        // before every Director updates, so refusing it would refuse that Director's whole batch.
         var json = $$"""{"type":"{{type}}","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00","promptId":"p1"{{rest}}}""";
 
-        // Act + Assert
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json, Json));
+        // Act
+        var e = JsonSerializer.Deserialize<SessionEvent>(json, Json);
+
+        // Assert
+        var text = e switch
+        {
+            PromptQueued q => q.PromptText,
+            PromptDelivered d => d.PromptText,
+            PromptRefused r => r.PromptText,
+            _ => throw new Xunit.Sdk.XunitException($"read as {e?.GetType().Name}, not {type}"),
+        };
+        Assert.Equal(type, e.GetType().Name);
+        Assert.Equal("p1", e switch { PromptQueued q => q.PromptId, PromptDelivered d => d.PromptId, PromptRefused r => r.PromptId, _ => null });
+        Assert.Null(text);
     }
 
     [Fact]

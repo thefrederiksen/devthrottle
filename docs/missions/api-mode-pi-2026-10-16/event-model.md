@@ -55,15 +55,23 @@ a turn also carry `turnId` (assigned by the Director; Pi has no turn id of its o
 
 Three fields may be null, each when there is honestly no value: `reason` on a `done` turn,
 `agentStopReason` when the agent exited mid-turn, and `durationMilliseconds` when the dialect closed a
-tool the agent never finished. `toolCallId` on `PermissionRequested` is optional. Every other field is
-always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
+tool the agent never finished. `toolCallId` on `PermissionRequested` is optional, and `promptText` on the
+three prompt events may be absent (below). Every other field is always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
 
-**`promptText` is always present on all three prompt events** (the Delivery Lead's ruling 15, 17 October 2026): the
-prompt exactly as the Director wrote it to the agent - or, for one that was never written, exactly as it would have
+**`promptText` is on all three prompt events whenever the Director knows it** (the Delivery Lead's ruling 15, 17
+October 2026): the prompt exactly as the Director wrote it to the agent - or, for one that was never written, exactly as it would have
 been - verbatim, never trimmed, reworded or shortened, with its newlines and leading and trailing spaces kept. The
 Director fills it for every prompt whatever its source: the Gateway's prompt route, the owner typing in the desktop, a
 fleet message or doorbell, the framework's own text, a pre-prompt, and a prompt released from the Director's queue. It
 is there so the Gateway can store the prompt's text on its receipt row.
+
+**`promptText` may be absent, from a Director older than the field** (the Delivery Lead's ruling on pull request
+#4121, 17 October 2026). The Gateway deploys before every Director updates, so it will read prompt events from
+Directors that do not write the field. The Gateway reads such an event with no text (null) and accepts it and the rest
+of its batch; it never refuses the batch for the missing field. Were the field required, one older Director's whole
+batch would be refused, its pusher would drop it for good, and that Director's sessions would lose their receipts and
+their live stream until it updated. A current Director always writes the field, for every prompt; absence means only
+"this Director predates the field", never "the prompt had no text".
 
 **What a `promptId` is** (the Delivery Lead's rulings and the phase 1 integration review, finding 3, 16 October 2026):
 the Gateway's delivery id when the prompt came from the Gateway with one - its prompt route gives every prompt one -

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
 
@@ -52,6 +53,22 @@ internal static class ApiModeEventTestData
         GenerationStartedUtc = started,
         Events = events.Select(Json).ToList(),
     };
+
+    /// <summary>The event as a Director older than <c>promptText</c> writes it: the same JSON with that field taken out.</summary>
+    public static string JsonWithoutPromptText(SessionEvent e)
+    {
+        var node = JsonNode.Parse(Json(e))!.AsObject();
+        node.Remove("promptText");
+        return node.ToJsonString();
+    }
+
+    /// <summary>A generation-A batch as a Director older than <c>promptText</c> sends it: no event carries the field.</summary>
+    public static ApiModeEventBatch AFromAnOlderDirector(params SessionEvent[] events)
+    {
+        var batch = A(events);
+        batch.Events = events.Select(JsonWithoutPromptText).ToList();
+        return batch;
+    }
 
     public static ApiModeEventBatch A(params SessionEvent[] events) => Batch("gen-a", GenAStarted, events);
     public static ApiModeEventBatch B(params SessionEvent[] events) => Batch("gen-b", GenBStarted, events);
