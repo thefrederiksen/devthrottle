@@ -599,4 +599,148 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
 
         Assert.Equal(reason, Only(store).RefusalReason);
     }
+
+    // ----- a turn whose end was lost in a hole between two generations (item 7) -----
+
+    /// <summary>p1 delivered and carried by t1 in generation A; t1's TurnEnded then fell in the hole.</summary>
+    private ApiModeReceiptStore StoreWithTurnOneOpenInGenerationA()
+    {
+        var store = Store();
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+        return store;
+    }
+
+    [Fact]
+    public void RecordTurnOverProven_ATurnStartedOfAnotherTurnInALaterGeneration_RulesTheTurnLost()
+    {
+        // Arrange
+        var store = StoreWithTurnOneOpenInGenerationA();
+
+        // Act: the new generation's TurnStarted of t2 proves t1 is over (one turn at a time).
+        var changed = store.RecordTurnOverProven(Director, Sid, "t2", "TurnStarted of turn t2", AfterRestart(4));
+
+        // Assert
+        Assert.Equal(1, changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Delivered, r.State);
+        Assert.Equal("t1", r.TurnId);
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, r.TurnOutcome);
+        Assert.Null(r.TurnOutcomeReason);
+        Assert.Null(r.TurnEndedAtUtc);
+        Assert.Equal(AfterRestart(4), store.ReadWithPositions(Sid).Single().LastPosition);
+    }
+
+    [Theory]
+    [InlineData("ConnectionReady")]
+    [InlineData("ConnectionEnded")]
+    public void RecordTurnOverProven_AConnectionEventInALaterGeneration_RulesTheTurnLost(string proof)
+    {
+        // Arrange
+        var store = StoreWithTurnOneOpenInGenerationA();
+
+        // Act
+        store.RecordTurnOverProven(Director, Sid, null, proof, AfterRestart(1));
+
+        // Assert
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, Only(store).TurnOutcome);
+    }
+
+    [Fact]
+    public void RecordTurnOverProven_InTheSameGeneration_RulesNothing()
+    {
+        // Arrange: no hole lies between them, so a missing TurnEnded is not a lost one.
+        var store = StoreWithTurnOneOpenInGenerationA();
+
+        // Act
+        var changed = store.RecordTurnOverProven(Director, Sid, null, "ConnectionEnded", At(9));
+
+        // Assert
+        Assert.Equal(0, changed);
+        Assert.Null(Only(store).TurnOutcome);
+    }
+
+    [Fact]
+    public void RecordTurnOverProven_TheTurnStartedOfTheSameTurn_RulesNothingAndItsRealEndStands()
+    {
+        // Arrange
+        var store = StoreWithTurnOneOpenInGenerationA();
+
+        // Act: a TurnStarted of t1 itself proves nothing about t1; then t1 ends in the new generation.
+        var changed = store.RecordTurnOverProven(Director, Sid, "t1", "TurnStarted of turn t1", AfterRestart(1));
+        store.RecordTurnEnded(Director, Sid, "t1", "done", null, AfterRestart(2), T0.AddSeconds(3));
+
+        // Assert
+        Assert.Equal(0, changed);
+        Assert.Equal("done", Only(store).TurnOutcome);
+    }
+
+    [Fact]
+    public void RecordTurnOverProven_ATurnThatAlreadyEnded_KeepsItsRealEnding()
+    {
+        // Arrange
+        var store = StoreWithTurnOneOpenInGenerationA();
+        store.RecordTurnEnded(Director, Sid, "t1", "failed", "the model errored", At(3), T0.AddSeconds(1));
+
+        // Act
+        var changed = store.RecordTurnOverProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+
+        // Assert
+        Assert.Equal(0, changed);
+        Assert.Equal("failed", Only(store).TurnOutcome);
+    }
+
+    [Fact]
+    public void RecordTurnEnded_TheRealEndingOlderThanTheLostRuling_ReplacesIt()
+    {
+        // Arrange: t1 ruled lost at generation B; then its own TurnEnded of generation A arrives, an older position the
+        // forward-only rule would drop.
+        var store = StoreWithTurnOneOpenInGenerationA();
+        store.RecordTurnOverProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+
+        // Act
+        var changed = store.RecordTurnEnded(Director, Sid, "t1", "cancelled", "stopped by the user", At(3), T0.AddSeconds(2));
+
+        // Assert
+        Assert.Equal(1, changed);
+        var r = Only(store);
+        Assert.Equal("cancelled", r.TurnOutcome);
+        Assert.Equal("stopped by the user", r.TurnOutcomeReason);
+        Assert.Equal(T0.AddSeconds(2), r.TurnEndedAtUtc);
+        Assert.Equal(AfterRestart(1), store.ReadWithPositions(Sid).Single().LastPosition); // the position never moves back
+    }
+
+    [Fact]
+    public void RecordTurnEnded_TheRealEndingNewerThanTheLostRuling_ReplacesIt()
+    {
+        // Arrange
+        var store = StoreWithTurnOneOpenInGenerationA();
+        store.RecordTurnOverProven(Director, Sid, null, "ConnectionEnded", AfterRestart(1));
+
+        // Act
+        store.RecordTurnEnded(Director, Sid, "t1", "done", null, AfterRestart(5), T0.AddSeconds(2));
+
+        // Assert
+        Assert.Equal("done", Only(store).TurnOutcome);
+        Assert.Equal(AfterRestart(5), store.ReadWithPositions(Sid).Single().LastPosition);
+    }
+
+    [Fact]
+    public void RecordTurnEnded_ADifferentTurnUnderTheSameId_EndsItsOwnReceiptAndLeavesTheLostEnding()
+    {
+        // Arrange: t1 of generation A ruled lost when generation B's agent connected; then a t1 that is a different turn
+        // carries p2 (turn ids are unique per Director process only; phase 2 review, observation C).
+        var store = StoreWithTurnOneOpenInGenerationA();
+        store.RecordTurnOverProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+        store.RecordDelivered(Director, Sid, "p2", "started", StartedAck, AfterRestart(2), T0);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p2" }, AfterRestart(3));
+
+        // Act
+        store.RecordTurnEnded(Director, Sid, "t1", "failed", "the model errored", AfterRestart(4), T0.AddSeconds(2));
+
+        // Assert
+        var receipts = store.Read(Sid);
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, Assert.Single(receipts, r => r.PromptId == "p1").TurnOutcome);
+        Assert.Equal("failed", Assert.Single(receipts, r => r.PromptId == "p2").TurnOutcome);
+    }
 }

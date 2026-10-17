@@ -501,6 +501,122 @@ public sealed class ApiModeLiveRulingTests
         Assert.Throws<InvalidOperationException>(() => ruling.Rule(Refused(42, "gw-1", RefusalBusy, PromptRefusedBy.Agent)));
     }
 
+    // ----- a turn whose end was lost in a hole between two generations (item 7) -----
+
+    /// <summary>A ruling rebuilt from the store after the Director moved to generation B: p1 delivered and carried by
+    /// t1, whose last stored event was at 3 of generation A, and whose TurnEnded never arrived.</summary>
+    private static ApiModeLiveRuling RulingWithTurnOneOpenInGenerationA()
+        => new(new[] { Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started", TurnId = "t1" }, 3) });
+
+    private static ApiModeHeldEvent HeldB(SessionEvent e) => new("gen-b", GenBStarted, e);
+
+    public static TheoryData<SessionEvent> Proofs => new()
+    {
+        Started(2, "t2", "p2"),
+        Ready(1),
+        Gone(1, 137, "Pi exited (exit code 137)"),
+    };
+
+    [Theory]
+    [MemberData(nameof(Proofs))]
+    public void Rule_AProofInALaterGeneration_RulesTheStoredOpenTurnLost(SessionEvent proof)
+    {
+        // Arrange
+        var ruling = RulingWithTurnOneOpenInGenerationA();
+
+        // Act
+        var items = ruling.Rule(HeldB(proof));
+
+        // Assert
+        var receipt = Assert.Single(items, i => i.ItemId == "receipt:p1");
+        Assert.Equal("Delivered - the turn's end was lost when the Director reconnected", receipt.Text);
+        Assert.Equal("neutral", receipt.Tone);
+        Assert.Equal("t1", receipt.TurnId);
+    }
+
+    [Fact]
+    public void Rule_TheSameTurnContinuingInALaterGeneration_RulesNothingAndItsRealEndStands()
+    {
+        // Arrange
+        var ruling = RulingWithTurnOneOpenInGenerationA();
+
+        // Act: the same Pi process carries on with t1 after the hole, then ends it.
+        var items = new List<ApiModeLiveItem>();
+        items.AddRange(ruling.Rule(HeldB(Text(1, "t1", "NG"))));
+        items.AddRange(ruling.Rule(HeldB(Ended(2, "t1", TurnOutcome.Done, null, "stop"))));
+
+        // Assert
+        Assert.Empty(ReceiptWordsOf(items, "p1")); // Delivered, as the store already shows it
+        Assert.Contains(items, i => i.ItemId == "turn:t1" && i.Text == "Turn finished");
+    }
+
+    [Fact]
+    public void Rule_AProofInTheSameGenerationAsTheStoredReceipt_RulesNothing()
+    {
+        // Act
+        var items = RulingWithTurnOneOpenInGenerationA().Rule(HeldA(Gone(9, 0, "Pi exited (exit code 0)")));
+
+        // Assert
+        Assert.Empty(ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_AProofWithoutItsPositionWhileAStoredTurnIsOpen_Throws()
+    {
+        // Act + Assert: without the position the ruling cannot tell whether a hole lies between, and it does not guess.
+        Assert.Throws<InvalidOperationException>(() => RulingWithTurnOneOpenInGenerationA().Rule(Ready(1)));
+    }
+
+    [Fact]
+    public void Rule_TheRealTurnEndedAfterTheLostEnding_ReplacesIt()
+    {
+        // Arrange: ruled lost at generation B's ConnectionReady.
+        var ruling = RulingWithTurnOneOpenInGenerationA();
+        ruling.Rule(HeldB(Ready(1)));
+
+        // Act: t1's own ending, of generation A, arrives after all.
+        var items = ruling.Rule(HeldA(Ended(4, "t1", TurnOutcome.Failed, "the model errored", null)));
+
+        // Assert
+        Assert.Equal(new[] { "Delivered - the turn failed: the model errored" }, ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_AStoredLostEndingThenTheRealTurnEnded_ReplacesIt()
+    {
+        // Arrange: the store had already ruled t1 lost at 1 of generation B.
+        var ruling = new ApiModeLiveRuling(new[]
+        {
+            new ApiModeStoredReceipt(
+                new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, TurnId = "t1", TurnOutcome = ApiModeLostTurnEnd.Outcome },
+                new ApiModeEventPosition("gen-b", GenBStarted, 1)),
+        });
+
+        // Act
+        var items = ruling.Rule(HeldB(Ended(2, "t1", TurnOutcome.Cancelled, "stopped by the user", null)));
+
+        // Assert
+        Assert.Equal(new[] { "Delivered - stopped" }, ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_ADifferentTurnUnderTheSameId_EndsItsOwnReceiptAndLeavesTheLostEnding()
+    {
+        // Arrange: t1 ruled lost; then a t1 that is a different turn carries p2 (turn ids are unique per Director
+        // process only; phase 2 review, observation C).
+        var ruling = RulingWithTurnOneOpenInGenerationA();
+        ruling.Rule(HeldB(Ready(1)));
+        ruling.Rule(HeldB(Delivered(2, "p2", PlainAck)));
+        ruling.Rule(HeldB(Started(3, "t1", "p2")));
+
+        // Act
+        var items = ruling.Rule(HeldB(Ended(4, "t1", TurnOutcome.Failed, "the model errored", null)));
+
+        // Assert
+        Assert.Empty(ReceiptWordsOf(items, "p1"));
+        Assert.Equal(new[] { "Delivered - the turn failed: the model errored" }, ReceiptWordsOf(items, "p2"));
+    }
+
     // ----- what the ruling remembers (review of pull request #4083, finding 1) -----
 
     [Fact]
@@ -575,6 +691,7 @@ public sealed class ApiModeLiveRulingTests
     [InlineData(ApiModeReceiptState.Delivered, null, "done", null, null, "Delivered")]
     [InlineData(ApiModeReceiptState.Delivered, null, "failed", "the model errored", null, "Delivered - the turn failed: the model errored")]
     [InlineData(ApiModeReceiptState.Delivered, null, "cancelled", "stopped by the user", null, "Delivered - stopped")]
+    [InlineData(ApiModeReceiptState.Delivered, null, "lost", null, null, "Delivered - the turn's end was lost when the Director reconnected")]
     [InlineData(ApiModeReceiptState.Refused, null, null, null, "Pi exited before acknowledging", "Refused: Pi exited before acknowledging")]
     public void ReceiptWords_EachState_IsTheEventModelsWords(ApiModeReceiptState state, string? queueReason, string? outcome, string? outcomeReason, string? refusal, string expected)
     {

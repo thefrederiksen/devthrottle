@@ -50,7 +50,9 @@ public sealed class ApiModeReceiptDto
     /// <summary>The Director's id for the turn that carried the prompt, once one started with it.</summary>
     public string? TurnId { get; set; }
 
-    /// <summary><c>done</c>, <c>cancelled</c> or <c>failed</c> once the carrying turn ended; null while it runs.</summary>
+    /// <summary><c>done</c>, <c>cancelled</c> or <c>failed</c> once the carrying turn ended; null while it runs. Or
+    /// <c>lost</c>: the Gateway's own ruling when the turn's end fell in a hole between two Director generations and
+    /// a later event proves the turn is over (no Director sends it, and the turn's real ending replaces it).</summary>
     public string? TurnOutcome { get; set; }
 
     /// <summary>The carrying turn's stated reason, verbatim.</summary>
@@ -68,8 +70,8 @@ public sealed class ApiModeReceiptDto
     public DateTime UpdatedAtUtc { get; set; }
 
     /// <summary>The receipt's finished words, rendered verbatim (event model rule 5): <c>Queued: &lt;why&gt;</c>,
-    /// <c>Delivered</c>, <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>, or
-    /// <c>Refused: &lt;reason&gt;</c>. Ruled on the Gateway (<c>ApiModeLiveRuling.ReceiptWords</c>); a client never
+    /// <c>Delivered</c>, <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>,
+    /// <c>Delivered - the turn's end was lost when the Director reconnected</c>, or <c>Refused: &lt;reason&gt;</c>. Ruled on the Gateway (<c>ApiModeLiveRuling.ReceiptWords</c>); a client never
     /// composes a receipt.</summary>
     public string Words { get; set; } = "";
 

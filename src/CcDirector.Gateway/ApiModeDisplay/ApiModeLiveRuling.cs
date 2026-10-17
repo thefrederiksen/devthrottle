@@ -58,6 +58,10 @@ public sealed class ApiModeLiveRuling
     // The sequence of the last receipt event ruled for each prompt, so an older event handed over after a newer one
     // changes nothing.
     private readonly Dictionary<string, long> _receiptSequences = new(StringComparer.Ordinal);
+    // The stored receipts this ruling linked to a turn itself. One ruling rules one generation, so such a receipt's last
+    // event is of this ruling's generation, as the store's row now says too: a proof in this generation never rules its
+    // turn lost (ApiModeLostTurnEnd.Applies).
+    private readonly HashSet<string> _linkedHere = new(StringComparer.Ordinal);
 
     /// <summary>A ruling for a reader that starts at the first event of a complete replay.</summary>
     public ApiModeLiveRuling()
@@ -105,6 +109,15 @@ public sealed class ApiModeLiveRuling
     private IReadOnlyList<ApiModeLiveItem> Rule(SessionEvent e, ApiModeEventPosition? position)
     {
         ArgumentNullException.ThrowIfNull(e);
+        var lost = ApiModeLostTurnEnd.Proves(e, out var continuingTurnId)
+            ? LostTurnEnds(e, continuingTurnId, position)
+            : Array.Empty<ApiModeLiveItem>();
+        var items = RuleEvent(e, position);
+        return lost.Count == 0 ? items : lost.Concat(items).ToList();
+    }
+
+    private IReadOnlyList<ApiModeLiveItem> RuleEvent(SessionEvent e, ApiModeEventPosition? position)
+    {
         return e switch
         {
             PromptQueued q => ReceiptChange(q, position, r =>
@@ -195,7 +208,9 @@ public sealed class ApiModeLiveRuling
 
     /// <summary>
     /// A receipt's finished words (event model rule 5): <c>Queued: &lt;why&gt;</c>, <c>Delivered</c>,
-    /// <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>, or <c>Refused: &lt;reason&gt;</c>.
+    /// <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>,
+    /// <c>Delivered - the turn's end was lost when the Director reconnected</c> (the Gateway's ruling for a turn whose
+    /// end fell in a hole, <see cref="ApiModeLostTurnEnd"/>), or <c>Refused: &lt;reason&gt;</c>.
     /// The reason is the agent's (or the Director's) own words, verbatim.
     /// </summary>
     public static string ReceiptWords(ApiModeReceiptDto receipt)
@@ -209,6 +224,7 @@ public sealed class ApiModeLiveRuling
             {
                 "failed" => "Delivered - the turn failed: " + (receipt.TurnOutcomeReason ?? "no reason was given"),
                 "cancelled" => "Delivered - stopped",
+                ApiModeLostTurnEnd.Outcome => LostWords,
                 null or "done" => "Delivered",
                 var unknown => Unknown("Delivered - the turn ended in a way this Gateway does not know", "turn outcome", unknown),
             },
@@ -216,8 +232,12 @@ public sealed class ApiModeLiveRuling
         };
     }
 
+    /// <summary>The words of a receipt whose turn's end was lost (<see cref="ApiModeLostTurnEnd"/>).</summary>
+    public const string LostWords = "Delivered - the turn's end was lost when the Director reconnected";
+
     /// <summary>A receipt's colour hint: <c>green</c> delivered, <c>red</c> refused or its turn failed,
-    /// <c>yellow</c> its turn was stopped, <c>neutral</c> still queued.</summary>
+    /// <c>yellow</c> its turn was stopped, <c>neutral</c> still queued or its turn's end was lost (the delivery is
+    /// certain; how the turn ended is not known).</summary>
     public static string ReceiptTone(ApiModeReceiptDto receipt)
     {
         ArgumentNullException.ThrowIfNull(receipt);
@@ -229,6 +249,7 @@ public sealed class ApiModeLiveRuling
             {
                 "failed" => "red",
                 "cancelled" => "yellow",
+                ApiModeLostTurnEnd.Outcome => "neutral",
                 null or "done" => "green",
                 _ => "neutral",
             },
@@ -351,9 +372,42 @@ public sealed class ApiModeLiveRuling
         {
             if (!prompts.Contains(promptId, StringComparer.Ordinal)) prompts.Add(promptId);
             if (_receipts.TryGetValue(promptId, out var receipt) && receipt.State == ApiModeReceiptState.Delivered)
+            {
+                if (receipt.TurnId is null && _storedPositions.ContainsKey(promptId)) _linkedHere.Add(promptId);
                 receipt.TurnId = s.TurnId;
+            }
         }
         return Array.Empty<ApiModeLiveItem>();
+    }
+
+    /// <summary>
+    /// The lost ending (<see cref="ApiModeLostTurnEnd"/>), under the condition the receipt store applies: <paramref name="e"/>
+    /// proves every earlier turn is over, and it is of a later generation than the last event the store applied to a
+    /// stored receipt whose turn has no outcome. Only a receipt taken from the store can qualify: one ruling rules one
+    /// generation, so every receipt it built from events is of the proof's own generation.
+    /// </summary>
+    private IReadOnlyList<ApiModeLiveItem> LostTurnEnds(SessionEvent e, string? continuingTurnId, ApiModeEventPosition? position)
+    {
+        var items = new List<ApiModeLiveItem>();
+        foreach (var (promptId, stored) in _storedPositions)
+        {
+            if (_linkedHere.Contains(promptId)) continue;
+            var receipt = _receipts[promptId];
+            if (position is not { } at)
+            {
+                if (receipt.State == ApiModeReceiptState.Delivered && receipt.TurnId is not null && receipt.TurnOutcome is null
+                    && !string.Equals(receipt.TurnId, continuingTurnId, StringComparison.Ordinal))
+                    throw new InvalidOperationException($"ApiModeLiveRuling: {e.GetType().Name} was handed without its position, and this ruling took prompt={promptId}'s receipt, whose turn {receipt.TurnId} has no ending, from the store; hand it as a held event");
+                continue;
+            }
+            if (!ApiModeLostTurnEnd.Applies(at, continuingTurnId, receipt.State, receipt.TurnId, receipt.TurnOutcome, stored.Generation, stored.GenerationStartedUtc))
+                continue;
+            FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} turn={receipt.TurnId}: its last stored event was at {stored} and {ApiModeLostTurnEnd.Describe(e, at)} proves the turn is over; the turn's ending is ruled {ApiModeLostTurnEnd.Outcome}");
+            receipt.TurnOutcome = ApiModeLostTurnEnd.Outcome;
+            receipt.TurnOutcomeReason = null;
+            items.AddRange(ReceiptIfChanged(receipt, e.Sequence));
+        }
+        return items;
     }
 
     private static IReadOnlyList<ApiModeLiveItem> Text(MessageText m)
@@ -423,17 +477,29 @@ public sealed class ApiModeLiveRuling
                 Sequence = t.Sequence,
             },
         };
-        // Rule 5: the prompts this turn carried now show its outcome beside Delivered.
+        // Rule 5: the prompts this turn carried now show its outcome beside Delivered. One turn ending per receipt, as
+        // the store keeps it, with the store's one exception: when none of them is still open, the turn's real ending
+        // replaces a lost one (ApiModeLostTurnEnd), whatever its position. A receipt still open under the same turn id
+        // belongs to a turn running now, and this TurnEnded is that turn's (turn ids are unique per Director process
+        // only; phase 2 review, observation C).
         if (_turnPrompts.Remove(t.TurnId, out var prompts))
-            foreach (var promptId in prompts)
+        {
+            var delivered = prompts
+                .Select(p => _receipts.TryGetValue(p, out var r) && r.State == ApiModeReceiptState.Delivered ? r : null)
+                .OfType<ApiModeReceiptDto>()
+                .ToList();
+            var open = delivered.Where(r => r.TurnOutcome is null).ToList();
+            var targets = open.Count > 0 ? open : delivered.Where(r => r.TurnOutcome == ApiModeLostTurnEnd.Outcome).ToList();
+            foreach (var receipt in targets)
             {
-                if (!_receipts.TryGetValue(promptId, out var receipt) || receipt.State != ApiModeReceiptState.Delivered) continue;
-                if (receipt.TurnOutcome is not null) continue; // one turn ending per receipt, as the store keeps it
+                if (receipt.TurnOutcome is not null)
+                    FileLog.Write($"[ApiModeLiveRuling] Rule: session={t.SessionId} prompt={receipt.PromptId} turn={t.TurnId} sequence={t.Sequence}: the turn's real ending arrived after it was ruled lost; it replaces the lost ending");
                 receipt.TurnId = t.TurnId;
                 receipt.TurnOutcome = Word(t.Outcome);
                 receipt.TurnOutcomeReason = t.Reason;
                 items.AddRange(ReceiptIfChanged(receipt, t.Sequence));
             }
+        }
         // A tool card the dialect did not close would spin for ever; rule 3 says it always closes one, so any left is
         // forgotten with its turn rather than kept.
         foreach (var open in _tools.Where(kv => kv.Value.TurnId == t.TurnId).Select(kv => kv.Key).ToList())
