@@ -24,6 +24,13 @@ public sealed class LicenseSignInCoordinator
     /// <summary>The sentence every sign-in is answered with while license switching is off on this Director.</summary>
     internal const string TurnedOffMessage = "License switching is turned off on this Director, so nothing was changed.";
 
+    /// <summary>How long after a sign-in the Gateway asked for arrives it may still start. The Gateway waits
+    /// <see cref="LicenseContract.SignInCommandTimeout"/> for the answer, and a sign-in that starts needs up to
+    /// <see cref="LicenseContract.SignInApprovalWait"/> and <see cref="LicenseContract.SignInFinishAllowance"/> to
+    /// finish; one that started later could succeed after the Gateway recorded it as timed out. Thirty seconds.</summary>
+    public static readonly TimeSpan StartAllowance =
+        LicenseContract.SignInCommandTimeout - LicenseContract.SignInApprovalWait - LicenseContract.SignInFinishAllowance;
+
     private readonly ILicenseCommandLine _tool;
     private readonly LicenseKeyHolderLock _holder;
     private readonly LicenseSignInResultStore _results;
@@ -74,6 +81,9 @@ public sealed class LicenseSignInCoordinator
     {
         ArgumentNullException.ThrowIfNull(request);
         var email = Normalize(request.AccountEmail);
+        // The Gateway's wait for the answer began when it sent this; it is taken as now.
+        var startBy = _utcNow() + StartAllowance;
+        if (request.NotAfterUtc < startBy) startBy = request.NotAfterUtc;
         FileLog.Write($"[LicenseSignInCoordinator] SignInAsync: signInId={request.SignInId}, account={email}, reason={request.Reason}");
 
         // Off: nothing touches the key store. "Not the key holder" is literally true of a Director that never takes
@@ -104,7 +114,7 @@ public sealed class LicenseSignInCoordinator
             }
             else
             {
-                answer = await RunAsync(request.SignInId, email, request.NotAfterUtc, profileHere: null, cancellationToken);
+                answer = await RunAsync(request.SignInId, email, request.NotAfterUtc, startBy, profileHere: null, cancellationToken);
                 _reporter.RecordRenewal(email, answer.Succeeded ? null : _utcNow(), answer.ReasonCode);
                 // Section 8.4: a "changed" report after it, so the Gateway sees the new sign-in or the failure.
                 _reporter.RequestReport(LicenseReportTriggers.Changed);
@@ -134,7 +144,9 @@ public sealed class LicenseSignInCoordinator
         await _oneAtATime.WaitAsync(cancellationToken);
         try
         {
-            var answer = await RunAsync(signInId, email, _utcNow() + LicenseContract.SignInNotAfter, hasBrowserProfileHere, cancellationToken);
+            // Nobody waits on a renewal's answer but the renewal itself: it may start until its own deadline.
+            var notAfter = _utcNow() + LicenseContract.SignInNotAfter;
+            var answer = await RunAsync(signInId, email, notAfter, notAfter, hasBrowserProfileHere, cancellationToken);
             FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId} finished: outcome={answer.Outcome}, reason={answer.ReasonCode ?? "-"}");
             return answer;
         }
@@ -145,11 +157,20 @@ public sealed class LicenseSignInCoordinator
     }
 
     /// <summary>One sign-in, by whichever route the tool chooses.</summary>
+    /// <param name="startBy">The latest moment it may start; past it the sign-in is <c>expired</c> and no tool runs.</param>
     /// <param name="profileHere">Whether a browser profile is set for the account on this machine, when the caller
     /// already knows; null to ask the tool if it matters.</param>
-    private async Task<LicenseSignInAnswer> RunAsync(string signInId, string email, DateTime notAfterUtc, bool? profileHere, CancellationToken cancellationToken)
+    private async Task<LicenseSignInAnswer> RunAsync(string signInId, string email, DateTime notAfterUtc, DateTime startBy, bool? profileHere,
+        CancellationToken cancellationToken)
     {
-        using var inLane = await _lane.EnterWorkAsync($"sign-in {signInId}", cancellationToken);
+        // A running approver check is waited for only while this sign-in could still start in time, and the time is
+        // looked at again once in: a sign-in that would start too late is never started.
+        using var inLane = await _lane.EnterWorkAsync($"sign-in {signInId}", startBy - _utcNow(), cancellationToken);
+        if (inLane is null || _utcNow() > startBy)
+        {
+            FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId}: an approver check on this machine ran until it was too late to start ({LicenseRenewalErrors.Expired}); no sign-in was started");
+            return LicenseSignInAnswer.Failed(LicenseRenewalErrors.Expired);
+        }
         var relay = _relay;
         var seal = _seal;
         // The tool is told to wait for another machine's approval only while one can be asked for and opened here.
@@ -285,6 +306,15 @@ public sealed class LicenseSignInCoordinator
 /// </summary>
 public sealed class LicenseApprover
 {
+    /// <summary>How long after an approval request arrives <c>license approve</c> may still start. The Gateway waits
+    /// <see cref="LicenseContract.ApproveCommandTimeout"/> for the answer and the tool may run
+    /// <see cref="LicenseContract.ApproveToolTimeout"/>; one that started later could press Authorize for a sign-in
+    /// that was already given up. Thirty seconds.</summary>
+    public static readonly TimeSpan ToolStartAllowance = LicenseContract.ApproveCommandTimeout - LicenseContract.ApproveToolTimeout;
+
+    /// <summary>The sentence of an approval that waited for a running approver check until it was too late.</summary>
+    internal const string TooLateMessage = "An approver check was running on this machine until it was too late to approve in time, so nothing was approved.";
+
     private readonly ILicenseCommandLine _tool;
     private readonly Func<DateTime> _utcNow;
     private readonly bool _enabled;
@@ -315,6 +345,9 @@ public sealed class LicenseApprover
     {
         ArgumentNullException.ThrowIfNull(request);
         var email = (request.AccountEmail ?? "").Trim().ToLowerInvariant();
+        // The Gateway's wait for the answer began when it sent this; it is taken as now.
+        var startBy = _utcNow() + ToolStartAllowance;
+        if (request.NotAfterUtc < startBy) startBy = request.NotAfterUtc;
         FileLog.Write($"[LicenseApprover] ApproveAsync: signInId={request.SignInId}, account={email}");
 
         if (!_enabled)
@@ -327,9 +360,15 @@ public sealed class LicenseApprover
         if (string.IsNullOrWhiteSpace(request.BrowserProfile))
             return Refused(request, LicenseRenewalErrors.NoApprover, LicenseRenewalSentences.For(LicenseRenewalErrors.NoApprover));
 
+        // A running approver check is waited for only while the approval could still be made in time, and the time is
+        // looked at again once in: nothing is pressed for a sign-in the Gateway has stopped waiting for.
         LicenseApproveAnswer answer;
-        using (await _lane.EnterWorkAsync($"approval {request.SignInId}", cancellationToken))
+        using (var inLane = await _lane.EnterWorkAsync($"approval {request.SignInId}", startBy - _utcNow(), cancellationToken))
+        {
+            if (inLane is null || _utcNow() > startBy)
+                return Refused(request, LicenseRenewalErrors.Expired, TooLateMessage);
             answer = await _tool.ApproveAsync(request.AuthorizeUrl, email, request.BrowserProfile, cancellationToken);
+        }
         if (!answer.Approved || string.IsNullOrWhiteSpace(answer.Approval))
         {
             var reason = answer.ReasonCode ?? LicenseRenewalErrors.ApprovalFailed;

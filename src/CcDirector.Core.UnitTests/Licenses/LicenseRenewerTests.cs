@@ -275,11 +275,12 @@ public sealed class LicenseRenewerTests : IDisposable
 
         Assert.False(off.Renewer.IsScheduled);
         Assert.False(off.Reporter.IsScheduled);
+        Assert.False(off.ApproverCheck.IsScheduled);
         Assert.False(off.HolderLock.IsHeld);
     }
 
     [Fact]
-    public void Start_LicenseSwitchingTurnedOn_SchedulesTheReporterAndTheRenewal()
+    public void Start_LicenseSwitchingTurnedOn_SchedulesTheReporterTheRenewalAndTheApproverCheck()
     {
         // Both answers are set inside Start itself, so the renewal's first background run cannot change them. The
         // lock is deliberately not asserted: that run takes it on its own timer.
@@ -290,6 +291,7 @@ public sealed class LicenseRenewerTests : IDisposable
 
         Assert.True(on.Reporter.IsScheduled);
         Assert.True(on.Renewer.IsScheduled);
+        Assert.True(on.ApproverCheck.IsScheduled);
     }
 
     [Fact]

@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using CcDirector.Core.Background;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -78,10 +77,6 @@ public sealed class LicenseApproverCheck
     /// <summary>A run a day. The Gateway reads a record with no check in 26 hours as not checked.</summary>
     public static readonly TimeSpan RunInterval = TimeSpan.FromHours(24);
 
-    /// <summary>The shape the Gateway takes for a profile's display name (<c>LicenseApproverStore.BrowserProfileShape</c>).
-    /// A name of any other shape is not sent - the row would be refused whole for an optional field.</summary>
-    private static readonly Regex NameShape = new("^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$", RegexOptions.CultureInvariant);
-
     private readonly ILicenseCommandLine _tool;
     private readonly LicenseKeyHolderLock _holder;
     private readonly LicenseBrowserLane _lane;
@@ -92,6 +87,7 @@ public sealed class LicenseApproverCheck
     private readonly SemaphoreSlim _oneAtATime = new(1, 1);
     private volatile ILicenseApproverChannel? _channel;
     private LicenseApproverCheckReport? _unsent;
+    private DateTime _unsentStartedUtc;
     private DateTime? _lastRunUtc;
     private string? _lastFailure;
     private BackgroundJob? _job;
@@ -113,7 +109,9 @@ public sealed class LicenseApproverCheck
     /// <summary>Whether this machine offers its browser profiles as approvers (read once, at start).</summary>
     public bool OffersApprovers => _offersApprovers;
 
-    /// <summary>When the last run's report was taken by the Gateway; null before the first.</summary>
+    /// <summary>When the checks of the last run the Gateway took STARTED; null before the first. The next run is a day
+    /// after this, not after the report was taken, so a report that waited for the tunnel does not push the next checks
+    /// past the Gateway's not-checked window.</summary>
     public DateTime? LastRunUtc => _lastRunUtc;
 
     /// <summary>Whether the check is on the scheduler.</summary>
@@ -187,7 +185,9 @@ public sealed class LicenseApproverCheck
                     NoteFailure($"the approver records could not be asked for: {ex.Message}");
                     return null;
                 }
+                var startedUtc = _utcNow();
                 _unsent = await CheckAllAsync(assignments, cancellationToken);
+                _unsentStartedUtc = startedUtc;
             }
 
             var report = _unsent;
@@ -203,7 +203,7 @@ public sealed class LicenseApproverCheck
             }
             _unsent = null;
             _lastFailure = null;
-            _lastRunUtc = _utcNow();
+            _lastRunUtc = _unsentStartedUtc;
             return report;
         }
         finally
@@ -236,7 +236,9 @@ public sealed class LicenseApproverCheck
             report.Rows.Add(new LicenseApproverCheckRow
             {
                 BrowserProfile = profile,
-                BrowserProfileName = name is not null && NameShape.IsMatch(name) ? name : null,
+                // A name of a shape the Gateway does not take is not sent: the row would be refused whole for an
+                // optional field.
+                BrowserProfileName = name is not null && LicenseApproverContract.BrowserProfileShape.IsMatch(name) ? name : null,
                 AccountEmail = answer.AccountEmail,
                 ShownAccount = answer.ShownAccount,
                 State = answer.State,

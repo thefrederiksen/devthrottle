@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace CcDirector.Gateway.Contracts;
 
 // License Switching, phase 6 Track C: standing approvers. A Director whose machine offers its browser profiles as
@@ -72,6 +74,10 @@ public static class LicenseApproverContract
     /// <summary>A record whose last check is older than this, or that was never checked, reads
     /// <see cref="LicenseApproverStates.NotChecked"/>. A day plus two hours, so one late daily check is not an alarm.</summary>
     public static readonly TimeSpan NotCheckedAfter = TimeSpan.FromHours(26);
+
+    /// <summary>The shape of a browser profile's identifier and of its display name, on every side: the Gateway refuses
+    /// any other, and the Director does not send a display name of any other.</summary>
+    public static readonly Regex BrowserProfileShape = new("^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$", RegexOptions.CultureInvariant);
 }
 
 /// <summary>The answer to <see cref="LicenseApproverContract.GetAssignmentsHubMethod"/>: the approver records that name
