@@ -340,7 +340,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         ScriptedTerminal.OwnerTypes(session, "\x1b[<64;10;5M");
         ScriptedTerminal.OwnerTypes(session, "\x1b[M`!!");
         session.SendInput(Encoding.UTF8.GetBytes("2"), null, SubmissionProvenance.FrameworkText());
-        terminal.Composer.Clear();
+        terminal.ClearComposer();
         Assert.False(session.HasUnsentOwnerDraft);
 
         var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
@@ -356,7 +356,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         var (session, terminal) = NewTerminalSession();
         foreach (var key in new[] { "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D", "\x1bOA", "\x1b[1;5D" })
             OwnerTypes(session, key);
-        terminal.Composer.Clear();
+        terminal.ClearComposer();
         Assert.False(session.HasUnsentOwnerDraft);
 
         var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
@@ -407,7 +407,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         OwnerTypes(session, "\x1b[200~draft\n\x1b[201~");
         OwnerTypes(session, "\r");
         session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-        terminal.Composer.Clear();
+        terminal.ClearComposer();
         terminal.Submitted.Clear();
 
         Assert.False(session.HasUnsentOwnerDraft);
