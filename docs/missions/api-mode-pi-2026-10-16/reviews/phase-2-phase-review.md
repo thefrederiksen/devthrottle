@@ -211,14 +211,16 @@ Where it changed:
   is unchanged, as the review said: the retry's delivery now precedes its turn, so the turn links and ends on it.
 - `ApiModeLiveRuling` makes the same decision (`Supersedes`, replacing `IsFinal`), and it now remembers the sequence
   of the last receipt event it ruled for each prompt, so an older event handed to it after a newer one changes
-  nothing. A ruling started from the stored receipts is handed again events the store has already ruled on: until
-  the event a stored ending was built from comes back, an earlier attempt's `PromptQueued` and the refusal a stored
-  delivery superseded are taken as that replay and change nothing, unlogged; a `PromptDelivered` after a stored
-  refusal is the retry and replaces it. The pull request #4083 test that called a refusal handed to a store-started
-  ruling holding `Delivered` a second ending is changed accordingly: under the event model that refusal is the one the
-  stored delivery superseded. What this does not cover: the stored receipts carry no positions, so a store-started
-  reader cannot tell a refused-twice prompt's first refusal from its last; an earlier attempt's event may show for a
-  moment before the stored refusal replaces it again, and the last item that reader is handed is always the stored one.
+  nothing. A ruling started from the stored receipts takes each receipt with the position of the last event the store
+  applied to it (`ApiModeReceiptStore.ReadWithPositions`, answering `ApiModeStoredReceipt`; the client receipt shape is
+  unchanged), and every receipt event for such a prompt is handed with its own position (`ApiModeHeldEvent`, which now
+  carries its generation's start). An event at or before the stored position is one the store has already ruled on and
+  changes nothing, unlogged; an event after it is the retry, or a second ending, and is ruled as usual. This replaced an
+  earlier version of the change that guessed a replay by the kind of the ending and recorded a known limit for a
+  refused-twice prompt; both were removed in commit `7116f56fe` on review finding 1 of pull request #4142, and the
+  review, the fix and its re-review are in `phase-2b-later-receipt-review.md`. The pull request #4083 test that called a
+  refusal handed to a store-started ruling holding `Delivered` a second ending is changed accordingly: under the event
+  model a refusal at or before the stored delivery's position is the one that delivery superseded.
 - `ApiModeSessionFold` is unchanged: it reads the stored receipts, which now carry the retry's delivery and turn, so
   the turn is counted and "Working - turn N" is shown.
 
