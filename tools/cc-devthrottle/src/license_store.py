@@ -926,9 +926,24 @@ class LicenseStore:
 
     def _settle(self) -> None:
         """What every public method that reads or changes the holdings does first, holding the lock: finish or roll
-        back an interrupted operation, then heal a hand sign-in."""
-        self.recover()
-        self._heal_hand_sign_in()
+        back an interrupted operation, then heal a hand sign-in.
+
+        An operating system error part way - on Windows a folder cannot be renamed while another process (a virus
+        scanner, a backup agent) holds a file in it open - leaves the journal where it stopped, and the next run
+        finishes it. The caller is told so as a store error, `switch-in-progress`, never as a crash: nothing it asked
+        for was done, and trying again on the next round is the whole fix."""
+        try:
+            self.recover()
+            self._heal_hand_sign_in()
+        except OSError as exc:
+            self._log("settle-interrupted", error=type(exc).__name__)
+            raise LicenseStoreError(
+                f"an unfinished store operation could not be finished yet ({type(exc).__name__}: a file in the store "
+                f"is in use); nothing was changed by this command, and the journal at {self._journal_path} is "
+                "finished by the next run",
+                ["Wait a moment, then run the command again", f"Read {self._log_path}"],
+                reason_code=REASON_SWITCH_IN_PROGRESS,
+            ) from None
 
     def _heal_hand_sign_in(self) -> Optional["HandSignInHeal"]:
         """When the account in the default folder is ALSO held as a spare, move the spare's folder into

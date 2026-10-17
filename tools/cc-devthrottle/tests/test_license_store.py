@@ -730,6 +730,32 @@ def test_heal_LockTaken_DoesNothing_AndTheNextRoundHeals(world):
     world.assert_each_signin_in_exactly_one_place()
 
 
+def test_heal_TheRenameFailsWithAnOperatingSystemError_IsAStoreErrorAndTheNextRoundHeals(world):
+    # Review of 4106, finding 1: on Windows a folder cannot be renamed while another process holds a file in it open.
+    # The read is refused as switch-in-progress (a store error the command line prints as Error:, never a traceback),
+    # the spare is still where it was, and the next round - the file no longer in use - finishes the heal.
+    spare, files, _ = _hand_sign_in_over_a_spare(world)
+
+    def in_use(label):
+        if label == "rename-folder":
+            raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+
+    with pytest.raises(LicenseStoreError) as refused:
+        world.store(checkpoint=in_use).held_accounts()
+    assert refused.value.reason_code == "switch-in-progress"
+    assert "PermissionError" in str(refused.value)
+    assert _files(spare) == files and world.backups() == []
+
+    with pytest.raises(LicenseStoreError) as again:
+        world.store(checkpoint=in_use).held_accounts()   # still in use: the recovery's rename fails the same way
+    assert again.value.reason_code == "switch-in-progress"
+
+    store = world.store()
+    assert [(a.email, a.role) for a in store.held_accounts()] == [(ACCOUNT_B, "active")]
+    assert len(world.backups()) == 1 and [h.account for h in store.last_heals] == [ACCOUNT_B]
+    world.assert_each_signin_in_exactly_one_place()
+
+
 def test_heal_SpareHeldTheSameKey_TheDuplicateIsRemovedSoTheKeyIsInOnePlace(world):
     # A duplicate no operation of this store leaves behind, but if one is found the backup must not become a
     # second home for the live key: the backup keeps the folder, the duplicate key is dropped from it (the default
