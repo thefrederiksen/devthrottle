@@ -184,3 +184,7 @@ Director whose report holds one account twice):
    and exactly one "Reports accepted" row is written.
 5. Stop a test Director: after 6 minutes the machine reads "Not reporting since <its last report time>"; within a
    minute after 10 minutes, ONE "Not reporting" log row; start it again, and within a minute one "Reporting again" row.
+
+**After the rebase onto origin/main `6c783e3d4`** (pull request 4107 fixed the six prompt-delivery tests on main):
+the license tests, the six prompt-delivery tests and the Fleet Manager test, run together on the rebased head,
+gave "Passed! - Failed: 0, Passed: 914, Total: 914".
