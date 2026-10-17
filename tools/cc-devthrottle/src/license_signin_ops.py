@@ -21,7 +21,9 @@ in the AXI shape (docs/axi-standard.md).
   call is made that is expected to fail.
 - `license check-approver --browser <profile> [--email <account>]` says whether that profile could approve a
   sign-in now, read from a real approval page and pressing nothing (`license_signin.check_approver`). With no email
-  it first reads which account the profile is signed in to claude.ai as. The Director runs it daily.
+  it first reads which account the profile is signed in to claude.ai as. It answers the profile by its identifier
+  (`browserProfile`, the Director's slug) whether it was given the identifier or the name, and its display name as
+  `browserProfileName`. The Director runs it daily.
 - `license get-browser <email>` says which profile is set for an account on this machine, or that none is; exit 0
   either way.
 - A caller that CLOSES standard input while a sign-in waits for its code has called the sign-in off: the approval

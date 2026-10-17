@@ -123,6 +123,11 @@ class FakeBrowser:
 
 
 class FakeProfile:
+    """The Director's profile with identifier "work-chrome", shown as "Work Chrome"."""
+
+    id = "work-chrome"
+    name = "Work Chrome"
+
     def __init__(self):
         self.stopped = 0
 
@@ -184,8 +189,8 @@ class Machine:
             raise self._open_error
         return self.profile
 
-    def check(self, email=ALICE):
-        return license_signin.check_approver("work", email, open_profile=self.open_profile,
+    def check(self, email=ALICE, profile="Work Chrome"):
+        return license_signin.check_approver(profile, email, open_profile=self.open_profile,
                                              run_harness=self.browser.run, start_login=self.start_login,
                                              make_folder=self.make_folder)
 
@@ -248,8 +253,8 @@ def test_checkApprover_RealApprovalPage_AnswersItsState_ClicksNothing_AndLeavesN
 
     check = machine.check()
 
-    assert (check.browser_profile, check.account_email, check.state, check.shown_account) == \
-        ("work", ALICE, state, shown)
+    assert (check.browser_profile, check.browser_profile_name, check.account_email, check.state,
+            check.shown_account) == ("work-chrome", "Work Chrome", ALICE, state, shown)
     assert machine.browser.clicks == []
     assert machine.browser.opened == [machine.logins[0].authorize_url(0)], "the page is the throwaway login's own"
     assert machine.browser.closed == ["tab-1"] and machine.browser.focus == [True, False]
@@ -341,7 +346,18 @@ def test_checkApprover_ProfileCannotBeStarted_IsCheckFailed_AndNoLoginStarts(tmp
     check = machine.check()
 
     assert check.state == "check-failed" and "no browser profile" in check.detail
+    assert (check.browser_profile, check.browser_profile_name) == ("Work Chrome", None), "only what was given"
     assert machine.logins == [] and machine.folders == []
+
+
+@pytest.mark.parametrize("given", ["Work Chrome", "work-chrome"])
+def test_checkApprover_GivenTheNameOrTheIdentifier_AnswersTheIdentifier_AndTheName(tmp_path, given):
+    # Approver records match on the identifier exactly, so the check must never answer a display name there.
+    machine = Machine(tmp_path, FakeBrowser("consent"))
+
+    check = machine.check(profile=given)
+
+    assert (check.browser_profile, check.browser_profile_name) == ("work-chrome", "Work Chrome")
 
 
 def test_checkApprover_DetailIsTheToolsOwnSentence_NeverPageText(tmp_path):
@@ -349,7 +365,7 @@ def test_checkApprover_DetailIsTheToolsOwnSentence_NeverPageText(tmp_path):
 
     check = machine.check()
 
-    assert check.detail == ('The browser profile "work" is signed in to claude.ai, but the approval page for '
+    assert check.detail == ('The browser profile "Work Chrome" is signed in to claude.ai, but the approval page for '
                             'alice@example.com asks for a fresh sign-in.')
 
 
@@ -411,7 +427,7 @@ def test_approve_ReauthPage_SaysWhatToDo():
 
 
 def _answer(state, email=ALICE):
-    return license_signin.ApproverCheck("work", email, email, state, f"sentence for {state}")
+    return license_signin.ApproverCheck("work-chrome", "Work Chrome", email, email, state, f"sentence for {state}")
 
 
 @pytest.mark.parametrize("state", ["can-approve", "wrong-account", "signed-out", "needs-fresh-sign-in"])
@@ -422,8 +438,9 @@ def test_cli_checkApproverJson_AnyStateRead_ExitsZero_WithTheFiveFields(monkeypa
     result = runner.invoke(app, ["license", "check-approver", "--browser", "work", "--email", ALICE, "--json"])
 
     assert result.exit_code == 0, result.output
-    assert _first_json(result.stdout) == {"browserProfile": "work", "accountEmail": ALICE, "shownAccount": ALICE,
-                                         "state": state, "detail": f"sentence for {state}"}
+    assert _first_json(result.stdout) == {"browserProfile": "work-chrome", "browserProfileName": "Work Chrome",
+                                          "accountEmail": ALICE, "shownAccount": ALICE, "state": state,
+                                          "detail": f"sentence for {state}"}
     assert asked == [("work", ALICE)]
 
 

@@ -483,7 +483,11 @@ finally:
 
 
 class BrowserProfile(Protocol):
-    """A Director browser profile, started for driving. ``stop`` puts it back as it was found."""
+    """A Director browser profile, started for driving. ``stop`` puts it back as it was found. ``id`` is its
+    identifier (the Director's slug, stable across a rename), ``name`` its display name."""
+
+    id: str
+    name: str
 
     def environment(self) -> Dict[str, str]:
         """BU_NAME and BU_CDP_URL for browser-harness."""
@@ -636,9 +640,14 @@ def browser_approver(profile: str, **kwargs) -> Approve:
 
 @dataclass(frozen=True)
 class ApproverCheck:
-    """What one look at a real approval page said. ``detail`` is this module's own sentence, never page text."""
+    """What one look at a real approval page said. ``detail`` is this module's own sentence, never page text.
+
+    ``browser_profile`` is the profile's IDENTIFIER (the Director's slug), never its display name: approver records
+    are matched on it exactly. ``browser_profile_name`` is the display name, for sentences; None when the profile
+    could not be found, and then ``browser_profile`` is what the caller gave."""
 
     browser_profile: str
+    browser_profile_name: Optional[str]
     account_email: Optional[str]
     shown_account: Optional[str]
     state: str
@@ -647,6 +656,7 @@ class ApproverCheck:
     def to_json(self) -> dict:
         return {
             "browserProfile": self.browser_profile,
+            "browserProfileName": self.browser_profile_name,
             "accountEmail": self.account_email,
             "shownAccount": self.shown_account,
             "state": self.state,
@@ -704,14 +714,19 @@ def check_approver(profile: str, email: Optional[str] = None, *,
     browser: Optional[BrowserProfile] = None
     login: Optional[LoginProcess] = None
     folder: Optional[str] = None
+    # Until the profile is found, the answer can only echo what the caller gave; after, it names the profile by its
+    # identifier, whichever of identifier or name the caller used.
+    profile_id, profile_name = profile, None
     try:
         browser = open_profile(profile)
+        profile_id, profile_name = browser.id, browser.name
         env = browser.environment()
         if email is None:
             email = read_signed_in_account(env, run_harness)
             if email is None:
                 log.info("check-approver %s: signed out of claude.ai", profile)
-                return ApproverCheck(profile, None, None, SIGNED_OUT, _detail(SIGNED_OUT, profile, None, None))
+                return ApproverCheck(profile_id, profile_name, None, None, SIGNED_OUT,
+                                     _detail(SIGNED_OUT, profile_name, None, None))
         email = email.strip().lower()
         folder = make_folder()
         login = (start_login or start_claude_login)(folder, email)
@@ -724,10 +739,10 @@ def check_approver(profile: str, email: Optional[str] = None, *,
             raise SignInError(APPROVAL_FAILED, f"the browser step answered a state this tool does not know ({state!r})")
         shown = answer.get("shown") if isinstance(answer.get("shown"), str) else None
         log.info("check-approver %s for %s: %s", profile, email, state)
-        return ApproverCheck(profile, email, shown, state, _detail(state, profile, email, shown))
+        return ApproverCheck(profile_id, profile_name, email, shown, state, _detail(state, profile_name, email, shown))
     except SignInError as ex:
         log.warning("check-approver %s for %s: the check could not run (%s) %s", profile, email, ex.kind, ex)
-        return ApproverCheck(profile, email, None, CHECK_FAILED, f"The check could not run: {ex}")
+        return ApproverCheck(profile_id, profile_name, email, None, CHECK_FAILED, f"The check could not run: {ex}")
     finally:
         if login is not None:
             login.cancel()

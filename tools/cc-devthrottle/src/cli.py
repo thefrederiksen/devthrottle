@@ -2120,7 +2120,7 @@ def license_check_approver(
     ),
     json_output: bool = typer.Option(
         False, "--json", "-j",
-        help="Output JSON: {browserProfile, accountEmail, shownAccount, state, detail}.",
+        help="Output JSON: {browserProfile, browserProfileName, accountEmail, shownAccount, state, detail}.",
     ),
 ) -> None:
     """Check whether a browser profile can approve sign-ins, pressing nothing."""

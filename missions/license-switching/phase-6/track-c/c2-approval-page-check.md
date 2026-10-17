@@ -13,7 +13,9 @@ broke the 16 October sign-ins (problem 12) has its own word, `needs-fresh-sign-i
   used to call "not signed in", is now refused with the reason `needs-fresh-sign-in` and the next step
   `cc-devthrottle browser signin "<profile>"`.
 - `cc-devthrottle license check-approver --browser <profile> [--email <account>] --json` answers
-  `{browserProfile, accountEmail, shownAccount, state, detail}`. With no email it first asks claude.ai's own account
+  `{browserProfile, browserProfileName, accountEmail, shownAccount, state, detail}`. `browserProfile` is the
+  profile's IDENTIFIER (the Director's slug), whether it was given the identifier or the display name, and
+  `browserProfileName` its display name (Track C design, "Which string a browser profile is", 17 October). With no email it first asks claude.ai's own account
   endpoint (`/api/account`, read from a claude.ai tab in that profile) who is signed in; a 401 or 403 is
   `signed-out`. It then starts a throwaway `claude auth login --claudeai --email <account>` into a new temporary
   folder, opens the printed address in the profile, reads the page, and in a `finally` cancels the login, deletes the
@@ -68,6 +70,9 @@ allowed fails the test, and so does any typing or key press, because the fake do
 - `test_checkApprover_LoginPrintsNoUrl_IsCheckFailed_AndNoBrowserStepRuns` and
   `test_checkApprover_ProfileCannotBeStarted_IsCheckFailed_AndNoLoginStarts` - the check fails with why, before the
   browser or the login is touched.
+- `test_checkApprover_GivenTheNameOrTheIdentifier_AnswersTheIdentifier_AndTheName` - given "Work Chrome" or
+  "work-chrome", the answer names the profile as "work-chrome" with the name "Work Chrome"; a profile that cannot
+  be found echoes only what was given, with no name.
 - `test_checkApprover_DetailIsTheToolsOwnSentence_NeverPageText` - the detail is this tool's sentence.
 - `test_temporaryLoginFolder_IsANewEmptyFolderInTheTemporaryArea` - the real folder maker makes a new, empty folder
   in the system's temporary area, never a store folder or the real Claude login.
@@ -116,3 +121,6 @@ C#:
   TEMP was. Re-run alone with `-RerunFailed` (TEMP back on C:) it passed: the gate's verdict is FLAKY, a test that
   fails on correct code. It passed in the default run above too. It is reported to the Tech Lead, not deleted here:
   that is a test-only pull request of its own.
+
+After the identifier change (17 October): the four affected Python test files re-run in the clean environment,
+1,336 passed, 0 failed. Only the Python tool changed, so the C# gate results above stand.
