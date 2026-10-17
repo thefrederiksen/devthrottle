@@ -1,8 +1,11 @@
-# The owner's own systemd user unit for the Director (see ../director-restart.md).
+# The owner's own systemd user unit for the Director on Linux (see ../director-restart.md).
+# Linux is the one platform where the product installs no launcher, so nothing else brings a crashed
+# Director back. On Windows and macOS the installed launcher does it; do not use this file there.
+#
 # Copy to ~/.config/systemd/user/devthrottle-director.service, then:
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now devthrottle-director.service
-# %h is systemd's own word for the account's home folder, so nothing here names a user.
+# %h is systemd's own word for the account's home folder and %U its user number, so nothing here names a user.
 
 [Unit]
 Description=DevThrottle Director
@@ -15,7 +18,17 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
+# Do not start a second Director beside one that is already running - one opened from the app menu, say.
+# Off Windows a second copy cannot bring the first one's window forward; it shows "already running" and
+# exits with 1, which this unit would read as a crash and retry. pgrep finds a running cc-director owned by
+# this account and the "!" turns that into exit 1, which makes systemd SKIP the start: not a failure, and
+# not restarted. Every restart runs this check again. Needs systemd 243 or later and pgrep (procps).
+ExecCondition=/bin/sh -c '! pgrep -u %U -x cc-director'
 ExecStart=%h/.local/share/cc-director/app/cc-director
+# A user unit gets the user manager's short search path, not the desktop's. The Director finds the agents it
+# runs (Claude Code, Codex, Gemini) on the search path, so the folders they are usually installed in are put
+# back here. Add any other folder an agent on this machine is installed in.
+Environment=PATH=%h/.local/bin:%h/.claude/local:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 # Start it again only when it did not end on purpose: a non-zero exit code, or killed by a signal other
 # than the four systemd counts as clean (SIGHUP, SIGINT, SIGTERM, SIGPIPE). An out-of-memory kill is a
 # SIGKILL and is restarted. A deliberate quit exits with 0 and is left alone.
