@@ -335,11 +335,12 @@ is refused and told who holds it, and only the holder can release - one release 
 version. On 17 October two sessions fixed the same failure in parallel
 because nothing stopped a second release seat.
 
-A second `-Parked` or `-Gateway` run on one machine is REFUSED, not queued: the gate takes a
-release-gate lock before it builds and exits 6 within seconds naming the holder's process, session,
-commit and command (`scripts/gate-lock.ps1`). Wait for that run to finish, or if it is stuck end that
-process; do not start another gate beside it. Gateway.Tests no longer has an in-process lock of its own
-(removed October 2026): a hand-run `dotnet test` of it blocks nobody.
+**Gate runs in separate worktrees may run at the same time, limited only by the machine's memory
+and disk.** There is no gate lock: every test process keeps its files under its own temporary root
+and every host binds a port the operating system assigns, so two runs in two worktrees share nothing.
+The release-gate lock that once refused a second `-Parked` or `-Gateway` run with exit 6 was removed
+on 17 October 2026 by the owner's decision, after it starved independent gates for over an hour; the
+Gateway.Tests suite lock it was added to work around had already gone in October 2026 (#3888).
 
 **A one-off workflow is disabled by the pull request that finishes it.** A workflow added on a branch
 to rehearse or reproduce something stays registered and dispatchable after its file and branch are
