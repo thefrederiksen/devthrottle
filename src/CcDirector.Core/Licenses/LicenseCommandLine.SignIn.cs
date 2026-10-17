@@ -64,6 +64,27 @@ public sealed class LicenseSignInAnswer
     public static LicenseSignInAnswer Failed(string reasonCode) => new() { Outcome = LicenseSignInOutcomes.Failed, ReasonCode = reasonCode };
 }
 
+/// <summary>What <c>license check-approver --json</c> answered. Only its words: the tool's own sentence is never
+/// carried, because it can quote what a browser step printed.</summary>
+public sealed class LicenseApproverToolAnswer
+{
+    /// <summary>One of <see cref="LicenseApproverStates.Reportable"/>.</summary>
+    public string State { get; set; } = LicenseApproverStates.CheckFailed;
+
+    /// <summary>The account checked; null when the profile showed none.</summary>
+    public string? AccountEmail { get; set; }
+
+    /// <summary>Who the page said is signed in; null when it named nobody.</summary>
+    public string? ShownAccount { get; set; }
+
+    /// <summary>False when the tool could not be run or gave no readable answer, as opposed to answering
+    /// <see cref="LicenseApproverStates.CheckFailed"/> itself.</summary>
+    public bool ToolAnswered { get; set; }
+
+    public static LicenseApproverToolAnswer NoAnswer(string? accountEmail) =>
+        new() { State = LicenseApproverStates.CheckFailed, AccountEmail = accountEmail, ToolAnswered = false };
+}
+
 /// <summary>What <c>license approve --json</c> answered. <see cref="Approval"/> is the authorize answer the waiting
 /// login needs: it is never logged, and it leaves this process only sealed to the waiting machine.</summary>
 public sealed class LicenseApproveAnswer
@@ -182,6 +203,61 @@ public sealed partial class CcDevthrottleLicenseCommandLine
         var answer = ReadApproveAnswer(output);
         FileLog.Write($"[CcDevthrottleLicenseCommandLine] ApproveAsync: account={accountEmail}, approved={answer.Approved}, reason={answer.ReasonCode ?? "-"}");
         return answer;
+    }
+
+    public async Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken)
+    {
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile={browserProfile}, account={accountEmail ?? "(the one signed in)"}");
+        var args = new List<string> { "license", "check-approver", "--browser", browserProfile };
+        if (accountEmail is not null) { args.Add("--email"); args.Add(accountEmail); }
+        string output;
+        try
+        {
+            // check-approver touches no key store, so it takes no folder options.
+            output = await RunForJsonAsync(args, cancellationToken, ApproverCheckToolTimeout, isolated: false);
+        }
+        catch (LicenseCommandLineException ex)
+        {
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] CheckApproverAsync FAILED: {ex.Message}");
+            return LicenseApproverToolAnswer.NoAnswer(accountEmail);
+        }
+        var answer = ReadApproverCheck(output, accountEmail);
+        FileLog.Write($"[CcDevthrottleLicenseCommandLine] CheckApproverAsync: profile={browserProfile}, account={answer.AccountEmail ?? "-"}, state={answer.State}, answered={answer.ToolAnswered}");
+        return answer;
+    }
+
+    /// <summary>How long one <c>license check-approver</c> may take: reading the signed-in account, starting the
+    /// throwaway login, and reading the approval page, each with its own wait in the tool (about six and a half
+    /// minutes in all), plus room to clean up.</summary>
+    public static readonly TimeSpan ApproverCheckToolTimeout = TimeSpan.FromMinutes(8);
+
+    /// <summary>The <c>check-approver --json</c> answer: <c>{browserProfile, browserProfileName, accountEmail,
+    /// shownAccount, state, detail}</c>. A state outside the contract, or a "can approve" that names no account or
+    /// another one, is no answer: the check failed.</summary>
+    internal static LicenseApproverToolAnswer ReadApproverCheck(string? output, string? askedFor)
+    {
+        using var document = FirstObject(output);
+        if (document is null) return LicenseApproverToolAnswer.NoAnswer(askedFor);
+        var root = document.RootElement;
+        var state = Text(root, "state");
+        var account = Text(root, "accountEmail")?.Trim().ToLowerInvariant();
+        var shown = Text(root, "shownAccount")?.Trim().ToLowerInvariant();
+        if (state is null || !LicenseApproverStates.Reportable.Contains(state))
+        {
+            FileLog.Write("[CcDevthrottleLicenseCommandLine] license check-approver answered a state outside the contract; read as no answer");
+            return LicenseApproverToolAnswer.NoAnswer(askedFor);
+        }
+        if (askedFor is not null && account is not null && account != askedFor.Trim().ToLowerInvariant())
+        {
+            FileLog.Write("[CcDevthrottleLicenseCommandLine] license check-approver answered for another account than it was asked; read as no answer");
+            return LicenseApproverToolAnswer.NoAnswer(askedFor);
+        }
+        if (state == LicenseApproverStates.CanApprove && (account is null || (shown is not null && shown != account)))
+        {
+            FileLog.Write("[CcDevthrottleLicenseCommandLine] license check-approver said can-approve without naming that account; read as no answer");
+            return LicenseApproverToolAnswer.NoAnswer(askedFor);
+        }
+        return new LicenseApproverToolAnswer { State = state, AccountEmail = account ?? askedFor, ShownAccount = shown, ToolAnswered = true };
     }
 
     public async Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)

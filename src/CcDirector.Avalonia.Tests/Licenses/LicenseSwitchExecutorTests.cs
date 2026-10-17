@@ -129,5 +129,8 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
 
         public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

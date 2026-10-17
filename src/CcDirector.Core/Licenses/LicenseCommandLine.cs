@@ -59,6 +59,13 @@ public interface ILicenseCommandLine
     /// <summary>Approves another machine's sign-in in a browser profile here (<c>license approve</c>). The tool
     /// refuses, before any browser opens, a URL that names another account than <paramref name="accountEmail"/>.</summary>
     Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken);
+
+    /// <summary>Whether the browser profile <paramref name="browserProfile"/> (its identifier) could approve a sign-in
+    /// for <paramref name="accountEmail"/> now, read from a real approval page and pressing nothing
+    /// (<c>license check-approver</c>). With a null email the tool first reads which account the profile is signed in
+    /// to claude.ai as. Never throws for a run that gave no readable answer: that is
+    /// <see cref="LicenseApproverStates.CheckFailed"/>, with <see cref="LicenseApproverToolAnswer.ToolAnswered"/> false.</summary>
+    Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken);
 }
 
 /// <summary>What <c>license switch --json</c> answered. Its words are the contract's (section 3.3).</summary>
