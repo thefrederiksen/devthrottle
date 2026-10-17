@@ -220,7 +220,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             {
                 // Nothing can take it: say so in a refusal, so the prompt still has its one receipt.
                 var why = _sessionEnded?.Reason ?? "it was never started";
-                TakeEventsLocked([RefusedByDirector(promptId, $"Pi is not running: {why}")]);
+                TakeEventsLocked([RefusedByDirector(promptId, text, $"Pi is not running: {why}")]);
             }
             else if (_queue.Count == 0 && !_connection.Ended && _connection.CanWritePrompt)
             {
@@ -234,7 +234,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
                 TakeEventsLocked([new PromptQueued
                 {
                     SessionId = _sessionId, Sequence = _stream.Numbering.NextSequence(), At = Now,
-                    PromptId = promptId, Reason = reason, Position = _queue.Count,
+                    PromptId = promptId, PromptText = text, Reason = reason, Position = _queue.Count,
                 }]);
             }
         }
@@ -570,7 +570,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
 
     private void RefuseQueuedLocked(string why)
     {
-        var refusals = _queue.Select(q => (SessionEvent)RefusedByDirector(q.PromptId, $"{ExitedBeforeWritingReason}: {why}")).ToList();
+        var refusals = _queue.Select(q => (SessionEvent)RefusedByDirector(q.PromptId, q.Text, $"{ExitedBeforeWritingReason}: {why}")).ToList();
         _queue.Clear();
         TakeEventsLocked(refusals);
     }
@@ -777,13 +777,13 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         }
     }
 
-    private PromptRefused RefusedByDirector(string promptId, string reason)
+    private PromptRefused RefusedByDirector(string promptId, string promptText, string reason)
     {
         FileLog.Write($"[ApiModeSessionHost] Refused: session={_sessionId}, prompt={promptId}, reason={reason}");
         return new PromptRefused
         {
             SessionId = _sessionId, Sequence = _stream.Numbering.NextSequence(), At = Now,
-            PromptId = promptId, Reason = reason, RefusedBy = PromptRefusedBy.Director,
+            PromptId = promptId, PromptText = promptText, Reason = reason, RefusedBy = PromptRefusedBy.Director,
         };
     }
 

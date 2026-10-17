@@ -569,4 +569,114 @@ public sealed class PiDialectTests
         Assert.Equal(["Pi refused prompt p1 and gave no error text"], _defects);
         Assert.True(_dialect.CanWritePrompt);
     }
+
+    // ---------------------------------------------------------------- the prompt's text on its events
+
+    /// <summary>A prompt whose newlines and leading and trailing spaces must reach every event unchanged.</summary>
+    private const string SpacedText = "  first line\n\n  indented second line\r\nlast line  ";
+
+    private PiCommand WritePromptWithText(string promptId, string text)
+    {
+        var command = _dialect.BuildPrompt(promptId, text);
+        Take(_dialect.OnCommandWritten(command));
+        return command;
+    }
+
+    [Fact]
+    public void BuildPrompt_AnyText_CarriesTheTextExactlyAsWrittenInTheLine()
+    {
+        // Act
+        var command = _dialect.BuildPrompt("p1", SpacedText);
+
+        // Assert: the text on the command is the message in the line Pi reads, character for character.
+        Assert.Equal(SpacedText, command.PromptText);
+        Assert.Equal(SpacedText, JsonDocument.Parse(command.Line).RootElement.GetProperty("message").GetString());
+    }
+
+    [Theory]
+    [InlineData("started")]
+    [InlineData("queued")]
+    [InlineData("handled")]
+    public void OnStdoutRecord_PromptAcknowledged_DeliveredCarriesThePromptTextUnchanged(string disposition)
+    {
+        // Arrange
+        Ready();
+        var command = WritePromptWithText("p1", SpacedText);
+
+        // Act
+        Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":true,"data":{"disposition":"{{{disposition}}}"}}""");
+
+        // Assert
+        Assert.Equal(SpacedText, Assert.IsType<PromptDelivered>(Assert.Single(_events)).PromptText);
+    }
+
+    [Fact]
+    public void OnStdoutRecord_PiRefusesThePrompt_RefusedCarriesThePromptTextUnchanged()
+    {
+        // Arrange
+        Ready();
+        var command = WritePromptWithText("p1", SpacedText);
+
+        // Act
+        Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":false,"error":"Agent is already processing."}""");
+
+        // Assert
+        var refused = Assert.IsType<PromptRefused>(Assert.Single(_events));
+        Assert.Equal(PromptRefusedBy.Agent, refused.RefusedBy);
+        Assert.Equal(SpacedText, refused.PromptText);
+    }
+
+    [Fact]
+    public void OnStdoutRecord_UnknownDisposition_RefusedCarriesThePromptTextUnchanged()
+    {
+        // Arrange
+        Ready();
+        var command = WritePromptWithText("p1", SpacedText);
+
+        // Act
+        Pi($$$"""{"id":"{{{command.Id}}}","type":"response","command":"prompt","success":true,"data":{"disposition":"deferred"}}""");
+
+        // Assert
+        Assert.Equal(SpacedText, Assert.IsType<PromptRefused>(Assert.Single(_events)).PromptText);
+    }
+
+    [Fact]
+    public void OnStdoutRecord_ParseErrorWhileAPromptAwaits_RefusedCarriesThePromptTextUnchanged()
+    {
+        // Arrange
+        Ready();
+        WritePromptWithText("p1", SpacedText);
+
+        // Act
+        Pi("""{"type":"response","command":"parse","success":false,"error":"Failed to parse command: bad"}""");
+
+        // Assert
+        Assert.Equal(SpacedText, Assert.IsType<PromptRefused>(Assert.Single(_events)).PromptText);
+    }
+
+    [Fact]
+    public void OnProcessExited_BeforeAcknowledgement_RefusedCarriesThePromptTextUnchanged()
+    {
+        // Arrange
+        Ready();
+        WritePromptWithText("p1", SpacedText);
+
+        // Act
+        Take(_dialect.OnProcessExited(137));
+
+        // Assert
+        var refused = _events.OfType<PromptRefused>().Single();
+        Assert.Equal(PiDialect.ExitedBeforeAcknowledgingReason, refused.Reason);
+        Assert.Equal(SpacedText, refused.PromptText);
+    }
+
+    [Fact]
+    public void OnCommandWritten_PromptWithoutItsText_Throws()
+    {
+        // Arrange: a prompt command built by hand with no text could only ever produce a receipt without one.
+        var command = new PiCommand("req-1", "prompt", """{"id":"req-1","type":"prompt","message":"hi"}""", "p1");
+
+        // Act + Assert
+        Assert.Throws<ArgumentException>(() => _dialect.OnCommandWritten(command));
+    }
 }

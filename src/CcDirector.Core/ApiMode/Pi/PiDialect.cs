@@ -134,7 +134,7 @@ public sealed class PiDialect
         var id = _numbering.NextCommandId();
         var line = new JsonObject { ["id"] = id, ["type"] = "prompt", ["message"] = message }.ToJsonString();
         FileLog.Write($"[PiDialect] BuildPrompt: session={_sessionId}, prompt={promptId}, command={id}, length={message.Length}");
-        return new PiCommand(id, "prompt", line, promptId);
+        return new PiCommand(id, "prompt", line, promptId, message);
     }
 
     /// <summary>An <c>abort</c> command (Stop). Pi answers it only once the session is idle.</summary>
@@ -188,6 +188,8 @@ public sealed class PiDialect
         {
             if (command.PromptId is null)
                 throw new ArgumentException("A prompt command must carry the Director's prompt id.", nameof(command));
+            if (command.PromptText is null)
+                throw new ArgumentException("A prompt command must carry the prompt's text, for its receipt.", nameof(command));
             if (_inFlight.Count > 0)
                 Defect(step, $"prompt {command.PromptId} was written while prompt {_inFlight[0]} is in flight; Pi refuses a prompt while it is busy");
             if (_turn is null)
@@ -267,7 +269,7 @@ public sealed class PiDialect
 
         var unacknowledged = _awaitingOrder.Select(id => _awaitingResponse[id]).Where(c => c.Type == "prompt").ToList();
         foreach (var prompt in unacknowledged)
-            Refuse(step, prompt.PromptId!, ExitedBeforeAcknowledgingReason, PromptRefusedBy.Director);
+            Refuse(step, prompt.PromptId!, prompt.PromptText!, ExitedBeforeAcknowledgingReason, PromptRefusedBy.Director);
 
         string? turnReason = null;
         if (_turn is not null)
@@ -374,7 +376,7 @@ public sealed class PiDialect
             if (command == "parse" && waitingPrompt is not null)
             {
                 Forget(waitingPrompt.Id);
-                Refuse(step, waitingPrompt.PromptId!, $"Pi could not read the prompt: {error}", PromptRefusedBy.Director);
+                Refuse(step, waitingPrompt.PromptId!, waitingPrompt.PromptText!, $"Pi could not read the prompt: {error}", PromptRefusedBy.Director);
             }
             return;
         }
@@ -408,12 +410,13 @@ public sealed class PiDialect
     private void OnPromptResponse(JsonElement record, PiCommand written, bool success, string? error, StepBuilder step)
     {
         var promptId = written.PromptId!;
+        var promptText = written.PromptText!;
         if (!success)
         {
             _inFlight.Remove(promptId);
             if (error is null)
                 Defect(step, $"Pi refused prompt {promptId} and gave no error text");
-            Refuse(step, promptId, error ?? "Pi refused the prompt and gave no reason", PromptRefusedBy.Agent);
+            Refuse(step, promptId, promptText, error ?? "Pi refused the prompt and gave no reason", PromptRefusedBy.Agent);
             return;
         }
 
@@ -441,7 +444,7 @@ public sealed class PiDialect
                 // Pi accepted the prompt in a way this dialect does not understand; a receipt cannot claim it.
                 Defect(step, $"Pi acknowledged prompt {promptId} with a disposition the dialect does not know: {disposition ?? "(none)"}");
                 _inFlight.Remove(promptId);
-                Refuse(step, promptId, $"Pi acknowledged the prompt with a disposition the Director does not know: {disposition ?? "(none)"}", PromptRefusedBy.Director);
+                Refuse(step, promptId, promptText, $"Pi acknowledged the prompt with a disposition the Director does not know: {disposition ?? "(none)"}", PromptRefusedBy.Director);
                 return;
         }
 
@@ -449,7 +452,7 @@ public sealed class PiDialect
         step.Events.Add(new PromptDelivered
         {
             SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
-            PromptId = promptId, Disposition = mapped, Acknowledgement = record.GetRawText(),
+            PromptId = promptId, PromptText = promptText, Disposition = mapped, Acknowledgement = record.GetRawText(),
         });
     }
 
@@ -768,14 +771,14 @@ public sealed class PiDialect
 
     // ---------------------------------------------------------------- helpers
 
-    private void Refuse(StepBuilder step, string promptId, string reason, PromptRefusedBy by)
+    private void Refuse(StepBuilder step, string promptId, string promptText, string reason, PromptRefusedBy by)
     {
         FileLog.Write($"[PiDialect] Refused: session={_sessionId}, prompt={promptId}, by={by}, reason={reason}");
         _inFlight.Remove(promptId);
         step.Events.Add(new PromptRefused
         {
             SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
-            PromptId = promptId, Reason = reason, RefusedBy = by,
+            PromptId = promptId, PromptText = promptText, Reason = reason, RefusedBy = by,
         });
     }
 
