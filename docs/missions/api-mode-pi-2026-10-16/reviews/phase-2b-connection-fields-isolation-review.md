@@ -166,6 +166,11 @@ body should say the exact exception for this class's failure is not known and th
 insert, is the thing removed. The Tech Lead may be able to settle it by looking at the run that failed: if both
 tests failed, the text was not the marker text.
 
+**Developer's answer.** Accepted, by the Delivery Lead's ruling. The pull request body now says plainly that the
+exact exception behind the original failure is unknown, because it was never recorded, and that the fix removes
+the shared database file from this class, so it covers the marker collision and every sibling shape on that file
+alike. The body no longer claims the marker text as the failure's own text.
+
 ### Finding 2 (low): the house helper for this exact line exists and is not used
 
 **What.** `GatewayDbTestHarnessDevices.OpenDevices(this GatewayDbTestHarness harness, string legacyFile = "devices.json")`
@@ -177,6 +182,10 @@ is `new(harness.Open(), harness.LegacyPath(legacyFile))`, in the harness's own n
 registry is built (say the legacy file name, or a tenant argument) reaches `OpenDevices` and not these two
 inlined copies. `_harness.OpenDevices()` is one call and reads as what it is. The Developer decides; I would not
 hold the merge for it.
+
+**Developer's answer.** Accepted, by the Delivery Lead's ruling. The registry line is now
+`_harness.OpenDevices()`; the class imports `CcDirector.Gateway.Tests.Data` and names the harness by its short
+name, and the `CcDirector.Gateway.Pairing` import it no longer uses is gone.
 
 ### Finding 3 (low): the route map still opens one process-wide file, outside this class's control
 
@@ -193,6 +202,9 @@ with a text that has nothing to do with sessions. This is not this pull request'
 of the failure under review (no such writer exists). It is recorded so that the next "failed beside other classes,
 passed alone" in a class that maps the routes is not re-diagnosed from scratch. The fix, when it is wanted, is a
 `netDiagResults` parameter on `Map`, as `pushedSessions` already is.
+
+**Developer's answer.** Noted, no change, by the Delivery Lead's ruling: it is outside this pull request. This
+review is the record of it, including the fix when it is wanted (a `netDiagResults` parameter on `Map`).
 
 ## 5. Observations (not findings)
 
