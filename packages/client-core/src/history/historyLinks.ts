@@ -163,12 +163,18 @@ export function stripLineNumber(path: string): string {
   return path;
 }
 
-/** Strip trailing sentence punctuation (comma, semicolon, period) that is not part of the path/URL. */
+/**
+ * Strip trailing sentence punctuation that is not part of the path/URL: the same set the Director's
+ * LinkDetector.StripTrailingPunctuation treats as always-punctuation (, ; ! ? : * and the period). The
+ * two must agree, or the Chat links "/tmp/report.pdf!" while the Director names "/tmp/report.pdf" and
+ * refuses the click (#4085 review). The C#'s unpaired-quote and unpaired-bracket rules have no
+ * counterpart here because these regexes never let a quote or bracket into a match.
+ */
 export function stripTrailingPunctuation(text: string): string {
   if (!text) return text;
   while (text.length > 0) {
     const last = text[text.length - 1];
-    if (last === "," || last === ";" || last === ".") {
+    if (last === "," || last === ";" || last === "!" || last === "?" || last === ":" || last === "*" || last === ".") {
       text = text.slice(0, -1);
       continue;
     }

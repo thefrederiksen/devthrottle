@@ -21,6 +21,10 @@
     { "line": "a comment //not/a/path here", "paths": [], "urls": [] },
     { "line": "a home path ~/notes/x.md is not guessed", "paths": [], "urls": [] },
     { "line": "on 10/16/2026 we met", "paths": [], "urls": [] },
-    { "line": "C:\\Users\\soren\\report.pdf stays a Windows path", "paths": ["C:\\Users\\soren\\report.pdf"], "urls": [] }
+    { "line": "C:\\Users\\soren\\report.pdf stays a Windows path", "paths": ["C:\\Users\\soren\\report.pdf"], "urls": [] },
+    { "line": "Done! Saved to /tmp/report.pdf!", "paths": ["/tmp/report.pdf"], "urls": [] },
+    { "line": "Did you mean D:\\briefs\\a.pdf?", "paths": ["D:\\briefs\\a.pdf"], "urls": [] },
+    { "line": "Is it at https://example.com/a?", "paths": [], "urls": ["https://example.com/a"] },
+    { "line": "Written to /home/soren/out.log:", "paths": ["/home/soren/out.log"], "urls": [] }
   ]
 }
