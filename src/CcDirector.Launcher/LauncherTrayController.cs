@@ -66,7 +66,10 @@ public sealed class LauncherTrayController : IDisposable
         _ = Task.Run(ResolveAboutInfo);
 
         if (LauncherAppOptions.Managed)
+        {
             _ = LauncherCore.RunUpdateLoopAsync(_lifetime.Token);
+            _ = LauncherCore.RunDirectorCrashWatchAsync(_lifetime.Token);
+        }
 
         // A machine that has never signed in gets its Director opened at sign-in to Windows, so the
         // sign-in screen is on screen instead of nothing (issue #3503). Off the UI thread: it reads
