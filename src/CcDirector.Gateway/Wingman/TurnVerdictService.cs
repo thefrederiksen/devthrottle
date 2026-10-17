@@ -1982,6 +1982,20 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
+    /// Would an AUTOMATIC path be granted <see cref="TryClaimLateNarration"/> for this stop right now? The same rule, asked
+    /// without taking anything: the stop is the latest, and no claim for it is held - neither a call running nor one spent.
+    /// The voice sweep asks it before it spends a slot (issue #4154): a stop that cannot get words automatically plays
+    /// nothing and costs nothing, and counting it as a cost let a few such sessions hold every slot for ever.
+    /// </summary>
+    internal bool LateNarrationWouldBeClaimed(TenantId tenant, string sid, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return false;
+        if (!string.Equals(_env.Latest(tenant, sid)?.VerdictId, verdictId, StringComparison.Ordinal)) return false;
+        return !_narrationClaims.TryGetValue((tenant, sid), out var claimed)
+               || !string.Equals(claimed.VerdictId, verdictId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
     /// has its own stop and its own narration, so text for an older one is dropped and logged. Returns whether it was saved.
     /// </summary>
