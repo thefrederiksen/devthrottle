@@ -344,14 +344,8 @@ def process_started_at(pid: int) -> Optional[float]:
         return None
     except PermissionError:
         return 0.0
-    stat = Path(f"/proc/{pid}/stat")
-    if stat.is_file():
-        # Field 22 is the start in clock ticks after boot; the fields after the command name, which is in
-        # parentheses and may hold spaces, start at field 3.
-        ticks = int(stat.read_text().rsplit(")", 1)[1].split()[19])
-        boot = next(float(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
-                    if line.startswith("btime "))
-        return boot + ticks / os.sysconf("SC_CLK_TCK")
+    if Path("/proc/stat").is_file():
+        return _linux_process_started_at(pid, Path("/proc"))
     import subprocess
 
     answer = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10,
@@ -360,6 +354,21 @@ def process_started_at(pid: int) -> Optional[float]:
         return None
     return datetime.strptime(" ".join(answer.stdout.split()), "%a %b %d %H:%M:%S %Y").replace(
         tzinfo=timezone.utc).timestamp()
+
+
+def _linux_process_started_at(pid: int, proc_root: Path) -> Optional[float]:
+    """The Linux reader, from `proc_root` (the real one is /proc). A process that exits while it is being read
+    answers None, not running: its folder under `proc_root` goes with it, between any two reads."""
+    try:
+        line = (proc_root / str(pid) / "stat").read_text()
+    except FileNotFoundError:
+        return None
+    # Field 22 is the start in clock ticks after boot; the fields after the command name, which is in
+    # parentheses and may hold spaces, start at field 3.
+    ticks = int(line.rsplit(")", 1)[1].split()[19])
+    boot = next(float(row.split()[1]) for row in (proc_root / "stat").read_text().splitlines()
+                if row.startswith("btime "))
+    return boot + ticks / os.sysconf("SC_CLK_TCK")
 
 
 def _windows_process_started_at(pid: int) -> Optional[float]:

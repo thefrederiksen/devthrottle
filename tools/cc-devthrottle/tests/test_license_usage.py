@@ -662,6 +662,21 @@ def test_process_started_at_ThisProcess_IsInThePast(tmp_path):
     assert began is not None and 0 < began <= time.time()
 
 
+def test_linux_process_started_at_TheProcessExitedBeforeItsStatWasRead_IsNotRunning(tmp_path):
+    # The process was alive for the signal test and gone by the read: its folder went with it.
+    (tmp_path / "stat").write_text("btime 1760000000\n", encoding="utf-8")
+    assert license_usage._linux_process_started_at(4242, tmp_path) is None
+
+
+@pytest.mark.skipif(not hasattr(os, "sysconf"), reason="clock ticks are read with os.sysconf, which Windows lacks")
+def test_linux_process_started_at_ACommandNameWithSpacesAndParentheses_ReadsField22(tmp_path):
+    (tmp_path / "stat").write_text("cpu 1 2 3\nbtime 1760000000\n", encoding="utf-8")
+    (tmp_path / "4242").mkdir()
+    fields = ["S"] + ["0"] * 18 + [str(500 * os.sysconf("SC_CLK_TCK"))] + ["0"] * 30
+    (tmp_path / "4242" / "stat").write_text("4242 (claude (x) y) " + " ".join(fields), encoding="utf-8")
+    assert license_usage._linux_process_started_at(4242, tmp_path) == 1760000500.0
+
+
 # --- the commands ------------------------------------------------------------------------------------
 
 
