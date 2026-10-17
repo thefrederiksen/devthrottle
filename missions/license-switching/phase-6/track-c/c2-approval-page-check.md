@@ -104,5 +104,11 @@ C#:
   0 failed. Note: this machine's
   system Python has an older Click and an unrelated `tests` package in site-packages; under it, 1,851 tests fail on
   clean origin/main too - the same set with and without this change, compared test by test.
-- `.\scripts\test-local.ps1`: GREEN (output below).
-- `.\scripts\test-local.ps1 -Parked`: see below.
+- `.\scripts\test-local.ps1`: RESULT GREEN, every suite outcome Completed with all tests executed. It ran on the
+  working tree that became commit f89a3a0e8 (the only later change is this file).
+- `.\scripts\test-local.ps1 -Parked`: REFUSED before building (exit 7) - drive C: had 11.6 GB free and a release gate
+  needs 15 GB. The temporary folders filling it belong to other sessions' runs, so nothing was deleted. In its place
+  the License tests of the parked suites were run directly on the committed change:
+  `CcDirector.Gateway.UnitTests` filtered to `CcDirector.Gateway.Tests.Licenses`: 830 passed, 0 failed;
+  `CcDirector.Gateway.Tests` filtered to `License`: 21 passed, 0 failed; `CcDirector.Core.Tests` holds no License
+  tests. The full `-Parked` run is still owed once there is room, and is required for pull request 3.
