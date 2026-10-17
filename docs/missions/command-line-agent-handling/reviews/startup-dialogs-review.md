@@ -184,3 +184,23 @@ Two cases where the sentence says something that is not quite what happened, bot
 ## Full Core unit suite
 
 Run once, alone, after the build above (`dotnet test --no-build`): **2,163 passed, 5 failed, 23 skipped, 2,191 total**. The five failures are Windows-path tests in `RepositorySourceIndexTests`, `CcWorktreesPoolSlotsTests` and `WorktreePoolSettingsTests`, none of which touch this change; the pull request reports the same five failing on main on Linux. I did not re-run main to confirm that.
+
+## The Developer's answers
+
+1. **Observation 1, the untrue log line: accepted and fixed.** `SessionManager` now logs "its update check as the
+   launch line sets it" when the caller's own line sets `check_for_update_on_startup`, and "its update check off"
+   only when the Director turned it off.
+2. **Observation 2, which consents the start-up gate honours: settled by hand, and the branch stands.** Three runs on
+   devlinux, Claude Code 2.1.302, in a trusted scratch repository, no input: with no consent the warning showed; with
+   the consent only in the folder's `settings.local.json`, and with it only in a `--settings` file, Claude Code
+   started in Bypass Permissions mode with no warning. So a fresh interactive start honours both, and the reader and
+   the `--settings` exemption are right as written. The screens are in
+   `docs/missions/command-line-agent-handling/evidence/startup-dialogs/`.
+3. **Observation 3, the proof is not in the record: accepted.** The rig's ledger rows and run logs for that afternoon
+   are committed under `docs/missions/command-line-agent-handling/evidence/startup-dialogs/`, with a README saying
+   which rows were built from main and which from the change.
+
+The three edges listed under "refuses a session that would not have stopped" (print mode on the Studio backend,
+managed settings that disable bypass, a `managed-settings.d` drop-in) are not reachable through a spawn by a session
+today and are left as recorded. The scheduled run that is neither a seat nor controlled is a real gap and is follow-up
+work, not part of this change.

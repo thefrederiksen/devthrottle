@@ -1178,10 +1178,14 @@ public sealed class SessionManager : IDisposable
                 // turned off, and a folder the owner already trusts in Claude Code is trusted for this run, so neither
                 // "Update available!" nor "Trust this folder?" swallows the first prompt. A folder nobody trusted still asks.
                 var trustedByOwner = ClaudeFolderTrust?.Covers(workingDirectory) == true;
+                var callerSetsUpdateCheck = args.Contains("check_for_update_on_startup", StringComparison.Ordinal);
                 args = CcDirector.Core.Codex.CodexStartupArguments.Append(args, workingDirectory, trustedByOwner);
+                var updateCheck = callerSetsUpdateCheck
+                    ? "its update check as the launch line sets it"
+                    : "its update check off";
                 _log?.Invoke(trustedByOwner
-                    ? $"Started Codex with its update check off, and {workingDirectory} trusted for this run because Claude Code's record trusts it."
-                    : "Started Codex with its update check off.");
+                    ? $"Started Codex with {updateCheck}, and {workingDirectory} trusted for this run because Claude Code's record trusts it."
+                    : $"Started Codex with {updateCheck}.");
             }
 
             // For Pi, write the fleet preamble to a per-session file and pass it via

@@ -1,0 +1,109 @@
+[rig] scenario run 20261017-141521 on product dfdb177818b8+local-changes; ledger /home/soren/ReposFred/_delivery-qa/ledger.jsonl
+[rig] codex: codex (codex-cli 0.163.0), args: --dangerously-bypass-approvals-and-sandbox -m gpt-5.6-luna -c model_reasoning_effort=low
+[scenario] claude-trusted-folder on codex: the first prompt of a Codex session in a repository the owner trusts in Claude Code but never opened in Codex
+[scenario] claude-trusted-folder codex   len=94     director=OK         truth=ARRIVED  PASS 2.0s 
+[scenario] claude-trusted-folder on codex: the first prompt of a Codex session in a repository the owner trusts in Claude Code but never opened in Codex
+[scenario] claude-trusted-folder codex   len=94     director=OK         truth=ARRIVED  PASS 2.2s 
+[scenario] claude-trusted-folder on codex: the first prompt of a Codex session in a repository the owner trusts in Claude Code but never opened in Codex
+[scenario] claude-trusted-folder codex   len=94     director=OK         truth=ARRIVED  PASS 2.2s 
+[scenario] first on codex: a new session's first prompt, gated, as a spawn sends it
+[scenario] first              codex   len=94     director=OK         truth=ARRIVED  PASS 2.2s 
+[scenario] first on codex: a new session's first prompt, gated, as a spawn sends it
+[scenario] first              codex   len=94     director=OK         truth=ARRIVED  PASS 1.9s 
+[scenario] first on codex: a new session's first prompt, gated, as a spawn sends it
+[scenario] first              codex   len=94     director=OK         truth=ARRIVED  PASS 1.9s 
+[scenario] idle-short on codex: a one-line prompt to a waiting session (a phone dictation)
+[scenario] idle-short         codex   len=94     director=FAILED     truth=LOST     FAIL 1.0s ComposerNotAcceptingInputException: [Codex] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer should be - it may be asking a question. Answer or close it on the session's screen, then send again...
+           screen:   >_ OpenAI Codex (v0.163.0)
+                        ~/ReposFred/_delivery-qa/repo-1
+                     permissions: YOLO mode
+                   › Do not run any tools or read any files. Reply with exactly: WARM Q7128A1DA50
+                   ■ You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again
+                   at Nov 9th, 2026 10:41 AM.
+                     Approaching rate limits
+                     Switch to gpt-6-luna for lower credit usage?
+                   › 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.
+                     2. Keep current model
+                     3. Keep current model (never show again)  Hide future rate limit reminders about switching models
+                     enter select · esc back
+[scenario] idle-short on codex: a one-line prompt to a waiting session (a phone dictation)
+[scenario] idle-short         codex   len=94     director=FAILED     truth=LOST     FAIL 1.0s ComposerNotAcceptingInputException: [Codex] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer should be - it may be asking a question. Answer or close it on the session's screen, then send again...
+           screen:   >_ OpenAI Codex (v0.163.0)
+                        ~/ReposFred/_delivery-qa/repo-1
+                     permissions: YOLO mode
+                   › Do not run any tools or read any files. Reply with exactly: WARM QB2B42EAD13
+                   ■ You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again
+                   at Nov 9th, 2026 10:41 AM.
+                     Approaching rate limits
+                     Switch to gpt-6-luna for lower credit usage?
+                   › 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.
+                     2. Keep current model
+                     3. Keep current model (never show again)  Hide future rate limit reminders about switching models
+                     enter select · esc back
+[scenario] idle-short on codex: a one-line prompt to a waiting session (a phone dictation)
+[scenario] idle-short         codex   len=94     director=FAILED     truth=LOST     FAIL 1.0s ComposerNotAcceptingInputException: [Codex] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer should be - it may be asking a question. Answer or close it on the session's screen, then send again...
+           screen:   >_ OpenAI Codex (v0.163.0)
+                        ~/ReposFred/_delivery-qa/repo-1
+                     permissions: YOLO mode
+                   › Do not run any tools or read any files. Reply with exactly: WARM QD5DB67D2D1
+                   ■ You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again
+                   at Nov 9th, 2026 10:41 AM.
+                     Approaching rate limits
+                     Switch to gpt-6-luna for lower credit usage?
+                   › 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.
+                     2. Keep current model
+                     3. Keep current model (never show again)  Hide future rate limit reminders about switching models
+                     enter select · esc back
+[scenario] idle-special on codex: backslashes, a literal backslash-t, quotes, shell characters (#2981)
+[scenario] idle-special       codex   len=267    director=FAILED     truth=LOST     FAIL 1.0s ComposerNotAcceptingInputException: [Codex] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer should be - it may be asking a question. Answer or close it on the session's screen, then send again...
+           screen:   >_ OpenAI Codex (v0.163.0)
+                        ~/ReposFred/_delivery-qa/repo-1
+                     permissions: YOLO mode
+                   › Do not run any tools or read any files. Reply with exactly: WARM Q7C2C77C494
+                   ■ You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again
+                   at Nov 9th, 2026 10:41 AM.
+                     Approaching rate limits
+                     Switch to gpt-6-luna for lower credit usage?
+                   › 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.
+                     2. Keep current model
+                     3. Keep current model (never show again)  Hide future rate limit reminders about switching models
+                     enter select · esc back
+[scenario] idle-special on codex: backslashes, a literal backslash-t, quotes, shell characters (#2981)
+[scenario] idle-special       codex   len=267    director=FAILED     truth=LOST     FAIL 1.0s ComposerNotAcceptingInputException: [Codex] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer should be - it may be asking a question. Answer or close it on the session's screen, then send again...
+           screen:   >_ OpenAI Codex (v0.163.0)
+                        ~/ReposFred/_delivery-qa/repo-1
+                     permissions: YOLO mode
+                   › Do not run any tools or read any files. Reply with exactly: WARM Q046942F322
+                   ■ You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again
+                   at Nov 9th, 2026 10:41 AM.
+                     Approaching rate limits
+                     Switch to gpt-6-luna for lower credit usage?
+                   › 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.
+                     2. Keep current model
+                     3. Keep current model (never show again)  Hide future rate limit reminders about switching models
+                     enter select · esc back
+[scenario] idle-special on codex: backslashes, a literal backslash-t, quotes, shell characters (#2981)
+[scenario] idle-special       codex   len=267    director=FAILED     truth=LOST     FAIL 1.0s ComposerNotAcceptingInputException: [Codex] LookBeforeTyping: nothing was typed: the agent is showing a menu or a dialog where its composer should be - it may be asking a question. Answer or close it on the session's screen, then send again...
+           screen:   >_ OpenAI Codex (v0.163.0)
+                        ~/ReposFred/_delivery-qa/repo-1
+                     permissions: YOLO mode
+                   › Do not run any tools or read any files. Reply with exactly: WARM QB7F41106C7
+                   ■ You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again
+                   at Nov 9th, 2026 10:41 AM.
+                     Approaching rate limits
+                     Switch to gpt-6-luna for lower credit usage?
+                   › 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.
+                     2. Keep current model
+                     3. Keep current model (never show again)  Hide future rate limit reminders about switching models
+                     enter select · esc back
+
+12 attempts counted (0 setup failures not counted).
+
+product dfdb177818b8+local-changes  (2026-10-17 14:15 to 14:23 UTC)
+  agent    scenario            pass   of   rate  95% interval   failures (director/truth)
+  codex    first                  3    3   100%    44% - 100%   
+  codex    idle-short             0    3     0%     0% -  56%   3x FAILED/LOST
+  codex    idle-special           0    3     0%     0% -  56%   3x FAILED/LOST
+  codex    claude-trusted-folder     3    3   100%    44% - 100%   
+  codex    ALL SCENARIOS          6   12    50%    25% -  75%   6x FAILED/LOST
+
