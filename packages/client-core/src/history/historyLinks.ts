@@ -167,8 +167,10 @@ export function stripLineNumber(path: string): string {
  * Strip trailing sentence punctuation that is not part of the path/URL: the same set the Director's
  * LinkDetector.StripTrailingPunctuation treats as always-punctuation (, ; ! ? : * and the period). The
  * two must agree, or the Chat links "/tmp/report.pdf!" while the Director names "/tmp/report.pdf" and
- * refuses the click (#4085 review). The C#'s unpaired-quote and unpaired-bracket rules have no
- * counterpart here because these regexes never let a quote or bracket into a match.
+ * refuses the click (#4085 review). The C#'s unpaired-quote and unpaired-bracket rules are NOT ported
+ * yet. The five regexes never let a quote or bracket into a match, but a QUOTED span can: `/tmp/a)` links
+ * /tmp/a) here while the Director names /tmp/a. That fails safe (the click is refused, never widened)
+ * and is tracked in #4124.
  */
 export function stripTrailingPunctuation(text: string): string {
   if (!text) return text;
