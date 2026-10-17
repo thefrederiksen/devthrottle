@@ -106,3 +106,35 @@ Not tested here: the three-line hub calls and the channel class, which only pass
   `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused` needs Windows short (8.3) names,
   which drive D: does not make. It passed in this commit's default run above, where TEMP is on C:. It is not this
   change's and is left for its own test-only pull request.
+
+## After the review of this pull request
+
+`review-4123.md`, answered in `review-4123-answers.md`. What changed, in plain words:
+
+- A sign-in or approval that meets a running check waits only as long as it could still start in time: 30 seconds
+  after it arrived for an approval (the Gateway's three-minute wait less the tool's 150 seconds) and for a sign-in the
+  Gateway asked for (its five minutes less the three-minute approval wait and the 90-second finish), and until its own
+  deadline for the daily renewal. Once in the lane it looks at the time again. Too late is `expired`, and no tool
+  runs: nothing is pressed for a sign-in that was already given up.
+- A sign-in or approval that is waiting stops the next check of a run from starting, so it goes in after the one check
+  running now.
+- The next run is a day after the last run's checks started, not after the Gateway took its report.
+- The display-name shape is one regular expression in the Contracts project, read by both sides.
+
+New tests: lane `EnterWork_NoCheckRunning_EntersAtOnce_AndStartsNoTimer`,
+`EnterWork_WhileACheckRuns_GivesUpAfterItsLongestWait_AndTakesNothing`,
+`EnterWork_WhileACheckRuns_WithNoTimeLeft_GivesUpAtOnce`, `EnterCheck_WhileWorkIsWaiting_LetsThatWorkGoFirst`,
+`EnterWork_CancelledWhileWaiting_NoLongerHoldsTheNextCheckBack`; check
+`TickAsync_AnApprovalArrivesDuringARunOfTwoChecks_GoesInBetweenThem_NotAfterBoth`,
+`Approve_DuringACheck_ThatOutlastsTheTimeToApproveInTime_IsRefusedExpired_AndPressesNothing`,
+`Approve_DuringACheck_ThatEndsOnlyAfterTheTimeRanOut_IsRefusedExpired_AndPressesNothing`,
+`Approve_DuringACheck_ThatEndsInTime_Approves`,
+`SignIn_TheGatewayAskedFor_DuringACheck_ThatOutlastsItsTime_FailsExpired_AndStartsNoLogin`,
+`TickAsync_AReportTakenLate_TheNextChecksRunADayAfterTheyStarted_NotADayAfterTheReport`; and the scheduler
+assertions in the two `Start_LicenseSwitchingTurned...` tests. Each new test of a fix was shown to fail with that fix
+put back (see the answers).
+
+Gate at e38673081, tree clean: `.\scripts\test-local.ps1` RESULT GREEN; `.\scripts\test-local.ps1 -Parked` with
+TEMP and TMP on D: RESULT GREEN, every suite Completed - `CcDirector.Gateway.UnitTests` 13,986,
+`CcDirector.Gateway.Tests` 1,775 executed of 1,778 (three reported skipped in shard 3), `CcDirector.Core.Tests` 4,538,
+`CcDirector.Core.UnitTests` 2,213, `CcDirector.Reclaim.Tests` 305 with no failure.
