@@ -224,6 +224,11 @@ suites were not re-run: both mount tests mock this component, and nothing outsid
 - **D.** Agreed, no change. A fixed three seconds against one owner's tabs is not a load; backing off can come when there
   are many readers.
 - **E.** Agreed, nothing to do here.
-- **F.** Agreed that it would strengthen the proof. Not added in this answer, which is scoped to finding 1; it is a
-  small follow-up the Delivery Lead can hand out.
+- **F.** Agreed, and done at the Delivery Lead's request. `apps/cockpit/src/sessions/apiModeLiveChatExport.test.tsx`
+  renders the real component, not mocked, imported through `@devthrottle/client-core/apimode/ApiModeLiveChat` as
+  `SessionDetail` imports it, and checks the status line and a ruled receipt and tool card from the fake stream. With
+  the export renamed for one run it failed with `Failed to resolve import
+  "@devthrottle/client-core/apimode/ApiModeLiveChat"`; restored, it passes. It proves the export resolves and the
+  component mounts in a shell's test run; it does not prove the stylesheet's rules reach a shell's bundle, which only
+  the reviewer's build checked.
 
