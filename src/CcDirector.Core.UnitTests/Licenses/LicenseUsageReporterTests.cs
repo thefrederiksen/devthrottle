@@ -267,4 +267,18 @@ public sealed class LicenseUsageReporterTests : IDisposable
         var report = await _reporter.TickAsync(CancellationToken.None);
         Assert.Equal(LicenseReportTriggers.Connected, report!.Trigger);
     }
+
+    [Fact]
+    public async Task TickAsync_TheActiveKeysRenewalFailed_TheReportSaysTheAccountNeedsANewSignIn()
+    {
+        // Phase 6: the tool renews the active key in place when no session uses it. A renewal that fails comes back as
+        // the active row's refresh-failed, and the report says so in the Director's own words - never silently.
+        _tool.ReadErrors["account-a@example.com"] = LicenseReadErrors.RefreshFailed;
+
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        var active = report!.Holdings.Single(h => h.IsActive);
+        Assert.Equal(LicenseReadErrors.RefreshFailed, active.ReadError);
+        Assert.Equal("The stored sign-in could not be renewed; the account needs a new sign-in.", active.ReadErrorDetail);
+    }
 }

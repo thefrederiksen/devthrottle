@@ -153,7 +153,9 @@ before the Director first saw it); a null expiry is never read as "fine" or as "
 - **The active holding is read from the provider for every report.** Spare holdings are read at most
   every **10 minutes**; in between, a report carries a spare's last numbers with their own
   `ReadAtUtc`. (A spare is also kept fresh between reads - that is phase 1's work and not part of the
-  wire.)
+  wire. Since phase 6 the active key is too, in place, when no Claude Code session can be using it; a
+  renewal of it that fails is that holding's `refresh-failed`, exactly as for a spare. See
+  `phase-6/track-b/active-renewal.md`.)
 - **On change, at once** (`Trigger = "changed"`): a holding added or removed, the active account
   changed by anything other than a Gateway command (for example `claude auth login` by hand), or a
   holding's `ReadError` appearing or clearing.
