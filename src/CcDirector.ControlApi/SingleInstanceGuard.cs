@@ -52,26 +52,44 @@ public sealed class SingleInstanceGuard : IDisposable
     public static string HomeMutexNameForCurrentProcess() => HomeMutexNameFor(InstanceContext.InstanceHome);
 
     /// <summary>
-    /// The lock name for a data folder. The folder is made absolute and loses any trailing separator, so two
-    /// spellings of one folder share one lock; the slot hash also ignores case and slash style, which on a
-    /// case-sensitive file system can only make two folders share a lock, never split one.
+    /// The lock name for a data folder. The folder is made absolute, symbolic links in it are resolved, and any
+    /// trailing separator is dropped, so two paths to one folder share one lock; the slot hash also ignores case
+    /// and slash style, which on a case-sensitive file system can only make two folders share a lock, never split one.
     ///
-    /// GLOBAL ON MACOS AND LINUX, AND THAT IS LOAD-BEARING. There a <c>Local\</c> name is visible only inside one
-    /// login session: a Director started from the desktop and one started over SSH, or with setsid, never see
-    /// each other's <c>Local\</c> lock. Proved on devlinux, 2026-10-17: two Directors in two sessions both
-    /// "acquired" the same <c>Local\</c> name on one folder. A <c>Global\</c> name is seen by every session on the
-    /// machine. Windows keeps <c>Local\</c>, which is per logon there and covers every Director a user starts.
+    /// GLOBAL ON EVERY PLATFORM, AND THAT IS LOAD-BEARING. A <c>Local\</c> name is visible only inside one
+    /// session. On macOS and Linux that is a login session: a Director started from the desktop and one started
+    /// over SSH, or with setsid, never see each other's <c>Local\</c> lock - proved on devlinux, 2026-10-17, where
+    /// two Directors in two sessions both "acquired" the same <c>Local\</c> name on one folder. On Windows it is a
+    /// desktop session: a Remote Desktop sign-in, or a scheduled task in session 0, would miss the console
+    /// Director's lock the same way. A <c>Global\</c> name is seen by every session, and an ordinary user may
+    /// create a global mutex on all three platforms.
     /// </summary>
-    public static string HomeMutexNameFor(string instanceHome) => HomeMutexNameFor(instanceHome, OperatingSystem.IsWindows());
-
-    /// <summary><see cref="HomeMutexNameFor(string)"/> for a given platform. Pure, for tests.</summary>
-    public static string HomeMutexNameFor(string instanceHome, bool isWindows)
+    public static string HomeMutexNameFor(string instanceHome)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(instanceHome);
-        var normalized = Path.GetFullPath(instanceHome)
+        var normalized = WithLinksResolved(Path.GetFullPath(instanceHome))
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var scope = isWindows ? "Local" : "Global";
-        return $@"{scope}\cc-director-home-{DirectorIdentitySlot.SlotFor(normalized)}";
+        return $@"Global\cc-director-home-{DirectorIdentitySlot.SlotFor(normalized)}";
+    }
+
+    /// <summary>
+    /// <paramref name="fullPath"/> with every symbolic link in it resolved, one segment at a time, so a link
+    /// anywhere in the path - not only the last part - leads to the same lock as the real folder (on macOS
+    /// <c>/tmp</c> is a link to <c>/private/tmp</c>). Segments that do not exist yet are kept as written.
+    /// </summary>
+    internal static string WithLinksResolved(string fullPath)
+    {
+        var root = Path.GetPathRoot(fullPath) ?? "";
+        var resolved = root;
+        var segments = fullPath[root.Length..].Split(
+            new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var segment in segments)
+        {
+            var next = Path.Combine(resolved, segment);
+            var target = Directory.Exists(next) ? new DirectoryInfo(next).ResolveLinkTarget(returnFinalTarget: true) : null;
+            resolved = target is null ? next : Path.GetFullPath(target.FullName);
+        }
+        return resolved;
     }
 
     /// <summary>
@@ -79,8 +97,16 @@ public sealed class SingleInstanceGuard : IDisposable
     /// Returns a guard if both were claimed; null if either is held, with <paramref name="heldBy"/> saying which.
     /// </summary>
     public static SingleInstanceGuard? TryAcquire(out GuardHeldBy heldBy)
+        => TryAcquire(MutexNameForCurrentProcess(), HomeMutexNameForCurrentProcess(), out heldBy);
+
+    /// <summary>
+    /// <see cref="TryAcquire(out GuardHeldBy)"/> for given lock names, so the ordering and the release can be
+    /// tested with names of the test's own. If claiming the data folder's lock THROWS - an unreadable shared
+    /// lock file, say - the program lock already taken is released before the exception leaves, so a refused
+    /// start never holds a lock it does not use.
+    /// </summary>
+    public static SingleInstanceGuard? TryAcquire(string programName, string homeName, out GuardHeldBy heldBy)
     {
-        var programName = MutexNameForCurrentProcess();
         var program = TryClaim(programName);
         if (program is null)
         {
@@ -89,8 +115,16 @@ public sealed class SingleInstanceGuard : IDisposable
             return null;
         }
 
-        var homeName = HomeMutexNameForCurrentProcess();
-        var home = TryClaim(homeName);
+        Mutex? home;
+        try
+        {
+            home = TryClaim(homeName);
+        }
+        catch
+        {
+            Release(program);
+            throw;
+        }
         if (home is null)
         {
             Release(program);
