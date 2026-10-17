@@ -283,6 +283,53 @@ public sealed class LicenseAlarmServiceTests : IDisposable
     public void LicenseAlarmKind_KeyNotWellFormed_IsRefused(string key)
         => Assert.Throws<ArgumentException>(() => new LicenseAlarmKind(key, "Not ready to switch"));
 
+    // A full stop hidden behind a trailing space is still a full stop (review finding 3).
+    [Fact]
+    public void LicenseAlarmKind_TitleEndingInAFullStopAndASpace_IsRefused()
+        => Assert.Throws<ArgumentException>(() => new LicenseAlarmKind("not-ready-at-80", "Not ready. "));
+
+    // The minute check retries a failed email for every tenant, each in its own scope, through TickEveryTenantAsync -
+    // the method the Gateway's once-a-minute license check calls (review finding 4).
+    [Fact]
+    public async Task TickEveryTenantAsync_RetriesEachTenantsFailedEmail_InThatTenantsScope()
+    {
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the DevThrottle account service could not be reached");
+        await Raise(One, NotReady, OnMachineA());
+        await Raise(Two, NotReady, OnMachineB());
+        Assert.Equal(new[] { One, Two }, _sent.Select(s => s.Tenant));
+
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null);
+        _now = T0.AddMinutes(1);
+        await _alarms.TickEveryTenantAsync(new ListedTenants(One, null, Two), CancellationToken.None);
+
+        // One more email for each tenant (the pass with no tenant in scope checks nothing), each now marked sent.
+        Assert.Equal(new[] { One, Two, One, Two }, _sent.Select(s => s.Tenant));
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(_alarms.ListOpen(One)).EmailState);
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(_alarms.ListOpen(Two)).EmailState);
+
+        _now = T0.AddHours(2);
+        await _alarms.TickEveryTenantAsync(new ListedTenants(One, Two), CancellationToken.None);
+        Assert.Equal(4, _sent.Count);
+    }
+
+    /// <summary>A tenant pass over a fixed list: each pass runs with that tenant as the one in scope.</summary>
+    private sealed class ListedTenants(params TenantId?[] tenants) : CcDirector.Gateway.Tenancy.ITenantPass
+    {
+        public TenantId? Current { get; private set; }
+
+        public void ForEachTenant(Action pass) => throw new NotSupportedException();
+
+        public async Task ForEachTenantAsync(Func<Task> pass, CancellationToken ct = default)
+        {
+            foreach (var tenant in tenants)
+            {
+                Current = tenant;
+                await pass();
+            }
+            Current = null;
+        }
+    }
+
     // The title is what a locked screen shows: never an email address.
     [Fact]
     public void LicenseAlarmKind_TitleWithAnEmailAddress_IsRefused()

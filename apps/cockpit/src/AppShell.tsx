@@ -363,10 +363,12 @@ function ShellFrame() {
         </nav>
 
         <main className="main-pane" aria-label="Main">
-          {/* THE LICENSE ALARM (License Switching phase 6): red, above the routed page, on every page of the whole app
-              while one is open - in the frame, never per page, so no page can be without it. The words are the
+          {/* THE LICENSE ALARM (License Switching phase 6): red, above the page, on EVERY page while one is open - in the
+              frame, never per page, so no page can be without it. Also while a team's pages are on screen: the alarm is
+              about the person's own machines, read with their own key, whichever team is being shown (review finding
+              2). Only while the shell is still learning which team is on screen does it wait. The words are the
               Gateway's; it draws nothing when no alarm is open. */}
-          <LicenseAlarmBanner enabled={wholeApp} href="/licenses" onOpen={() => navigate("/licenses")} />
+          <LicenseAlarmBanner enabled={!team.resolving} href="/licenses" onOpen={() => navigate("/licenses")} />
           {team.resolving && team.status === "error" ? (
             <TeamUnreadable error={team.error} onOwnAccount={team.openOwnAccountForThisLoad} />
           ) : team.resolving ? (

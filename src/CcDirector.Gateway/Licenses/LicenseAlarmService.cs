@@ -25,11 +25,13 @@ public sealed record LicenseAlarmKind
     {
         if (string.IsNullOrEmpty(key) || key.Length > 64 || !KeyShape.IsMatch(key))
             throw new ArgumentException($"'{key}' is not an alarm kind: lower-case words joined by hyphens, at most 64 characters.", nameof(key));
-        if (string.IsNullOrWhiteSpace(title) || title.Length > 80 || title.Contains('@') || title.EndsWith('.')
-            || title.Any(c => char.IsControl(c)))
+        // Trimmed before it is checked, so a trailing space cannot hide a full stop.
+        var words = title?.Trim() ?? "";
+        if (words.Length == 0 || words.Length > 80 || words.Contains('@') || words.EndsWith('.')
+            || words.Any(c => char.IsControl(c)))
             throw new ArgumentException("An alarm title is a few plain words on one line, with no full stop and no email address.", nameof(title));
         Key = key;
-        Title = title.Trim();
+        Title = words;
     }
 
     public string Key { get; }

@@ -694,6 +694,36 @@ describe("Cockpit license alarm banner", () => {
     expect(document.querySelector(".main-pane")!.contains(banner)).toBe(true);
   });
 
+  // A team's pages on screen change nothing about the person's own machines: the banner stays (review finding 2).
+  it("still shows the banner while a team's pages are on screen", async () => {
+    const collaboratorTeam = {
+      id: "team-dt",
+      name: "DevThrottle",
+      role: "Collaborator",
+      memberCount: 5,
+      people: "5 people",
+      app: {
+        full: false,
+        pages: [{ id: "questions", label: "Questions", path: "/questions", countPath: null }],
+        landing: "/questions",
+        elsewhere: "This page is not available to Collaborators.",
+      },
+    } as unknown as TeamSummary;
+    myTeams.answer = { kind: "teams", teams: [collaboratorTeam], start: { where: "own-account" } };
+    window.localStorage.setItem(currentTeamStorageKey(), collaboratorTeam.id);
+    const line = "machine-a is not ready. Add a spare to machine-a.";
+    alarmRead.answer = { ...NONE, count: 1, linkText: "Open Licenses", alarms: [alarm("a1", line)] };
+    render(
+      <MemoryRouter initialEntries={["/questions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(document.querySelector(".shell")!.classList.contains("shell-team-pages")).toBe(true));
+    const banner = await screen.findByTestId("license-alarm-banner");
+    expect(within(banner).getAllByTestId("license-alarm-line").map((li) => li.textContent)).toEqual([line]);
+  });
+
   it("shows the summary and every alarm, in order, when several are open", async () => {
     alarmRead.answer = {
       ...NONE,
