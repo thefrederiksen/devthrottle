@@ -160,7 +160,12 @@ Run on this branch, on 17 October 2026, on top of origin/main `08dec1140`:
   Passed: 13854, Total: 13860". The six are prompt-delivery tests, none of them about licenses:
   `PromptOnlyWhenWaitingForInputTests` (five) and
   `FleetManagerEventServiceTests.TheOwnerHasUnsentTextInTheFleetManager_NothingIsTyped_TheGatewaySaysWhy_ThenTheEventsGoAlone`.
-  Gateway.Tests (four shards, 1764) and Core.Tests (4538) passed. The rerun of only those six is below.
+  Gateway.Tests (four shards, 1764) and Core.Tests (4538) passed. **The six fail on origin/main as well, without
+  this change:** run alone on this branch's commit, all six failed again. Run alone in a clean, detached checkout of
+  origin/main `08dec1140`, the same filter gave "Failed: 6, Passed: 50, Total: 56". So they are broken on main
+  already (prompt delivery, most likely the "look before typing" change, #4072) and are not caused by this piece.
+  `-RerunFailed` could not be used: the parked run was on an uncommitted tree, and the script rightly refuses to
+  re-run against a different commit.
 - Cockpit: `npx vitest run src/licenses` 5 files, 82 tests passed (81 before, plus the new one); `tsc --noEmit` clean
   in `apps/cockpit` and `packages/client-core`; client-core licenses tests 27 passed.
 - `produce_overview_example.py`: "0 differences, 0 fields added" - the document's overview example is the route's
