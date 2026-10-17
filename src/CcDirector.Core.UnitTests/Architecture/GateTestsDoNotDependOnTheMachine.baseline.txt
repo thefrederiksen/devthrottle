@@ -55,9 +55,6 @@ real-clock | src/CcDirector.Core.Tests/GatewayDisplayStateSignalTests.cs | 6
 real-clock | src/CcDirector.Core.Tests/GatewayResolvedRoleSignalTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/GitHubActionsBackendTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/GitHubRestClientLiveTests.cs | 1
-process | src/CcDirector.Core.Tests/GitLargeRepoTests.cs | 2
-process | src/CcDirector.Core.Tests/GitProcessCancellationTests.cs | 2
-process | src/CcDirector.Core.Tests/GitWriteServiceTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/History/SessionHistoryReaderTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/Input/SessionPromptDeliveryFailureTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/Input/TerminalSubmitComposerEvidenceTests.cs | 5
@@ -74,7 +71,6 @@ real-clock | src/CcDirector.Core.Tests/RepositoryMonitorTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/RepositoryUsageRecorderTests.cs | 3
 real-clock | src/CcDirector.Core.Tests/SessionAlternateScreenTests.cs | 1
 real-clock | src/CcDirector.Core.Tests/SessionClaudePointerTests.cs | 1
-real-clock | src/CcDirector.Core.Tests/SessionEdgeCaseTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/SessionHistoryStoreTests.cs | 7
 real-clock | src/CcDirector.Core.Tests/SessionHistoryTests.cs | 2
 real-clock | src/CcDirector.Core.Tests/SessionInteractiveTests.cs | 1
@@ -139,10 +135,9 @@ real-clock | src/CcDirector.Core.UnitTests/Utilities/FileLogWriterSpentQueueTest
 real-clock | src/CcDirector.Engine.Tests/Dispatcher/CommunicationDispatcherDispatchByIdTests.cs | 1
 real-clock | src/CcDirector.Engine.Tests/Scheduling/ClaimCoversTheCommandTests.cs | 9
 real-clock | src/CcDirector.Engine.Tests/Scheduling/DatabaseDecidesOpenRunsTests.cs | 8
-real-clock | src/CcDirector.Engine.Tests/Scheduling/SchedulerTests.cs | 4
-real-clock | src/CcDirector.Engine.Tests/Scheduling/SharedEngineDatabaseTests.cs | 2
+real-clock | src/CcDirector.Engine.Tests/Scheduling/SchedulerTests.cs | 3
+real-clock | src/CcDirector.Engine.Tests/Scheduling/SharedEngineDatabaseTests.cs | 1
 process | src/CcDirector.Engine.Tests/Scheduling/UnconfirmedStopTests.cs | 3
-real-clock | src/CcDirector.Engine.Tests/Scheduling/UnconfirmedStopTests.cs | 2
 real-clock | src/CcDirector.Engine.Tests/Storage/EngineDatabaseSharedFileTests.cs | 38
 real-clock | src/CcDirector.Engine.Tests/Storage/EngineDatabaseTests.cs | 14
 real-clock | src/CcDirector.Engine.Tests/Storage/NoReleaseWithoutProofTests.cs | 7
@@ -391,7 +386,7 @@ docker | src/CcDirector.Reclaim.Tests/MachineRulesDeclineTests.cs | 3
 real-clock | src/CcDirector.Reclaim.Tests/OrphanedInstallerPackagesRuleTests.cs | 3
 real-clock | src/CcDirector.Reclaim.Tests/PackageCacheRuleTests.cs | 1
 real-clock | src/CcDirector.Reclaim.Tests/ReclaimCommandWiringTests.cs | 1
-real-clock | src/CcDirector.Reclaim.Tests/ReclaimRefusalTests.cs | 22
+real-clock | src/CcDirector.Reclaim.Tests/ReclaimRefusalTests.cs | 20
 real-clock | src/CcDirector.Reclaim.Tests/RecycleBinRuleTests.cs | 6
 real-clock | src/CcDirector.Reclaim.Tests/RunnerTests.cs | 8
 real-clock | src/CcDirector.Reclaim.Tests/ScanIndexStoreTests.cs | 5
