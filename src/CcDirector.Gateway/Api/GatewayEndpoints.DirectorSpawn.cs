@@ -69,8 +69,36 @@ internal static partial class GatewayEndpoints
                 statusCode: StatusCodes.Status403Forbidden));
         var spawnRoute = $"POST /directors/{id}/sessions";
 
+        // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
+        // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
+        // credential may carry one - a claim from anyone else could mark a seat restored as a session of the
+        // caller's choosing.
+        var restoreClaim = req.RestoreClaim;
+        if (restoreClaim is not null)
+        {
+            if (!WorkspaceEndpoints.IsDirectorCredential(ctx))
+            {
+                FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim from a caller that is not a Director");
+                return DirectorSpawnOutcome.Refused(Results.Json(new { error = "only a Director restoring a workspace may send a restore claim" },
+                    statusCode: StatusCodes.Status403Forbidden));
+            }
+            // The same binding as the mark route (inspection 11, ruling 1): the claim is sent by the Director the
+            // create is for, on the credential that Director said Hello on - not by another key of the account.
+            if (!door.Registry.IsRegisteredByCredential(spawnTenant.Value, id, AuthMiddleware.RegisteringCredential(ctx)))
+            {
+                FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim on a credential Director {id} is not connected on");
+                return DirectorSpawnOutcome.Refused(Results.Json(new { error = $"a restore claim is sent only by Director '{id}' itself, on the credential it is connected on" },
+                    statusCode: StatusCodes.Status403Forbidden));
+            }
+            if (door.Workspaces is null)
+                return DirectorSpawnOutcome.Refused(Results.Json(new { error = "this Gateway has no workspace store, so a restore's create cannot be recorded and is not sent" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable));
+        }
+
         // HOW IT IS CONNECTED (API mode mission, issue #4070, phase 5): API mode only while it is offered, an unknown word never.
-        if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered) is { } connectionRefused)
+        // A restore brings a session back as it ran, so it is exempt - and by this line its claim has been checked above,
+        // so the exemption reaches a real restore and nothing else (the phase 5 review, finding 1).
+        if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered, validatedRestore: restoreClaim is not null) is { } connectionRefused)
             return DirectorSpawnOutcome.Refused(Results.BadRequest(new { error = connectionRefused }));
 
         // WHO IS ASKING, and WHO WILL OWN THE RESULT (issue #2838). This door previously forwarded the
@@ -97,32 +125,6 @@ internal static partial class GatewayEndpoints
         if (SpawnFactory.DirectorCannotBuildKit(req, d,
                 door.KitCapabilities?.BuildsFactoryKit(spawnTenant.Value, d.DirectorId) ?? false) is { } noKit)
             return DirectorSpawnOutcome.Refused(Results.Json(new { error = noKit }, statusCode: StatusCodes.Status409Conflict));
-
-        // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
-        // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
-        // credential may carry one - a claim from anyone else could mark a seat restored as a session of the
-        // caller's choosing.
-        var restoreClaim = req.RestoreClaim;
-        if (restoreClaim is not null)
-        {
-            if (!WorkspaceEndpoints.IsDirectorCredential(ctx))
-            {
-                FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim from a caller that is not a Director");
-                return DirectorSpawnOutcome.Refused(Results.Json(new { error = "only a Director restoring a workspace may send a restore claim" },
-                    statusCode: StatusCodes.Status403Forbidden));
-            }
-            // The same binding as the mark route (inspection 11, ruling 1): the claim is sent by the Director the
-            // create is for, on the credential that Director said Hello on - not by another key of the account.
-            if (!door.Registry.IsRegisteredByCredential(spawnTenant.Value, id, AuthMiddleware.RegisteringCredential(ctx)))
-            {
-                FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim on a credential Director {id} is not connected on");
-                return DirectorSpawnOutcome.Refused(Results.Json(new { error = $"a restore claim is sent only by Director '{id}' itself, on the credential it is connected on" },
-                    statusCode: StatusCodes.Status403Forbidden));
-            }
-            if (door.Workspaces is null)
-                return DirectorSpawnOutcome.Refused(Results.Json(new { error = "this Gateway has no workspace store, so a restore's create cannot be recorded and is not sent" },
-                    statusCode: StatusCodes.Status503ServiceUnavailable));
-        }
 
         if (!SpawnMissionAndSeat.TryResolve(req, spawnTenant.Value, door.Missions, door.WorkflowRuns, spawnRoute,
                 out var seatRun, out var resolveError))

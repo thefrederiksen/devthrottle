@@ -464,7 +464,9 @@ internal static class MachineEndpoints
             using var tenantScope = boundary is null ? null : boundary.EnterScope(tenant);
 
             // HOW IT IS CONNECTED (API mode mission, issue #4070, phase 5), ruled by the same fold as the Director door.
-            if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered) is { } connectionRefused)
+            // Never a validated restore: a restore reaches the Gateway only through the Director door, and this door does
+            // not check a restore claim, so a claim in this body cannot open API mode while it is not offered.
+            if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered, validatedRestore: false) is { } connectionRefused)
                 return Results.BadRequest(new { error = connectionRefused });
 
             // WHO IS ASKING, and WHO WILL OWN THE RESULT - settled from the verified credential rather

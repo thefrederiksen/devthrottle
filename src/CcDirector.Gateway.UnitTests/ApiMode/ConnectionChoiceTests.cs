@@ -11,6 +11,8 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Util;
+using CcDirector.Gateway.Workspaces;
+using CcDirector.Gateway.Tests.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -30,6 +32,8 @@ public sealed class ConnectionChoiceTests : IDisposable
     private const string DirectorId = "director-connection-choice";
     private const string Machine = "CHOICE-PC";
     private const string DeviceHeader = "X-Test-Device";
+    /// <summary>Stands in for the machine token a Director authenticates with: no device type, no session.</summary>
+    private const string DirectorCredentialHeader = "X-Test-Director";
 
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
@@ -38,6 +42,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     private WebApplication? _app;
     private HttpClient? _http;
     private DeviceRegistry? _devices;
+    private readonly GatewayDbTestHarness _db = new();
 
     /// <summary>What the fake Director's agents-list verb answers.</summary>
     private List<AgentChoiceDto> _reportedAgents = new();
@@ -60,6 +65,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         }
         _registry.Dispose();
         _devices?.Dispose();
+        _db.Dispose();
         try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
     }
 
@@ -223,7 +229,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     public void RefusalOf_TerminalOrOfferedApi_GoesOnToTheDirector(string? mode, bool offered, string? expected)
     {
         // Act
-        var refusal = ConnectionChoiceFold.RefusalOf(new NewSessionRequest { ConnectionMode = mode }, offered);
+        var refusal = ConnectionChoiceFold.RefusalOf(new NewSessionRequest { ConnectionMode = mode }, offered, validatedRestore: false);
 
         // Assert
         Assert.Equal(expected, refusal);
@@ -233,7 +239,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     public void RefusalOf_ApiWhileNotOffered_IsRefusedWithTheReason()
     {
         // Act
-        var refusal = ConnectionChoiceFold.RefusalOf(new NewSessionRequest { ConnectionMode = ConnectionModes.Api }, apiModeOffered: false);
+        var refusal = ConnectionChoiceFold.RefusalOf(new NewSessionRequest { ConnectionMode = ConnectionModes.Api }, apiModeOffered: false, validatedRestore: false);
 
         // Assert
         Assert.NotNull(refusal);
@@ -241,14 +247,26 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Fact]
-    public void RefusalOf_ARestoreOfAnApiModeSeatWhileNotOffered_GoesOnSoTheSeatComesBackAsItRan()
+    public void RefusalOf_AValidatedRestoreOfAnApiModeSeatWhileNotOffered_GoesOnSoTheSeatComesBackAsItRan()
     {
         // Act
         var refusal = ConnectionChoiceFold.RefusalOf(
-            new NewSessionRequest { ConnectionMode = ConnectionModes.Api, RestoreClaim = new WorkspaceRestoreClaim { WorkspaceId = "w-1", SeatSessionId = "s-1" } }, apiModeOffered: false);
+            new NewSessionRequest { ConnectionMode = ConnectionModes.Api, RestoreClaim = ForgedClaim() }, apiModeOffered: false, validatedRestore: true);
 
         // Assert
         Assert.Null(refusal);
+    }
+
+    [Fact]
+    public void RefusalOf_AClaimInTheBodyThatNoDoorValidated_IsRefusedWhileNotOffered()
+    {
+        // Act: the phase 5 review's finding 1 - a claim the caller wrote proves nothing by being there.
+        var refusal = ConnectionChoiceFold.RefusalOf(
+            new NewSessionRequest { ConnectionMode = ConnectionModes.Api, RestoreClaim = ForgedClaim() }, apiModeOffered: false, validatedRestore: false);
+
+        // Assert
+        Assert.NotNull(refusal);
+        Assert.StartsWith("API mode is not offered yet", refusal);
     }
 
     [Theory]
@@ -257,7 +275,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     public void RefusalOf_AnUnknownWord_IsRefusedWhateverTheSwitch(bool offered)
     {
         // Act
-        var refusal = ConnectionChoiceFold.RefusalOf(new NewSessionRequest { ConnectionMode = "API" }, offered);
+        var refusal = ConnectionChoiceFold.RefusalOf(new NewSessionRequest { ConnectionMode = "API" }, offered, validatedRestore: false);
 
         // Assert
         Assert.Equal("\"API\" is not a connection mode: it is \"terminal\" or \"api\".", refusal);
@@ -339,7 +357,68 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.Equal(mode, SawAt(door)!.ConnectionMode);
     }
 
+    [Fact]
+    public async Task PostMachineSessions_ApiModeWithAForgedRestoreClaimWhileNotOffered_Is400AndNothingIsSent()
+    {
+        // Arrange: the phase 5 review's probe - a device caller adds any restore claim to an API-mode create.
+        await StartAsync();
+
+        // Act
+        using var response = await Create("machine", ConnectionModes.Api, ForgedClaim());
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("API mode is not offered yet", await response.Content.ReadAsStringAsync());
+        Assert.Null(_machineDoorSaw);
+    }
+
+    [Fact]
+    public async Task PostDirectorSessions_ApiModeWithAForgedRestoreClaimFromADevice_IsRefusedAndNothingIsSent()
+    {
+        // Arrange
+        await StartAsync();
+
+        // Act
+        using var response = await Create("director", ConnectionModes.Api, ForgedClaim());
+
+        // Assert: the claim is checked before the switch is read and fails - this key is not the one the Director said
+        // Hello on - so a claim that is not real never exempts anything.
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains($"a restore claim is sent only by Director '{DirectorId}' itself", await response.Content.ReadAsStringAsync());
+        Assert.Null(_directorDoorSaw);
+    }
+
+    [Fact]
+    public async Task PostDirectorSessions_ARealRestoreOfAnApiModeSeatWhileNotOffered_GoesToTheDirectorInApiMode()
+    {
+        // Arrange: the Director the create is for, on the credential it said Hello on, restoring a seat that ran in API mode.
+        await StartAsync();
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/directors/{DirectorId}/sessions")
+        {
+            Content = JsonContent.Create(new NewSessionRequest
+            {
+                RepoPath = Path.GetTempPath(),
+                Agent = "Pi",
+                ConnectionMode = ConnectionModes.Api,
+                RestoreClaim = new WorkspaceRestoreClaim { WorkspaceId = "w-1", SeatSessionId = "s-1", Token = "token-1" },
+            }, options: Web),
+        };
+        request.Headers.Add(DirectorCredentialHeader, "yes");
+
+        // Act
+        using var response = await _http!.SendAsync(request);
+
+        // Assert
+        Assert.True(response.IsSuccessStatusCode, $"director door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.NotNull(_directorDoorSaw);
+        Assert.Equal(ConnectionModes.Api, _directorDoorSaw!.ConnectionMode);
+        Assert.Equal("s-1", _directorDoorSaw.RestoreClaim?.SeatSessionId);
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------------------------
+
+    /// <summary>A restore claim as any caller could write one: nothing about it says who sent it.</summary>
+    private static WorkspaceRestoreClaim ForgedClaim() => new() { WorkspaceId = "forged", SeatSessionId = "forged" };
 
     private static List<AgentChoiceDto> ReportedAgents() => new()
     {
@@ -352,7 +431,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     private NewSessionRequest? SawAt(string door) => door == "machine" ? _machineDoorSaw : _directorDoorSaw;
 
     /// <summary>A person's New Session from the Cockpit: a device credential, so the origin is settled as a person's.</summary>
-    private Task<HttpResponseMessage> Create(string door, string? connectionMode)
+    private Task<HttpResponseMessage> Create(string door, string? connectionMode, WorkspaceRestoreClaim? restoreClaim = null)
     {
         var url = door == "machine" ? $"/machines/{Machine}/sessions" : $"/directors/{DirectorId}/sessions";
         var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -362,6 +441,7 @@ public sealed class ConnectionChoiceTests : IDisposable
                 RepoPath = Path.GetTempPath(),
                 Agent = "Pi",
                 ConnectionMode = connectionMode,
+                RestoreClaim = restoreClaim,
             }, options: Web),
         };
         request.Headers.Add(DeviceHeader, "desktop");
@@ -385,12 +465,14 @@ public sealed class ConnectionChoiceTests : IDisposable
         {
             if (ctx.Request.Headers.TryGetValue(DeviceHeader, out var device))
                 ctx.Items[AuthMiddleware.DeviceTypeItemKey] = device.ToString();
+            if (ctx.Request.Headers.ContainsKey(DirectorCredentialHeader))
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "machine-token";
             await next();
         });
         app.UseRouting();
 
         _registry.RegisterFromStream(DirectorId, Machine, "tester", "2.20.0-test", 1,
-            new DateTime(2026, 10, 16, 9, 0, 0, DateTimeKind.Utc), TenantId.Local);
+            new DateTime(2026, 10, 16, 9, 0, 0, DateTimeKind.Utc), TenantId.Local, registeredByCredential: "machine-token");
 
         DirectorCommandRouter.SendDirectorCommandAsync send = (directorId, command, ct) =>
         {
@@ -417,7 +499,8 @@ public sealed class ConnectionChoiceTests : IDisposable
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), _devices, hosted: false);
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, aiGate: TenantAiGate.SelfHost,
-            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, sendCommand: send);
+            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, sendCommand: send,
+            workspaces: new WorkspaceStore(_db.Open()));
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, directors: _registry);
         await app.StartAsync();

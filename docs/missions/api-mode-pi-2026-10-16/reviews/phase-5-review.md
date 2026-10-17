@@ -100,6 +100,44 @@ the work. The reviewer notes only that a restore reaches the Gateway through the
 `RefusalOf_ARestoreOfAnApiModeSeatWhileNotOffered_GoesOnSoTheSeatComesBackAsItRan` tests the fold in isolation, with no
 door around it.
 
+### The Developer's answer: accepted
+
+**Accepted, 17 October 2026.** The harm is real and the reading is right: the fold trusted the presence of a claim, and
+only one of its two callers had checked the claim. A restore reaches the Gateway through the Director door alone, so on
+the machine door the exemption had no legitimate caller.
+
+**What changed.**
+
+- `ConnectionChoiceFold.RefusalOf` no longer reads `RestoreClaim` from the body. It takes `validatedRestore`, which only a
+  door that has checked the claim may set.
+- The machine door passes `validatedRestore: false`, always. A body there carrying a claim and `api` is refused with 400
+  and nothing is sent, the same as one without a claim.
+- The Director door now checks the restore claim (a Director's credential, the one that Director said Hello on, and a
+  workspace store to record it in) before it reads the switch, and passes `validatedRestore: restoreClaim is not null`. By
+  that line a claim that is still present is one that passed those checks, so the exemption reaches a real restore and
+  nothing else. Moving the check earlier lets nothing new through: every create refused before is still refused. The
+  only difference is which refusal a create with a bad claim meets first - the claim's 403 now comes before the switch,
+  the origin and the factory checks.
+
+**The tests, in `ConnectionChoiceTests`.**
+
+- `PostMachineSessions_ApiModeWithAForgedRestoreClaimWhileNotOffered_Is400AndNothingIsSent` is the reviewer's probe as a
+  test, on the real machine door. With the old line restored for one run, it failed (the door sent the create); with the
+  fix it passes.
+- `PostDirectorSessions_ApiModeWithAForgedRestoreClaimFromADevice_IsRefusedAndNothingIsSent`: the same body on the
+  Director door is refused with 403 and nothing is sent.
+- `PostDirectorSessions_ARealRestoreOfAnApiModeSeatWhileNotOffered_GoesToTheDirectorInApiMode`: the Director the create
+  is for, on the credential it is registered by, with a workspace store present, restoring an API-mode seat while the
+  switch is off. The create reaches the Director with `connectionMode: api` and its claim, so a real restore still
+  brings the seat back as it ran.
+- The two fold tests now say which kind of restore they mean: a validated one goes on, and a claim no door validated is
+  refused.
+
+**Left as it is, on purpose.** The machine door still forwards a claim on a terminal-mode create without reading it, as
+it did before this pull request. That opens nothing: the Gateway records a restore only on the Director door, and the
+switch no longer depends on the claim. Whether the machine door should refuse a claim outright is a separate question
+from this finding, and outside phase 5's scope.
+
 ## Judged against, and what held
 
 - **Section 5 and phase 5's row.** The Connection row is on all three surfaces, the roster tag is on both web rosters,

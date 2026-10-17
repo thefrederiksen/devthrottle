@@ -32,11 +32,14 @@ internal static class ConnectionChoiceFold
     /// <summary>
     /// Why the Gateway refuses this create's <see cref="NewSessionRequest.ConnectionMode"/>, or null when it goes on to the
     /// Director. Absent and <c>terminal</c> always go on. A word that is not a connection mode is refused, never guessed.
-    /// <c>api</c> is refused while <paramref name="apiModeOffered"/> is off - except on a restore's create (it carries a
-    /// <see cref="NewSessionRequest.RestoreClaim"/>), which brings back a session the way it already ran. Whether the
-    /// AGENT has API mode is the Director's to answer, from the agent's own wrapper, and it refuses in words.
+    /// <c>api</c> is refused while <paramref name="apiModeOffered"/> is off - except on a restore's create, which brings
+    /// back a session the way it already ran. <paramref name="validatedRestore"/> says the create IS a restore, and only
+    /// the door that has checked its <see cref="NewSessionRequest.RestoreClaim"/> may say so: a claim in the body proves
+    /// nothing until the Gateway has checked who sent it (the phase 5 review, finding 1 - the machine door never checks
+    /// one, so a forged claim there skipped the switch). Whether the AGENT has API mode is the Director's to answer, from
+    /// the agent's own wrapper, and it refuses in words.
     /// </summary>
-    public static string? RefusalOf(NewSessionRequest req, bool apiModeOffered)
+    public static string? RefusalOf(NewSessionRequest req, bool apiModeOffered, bool validatedRestore)
     {
         var mode = req.ConnectionMode;
         if (string.IsNullOrEmpty(mode) || mode == ConnectionModes.Terminal)
@@ -46,7 +49,7 @@ internal static class ConnectionChoiceFold
             FileLog.Write($"[ConnectionChoiceFold] RefusalOf: unknown connection mode \"{mode}\"");
             return $"\"{mode}\" is not a connection mode: it is \"{ConnectionModes.Terminal}\" or \"{ConnectionModes.Api}\".";
         }
-        if (apiModeOffered || req.RestoreClaim is not null)
+        if (apiModeOffered || validatedRestore)
             return null;
         FileLog.Write("[ConnectionChoiceFold] RefusalOf: API mode asked for while it is not offered");
         return "API mode is not offered yet: it opens once taking the wheel is built (mission #4070, phase 4). " +
