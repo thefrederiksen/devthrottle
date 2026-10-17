@@ -1,5 +1,6 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Licenses;
 using CcDirector.Gateway.Tests.Data;
@@ -20,6 +21,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
     private static readonly TenantId Other = new("acct-b");
 
     private readonly GatewayDbTestHarness _harness = new();
+    private readonly GatewayDatabase _db;
     private readonly LicenseStore _store;
     private readonly LicenseUsageIngest _ingest;
     private readonly LicenseSwitchService _switches;
@@ -32,7 +34,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
 
     public LicenseMachineHealthAlarmTests()
     {
-        var db = _harness.Open();
+        var db = _db = _harness.Open();
         _store = new LicenseStore(db);
         _ingest = new LicenseUsageIngest(_store);
         _ingest.RegisterConnection(Tenant, "dir-1", "conn-1");
@@ -153,6 +155,101 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
         await _switches.TickAsync(Tenant, CancellationToken.None);
         await Raise();
         Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
+    }
+
+    private async Task GoSilent()
+    {
+        Push(Good());
+        _now = T0 + LicenseStore.SilentAfter + TimeSpan.FromMinutes(1);
+        await _switches.TickAsync(Tenant, CancellationToken.None);
+        await Raise();
+        Assert.Single(Open(LicenseMachineHealthAlarm.Silent.Key));
+    }
+
+    [Fact]
+    public async Task ASilentMachineWhoseDirectorComesBackRefused_IsNoLongerSilent_OnlyRefused()
+    {
+        // The review of pull request 4172, finding 1: the Director stops, then comes back with reports the Gateway
+        // refuses. It is sending, so "its Director may have stopped" would be false.
+        await GoSilent();
+
+        for (var i = 1; i <= 2; i++)
+        {
+            _now = _now.AddMinutes(1);
+            Push(HeldTwice());
+            await _switches.TickAsync(Tenant, CancellationToken.None);
+            await Raise();
+        }
+
+        Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
+        Assert.Single(Open(LicenseMachineHealthAlarm.Refused.Key));
+        Assert.DoesNotContain(_store.ListOpenMachineHealth(Tenant), r => r.Kind == LicenseLogKinds.MachineSilent);
+        var log = _store.ListLog(Tenant, T0.AddDays(-1));
+        Assert.Equal(LicenseLogStates.Ended, Assert.Single(log, r => r.Kind == LicenseLogKinds.MachineSilent).State);
+        Assert.DoesNotContain(log, r => r.Kind == LicenseLogKinds.ReportingAgain);
+
+        // An accepted report then closes the refusal, and nothing is silent.
+        Push(Good());
+        await _switches.TickAsync(Tenant, CancellationToken.None);
+        await Raise();
+        Assert.Empty(_alarms.ListOpen(Tenant));
+    }
+
+    [Fact]
+    public async Task TwoSilentMachinesWithTheLongestNames_AreBothAlarmed_InSentencesAnAlarmHolds()
+    {
+        // The review of pull request 4172, finding 2: two machines of one 128-character name, told apart by their
+        // 128-character users, are labelled "name (user)", and the silent action names the label twice.
+        var name = new string('m', 128);
+        _ingest.RegisterConnection(Tenant, "dir-2", "conn-2");
+        foreach (var (director, conn, user) in new[] { ("dir-1", "conn-1", new string('u', 128)), ("dir-2", "conn-2", new string('v', 128)) })
+        {
+            var report = Report(name, Holding(A, true));
+            report.OsUser = user;
+            Assert.Equal(LicenseIngestOutcome.Accepted, _ingest.Ingest(Tenant, director, conn, ++_sequence, report, _now));
+        }
+        _now = T0 + LicenseStore.SilentAfter + TimeSpan.FromMinutes(1);
+        await _switches.TickAsync(Tenant, CancellationToken.None);
+
+        await Raise();
+
+        var alarms = Open(LicenseMachineHealthAlarm.Silent.Key);
+        Assert.Equal(2, alarms.Count);
+        Assert.All(alarms, a => Assert.True(a.Problem.Length <= LicenseAlarmService.MaxSentenceLength && a.Action.Length <= LicenseAlarmService.MaxSentenceLength));
+        Assert.All(alarms, a => Assert.Equal($"Start the Director on {a.MachineName}.", a.Action));
+    }
+
+    [Fact]
+    public async Task ARefusedRaiseThatFails_StillRaisesTheSilentKind_AndThenFails()
+    {
+        // The review of pull request 4172, finding 2: the two kinds were raised in one try, so a refused raise that
+        // threw left the silent kind unraised every minute. A row no real report could write stands in for a raise
+        // that fails: its machine name is longer than any alarm sentence.
+        Push(Good());
+        _now = T0 + LicenseStore.SilentAfter + TimeSpan.FromMinutes(1);
+        await _switches.TickAsync(Tenant, CancellationToken.None);
+        using (var ctx = _db.CreateContext(Tenant))
+        {
+            ctx.LicenseSwitchLog.Add(new LicenseSwitchLogEntity
+            {
+                Kind = LicenseLogKinds.ReportRefused,
+                MachineName = new string('z', 400),
+                OsUser = "owner",
+                DirectorId = "dir-9",
+                State = LicenseLogStates.Open,
+                Message = LicenseStore.RefusedMessage(new LicenseReportRefusal(LicenseReportRefusalCodes.MoreThanOneInUse, "it has two sign-ins in use")),
+                CreatedAtUtc = _now,
+                SendCount = 1,
+                LastSentAtUtc = _now,
+                TenantId = ctx.ActiveTenant!,
+            });
+            ctx.SaveChanges();
+        }
+
+        await Assert.ThrowsAsync<AggregateException>(() => Raise());
+
+        Assert.Single(Open(LicenseMachineHealthAlarm.Silent.Key));
+        Assert.Empty(Open(LicenseMachineHealthAlarm.Refused.Key));
     }
 
     [Fact]

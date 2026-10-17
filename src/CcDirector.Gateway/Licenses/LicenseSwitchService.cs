@@ -572,7 +572,14 @@ public sealed class LicenseSwitchService
             if (silence is not null)
             {
                 // A report accepted after the row was written: the row was written on a picture older than that report.
-                if (machine.LastReportAtUtc > silence.CreatedAtUtc && _store.CloseSilence(tenant, silence.Id, machine, now))
+                if (machine.LastReportAtUtc > silence.CreatedAtUtc)
+                {
+                    if (_store.CloseSilence(tenant, silence.Id, machine, now))
+                        written++;
+                }
+                // Its Director is back but every report is refused: it is no longer silent, and the refusal says why it
+                // is not switched. A refused machine is never also called silent, in whichever order the two came.
+                else if (picture.RefusalOf(machine) is not null && _store.EndSilenceForRefusal(tenant, silence.Id, now))
                     written++;
                 continue;
             }

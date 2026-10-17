@@ -1090,6 +1090,37 @@ public sealed class LicenseStore
         }
     }
 
+    /// <summary>
+    /// End an open <see cref="LicenseLogKinds.MachineSilent"/> row of a machine whose reports are now being refused: its
+    /// Director is sending again, so it is no longer silent, but no report was accepted, so it is not reporting again
+    /// either and no <see cref="LicenseLogKinds.ReportingAgain"/> row is written. The open refusal row says what is wrong
+    /// now. False when the row is not open.
+    /// </summary>
+    public bool EndSilenceForRefusal(TenantId tenant, Guid rowId, DateTime nowUtc)
+    {
+        var now = Utc(nowUtc);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.LicenseSwitchLog.FirstOrDefault(r => r.Id == rowId && r.Kind == LicenseLogKinds.MachineSilent && r.FinishedAtUtc == null);
+            if (row is null)
+            {
+                FileLog.Write($"[LicenseStore] EndSilenceForRefusal: tenant={tenant.ToLogString()}, row={rowId} is not open");
+                return false;
+            }
+            row.State = LicenseLogStates.Ended;
+            row.FinishedAtUtc = now;
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] EndSilenceForRefusal: tenant={tenant.ToLogString()}, machine={row.MachineId}, its reports are being refused");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] EndSilenceForRefusal FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
     /// <summary>A silent machine's report was accepted: its silence row ends and one row says it is reporting again.
     /// False when the row is not open.</summary>
     public bool CloseSilence(TenantId tenant, Guid rowId, LicenseMachineView machine, DateTime nowUtc)

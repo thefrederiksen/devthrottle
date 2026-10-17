@@ -107,38 +107,58 @@ public sealed class LicenseMachineHealthAlarm
         var machine = machines.FirstOrDefault(m => m.MachineId == row.MachineId);
         var label = machine is not null ? LicenseSignInFold.Label(machines, machine.MachineName, machine.OsUser) : row.MachineName;
         var last = row.LastSentAtUtc ?? row.CreatedAtUtc;
-        return new LicenseAlarmCondition(row.MachineId, label, null,
-            $"{label} has sent no report since {Clock(last)}, so it is not switched: its Director may have stopped.",
-            $"Start the Director on {label}, or check that {label} is on and connected.");
+        // A label long enough to take a sentence past what an alarm holds (a name and a user may be 128 characters
+        // each, and the action names the label twice) says the same thing more shortly.
+        var problem = $"{label} has sent no report since {Clock(last)}, so it is not switched: its Director may have stopped.";
+        if (problem.Length > LicenseAlarmService.MaxSentenceLength)
+            problem = $"A machine has sent no report since {Clock(last)}, so it is not switched; the Licenses page names it.";
+        var action = $"Start the Director on {label}, or check that {label} is on and connected.";
+        if (action.Length > LicenseAlarmService.MaxSentenceLength)
+            action = $"Start the Director on {label}.";
+        return new LicenseAlarmCondition(row.MachineId, label, null, problem, action);
     }
 
     private static string Clock(DateTime utc)
         => DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
 
     /// <summary>Raise both kinds for one tenant now, each with every alarm of it that is true: an empty list closes what
-    /// is open. One raise at a time for each tenant.</summary>
-    public async Task<(LicenseAlarmRaised Refused, LicenseAlarmRaised Silent)> RaiseAsync(TenantId tenant, CancellationToken ct)
+    /// is open. One raise at a time for each tenant. Each kind is raised on its own, so a kind whose raise fails never
+    /// stops the other: the failure is logged, the other kind is raised, and then the failure is thrown.</summary>
+    public async Task<(LicenseAlarmRaised? Refused, LicenseAlarmRaised? Silent)> RaiseAsync(TenantId tenant, CancellationToken ct)
     {
         var gate = _raising.GetOrAdd(tenant, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var (refused, silent) = ConditionsNow(tenant);
-            var refusedRaised = await _alarms.RaiseAsync(tenant, Refused, refused, ct).ConfigureAwait(false);
-            var silentRaised = await _alarms.RaiseAsync(tenant, Silent, silent, ct).ConfigureAwait(false);
+            var failures = new List<Exception>();
+            var refusedRaised = await RaiseKindAsync(tenant, Refused, refused, failures, ct).ConfigureAwait(false);
+            var silentRaised = await RaiseKindAsync(tenant, Silent, silent, failures, ct).ConfigureAwait(false);
             // Quiet when there is nothing to say; the alarm service logs every open and close itself.
             if (refused.Count + silent.Count > 0)
                 FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync: tenant={tenant.ToLogString()}, refused={refused.Count}, silent={silent.Count}");
+            if (failures.Count > 0)
+                throw new AggregateException($"The raise of {failures.Count} license alarm kind(s) failed for tenant {tenant.ToLogString()}.", failures);
             return (refusedRaised, silentRaised);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync FAILED: tenant={tenant.ToLogString()}: {ex.Message}");
-            throw;
         }
         finally
         {
             gate.Release();
+        }
+    }
+
+    private async Task<LicenseAlarmRaised?> RaiseKindAsync(TenantId tenant, LicenseAlarmKind kind,
+        IReadOnlyList<LicenseAlarmCondition> conditions, List<Exception> failures, CancellationToken ct)
+    {
+        try
+        {
+            return await _alarms.RaiseAsync(tenant, kind, conditions, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            FileLog.Write($"[LicenseMachineHealthAlarm] RaiseAsync FAILED: tenant={tenant.ToLogString()}, kind={kind.Key} ({ex.GetType().Name}): {ex.Message}");
+            failures.Add(ex);
+            return null;
         }
     }
 
