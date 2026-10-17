@@ -102,6 +102,12 @@ a file that names a type declared in a changed file, so a local gate run selects
 fails. The pull request body reports a green proof because it filtered to the first class by name. A change that
 contradicts two tests in its own file without saying so has not been proven; it has been half-run.
 
+Developer's answer: **Accepted, fixed.** The two tests now pass and assert the Tech Lead's words for the Pi-exit
+state: "No agent process is running. The last connection ended: Pi exited (exit code 137)" and "No agent process is
+running. The last connection ended: Pi exited during the turn (exit code 137)", so the exit reason still appears. The
+proof now runs the whole file, both classes: `ApiModeSessionFoldTests` and `ApiModeSessionVerdictTests`, 36 passed,
+0 failed.
+
 ### Finding 2 (medium): the new rule drops a held exit reason the Gateway has, because `none` is also what every Director reports when Pi's own process exits
 
 **Where.** `ApiModeSessionFold.Agent`, the new early return for `WheelHolders.None`.
@@ -134,6 +140,12 @@ review, and both failing tests can be rewritten to words that still carry the ex
 tests in finding 1 are rewritten to the chosen words, and the roster test
 `GetSessions_AnApiModeSessionThatFailedMidTurn_CarriesTheVerdict` (holder `protocol`) is unaffected.
 
+Developer's answer: **Accepted, fixed, with the Reviewer's option (a).** The Tech Lead ruled: the current report
+first, the held ending after it. With a holder of `none`, when a `ConnectionEnded` is the latest held connection event
+the label is "No agent process is running. The last connection ended: <reason>", the reason verbatim as the old
+disconnected label used it; otherwise "No agent process is running". Kind stays `stopped`. New test:
+`Fold_AHeldReadyWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunningWithNoEnding`.
+
 ### Finding 3 (low): two comments in the fold now describe the old order
 
 **Where.** `ApiModeSessionFold.cs`: the section comment above the `Agent` call, "the agent process: the latest
@@ -144,6 +156,10 @@ whether the agent is connected comes from "the latest `ConnectionReady` or `Conn
 learns the rule from these comments before the code, and learns the wrong one. One sentence each, saying that a
 holder of `user` or `none` answers before any held event is read.
 
+Developer's answer: **Accepted, fixed.** The section comment above the `Agent` call and the third bullet of the class
+summary now say that a holder of `user` or `none` answers before any held event is read, and that for `none` a held
+`ConnectionEnded` follows as history.
+
 ### Finding 4 (low): the record says less than the change does
 
 **Where.** The Developer's answer under finding 2 in `phase-2-phase-review.md`, and the pull request body's proof.
@@ -152,6 +168,10 @@ holder of `user` or `none` answers before any held event is read.
 count. It does not say that the rule also changes the label for every Pi exit, nor that two existing tests pin
 that label. Whichever option the Tech Lead takes in finding 2, the answer should name the second state and the
 ruling on it, so the next seat does not rediscover it as this review did.
+
+Developer's answer: **Accepted, fixed.** The Developer's answer under finding 2 in `phase-2-phase-review.md` now
+names both states a holder of `none` covers - the user's terminal exiting, and Pi's own process exiting - the ruling
+on each, and the tests that pin them. The pull request body says the same and reports the whole-file count.
 
 ## Summary
 

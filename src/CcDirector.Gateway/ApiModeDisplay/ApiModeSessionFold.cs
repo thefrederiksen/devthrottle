@@ -17,9 +17,11 @@ namespace CcDirector.Gateway.ApiModeDisplay;
 /// <item>The turn number, working or idle, the queue, and the last turn's ending: the stored receipts. The ingest writes
 /// the receipts BEFORE the event feed hands an event on, so the receipts are never behind the feed. Survives, for as long
 /// as the receipts are kept (<see cref="Receipts.ApiModeReceiptStore.Retention"/>).</item>
-/// <item>Whether the agent process is connected, and its model: the latest <c>ConnectionReady</c> or
-/// <c>ConnectionEnded</c> this Gateway holds. Does NOT survive: the feed is empty after a restart. Then the verdict says
-/// what the Director's wheel report supports, and "not known" where it supports nothing.</item>
+/// <item>Whether the agent process is connected, and its model: a wheel holder of <c>user</c> or <c>none</c> answers
+/// before any held event is read (for <c>none</c>, a held <c>ConnectionEnded</c> follows as history); otherwise the
+/// latest <c>ConnectionReady</c> or <c>ConnectionEnded</c> this Gateway holds. Does NOT survive: the feed is empty after
+/// a restart. Then the verdict says what the Director's wheel report supports, and "not known" where it supports
+/// nothing.</item>
 /// </list>
 /// </summary>
 public static class ApiModeSessionFold
@@ -98,7 +100,8 @@ public static class ApiModeSessionFold
         var queued = receipts.Where(r => r.State == ApiModeReceiptState.Queued).ToList();
         var queueLabel = QueueWords(queued);
 
-        // ----- the agent process: the latest connection event held here, else what the wheel supports -----
+        // ----- the agent process: a holder of user or none answers first (none followed by any held ending); otherwise
+        // the latest connection event held here, else what the wheel supports -----
         var (agentConnected, agentLabel) = Agent(wheelHolder, held);
 
         var kind = !wheelKnown ? "unknown"
@@ -188,15 +191,22 @@ public static class ApiModeSessionFold
     internal const string NoConnectionEventHeld =
         "Not known: the Gateway holds no connection event for this session. The Director reports the agent process holds the conversation";
 
+    /// <summary>The agent label when no process holds the conversation (a wheel holder of <c>none</c>).</summary>
+    internal const string NoAgentProcessIsRunning = "No agent process is running";
+
     private static (bool? Connected, string Label) Agent(string wheelHolder, ApiModeEventReplay held)
     {
         if (wheelHolder == WheelHolders.User)
             return (false, "The agent runs in your terminal");
-        // The holder is the Director's current report and a held event is history; the current report wins (#4094).
-        if (wheelHolder == WheelHolders.None)
-            return (false, "No agent process is running");
-
         var latest = held.Events.Select(h => h.Event).LastOrDefault(e => e is ConnectionReady or ConnectionEnded);
+        // The holder is the Director's current report and a held event is history: the current report comes first, and
+        // a held ending follows it, because it is true history and, when Pi's own process exited, the only place the
+        // exit reason shows on the row (#4094, the holder none label review).
+        if (wheelHolder == WheelHolders.None)
+            return latest is ConnectionEnded ended
+                ? (false, NoAgentProcessIsRunning + ". The last connection ended: " + ended.Reason)
+                : (false, NoAgentProcessIsRunning);
+
         switch (latest)
         {
             case ConnectionEnded gone:

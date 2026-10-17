@@ -206,14 +206,27 @@ not on a user's screen today; it will be the day #4094 merges unless the fold ch
 event, or phase 4 writes a `ConnectionEnded` when the user's terminal exits (the event model's `ConnectionEnded`
 is for the agent process, and the terminal is one). The seat integrating phase 4 decides which.
 
-Developer's answer: **Accepted, fixed in the Gateway.** The Tech Lead ruled the fold checks `none` before the held
-event: the wheel holder is the Director's current report and a held event is history, and the current report wins.
-`ApiModeSessionFold.Agent` now answers "No agent process is running" for a holder of `none` before it reads any held
-`ConnectionReady` or `ConnectionEnded`; the `user` and `protocol` paths are unchanged. Two tests in
-`ApiModeSessionFoldTests`: `Fold_AHeldDisconnectWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunning` (a held
-`ConnectionEnded` "the user took the wheel" with holder `none` gives kind `stopped` and the none label) and
-`Fold_AHeldDisconnectWhileTheProtocolHoldsTheWheel_SaysTheAgentDisconnected` (the same held event with holder
-`protocol` still gives "Agent disconnected: the user took the wheel").
+Developer's answer: **Accepted, fixed in the Gateway** (pull request #4174, revised after its review,
+`phase-2b-holder-none-label-review.md`). The Tech Lead ruled: a wheel holder of `none` is the Director's current
+report and wins, so it comes first; a held `ConnectionEnded` is still true history and follows it. A holder of `none`
+covers two states, and the rule is the same for both:
+
+- **The user's terminal exiting.** The user took the wheel (the disconnect "the user took the wheel" is held), then
+  their terminal exited and the Director reports `none`. The row reads "No agent process is running. The last
+  connection ended: the user took the wheel" - no longer telling the user a terminal is open.
+- **Pi's own process exiting**, with or without a turn open. The Director writes `ConnectionEnded` with the exit
+  reason and reports `none`. The row reads "No agent process is running. The last connection ended: Pi exited (exit
+  code 137)". The held ending is the only place the exit reason shows on the row when no turn was open, so it is
+  never dropped.
+
+With no `ConnectionEnded` as the latest held connection event, the label is "No agent process is running" alone.
+Kind stays `stopped`. The `user` and `protocol` paths are unchanged. Tests in `ApiModeSessionFoldTests.cs`:
+`Fold_AHeldDisconnectWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunningThenTheLastEnding` (the terminal state),
+`Fold_AHeldReadyWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunningWithNoEnding` (a held `ConnectionReady` adds no
+ending), `Fold_AHeldDisconnectWhileTheProtocolHoldsTheWheel_SaysTheAgentDisconnected` (holder `protocol` unchanged),
+and, for Pi's own exit, `Stamp_RefusedBeforeAcknowledgement_NoTurnAndTheAgentIsGone` and
+`Stamp_FailedMidTurn_SaysTheLastTurnFailedWithItsReason` in `ApiModeSessionVerdictTests`, each asserting the exit
+reason with its exit code still appears.
 
 ## Observations (not findings: no harm proven on main, recorded so the next seat need not rediscover them)
 

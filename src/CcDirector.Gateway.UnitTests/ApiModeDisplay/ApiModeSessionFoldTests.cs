@@ -126,11 +126,26 @@ public sealed class ApiModeSessionFoldTests
     }
 
     [Fact]
-    public void Fold_AHeldDisconnectWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunning()
+    public void Fold_AHeldDisconnectWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunningThenTheLastEnding()
     {
         // Arrange: the user took the wheel (the disconnect is held), then their terminal exited on its own - the Director
-        // reports "none" and writes no further event (#4094). The current report outranks the held history.
+        // reports "none" and writes no further event (#4094). The current report comes first, the held history after it.
         var held = HeldWhole(Ready(1), Gone(2, 0, "the user took the wheel"));
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held)!;
+
+        // Assert
+        Assert.Equal("stopped", verdict.Kind);
+        Assert.False(verdict.AgentConnected);
+        Assert.Equal("No agent process is running. The last connection ended: the user took the wheel", verdict.AgentLabel);
+    }
+
+    [Fact]
+    public void Fold_AHeldReadyWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunningWithNoEnding()
+    {
+        // Arrange: the latest held connection event is a ready, so there is no ending to report after the headline.
+        var held = HeldWhole(Ready(1));
 
         // Act
         var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held)!;
@@ -438,7 +453,7 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
         Assert.Null(verdict.TurnNumber);
         Assert.Equal("Idle - no turn yet", verdict.ActivityLabel);
         Assert.False(verdict.AgentConnected);
-        Assert.Equal("Agent disconnected: Pi exited (exit code 137)", verdict.AgentLabel);
+        Assert.Equal("No agent process is running. The last connection ended: Pi exited (exit code 137)", verdict.AgentLabel);
     }
 
     [Fact]
@@ -455,7 +470,7 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
         Assert.Equal("red", verdict.Tone);
         Assert.False(verdict.Working);
         Assert.False(verdict.AgentConnected);
-        Assert.Equal("Agent disconnected: Pi exited during the turn (exit code 137)", verdict.AgentLabel);
+        Assert.Equal("No agent process is running. The last connection ended: Pi exited during the turn (exit code 137)", verdict.AgentLabel);
     }
 
     [Fact]
