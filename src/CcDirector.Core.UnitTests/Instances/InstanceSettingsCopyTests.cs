@@ -20,10 +20,15 @@ public sealed class InstanceSettingsCopyTests : IDisposable
         _source = Path.Combine(_root, "instances", "default");
         _target = Path.Combine(_root, "instances", "test-copy");
         Write(_source, "config/config.json",
-            """{"gateway":{"url":"https://gw.example","token":"device-key"},"agent":{"entries":[]},"session_rail_order":["s1"],"session_rail_expanded_crews":["c1"]}""");
-        Write(_source, "config/director/gateway-token.txt", "device-key");
+            """{"gateway":{"url":"https://gw.example","token":"device-key","streamMode":"on"},"agent":{"entries":[]},"browser":{"default":{"profileFolder":"/home/x/.config/chrome"}},"session_rail_order":["s1"],"session_rail_expanded_crews":["c1"]}""");
         Write(_source, "config/director/root-directories.json", """["/home/x/repos"]""");
         Write(_source, "config/director/repositories.json", """["/home/x/repos/a"]""");
+        Write(_source, "config/director/agent-templates.json", """[{"name":"mine"}]""");
+        Write(_source, "dictation/dictionary.yaml", "corrections: []");
+        // The Gateway key and its team belong to the source's Director id.
+        Write(_source, "config/director/gateway-token.txt", "device-key");
+        Write(_source, "config/director/gateway-team.json", "{}");
+        Write(_source, "keyvault.json", "{}");
         // Identity and history: none of these may reach the clone.
         Write(_source, "config/director/director-id-5b5945bcf19f4e85.txt", "director-id");
         Write(_source, "config/director/sessions.json", "[]");
@@ -53,21 +58,33 @@ public sealed class InstanceSettingsCopyTests : IDisposable
         var copied = InstanceSettingsCopy.Copy(_source, _target);
 
         Assert.Equal(InstanceSettingsCopy.CopiedFiles, copied);
-        Assert.Equal("device-key", File.ReadAllText(Target("config/director/gateway-token.txt")));
         Assert.Equal("""["/home/x/repos/a"]""", File.ReadAllText(Target("config/director/repositories.json")));
+        Assert.Equal("""[{"name":"mine"}]""", File.ReadAllText(Target("config/director/agent-templates.json")));
+        Assert.Equal("corrections: []", File.ReadAllText(Target("dictation/dictionary.yaml")));
     }
 
     [Fact]
-    public void Copy_KeepsTheGatewayConnectionAndDropsTheSessionLayout()
+    public void Copy_KeepsTheGatewayAddressButNotItsKey()
     {
+        // A device key is accepted only for the Director id it was enrolled for, and a clone has a new id.
         InstanceSettingsCopy.Copy(_source, _target);
 
         var config = JsonNode.Parse(File.ReadAllText(Target("config/config.json")))!.AsObject();
         Assert.Equal("https://gw.example", (string?)config["gateway"]!["url"]);
-        Assert.Equal("device-key", (string?)config["gateway"]!["token"]);
+        Assert.Equal("on", (string?)config["gateway"]!["streamMode"]);
+        Assert.False(config["gateway"]!.AsObject().ContainsKey("token"));
+    }
+
+    [Fact]
+    public void Copy_KeepsAgentSettingsAndDropsTheSessionLayoutAndBrowserDefault()
+    {
+        InstanceSettingsCopy.Copy(_source, _target);
+
+        var config = JsonNode.Parse(File.ReadAllText(Target("config/config.json")))!.AsObject();
         Assert.NotNull(config["agent"]);
         Assert.False(config.ContainsKey("session_rail_order"));
         Assert.False(config.ContainsKey("session_rail_expanded_crews"));
+        Assert.False(config.ContainsKey("browser"));
     }
 
     [Theory]
@@ -77,7 +94,10 @@ public sealed class InstanceSettingsCopyTests : IDisposable
     [InlineData("config/director/instances/x.json")]
     [InlineData("config/outlook/profiles.json")]
     [InlineData("logs/director/director.log")]
-    public void Copy_NeverCopiesIdentityHistoryOrSignIns(string relative)
+    [InlineData("config/director/gateway-token.txt")]
+    [InlineData("config/director/gateway-team.json")]
+    [InlineData("keyvault.json")]
+    public void Copy_NeverCopiesIdentityHistoryKeysOrSignIns(string relative)
     {
         InstanceSettingsCopy.Copy(_source, _target);
 

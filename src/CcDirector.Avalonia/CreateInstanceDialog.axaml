@@ -29,11 +29,10 @@
         <ComboBox x:Name="CopyFromInput"
                   Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C"
                   HorizontalAlignment="Stretch" FontSize="14"
-                  PlaceholderText="Loading instances..."
                   SelectionChanged="CopyFromInput_SelectionChanged" />
         <TextBlock x:Name="CopyFromNote" Foreground="#888888" FontSize="11" TextWrapping="Wrap"
-                   Margin="0,3,0,10"
-                   Text="A new Director with its own data folder. Nothing is copied." />
+                   FontStyle="Italic" Margin="0,3,0,10"
+                   Text="Loading instances..." />
         <StackPanel x:Name="GatewayInputs">
         <TextBlock Text="Gateway URL" Foreground="#CCCCCC" FontSize="13" Margin="0,0,0,4" />
         <TextBox x:Name="GatewayUrlInput"
@@ -58,7 +57,7 @@
                    TextWrapping="Wrap" IsVisible="False" Margin="0,4,0,0" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button Content="Create" Width="90" Height="28"
+            <Button x:Name="CreateButton" Content="Create" Width="90" Height="28" IsEnabled="False"
                     Click="BtnCreate_Click"
                     Background="#007ACC" Foreground="White"
                     BorderThickness="0" Margin="0,0,8,0" Cursor="Hand" />

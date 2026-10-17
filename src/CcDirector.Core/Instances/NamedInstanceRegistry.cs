@@ -137,6 +137,14 @@ public static class NamedInstanceRegistry
 
             var sourceHome = InstanceContext.InstanceHomeOf(InstanceContext.SharedRoot, source.Name);
             var slug = UniqueSlug(Slugify(displayName), instances);
+            var targetHome = InstanceContext.InstanceHomeOf(InstanceContext.SharedRoot, slug);
+
+            // A folder already there - left by an instance whose registry row was removed by hand - can hold an old
+            // Director's id, sessions and crash journal, and the copy would leave them in place. Refuse it.
+            if (Directory.Exists(targetHome) && Directory.EnumerateFileSystemEntries(targetHome).Any())
+                throw new InvalidOperationException(
+                    $"The folder for '{slug}' already exists and is not empty: {targetHome}. Choose another name.");
+
             var instance = new NamedInstance
             {
                 Id = Guid.NewGuid().ToString(),
@@ -146,14 +154,24 @@ public static class NamedInstanceRegistry
                 GatewayUrl = string.IsNullOrWhiteSpace(source.GatewayUrl) ? GatewayUrlIn(sourceHome) : source.GatewayUrl,
                 CreatedAt = DateTime.UtcNow.ToString("o"),
             };
+
+            // Copy first and register last, so a copy that fails leaves no instance behind in any list (the
+            // registry has no delete): the half-made folder is removed and the error goes to the caller.
+            try
+            {
+                var copied = InstanceSettingsCopy.Copy(sourceHome, targetHome);
+                // A source with no config.json of its own still gives the clone the gateway block a new instance gets.
+                if (!copied.Contains(Path.Combine("config", "config.json")))
+                    ScaffoldInstanceHome(instance, "");
+            }
+            catch
+            {
+                if (Directory.Exists(targetHome)) Directory.Delete(targetHome, recursive: true);
+                throw;
+            }
+
             instances.Add(instance);
             SaveRaw(instances);
-
-            var targetHome = InstanceContext.InstanceHomeOf(InstanceContext.SharedRoot, slug);
-            var copied = InstanceSettingsCopy.Copy(sourceHome, targetHome);
-            // A source with no config.json of its own still gives the clone the gateway block a new instance gets.
-            if (!copied.Contains(Path.Combine("config", "config.json")))
-                ScaffoldInstanceHome(instance, "");
 
             FileLog.Write($"[NamedInstanceRegistry] Cloned instance id={instance.Id}, slug={slug} from {source.Name}");
             return instance;
