@@ -57,6 +57,8 @@ public static class Scenarios
         ("untrusted-folder", "claude", "the first prompt of a session in a folder Claude Code has never trusted (#2898)"),
         ("claude-trusted-folder", "codex", "the first prompt of a Codex session in a repository the owner trusts in Claude Code but never opened in Codex"),
         ("trusted-worktree", "claude", "the first prompt of a session in a new git worktree of a repository the owner trusts (#2898)"),
+        ("auto-mode-question", "claude", "the second prompt of a seat in auto mode on a machine whose owner never answered 'Teach auto mode about your environment?'"),
+        ("auto-mode-question-settled", "claude", "the control: the same seat where the owner answered that question 'Don't show again'"),
     ];
 
     public static bool AppliesTo(string scenario, string agent)
@@ -89,6 +91,8 @@ public static class Scenarios
                 "untrusted-folder" => await UntrustedAsync(manager, agent, kind, args, repoRoot),
                 "claude-trusted-folder" => await ClaudeTrustedFolderAsync(manager, agent, kind, args, repoRoot),
                 "trusted-worktree" => await TrustedWorktreeAsync(manager, agent, kind, args, repo, repoRoot),
+                "auto-mode-question" => await AutoModeQuestionAsync(manager, agent, kind, repoRoot, settled: false),
+                "auto-mode-question-settled" => await AutoModeQuestionAsync(manager, agent, kind, repoRoot, settled: true),
                 _ when scenario.StartsWith("idle-", StringComparison.Ordinal) =>
                     await IdleAsync(manager, agent, kind, args, repo, repos, TextCatalogue.Named(scenario["idle-".Length..])),
                 _ => throw new ArgumentException($"No scenario named '{scenario}'."),
@@ -329,6 +333,58 @@ public static class Scenarios
         finally { await EndAsync(m, session); }
     }
 
+    /// <summary>Auto mode, the Director's own preset for Claude Code, on a model auto mode's classifier serves - the
+    /// question is offered only then. Each attempt costs two one-word turns on that model.</summary>
+    private const string AutoModeArgs = "--permission-mode auto --model claude-sonnet-5-5";
+
+    /// <summary>The session the rig's seats are opened by, as every spawned seat is opened by another session.</summary>
+    private static readonly Guid RigController = Guid.Parse("0d11ce5e-0000-4000-8000-00000000a070");
+
+    /// <summary>
+    /// A seat started in auto mode on a machine whose owner never answered Claude Code's "Teach auto mode about your
+    /// environment?" (it stopped a gate seat on SOREN_NORTH on 17 October 2026). Claude Code offers it when the first
+    /// turn ends, under the composer, and the menu then takes the keys of the next prompt: the typed words vanish, and
+    /// the Enter that follows would answer "Yes" for the owner. The state is built in a configuration folder of the
+    /// scenario's own (<see cref="ScratchClaudeConfig"/>); the owner's own records are never touched. With
+    /// <paramref name="settled"/> the owner answered "Don't show again" - the control, a seat nothing may stop.
+    /// </summary>
+    private static async Task<ScenarioResult> AutoModeQuestionAsync(SessionManager m, string agent, AgentKind kind, string repoRoot, bool settled)
+    {
+        var name = settled ? "auto-mode-question-settled" : "auto-mode-question";
+        var id = "a" + Guid.NewGuid().ToString("N")[..8];
+        var folder = Rig.EnsureRepo(Path.Combine(repoRoot, "auto-mode", id), trust: false);
+        using var config = ScratchClaudeConfig.ForAutoModeQuestion(Path.Combine(repoRoot, "auto-mode-config", id), folder, settled);
+        Session session;
+        try
+        {
+            session = m.CreateSession(folder, kind, AutoModeArgs, SessionBackendType.ConPty, null, controllerSessionId: RigController);
+        }
+        catch (CcDirector.Core.Claude.ClaudeStartRefusedException ex)
+        {
+            var (refusedPass, refusedTruth) = PassRules.AutoModeQuestion(settled, refusedAtStart: true,
+                refusalNamesTheQuestion: ex.Message.Contains("Teach auto mode about your environment?", StringComparison.Ordinal), "-", false);
+            Console.WriteLine($"[scenario] {name,-18} {agent,-7} director=REFUSED-AT-START truth={refusedTruth,-8} {(refusedPass ? "PASS" : "FAIL")} {Short(ex.Message)}");
+            return new ScenarioResult(name, agent, 0, "REFUSED-AT-START", refusedTruth, refusedPass, 0, ex.Message, null);
+        }
+        try
+        {
+            var since = DateTime.UtcNow;
+            var first = TextCatalogue.Named("short").Build(Token());
+            await session.DeliverFirstPromptAsync(first, SubmissionProvenance.FrameworkText(), TimeSpan.FromSeconds(90));
+            if (!await WaitForAsync(() => AgentRecords.Check(agent, since, first, [folder]).Found, TimeSpan.FromSeconds(90)))
+                throw new InvalidOperationException("the first prompt never reached the agent's records");
+            if (!await Rig.WaitUntilIdleAsync(session, TimeSpan.FromSeconds(120)))
+                throw new InvalidOperationException("the agent never went idle after the first prompt");
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            var questionShown = ScreenHolds(session, "Teach auto mode about your environment?");
+            var text = TextCatalogue.Named("short").Build(Token());
+            var r = await SendAndJudgeAsync(name, agent, session, text, [folder], () => session.SendTextAsync(text, RigTyped));
+            var (pass, truth) = PassRules.AutoModeQuestion(settled, refusedAtStart: false, refusalNamesTheQuestion: false, r.Truth, r.Pass);
+            return r with { Pass = pass, Truth = truth, Detail = $"question on screen before the send: {questionShown}. {r.Detail}" };
+        }
+        finally { await EndAsync(m, session); }
+    }
+
     // ===== The judge =====
 
     /// <summary>Send, then read the agent's own records until the text is there (or the wait ends).</summary>
@@ -456,7 +512,7 @@ public static class Scenarios
 
     private static IEnumerable<string> ClaudeFilesFor(string repo, DateTime sinceUtc)
     {
-        var projects = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
+        var projects = Path.Combine(AgentRecords.ClaudeConfigFolder(), "projects");
         var key = Path.GetFileName(repo.TrimEnd('\\', '/'));
         if (!Directory.Exists(projects)) yield break;
         foreach (var dir in Directory.EnumerateDirectories(projects).Where(d => Path.GetFileName(d).Contains("delivery-qa", StringComparison.OrdinalIgnoreCase)
@@ -532,6 +588,21 @@ public static class Scenarios
 /// </summary>
 public static class PassRules
 {
+    /// <summary>
+    /// A seat in auto mode on which Claude Code would offer "Teach auto mode about your environment?". Where the owner
+    /// never answered it, the start refused in words that name the question passes - the session that asked learns why at
+    /// once - and so does a next prompt that still arrived; a refusal that does not say why fails, and so does a lost
+    /// prompt. Where the owner answered "Don't show again", nothing stops the seat: it passes only when it started and
+    /// the next prompt arrived, and a refusal there fails as REFUSED-NEEDLESSLY.
+    /// </summary>
+    public static (bool Pass, string Truth) AutoModeQuestion(bool settled, bool refusedAtStart, bool refusalNamesTheQuestion, string truth, bool sendPass)
+    {
+        if (refusedAtStart)
+            return settled ? (false, "REFUSED-NEEDLESSLY")
+                : refusalNamesTheQuestion ? (true, "REFUSED-IN-WORDS") : (false, "REFUSED-UNEXPLAINED");
+        return (sendPass, truth);
+    }
+
     /// <summary>
     /// Text sat unsent in the composer when the prompt arrived. WELDED - the prompt and that text in one turn, or the text
     /// submitted at all - always fails. For the OWNER'S draft the draft must also still be on screen afterwards: a product
