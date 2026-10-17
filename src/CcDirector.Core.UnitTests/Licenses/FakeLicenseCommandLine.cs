@@ -166,9 +166,104 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         return Task.FromResult(ApproveAnswer);
     }
 
+    // ---- Phase 6, Track C: the daily approver check ----
+
+    /// <summary>What a check of a profile answers, by profile identifier and account (null: no account given). A check
+    /// with no entry answers as a tool that gave no readable answer.</summary>
+    public Dictionary<(string Profile, string? Email), LicenseApproverToolAnswer> ApproverChecks { get; } = new();
+
+    /// <summary>Every check asked for, in order.</summary>
+    public List<(string Profile, string? Email)> ApproverCheckCalls { get; } = new();
+
+    /// <summary>When set, a check waits for this before it answers, so a test can hold one running.</summary>
+    public TaskCompletionSource? ApproverCheckGate { get; set; }
+
+    /// <summary>Set while a check is running; a test reads it to prove nothing else ran beside it.</summary>
+    public bool ApproverCheckRunning { get; private set; }
+
+    public async Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken)
+    {
+        ApproverCheckCalls.Add((browserProfile, accountEmail));
+        ApproverCheckRunning = true;
+        try
+        {
+            if (ApproverCheckGate is not null) await ApproverCheckGate.Task;
+            return ApproverChecks.TryGetValue((browserProfile, accountEmail), out var answer)
+                ? answer
+                : LicenseApproverToolAnswer.NoAnswer(accountEmail);
+        }
+        finally
+        {
+            ApproverCheckRunning = false;
+        }
+    }
+
     private void ThrowIfFailing()
     {
         if (FailWith is not null) throw new LicenseCommandLineException(FailWith);
+    }
+}
+
+/// <summary>Stands in for the Gateway tunnel's approver methods: answers the assignments it is given and keeps every
+/// report, or refuses either the way a dropped tunnel would.</summary>
+internal sealed class FakeApproverChannel : ILicenseApproverChannel
+{
+    public bool CanReach { get; set; } = true;
+
+    public LicenseApproverAssignments Assignments { get; } = new();
+
+    public string? AssignmentsFailWith { get; set; }
+
+    public string? ReportFailWith { get; set; }
+
+    public int AssignmentCalls { get; private set; }
+
+    public List<LicenseApproverCheckReport> Reports { get; } = new();
+
+    public FakeApproverChannel Assign(string accountEmail, string profile, string source = LicenseApproverSources.Owner)
+    {
+        Assignments.Rows.Add(new LicenseApproverAssignment { AccountEmail = accountEmail, BrowserProfile = profile, Source = source });
+        return this;
+    }
+
+    public Task<LicenseApproverAssignments> GetAssignmentsAsync(CancellationToken cancellationToken)
+    {
+        AssignmentCalls++;
+        if (AssignmentsFailWith is not null) throw new LicenseApprovalRelayException(AssignmentsFailWith);
+        return Task.FromResult(Assignments);
+    }
+
+    public Task<LicenseApproverCheckAnswer> ReportAsync(LicenseApproverCheckReport report, CancellationToken cancellationToken)
+    {
+        if (ReportFailWith is not null) throw new LicenseApprovalRelayException(ReportFailWith);
+        Reports.Add(report);
+        return Task.FromResult(new LicenseApproverCheckAnswer
+        {
+            Rows = report.Rows.Select(r => new LicenseApproverCheckRowAnswer
+            {
+                BrowserProfile = r.BrowserProfile, AccountEmail = r.AccountEmail, Outcome = LicenseApproverCheckOutcomes.HealthUpdated,
+            }).ToList(),
+        });
+    }
+}
+
+/// <summary>This Director's own browser profiles, as a list a test writes.</summary>
+internal sealed class FakeBrowserProfiles : ILicenseBrowserProfiles
+{
+    public List<LicenseBrowserProfile> Profiles { get; } = new();
+
+    public int ListCalls { get; private set; }
+
+    public FakeBrowserProfiles Add(string id, string name)
+    {
+        Profiles.Add(new LicenseBrowserProfile(id, name));
+        return this;
+    }
+
+    public IReadOnlyList<LicenseBrowserProfile> List()
+    {
+        ListCalls++;
+        return Profiles.ToList();
     }
 }
 
@@ -277,6 +372,41 @@ internal sealed class FakeReportSink : ILicenseReportSink
 }
 
 /// <summary>A clock a test moves by hand.</summary>
+/// <summary>A delay a test ends by hand, so nothing waits on a real clock. A wait cancelled by its caller ends as
+/// cancelled, as Task.Delay's does.</summary>
+internal sealed class ControlledDelay
+{
+    private readonly object _gate = new();
+    private readonly List<TaskCompletionSource> _pending = new();
+
+    /// <summary>Every wait asked for, in order.</summary>
+    public List<TimeSpan> Asked { get; } = new();
+
+    public Task Wait(TimeSpan span, CancellationToken cancellationToken)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            Asked.Add(span);
+            _pending.Add(done);
+        }
+        cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
+        return done.Task;
+    }
+
+    /// <summary>Ends every wait still running, as if its time had passed.</summary>
+    public void PassAll()
+    {
+        List<TaskCompletionSource> pending;
+        lock (_gate)
+        {
+            pending = _pending.ToList();
+            _pending.Clear();
+        }
+        foreach (var done in pending) done.TrySetResult();
+    }
+}
+
 internal sealed class FakeClock
 {
     public DateTime Now { get; set; } = new(2026, 10, 11, 3, 0, 0, DateTimeKind.Utc);

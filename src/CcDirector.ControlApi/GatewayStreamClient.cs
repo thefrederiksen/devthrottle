@@ -1360,6 +1360,54 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// License Switching phase 6 (Track C): the daily approver check can run now - the tunnel is connected and the
+    /// Gateway on the other end has both <c>GetLicenseApproverAssignments</c> and <c>ReportLicenseApproverChecks</c>.
+    /// False against a Gateway that keeps no approver records, so nothing is checked (contract 6.5).
+    /// </summary>
+    public bool CanCheckLicenseApprovers
+    {
+        get
+        {
+            var conn = _connection;
+            return conn is not null && conn.State == HubConnectionState.Connected
+                && GatewaySupports(LicenseApproverContract.GetAssignmentsHubMethod)
+                && GatewaySupports(LicenseApproverContract.ReportChecksHubMethod);
+        }
+    }
+
+    /// <summary>License Switching phase 6 (Track C): the approver records that name this Director's machine and user.
+    /// Throws <see cref="Core.Licenses.LicenseApprovalRelayException"/> when the tunnel is not connected or the call fails.</summary>
+    public Task<LicenseApproverAssignments> GetLicenseApproverAssignmentsAsync(CancellationToken cancellationToken) =>
+        InvokeLicenseApproverAsync<LicenseApproverAssignments>(LicenseApproverContract.GetAssignmentsHubMethod, null, cancellationToken);
+
+    /// <summary>License Switching phase 6 (Track C): what the daily approver checks found. Never logged: the rows name
+    /// accounts. Throws <see cref="Core.Licenses.LicenseApprovalRelayException"/> when the tunnel is not connected or the
+    /// call fails.</summary>
+    public Task<LicenseApproverCheckAnswer> ReportLicenseApproverChecksAsync(LicenseApproverCheckReport report, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return InvokeLicenseApproverAsync<LicenseApproverCheckAnswer>(LicenseApproverContract.ReportChecksHubMethod, report, cancellationToken);
+    }
+
+    private async Task<T> InvokeLicenseApproverAsync<T>(string hubMethod, object? argument, CancellationToken cancellationToken)
+    {
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new Core.Licenses.LicenseApprovalRelayException("the Gateway stream is not connected");
+        try
+        {
+            return argument is null
+                ? await conn.InvokeAsync<T>(hubMethod, cancellationToken).ConfigureAwait(false)
+                : await conn.InvokeAsync<T>(hubMethod, argument, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The tunnel boundary: whatever the hub call failed with, the check hears one thing and tries again later.
+            throw new Core.Licenses.LicenseApprovalRelayException($"{hubMethod}: {ex.GetType().Name}: {ex.Message}", ex);
+        }
+    }
+
     /// <summary>Push a session removal. Fire-and-forget; a drop is reconciled by the next snapshot.</summary>
     public void NotifyRemove(string sessionId)
     {

@@ -22,6 +22,26 @@ internal sealed class GatewayLicenseApprovalRelay : ILicenseApprovalRelay
         _client.RequestLicenseApprovalAsync(request, cancellationToken);
 }
 
+/// <summary>License Switching phase 6 (Track C): the daily approver check's way to the Gateway - this Director's
+/// tunnel. It reaches only while the tunnel is connected and the Gateway keeps approver records.</summary>
+internal sealed class GatewayLicenseApproverChannel : ILicenseApproverChannel
+{
+    private readonly GatewayStreamClient _client;
+
+    public GatewayLicenseApproverChannel(GatewayStreamClient client)
+    {
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+    }
+
+    public bool CanReach => _client.CanCheckLicenseApprovers;
+
+    public Task<LicenseApproverAssignments> GetAssignmentsAsync(CancellationToken cancellationToken) =>
+        _client.GetLicenseApproverAssignmentsAsync(cancellationToken);
+
+    public Task<LicenseApproverCheckAnswer> ReportAsync(LicenseApproverCheckReport report, CancellationToken cancellationToken) =>
+        _client.ReportLicenseApproverChecksAsync(report, cancellationToken);
+}
+
 /// <summary>
 /// The License Switching mission, contract 8.3: sealing and opening an approval with the machine's <c>cc-secrets</c>
 /// (<c>seal</c> and <c>open</c>). The sealing code lives in that one tool; the Director holds no copy of it.

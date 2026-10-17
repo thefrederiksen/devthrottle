@@ -106,6 +106,36 @@ public sealed class LicenseSignInCommandLineTests
         Assert.Equal(approved ? "abc#state" : null, answer.Approval);
     }
 
+    [Theory]
+    [InlineData("{\"browserProfile\": \"work-chrome\", \"accountEmail\": \"account-a@example.com\", \"shownAccount\": \"account-a@example.com\", \"state\": \"can-approve\", \"detail\": \"TOOL-TEXT-MARKER-5e2a\"}",
+        "account-a@example.com", "can-approve", "account-a@example.com", "account-a@example.com", true)]
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"shownAccount\": \"account-a@example.com\", \"state\": \"needs-fresh-sign-in\"}",
+        "account-a@example.com", "needs-fresh-sign-in", "account-a@example.com", "account-a@example.com", true)]
+    [InlineData("{\"accountEmail\": null, \"shownAccount\": null, \"state\": \"signed-out\"}",
+        null, "signed-out", null, null, true)]
+    [InlineData("{\"accountEmail\": \"Account-A@Example.com\", \"shownAccount\": null, \"state\": \"check-failed\"}",
+        null, "check-failed", "account-a@example.com", null, true)]
+    // Not answers: a state outside the contract, the tool's own not-checked word, a "can approve" naming nobody or
+    // someone else, an answer for another account than asked, and no JSON at all.
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"state\": \"TOOL-TEXT-MARKER-5e2a\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"state\": \"not-checked\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("{\"accountEmail\": null, \"state\": \"can-approve\"}",
+        null, "check-failed", null, null, false)]
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"shownAccount\": \"account-c@example.com\", \"state\": \"can-approve\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("{\"accountEmail\": \"account-c@example.com\", \"state\": \"can-approve\", \"shownAccount\": \"account-c@example.com\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("Error: browser-harness failed", "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    public void ReadApproverCheck_OnlyTheContractsWordsForTheAccountAsked_AreAnAnswer(string output, string? asked,
+        string state, string? account, string? shown, bool answered)
+    {
+        var answer = CcDevthrottleLicenseCommandLine.ReadApproverCheck(output, asked);
+
+        Assert.Equal((state, account, shown, answered), (answer.State, answer.AccountEmail, answer.ShownAccount, answer.ToolAnswered));
+    }
+
     [Fact]
     public async Task Conversation_Complete_TypesTheApprovalAsOneLine_ThenReadsTheAnswer()
     {

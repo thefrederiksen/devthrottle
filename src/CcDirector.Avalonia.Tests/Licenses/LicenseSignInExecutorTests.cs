@@ -242,5 +242,8 @@ public sealed class LicenseSignInExecutorTests : IDisposable
             Approvals.Add((authorizeUrl, accountEmail, browserProfile));
             return Task.FromResult(new LicenseApproveAnswer { Approved = true, Approval = Approval });
         }
+
+        public Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }
