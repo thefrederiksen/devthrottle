@@ -29,10 +29,13 @@ public static class ApiModeSessionFold
     /// </summary>
     /// <param name="connectionMode">The row's <see cref="SessionDto.ConnectionMode"/>.</param>
     /// <param name="wheelHolder">The row's <see cref="SessionDto.WheelHolder"/>.</param>
+    /// <param name="sessionEnded">Whether the session has ended, by the Gateway's one rule for that
+    /// (<c>GatewayDictationEndpoint.IsExited</c>), read off the row by the caller. An ended session shows no wheel
+    /// button.</param>
     /// <param name="receipts">The session's stored receipts, oldest prompt first, as the receipt store reads them.</param>
     /// <param name="held">What the event feed holds for the session (<see cref="IApiModeEventFeed.Read"/> with no
     /// cursor).</param>
-    public static ApiModeSessionDisplay? Fold(string connectionMode, string wheelHolder, IReadOnlyList<ApiModeVerdictReceipt> receipts, ApiModeEventReplay held)
+    public static ApiModeSessionDisplay? Fold(string connectionMode, string wheelHolder, bool sessionEnded, IReadOnlyList<ApiModeVerdictReceipt> receipts, ApiModeEventReplay held)
     {
         ArgumentNullException.ThrowIfNull(receipts);
         ArgumentNullException.ThrowIfNull(held);
@@ -125,7 +128,46 @@ public static class ApiModeSessionFold
             LastTurnEnding = lastTurnEnding,
             AgentConnected = agentConnected,
             AgentLabel = agentLabel,
+            WheelAction = WheelAction(wheelHolder, sessionEnded, working),
         };
+    }
+
+    /// <summary>The disabled take-the-wheel button's reason, while a turn is known to be running.</summary>
+    internal const string TurnRunningSoNoTake =
+        "A turn is running. Stop it, or wait for it to end, before taking the wheel.";
+
+    /// <summary>
+    /// The one wheel button the Terminal tab shows, ruled here and nowhere else. The Gateway disables a button only on
+    /// what it knows; every other refusal (the agent disconnected, a turn the Gateway cannot see, a terminal mid-turn on
+    /// a hand back) is the Director's to rule, and the wheel routes pass its refusal through verbatim.
+    /// </summary>
+    private static ApiModeWheelAction? WheelAction(string wheelHolder, bool sessionEnded, bool? working)
+    {
+        // An ended session has nothing to take the wheel from and nothing to hand back to: a button there could never
+        // work, whoever the row last said held the wheel ("none" is also what phase 1's #4088 pushes once a session ends).
+        if (sessionEnded)
+            return null;
+        switch (wheelHolder)
+        {
+            case WheelHolders.Protocol:
+                // Disabled only while a turn is KNOWN to be running: an unknown "working" is not a reason. The Director
+                // would accept a take mid-turn, but it would stop the turn as a side effect; the user has Stop for that,
+                // so taking the wheel never silently ends work.
+                return working == true
+                    ? new ApiModeWheelAction { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = false, DisabledReason = TurnRunningSoNoTake }
+                    : new ApiModeWheelAction { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = true };
+            case WheelHolders.User:
+                return new ApiModeWheelAction { Verb = ApiModeWheelVerbs.HandBack, Label = "Hand back", Enabled = true };
+            case WheelHolders.None:
+                // On a live session, the Director sets "none" when the user's terminal exits on its own, and leaves the
+                // session running; it accepts a hand back there, which resumes the conversation over the protocol (pull
+                // request #4094), and the hand back route forwards it. Without this button a session whose terminal exited
+                // has prompts queued and nothing to press. An ended session never reaches here (above).
+                return new ApiModeWheelAction { Verb = ApiModeWheelVerbs.HandBack, Label = "Hand back", Enabled = true };
+            default:
+                // A wheel holder this Gateway has no words for: no button, never a guess at one.
+                return null;
+        }
     }
 
     /// <summary>The queue in words: how many prompts wait, and why (the Director's reason for each).</summary>
