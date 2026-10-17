@@ -85,6 +85,43 @@ describe("ApiModeLiveChat", () => {
     expect(screen.getByText("The last turn was stopped: stopped by the user")).toBeTruthy();
   });
 
+  it("ApiModeLiveChat_LastTurnStopped_TheEndingTakesTheGatewaysNeutralToneNotRed", async () => {
+    // Arrange: the Gateway tones a row whose last turn the user stopped neutral (ApiModeSessionFold).
+    await mount({
+      ...workingDisplay(4),
+      kind: "idle",
+      tone: "neutral",
+      working: false,
+      activityLabel: "Idle after turn 4",
+      lastTurnEnding: "The last turn was stopped: stopped by the user",
+    });
+
+    // Act
+    const ending = screen.getByText("The last turn was stopped: stopped by the user");
+
+    // Assert: the colour is the Gateway's, so a stop does not read as a failure.
+    expect(ending.className).not.toContain("live-tone-red");
+    expect(ending.className).toContain("live-tone-neutral");
+  });
+
+  it("ApiModeLiveChat_LastTurnFailed_TheEndingTakesTheGatewaysRedTone", async () => {
+    // Arrange: the Gateway tones a row whose last turn failed red.
+    await mount({
+      ...workingDisplay(3),
+      kind: "idle",
+      tone: "red",
+      working: false,
+      activityLabel: "Idle after turn 3",
+      lastTurnEnding: "The last turn failed: Pi exited during the turn (exit code 137)",
+    });
+
+    // Act
+    const ending = screen.getByText("The last turn failed: Pi exited during the turn (exit code 137)");
+
+    // Assert
+    expect(ending.className).toContain("live-tone-red");
+  });
+
   it("ApiModeLiveChat_RefusedPrompt_ShowsTheRefusalWithItsReason", async () => {
     const { conn } = await mount();
 

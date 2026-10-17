@@ -48,8 +48,10 @@
   background: color-mix(in srgb, var(--ok) 12%, transparent);
 }
 
+.live-chat-status-part.live-tone-green,
+.live-chat-status-part.live-tone-yellow,
 .live-chat-status-part.live-tone-red {
-  color: var(--attention);
+  color: var(--live-tone);
 }
 
 .live-chat-agent {

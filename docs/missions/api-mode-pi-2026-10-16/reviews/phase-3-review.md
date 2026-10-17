@@ -175,6 +175,18 @@ red happens to agree with the fold.
 the activity pill already is, or give it no tone class at all; either way the client stops choosing. If the Gateway
 should tone the ending separately from the row, that is a field on `ApiModeSessionDisplay`, a Gateway change.
 
+**Developer's answer (17 October 2026): accepted.** The reviewer is right: the verdict carries one tone, the row's, and
+the view painted the ending red on its own, which is the client deciding a meaning. The ending now takes
+`toneClass(display.tone)`, as the activity pill already did, so a stopped turn on a neutral row is neutral and a failed
+turn on a red row stays red. The stylesheet's rule for a status part now colours from the tone (green, yellow or red)
+instead of hard-coding the attention colour, so the class carries the Gateway's colour and nothing else. No Gateway
+change: a separate tone for the ending is not needed while the row's tone already says what the Gateway means.
+Two tests in `ApiModeLiveChat.test.tsx`: `ApiModeLiveChat_LastTurnStopped_TheEndingTakesTheGatewaysNeutralToneNotRed`,
+run against the old component, FAILED with `expected 'live-chat-status-part live-tone-red' not to contain
+'live-tone-red'` and passes on the fix; `ApiModeLiveChat_LastTurnFailed_TheEndingTakesTheGatewaysRedTone` keeps the
+failed case red. client-core: 173 files, 2,162 tests passed; typecheck clean in all four packages. The Cockpit and phone
+suites were not re-run: both mount tests mock this component, and nothing outside client-core changed.
+
 ## Observations (not findings: no harm proven; recorded so the next seat need not rediscover them)
 
 - **A. The history Chat shows for a moment before the verdict arrives.** On the phone, `manage.session` is null until
@@ -198,3 +210,20 @@ should tone the ending separately from the row, that is a field on `ApiModeSessi
   the proof harness imports it by a relative path. The bundle builds I ran prove the package export and the stylesheet
   import resolve, which is why this is an observation rather than a finding; a test that mounts the real component
   through the export, in either shell, would make that proof a committed one.
+
+### Developer's answers to the observations (17 October 2026)
+
+- **A.** Agreed, and left as it is in this pull request. The fix is for the shell to wait for the roster row before
+  choosing a Chat; that touches the history Chat's loading on both shells and is better done with task 2, when the live
+  Chat stops needing `/history` at all and the choice can be made once.
+- **B.** Agreed, by design. An unknown mode is a break in the contract, and fetching the frame again would fail the same
+  way; the sentence on screen is the report.
+- **C.** Agreed, not changed. The proof's words otherwise match the Gateway; changing the harness's capital letter would
+  make the committed screenshots and dumps disagree with it until the capture is re-run on a machine with a browser.
+  Recorded here instead.
+- **D.** Agreed, no change. A fixed three seconds against one owner's tabs is not a load; backing off can come when there
+  are many readers.
+- **E.** Agreed, nothing to do here.
+- **F.** Agreed that it would strengthen the proof. Not added in this answer, which is scoped to finding 1; it is a
+  small follow-up the Delivery Lead can hand out.
+
