@@ -324,7 +324,10 @@ export const OVERVIEW: LicenseOverview = {
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-mac",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed."
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -402,7 +405,10 @@ export const OVERVIEW: LicenseOverview = {
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-windows",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed."
     }
   ]
 };

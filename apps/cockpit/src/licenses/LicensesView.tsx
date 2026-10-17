@@ -27,7 +27,7 @@ import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePo
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ConfirmDialog, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { LicenseAccountCard } from "./LicenseAccountCard";
-import { AddSpareChoice, LicenseSignIns, SignInAnswer } from "./LicenseSignIns";
+import { AddSpareChoice, LicenseSignIns, SignInAnswer, type ApproverEditorOpen } from "./LicenseSignIns";
 import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill } from "./licenseParts";
 
 // THE LICENSES PAGE (the License Switching mission, phase 3): every Claude account as a card with its two usage
@@ -247,6 +247,10 @@ export function LicensesView() {
   // shows the Gateway's sentence for it and reads the approvers and the overview again. It keeps no list of its own.
   const [removingApprover, setRemovingApprover] = useState<LicenseApprover | null>(null);
   const [approverAnswer, setApproverAnswer] = useState<string | null>(null);
+  // The approver form is held here, so an account's card can open it on its own account.
+  const [approverEditor, setApproverEditor] = useState<ApproverEditorOpen | null>(null);
+  const openApproverEditor = (editing: LicenseApprover | null, accountEmail: string | null) =>
+    setApproverEditor((current) => ({ editing, accountEmail, opening: (current?.opening ?? 0) + 1 }));
 
   // The sentence of the answer before is taken off the screen first: beside a refusal it would read as its outcome.
   const saveApprover = async (approver: LicenseSetApprover) => {
@@ -306,6 +310,7 @@ export function LicensesView() {
                 onSwitchNow={askSwitchNow}
                 onSetRenewalDate={saveRenewalDate}
                 onRenewNow={(machine, holding) => setRenewing({ machine, holding })}
+                onSetApprover={(accountEmail) => openApproverEditor(null, accountEmail)}
               />
             ))}
           </div>
@@ -338,6 +343,9 @@ export function LicensesView() {
             onAddSpare={askAddSpare}
             onSetApprover={saveApprover}
             onRemoveApprover={setRemovingApprover}
+            editor={approverEditor}
+            onOpenEditor={(editing) => openApproverEditor(editing, null)}
+            onCloseEditor={() => setApproverEditor(null)}
           />
 
           <h2 className="lic-h2">Switch log</h2>
