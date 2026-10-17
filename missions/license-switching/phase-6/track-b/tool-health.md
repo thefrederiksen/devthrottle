@@ -183,8 +183,10 @@ the Python environment.
 
 Nothing touches `bin` before or during pip. The test
 `InstallAsync_WhilePipRuns_TheInstalledToolAndItsShimAreStillThere` checks the `bin` shim itself
-(`bin\<tool>.cmd`), not only the venv, at the moment pip runs. On main's order that assertion fails, because the
-shim was deleted first.
+(`bin\<tool>.cmd`), not only the venv, at the moment pip runs. **Revert proof for the `bin` folder alone:** with main's `PythonToolsInstaller.cs` put back, and the test's
+earlier console-script assertion skipped for that one run so it cannot stop first (as it did in the revert proof
+above), the test fails with "the tool's shim was gone while pip ran". With this pull request's installer it
+passes. Run on 17 October 2026 at 700cba2be; both files were then restored.
 
 **What it does not cover, said plainly:**
 
