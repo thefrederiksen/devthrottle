@@ -246,9 +246,12 @@ answer you already have locally was the single largest source of dead time in th
    - **Three suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound; about 10
      minutes as four concurrent processes), `Core.Tests` (far outside the budget), and `Gateway.UnitTests` (grew past
      the ceiling; issue #2824). Run them with `-Parked`.
-   - **`Gateway.UnitTests` being parked is the one most likely to surprise you**: a green default run
-     no longer says anything about the Gateway's 10,344 unit tests (2026-10-10). If you touched the Gateway, the
-     COVERAGE GAP line will say so - run `-Parked`.
+   - **The default run DOES run the parked tests your change can reach** (since 17 October 2026), in
+     `Gateway.UnitTests` and `Core.Tests`: `scripts\select-parked-tests.ps1` picks every test class whose
+     file names a type declared in a changed file, and they run after the default suites, with no
+     ceiling. It cannot see a test that reaches your code only through a shared helper; those are caught
+     by the full run on GitHub every two hours, and a red there is fixed at once. `Gateway.Tests` is
+     not selected - if your change reaches it, the COVERAGE GAP line says so - run `-Gateway`.
    - `-Fast` is a **no-op**, retained only for callers that still pass it. The default is the
      fast run. Do not claim a change was gated by `-Fast`; it means nothing.
    - It runs **no web tests and no Python tests** at all.

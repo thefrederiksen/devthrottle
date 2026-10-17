@@ -1249,6 +1249,25 @@ try {
     # GATEWAY.TESTS RUNS AS SEVERAL PROCESSES, each with a disjoint part of the suite (scripts\gateway-test-shards.ps1
     # says how it is split and why that is safe). Each shard is its own entry below, with its own log, result file
     # and verdict line, so a failure names the shard it was in.
+    # THE PARKED SUITES' AFFECTED TESTS RUN IN THE DEFAULT GATE. Until 17 October 2026 a change that reached a
+    # parked suite was only WARNED about, and on 16 October one broke two Gateway unit test classes, merged on a
+    # green default run, and held main red for a day - which blocked every release behind it. Now the default
+    # run asks scripts\select-parked-tests.ps1 which classes of Gateway.UnitTests and Core.Tests the change can
+    # reach, and runs exactly those, AFTER the default suites have finished: running them alongside would take
+    # the processor from suites already near the two-minute ceiling and stop them for a reason that is not theirs.
+    # They have no ceiling of their own - their cost is what the change reaches - and hang detection instead.
+    #
+    # A selector that cannot run fails this gate. It used to be caught and turned into a note, which made the
+    # one check standing between a parked suite and main something that could quietly decide nothing.
+    $parkedPending = @()
+    if (-not $Parked -and -not $Gateway -and -not $Quarantine -and $Filter -eq "") {
+        $parkedPending = @(& (Join-Path $PSScriptRoot "select-parked-tests.ps1"))
+        foreach ($s in $parkedPending) {
+            $what = $(if ($s.Whole) { "the WHOLE suite - $($s.Reasons -join '; ')" } else { "$($s.Classes.Count) class(es) this change can reach" })
+            Write-Host "  parked $($s.Suite): $what - runs after the default suites"
+        }
+    }
+
     $running = @()
     $deadline = (Get-Date).AddSeconds($BudgetSeconds)
     foreach ($proj in $toRun) {
@@ -1281,13 +1300,33 @@ try {
 
     $failed = @()
     $overBudget = @()
-    foreach ($r in $running) {
+    $parkedRan = @()
+    $ri = 0
+    while ($true) {
+        if ($ri -ge $running.Count) {
+            # Every default suite is done: start the parked suites' affected tests, and wait for them the same way.
+            if ($parkedPending.Count -eq 0) { break }
+            $parkedBlame = @("--blame-hang", "--blame-hang-timeout", "${HangTimeoutMinutes}m", "--blame-hang-dump-type", "mini",
+                             "--blame-crash", "--blame-crash-dump-type", "mini")
+            foreach ($s in $parkedPending) {
+                $selFilter = $(if ($s.Whole) { $suiteFilter } else { "(" + (($s.Classes | ForEach-Object { "FullyQualifiedName~.$_." }) -join "|") + ")&$suiteFilter" })
+                $r = Start-TestSuite $s.Project "" (@("--filter", $selFilter) + $parkedBlame)
+                $r | Add-Member -NotePropertyName NoCeiling -NotePropertyValue $true
+                $running += $r
+                Write-Host "  started $($r.Name) ($(if ($s.Whole) { 'whole suite' } else { "$($s.Classes.Count) affected class(es)" }))"
+            }
+            $parkedRan = @($parkedPending | ForEach-Object { $_.Suite })
+            $parkedPending = @()
+            continue
+        }
+        $r = $running[$ri]
+        $ri++
         # Wait only until the deadline set at launch - the time LEFT, not a fresh budget per suite. A suite
         # that has not finished by then is over the ceiling: kill it, so a single slow project cannot hold
         # the whole gate, and record it separately from a real failure. -Parked and -Gateway deliberately
         # suspend the ceiling: that run is the release gate and is EXPECTED to be slow, and a hung test in it
-        # is caught by the hang timeout instead.
-        if ($Parked -or $Gateway -or $Quarantine) {
+        # is caught by the hang timeout instead. So do the parked suites' affected tests (see above).
+        if ($Parked -or $Gateway -or $Quarantine -or $r.PSObject.Properties['NoCeiling']) {
             $r.Process.WaitForExit()
         } else {
             $remainingMs = [int] [Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
@@ -1477,22 +1516,21 @@ try {
     # quietly mean "this change was never tested". select-tests.ps1 works out, from the reference graph,
     # which suites this change could actually affect; if a PARKED one is in that set, say so loudly.
     #
-    # It WARNS rather than running them, and the measurement is why. Replaying the last hundred merges,
-    # a parked suite was implicated in 69 to 80 per cent of changes - because CcDirector.Core and
-    # Gateway.Contracts are referenced by nearly everything. Running them automatically would restore the
-    # twelve-to-forty-five-minute gate for seven changes in ten, which is the problem this whole exercise
-    # removed. So the fast gate stands, and the reader is told exactly what it did not cover.
+    # Since 17 October 2026 this is a warning about Gateway.Tests ALONE in a default run: Gateway.UnitTests and
+    # Core.Tests had their affected classes run above (or had none the change can reach). Running whole
+    # suites was rejected because a parked suite is implicated in seven changes in ten - CcDirector.Core and
+    # Gateway.Contracts are referenced by nearly everything - and that is the long gate this one replaced.
+    # Gateway.Tests is host-bound and holds the machine's one release-gate lock, so it is not selected.
+    # A -Filter or -Quarantine run selects nothing, so there every reachable parked suite is still a gap.
     $parkedNames = @($parkedProjects | ForEach-Object { Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $_))) })
+    $selectedInDefault = @("CcDirector.Gateway.UnitTests", "CcDirector.Core.Tests")
     $coverageGap = @()
     if (-not $Parked -and -not $Gateway) {
-        try {
-            $sel = & (Join-Path $PSScriptRoot "select-tests.ps1")
-            $coverageGap = @($sel.Suites | Where-Object { $parkedNames -contains $_ })
-        } catch {
-            # A selector that cannot run must not fail the gate, but it must not be silent either.
-            Write-Host "NOTE: could not compute test selection ($($_.Exception.Message)); coverage gap unknown."
-        }
+        $sel = & (Join-Path $PSScriptRoot "select-tests.ps1")
+        $coverageGap = @($sel.Suites | Where-Object { $parkedNames -contains $_ } |
+                         Where-Object { -not ($Filter -eq "" -and -not $Quarantine -and $selectedInDefault -contains $_) })
     }
+    foreach ($n in $parkedRan) { Write-Host "Parked suite $n ran the tests this change can reach (see its line in the TRX verdict)." }
 
     if ($coverageGap.Count -gt 0) {
         Write-Host ""
