@@ -27,10 +27,11 @@ namespace CcDirector.ControlApi;
 ///     Windows alternate data stream;
 ///   - it, or what it really is after every symbolic link and junction is followed, is on the secrets list
 ///     (<see cref="SessionFileSecrets.IsSecret"/>);
-///   - it lies OUTSIDE the working folder and its real location is a hidden file or folder directly under the
-///     user's home folder, or anything inside one (<see cref="SessionFileSecrets.IsHiddenUnderHome"/>). A list
+///   - its real location is a hidden file or folder directly under a home folder of the user (HOME and the
+///     real home both), or anything inside one (<see cref="SessionFileSecrets.IsHiddenUnderHome"/>). A list
 ///     of names will always miss some tool's credentials; this catches every tool that keeps them in
-///     ~/.something. Inside the working folder the July rules stand, so a repository's own .github still opens;
+///     ~/.something. The one exception is a working folder that is itself inside such a hidden folder: its
+///     own files still open. A working folder that IS the home folder gets the rule (issue #4087);
 ///   - it is a file with more than one name (a hard link), which no path test can place.
 ///
 /// A file is served by its REAL path, so a link swapped after this decision cannot redirect the read.
@@ -92,8 +93,11 @@ internal static class SessionFileAccess
         var isFolder = Directory.Exists(real);
         var insideWorkingFolder = IsInsideWorkingFolder(workingDirectory, full);
 
-        // Outside the working folder, every hidden file or folder directly under the home folder is a secret.
-        if (!insideWorkingFolder && (secrets.IsHiddenUnderHome(real) || secrets.IsHiddenUnderHome(full)))
+        // Every hidden file or folder directly under a home folder is a secret, unless the path is inside a
+        // working folder that is itself inside that hidden folder. A session working IN the home folder gets
+        // the rule too (issue #4087).
+        var exemptFolder = insideWorkingFolder ? workingDirectory : null;
+        if (secrets.IsHiddenUnderHome(real, exemptFolder) || secrets.IsHiddenUnderHome(full, exemptFolder))
             return NotAllowed(SecretSentence);
 
         var namedItself = named.Contains(full);
