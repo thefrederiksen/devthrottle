@@ -7,7 +7,7 @@ import {
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
-import { OwnerActionButton, StatusWord, TalkButton, ToneChip } from "./FactoryParts";
+import { OwnerActionButton, StatusWord, TalkButton, ToneChip, toneClass } from "./FactoryParts";
 import { FactoryManagerCard } from "./FactoryManagerCard";
 import { DraftFactories, NewFactoryButton } from "./FactoryNew";
 import { PauseEverythingButton, PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
@@ -46,9 +46,14 @@ import "./factory.css";
 // browser remembers (factoriesCards.ts). Table is the row list above, unchanged. Each card: the name (a link), the
 // status pill, the registry's one-line purpose when set, the Gateway's status line, and the head with Talk.
 
-type TabKey = "factories" | "activity" | "reports";
+//
+// Since 17 Oct 2026 (owner) the Factories tab leads with the factories: published ones, then the drafts as cards of
+// their own, then what is secondary - the archived factories and the schedules outside any factory. The Factory
+// Manager card moved to its own tab, unchanged.
 
-const TAB_KEYS: ReadonlyArray<TabKey> = ["factories", "activity", "reports"];
+type TabKey = "factories" | "activity" | "reports" | "manager";
+
+const TAB_KEYS: ReadonlyArray<TabKey> = ["factories", "activity", "reports", "manager"];
 
 export function FactoriesView() {
   const [params, setParams] = useSearchParams();
@@ -90,10 +95,10 @@ export function FactoriesView() {
       {/* error-reported-by: useView */}
       {frame.error !== null && <ErrorBanner message={frame.error} onRetry={frame.reload} />}
       {frame.data === null && frame.error === null && <LoadingState />}
-      {frame.data !== null && tab === "factories" && <FactoryManagerCard />}
       {frame.data !== null && tab === "factories" && <FactoriesList view={frame.data} onChanged={frame.reload} />}
       {tab === "activity" && <ActivityTab />}
       {tab === "reports" && <ReportsTab />}
+      {tab === "manager" && <FactoryManagerCard />}
     </div>
   );
 }
@@ -152,14 +157,28 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
       )}
     </div>
   );
+  // The secondary part, under the factories: the archived ones and the schedules that are no seat of a factory.
+  const secondary = (
+    <div className="fa-secondary" data-testid="fa-secondary">
+      {archived}
+      <OutsideAnyFactory view={view} />
+    </div>
+  );
+  // With nothing published, the drafts are the factories: they come first, and the Gateway's empty sentence is a
+  // footnote under them - or the empty state itself when there is no draft either.
   if (view.emptyText !== null)
     return (
       <div className="fa-tab-body">
         <NewFactoryButton view={view} />
-        <EmptyState message={view.emptyText} />
         <DraftFactories view={view} />
-        {archived}
-        <OutsideAnyFactory view={view} />
+        {view.draftRows.length === 0 ? (
+          <EmptyState message={view.emptyText} />
+        ) : (
+          <p className="fa-footnote" data-testid="fa-empty-note">
+            {view.emptyText}
+          </p>
+        )}
+        {secondary}
       </div>
     );
   return (
@@ -303,8 +322,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
         {sortFooter(order)}
       </p>
       <DraftFactories view={view} />
-      {archived}
-      <OutsideAnyFactory view={view} />
+      {secondary}
     </div>
   );
 }
@@ -371,6 +389,12 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
           {row.statusLine}
         </p>
       )}
+      <FactoryFacts seatCountText={row.seatCountText} nextStartText={row.nextStartText} />
+      {row.lastRunText !== null && row.lastRunTone !== null && (
+        <p className={`fa-card-fact fa-lastrun ${toneClass(row.lastRunTone)}`} data-testid="fa-card-lastrun">
+          {row.lastRunText}
+        </p>
+      )}
       <LeftOpenFlag row={row} />
       {row.waitingCount > 0 && row.waitingHref !== null && (
         <Link className="fa-card-waiting dt-private" to={row.waitingHref} data-testid="fa-card-waiting">
@@ -403,6 +427,23 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
         )}
       </div>
     </article>
+  );
+}
+
+/** "4 seats - Next start today 07:00 (Scout)": the Gateway's words, the next start left out when nothing is due. */
+export function FactoryFacts({ seatCountText, nextStartText }: { seatCountText: string; nextStartText: string | null }) {
+  return (
+    <p className="fa-card-fact" data-testid="fa-card-facts">
+      {seatCountText}
+      {nextStartText !== null && (
+        <>
+          <span className="fa-card-fact-sep" aria-hidden="true">
+            {" - "}
+          </span>
+          <span data-testid="fa-card-next">{nextStartText}</span>
+        </>
+      )}
+    </p>
   );
 }
 

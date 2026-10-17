@@ -33,6 +33,9 @@ public static class FactoryNewFold
 
     public const string DraftTitle = "Not published yet";
 
+    /// <summary>The pill on a draft's card.</summary>
+    public const string DraftWord = "DRAFT";
+
     /// <summary>New factory: the button and what it does.</summary>
     public static FactoryNewFactoryActionDto NewFactoryAction() => new()
     {
@@ -68,6 +71,9 @@ public static class FactoryNewFold
                 LineText = $"{(d.Version == 1 ? "Version 1, a draft" : $"{FactoriesScreenFold.Count(d.Version, "draft")}, the newest version {d.Version}")}, " +
                            $"{FactoriesScreenFold.Count(d.FileCount, "file")}. Open it to read what changes and publish it.",
                 Href = FactoryDefinitionTabFold.TabHref(d.Factory),
+                StateWord = DraftWord,
+                StateTone = FactoryTone.Grey,
+                SeatCountText = FactoriesScreenFold.Count(d.SeatCount, "seat"),
             })
             .ToList();
     }

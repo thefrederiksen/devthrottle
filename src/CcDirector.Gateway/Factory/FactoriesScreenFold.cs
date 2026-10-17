@@ -107,6 +107,7 @@ public static class FactoriesScreenFold
                 var talk = BossTalk(f);
                 var waiting = open.Where(r => SameId(r.Factory, f.Factory)).ToList();
                 var leftOpen = LeftOpenText(f, input);
+                var lastRun = FactoryLastRun(f, input);
                 return (Rank: status.Rank, Row: new FactoryListRowDto
                 {
                     Id = f.Factory,
@@ -127,6 +128,10 @@ public static class FactoriesScreenFold
                     BossName = Boss(f) is { } boss ? BossRole(boss) : null,
                     LeftOpenText = leftOpen,
                     LeftOpenHref = leftOpen is null ? null : SeatsHref(f.Factory),
+                    SeatCountText = Count(f.Seats.Count, "seat"),
+                    NextStartText = NextStartText(f, input),
+                    LastRunText = lastRun?.Text,
+                    LastRunTone = lastRun?.Tone,
                 });
             })
             .OrderBy(x => x.Rank)
@@ -210,6 +215,8 @@ public static class FactoriesScreenFold
         new() { Key = "factories", Label = "Factories" },
         new() { Key = "activity", Label = "Activity" },
         new() { Key = "reports", Label = "Reports" },
+        // The one seat over every factory, on its own tab so the Factories tab leads with the factories (owner, 17 Oct 2026).
+        new() { Key = "manager", Label = "Factory Manager" },
     };
 
     // ---------------------------------------------------------------------------------------------------------
@@ -551,6 +558,55 @@ public static class FactoriesScreenFold
         if (rows.Any(r => r.Outcome == FactoryActivityOutcome.NothingToDo)) return ("nothing to do", FactoryTone.Grey);
         if (rows.Count > 0) return ("ran", FactoryTone.Neutral);
         return ("started", FactoryTone.Blue);
+    }
+
+    /// <summary>
+    /// "Next start today 07:00 (Scout)": the soonest due run among the factory's seats' switched-on schedules, told in
+    /// that schedule's seat's clock. Null when nothing is due - a TALK ONLY or PAUSED factory says so in its status.
+    /// </summary>
+    internal static string? NextStartText(RegisteredFactoryDto f, FactoriesScreenInputs input)
+    {
+        var a = input.Activity;
+        var next = f.Seats
+            .SelectMany(seat => SchedulesOf(seat, input.Schedules)
+                .Where(j => j.Enabled && j.NextRunUtc is not null)
+                .Select(j => (Seat: seat, Job: j)))
+            .OrderBy(x => x.Job.NextRunUtc!.Value)
+            .ThenBy(x => x.Seat.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (next.Job is null) return null;
+        var when = SeatClock(SchedulesOf(next.Seat, input.Schedules), a.Zone).When(next.Job.NextRunUtc!.Value, a.NowUtc, capital: false);
+        return $"Next start {when} ({SeatWord(next.Seat)})";
+    }
+
+    /// <summary>
+    /// "Last run: Scout, today 06:20 - succeeded": the newest run of any of the factory's seats, as its Seats tab tells
+    /// it (<see cref="LastRun"/>), with that seat's role word. Null when no seat has run yet.
+    /// </summary>
+    internal static (string Text, string Tone)? FactoryLastRun(RegisteredFactoryDto f, FactoriesScreenInputs input)
+    {
+        var a = input.Activity;
+        var newest = f.Seats
+            .Select(seat => (Seat: seat, At: SeatLastActivity(f, seat, input)))
+            .Where(x => x.At is not null)
+            .OrderByDescending(x => x.At!.Value)
+            .ThenBy(x => x.Seat.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (newest.Seat is null) return null;
+        var schedules = SchedulesOf(newest.Seat, input.Schedules);
+        var (text, tone) = LastRun(f, newest.Seat, schedules, a, SeatClock(schedules, a.Zone));
+        return ($"Last run: {SeatWord(newest.Seat)}, {char.ToLowerInvariant(text[0])}{text[1..]}", tone);
+    }
+
+    // When a seat last ran: the later of its newest "started" row and its schedules' newest firing - what LastRun reads.
+    private static DateTime? SeatLastActivity(RegisteredFactoryDto f, RegisteredFactorySeatDto seat, FactoriesScreenInputs input)
+    {
+        var started = input.Activity.WindowRows
+            .Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, seat.Id) && r.Outcome == FactoryActivityOutcome.Started)
+            .Select(r => (DateTime?)r.OccurredUtc)
+            .Max();
+        var fired = SchedulesOf(seat, input.Schedules).Select(j => j.LastFiredUtc).Max();
+        return started is null ? fired : fired is null ? started : (started > fired ? started : fired);
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -944,6 +1000,8 @@ public static class FactoriesScreenFold
         string text;
         if (t.Date == today) text = $"today {clock}";
         else if (t.Date == today.AddDays(-1)) text = $"yesterday {clock}";
+        // A due time, never a past one, can be tomorrow (the Factories list's next start).
+        else if (t.Date == today.AddDays(1)) text = $"tomorrow {clock}";
         else return t.ToString("d MMM HH:mm", CultureInfo.InvariantCulture);
         return capital ? Capitalize(text) : text;
     }
