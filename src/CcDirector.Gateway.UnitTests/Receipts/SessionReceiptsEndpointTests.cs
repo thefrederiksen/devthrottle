@@ -94,6 +94,29 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
     }
 
     [Fact]
+    public void Read_AReceiptWithItsPromptText_ServesTheTextVerbatim()
+    {
+        AliceHasADeliveredPrompt();
+        const string spoken = "  run the tests\nthen tell me what failed  \n";
+        using (_boundary.EnterScope(Alice))
+            _store.RecordQueued(AliceDirector, AliceSession, "p2", "turnRunning", At(2), T0, spoken);
+
+        var body = Body(Get(Alice, AliceSession));
+
+        Assert.Equal(spoken, Assert.Single(body.Receipts, r => r.PromptId == "p2").PromptText);
+    }
+
+    [Fact]
+    public void Read_AReceiptFromADirectorThatSentNoText_PromptTextIsNull()
+    {
+        AliceHasADeliveredPrompt();   // recorded with no prompt text, as from an older Director
+
+        var body = Body(Get(Alice, AliceSession));
+
+        Assert.Null(Assert.Single(body.Receipts).PromptText);
+    }
+
+    [Fact]
     public void Read_AnotherAccountsSession_IsNotFoundAndServesNothing()
     {
         AliceHasADeliveredPrompt();

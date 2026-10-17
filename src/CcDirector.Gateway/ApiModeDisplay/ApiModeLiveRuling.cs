@@ -80,11 +80,13 @@ public sealed class ApiModeLiveRuling
         {
             PromptQueued q => ReceiptChange(q.Sequence, q.PromptId, r =>
             {
+                KeepPromptText(r, q.PromptText);
                 if (r.State != ApiModeReceiptState.Queued) return; // a late Queued after an ending changes nothing
                 r.QueueReason = Word(q.Reason);
             }),
             PromptDelivered d => ReceiptChange(d.Sequence, d.PromptId, r =>
             {
+                KeepPromptText(r, d.PromptText);
                 if (IsFinal(r, d)) return;
                 r.State = ApiModeReceiptState.Delivered;
                 r.Disposition = Word(d.Disposition);
@@ -92,6 +94,7 @@ public sealed class ApiModeLiveRuling
             }),
             PromptRefused f => ReceiptChange(f.Sequence, f.PromptId, r =>
             {
+                KeepPromptText(r, f.PromptText);
                 if (IsFinal(r, f)) return;
                 r.State = ApiModeReceiptState.Refused;
                 r.RefusalReason = f.Reason;
@@ -215,6 +218,7 @@ public sealed class ApiModeLiveRuling
             Tone = ReceiptTone(receipt),
             TurnId = receipt.TurnId,
             PromptId = receipt.PromptId,
+            PromptText = receipt.PromptText,
             Sequence = sequence,
         };
     }
@@ -383,6 +387,14 @@ public sealed class ApiModeLiveRuling
         return prompts;
     }
 
+    /// <summary>The first event that carries the prompt's text sets it, verbatim, as the receipt store keeps it; a later
+    /// event never blanks or replaces it.</summary>
+    private static void KeepPromptText(ApiModeReceiptDto receipt, string? promptText)
+    {
+        if (receipt.PromptText is null && !string.IsNullOrEmpty(promptText))
+            receipt.PromptText = promptText;
+    }
+
     private static IReadOnlyList<ApiModeLiveItem> One(ApiModeLiveItem item) => new[] { item };
 
     private static string Unknown(string words, string what, string value)
@@ -397,6 +409,7 @@ public sealed class ApiModeLiveRuling
     private static ApiModeReceiptDto Copy(ApiModeReceiptDto r) => new()
     {
         PromptId = r.PromptId,
+        PromptText = r.PromptText,
         State = r.State,
         QueueReason = r.QueueReason,
         Disposition = r.Disposition,

@@ -557,6 +557,32 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Items_AReceipt_CarriesThePromptTextVerbatim()
+    {
+        await StartAsync();
+        const string spoken = "  run the tests\nthen tell me what failed  \n";
+        PushA(new PromptQueued { SessionId = ApiSession, Sequence = 1, At = T0, PromptId = "p1", PromptText = spoken, Reason = PromptQueuedReason.TurnRunning, Position = 1 });
+
+        var page = await GetPageAsync(Alice, ApiSession);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(ApiModeLiveItemKinds.Receipt, item.Kind);
+        Assert.Equal(spoken, item.PromptText);
+    }
+
+    [Fact]
+    public async Task Items_AResetStartsFromAStoredReceiptWithoutText_PromptTextIsNull()
+    {
+        await StartAsync();
+        RecordDelivered("p0");   // stored with no prompt text, as from an older Director
+
+        var page = await GetPageAsync(Alice, ApiSession, after: "gen-a:7");
+
+        Assert.Equal(ApiModeLiveResetCodes.MissedEvents, page.Reset!.Code);
+        Assert.Null(Assert.Single(page.Items).PromptText);
+    }
+
+    [Fact]
     public async Task Items_ABrandNewSessionWithNothingHeld_AnswersEmptyWithNoReset()
     {
         await StartAsync();
@@ -872,7 +898,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     private static ConnectionReady Ready(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, AgentSessionId = "e173b676-b5d6-4605-bc6c-cdbc82fd42a7", Model = "gpt-5.6-sol" };
-    private static PromptDelivered Delivered(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Disposition = PromptDisposition.Started, Acknowledgement = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""" };
+    private static PromptDelivered Delivered(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, PromptText = $"text of {prompt}", Disposition = PromptDisposition.Started, Acknowledgement = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""" };
     private static TurnStarted Started(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", PromptIds = new[] { "p1" } };
     private static MessageText Text(long seq, string text) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", MessageId = "m1", Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Delta, Text = text };
     private static ToolCallStarted ToolStart(long seq, string name, string input) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = "tc1", ToolName = name, Kind = ToolCallKind.Execute, Input = input };
