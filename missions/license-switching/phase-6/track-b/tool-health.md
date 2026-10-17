@@ -153,6 +153,54 @@ engine):
 The alarm call is left out, as the brief says: Track A builds the one license alarm. The detection and the visible
 status are here for it to call.
 
+## The bin folder window seen on 17 October 2026
+
+**What was seen.** On the machine the Delivery Lead watched, the `cc-*` commands vanished from the Director's `bin`
+folder from about 14:34 to 14:37 UTC, while a pip install ran from a `cc-pytools-<id>` temporary folder. Only
+`cc-linkedin` was left. That machine runs a release from before this pull request.
+
+**What causes it, on origin/main.** `cc-pytools-<id>` is the folder `PythonToolsInstaller.InstallAsync` extracts the
+tools bundle into (step 2), and the pip install that reads from it is step 5. On main the installer, in order:
+
+1. Calls `RemoveManagedShims(manifest.Scripts)` immediately before setting the venv aside ("setting the current
+   tools environment aside", line 329 of `PythonToolsInstaller.cs` on main). This deletes `bin\<script>.cmd`,
+   `bin\<script>.exe` and the bare `bin\<script>` of EVERY script in the bundle.
+2. Sets the venv aside, creates a new one, and runs pip into it.
+3. Writes the shims again only after pip and the health check (`WriteShims`, line 452 on main).
+
+So **the `bin` folder is empty of every bundle command for the whole pip install**, the same minutes the venv is
+gone. `cc-linkedin` survives because it is not one of the bundle's console scripts, and `RemoveManagedShims` walks
+only the bundle's list. This is the same window as the one in "The cause", seen from the `bin` folder instead of
+the Python environment.
+
+**What this pull request changes - the same code path.** With this change the only `RemoveManagedShims` calls are:
+
+- **After the swap** (step 9), and only for scripts the PREVIOUS bundle had and the new one does not:
+  `RemoveManagedShims(restoreScripts.Except(manifest.Scripts))`. A command that is still shipped is never deleted.
+  It is rewritten in place by `WriteShims`, which overwrites each file rather than deleting it first.
+- **In the roll-back after a failure that came after the swap**, where the shims are removed and immediately written
+  again for the restored venv.
+
+Nothing touches `bin` before or during pip. The test
+`InstallAsync_WhilePipRuns_TheInstalledToolAndItsShimAreStillThere` checks the `bin` shim itself
+(`bin\<tool>.cmd`), not only the venv, at the moment pip runs. On main's order that assertion fails, because the
+shim was deleted first.
+
+**What it does not cover, said plainly:**
+
+- **The swap itself.** For the four renames (46 ms measured), the shims are in `bin` but the venv they start is
+  not. A command started in that instant fails with "not found" from inside the shim, not from the shell.
+- **The rewrite.** `WriteShims` overwrites each shim with `File.WriteAllText`. A command started in the instant
+  one file is being written could read it half written. That instant is a single small file write per shim, and it
+  is not measured here.
+- **The roll-back.** After a failure that came after the swap, the shims are removed and written again, a moment
+  apart, on purpose: the restored venv may not have every script.
+- **The update that installs this fix.** The tools refresh is run by whichever build of the setup engine is running
+  when it starts. If that is a build from before this pull request, that refresh has the old three-minute window
+  one last time. Every refresh after it does not.
+- **Commands outside the bundle.** Anything else that writes or removes files in `bin` (the uninstaller, other
+  components such as `cc-linkedin`) is not changed by this pull request.
+
 ## A crash in the middle of the swap
 
 The swap is four directory renames (step 8 of `PythonToolsInstaller.InstallAsync`): the venv aside, the base Python
