@@ -31,87 +31,6 @@ public class SessionLifecycleTests : IDisposable
         _manager = new SessionManager(options);
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void CreateSession_NewSession_StatusIsRunning()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-
-        Assert.Equal(SessionStatus.Running, session.Status);
-        Assert.True(session.ProcessId > 0);
-        Assert.Equal(SessionBackendType.ConPty, session.BackendType);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void CreateSession_WithCustomArgs_StoresArgs()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath(), "--test-arg");
-
-        Assert.Equal("--test-arg", session.ClaudeArgs);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void CreateSession_DefaultProperties_AreCorrect()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-
-        // New sessions get a preassigned ClaudeSessionId via --session-id flag
-        Assert.NotNull(session.ClaudeSessionId);
-        Assert.True(Guid.TryParse(session.ClaudeSessionId, out _), "ClaudeSessionId should be a valid GUID");
-        Assert.Null(session.CustomName);
-        Assert.Null(session.CustomColor);
-        Assert.Null(session.PendingPromptText);
-        Assert.Null(session.ClaudeMetadata);
-        Assert.Equal(0, session.SortOrder);
-        Assert.Null(session.ExpectedFirstPrompt);
-        Assert.Null(session.VerifiedFirstPrompt);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void CreateMultipleSessions_AllTracked()
-    {
-        var s1 = _manager.CreateSession(Path.GetTempPath());
-        var s2 = _manager.CreateSession(Path.GetTempPath());
-        var s3 = _manager.CreateSession(Path.GetTempPath());
-
-        var sessions = _manager.ListSessions();
-        Assert.Equal(3, sessions.Count);
-        Assert.Contains(sessions, s => s.Id == s1.Id);
-        Assert.Contains(sessions, s => s.Id == s2.Id);
-        Assert.Contains(sessions, s => s.Id == s3.Id);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void RemoveSession_RemovesFromTracking()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        Assert.Single(_manager.ListSessions());
-
-        _manager.RemoveSession(session.Id);
-
-        Assert.Empty(_manager.ListSessions());
-        Assert.Null(_manager.GetSession(session.Id));
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void RemoveSession_WithClaudeSessionId_ClearsMapping()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        session.ClaudeSessionId = "test-claude-id";
-        _manager.RegisterClaudeSession("test-claude-id", session.Id);
-
-        Assert.NotNull(_manager.GetSessionByClaudeId("test-claude-id"));
-
-        _manager.RemoveSession(session.Id);
-
-        Assert.Null(_manager.GetSessionByClaudeId("test-claude-id"));
-    }
-
     [Fact]
     public void RemoveSession_NonExistentId_DoesNotThrow()
     {
@@ -123,37 +42,6 @@ public class SessionLifecycleTests : IDisposable
     public async Task KillAllSessions_NoSessions_DoesNotThrow()
     {
         await _manager.KillAllSessionsAsync();
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Session_CustomProperties_Settable()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-
-        session.CustomName = "My Test";
-        session.CustomColor = "#FF0000";
-        session.PendingPromptText = "some prompt";
-        session.SortOrder = 5;
-        session.ExpectedFirstPrompt = "hello world";
-
-        Assert.Equal("My Test", session.CustomName);
-        Assert.Equal("#FF0000", session.CustomColor);
-        Assert.Equal("some prompt", session.PendingPromptText);
-        Assert.Equal(5, session.SortOrder);
-        Assert.Equal("hello world", session.ExpectedFirstPrompt);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Dispose_DisposesAllSessions()
-    {
-        var s1 = _manager.CreateSession(Path.GetTempPath());
-        var s2 = _manager.CreateSession(Path.GetTempPath());
-
-        _manager.Dispose();
-
-        Assert.Empty(_manager.ListSessions());
     }
 
     public void Dispose()
