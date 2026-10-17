@@ -463,9 +463,11 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 
 ### 5.7 A spare whose sign-in is about to expire
 
-- **The Gateway never chooses a target whose spare's `SignInExpiresAtUtc` is at or before the
-  command's `NotAfterUtc`.** A sign-in that could die before the switch is allowed to start is not a
-  spare. A null `SignInExpiresAtUtc` does not exclude a target on its own; the Director still refuses
+- **The Gateway never sends a machine to an account whose sign-in on that machine expires at or before
+  the command's `NotAfterUtc`.** A sign-in that could die before the switch is allowed to start does not
+  make the machine ready for that account. It is judged per machine: it never stops another machine that
+  is ready from moving, and it never makes the account count as having no room (MISSION.md section 5).
+  A null `SignInExpiresAtUtc` does not make a machine unready on its own; the Director still refuses
   an expired sign-in at 3.3 step 9.
 - **The Cockpit shows an expiry verdict for every holding**: `expired` (at or before now), `expires
   soon` (within `LicenseContract.SignInExpiryWarning`, 3 days, of now), `fine` (later than that), or
