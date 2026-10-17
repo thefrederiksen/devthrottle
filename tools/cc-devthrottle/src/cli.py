@@ -2045,7 +2045,8 @@ def license_usage(
     ),
     active: bool = typer.Option(False, "--active", help="Read only the active account. Applies to --json too."),
     refresh: bool = typer.Option(
-        False, "--refresh", help="First renew each spare whose key has under an hour left (as license refresh)."
+        False, "--refresh", help="First renew each key with under an hour left: a spare as license refresh does, the "
+        "active one only when no Claude Code session is using it (or its token has already ended)."
     ),
     default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),

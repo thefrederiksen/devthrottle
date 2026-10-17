@@ -5,9 +5,12 @@ config folder is a temporary one, never the machine's real Claude login. The JSO
 against the contract's LicenseHolding (missions/license-switching/contract.md section 2.2).
 """
 
+import contextlib
 import json
 import logging
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -387,12 +390,16 @@ def test_refresh_spare_ASwitchFinishedFirst_RefusesTheNowActiveAccountAndSendsNo
 
 
 def test_read_with_refresh_ASwitchFinishedFirst_ReadsTheAccountWhereItIsNow(machine):
+    # The handle was made while B was a spare; a switch made B active. B is renewed and read where it is NOW - in
+    # the default folder, by the active account's rule (half an hour left and no session, so it is renewed).
     key = _key(machine, "account-b@example.com")
     _other_process(machine).switch("account-b@example.com")
     get = FakeGet(HttpAnswer(200, GOOD_BODY))
-    reading = license_usage.read_with_refresh(key, get, FakePost(_token_answer()), now=lambda: NOW + 3600 * 4.5)
+    reading = license_usage.read_with_refresh(key, get, FakePost(_token_answer()), now=lambda: NOW + 3600 * 4.5,
+                                              sessions_in_use=lambda folder: [])
     assert reading.read_error is None
-    assert get.calls[0][1]["Authorization"] == f"Bearer {ACCESS_B}"
+    assert key.folder == Path(machine.default_config_dir)
+    assert get.calls[0][1]["Authorization"] == f"Bearer {NEW_ACCESS}"
 
 
 def test_read_with_refresh_StoreBusy_ReadsTheKeyAsItIsInsteadOfBarringIt(machine):
@@ -423,12 +430,236 @@ def test_read_with_refresh_RenewalFails_IsRefreshFailedAndNothingIsRead(machine)
     assert get.calls == []
 
 
-def test_read_with_refresh_ActiveKey_IsReadWithoutRenewal(machine):
-    post = FakePost(_token_answer())
-    reading = license_usage.read_with_refresh(_key(machine, "account-a@example.com"),
-                                              FakeGet(HttpAnswer(200, GOOD_BODY)), post, now=lambda: NOW + 3600 * 4.5)
+# --- the active key (phase 6): renewed in place only when no Claude Code session can be using it -------------
+
+
+A_IN_HALF_AN_HOUR = NOW + 3600 * 4.5  # account A's token has 30 minutes left
+A_EXPIRED = NOW + 3600 * 5 + 60  # account A's token ended a minute ago
+
+
+def _no_sessions(folder):
+    return []
+
+
+def _one_session(folder):
+    return [4242]
+
+
+def test_read_with_refresh_ActiveKey_UnderAnHourAndNoSession_IsRenewedInPlaceThenRead(machine):
+    # The machine's Director is the only thing running: the active key has half an hour left and no Claude Code
+    # session is registered in the default folder, so it is renewed where it lives and read with the new token.
+    post, get = FakePost(_token_answer()), FakeGet(HttpAnswer(200, GOOD_BODY))
+    key = _key(machine, "account-a@example.com")
+
+    reading = license_usage.read_with_refresh(key, get, post, now=lambda: A_IN_HALF_AN_HOUR,
+                                              sessions_in_use=_no_sessions)
+
+    assert reading.read_error is None
+    assert [payload["refresh_token"] for _, payload in post.calls] == [REFRESH_A]
+    assert get.calls[0][1]["Authorization"] == f"Bearer {NEW_ACCESS}"
+    stored = _stored(key)
+    assert (stored["accessToken"], stored["refreshToken"]) == (NEW_ACCESS, NEW_REFRESH)
+    assert key.folder == Path(machine.default_config_dir)
+    _assert_store_lock_released(machine)
+    assert not (key.folder / ".oauth_refresh.lock").exists(), "Claude Code's lock is released"
+    assert not Path(f"{machine.default_config_dir}.lock").exists(), "and so is its legacy lock"
+
+
+def test_read_with_refresh_ActiveKey_ASessionIsUsingIt_IsNotRenewed(machine):
+    # A Claude Code session is running on the active key and its token still works: the session renews it itself
+    # before it ends, so nothing is sent from here and the key is read as it is.
+    post, get = FakePost(_token_answer()), FakeGet(HttpAnswer(200, GOOD_BODY))
+    key = _key(machine, "account-a@example.com")
+
+    reading = license_usage.read_with_refresh(key, get, post, now=lambda: A_IN_HALF_AN_HOUR,
+                                              sessions_in_use=_one_session)
+
     assert reading.read_error is None
     assert post.calls == []
+    assert get.calls[0][1]["Authorization"] == f"Bearer {ACCESS_A}"
+    assert _stored(key)["accessToken"] == ACCESS_A
+
+
+def test_read_with_refresh_ActiveKey_MoreThanAnHourLeft_IsNotRenewed(machine):
+    post = FakePost(_token_answer())
+    reading = license_usage.read_with_refresh(_key(machine, "account-a@example.com"),
+                                              FakeGet(HttpAnswer(200, GOOD_BODY)), post, now=lambda: NOW + 3600 * 3.5,
+                                              sessions_in_use=_no_sessions)
+    assert reading.read_error is None
+    assert post.calls == []
+
+
+def test_read_with_refresh_ActiveKey_AlreadyExpiredWhileASessionIsRegistered_IsRenewed(machine):
+    # Sessions that sat idle past the token's end: no session can be using a dead token, so renewing it ends
+    # nothing. Each session renews under its own lock on its next call, reads the stored key there first, and
+    # finds this renewal instead of posting the spent refresh token.
+    post, get = FakePost(_token_answer()), FakeGet(HttpAnswer(200, GOOD_BODY))
+    key = _key(machine, "account-a@example.com")
+
+    reading = license_usage.read_with_refresh(key, get, post, now=lambda: A_EXPIRED, sessions_in_use=_one_session)
+
+    assert reading.read_error is None
+    assert len(post.calls) == 1
+    assert _stored(key)["accessToken"] == NEW_ACCESS
+
+
+def test_refresh_key_ActiveKey_ClaudeCodeHoldsItsRefreshLock_IsBusyAndSendsNothing(machine):
+    # A Claude Code session is renewing the key this moment (its lock folder is fresh): nothing is sent and
+    # nothing is written; the read goes ahead with the key as it is, and the next round tries again.
+    key = _key(machine, "account-a@example.com")
+    lock = key.folder / ".oauth_refresh.lock"
+    lock.mkdir()
+    os.utime(lock, (A_IN_HALF_AN_HOUR - 5, A_IN_HALF_AN_HOUR - 5))  # touched five seconds ago, as a holder does
+    post = FakePost(_token_answer())
+
+    with pytest.raises(RefreshError) as err:
+        license_usage.refresh_key(key, http_post_json=post, now=lambda: A_IN_HALF_AN_HOUR,
+                                  sessions_in_use=_no_sessions)
+    assert err.value.kind == "busy"
+    assert post.calls == [] and _stored(key)["accessToken"] == ACCESS_A
+    assert (key.folder / ".oauth_refresh.lock").is_dir(), "the session's lock is left alone"
+
+    reading = license_usage.read_with_refresh(key, FakeGet(HttpAnswer(200, GOOD_BODY)), post,
+                                              now=lambda: A_IN_HALF_AN_HOUR, sessions_in_use=_no_sessions)
+    assert reading.read_error is None and post.calls == []
+
+
+def test_refresh_key_ActiveKey_OnlyTheLegacyLockIsHeld_IsBusy_AndTheFirstLockIsGivenBack(machine):
+    # Claude Code takes two locks; a session holding only the legacy one still holds the key. Nothing is sent, and
+    # the lock folder taken first is released again, so no session is left waiting on it.
+    key = _key(machine, "account-a@example.com")
+    legacy = Path(f"{os.path.realpath(machine.default_config_dir)}.lock")
+    legacy.mkdir()
+    os.utime(legacy, (A_IN_HALF_AN_HOUR - 5, A_IN_HALF_AN_HOUR - 5))
+    post = FakePost(_token_answer())
+
+    with pytest.raises(RefreshError) as err:
+        license_usage.refresh_key(key, http_post_json=post, now=lambda: A_IN_HALF_AN_HOUR,
+                                  sessions_in_use=_no_sessions)
+
+    assert err.value.kind == "busy" and post.calls == []
+    assert not (key.folder / ".oauth_refresh.lock").exists()
+    assert legacy.is_dir()
+
+
+def test_refresh_key_ActiveKey_ALockLeftByAKilledSession_IsTakenAfterSixtySeconds(machine):
+    # Claude Code treats its lock as abandoned once untouched for 60 seconds; so does this, or a session killed
+    # mid-renewal would stop the active key being renewed for ever.
+    key = _key(machine, "account-a@example.com")
+    lock = key.folder / ".oauth_refresh.lock"
+    lock.mkdir()
+    os.utime(lock, (A_IN_HALF_AN_HOUR - 61, A_IN_HALF_AN_HOUR - 61))
+    post = FakePost(_token_answer())
+
+    result = license_usage.refresh_key(key, http_post_json=post, now=lambda: A_IN_HALF_AN_HOUR,
+                                       sessions_in_use=_no_sessions)
+
+    assert result.refreshed and len(post.calls) == 1
+    assert not lock.exists()
+
+
+def test_refresh_key_ActiveKey_ASessionRenewedItFirst_UsesThatAndSendsNothing(machine, monkeypatch):
+    # Between the first read and taking Claude Code's lock, a session renewed the key. It is read again under
+    # the lock - as Claude Code does - and the session's renewal stands; the spent refresh token is never posted.
+    key = _key(machine, "account-a@example.com")
+    real_lock = license_usage.claude_refresh_lock
+
+    @contextlib.contextmanager
+    def lock_after_a_session_renewed(folder, now):
+        _sign_in(Path(folder), "Account-A@example.com", "sk-ant-oat01-ACCESS-SESSION-never-shown",
+                 "sk-ant-ort01-REFRESH-SESSION-never-shown", 3600 * 8)
+        with real_lock(folder, now):
+            yield
+
+    monkeypatch.setattr(license_usage, "claude_refresh_lock", lock_after_a_session_renewed)
+    post = FakePost(_token_answer())
+
+    result = license_usage.refresh_key(key, http_post_json=post, now=lambda: A_IN_HALF_AN_HOUR,
+                                       sessions_in_use=_no_sessions)
+
+    assert not result.refreshed and result.reason == "renewed-by-a-session"
+    assert post.calls == []
+    assert _stored(key)["accessToken"] == "sk-ant-oat01-ACCESS-SESSION-never-shown"
+
+
+def test_read_with_refresh_ActiveKey_RenewalRefused_IsRefreshFailedSayingItNeedsASignIn(machine):
+    # The token endpoint refuses the active key's refresh token: never silent - the reading is refresh-failed,
+    # which the Director reports as "the account needs a new sign-in", and nothing is read with the dead key.
+    get = FakeGet(HttpAnswer(200, GOOD_BODY))
+    reading = license_usage.read_with_refresh(_key(machine, "account-a@example.com"), get,
+                                              FakePost(HttpAnswer(400, b'{"error": "invalid_grant"}')),
+                                              now=lambda: A_IN_HALF_AN_HOUR, sessions_in_use=_no_sessions)
+    assert reading.read_error == "refresh-failed"
+    assert "the active account needs a new sign-in" in reading.read_error_detail
+    assert get.calls == []
+
+
+def test_refresh_key_ActiveKey_AfterRenewal_TheKeyIsInExactlyOnePlace_AndTheOldTokenIsGone(machine, tmp_path):
+    # Every file under the machine - the default config folder, the key store, and a stand-in for the Director's
+    # own folders - is searched: the new key is in one file, the default folder's credentials file, and neither
+    # the old access token nor the old refresh token is left anywhere on disk.
+    director = tmp_path / "director"
+    (director / "logs").mkdir(parents=True)
+    (director / "logs" / "director.log").write_text("nothing", encoding="utf-8")
+    key = _key(machine, "account-a@example.com")
+
+    license_usage.refresh_key(key, http_post_json=FakePost(_token_answer()), now=lambda: A_IN_HALF_AN_HOUR,
+                              sessions_in_use=_no_sessions)
+
+    holding = {secret: [] for secret in (ACCESS_A, REFRESH_A, NEW_ACCESS, NEW_REFRESH)}
+    for path in tmp_path.rglob("*"):
+        if path.is_file():
+            text = path.read_text(encoding="utf-8", errors="replace")
+            for secret in holding:
+                if secret in text:
+                    holding[secret].append(path)
+    credentials = Path(machine.default_config_dir) / ".credentials.json"
+    assert holding[NEW_ACCESS] == [credentials] and holding[NEW_REFRESH] == [credentials]
+    assert holding[ACCESS_A] == [] and holding[REFRESH_A] == []
+
+
+# --- which Claude Code sessions are using a folder ---------------------------------------------------------
+
+
+def _register(folder: Path, pid, started_at_ms) -> None:
+    (folder / "sessions").mkdir(parents=True, exist_ok=True)
+    (folder / "sessions" / f"{pid}.json").write_text(json.dumps({
+        "pid": pid, "sessionId": "x", "cwd": "/", "startedAt": started_at_ms, "kind": "interactive"}), encoding="utf-8")
+
+
+def test_claude_sessions_in_use_NoSessionsFolder_IsNone(tmp_path):
+    assert license_usage.claude_sessions_in_use(tmp_path) == []
+
+
+def test_claude_sessions_in_use_ThisRunningProcess_IsInUse(tmp_path):
+    # The record Claude Code writes, naming a process that is certainly running (this test's own), registered
+    # after it started: in use. This reads the real process table for this one process.
+    _register(tmp_path, os.getpid(), int(time.time() * 1000))
+    assert license_usage.claude_sessions_in_use(tmp_path) == [os.getpid()]
+
+
+def test_claude_sessions_in_use_ARecordLeftByAKilledSession_IsNotInUse(tmp_path):
+    # Measured: a session that is killed leaves its record behind. Its process is gone, so it does not count.
+    _register(tmp_path, 4242, 1_000_000)
+    assert license_usage.claude_sessions_in_use(tmp_path, started_at=lambda pid: None) == []
+
+
+def test_claude_sessions_in_use_ANumberAnotherProcessTookSince_IsNotInUse(tmp_path):
+    # The record's process number now belongs to a process that started after the record was written.
+    _register(tmp_path, 4242, 1_000_000_000)
+    assert license_usage.claude_sessions_in_use(tmp_path, started_at=lambda pid: 1_000_000.0 + 3600) == []
+
+
+def test_claude_sessions_in_use_AnUnreadableRecord_CountsAsInUse(tmp_path):
+    # Not knowing is never read as "no session": the active key is then left to the sessions.
+    (tmp_path / "sessions").mkdir()
+    (tmp_path / "sessions" / "77.json").write_text("{not json", encoding="utf-8")
+    assert license_usage.claude_sessions_in_use(tmp_path, started_at=lambda pid: None) == [-1]
+
+
+def test_process_started_at_ThisProcess_IsInThePast(tmp_path):
+    began = license_usage.process_started_at(os.getpid())
+    assert began is not None and 0 < began <= time.time()
 
 
 # --- the commands ------------------------------------------------------------------------------------
