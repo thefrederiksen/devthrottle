@@ -1093,7 +1093,8 @@ is `Licenses.LicenseReadinessFold`; the Licenses page and the minute check call 
 
 **What is done about a machine that is not ready**, in this order:
 
-1. A sign-in for that machine and account is open (`pending` or `unknown`): wait.
+1. A sign-in for that machine and account is open (`pending` or `unknown`), however old - the same read `Start`
+   refuses a second one by: wait.
 2. The account's approver cannot approve - `LicenseApproverReadiness.WhyNotReady` (section 10, Track C's one check)
    says so: start nothing. The reason shown is that sentence.
 3. The machine's Director is not connected: start nothing. It is judged again every minute, so the sign-in starts on
@@ -1103,7 +1104,10 @@ is `Licenses.LicenseReadinessFold`; the Licenses page and the minute check call 
 5. The last sign-ins failed: wait 2, 5, 15 or 30 minutes after the last failed one, by how many failed in a row, then
    hourly. The count is read from the sign-in rows of the Licenses log (the last day of them), newest first, up to the
    first that did not fail - so it survives a Gateway restart and needs no store of its own.
-6. Otherwise: start a sign-in now through `LicenseSignInService.Start` (section 8.4), with the reason `auto-spare` when
+6. Sign-ins for that machine and account ended `added` or `renewed` twice or more within an hour of the latest of
+   them, and the machine's reports still do not show one: wait an hour after the latest (a ceiling, so a Director that
+   does not report what it holds does not cost a real approval every ten minutes).
+7. Otherwise: start a sign-in now through `LicenseSignInService.Start` (section 8.4), with the reason `auto-spare` when
    the machine holds no sign-in for the account, or `auto-renewal` when the sign-in it holds was refused or expires
    too soon. Each is refused exactly as "Add a spare" or "Renew now" is; in particular a second one while one is
    running for that machine and account is refused `sign_in_running`, and the check relies on that.
@@ -1113,18 +1117,30 @@ logs the word. The Licenses log shows them as "Automatic: a new spare" and "Auto
 sentence begins "Started automatically:".
 
 **The alarm.** On each check the readiness check raises kind `not-ready-at-80` (title "Not ready to switch") with one
-condition per machine that is not ready while the account it is on stands, on a fresh reading (section 5.2), at or
-above 80% of either window (a window whose reset time has passed does not count). The condition's machine is the
-machine, its account is the account in use, and its words are:
+condition per machine that is not ready while the account it is on stands at or above 80% of either window (a window
+whose reset time has passed does not count). The condition's machine is the machine, its account is the account in
+use. **It opens only on a fresh reading (section 5.2). An open one stays open while the reading is stale** - a banner
+that vanished because the number is no longer known would read as fixed - and **closes only on a fresh reading under
+80%, on the machine becoming ready, or on the machine leaving the account** (the Tech Lead's ruling, 17 October). Its
+words:
 
-- what is wrong: "machine-a is not ready to switch off account-a@example.com, which is at 85% of its weekly limit: it
-  holds no sign-in for account-b@example.com, the account it would switch to next."
-- the one thing to do: the approver's sentence when the approver cannot approve; "Start the Director on machine-a."
-  when its Director is not connected; otherwise "Nothing to do yet: DevThrottle is signing it in; if this stays, sign
-  machine-a in to account-b@example.com from the Licenses page."
+- what is wrong: "machine-a is not ready to switch off account-a@example.com, which is at 85% of its weekly limit:
+  account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com."
+  While the reading is stale: "... account-a@example.com, which was at or above 80% at its last fresh reading: ...".
+- the one thing to do, true to what the last attempt did:
+  - the approver cannot approve: the approver's sentence;
+  - the Director is not connected: "Start the Director on machine-a.";
+  - the last sign-in failed: "The last sign-in failed at 10:42 UTC (the Director's reason); DevThrottle tries again at
+    10:47 UTC. If this stays, sign machine-a in to account-b@example.com from the Licenses page.";
+  - a sign-in ended well and is not reported yet: "It was signed in at 10:42 UTC and its next report should show it; if
+    this stays, sign machine-a in to account-b@example.com from the Licenses page.";
+  - the ceiling of step 6: "It was signed in to account-b@example.com 2 times within an hour and its reports still do
+    not show it; DevThrottle tries again at 11:22 UTC. Check that the Director on machine-a reports the sign-ins it
+    holds.";
+  - a sign-in is running or being started: "Nothing to do yet: DevThrottle is signing it in; if this stays, sign
+    machine-a in to account-b@example.com from the Licenses page."
 
-It closes by itself (section 9.2) when the machine becomes ready, when the account falls back under 80%, or when its
-reading is no longer fresh.
+An open alarm's words are brought up to date on every check, with no second email or push (section 9.2).
 
 **Only where automation is switched on.** A tenant none of whose machines has reported is left alone: nothing read,
 nothing started, no alarm raised. A Director reports licenses only with license switching switched on for it (the

@@ -535,8 +535,8 @@ function ScheduleTable({ machines, forecast }: { machines: ReadonlyArray<License
                 <TonePill text={machine.statusText} tone={machine.statusTone} />
                 <div className="lic-dim">{machine.lastReportText}</div>
                 {machine.heldText !== null && <div data-testid="lic-machine-held">{machine.heldText}</div>}
-                {machine.readinessText !== null && (
-                  <div className={toneClass(machine.readinessTone ?? "neutral")} data-testid="lic-machine-readiness" data-readiness={machine.readiness ?? undefined}>
+                {machine.readinessText !== null && machine.readinessTone !== null && (
+                  <div className={toneClass(machine.readinessTone)} data-testid="lic-machine-readiness" data-readiness={machine.readiness ?? undefined}>
                     {machine.readinessText}
                   </div>
                 )}

@@ -76,7 +76,7 @@ public sealed class LicenseReadinessService
     public IReadOnlyList<LicenseMachineReadiness> Judge(TenantId tenant, LicensePicture picture, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(picture);
-        return LicenseReadinessFold.Judge(picture, _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
+        return LicenseReadinessFold.Judge(picture, _log.ListOpen(tenant), _log.ListSince(tenant, nowUtc - LicenseReadinessFold.RowsReadFor),
             account => _approverWhyNot(tenant, account), directorId => _isConnected(tenant, directorId), nowUtc);
     }
 
@@ -151,7 +151,7 @@ public sealed class LicenseReadinessService
             }
 
             var alarms = await _alarms.RaiseAsync(tenant, LicenseReadinessFold.AlarmKind,
-                LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged), ct).ConfigureAwait(false);
+                LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, _alarms.ListOpen(tenant)), ct).ConfigureAwait(false);
             if (started.Count + alarms.Opened + alarms.Closed > 0)
                 FileLog.Write($"[LicenseReadinessService] TickAsync: tenant={tenant.ToLogString()}, judged={judged.Count}, "
                               + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, alarmsOpened={alarms.Opened}, "

@@ -152,6 +152,8 @@ account-b@example.com that was refused", or "... that expires at 2026-10-16 03:0
 - "Not ready: {why}; a sign-in to account-b@example.com is running, started at 10:42 UTC."
 - "Not ready: {why}; the last sign-in failed at 10:42 UTC ({the Director's reason}); trying again at 10:47 UTC."
 - "Not ready: {why}; it was signed in at 10:42 UTC, and its next report should show it."
+- "Not ready: {why}; it was signed in 2 times within an hour and its reports still do not show it; trying again at
+  11:22 UTC."
 - "Not ready: {why}, and the Director on machine-a is not connected, so it cannot be signed in yet."
 - "Not ready: {why}. {the approver's sentence}", for example "... No machine is set to approve sign-ins for
   account-b@example.com. Set an approver for account-b@example.com on the Licenses page."

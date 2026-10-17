@@ -188,11 +188,14 @@ start fixing at once, alarm loudly only if it is still not ready at 80%." Each i
     then the approver's own sentence, from Track C's one check); or while the machine's Director is not connected
     (looked at again every minute, so it starts as soon as the Director is back).
   - **A sign-in that failed is tried again after a wait**: 2, 5, 15 and 30 minutes, then hourly, counted from the
-    failed sign-in rows of the Licenses log, so it survives a Gateway restart.
+    failed sign-in rows of the Licenses log, so it survives a Gateway restart. Sign-ins that end well but never show
+    in the machine's reports are repeated hourly after the second, not every ten minutes.
   - **The alarm.** When the account a machine is on stands at or above 80% of either window, on a fresh reading,
     and the machine is still not ready, the license alarm opens for that machine: it names the machine, the account
-    in use, the account it would switch to and why it cannot, and the one thing to do. It closes by itself when the
-    machine becomes ready or the account falls back under 80%. Under 80% there is no alarm, and the fixing still runs.
+    in use, the account it would switch to and why it cannot, and the one thing to do - true to what the last attempt
+    did. It stays open while the reading is stale, and closes by itself only on a fresh reading under 80%, when the
+    machine becomes ready, or when the machine leaves the account. Under 80% there is no alarm, and the fixing still
+    runs.
   - Only where automation is switched on: a Director reports licenses only with license switching on for it, so a
     tenant whose machines never reported gets no sign-in and no alarm.
 

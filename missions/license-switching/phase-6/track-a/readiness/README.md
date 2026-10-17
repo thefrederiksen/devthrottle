@@ -41,7 +41,10 @@ All of the deciding is on the Gateway (CLAUDE.md rule 7); the Cockpit draws one 
    twice. ("...; it was signed in at 10:42 UTC, and its next report should show it.")
 5. The last sign-ins failed: wait out the retry wait. ("...; the last sign-in failed at 10:42 UTC (the Director's
    reason); trying again at 10:47 UTC.")
-6. Otherwise: start a sign-in now through the existing pipeline (`LicenseSignInService.Start`, then the Director, then
+6. Sign-ins ended well twice or more within an hour of the latest of them, and the reports still do not show one:
+   wait an hour after the latest (review note 4). ("...; it was signed in 2 times within an hour and its reports still
+   do not show it; trying again at 11:22 UTC.")
+7. Otherwise: start a sign-in now through the existing pipeline (`LicenseSignInService.Start`, then the Director, then
    `LicenseSignInCoordinator` and `LicenseApprovalRelay`, approved by the account's approver).
 
 ### Choices made, and why
@@ -71,8 +74,16 @@ All of the deciding is on the Gateway (CLAUDE.md rule 7); the Cockpit draws one 
   widened.
 - **The alarm's identity is machine + the account in use.** If the next account changes while the alarm is open, the
   alarm stays open and its sentence is brought up to date, rather than closing and opening a new one with a new email.
-- **80% is judged on a fresh reading only** (the staleness rules of contract 5.2), and a window whose reset time has
-  passed does not count. A reading that goes stale closes the alarm; the next fresh one reopens it if still true.
+- **An alarm opens only on a fresh reading at or above 80%, stays open while the reading is stale, and closes only on
+  a fresh reading under 80%, the machine becoming ready, or the machine leaving the account** (the Tech Lead's ruling on
+  review finding 2). A window whose reset time has passed does not count as at 80%.
+- **The alarm's one thing to do is true to what the last attempt did** (review finding 1): after a failure it says when
+  and why it failed and when it is tried again; after a sign-in that ended well and is not reported yet it says so;
+  "DevThrottle is signing it in" only while one is running or being started.
+- **Two alarms can be open for one cause.** When the approver of the next account cannot approve, Track C's approver
+  alarm (kind `approver-cannot-approve`, about the account) is open, and at 80% this one (about the machine) opens too,
+  its action being the same approver sentence. They are different problems for the owner - the approver, and a
+  machine that cannot switch - and each closes by its own fact. Left as it is.
 
 ## The tests, in plain terms
 
@@ -125,7 +136,34 @@ The 80% alarm:
   approver: the approver's sentence.
 - `Tick_TheMachineBecomesReady_TheAlarmCloses` - machine-a reports a sign-in for B: ready, and the alarm closes.
 - `Tick_TheAccountFallsUnder80_TheAlarmCloses` - A's window resets to 3%: still not ready, and the alarm closes.
-- `Tick_At80OnAStaleReading_RaisesNoAlarm` - 90% on a reading older than its staleness limit raises nothing.
+- `Tick_At80OnAStaleReading_RaisesNoAlarm` - 90% on a reading older than its staleness limit opens nothing.
+- `Tick_AnOpenAlarm_StaysOpenWhileTheReadingIsStale_AndClosesOnAFreshReadingUnder80` (finding 2) - open at 85%; twenty
+  minutes with no report: the SAME alarm is still open, its sentence now "... which was at or above 80% at its last
+  fresh reading: ...", and no second email; then a fresh reading at 40% closes it.
+- `Tick_TheMachineLeavesTheAccount_TheAlarmCloses` (finding 2) - machine-a reports another account as active: closed.
+- `Tick_At80_AfterAFailedSignIn_TheAlarmSaysItFailed_AndWhenItIsTriedAgain` (finding 1) - the alarm's action becomes
+  "The last sign-in failed at 03:12 UTC (The approval in the browser did not complete); DevThrottle tries again at
+  03:14 UTC. If this stays, sign machine-a in to account-b@example.com from the Licenses page.", with no second email.
+- `Tick_At80_AfterASignInEndedWell_TheAlarmSaysItWaitsForTheReport` (finding 1) - "It was signed in at 03:12 UTC and
+  its next report should show it; if this stays, ...".
+
+After the review:
+- `Judge_ASignInOpenForMoreThanADay_StillReadsAsRunning` (finding 3) - an open row written two days ago still reads as
+  running, so the page never claims to start one that `Start` would refuse.
+- `Tick_SignInsThatEndWellButNeverShow_AreRepeatedOnlyHourlyAfterTheSecond` (note 4) - every sign-in ends "added" and
+  the report never shows it: the first at 03:12, the second ten minutes later, then nothing until 04:22 (checked one
+  second before), one at 04:22, and it stays hourly (05:22). The sentence and the alarm's action are pinned.
+- `Judge_ASignInThatWasRefused_IsNotReady_AndARenewalIsStarted` (note 7) - "holds a sign-in for account-b@example.com
+  that was refused", fixed by `auto-renewal`.
+- `Judge_TheApproverIsAskedOnlyForAnAccountAMachineIsNotReadyFor_OncePerCheck` (note 7) - with every machine ready the
+  approver check is not asked; with one gap it is asked once, for B.
+- The alarm's problem sentence is reworded (note 5) and the two tests that pin it changed with it.
+
+**The revert proofs.** With the fixes committed first, each was undone in turn, the tests named for it run, and the file
+restored: undoing finding 1 (the old fixed action) fails both finding-1 tests; undoing finding 2 (no keeping an open
+alarm on a stale reading) fails the stays-open test (the leaves-the-account test passes either way - it pins the
+ruling's close, which the old code also did); undoing finding 3 (the running check read from the day's rows) fails the
+two-days-old row test.
 
 Automation:
 - `Tick_ATenantWithoutAutomation_StartsNoSignIn_AndRaisesNoAlarm` - a tenant none of whose machines reported: nothing
@@ -145,15 +183,15 @@ Web, `apps/cockpit/src/licenses/LicensesViewRows.test.tsx`:
 
 Taken by `layout_check.py` in this folder: the Cockpit and the phone app on their own development servers, the Licenses
 routes answered with the documented example answers of cockpit-api.md except that the machines are machine-a to
-machine-i, one for each readiness sentence, in the words the tests above pin. The alarms route answers the 80% alarm in
-the pinned words. Every other Gateway call is refused with 503 (so the phone's home screen shows its own "not part of
+machine-j, one for each readiness sentence, in the words the tests above pin. The alarms route answers the 80% alarm
+after a failed sign-in, in the pinned words. Every other Gateway call is refused with 503 (so the phone's home screen shows its own "not part of
 this layout check" errors - expected, not part of the check). The account cards are the documented example's and still
 name its own machines; only the machine lines are what is checked. The script FAILS if a sentence is not drawn exactly
 as given, in its tone, on its own machine's row, or if a banner is drawn with no alarm open.
 
 - `licenses-schedule-every-readiness-kind.png` - the schedule: ready (green), starting a sign-in, running, failed with the
   retry time, signed in and waiting for the report, Director offline, no approver (the approver's sentence), a sign-in
-  expiring too soon, and no other account has room (neutral).
+  expiring too soon, signed in twice and still not shown (the hourly ceiling), and no other account has room (neutral).
 - `licenses-page-with-readiness.png` - the whole Licenses page with those machines.
 - `licenses-80-alarm-banner.png` - the red banner raised by the 80% alarm, above the Licenses page.
 - `history-80-alarm-banner.png` - the same banner on another page.
@@ -161,15 +199,16 @@ as given, in its tone, on its own machine's row, or if a banner is drawn with no
 
 ## How it was proved
 
-- The license unit tests (`FullyQualifiedName~CcDirector.Gateway.Tests.Licenses`): 1002 passed, 0 failed; the new file
-  three times in a row, 21 of 21 each time.
-- `.\scripts\test-local.ps1`: GREEN, 11 suites, every one Completed (results in the pull request).
-- `.\scripts\test-local.ps1 -Parked -Filter License`, TEMP on D: - results in the pull request.
-- The Cockpit Licenses web tests (`npx vitest run src/licenses`): 82 passed and 1 failed - `fixtures.test.ts`, "APPROVERS
-  is not example 21 of cockpit-api.md". That test is red on origin/main as it stands, before this change: Track C's
-  #4127 changed the approver examples in cockpit-api.md without regenerating `fixtures.ts` or adding the new approver
-  fields to the client type (checked by running it with main's `fixtures.ts` and `cockpit-api.md`). This change adds only
-  its own readiness fields to `fixtures.ts`, by hand, with the values the producer gives; the Tech Lead was told.
+- After the review fixes and the rebase onto main (commit e7378e57d): `.\scripts	est-local.ps1` GREEN, 11 suites,
+  every one Completed.
+- `.\scripts	est-local.ps1 -Parked -Filter License` (TEMP on D:) did NOT run: refused by the release-gate lock on
+  every try, every 20 seconds for 30 minutes (other sessions' License gate runs held it back to back). The Tech Lead
+  was told.
+- The license unit tests (`FullyQualifiedName~Licenses`, Gateway.UnitTests) before the rebase: 1026 of 1026; the new
+  test file 29 of 29.
+- The Cockpit Licenses web tests (`npx vitest run src/licenses`) after the rebase: 102 of 102, and `tsc --noEmit` clean
+  for the Cockpit and the phone app. (`fixtures.test.ts` was red on main before Track C's #4150 regenerated the
+  fixtures; this change's readiness fields are merged into them.)
 - `npx tsc --noEmit` for the Cockpit, the phone and client-core: clean.
 - `python missions/license-switching/phase-6/track-a/readiness/layout_check.py`: passed.
 
@@ -178,7 +217,40 @@ as given, in its tone, on its own machine's row, or if a banner is drawn with no
 No sign-in; a sign-in expiring before a switch could finish; no approver that can approve; a Director that is not
 connected; a sign-in already running; a sign-in that ended well and is not reported yet; a sign-in that failed, retried
 after each wait and across a restart; no account with room; under 80%; at 80% on either window; a stale reading; the
-machine becomes ready; the account falls under 80%; a tenant without automation.
+machine becomes ready; the account falls under 80%; the machine leaves the account; an open alarm on a stale reading;
+the alarm after a failed sign-in and after one not reported yet; a sign-in open for more than a day; sign-ins that end
+well but never show; a refused sign-in; a tenant without automation.
+
+## Review findings and answers
+
+The review is `review.md` in this folder (a separate review session, at commit 869791fd0). Every finding is answered.
+
+1. **The alarm said "DevThrottle is signing it in" when the sign-in had failed and nothing was running (should-fix) -
+   accepted, fixed.** The fold now makes the alarm's action with the readiness sentence, from the same facts:
+   after a failure, when and why it failed and when it is tried again; after a sign-in that ended well and is not
+   reported yet, that; for the hourly ceiling, that and to check the Director; "signing it in" only while one is
+   running or being started. An open alarm's words are brought up to date each minute with no second email. Two tests,
+   both failing on the old code.
+2. **An open alarm closed the moment the reading went stale (should-fix) - fixed as the Tech Lead ruled.** An alarm
+   opens only on a fresh reading at or above 80%. An open one stays open while the reading is stale, its sentence
+   saying the account "was at or above 80% at its last fresh reading". It closes only on a fresh reading under 80%, the
+   machine becoming ready, or the machine leaving the account. The fold is given the open alarms
+   (`LicenseAlarmService.ListOpen`) to know which to keep. Two tests; the stays-open one fails on the old code.
+3. **Two reads of "is one running" (note) - accepted, fixed as the Tech Lead asked.** The fold takes the open rows from
+   `LicenseSignInLog.ListOpen`, with no time bound - the read `Start` refuses by - and counts the retry wait and the
+   ceiling from the day's rows. One test, failing on the old code.
+4. **A sign-in that ends well but never shows would repeat every ten minutes (note) - accepted, a ceiling.** After two
+   sign-ins that ended well within an hour of the latest of them, while the machine is still not ready, the next waits an
+   hour after the latest, and stays hourly. The ceiling counts back from the latest sign-in, not from now, so it does
+   not lift itself an hour later (the first version of the test caught exactly that). The sentence and the alarm say
+   what is happening and to check the Director. One test.
+5. **The alarm's problem sentence read oddly for the refused and expiring clauses (note) - accepted.** Now "... which is
+   at 85% of its weekly limit: account-b@example.com is the account it would switch to next, and it {why}." The two
+   tests that pin it changed with it; contract.md section 11 and the layout check show the new words.
+6. **The Cockpit chose a tone of its own for a case that cannot happen (note) - accepted.** The line is drawn only when
+   the Gateway gives both the sentence and the tone; there is no "neutral" of the page's own.
+7. **Two sentences and one claim had no test (note) - accepted.** Tests added for the refused sign-in (sentence and
+   `auto-renewal`) and for the approver being asked only for an account some machine is not ready for, once per check.
 
 ## Known limits
 

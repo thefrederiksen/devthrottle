@@ -57,6 +57,9 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     private double _bWeekly = 10;
     private bool _machineAHoldsB;
     private DateTime? _machineABExpires;
+    private string? _machineABReadError;
+    // machine-a has left account A: it reports account B as its active account and holds nothing else.
+    private bool _machineAOnB;
 
     public LicenseReadinessServiceTests()
     {
@@ -103,10 +106,10 @@ public sealed class LicenseReadinessServiceTests : IDisposable
     private void BothReport(TenantId? tenant = null)
     {
         var t = tenant ?? One;
-        var a = new List<LicenseHolding> { Holding(A, true, _aFiveHour, _aWeekly, readAt: _now) };
-        if (_machineAHoldsB)
+        var a = new List<LicenseHolding> { _machineAOnB ? Holding(B, true, 5, _bWeekly, readAt: _now) : Holding(A, true, _aFiveHour, _aWeekly, readAt: _now) };
+        if (_machineAHoldsB && !_machineAOnB)
         {
-            var b = Holding(B, false, 5, _bWeekly, readAt: _now);
+            var b = Holding(B, false, 5, _bWeekly, readAt: _now, readError: _machineABReadError);
             b.SignInExpiresAtUtc = _machineABExpires;
             a.Add(b);
         }
@@ -441,7 +444,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         var alarm = Assert.Single(_alarms.ListOpen(One));
         Assert.Equal(("not-ready-at-80", MachineA, A), (alarm.Kind, alarm.MachineName, alarm.AccountEmail));
         Assert.Equal("machine-a is not ready to switch off account-a@example.com, which is at 80% of its weekly limit: "
-                     + "it holds no sign-in for account-b@example.com, the account it would switch to next.", alarm.Problem);
+                     + "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com.", alarm.Problem);
         Assert.Equal("Nothing to do yet: DevThrottle is signing it in; if this stays, sign machine-a in to account-b@example.com from the Licenses page.",
             alarm.Action);
         Assert.Equal((1, 0), (first.Alarms!.Opened, first.Alarms.StillOpen));
@@ -460,7 +463,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         await Tick();
 
         Assert.Equal("machine-a is not ready to switch off account-a@example.com, which is at 85.5% of its 5-hour window: "
-                     + "it holds no sign-in for account-b@example.com, the account it would switch to next.", Assert.Single(_alarms.ListOpen(One)).Problem);
+                     + "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com.",
+            Assert.Single(_alarms.ListOpen(One)).Problem);
     }
 
     // The one thing to do follows the reason: start the Director; or the approver's own sentence.
@@ -531,6 +535,180 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         await Tick();
 
         Assert.Empty(_alarms.ListOpen(One));
+    }
+
+    // Review finding 2 (the Tech Lead's ruling): an open alarm stays open while the reading is stale - the banner going
+    // away would read as fixed - with no second email; a fresh reading under 80% then closes it.
+    [Fact]
+    public async Task Tick_AnOpenAlarm_StaysOpenWhileTheReadingIsStale_AndClosesOnAFreshReadingUnder80()
+    {
+        _aWeekly = 85;
+        BothReport();
+        await Tick();
+        var opened = Assert.Single(_alarms.ListOpen(One));
+
+        _now = T0.AddMinutes(20); // no report since: account A's reading is stale, B's spare reading still fresh
+        var stale = await Tick();
+
+        var still = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal(opened.Id, still.Id);
+        Assert.Equal((0, 1, 0), (stale.Alarms!.Opened, stale.Alarms.StillOpen, stale.Alarms.Closed));
+        Assert.Equal("machine-a is not ready to switch off account-a@example.com, which was at or above 80% at its last fresh reading: "
+                     + "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com.", still.Problem);
+        Assert.Single(_emails);
+
+        _aWeekly = 40;
+        _now = T0.AddMinutes(21);
+        BothReport();
+        var fresh = await Tick();
+
+        Assert.Equal(1, fresh.Alarms!.Closed);
+        Assert.Empty(_alarms.ListOpen(One));
+    }
+
+    // Review finding 2: the machine leaving the account closes its alarm, whatever its new account reads.
+    [Fact]
+    public async Task Tick_TheMachineLeavesTheAccount_TheAlarmCloses()
+    {
+        _aWeekly = 85;
+        BothReport();
+        await Tick();
+        Assert.Single(_alarms.ListOpen(One));
+
+        _machineAOnB = true;
+        _now = T0.AddMinutes(3);
+        BothReport();
+        var tick = await Tick();
+
+        Assert.Equal(1, tick.Alarms!.Closed);
+        Assert.Empty(_alarms.ListOpen(One));
+    }
+
+    // Review finding 1: after a failed sign-in the alarm says so - when, the Director's reason, when it is tried again -
+    // and never "DevThrottle is signing it in" while nothing is running. The open alarm's words are brought up to date
+    // with no second email.
+    [Fact]
+    public async Task Tick_At80_AfterAFailedSignIn_TheAlarmSaysItFailed_AndWhenItIsTriedAgain()
+    {
+        TheDirectorFails();
+        _aWeekly = 85;
+        BothReport();
+        await Tick();
+        _now = T0.AddMinutes(1);
+        BothReport();
+
+        await Tick();
+
+        Assert.Equal("The last sign-in failed at 03:12 UTC (The approval in the browser did not complete); DevThrottle tries again at 03:14 UTC. "
+                     + "If this stays, sign machine-a in to account-b@example.com from the Licenses page.", Assert.Single(_alarms.ListOpen(One)).Action);
+        Assert.Single(_emails);
+    }
+
+    // Review finding 1: a sign-in that ended well and is not reported yet is said as such.
+    [Fact]
+    public async Task Tick_At80_AfterASignInEndedWell_TheAlarmSaysItWaitsForTheReport()
+    {
+        TheDirectorAdds();
+        _aWeekly = 85;
+        BothReport();
+        await Tick();
+        _now = T0.AddMinutes(1);
+        BothReport();
+
+        await Tick();
+
+        Assert.Equal("It was signed in at 03:12 UTC and its next report should show it; if this stays, sign machine-a in to "
+                     + "account-b@example.com from the Licenses page.", Assert.Single(_alarms.ListOpen(One)).Action);
+    }
+
+    // Review finding 3: "a sign-in is running" is the same read Start refuses by - every open row, however old - so a
+    // row open for more than a day still reads as running, and nothing claims to start one.
+    [Fact]
+    public async Task Judge_ASignInOpenForMoreThanADay_StillReadsAsRunning()
+    {
+        BothReport();
+        var machine = _reads.Read(One, _now).Machines.Single(m => m.MachineName == MachineA);
+        _log.CreatePending(One, machine, B, LicenseSignInReasons.AutomaticSpare, "An old sign-in.", T0.AddDays(-2));
+
+        var tick = await Tick();
+        var a = Of(tick, MachineA);
+
+        Assert.Equal(LicenseReadinessFixes.SigningIn, a.Fix);
+        Assert.Equal("Not ready: holds no sign-in for account-b@example.com; a sign-in to account-b@example.com is running, started at 03:12 UTC.", a.Text);
+        Assert.Empty(tick.Started);
+    }
+
+    // Review note 4, a ceiling: sign-ins that end well but never show in the machine's reports are not repeated every
+    // ten minutes. After the second one in an hour the next waits an hour after the last, and the sentence says why.
+    [Fact]
+    public async Task Tick_SignInsThatEndWellButNeverShow_AreRepeatedOnlyHourlyAfterTheSecond()
+    {
+        TheDirectorAdds();
+        BothReport();
+        await Tick();                       // the first, at 03:12
+        _now = T0.AddMinutes(10);
+        BothReport();
+        Assert.Single((await Tick()).Started); // its report did not show it after ten minutes: the second, at 03:22
+
+        _now = T0.AddMinutes(20);
+        BothReport();
+        var waiting = await Tick();
+        var a = Of(waiting, MachineA);
+        Assert.Empty(waiting.Started);
+        Assert.Equal((LicenseReadinessFixes.SignedInNotShown, T0.AddMinutes(70)), (a.Fix, a.NextAttemptAtUtc));
+        Assert.Equal("Not ready: holds no sign-in for account-b@example.com; it was signed in 2 times within an hour and its reports still "
+                     + "do not show it; trying again at 04:22 UTC.", a.Text);
+        Assert.Equal("It was signed in to account-b@example.com 2 times within an hour and its reports still do not show it; DevThrottle "
+                     + "tries again at 04:22 UTC. Check that the Director on machine-a reports the sign-ins it holds.", a.AlarmAction);
+
+        _now = T0.AddMinutes(70).AddSeconds(-1);
+        BothReport();
+        Assert.Empty((await Tick()).Started);
+        _now = T0.AddMinutes(70);
+        BothReport();
+        Assert.Single((await Tick()).Started); // the third, at 04:22
+
+        // It stays hourly: after the third, the next is an hour after it, at 05:22.
+        _now = T0.AddMinutes(130).AddSeconds(-1);
+        BothReport();
+        Assert.Equal(LicenseReadinessFixes.SignedInNotShown, Of(await Tick(), MachineA).Fix);
+        _now = T0.AddMinutes(130);
+        BothReport();
+        Assert.Single((await Tick()).Started);
+        Assert.Equal(4, SignInsSent().Count);
+    }
+
+    // Review note 7: a refused sign-in is not ready, in the one definition's own words, and is fixed by a renewal.
+    [Fact]
+    public async Task Judge_ASignInThatWasRefused_IsNotReady_AndARenewalIsStarted()
+    {
+        _machineAHoldsB = true;
+        _machineABReadError = LicenseReadErrors.Unauthorized;
+        BothReport();
+
+        var a = Of(await Tick(), MachineA);
+
+        Assert.Equal((LicenseReadinessFixes.StartNow, LicenseSignInReasons.AutomaticRenewal), (a.Fix, a.SignInReason));
+        Assert.Equal("Not ready: holds a sign-in for account-b@example.com that was refused; DevThrottle is starting a sign-in to "
+                     + "account-b@example.com now.", a.Text);
+    }
+
+    // Review note 7: the approver is asked only for an account some machine is not ready for, and once per check.
+    [Fact]
+    public async Task Judge_TheApproverIsAskedOnlyForAnAccountAMachineIsNotReadyFor_OncePerCheck()
+    {
+        var asked = new List<string>();
+        _approverWhyNot = (_, account) => { asked.Add(account); return null; };
+        _machineAHoldsB = true;
+        BothReport();
+        await Tick();
+        Assert.Empty(asked); // every machine ready
+
+        _machineAHoldsB = false;
+        _now = T0.AddMinutes(1);
+        BothReport();
+        await Tick();
+        Assert.Equal(new[] { B }, asked);
     }
 
     // ----- only where automation is switched on -----

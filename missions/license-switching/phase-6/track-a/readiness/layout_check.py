@@ -1,6 +1,6 @@
 # LAYOUT CHECK of readiness and the 80% alarm (License Switching phase 6, Track A, piece A3). The Cockpit and the phone
 # app run on their own development servers. The Licenses routes are answered with the documented example answers of
-# cockpit-api.md, changed in one way only: the machines are machine-a to machine-i, one for each kind of readiness
+# cockpit-api.md, changed in one way only: the machines are machine-a to machine-j, one for each kind of readiness
 # sentence, each sentence exactly as LicenseReadinessServiceTests pins it. GET /gateway/licenses/alarms is answered with
 # the 80% alarm in the words those tests pin. Every other Gateway call is refused with 503. The script FAILS when a
 # readiness sentence is not drawn exactly as given, or is drawn on the wrong row. Made-up names only.
@@ -42,7 +42,9 @@ KINDS = [
                                           f"Set an approver for {B} on the Licenses page."),
     ("machine-h", "not-ready", "warning", f"Not ready: holds a sign-in for {B} that expires at 2026-10-11 03:17 UTC, before a switch "
                                           f"could finish; DevThrottle is starting a sign-in to {B} now."),
-    ("machine-i", "no-room", "neutral", "No other account has room for it to switch to."),
+    ("machine-i", "not-ready", "warning", f"Not ready: {WHY}; it was signed in 2 times within an hour and its reports still do not "
+                                          "show it; trying again at 04:22 UTC."),
+    ("machine-j", "no-room", "neutral", "No other account has room for it to switch to."),
 ]
 
 machines = []
@@ -61,9 +63,11 @@ for i, (name, readiness, tone, text) in enumerate(KINDS):
     machines.append(m)
 page_overview = dict(overview, machines=machines)
 
-ALARM_LINE = ("machine-a is not ready to switch off account-a@example.com, which is at 85% of its weekly limit: it holds no "
-              "sign-in for account-b@example.com, the account it would switch to next. Nothing to do yet: DevThrottle is "
-              "signing it in; if this stays, sign machine-a in to account-b@example.com from the Licenses page.")
+# After a failed sign-in the alarm says so (review finding 1), in the words LicenseReadinessServiceTests pins.
+ALARM_LINE = ("machine-a is not ready to switch off account-a@example.com, which is at 85% of its weekly limit: "
+              "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com. "
+              "The last sign-in failed at 03:12 UTC (The approval in the browser did not complete); DevThrottle tries again at "
+              "03:14 UTC. If this stays, sign machine-a in to account-b@example.com from the Licenses page.")
 ALARM = {"asOfUtc": "2026-10-11T03:12:00Z", "count": 1, "summary": None, "linkText": "Open Licenses", "alarms": [
     {"alarmId": "0123456789abcdef0123456789abcdef", "kind": "not-ready-at-80", "machineName": "machine-a",
      "accountEmail": "account-a@example.com", "text": ALARM_LINE, "openedAtUtc": "2026-10-11T03:12:00Z"}]}
