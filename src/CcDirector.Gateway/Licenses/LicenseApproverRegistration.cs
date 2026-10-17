@@ -216,6 +216,9 @@ public sealed class LicenseApproverRegistration
         // A profile proven able to approve an account names that account, and the page cannot have shown anyone else.
         if (row.State == LicenseApproverStates.CanApprove && (account is null || (shown is not null && shown != account)))
             return null;
+        // And the mirror: a profile signed in as the wrong account cannot have shown the right one.
+        if (row.State == LicenseApproverStates.WrongAccount && shown is not null && shown == account)
+            return null;
         return new LicenseApproverCheckRow
         {
             BrowserProfile = profile, BrowserProfileName = profileName, AccountEmail = account, ShownAccount = shown, State = row.State,

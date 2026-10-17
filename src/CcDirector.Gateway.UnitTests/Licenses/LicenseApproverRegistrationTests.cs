@@ -356,7 +356,7 @@ public sealed class LicenseApproverRegistrationTests : IDisposable
     {
         "no profile", "profile of the wrong shape", "profile too long", "profile with a space around it", "account not an email", "account too long",
         "shown account not an email", "unknown state", "not-checked reported", "checked in the future", "checked over 26 hours ago",
-        "detail too long", "detail with a line break", "can approve with no account", "can approve showing another account", "null row",
+        "detail too long", "detail with a line break", "can approve with no account", "can approve showing another account", "wrong account showing the account itself", "null row",
     };
 
     [Theory]
@@ -380,6 +380,7 @@ public sealed class LicenseApproverRegistrationTests : IDisposable
             "detail with a line break" => Row(detail: "first line\nsecond line"),
             "can approve with no account" => Row(account: null),
             "can approve showing another account" => Row(shown: "someone-else@example.com"),
+            "wrong account showing the account itself" => Row(state: LicenseApproverStates.WrongAccount, shown: "same"),
             "null row" => null,
             _ => throw new ArgumentOutOfRangeException(nameof(what), what, "no such case"),
         };

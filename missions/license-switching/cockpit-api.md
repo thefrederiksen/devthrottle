@@ -1246,7 +1246,8 @@ on it that is signed in to claude.ai as that account. With none set:
 }
 ```
 
-With two set - one whose Director is connected, one on a machine that has never reported to this account:
+With two set - one whose Director is connected and whose last check found it can approve, one on a machine that
+has never reported to this account:
 
 ```json
 {
@@ -1265,7 +1266,13 @@ With two set - one whose Director is connected, one on a machine that has never 
       "status": "ready",
       "statusText": "Ready",
       "statusTone": "good",
-      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work.",
+      "browserProfileName": null,
+      "source": "registered",
+      "state": "can-approve",
+      "checkedAtUtc": "2026-10-11T00:12:00Z",
+      "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
+      "whatToDo": null
     },
     {
       "accountEmail": "account-b@example.com",
@@ -1278,7 +1285,13 @@ With two set - one whose Director is connected, one on a machine that has never 
       "status": "never-reported",
       "statusText": "Not reporting yet",
       "statusTone": "warning",
-      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+      "browserProfileName": null,
+      "source": "owner",
+      "state": "not-checked",
+      "checkedAtUtc": null,
+      "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
+      "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
     }
   ]
 }
@@ -1290,15 +1303,34 @@ An approver (`LicenseApproverDto`):
 |---|---|
 | `accountEmail` | The Claude account whose sign-ins it approves. |
 | `machineName`, `osUser` | The approving machine, as the owner set it, or as the machine itself spells it once it has reported. |
-| `browserProfile` | The browser profile on that machine. |
+| `browserProfile` | The browser profile on that machine: its IDENTIFIER on the Director, for example `work-chrome`, never its display name. |
+| `browserProfileName` | The profile's display name as its last check saw it, for example "Work Chrome"; `null` until a check has named it. The sentences say this name, else the identifier. |
 | `machineId` | The machine's row in the overview; `null` while no such machine has reported to this account. |
 | `label` | What to call the machine (section 1 rule 9). |
-| `canApproveNow` | A sign-in for this account can be approved there now. |
-| `status`, `statusText`, `statusTone` | `ready` "Ready" / `not-connected` "Not connected" / `never-reported` "Not reporting yet". |
-| `text` | The whole of it in one or two sentences. Show this. |
+| `canApproveNow` | A sign-in for this account can be approved there now: its Director is connected AND its health is `can-approve`. |
+| `status`, `statusText`, `statusTone` | `ready` "Ready" / `not-connected` "Not connected" / `never-reported` "Not reporting yet" / `cannot-approve` "Cannot approve" or "Not checked". A machine that cannot be reached is said first; then the profile's health. |
+| `text` | The whole of it in one or two sentences. Show this. For `cannot-approve` it is `healthText` and `whatToDo` together. |
+| `source` | `owner` (set on this page) or `registered` (registered by the Director of the machine it names, from a check that proved the profile can approve; contract section 10). |
+| `state` | The record's health now: `can-approve`, `signed-out`, `needs-fresh-sign-in`, `wrong-account`, `check-failed`, or `not-checked` when it was never checked or its last check is more than 26 hours old. |
+| `checkedAtUtc` | When it was last checked; `null` when it never was. |
+| `healthText` | The finished sentence of its health, naming the account, the machine and the profile. Show as given. |
+| `whatToDo` | The one thing to do so it can approve; `null` when it can. |
 
 A machine that only approves needs no sign-in of its own: it is listed in the overview as "Signed out" as soon as
-its Director reports, and `status` is `ready` while that Director is connected.
+its Director reports, and `status` is `ready` while that Director is connected and its approver profile's last
+check, within 26 hours, found it can approve. An approver the owner has just set has never been checked, so it is
+`cannot-approve` "Not checked" until that machine's Director checks it.
+
+The `healthText` and `whatToDo` sentences, for account `alice@example.com`, profile `work`, machine `machine-a`:
+
+| `state` | `healthText` | `whatToDo` |
+|---|---|---|
+| `can-approve` | The approver for alice@example.com (browser profile "work" on machine-a) can approve sign-ins; it was last checked 2026-10-11 01:12 UTC. | `null` |
+| `signed-out` | The approver for alice@example.com (browser profile "work" on machine-a) is not signed in to claude.ai. | Open that browser on machine-a and sign in to claude.ai as alice@example.com once. |
+| `needs-fresh-sign-in` | The approver for alice@example.com (browser profile "work" on machine-a) needs a fresh claude.ai sign-in on the approval page. | Open that browser on machine-a and sign in to claude.ai once. |
+| `wrong-account` | The approver for alice@example.com (browser profile "work" on machine-a) is signed in to claude.ai as bob@example.com, not as alice@example.com. | Open that browser on machine-a, sign out of claude.ai and sign in as alice@example.com once. |
+| `check-failed` | The approver for alice@example.com (browser profile "work" on machine-a) could not be checked: (the Director's detail). | Make sure the browser profile "work" opens on machine-a; the check runs again within a day. |
+| `not-checked` | The approver for alice@example.com (browser profile "work" on machine-a) has never been checked. / ... was last checked 2026-10-10 01:11 UTC, more than 26 hours ago. | Make sure the Director on machine-a is running with license switching on; it checks its approvers once a day. |
 
 ### 7.2 `PUT /gateway/licenses/approvers` - set the approver of one account
 
@@ -1314,13 +1346,22 @@ reported yet. Answered `200` with the approver as stored:
   "browserProfile": "work",
   "machineId": "527062dd720c4d28a144183033cf93c1",
   "label": "the-mac",
-  "canApproveNow": true,
-  "status": "ready",
-  "statusText": "Ready",
-  "statusTone": "good",
-  "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+  "canApproveNow": false,
+  "status": "cannot-approve",
+  "statusText": "Not checked",
+  "statusTone": "warning",
+  "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
+  "browserProfileName": null,
+  "source": "owner",
+  "state": "not-checked",
+  "checkedAtUtc": null,
+  "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
+  "whatToDo": "Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day."
 }
 ```
+
+Setting the very machine, user and profile that a check already covered keeps that check, so it stays `ready`; any
+other choice starts `not-checked`. Setting an account clears the record of any registration the owner removed for it.
 
 Refused `400` with `invalid_account`, `invalid_machine`, `invalid_browser_profile` or `bad_request_body`, and `409`
 with `too_many_approvers` (64 for one DevThrottle account). `machineName` and `osUser` are names of at most 128
@@ -1337,7 +1378,9 @@ separator, or a format character - a name with a line break in it is `invalid_ma
 ### 7.3 `DELETE /gateway/licenses/approvers?accountEmail=...` - remove it
 
 Answered `200` whether or not there was one; `removed` and `text` say which
-(`LicenseApproverRemovedResponse`). Refused `400` `invalid_account` when the query names no account.
+(`LicenseApproverRemovedResponse`). Refused `400` `invalid_account` when the query names no account. Removing a
+`registered` approver keeps a record of the removal, so that machine's Director does not register the same profile
+for the account again; it lasts until the owner sets an approver for that account (contract section 10.5).
 
 ```json
 {
