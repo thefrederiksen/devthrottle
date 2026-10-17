@@ -176,6 +176,12 @@ public sealed class DirectorSupervisor
     internal Func<DirectorLookup> ReadTheMachine { get; set; } = null!;
 
     /// <summary>
+    /// Where this supervisor records the Directors it stops on purpose, so the crash watch does not start one of
+    /// them again (<see cref="DirectorCrashWatch"/>). Shared by every supervisor in the process; a test uses its own.
+    /// </summary>
+    internal DirectorStopLedger StopLedger { get; set; } = DirectorStopLedger.Shared;
+
+    /// <summary>
     /// Whether a Director holds the supervised instance.
     ///
     /// An AMBIGUOUS result counts as running. It is not known which process it is, so nothing may be
@@ -384,6 +390,10 @@ public sealed class DirectorSupervisor
                           + $" Claimants: {Describe(lookup)}");
             return;
         }
+
+        // Recorded BEFORE the stop: a stop that ends in a kill leaves the crash journal behind, and without this
+        // the crash watch would read this launcher's own stop as a crash and start the Director again.
+        StopLedger.Record(director.DirectorId, director.Pid);
 
         var signal = LifecycleSignalNames.DirectorShutdown(director.DirectorId);
         var delivered = LifecycleSignal.Raise(signal);
