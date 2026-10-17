@@ -35,6 +35,7 @@ public sealed class SessionConnectionFieldsTests : IDisposable
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-connection-fields-" + Guid.NewGuid().ToString("N"));
+    private readonly CcDirector.Gateway.Tests.Data.GatewayDbTestHarness _harness = new();
     private readonly DirectorRegistry _registry;
     private readonly PushedSessionStore _pushed = new();
     private WebApplication? _app;
@@ -55,6 +56,7 @@ public sealed class SessionConnectionFieldsTests : IDisposable
             _app.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         _registry.Dispose();
+        _harness.Dispose();
         try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
     }
 
@@ -221,7 +223,7 @@ public sealed class SessionConnectionFieldsTests : IDisposable
         var app = builder.Build();
         app.UseRouting();
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
-            tenantBoundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false),
+            tenantBoundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(_harness.Open(), _harness.LegacyPath("devices.json")), hosted: false),
             aiGate: TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             pushedSessions: _pushed);
         await app.StartAsync();
