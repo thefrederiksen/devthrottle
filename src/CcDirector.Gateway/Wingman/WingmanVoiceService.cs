@@ -1256,9 +1256,9 @@ public sealed class WingmanVoiceService
         // stop that failed in an EARLIER voice period - switched off by hand or by auto-off - left its claim spent, and no
         // automatic path takes a spent claim back, so the stop was refused for good and the card gave up. Giving it back
         // here buys the stop one more automatic attempt, which the idle sweep then makes. Only a session newly joining
-        // voice reaches this line, so a turn end on a session already in voice mode gives back nothing.
-        if (_verdicts?.Latest(tenant, sid) is { } latest)
-            _verdicts.ReleaseNarrationClaimForRequest(tenant, sid, latest.VerdictId);
+        // voice reaches this line, so a turn end on a session already in voice mode gives back nothing. In memory only: the
+        // voice-mode fan-out calls this once per session, and a database error here would end that loop part way.
+        _verdicts?.ReleaseSpentNarrationClaim(tenant, sid);
     }
 
     /// <summary>
@@ -1494,7 +1494,8 @@ public sealed class WingmanVoiceService
         var latest = verdicts.Latest(tenant, sid);
         // The same screen, or the same stop on a redrawn one: the verdict service's own rule, asked of it, so a redraw
         // spends no slot here and no call there.
-        var judgeWouldBeAsked = latest is null || !verdicts.SweepFindsTheStopItRead(tenant, sid, latest, hash, rows);
+        var judgeWouldBeAsked = (latest is null || !verdicts.SweepFindsTheStopItRead(tenant, sid, latest, hash, rows))
+                                && verdicts.SweepWouldReachTheJudge(tenant, sid);
         var speechWouldBeMade = !judgeWouldBeAsked
                                 && latest is not null
                                 && HasWordsOrWillGetThem(tenant, sid, latest)
