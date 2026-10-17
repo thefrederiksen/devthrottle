@@ -144,9 +144,10 @@ What that one line cost, measured:
   33 on a busy one - to burn 25 seconds of CPU.** The justification written above it is sound and was
   sized for CI's 2-to-4 vCPU runner; it was never revisited for a 24-core workstation, where it
   serialises four thousand tests to protect sixteen classes.
-- `CcDirector.Gateway.Tests` takes the machine-wide lock, armed by a `[ModuleInitializer]` - so it is
-  taken when the ASSEMBLY LOADS, before any test runs, whatever filter was passed. Its cost is not its
-  runtime, it is the QUEUE behind every other working tree. Runs of 45 minutes have executed ZERO tests.
+- `CcDirector.Gateway.Tests` took a machine-wide lock until October 2026, armed by a `[ModuleInitializer]`
+  - so it was taken when the ASSEMBLY LOADED, before any test ran, whatever filter was passed. Its cost
+  was not its runtime, it was the QUEUE behind every other working tree: runs of 45 minutes executed ZERO
+  tests. That lock was removed (#3888); see "There is no Gateway suite lock any more" below.
 
 **Cap parallelism, never disable it.** A cap keeps timing-sensitive work honest while still using the
 machine; disabling it uses one core out of twenty-four. If a test cannot survive running beside others,
@@ -286,7 +287,7 @@ expected to be slow.
 
 | Suite | Cost | Why it cannot fit |
 |-------|------|-------------------|
-| `CcDirector.Gateway.Tests` | a QUEUE, not a runtime | Serializes machine-wide. Its cost is waiting for every other working tree on the machine. Runs of 45 minutes have executed ZERO tests. |
+| `CcDirector.Gateway.Tests` | about 10 minutes, as four concurrent processes | Host-bound: it starts real Gateway hosts. It no longer takes a machine-wide lock (removed October 2026, #3888), so a run of it blocks no other working tree. |
 | `CcDirector.Gateway.UnitTests` | about 180s, against a 120s ceiling | Grew from 2,777 tests to 4,267 and from about 56 seconds to 180, so the gate STOPPED it on every run - and a stopped suite writes no result file, so its 4,259 passing tests were gating nothing at all. Parked 2026-09-13, issue #2824, which also records what would bring it back. |
 | `CcDirector.Core.Tests` | 11 min quiet, 33 busy | Runs SEQUENTIALLY, and its slowest classes spend 30-80 seconds each creating real git repositories and worktrees on disk. Its fast, parallel-safe half was split into `CcDirector.Core.UnitTests` (below); what is left is the timing, git and process work plus the named bad tests. |
 

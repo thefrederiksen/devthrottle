@@ -72,7 +72,8 @@
     used to exit 0 from every project and end on "all projects exited zero" - a green that means nothing
     ran. Red-first evidence is gathered with this command, so that shape of green is now a failure:
     exit 3 means zero tests were collected anywhere, exit 4 means a project exited zero without writing a
-    result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), exit 7 means a -Parked
+    result file, exit 5 means part of the filter matched nothing (or -ExpectTests was not met), exit 2
+    means a bad argument, exit 7 means a -Parked
     or -Gateway run was refused before building because the disk is too full to finish it, exit 10 means
     a -RerunFailed found every failed test FLAKY (still a failure - see THE FLAKY TEST RULE), and exit 9 means a
     suite NEVER RAN or did not finish: it executed zero tests with no filter, its result file says the
