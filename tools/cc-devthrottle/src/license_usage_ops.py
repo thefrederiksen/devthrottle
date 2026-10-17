@@ -2,8 +2,7 @@
 `license_usage`, in the AXI shape (docs/axi-standard.md).
 
 `license usage --json` is what the Director reads: `{count, total, defaultConfigDir, storeDir, recovered,
-accounts}`,
-the same envelope as `license list --json`, where `accounts` are the contract's `LicenseHolding` rows
+healed, accounts}`, the same envelope as `license list --json` (`healed` lists the hand sign-ins this run healed), where `accounts` are the contract's `LicenseHolding` rows
 (missions/license-switching/contract.md section 2.2), active first. `--active` reads only the
 active holding (the Director reads it every 2 minutes, the spares at most every 10).
 
@@ -111,6 +110,7 @@ def usage(json_output: bool, fields: Optional[str], default_config_dir: Optional
             "defaultConfigDir": store.default_config_dir,
             "storeDir": store.store_dir,
             "recovered": store.last_recovery,
+            "healed": license_ops.healed_json(store),
             "accounts": [r.to_json() for r in readings],
         }, indent=2))
         return

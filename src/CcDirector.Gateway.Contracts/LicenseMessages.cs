@@ -41,6 +41,25 @@ public sealed class LicenseUsageReport
 
     /// <summary>EVERY account this machine holds, active first.</summary>
     public List<LicenseHolding> Holdings { get; set; } = new();
+
+    /// <summary>Set on the one report sent after the machine was found switched BY HAND (contract section 2.6): an
+    /// account signed in straight into the default config while it was also held as a spare. Null on every other
+    /// report.</summary>
+    public LicenseHandSwitch? SwitchedByHand { get; set; }
+}
+
+/// <summary>
+/// The machine was switched by hand (contract section 2.6): someone signed <see cref="AccountEmail"/> in straight into
+/// the default config while the machine also held it as a spare. The stale spare was moved to a backup on the machine,
+/// so the report holds the account once, as the active one. Only an email and a time - never a folder or a key.
+/// </summary>
+public sealed class LicenseHandSwitch
+{
+    /// <summary>The account now active; lower-cased. It is the report's active holding.</summary>
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>When the Director's key store moved the stale spare to its backup, by the machine's clock.</summary>
+    public DateTime HealedAtUtc { get; set; }
 }
 
 /// <summary>One sign-in this machine has, active or spare - its account and its last usage numbers. Never the key.</summary>

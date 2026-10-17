@@ -96,6 +96,13 @@ public sealed class LicenseUsageReport
     public string Trigger { get; set; } = "";          // LicenseReportTriggers: "interval" | "changed" | "after-switch" | "connected"
     public string? SwitchInProgressId { get; set; }    // the SwitchId being executed right now, else null
     public List<LicenseHolding> Holdings { get; set; } = new();  // EVERY account this machine holds, active first
+    public LicenseHandSwitch? SwitchedByHand { get; set; }     // set on the one report after a hand sign-in was healed (2.6), else null
+}
+
+public sealed class LicenseHandSwitch
+{
+    public string AccountEmail { get; set; } = "";     // the account signed in by hand; it is the report's active holding
+    public DateTime HealedAtUtc { get; set; }          // when the key store moved the stale spare to its backup
 }
 
 public sealed class LicenseHolding
@@ -224,6 +231,35 @@ Shown as JSON for reading; on the wire it is MessagePack with these property nam
   ]
 }
 ```
+
+### 2.6 A machine switched by hand (added in phase 6)
+
+Someone can sign a machine in by hand (`claude auth login` straight into the default config) to an
+account the machine ALSO holds as a spare. Claude Code's write replaces the active sign-in, so the
+account the machine was on is gone - nothing on the machine can bring it back - and the new account
+is held twice. The active sign-in is the newer one, so the spare is stale. Before this section, the
+Director then reported the account twice and the Gateway refused every report (`an account held
+twice`).
+
+- **The key store heals it, on the machine, the next time it is opened** (`license_store.py`,
+  `_heal_hand_sign_in`): the spare's folder is moved, whole, into `<store>/hand-sign-in-backups/` as
+  `<account>-<UTC time>` (with `-2`, `-3` ... when that name is taken). It is never deleted, it is
+  never listed, renewed or switched to again, and two heals of one account keep two backups. It runs
+  under the store's lock like every other store write, so it never runs inside a switch, a renewal or
+  a sign-in's write; a read that finds the lock taken fails whole and the next round heals.
+- **Why the store and not the Director:** the command line and the Director then agree - any
+  `license` command that opens the store heals first, so a switch never meets a held-twice account
+  either - and the store already owns the journal that finishes an operation a crash interrupted.
+- **The report says it once.** `license list --json` and `license usage --json` carry `healed`, the
+  heals that run made. The key holder sets `SwitchedByHand` on the next report it sends (with
+  `Trigger = "changed"`) and clears it once that report has gone. A Director that stops between the
+  heal and the report loses only the sentence: the report still shows the new active account.
+- **The Gateway writes ONE log entry** of kind `switched-by-hand` for a report that carries it, for
+  example "machine-a was switched to alice@example.com by hand; the old spare for alice@example.com
+  was moved to a backup on the machine." When the machine's previous accepted report had another
+  account active and this report no longer holds that account, the entry adds that its sign-in was
+  overwritten and is no longer held on the machine. A report whose `SwitchedByHand` names an account
+  that is not its active holding is malformed.
 
 ## 3. The switch command (Gateway to Director)
 
