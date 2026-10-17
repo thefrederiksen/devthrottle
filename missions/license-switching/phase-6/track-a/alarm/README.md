@@ -84,8 +84,20 @@ another account; a request with no account bound is refused with 403 `no_account
 
 `LicenseGuardTests`: a session key may GET `/gateway/licenses/alarms` and may not POST, PUT or DELETE it.
 
-The Postgres proof (`PostgresProviderProofTests`, run by `scripts\test-database.ps1`) now lists the two exact-key
-columns of `license_alarms` (kind and account), which are declared with the byte-ordinal collation.
+Also in `LicenseAlarmServiceTests`, after the review: the minute check's own method (`TickEveryTenantAsync`) retries a
+failed email for each tenant in its own scope, skips a pass with no tenant in scope, and sends nothing more once each
+email has gone out; and a kind title ending in a full stop followed by a space is refused.
+
+Postgres, `src/CcDirector.Gateway.DatabaseTests/Data/` (run by `scripts\test-database.ps1` against a throwaway
+PostgreSQL in Docker):
+- `AddLicenseAlarmsPostgresTests` (added after the review): the migration applies right after the one before it and
+  leaves a Licenses log row stored earlier untouched; the real service then opens an alarm (its email time lands in the
+  `timestamp with time zone` column as stored), finds it again when the account is written in another case, closes it
+  (the log holds the opened and closed rows beside the earlier one), and opens a new one with a new email; Down removes
+  the table and keeps every log row; migrating up again restores it.
+- `PostgresProviderProofTests` lists the two exact-key columns of `license_alarms` (kind and account), declared with the
+  byte-ordinal collation. It also now lists the three `api_mode_receipts` columns, which were declared that way on main
+  and missing from the list, so this test was already failing on main and could not reach the new columns.
 
 Web:
 - **Cockpit** (`apps/cockpit/src/AppShell.test.tsx`, "Cockpit license alarm banner"): no banner when the Gateway has
@@ -120,4 +132,20 @@ not part of what is checked). Made-up names only.
 
 ## Review findings and answers
 
-(Filled in after the review.)
+The review is `review.md` in this folder (a separate review session, at commit 33d00d817). All four findings accepted.
+
+1. **The Postgres migration had no test of its own (should-fix) - accepted, fixed.** Added
+   `AddLicenseAlarmsPostgresTests`, the sibling of the earlier License Switching migration tests, described above. Run
+   under `scripts\test-database.ps1` with the collation proof: 7 executed, 7 passed, none skipped. Running it found that
+   `PostgresProviderProofTests` was already red on main (three `api_mode_receipts` columns missing from its list); those
+   three lines are added so the proof covers the whole list, including the new columns.
+2. **The Cockpit banner was off while a team's pages were on screen (should-fix) - accepted, fixed.** The banner is now
+   enabled whenever the shell is not still learning which team is on screen (`enabled={!team.resolving}`), so the
+   email's promise "shown in red at the top of every page of the Cockpit" is true. New Cockpit test "still shows the
+   banner while a team's pages are on screen"; it fails with the old condition and passes with the new one.
+3. **The kind's title was checked before it was trimmed (note) - accepted, fixed.** Trimmed first, then checked. New
+   test: "Not ready. " is refused.
+4. **The minute tick's retry was proven at the service, not through the tick (note) - accepted, fixed.** New test
+   drives `TickEveryTenantAsync` with a two-tenant pass (and a pass with no tenant in scope) and shows each tenant's
+   failed email is sent once, in its own scope, and never again. The line in `GatewayHost` that calls it each minute is
+   still covered only by reading it.
