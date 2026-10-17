@@ -436,6 +436,8 @@ public partial class App : Application
             PlacesSkillsOnLaunch = true,
             // A Claude Code seat's own folders are marked trusted before its agent starts (Factory Definition, phase 5).
             ClaudeFolderTrust = new CcDirector.Core.Claude.ClaudeFolderTrust(CcDirector.Core.Claude.ClaudeFolderTrust.ConfigPathForThisUser()),
+            ClaudeBypassCheck = (userArgs, args, folder) =>
+                CcDirector.Core.Claude.ClaudeBypassConsent.WhyItWouldStop(userArgs, args, folder, Environment.MachineName),
         };
         // A change of a session's owner is written to disk the moment it happens (the Fleet Manager mission, step 8).
         SessionManager.DurableStateStore = SessionStateStore;

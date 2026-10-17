@@ -24,6 +24,8 @@ and the Director did not report it failed (a false alarm makes the owner send it
 | `leftover-line` | claude, pi | an unsubmitted framework line (a doorbell line) sits in the composer |
 | `resume` | claude | the first prompt of a session resumed on an existing conversation |
 | `untrusted-folder` | claude | the first prompt in a folder Claude Code has never trusted |
+| `claude-trusted-folder` | codex | the first prompt in a repository trusted in Claude Code and never opened in Codex |
+| `trusted-worktree` | claude | the first prompt in a new git worktree of a trusted repository (how reviewer and gate seats start) |
 
 Truth words: `ARRIVED`, `LOST`, `PARTIAL`, `DOUBLED` (two turns), `WELDED` (one turn holding the prompt and
 other text). Director words: `OK`, `DELIVERING`, `REFUSED`, `FAILED`, `HUNG`, and `SETUP-FAILED` for a
@@ -49,9 +51,10 @@ rig was built from. To prove a fix moves a rate: run the same scenarios on main 
 `--rates` - two rates whose intervals do not overlap differ.
 
 The rig's scratch repositories are marked trusted for Claude Code through the product's own writer
-(`ClaudeFolderTrust`), so only `untrusted-folder` meets the trust question. That is the ONE write the rig makes
-outside its scratch folders: one entry per scratch repository in the owner's `~/.claude.json`. Each
-`untrusted-folder` attempt also leaves a new folder under `<repo-root>/untrusted/`, and, when the question is
+(`ClaudeFolderTrust`), so only `untrusted-folder` meets the trust question, and `trusted-worktree` meets it only on a
+Director that does not carry a repository's trust over to its worktrees. That is the ONE write the rig makes
+outside its scratch folders: one entry per scratch repository in the owner's `~/.claude.json`. Each `trusted-worktree` attempt leaves a git worktree under `<repo-root>/worktrees/`, which the Director records as
+trusted in that same file. Each `untrusted-folder` attempt also leaves a new folder under `<repo-root>/untrusted/`, and, when the question is
 answered, an entry in that file and a project folder under `~/.claude/projects`; the rig removes none of them.
 
 `--repo-root` must contain `delivery-qa` in its path: the records witness finds the rig's conversations by that

@@ -113,6 +113,51 @@ public sealed class ClaudeFolderTrust
     }
 
     /// <summary>
+    /// Whether Claude Code would start in <paramref name="folder"/> without asking, by its own record: the folder or a
+    /// parent up to and including its git root is recorded trusted (a folder in no repository walks every parent), or,
+    /// for a linked worktree, its main checkout is - which is what answering the question inside a worktree records.
+    /// Proven against Claude Code 2.1.302: a new worktree of a trusted repository starts without the question (delivery
+    /// rig, scenario trusted-worktree).
+    ///
+    /// Reads only. It answers false when there is no record, or when the record cannot be read (logged): a caller acts on
+    /// it to carry over a trust the owner GAVE, so anything it cannot prove leaves the agent's own question in place.
+    /// </summary>
+    public bool Covers(string folder)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folder);
+        var full = Path.GetFullPath(folder);
+        if (!File.Exists(ConfigPath))
+        {
+            FileLog.Write($"[ClaudeFolderTrust] Covers: folder={full}: there is no {ConfigPath}, so nothing is trusted");
+            return false;
+        }
+        JsonObject projects;
+        try
+        {
+            projects = Projects(Read(full), full);
+        }
+        catch (ClaudeFolderTrustException ex)
+        {
+            // not-an-error: an unreadable record proves no trust, so the agent's own question stays - the expected answer.
+            FileLog.Write($"[ClaudeFolderTrust] Covers: folder={full}: the record could not be read, so no trust is carried over: {ex.Message}");
+            return false;
+        }
+
+        var candidates = new List<string>();
+        if (Git.LinkedWorktree.ParentRepositoryOf(full) is { } mainCheckout)
+            candidates.Add(mainCheckout);
+        for (var dir = new DirectoryInfo(full); dir is not null; dir = dir.Parent)
+        {
+            candidates.Add(dir.FullName);
+            if (Directory.Exists(Path.Combine(dir.FullName, ".git")) || File.Exists(Path.Combine(dir.FullName, ".git")))
+                break;
+        }
+        var trustedBy = candidates.FirstOrDefault(c => projects[KeyFor(c)] is JsonObject entry && IsTrue(entry["hasTrustDialogAccepted"]));
+        FileLog.Write($"[ClaudeFolderTrust] Covers: folder={full}, covered={trustedBy is not null}{(trustedBy is null ? "" : $" (by {KeyFor(trustedBy)})")}");
+        return trustedBy is not null;
+    }
+
+    /// <summary>
     /// Record <paramref name="folder"/> as trusted, unless it already is. Throws <see cref="ClaudeFolderTrustException"/>,
     /// whose message is the sentence a person acts on, when the record cannot be read or written.
     /// </summary>
