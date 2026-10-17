@@ -93,7 +93,14 @@ public static class Program
     private static async Task<int> RunAsync(Options opts)
     {
         var agentOptions = DirectorAgentPaths.Load();
-        using var manager = new SessionManager(agentOptions) { DirectorId = "delivery-qa-rig" };
+        // Given Claude Code's trust record and the bypass check as the Director is (App.axaml.cs), so a start asks exactly what it ships asking.
+        using var manager = new SessionManager(agentOptions)
+        {
+            DirectorId = "delivery-qa-rig",
+            ClaudeFolderTrust = new CcDirector.Core.Claude.ClaudeFolderTrust(CcDirector.Core.Claude.ClaudeFolderTrust.ConfigPathForThisUser()),
+            ClaudeBypassCheck = (userArgs, args, folder) =>
+                CcDirector.Core.Claude.ClaudeBypassConsent.WhyItWouldStop(userArgs, args, folder, Environment.MachineName),
+        };
         using var watcher = new SessionPointerWatcher(manager);
         watcher.Start();
         manager.OnSessionRemoved += s => watcher.Forget(s.Id);

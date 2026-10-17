@@ -144,7 +144,7 @@ public sealed class PiDialectReplayTests
         var stop = Assert.Single(replay.StopReasons);
         Assert.StartsWith("Resume failed: Pi found no conversation with id '311ffc3b-7a39-45cf-bcb5-596c494cdbbf' in this folder (Warning: No project session found", stop);
         Assert.DoesNotContain(replay.Events, e => e is ConnectionReady);
-        Assert.Equal(stop, replay.Events.OfType<ConnectionEnded>().Single().Reason);
+        Assert.Equal($"{stop}. Pi exited (exit code 0)", replay.Events.OfType<ConnectionEnded>().Single().Reason);
         Assert.False(replay.Dialect.CanWritePrompt);
     }
 
@@ -230,7 +230,7 @@ public sealed class PiDialectReplayTests
         Assert.Equal(
         [
             "PromptRefused prompt-1 Director: Pi exited before acknowledging",
-            "ConnectionEnded 137: Pi exited before acknowledging []",
+            "ConnectionEnded 137: Pi exited before acknowledging (exit code 137) []",
         ], replay.Lines());
     }
 

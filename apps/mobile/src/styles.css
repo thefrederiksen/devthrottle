@@ -10,6 +10,8 @@
   --accent: #3b82f6;
   --attention: #f14c4c;
   --warn: #f59e0b;
+  /* Done and delivered (the shared API-mode live Chat's green tone): the Cockpit's own --ok. */
+  --ok: #22c55e;
   /* The pinned Fleet Manager row (the Fleet Manager mission, step 8): the Cockpit's pin tint and edges. */
   --pin-bg: #16254a;
   --pin-edge: #2c5391;

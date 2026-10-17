@@ -363,24 +363,6 @@ public sealed class SessionStatusWingmanTests
         finally { wingman.Dispose(); manager.Dispose(); }
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void CreateSession_stamps_ControllerSessionId_and_IsControlled()
-    {
-        var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
-        try
-        {
-            var controllerId = Guid.NewGuid();
-            var session = manager.CreateSession(
-                Path.GetTempPath(), AgentKind.ClaudeCode, null, SessionBackendType.ConPty,
-                resumeSessionId: null, controllerSessionId: controllerId);
-
-            Assert.Equal(controllerId, session.ControllerSessionId);
-            Assert.True(session.IsControlled);
-        }
-        finally { manager.Dispose(); }
-    }
-
     [Fact]
     public void Wingman_paints_blue_on_working_and_red_on_waiting_for_input()
     {

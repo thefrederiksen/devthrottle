@@ -1169,6 +1169,8 @@ public sealed class ControlApiHost : IAsyncDisposable
         // Contract 8.3: the same tunnel carries an approval request up, and the machine's cc-secrets seals and opens
         // the answer. The seal needs no tunnel, so it stays attached when the tunnel goes.
         licenses.SignIns.AttachRelay(streamClient is null ? null : new GatewayLicenseApprovalRelay(streamClient));
+        // Phase 6 (Track C): the daily approver check asks and reports on the same tunnel.
+        licenses.ApproverCheck.AttachChannel(streamClient is null ? null : new GatewayLicenseApproverChannel(streamClient));
         licenses.SignIns.AttachSeal(LicenseApprovalSeal);
         licenses.Approver.AttachSeal(LicenseApprovalSeal);
         FileLog.Write($"[ControlApiHost] AttachLicenseReporting: tunnel={(streamClient is null ? "none" : "attached")}");
@@ -2019,6 +2021,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         {
             Core.Licenses.LicenseSwitching.Shared.Reporter.AttachSink(null);
             Core.Licenses.LicenseSwitching.Shared.SignIns.AttachRelay(null);
+            Core.Licenses.LicenseSwitching.Shared.ApproverCheck.AttachChannel(null);
             try { await _streamClient.StopAsync(); }
             catch (Exception ex) { FileLog.Write($"[ControlApiHost] GatewayStreamClient.StopAsync ERROR: {ex.Message}"); }
             await _streamClient.DisposeAsync();

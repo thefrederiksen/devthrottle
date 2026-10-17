@@ -150,6 +150,26 @@ public sealed class ApiModeSessionTests : IDisposable
     }
 
     [Fact]
+    public async Task SetStatusColor_AfterTheSessionFailed_IsDroppedAndTheFailureAndItsReasonStay()
+    {
+        // Arrange: a Pi that ended with code 0 in the middle of a turn - a failure, with the stream's reason.
+        var (session, _, _) = StartSession(new ScriptedPi("exit") { ExitCode = 0 });
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExited += code => exited.TrySetResult(code);
+        await session.SendTextAsync("Write a long answer", Door);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+        var failedReason = session.LastStatusReason;
+
+        // Act: what the Wingman writes when it first sees a session that has already exited.
+        session.SetStatusColor(CcDirector.Core.Wingman.StatusColor.Unknown, "exited");
+
+        // Assert
+        Assert.StartsWith("failed: Pi exited during the turn (exit code 0)", failedReason);
+        Assert.Equal(CcDirector.Core.Wingman.StatusColor.Error, session.StatusColor);
+        Assert.Equal(failedReason, session.LastStatusReason);
+    }
+
+    [Fact]
     public async Task ActivityState_ApiModeSession_IsStartingUntilPiNamesItsConversation()
     {
         // Arrange: Pi answers get_state only when the test says so.

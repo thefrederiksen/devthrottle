@@ -94,6 +94,10 @@ internal sealed class ScriptedPi
     /// began the turn (review finding 1 of pull request #4076).</summary>
     public bool AcknowledgeOnly { get; init; }
 
+    /// <summary>The exit code Pi reports when the recording has it exit, instead of the recorded one (a Pi that ended with
+    /// code 0 where the recording's was killed).</summary>
+    public int? ExitCode { get; init; }
+
     /// <summary>Changes a standard output line before it is pushed (a test that needs Pi to say something else).</summary>
     public Func<string, string>? EditStdout { get; init; }
 
@@ -218,7 +222,7 @@ internal sealed class ScriptedPi
                     break;
                 case "exit":
                     // The recorder is Python, which reports a kill as minus the signal; .NET on Linux reports 128 plus it.
-                    Process.Exit(item.Code == -9 ? 137 : item.Code);
+                    Process.Exit(ExitCode ?? (item.Code == -9 ? 137 : item.Code));
                     break;
             }
         }

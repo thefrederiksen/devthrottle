@@ -51,9 +51,9 @@ Contract section 10.6 says the same.
 The gate the Tech Lead set for this phase, TEMP on D:, at commit `33abb15ae` (clean tree, rebased onto `origin/main`
 after 4127 merged):
 
-- `.\scripts	est-local.ps1`: GREEN, every suite Completed (Core.UnitTests 2156, Avalonia 1063, Reclaim 305,
+- `.\scripts\test-local.ps1`: GREEN, every suite Completed (Core.UnitTests 2156, Avalonia 1063, Reclaim 305,
   setup-engine 884, and the rest).
-- `.\scripts	est-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Gateway.UnitTests 967 of 967,
+- `.\scripts\test-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Gateway.UnitTests 967 of 967,
   Gateway.Tests 22 (the hosted license tests, including every `LicenseSignInHostedTests` case now that the minute check
   raises approver alarms), Core.UnitTests 184, Avalonia 32.
 
@@ -61,7 +61,7 @@ after 4127 merged):
 
 TEMP on D:, at commit `64bad72c0` (clean tree; the review fixes with `origin/main` merged in):
 
-- `.\scripts	est-local.ps1`: GREEN, every suite Completed (Core.UnitTests 2160, Avalonia 1063, Reclaim 305,
+- `.\scripts\test-local.ps1`: GREEN, every suite Completed (Core.UnitTests 2160, Avalonia 1063, Reclaim 305,
   setup-engine 884, and the rest).
-- `.\scripts	est-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Gateway.UnitTests 997 of 997,
+- `.\scripts\test-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Gateway.UnitTests 997 of 997,
   Gateway.Tests 22.

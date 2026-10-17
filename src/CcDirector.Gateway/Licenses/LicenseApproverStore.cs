@@ -110,7 +110,7 @@ public sealed class LicenseApproverStore
 
     /// <summary>A browser profile's name: it is handed to a command on the approving machine, so it is letters,
     /// digits, spaces, dots, underscores and hyphens, starting with a letter or a digit.</summary>
-    public static readonly Regex BrowserProfileShape = new("^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$", RegexOptions.CultureInvariant);
+    public static readonly Regex BrowserProfileShape = LicenseApproverContract.BrowserProfileShape;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

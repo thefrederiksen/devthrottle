@@ -187,6 +187,53 @@ new id, and the Director changes. The first keeps the receipt joined to the prom
 the reason for the ruling. Phase 3 should not read receipts until one of the two is done, because its tests
 will otherwise pin the wrong words.
 
+**Gateway follow-on answer (17 October 2026, Developer, phase 2 follow-on item 6): accepted; the Gateway now takes
+the event model as written, and the later receipt stands.** The Director is unchanged. The rule, kept in one shape in
+all three places:
+
+- **A `Refused` receipt is not final.** A later `PromptQueued`, `PromptDelivered` or `PromptRefused` under the same
+  `promptId`, at a newer position, is the retry's, and it replaces the refused attempt whole: the receipt then reads as
+  the retry alone (its queue reason, its acknowledgement or its refusal; nothing of the earlier attempt is left on the
+  row), and every replacement is logged as a `SUPERSEDE` line naming the refusal it replaced.
+- **`Delivered` is final (rule 1).** A delivered id is never sent again, so a second ending after `Delivered`
+  (`Delivered` then `Refused`, or `Delivered` twice) is still a Director defect: logged as a second ending, and the
+  delivery stands. A `PromptQueued` after `Delivered` changes nothing.
+- **Order first.** The position rule is applied before anything else, so an older event handed over after a newer
+  one - the same event re-sent, a lower sequence of the same generation, or anything of an older generation - never
+  replaces anything.
+
+Where it changed:
+
+- `ApiModeReceiptStore.RecordQueued`, `RecordDelivered` and `RecordRefused` supersede a `Refused` row through one
+  helper, `Supersede`. The row's first position also moves to the retry's event, because receipts are read, and the
+  fold numbers turns, in the order their prompts arrived: without it, a prompt refused, then another prompt's turn,
+  then the retry's turn would number the retry's turn first and call the earlier turn the latest. `RecordTurnStarted`
+  is unchanged, as the review said: the retry's delivery now precedes its turn, so the turn links and ends on it.
+- `ApiModeLiveRuling` makes the same decision (`Supersedes`, replacing `IsFinal`), and it now remembers the sequence
+  of the last receipt event it ruled for each prompt, so an older event handed to it after a newer one changes
+  nothing. A ruling started from the stored receipts takes each receipt with the position of the last event the store
+  applied to it (`ApiModeReceiptStore.ReadWithPositions`, answering `ApiModeStoredReceipt`; the client receipt shape is
+  unchanged), and every receipt event for such a prompt is handed with its own position (`ApiModeHeldEvent`, which now
+  carries its generation's start). An event at or before the stored position is one the store has already ruled on and
+  changes nothing, unlogged; an event after it is the retry, or a second ending, and is ruled as usual. This replaced an
+  earlier version of the change that guessed a replay by the kind of the ending and recorded a known limit for a
+  refused-twice prompt; both were removed in commit `7116f56fe` on review finding 1 of pull request #4142, and the
+  review, the fix and its re-review are in `phase-2b-later-receipt-review.md`. The pull request #4083 test that called a
+  refusal handed to a store-started ruling holding `Delivered` a second ending is changed accordingly: under the event
+  model a refusal at or before the stored delivery's position is the one that delivery superseded.
+- `ApiModeSessionFold` is unchanged: it reads the stored receipts, which now carry the retry's delivery and turn, so
+  the turn is counted and "Working - turn N" is shown.
+
+Regression tests (Arrange-Act-Assert): in `ApiModeReceiptStoreTests`, refused then delivered (the row reads
+`Delivered` with the acknowledgement and nothing of the refusal), the retry's turn linking and ending on it, refused
+then refused again (the later reason stands), refused then queued, delivered twice and delivered then refused (the
+first stands), an older refusal replayed after the retry's delivery and one from an older generation (neither
+overwrites), and the retry read after a prompt delivered in between; in `ApiModeLiveRulingTests`, the same cases on the
+live stream, the failed turn shown beside the retry's delivery (rule 5), and a store-started ruling meeting the retry;
+in `ApiModeVerdictReceiptsTests`, through the real ingest, store and stamp, the retry's turn counted as "Working -
+turn 1", and as "Working - turn 2" when another prompt's turn came between. Both throwaway tests from this review now
+pass as these tests.
+
 ### Finding 2 (low; becomes real when phase 4 merges). The fold prefers a held "Agent disconnected" reason to a wheel holder of `none`, so a terminal the user closed is reported as the user holding the wheel
 
 **Where.** `ApiModeSessionFold.Agent`: the latest held `ConnectionReady` or `ConnectionEnded` is read first, and
@@ -205,6 +252,28 @@ to the Director, which is right, but the sentence that led there is false. Phase
 not on a user's screen today; it will be the day #4094 merges unless the fold checks `none` before the held
 event, or phase 4 writes a `ConnectionEnded` when the user's terminal exits (the event model's `ConnectionEnded`
 is for the agent process, and the terminal is one). The seat integrating phase 4 decides which.
+
+Developer's answer: **Accepted, fixed in the Gateway** (pull request #4174, revised after its review,
+`phase-2b-holder-none-label-review.md`). The Tech Lead ruled: a wheel holder of `none` is the Director's current
+report and wins, so it comes first; a held `ConnectionEnded` is still true history and follows it. A holder of `none`
+covers two states, and the rule is the same for both:
+
+- **The user's terminal exiting.** The user took the wheel (the disconnect "the user took the wheel" is held), then
+  their terminal exited and the Director reports `none`. The row reads "No agent process is running. The last
+  connection ended: the user took the wheel" - no longer telling the user a terminal is open.
+- **Pi's own process exiting**, with or without a turn open. The Director writes `ConnectionEnded` with the exit
+  reason and reports `none`. The row reads "No agent process is running. The last connection ended: Pi exited (exit
+  code 137)". The held ending is the only place the exit reason shows on the row when no turn was open, so it is
+  never dropped.
+
+With no `ConnectionEnded` as the latest held connection event, the label is "No agent process is running" alone.
+Kind stays `stopped`. The `user` and `protocol` paths are unchanged. Tests in `ApiModeSessionFoldTests.cs`:
+`Fold_AHeldDisconnectWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunningThenTheLastEnding` (the terminal state),
+`Fold_AHeldReadyWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunningWithNoEnding` (a held `ConnectionReady` adds no
+ending), `Fold_AHeldDisconnectWhileTheProtocolHoldsTheWheel_SaysTheAgentDisconnected` (holder `protocol` unchanged),
+and, for Pi's own exit, `Stamp_RefusedBeforeAcknowledgement_NoTurnAndTheAgentIsGone` and
+`Stamp_FailedMidTurn_SaysTheLastTurnFailedWithItsReason` in `ApiModeSessionVerdictTests`, each asserting the exit
+reason with its exit code still appears.
 
 ## Observations (not findings: no harm proven on main, recorded so the next seat need not rediscover them)
 

@@ -83,6 +83,14 @@ public sealed class ApiModeSessionBackend : ISessionBackend
 
     public bool HasExited => _hasExited;
 
+    /// <summary>Why the session's Pi ended, from its last <see cref="ConnectionEnded"/>; null until it has. Set before
+    /// <see cref="ProcessExited"/> is raised.</summary>
+    public string? EndReason { get; private set; }
+
+    /// <summary>Whether that end was a failure as the stream tells it (<see cref="ApiModeSessionHost.EndedInFailure"/>),
+    /// whatever the exit code. Set before <see cref="ProcessExited"/> is raised.</summary>
+    public bool EndedInFailure { get; private set; }
+
     /// <summary>Null: an API-mode session has no terminal.</summary>
     public CircularTerminalBuffer? Buffer => null;
 
@@ -185,7 +193,13 @@ public sealed class ApiModeSessionBackend : ISessionBackend
 
     private void OnHostExited(int exitCode)
     {
-        FileLog.Write($"[ApiModeSessionBackend] Exited: session={_sessionId}, exitCode={exitCode}");
+        // The host completes Ended before it raises Exited, so the reason is there to read.
+        var host = _host ?? throw new InvalidOperationException($"Session {_sessionId}: Pi exited with no host.");
+        if (!host.Ended.IsCompletedSuccessfully)
+            throw new InvalidOperationException($"Session {_sessionId}: the host raised Exited before Ended completed.");
+        EndReason = host.Ended.Result.Reason;
+        EndedInFailure = host.EndedInFailure;
+        FileLog.Write($"[ApiModeSessionBackend] Exited: session={_sessionId}, exitCode={exitCode}, failure={EndedInFailure}, reason={EndReason}");
         _hasExited = true;
         SetStatus($"Exited ({exitCode})");
         ProcessExited?.Invoke(exitCode);
