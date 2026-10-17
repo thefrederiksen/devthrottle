@@ -31,6 +31,11 @@ namespace CcDirector.Gateway.Licenses;
 /// THE GATEWAY RELAYS AND NEVER KEEPS. The address the sign-in is approved at, and the approval that comes back sealed
 /// to the asking machine, exist here only in the local variables of one relay. Neither is ever written to a store, a
 /// row of the Licenses log or a log line, and no exception's message is logged, because a message could quote one.
+///
+/// WHAT IT DOES KEEP is one row of the Licenses log for each relay that is answered (<see cref="LicenseApprovalLog"/>):
+/// the machine that asked, the account, the machine set to approve it, and approved or refused with the reason word -
+/// so a renewal no person started still shows who approved it. The row is written after the answer is sent, so a
+/// store that cannot take it never delays or loses the answer.
 /// Every line this class writes names the sign-in's identifier, the account, the two machines and the outcome, and
 /// nothing else - and the account is written only once it has been checked to be an email. The Gateway cannot open the approval: it is sealed to a key only the asking machine holds, the one
 /// that machine's Director said in its Hello.
@@ -58,6 +63,7 @@ public sealed class LicenseApprovalRelay
 
     private readonly LicenseApproverStore _approvers;
     private readonly LicenseReadModel _reads;
+    private readonly LicenseApprovalLog _log;
     private readonly Func<TenantId, string, bool> _isConnected;
     private readonly LicenseCommandSender _send;
     private readonly Func<TenantId, IDisposable> _enterScope;
@@ -72,16 +78,19 @@ public sealed class LicenseApprovalRelay
 
     /// <param name="approvers">Who approves each account.</param>
     /// <param name="reads">The tenant's machines and the Director that last reported for each (contract section 2.4).</param>
+    /// <param name="log">Where each answered relay is recorded in the Licenses log.</param>
     /// <param name="isConnected">Whether that tenant's Director has an active stream connection now.</param>
     /// <param name="send">Sends one command and waits for its answer; called inside the tenant's scope.</param>
     /// <param name="enterScope">Enters a tenant's scope for the work of one relay.</param>
     /// <param name="nowUtc">The Gateway's clock.</param>
     /// <param name="lifetime">Cancelled when the Gateway stops.</param>
-    internal LicenseApprovalRelay(LicenseApproverStore approvers, LicenseReadModel reads, Func<TenantId, string, bool> isConnected,
-        LicenseCommandSender send, Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime)
+    internal LicenseApprovalRelay(LicenseApproverStore approvers, LicenseReadModel reads, LicenseApprovalLog log,
+        Func<TenantId, string, bool> isConnected, LicenseCommandSender send, Func<TenantId, IDisposable> enterScope,
+        Func<DateTime> nowUtc, CancellationToken lifetime)
     {
         _approvers = approvers ?? throw new ArgumentNullException(nameof(approvers));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
+        _log = log ?? throw new ArgumentNullException(nameof(log));
         _isConnected = isConnected ?? throw new ArgumentNullException(nameof(isConnected));
         _send = send ?? throw new ArgumentNullException(nameof(send));
         _enterScope = enterScope ?? throw new ArgumentNullException(nameof(enterScope));
@@ -210,6 +219,7 @@ public sealed class LicenseApprovalRelay
             FileLog.Write($"[LicenseApprovalRelay] signIn={signInId}, account={account}, target={targetDirectorId}, "
                           + $"approver={decided.ApproverMachine ?? "(none)"}, outcome={decided.Answer.Outcome}, reason={decided.Answer.ReasonCode ?? "-"}, "
                           + $"delivered={(delivered is null ? "no - the Director that asked is not connected" : delivered.Status.ToString())}");
+            Record(tenant, targetDirectorId, signInId, account, decided);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -225,6 +235,21 @@ public sealed class LicenseApprovalRelay
         {
             scope?.Dispose();
         }
+    }
+
+    /// <summary>The Licenses log row for one answered relay, against the machine whose Director asked. A Director that
+    /// has never reported for this account holds no sign-in the Gateway knows of, so it has no machine to record
+    /// against: that is said in a line, and nothing is written.</summary>
+    private void Record(TenantId tenant, string askingDirectorId, string signInId, string account, Decided decided)
+    {
+        var now = _nowUtc();
+        var asking = _reads.Read(tenant, now).Machines.FirstOrDefault(m => string.Equals(m.DirectorId, askingDirectorId, StringComparison.Ordinal));
+        if (asking is null)
+        {
+            FileLog.Write($"[LicenseApprovalRelay] signIn={signInId}, account={account}: not in the Licenses log, the Director that asked ({askingDirectorId}) has never reported for this account");
+            return;
+        }
+        _log.Record(tenant, asking, signInId, account, decided.ApproverMachine, decided.Answer.Outcome, decided.Answer.ReasonCode, now);
     }
 
     /// <param name="ApproverMachine">The machine set to approve, for the log; null when none is set.</param>

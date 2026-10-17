@@ -48,7 +48,7 @@ public sealed class RequestLicenseApprovalHubTests : IDisposable
         _licenses = new LicenseStore(db);
         _devices = _harness.OpenDevices();
         _approvers = new LicenseApproverStore(new TenantSettingsStore(db));
-        _relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_licenses), _directors.IsConnected, _directors.SendAsync,
+        _relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_licenses), new LicenseApprovalLog(db), _directors.IsConnected, _directors.SendAsync,
             _directors.EnterScope, () => T0, CancellationToken.None);
 
         // The self-hosted boundary binds every connection to the Local tenant: the approving machine reports there.

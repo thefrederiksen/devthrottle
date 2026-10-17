@@ -47,7 +47,7 @@ public sealed class LicenseSignInKeepsNothingTests : IDisposable
 
     public void Dispose() => _harness.Dispose();
 
-    private LicenseApprovalRelay NewRelay() => new(_approvers, new LicenseReadModel(_store), _directors.IsConnected, _directors.SendAsync,
+    private LicenseApprovalRelay NewRelay() => new(_approvers, new LicenseReadModel(_store), new LicenseApprovalLog(_db), _directors.IsConnected, _directors.SendAsync,
         _directors.EnterScope, () => T0, CancellationToken.None);
 
     /// <summary>One approved relay, one refused by the approving machine, one the Gateway refuses itself (no approver),
