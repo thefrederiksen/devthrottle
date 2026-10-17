@@ -1307,6 +1307,8 @@ has never reported to this account:
       "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work.",
       "browserProfileName": null,
       "source": "registered",
+      "sourceText": "Registered by the-mac's Director.",
+      "reachText": null,
       "state": "can-approve",
       "checkedAtUtc": "2026-10-11T00:12:00Z",
       "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
@@ -1326,6 +1328,8 @@ has never reported to this account:
       "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
       "browserProfileName": null,
       "source": "owner",
+      "sourceText": "Set by you.",
+      "reachText": "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
       "state": "not-checked",
       "checkedAtUtc": null,
       "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
@@ -1349,6 +1353,8 @@ An approver (`LicenseApproverDto`):
 | `status`, `statusText`, `statusTone` | `ready` "Ready" / `not-connected` "Not connected" / `never-reported` "Not reporting yet" / `cannot-approve` "Cannot approve" or "Not checked". A machine that cannot be reached is said first; then the profile's health. |
 | `text` | The whole of it in one or two sentences. Show this. For `cannot-approve` it is `healthText` and `whatToDo` together. |
 | `source` | `owner` (set on this page) or `registered` (registered by the Director of the machine it names, from a check that proved the profile can approve; contract section 10). |
+| `sourceText` | `source` in words: "Set by you." or "Registered by the-mac's Director." (the machine's label). Show as given. |
+| `reachText` | Why no sign-in can reach the approving machine now - "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet." or "The Director on the-mac is not connected, so no sign-in can be approved there now." - or `null` when its Director is connected. It is the part of `text` that is not the profile's health, so a row that shows `reachText`, `healthText` and `whatToDo` says everything `text` does, once. |
 | `state` | The record's health now: `can-approve`, `signed-out`, `needs-fresh-sign-in`, `wrong-account`, `check-failed`, or `not-checked` when it was never checked or its last check is more than 26 hours old. |
 | `checkedAtUtc` | When it was last checked; `null` when it never was. |
 | `healthText` | The finished sentence of its health, naming the account, the machine and the profile. Show as given. |
@@ -1391,6 +1397,8 @@ reported yet. Answered `200` with the approver as stored:
   "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
   "browserProfileName": null,
   "source": "owner",
+  "sourceText": "Set by you.",
+  "reachText": null,
   "state": "not-checked",
   "checkedAtUtc": null,
   "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
@@ -1739,6 +1747,8 @@ renewal of 7.4 was running and the Director on "the-mac" was not connected:
         "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
         "browserProfileName": null,
         "source": "registered",
+        "sourceText": "Registered by the-mac's Director.",
+        "reachText": "The Director on the-mac is not connected, so no sign-in can be approved there now.",
         "state": "can-approve",
         "checkedAtUtc": "2026-10-11T00:12:00Z",
         "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
@@ -1763,6 +1773,8 @@ renewal of 7.4 was running and the Director on "the-mac" was not connected:
         "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
         "browserProfileName": null,
         "source": "owner",
+        "sourceText": "Set by you.",
+        "reachText": "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
         "state": "not-checked",
         "checkedAtUtc": null,
         "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",

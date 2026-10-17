@@ -367,10 +367,29 @@ export function LicenseSignIns({
                 <tr key={approver.accountEmail} data-testid="lic-approver" data-status={approver.status}>
                   <td className="lic-nowrap">{approver.accountEmail}</td>
                   <td className="lic-nowrap">{approver.label}</td>
-                  <td className="lic-nowrap">{approver.browserProfile}</td>
+                  <td className="lic-nowrap">
+                    {/* The display name once a check has seen one, and always the identifier the record holds. */}
+                    {approver.browserProfileName !== null && (
+                      <div data-testid="lic-approver-profile-name">{approver.browserProfileName}</div>
+                    )}
+                    <div className="lic-dim" data-testid="lic-approver-profile-id">
+                      {approver.browserProfile}
+                    </div>
+                  </td>
                   <td>
+                    {/* Every sentence is the Gateway's, shown whole: who made the record, why a sign-in cannot reach the
+                        machine (when it cannot), the profile's health, and the one thing to do (when there is one). */}
                     <TonePill text={approver.statusText} tone={approver.statusTone} testId="lic-approver-status" />
-                    <div data-testid="lic-approver-text">{approver.text}</div>
+                    <div className="lic-dim" data-testid="lic-approver-source">
+                      {approver.sourceText}
+                    </div>
+                    {approver.reachText !== null && <div data-testid="lic-approver-reach">{approver.reachText}</div>}
+                    <div data-testid="lic-approver-health">{approver.healthText}</div>
+                    {approver.whatToDo !== null && (
+                      <div className="lic-approver-todo" data-testid="lic-approver-todo">
+                        {approver.whatToDo}
+                      </div>
+                    )}
                   </td>
                   <td className="lic-nowrap">
                     <Button variant="ghost" onClick={() => onOpenEditor(approver)}>

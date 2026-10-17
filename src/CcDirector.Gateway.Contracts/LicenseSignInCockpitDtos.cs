@@ -101,6 +101,13 @@ public sealed class LicenseApproverDto
     /// <summary>Who made the record: one of <see cref="LicenseApproverSources"/>.</summary>
     public string Source { get; set; } = "";
 
+    /// <summary>Who made the record, in words: "Set by you." or "Registered by machine-a's Director.".</summary>
+    public string SourceText { get; set; } = "";
+
+    /// <summary>Why no sign-in can reach the approving machine now - it has never reported, or its Director is not
+    /// connected; null when its Director is connected. The profile's own health is <see cref="HealthText"/>.</summary>
+    public string? ReachText { get; set; }
+
     /// <summary>The record's health now: one of <see cref="LicenseApproverStates"/>, aged by the not-checked rule.</summary>
     public string State { get; set; } = "";
 

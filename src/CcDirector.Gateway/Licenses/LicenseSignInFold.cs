@@ -105,14 +105,17 @@ public static class LicenseSignInFold
         var label = Label(machines, machine?.MachineName ?? approver.MachineName, machine?.OsUser ?? approver.OsUser);
         var who = $"Sign-ins for {approver.AccountEmail} are approved on {label}, in the browser profile {LicenseApproverReadiness.ProfileName(approver)}.";
         var health = LicenseApproverReadiness.Verdict(approver, label, nowUtc);
+        var reach = machine is null
+            ? $"No Director on {label} has reported to this account, so no sign-in can be approved there yet."
+            : !isConnected(machine.DirectorId)
+                ? $"The Director on {label} is not connected, so no sign-in can be approved there now."
+                : null;
         // A machine that cannot be reached is said first: nothing about the profile matters until its Director is there.
         // Then the profile's own health, so "Ready" is never shown beside a profile that cannot approve.
         var (status, statusText, tone, text) = machine is null
-            ? (LicenseApproverStatuses.NeverReported, "Not reporting yet", LicenseTones.Warning,
-                $"{who} No Director on {label} has reported to this account, so no sign-in can be approved there yet.")
-            : !isConnected(machine.DirectorId)
-                ? (LicenseApproverStatuses.NotConnected, "Not connected", LicenseTones.Warning,
-                    $"{who} The Director on {label} is not connected, so no sign-in can be approved there now.")
+            ? (LicenseApproverStatuses.NeverReported, "Not reporting yet", LicenseTones.Warning, $"{who} {reach}")
+            : reach is not null
+                ? (LicenseApproverStatuses.NotConnected, "Not connected", LicenseTones.Warning, $"{who} {reach}")
                 : health.WhatToDo is null
                     ? (LicenseApproverStatuses.Ready, "Ready", LicenseTones.Good, who)
                     : (LicenseApproverStatuses.CannotApprove, health.State == LicenseApproverStates.NotChecked ? "Not checked" : "Cannot approve",
@@ -132,6 +135,8 @@ public static class LicenseSignInFold
             Text = text,
             BrowserProfileName = approver.BrowserProfileName,
             Source = approver.Source,
+            SourceText = approver.Source == LicenseApproverSources.Registered ? $"Registered by {label}'s Director." : "Set by you.",
+            ReachText = reach,
             State = health.State,
             CheckedAtUtc = approver.CheckedAtUtc,
             HealthText = health.HealthText,
