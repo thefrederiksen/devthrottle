@@ -253,7 +253,10 @@ public static class Program
             core.StartAsync(RequestShutdown, userInterfaceState: "degraded").GetAwaiter().GetResult();
             LauncherCore.RegisterAutostartSafe();
             if (LauncherAppOptions.Managed)
+            {
                 _ = LauncherCore.RunUpdateLoopAsync(lifetime.Token);
+                _ = LauncherCore.RunDirectorCrashWatchAsync(lifetime.Token);
+            }
 
             FileLog.Write("[Program] Headless launcher running");
             shutdown.Task.GetAwaiter().GetResult();

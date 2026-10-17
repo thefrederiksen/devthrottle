@@ -176,6 +176,12 @@ public sealed class DirectorSupervisor
     internal Func<DirectorLookup> ReadTheMachine { get; set; } = null!;
 
     /// <summary>
+    /// Where this supervisor records the Directors it stops on purpose, so the crash watch does not start one of
+    /// them again (<see cref="DirectorCrashWatch"/>). Shared by every supervisor in the process; a test uses its own.
+    /// </summary>
+    internal DirectorStopLedger StopLedger { get; set; } = DirectorStopLedger.Shared;
+
+    /// <summary>
     /// Whether a Director holds the supervised instance.
     ///
     /// An AMBIGUOUS result counts as running. It is not known which process it is, so nothing may be
@@ -385,6 +391,10 @@ public sealed class DirectorSupervisor
             return;
         }
 
+        // Recorded BEFORE the stop: a stop that ends in a kill leaves the crash journal behind, and without this
+        // the crash watch would read this launcher's own stop as a crash and start the Director again.
+        StopLedger.Record(director.DirectorId, director.Pid);
+
         var signal = LifecycleSignalNames.DirectorShutdown(director.DirectorId);
         var delivered = LifecycleSignal.Raise(signal);
         FileLog.Write($"[DirectorSupervisor] StopAsync: asked {director.DirectorId} (pid={director.Pid}) to shut "
@@ -409,6 +419,7 @@ public sealed class DirectorSupervisor
                           + "will NOT be force-killed. Ending a process this launcher cannot confirm is its own is "
                           + "worse than leaving it running: the same registration could name something that merely "
                           + "inherited the process id. Resolve the claim on this instance by hand.");
+            StopLedger.Forget(director.DirectorId, director.Pid);
             return;
         }
 
@@ -421,7 +432,8 @@ public sealed class DirectorSupervisor
               + "does not listen for its own shutdown signal is a build older than this launcher, or one whose "
               + "startup failed before it began listening.");
 
-        KillProcess(director.Pid);
+        if (!KillProcess(director.Pid))
+            StopLedger.Forget(director.DirectorId, director.Pid);
     }
 
     /// <summary>
@@ -686,7 +698,8 @@ public sealed class DirectorSupervisor
         }
     }
 
-    private static void KillProcess(int pid)
+    /// <summary>Kill a process. True when it is gone afterwards - killed, or already exited.</summary>
+    private static bool KillProcess(int pid)
     {
         try
         {
@@ -696,14 +709,17 @@ public sealed class DirectorSupervisor
                 process.Kill(entireProcessTree: false);
                 FileLog.Write($"[DirectorSupervisor] killed pid={pid}");
             }
+            return true;
         }
         catch (ArgumentException)
         {
             // It exited between the wait and the kill. Nothing to do.
+            return true;
         }
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorSupervisor] kill of pid={pid} FAILED: {ex.Message}");
+            return false;
         }
     }
 }
