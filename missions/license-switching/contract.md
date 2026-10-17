@@ -1064,10 +1064,14 @@ setting an approver for that account clears that account's removal records.
 ### 10.6 The approver alarm
 
 An approver that cannot approve is a license alarm (section 9) of kind `approver-cannot-approve`, titled "Approver
-cannot approve sign-ins", one for each such approver, about its machine (when that machine has reported) and its
-account. What is wrong and the one thing to do are the approvers row's `healthText` and `whatToDo`. It is raised
+cannot approve sign-ins", one for each such approver, about its account alone (the alarm's machine is always "no one
+machine"; the sentences name the machine, and there is one approver per account, so the alarm never changes identity
+when that machine first reports). What is wrong and the one thing to do are the approvers row's `healthText` and `whatToDo`. It is raised
 every time approver health is evaluated: after each check report a Director sends (on a task of its own, so the hub
 call never waits for a push or an email), and on the Gateway's once-a-minute license check, so an approver nobody
 checks alarms once its 26 hours pass. Each raise passes every approver of the tenant that cannot approve now, so one
 that recovers or is removed closes by itself. An account with no approver at all raises nothing here; whether an
-account is ready is Track A's readiness, which asks `LicenseApproverReadiness.WhyNotReady`.
+account is ready is Track A's readiness, which asks `LicenseApproverReadiness.WhyNotReady`. Raises for one tenant run
+one at a time, each reading the records after the previous one wrote. An approver whose sentence is longer than an alarm
+takes (400 characters) costs only its own alarm, logged with its account. A raise with nothing to say writes no log
+line.
