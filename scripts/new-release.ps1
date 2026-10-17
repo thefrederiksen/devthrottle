@@ -1,71 +1,71 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Cuts a release in two steps: freeze the candidate, then - once the release gate
-    has passed on it - tag it.
+    Releases DevThrottle from the LAST GOOD COMMIT: the newest commit on main with a green full test
+    run. No candidate is cut, nothing is tested at release time, and a release takes minutes.
 
 .DESCRIPTION
-    STEP 1, no arguments: FREEZE THE CANDIDATE.
-        Bumps Directory.Build.props and commits it together with the written notes
-        (docs/public/release-notes/vX.Y.Z.md) in ONE pull request, merges it, and
-        prints the merge commit. That commit is the release candidate. It does NOT
-        tag. The notes are never edited after this; work merged later waits for
-        the next release.
+    THE RULE (the owner, 17 October 2026: "Why the hell can we not just release our software when we
+    say, and then an hour later we have a release?"). The full test suite runs on main on its own,
+    every two hours when main has moved (.github/workflows/ci.yml). Every commit it passes is a commit
+    we can ship. A release is a version tag on the newest of them, plus the notes. Nothing else.
 
-    Then run the release gate ONCE on the candidate, in a worktree detached at it
-    (the release-manager skill, Step 9):
-        .\scripts\test-local.ps1 -Parked -Configuration Release
+    The old flow merged a version bump and the notes into main, which made a NEW commit, which then
+    had to be tested from scratch; any red meant a fix, another commit and another full run. v2.23.0
+    took fifteen hours that way while its code had already passed every test.
 
-    STEP 2, -Tag <candidate>: TAG THE GATED CANDIDATE.
-        Refuses unless scripts\assert-gated.ps1 accepts the candidate, then tags it
-        and pushes the tag. The tag goes on the candidate even when main has moved
-        on. The person releasing runs this step.
+    THREE STEPS, each one command:
 
-    WHY TWO STEPS
-    -------------
-    The release workflow runs no tests and a pushed tag cannot be un-pushed, so the
-    release gate must run on the exact commit that is tagged. This script used to
-    merge and tag in one go, with no gate between them. And because the notes and
-    the bump were not frozen together, every notes edit made a new commit that
-    voided any gate run already under way: v2.18.0's notes were rewritten four times.
+    1. -Claim -Version X.Y.Z
+       Claims the release. Exactly one session can be releasing at all: the claim is the branch
+       release-claim, created only if it does not exist, naming the version and the holder. A second session is refused and told
+       who holds it. On 17 October two sessions fixed the same failure in parallel because nothing
+       stopped a second release seat.
 
-    WHY A PULL REQUEST INSTEAD OF PUSHING TO MAIN
-    ---------------------------------------------
-    main is protected by a ruleset that requires a pull request. An older version
-    of this script pushed main and then the tag; the branch push was rejected and
-    the tag push succeeded, which left v1.9.2 pointing at a commit that was not on
-    main. The tag is created only for a commit proven to be on origin/main.
+    2. Write docs/public/release-notes/vX.Y.Z.md in this checkout, covering the last tag up to the
+       commit -Release names (run -Release without -Yes: it prints the last good commit and the
+       commits to cover, then stops at the missing notes or at the question), and get the owner's
+       sign-off on the wording.
 
-    The product version lives in EXACTLY ONE file: Directory.Build.props at the
-    repo root (see docs/architecture/VERSIONING.md).
+    3. -Release -Version X.Y.Z [-Yes]
+       Finds the last good commit G: the newest commit on main whose "CI result" check passed. Makes ONE commit on top of it that changes only the version in
+       Directory.Build.props and adds the notes file - nothing a test could see. Pushes it as branch
+       release/vX.Y.Z, tags it, and pushes the tag; the release workflow builds and publishes. Then
+       it merges the branch back into main with a merge commit, so main gets the notes and the
+       version, and the tagged commit stays reachable from main. Finally it gives up the claim.
+
+    The release workflow checks the same thing again before it builds: the tagged commit's parent
+    must have a green full run and the tagged commit may change only those two files.
+
+    Work merged to main after G is not in this release. It goes in the next one.
+
+.PARAMETER Claim
+    Claim the release of -Version for this session.
+
+.PARAMETER Unclaim
+    Give up the claim on -Version without releasing.
+
+.PARAMETER Release
+    Release -Version from the last good commit.
 
 .PARAMETER Version
-    Step 1: the new version (X.Y.Z or X.Y.Z-rcN). Without it, step 1 asks, offering
-    the next patch version.
+    The version, X.Y.Z or X.Y.Z-rcN.
 
 .PARAMETER Yes
-    Step 1: do not ask "Go?". For a release seat, which runs non-interactively; the
-    human has already signed off the notes. The -Tag step has no such switch: the
-    person releasing confirms the tag push themselves.
-
-.PARAMETER Tag
-    The candidate commit to tag (the merge commit step 1 printed).
+    Do not ask before pushing the tag. For a release seat, after the owner has signed off the notes
+    and said to release.
 
 .EXAMPLE
-    .\scripts\new-release.ps1
-    Current version: 1.9.2
-    New version [1.9.3]:            <- press Enter to take it
-
-.EXAMPLE
-    .\scripts\new-release.ps1 -Version 2.18.0 -Yes
-
-.EXAMPLE
-    .\scripts\new-release.ps1 -Tag 1a2b3c4d
+    .\scripts\new-release.ps1 -Claim -Version 2.24.0
+    .\scripts\new-release.ps1 -Release -Version 2.24.0          <- shows the last good commit, asks
+    .\scripts\new-release.ps1 -Release -Version 2.24.0 -Yes
 #>
 param(
+    [switch]$Claim,
+    [switch]$Unclaim,
+    [switch]$Release,
     [string]$Version = "",
-    [switch]$Yes,
-    [string]$Tag = ""
+    [switch]$Yes
 )
 
 $ErrorActionPreference = "Stop"
@@ -80,256 +80,234 @@ function Fail($message, $howToFix) {
     exit 1
 }
 
+# Run a native command whose stderr is expected and not wanted, and return its exit code. Windows
+# PowerShell 5.1 turns a redirected native stderr line into a terminating error under
+# $ErrorActionPreference = "Stop", so the preference is lowered for exactly this call.
+function Get-NativeExitCode([scriptblock]$command) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & $command 2>&1 | Out-Null; return $LASTEXITCODE }
+    finally { $ErrorActionPreference = $previous }
+}
+
+$modes = @($Claim, $Unclaim, $Release) | Where-Object { $_ }
+if ($modes.Count -ne 1) {
+    Fail "Say exactly one of -Claim, -Unclaim or -Release." "Run: Get-Help .\scripts\new-release.ps1 -Detailed"
+}
+$newVersion = $Version.Trim()
+if ($newVersion -notmatch '^\d+\.\d+\.\d+(-rc\d+)?$') {
+    Fail "Invalid or missing -Version: '$newVersion'." "Expected X.Y.Z or X.Y.Z-rcN, for example -Version 2.24.0"
+}
+$tagName = "v$newVersion"
+$branch  = "release/$tagName"
+# ONE claim for releasing at all, not one per version: two seats releasing 2.24.0 and 2.24.1 at once
+# would both hold a claim, and the second merge-back would conflict on Directory.Build.props.
+$claimBranch = "release-claim"
+
+# Who is releasing: the session when a session runs this, otherwise the person at the machine.
+$identity = if ($env:CC_SESSION_ID) { "session $env:CC_SESSION_ID" } else { "$env:USERNAME on $env:COMPUTERNAME" }
+
 # --- Tools this needs ---
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-    Fail "The GitHub CLI (gh) is not installed." "It is required because main only accepts changes through a pull request.`nInstall from https://cli.github.com/ then run: gh auth login"
+    Fail "The GitHub CLI (gh) is not installed." "Install from https://cli.github.com/ then run: gh auth login"
 }
-gh auth status 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "The GitHub CLI is not signed in." "Run: gh auth login" }
+if ((Get-NativeExitCode { gh auth status }) -ne 0) { Fail "The GitHub CLI is not signed in." "Run: gh auth login" }
 
 Write-Host "Fetching origin..." -ForegroundColor Gray
 git -C $repoRoot fetch --quiet --tags origin main
 if ($LASTEXITCODE -ne 0) { Fail "Could not fetch origin." }
 
-if ($Tag) {
-    # ============================== STEP 2: TAG THE GATED CANDIDATE ==============================
-    $candidate = git -C $repoRoot rev-parse --verify --quiet "$Tag^{commit}"
-    if (-not $candidate) { Fail "'$Tag' is not a commit in this repository." "Pass the candidate commit that step 1 printed." }
+if (git -C $repoRoot ls-remote --tags origin $tagName) { Fail "Tag $tagName already exists on the remote." "That version has been released. Pick the next one." }
 
-    git -C $repoRoot merge-base --is-ancestor $candidate origin/main
+# The claim, read from the claim commit's subject ("release claim <tag> by <who>"), or null when nobody holds it.
+function Get-Claim {
+    $line = git -C $repoRoot ls-remote origin "refs/heads/$claimBranch"
+    if (-not $line) { return $null }
+    git -C $repoRoot fetch --quiet origin "refs/heads/${claimBranch}:refs/remotes/origin/$claimBranch"
+    if ($LASTEXITCODE -ne 0) { Fail "The claim branch $claimBranch exists but could not be fetched." }
+    $subject = git -C $repoRoot log -1 --format=%s "origin/$claimBranch"
+    if ($subject -notmatch '^release claim (\S+) by (.+)$') { Fail "The claim branch $claimBranch does not say who holds it: '$subject'." "The owner deletes branch $claimBranch." }
+    return [pscustomobject]@{ Tag = $matches[1]; Holder = $matches[2] }
+}
+
+if ($Claim) {
+    # ==================================== CLAIM THE RELEASE ====================================
+    $held = Get-Claim
+    if ($held) {
+        if ($held.Holder -eq $identity -and $held.Tag -eq $tagName) { Write-Host "You already hold the claim on $tagName." -ForegroundColor Green; exit 0 }
+        Fail "$($held.Holder) is releasing $($held.Tag)." "One release seat at a time. Ask the owner whether that seat is still releasing; if it is not, it runs -Unclaim, or the owner deletes branch $claimBranch."
+    }
+    $tree = git -C $repoRoot rev-parse "origin/main^{tree}"
+    $claimCommit = git -C $repoRoot commit-tree $tree -p origin/main -m "release claim $tagName by $identity"
+    if ($LASTEXITCODE -ne 0 -or -not $claimCommit) { Fail "Could not make the claim commit." }
+    # An empty lease means "only if the branch does not exist": two seats racing, exactly one wins.
+    git -C $repoRoot push --quiet "--force-with-lease=refs/heads/${claimBranch}:" origin "${claimCommit}:refs/heads/$claimBranch"
     if ($LASTEXITCODE -ne 0) {
-        Fail "$candidate is not on origin/main." "A release is tagged on the merge commit of its candidate pull request, which is on main."
+        $held = Get-Claim
+        Fail "Could not claim $tagName$(if ($held) { " - $($held.Holder) claimed $($held.Tag) first" })." "One release seat at a time."
     }
-
-    [xml]$candidateProps = (git -C $repoRoot show "${candidate}:Directory.Build.props") -join "`n"
-    $newVersion = $candidateProps.SelectSingleNode("//Version").InnerText
-    if (-not $newVersion) { Fail "Could not read <Version> from Directory.Build.props at $candidate." }
-    $tagName = "v$newVersion"
-
-    if (git -C $repoRoot tag -l $tagName)                  { Fail "Tag $tagName already exists locally." }
-    if (git -C $repoRoot ls-remote --tags origin $tagName) { Fail "Tag $tagName already exists on the remote." "That version has been released." }
-
-    # The notes must be IN the candidate: the workflow publishes the file at the tag and stops without it.
-    $notesRel = "docs/public/release-notes/$tagName.md"
-    if (-not (git -C $repoRoot ls-tree --name-only $candidate -- $notesRel)) {
-        Fail "$notesRel is not in the candidate $candidate." "The notes and the bump merge in one pull request. Run step 1 again."
-    }
-    # A candidate is the commit that froze the notes: its own change touches them. A later commit that
-    # merely carries an older notes file is not a candidate - work merged between the two is not in the notes.
-    if (-not (git -C $repoRoot diff-tree --no-commit-id --name-only -r $candidate -- $notesRel)) {
-        Fail "$candidate does not change $notesRel, so it is not a candidate." "Tag the merge commit of the pull request that froze the notes - the one step 1 printed, or the notes-correction pull request that replaced it."
-    }
-    $notesAtCandidate = git -C $repoRoot show "${candidate}:$notesRel"
-    $candidateNotesChars = (($notesAtCandidate -join "") -replace '\s', '').Length
-    if ($candidateNotesChars -lt 200) {
-        Fail "$notesRel at $candidate has only $candidateNotesChars non-whitespace characters." "That is a placeholder, not release notes. The workflow applies the same floor."
-    }
-
-    # The release gate must have passed on exactly this commit.
-    $assertGated = Join-Path $PSScriptRoot "assert-gated.ps1"
-    if (-not (Test-Path $assertGated)) {
-        Fail "scripts\assert-gated.ps1 is not in this checkout, so nothing can prove $candidate was gated." "Do not tag. Update this checkout to a main that has assert-gated.ps1, then run this again."
-    }
-    & $assertGated $candidate
-    if ($LASTEXITCODE -ne 0) {
-        Fail "assert-gated.ps1 refused $candidate." ("Its reason is printed above. If the candidate has not been gated, run the release gate on it:`n  git worktree add ../devthrottle-gate-$tagName --detach $candidate`n  cd ../devthrottle-gate-$tagName`n  .\scripts\test-local.ps1 -Parked -Configuration Release`n" +
-            "If the gate FAILED, never run it again to find out whether a failure was flaky - re-run only its failed tests:`n  .\scripts\test-local.ps1 -RerunFailed <the run folder it printed>`n" +
-            "If that found them FLAKY, fix or delete those tests on main today, then from a clean checkout of main:`n  .\scripts\test-local.ps1 -ClearFlaky $candidate`n" +
-            "(THE FLAKY TEST RULE in scripts\test-local.ps1 has the whole rule.)")
-    }
-
-    Write-Host ""
-    Write-Host "=== Tag summary ===" -ForegroundColor Yellow
-    Write-Host "  Tag       : $tagName"
-    Write-Host "  Candidate : $candidate"
-    Write-Host "  Notes     : $notesRel ($candidateNotesChars characters)"
-    Write-Host ""
-    $confirm = Read-Host "Push the tag? This cannot be undone. (Y/N)"
-    if ($confirm -ne 'Y' -and $confirm -ne 'y') { Write-Host "Aborted. Nothing was tagged." -ForegroundColor Yellow; exit 0 }
-
-    Write-Host "Tagging $tagName on $candidate..." -ForegroundColor Cyan
-    git -C $repoRoot tag $tagName $candidate
-    if ($LASTEXITCODE -ne 0) { Fail "Could not create the tag." }
-    git -C $repoRoot push origin $tagName
-    if ($LASTEXITCODE -ne 0) { Fail "Could not push the tag." "The tag exists locally only. Run: git push origin $tagName" }
-
-    Write-Host ""
-    Write-Host "Released $tagName." -ForegroundColor Green
-    Write-Host "  Build    : https://github.com/$repoSlug/actions/workflows/release.yml" -ForegroundColor Cyan
-    Write-Host "  Release  : https://github.com/$repoSlug/releases/tag/$tagName" -ForegroundColor Cyan
-    Write-Host "  Download : https://stdevthrottledl.blob.core.windows.net/download/latest/devthrottle-setup-win-x64.exe" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "The workflow builds, signs, publishes, mirrors the public downloads, and then" -ForegroundColor Gray
-    Write-Host "fetches the installer back from that address to check its hash. If it goes red," -ForegroundColor Gray
-    Write-Host "the release is not usable - read the failing step before announcing anything." -ForegroundColor Gray
-    Write-Host ""
+    Write-Host "Claimed $tagName for $identity." -ForegroundColor Green
     exit 0
 }
 
-# ================================ STEP 1: FREEZE THE CANDIDATE ================================
-
-# --- The single version source ---
-$propsPath = Join-Path $repoRoot "Directory.Build.props"
-if (-not (Test-Path $propsPath)) { Fail "Directory.Build.props not found at $propsPath" }
-
-[xml]$props = Get-Content $propsPath
-$currentVersion = $props.SelectSingleNode("//Version").InnerText
-if (-not $currentVersion) { Fail "Could not read <Version> from $propsPath" }
-
-# --- Suggest the next patch version, which is what we ship day to day ---
-$suggested = $null
-if ($currentVersion -match '^(\d+)\.(\d+)\.(\d+)$') {
-    $suggested = "{0}.{1}.{2}" -f $matches[1], $matches[2], ([int]$matches[3] + 1)
+function Remove-Claim {
+    git -C $repoRoot push --quiet origin --delete $claimBranch
+    if ($LASTEXITCODE -ne 0) { Fail "Could not delete the claim branch $claimBranch." "Delete it by hand: git push origin --delete $claimBranch" }
 }
+
+if ($Unclaim) {
+    $held = Get-Claim
+    if (-not $held) { Write-Host "Nobody holds the release claim." -ForegroundColor Green; exit 0 }
+    if ($held.Holder -ne $identity) { Fail "$($held.Holder) holds the claim on $($held.Tag), not you ($identity)." "Only the holder gives up a claim. The owner can delete branch $claimBranch." }
+    Remove-Claim
+    Write-Host "Gave up the claim on $($held.Tag)." -ForegroundColor Green
+    exit 0
+}
+
+# ======================================== RELEASE ========================================
+
+# --- 1. This session holds the claim, for this version ---
+$held = Get-Claim
+if (-not $held) { Fail "Nobody has claimed the release." "Claim it first: .\scripts\new-release.ps1 -Claim -Version $newVersion" }
+if ($held.Holder -ne $identity) { Fail "$($held.Holder) holds the release claim, not you ($identity)." "One release seat at a time." }
+if ($held.Tag -ne $tagName) { Fail "Your claim is for $($held.Tag), not $tagName." "Run -Unclaim, then -Claim -Version $newVersion." }
+
+# --- 2. The last good commit: the newest commit on main whose "CI result" check passed ---
+# "CI result" is the verdict of a run that TESTED the commit. The workflow run's own conclusion is not:
+# a scheduled run that skips an already-tested commit, red or green, still ends "success". Successful
+# runs only nominate candidates, newest first; each is confirmed by its check. The deploy gate reads the
+# same check.
+function Test-Green([string]$sha) {
+    # The query holds no double quotes on purpose: Windows PowerShell 5.1 strips them from a native
+    # command's arguments, which turned "success" into a jq function call. The count is made here instead.
+    $conclusions = @(gh api "repos/$repoSlug/commits/$sha/check-runs?check_name=CI%20result&per_page=100" --jq '.check_runs[].conclusion')
+    if ($LASTEXITCODE -ne 0) { Fail "Could not read the CI result check of $sha from GitHub." }
+    return (@($conclusions | Where-Object { $_ -eq 'success' }).Count -gt 0)
+}
+$candidates = gh api "repos/$repoSlug/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=50" --jq ".workflow_runs[].head_sha"
+if ($LASTEXITCODE -ne 0) { Fail "Could not read the test runs from GitHub." }
+$lastGood = $null
+foreach ($sha in ($candidates | Select-Object -Unique)) {
+    # A run for a commit that is no longer on main (a force-push, a missing object) is passed over.
+    if ((Get-NativeExitCode { git -C $repoRoot merge-base --is-ancestor $sha origin/main }) -ne 0) { continue }
+    if (Test-Green $sha) { $lastGood = $sha; break }
+}
+if (-not $lastGood) {
+    Fail "No commit on main has a passing CI result among the last 50 successful runs." "Main has been red for a long time. Fix it first; a release is cut only from a tested commit."
+}
+
+# --- 3. The last release, and what is new since it ---
+# The newest version tag reachable from main. A release tag sits on the release commit, a CHILD of its
+# last good commit, merged back into main - so it is not an ancestor of that last good commit, and
+# `git describe <last good>` would name the release before it.
+$lastTag = @(git -C $repoRoot tag --merged origin/main --list "v*" --sort=-v:refname)[0]
+if (-not $lastTag) { Fail "No release tag is reachable from origin/main." }
+$lastTagCommit = git -C $repoRoot rev-parse "$lastTag^{commit}"
+if ((Get-NativeExitCode { git -C $repoRoot merge-base --is-ancestor $lastGood $lastTagCommit }) -eq 0) {
+    Fail "Nothing new has passed a full test run since ${lastTag}: the last good commit $lastGood is already in it." "Wait for the next green run on main (every two hours when main has moved), or start one by hand: gh workflow run CI --repo $repoSlug --ref main"
+}
+$inRelease = @(git -C $repoRoot log --oneline --no-merges "$lastTagCommit..$lastGood")
+# The newest green commit can be the merge that brought the last release back to main: not inside that
+# tag's history, yet holding no new work.
+if ($inRelease.Count -eq 0) {
+    Fail "Nothing new has passed a full test run since ${lastTag}: $lastGood adds no commits to it." "Wait for the next green run on main, or start one by hand: gh workflow run CI --repo $repoSlug --ref main"
+}
+# Compared with the highest FINAL release only, so 2.24.0 may follow its own 2.24.0-rc1. Version sort puts
+# a release candidate above its final, and an existing tag is refused at the start in any case.
+$numeric = { param($v) [version](($v -replace '^v', '') -replace '-rc\d+$', '') }
+$highestFinal = @(git -C $repoRoot tag --list "v*" --sort=-v:refname | Where-Object { $_ -notmatch '-rc\d+$' })[0]
+if ($highestFinal -and (& $numeric $newVersion) -le (& $numeric $highestFinal)) {
+    Fail "$tagName is not higher than the highest release $highestFinal." "Pick the next version."
+}
+$waiting = @(git -C $repoRoot log --oneline --no-merges "$lastGood..origin/main")
+
+$notesRel  = "docs/public/release-notes/$tagName.md"
+$notesPath = Join-Path $repoRoot "docs\public\release-notes\$tagName.md"
 
 Write-Host ""
-Write-Host "Current version: $currentVersion" -ForegroundColor Cyan
-if ($Version) {
-    $newVersion = $Version.Trim()
-} elseif ($suggested) {
-    $answer = Read-Host "New version [$suggested]"
-    if ([string]::IsNullOrWhiteSpace($answer)) { $newVersion = $suggested } else { $newVersion = $answer.Trim() }
-} else {
-    $newVersion = (Read-Host "New version (X.Y.Z or X.Y.Z-rcN)").Trim()
-}
+Write-Host "=== Release summary ===" -ForegroundColor Yellow
+Write-Host "  Version    : $tagName"
+Write-Host "  Last good  : $lastGood"
+Write-Host "  Covers     : $lastTag .. $lastGood ($($inRelease.Count) commits)"
+Write-Host "  Waiting    : $($waiting.Count) newer commits on main, not yet tested green - they go in the next release"
+Write-Host "  Claimed by : $($held.Holder)"
+Write-Host ""
+Write-Host "The notes must cover exactly these commits, $lastTag .. ${lastGood}:" -ForegroundColor Gray
+$inRelease | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+Write-Host ""
 
-if ($newVersion -notmatch '^\d+\.\d+\.\d+(-rc\d+)?$') {
-    Fail "Invalid version format: '$newVersion'." "Expected X.Y.Z or X.Y.Z-rcN"
-}
-if ($newVersion -eq $currentVersion) { Fail "New version is the same as the current one ($currentVersion)." }
-
-$tagName = "v$newVersion"
-$branch  = "release/$tagName"
-
-if (git -C $repoRoot tag -l $tagName)                  { Fail "Tag $tagName already exists locally." }
-if (git -C $repoRoot ls-remote --tags origin $tagName) { Fail "Tag $tagName already exists on the remote." "That version has been released. Pick the next one." }
-
-# --- Release notes must exist. The workflow publishes this file verbatim as the
-#     release page and fails without it. Catching that here costs nothing; a
-#     pushed tag cannot be un-pushed. The file may be uncommitted - this script
-#     commits it along with the version bump. ---
-$notesRel  = "docs/public/release-notes/$tagName.md"   # forward slashes: matched against git status output
-$notesPath = Join-Path $repoRoot "docs\public\release-notes\$tagName.md"
+# --- 4. The written notes. The workflow publishes this file verbatim and stops without it. ---
 if (-not (Test-Path $notesPath)) {
-    Fail "No written release notes for $tagName." "Expected: $notesPath`n`nWrite them first. The workflow publishes that file as the release page and refuses`nto invent a substitute - a list of internal pull request titles looks like release`nnotes and therefore ships unread."
+    Fail "No written release notes for $tagName yet." "Write them at $notesPath, covering the commits listed above, and get the owner's sign-off. The workflow publishes that file as the release page and refuses to invent a substitute."
 }
 $notesChars = ((Get-Content $notesPath -Raw) -replace '\s', '').Length
 if ($notesChars -lt 200) {
     Fail "$notesRel has only $notesChars non-whitespace characters." "That is a placeholder, not release notes. The workflow applies the same floor."
 }
-
-# --- Guard: no .csproj may carry its own <Version> (it silently overrides the props file) ---
-$stray = Get-ChildItem $repoRoot -Recurse -Filter *.csproj |
-    Where-Object { $_.FullName -notmatch '\\archived\\' } |
-    Where-Object { (Get-Content $_.FullName -Raw) -match '<Version>' }
-if ($stray) {
-    $list = ($stray | ForEach-Object { "  - $($_.FullName)" }) -join "`n"
-    Fail "These .csproj files declare their own <Version>, overriding Directory.Build.props:`n$list" "Remove the <Version> elements; the props file is the single source of truth."
-}
-
-# --- Working tree must be clean apart from the two files this script owns ---
-$notesPattern = [regex]::Escape($notesRel)
-$dirty = git -C $repoRoot status --porcelain | Where-Object {
-    $_ -notmatch 'Directory\.Build\.props$' -and $_ -notmatch "$notesPattern$"
-}
-if ($dirty) {
-    Fail "The working tree has changes that are not part of this release:`n$($dirty -join "`n")" "Commit or discard them first. A release must be cut from a known state."
-}
-
-# --- Cut from exactly origin/main, in a checkout of your own (a worktree cut from origin/main) ---
-$base = git -C $repoRoot rev-parse origin/main
-$head = git -C $repoRoot rev-parse HEAD
-if ($head -ne $base) {
-    git -C $repoRoot merge-base --is-ancestor $head $base
-    if ($LASTEXITCODE -eq 0) {
-        $landed = git -C $repoRoot log --oneline "$head..$base"
-        Fail "main moved since this checkout was cut. The notes do not cover:`n$($landed -join "`n")" "Bring this checkout up to origin/main (git merge --ff-only origin/main), extend the notes to cover these, and run this again."
-    }
-    Fail "This checkout is at $head, which is not on origin/main ($base)." "Cut a worktree from origin/main, write the notes there, and run this from it:`n  git worktree add ../devthrottle-release-$tagName -b $branch origin/main"
-}
-$lastTag = git -C $repoRoot describe --tags --abbrev=0 --match "v*" $base
-
-$isPreRelease = $newVersion -match '-rc\d+$'
-
-Write-Host ""
-Write-Host "=== Candidate summary ===" -ForegroundColor Yellow
-Write-Host "  Version : $currentVersion -> $newVersion"
-Write-Host "  Covers  : $lastTag .. $base"
-Write-Host "  Branch  : $branch"
-Write-Host "  Notes   : $notesRel ($notesChars characters)"
-if ($isPreRelease) { Write-Host "  Type    : Pre-release" -ForegroundColor Yellow }
-else               { Write-Host "  Type    : Stable release" -ForegroundColor Green }
-Write-Host ""
-Write-Host "This bumps the version and merges it WITH the notes in one pull request. It does not tag." -ForegroundColor Gray
+Write-Host "  Notes      : $notesRel ($notesChars characters)"
 Write-Host ""
 
 if (-not $Yes) {
-    $confirm = Read-Host "Go? (Y/N)"
+    $confirm = Read-Host "Tag and release $tagName from $lastGood? This cannot be undone. (Y/N)"
     if ($confirm -ne 'Y' -and $confirm -ne 'y') { Write-Host "Aborted. Nothing was changed." -ForegroundColor Yellow; exit 0 }
 }
 
-# --- 1. Branch, bump, commit, push ---
-Write-Host ""
-$currentBranch = git -C $repoRoot rev-parse --abbrev-ref HEAD
-if ($currentBranch -ne $branch) {
-    Write-Host "Creating $branch..." -ForegroundColor Cyan
-    git -C $repoRoot checkout -q -b $branch
-    if ($LASTEXITCODE -ne 0) { Fail "Could not create $branch." }
+# --- 5. One commit on the last good commit: the version and the notes, nothing else ---
+$work = Join-Path ([System.IO.Path]::GetTempPath()) "devthrottle-release-$tagName-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
+git -C $repoRoot worktree add --quiet --detach $work $lastGood
+if ($LASTEXITCODE -ne 0) { Fail "Could not make a worktree at $lastGood." }
+try {
+    $propsAt = Join-Path $work "Directory.Build.props"
+    $propsText = [System.IO.File]::ReadAllText($propsAt)
+    $versionTag = [regex]'<Version>[^<]*</Version>'
+    if ($versionTag.Matches($propsText).Count -ne 1) { Fail "Directory.Build.props at $lastGood does not hold exactly one <Version>." }
+    [System.IO.File]::WriteAllText($propsAt, $versionTag.Replace($propsText, "<Version>$newVersion</Version>", 1))
+    $notesDir = Join-Path $work "docs\public\release-notes"
+    New-Item -ItemType Directory -Force -Path $notesDir | Out-Null
+    Copy-Item -Path $notesPath -Destination (Join-Path $notesDir "$tagName.md") -Force
+
+    git -C $work add -- Directory.Build.props $notesRel
+    git -C $work commit --quiet -m "release: $tagName"
+    if ($LASTEXITCODE -ne 0) { Fail "Could not commit the version and the notes." }
+    $releaseCommit = git -C $work rev-parse HEAD
+}
+finally {
+    git -C $repoRoot worktree remove --force $work
 }
 
-$props.SelectSingleNode("//Version").InnerText = $newVersion
-$props.Save($propsPath)
+# --- 6. Prove the release commit is the last good commit plus those two files, before anything is pushed ---
+$parent = git -C $repoRoot rev-parse "$releaseCommit^"
+if ($parent -ne $lastGood) { Fail "The release commit's parent is $parent, not the last good commit $lastGood." }
+$changed = @(git -C $repoRoot diff --name-only $lastGood $releaseCommit)
+$unexpected = @($changed | Where-Object { $_ -ne "Directory.Build.props" -and $_ -ne $notesRel })
+if ($unexpected.Count -gt 0) { Fail "The release commit changes more than the version and the notes:`n$($unexpected -join "`n")" }
 
-git -C $repoRoot add -- $propsPath $notesPath
-git -C $repoRoot commit -q -m "release: $tagName"
-git -C $repoRoot push -q -u origin $branch
-if ($LASTEXITCODE -ne 0) { Fail "Could not push $branch." }
+# --- 7. Push the branch, then the tag ---
+git -C $repoRoot push --quiet origin "${releaseCommit}:refs/heads/$branch"
+if ($LASTEXITCODE -ne 0) { Fail "Could not push $branch." "Nothing is tagged, so nothing is released." }
+git -C $repoRoot tag $tagName $releaseCommit
+if ($LASTEXITCODE -ne 0) { Fail "Could not create the tag." }
+git -C $repoRoot push --quiet origin $tagName
+if ($LASTEXITCODE -ne 0) { Fail "Could not push the tag." "The tag exists locally only. Run: git push origin $tagName" }
+Write-Host ""
+Write-Host "Tagged $tagName on $releaseCommit. The release workflow is building it:" -ForegroundColor Green
+Write-Host "  https://github.com/$repoSlug/actions/workflows/release.yml" -ForegroundColor Cyan
 
-# --- 2. Pull request, then merge. main requires this; see the header. ---
-Write-Host "Opening the pull request..." -ForegroundColor Cyan
-$prBody = "Version bump and release notes for $tagName, frozen together. The merge commit of this pull request is the release candidate: the release gate runs once on it, and it is tagged only after scripts/assert-gated.ps1 accepts it.`n`nThe notes cover $lastTag up to $base. Work merged after this waits for the next release.`n`nSee $notesRel for what is in this release."
-gh pr create --repo $repoSlug --base main --head $branch --title "release: $tagName" --body $prBody | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "Could not open the pull request." "The branch is pushed. Open the pull request by hand and merge it once nothing else has landed on main." }
+# --- 8. Bring the notes and the version back to main with a merge commit, so the tag stays on main's history ---
+$prBody = "Brings the $tagName release commit back to main: the version in Directory.Build.props and $notesRel. The release was tagged on this commit, which is the last good commit $lastGood plus these two files.`n`nMerged with a merge commit, never squashed, so the tagged commit stays reachable from main."
+gh pr create --repo $repoSlug --base main --head $branch --title "release: $tagName - notes and version back to main" --body $prBody | Out-Null
+if ($LASTEXITCODE -ne 0) { Fail "The release is tagged, but the pull request back to main could not be opened." "Open it by hand from $branch into main and merge it with a merge commit (never squash)." }
+gh pr merge $branch --repo $repoSlug --merge --delete-branch
+if ($LASTEXITCODE -ne 0) { Fail "The release is tagged, but the pull request back to main did not merge." "Read why on the pull request, resolve it, and merge it with a merge commit (never squash)." }
 
-# The notes describe $lastTag..$base. If main has moved, the squash commit would carry work the
-# notes do not cover, and the notes may not be edited after the merge - so stop BEFORE merging.
-git -C $repoRoot fetch --quiet origin main
-$baseNow = git -C $repoRoot rev-parse origin/main
-if ($baseNow -ne $base) {
-    $landed = git -C $repoRoot log --oneline "$base..$baseNow"
-    Fail "main moved while the candidate was being cut. These commits are not covered by the notes:`n$($landed -join "`n")" "The pull request is open and NOT merged. Recut as the release-manager skill says in Step 8 under 'If main moved'."
-}
-
-Write-Host "Merging..." -ForegroundColor Cyan
-gh pr merge $branch --repo $repoSlug --squash --delete-branch
-if ($LASTEXITCODE -ne 0) {
-    Fail "The pull request did not merge." "It is open and the branch is pushed. Read why on the pull request. Once it merges, its merge commit is the candidate - check that its parent is $base before gating it."
-}
-
-# --- 3. Record the candidate, and prove it is exactly base + this release ---
-$candidate = gh pr view $branch --repo $repoSlug --json mergeCommit --jq ".mergeCommit.oid"
-if (-not $candidate) { Fail "Could not read the merge commit of the release pull request." "Read it on the pull request page; that commit is the candidate." }
-git -C $repoRoot fetch --quiet origin main
-$parent = git -C $repoRoot rev-parse "$candidate^"
-if ($parent -ne $base) {
-    $landed = git -C $repoRoot log --oneline "$base..$parent"
-    Fail "The candidate $candidate carries commits the notes do not cover:`n$($landed -join "`n")" "Do not gate or tag it. Correct the notes in a pull request; its merge commit is the new candidate."
-}
-
-[xml]$check = (git -C $repoRoot show "${candidate}:Directory.Build.props") -join "`n"
-$onCandidate = $check.SelectSingleNode("//Version").InnerText
-if ($onCandidate -ne $newVersion) {
-    Fail "The candidate $candidate reports version '$onCandidate', not '$newVersion'." "The merge did not land as expected. Nothing has been tagged, so nothing has been released."
-}
+# --- 9. Give up the claim ---
+Remove-Claim
 
 Write-Host ""
-Write-Host "Candidate for $tagName frozen: $candidate" -ForegroundColor Green
+Write-Host "Released $tagName." -ForegroundColor Green
+Write-Host "  Release  : https://github.com/$repoSlug/releases/tag/$tagName" -ForegroundColor Cyan
+Write-Host "  Download : https://stdevthrottledl.blob.core.windows.net/download/latest/devthrottle-setup-win-x64.exe" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Next - the release seat runs the gate ONCE on it:" -ForegroundColor Cyan
-Write-Host "  git worktree add ../devthrottle-gate-$tagName --detach $candidate"
-Write-Host "  cd ../devthrottle-gate-$tagName"
-Write-Host "  .\scripts\test-local.ps1 -Parked -Configuration Release"
+Write-Host "Watch the build to the end: gh run list --repo $repoSlug --workflow release.yml --limit 1, then gh run watch <that id>" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Then the person releasing tags it:" -ForegroundColor Cyan
-Write-Host "  .\scripts\new-release.ps1 -Tag $candidate"
-Write-Host ""
+exit 0
