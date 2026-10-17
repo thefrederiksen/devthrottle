@@ -296,6 +296,9 @@ public static class LicenseRenewalErrors
     /// <summary>The approving browser profile is not signed in to claude.ai.</summary>
     public const string BrowserNotSignedIn = "browser-not-signed-in";
 
+    /// <summary>The approving browser profile is signed in to claude.ai, but the approval page asks for a fresh sign-in first.</summary>
+    public const string NeedsFreshSignIn = "needs-fresh-sign-in";
+
     /// <summary>No browser profile is set for the account, here or on another machine.</summary>
     public const string NoApprover = "no-approver";
 
@@ -311,7 +314,7 @@ public static class LicenseRenewalErrors
     /// <summary>Every word above. A value outside it is never carried: it could be anything a tool printed.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        LoginFailed, ApprovalFailed, WrongAccount, BrowserNotSignedIn, NoApprover, ApproverOffline, Expired, StoreRefused,
+        LoginFailed, ApprovalFailed, WrongAccount, BrowserNotSignedIn, NeedsFreshSignIn, NoApprover, ApproverOffline, Expired, StoreRefused,
     };
 }
 

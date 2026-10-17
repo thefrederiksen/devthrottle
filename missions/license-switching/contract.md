@@ -593,7 +593,8 @@ public string? RenewalErrorDetail { get; set; }    // one plain sentence the Dir
 ```
 
 `LicenseRenewalErrors`: `"login-failed"`, `"approval-failed"`, `"wrong-account"` (the approving browser profile is
-signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"no-approver"` (no browser profile is set for
+signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"needs-fresh-sign-in"` (the approving browser
+profile is signed in, but the approval page asks for a recent sign-in first - added in phase 6), `"no-approver"` (no browser profile is set for
 the account, here or on another machine), `"approver-offline"`, `"expired"` (no approval came back by `NotAfterUtc`,
 8.3), `"store-refused"`. They are the reasons `license renew --json` already writes, without the `failed-` prefix,
 plus the two only the relay can produce: `approver-offline` and `expired`.
