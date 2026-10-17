@@ -330,8 +330,9 @@ alone failed on correct code: delete it on main (the rule above). Tests tagged
 TEST RULE in the script's header has the whole rule.
 
 **One release seat at a time, enforced.** `scripts\new-release.ps1 -Claim -Version <v>` creates the
-branch `release-claim/v<v>` only if it does not exist; a second session is refused and told who holds
-it, and only the holder can release. On 17 October two sessions fixed the same failure in parallel
+branch `release-claim` only if it does not exist, naming the version and the holder; a second session
+is refused and told who holds it, and only the holder can release - one release at a time, of any
+version. On 17 October two sessions fixed the same failure in parallel
 because nothing stopped a second release seat.
 
 A second `-Parked` or `-Gateway` run on one machine is REFUSED, not queued: the gate takes a

@@ -190,13 +190,28 @@ public sealed class ReleaseWorkflowContractTests
             $"{ScriptPath} no longer finds the last good commit from the green test runs on main before it tags. "
             + "A tag on a commit no full run passed ships whatever the local gate does not run.");
 
+        // A workflow run's conclusion is not a test verdict: a scheduled run that SKIPS an already-tested commit,
+        // red or green, ends "success". Only the "CI result" check says the commit was tested and passed.
+        var verdictAt = script.IndexOf("check-runs?check_name=CI%20result", StringComparison.Ordinal);
+        Assert.True(verdictAt > 0 && verdictAt < tagAt,
+            $"{ScriptPath} no longer confirms the last good commit by its CI result check. A skipped scheduled run on a "
+            + "RED commit ends 'success', so a red commit would become releasable two hours after it failed.");
+
+        // The release tag sits on a CHILD of its last good commit, so `git describe <last good>` names the release
+        // BEFORE it, and the same code could be released again under a new number.
+        Assert.True(script.Contains("tag --merged origin/main", StringComparison.Ordinal),
+            $"{ScriptPath} no longer finds the last release among the tags reachable from main.");
+        var alreadyAt = script.IndexOf("is already in it", StringComparison.Ordinal);
+        Assert.True(alreadyAt > 0 && alreadyAt < tagAt,
+            $"{ScriptPath} no longer refuses to release a last good commit that the last release already contains.");
+
         var onlyTwoFilesAt = script.IndexOf("changes more than the version and the notes", StringComparison.Ordinal);
         Assert.True(onlyTwoFilesAt > 0 && onlyTwoFilesAt < tagAt,
             $"{ScriptPath} no longer proves, before tagging, that the release commit adds only the version and the "
             + "notes to the last good commit. Anything more is untested code.");
 
-        var releaseAt = script.IndexOf("# --- 1. This session holds the claim ---", StringComparison.Ordinal);
-        var claimAt = releaseAt < 0 ? -1 : script.IndexOf("if ($holder -ne $identity) { Fail", releaseAt, StringComparison.Ordinal);
+        var releaseAt = script.IndexOf("# --- 1. This session holds the claim", StringComparison.Ordinal);
+        var claimAt = releaseAt < 0 ? -1 : script.IndexOf("if ($held.Holder -ne $identity) { Fail", releaseAt, StringComparison.Ordinal);
         Assert.True(releaseAt > 0 && claimAt > 0 && claimAt < tagAt,
             $"{ScriptPath} no longer refuses to release for a session that does not hold the claim.");
 
@@ -215,8 +230,15 @@ public sealed class ReleaseWorkflowContractTests
         var yml = Workflow();
         var step = StepBody(yml, "Refuse a tag on untested code");
         Assert.False(step is null, $"{WorkflowPath} no longer has a 'Refuse a tag on untested code' step.");
-        Assert.True(step!.Contains("actions/workflows/ci.yml/runs?head_sha=", StringComparison.Ordinal),
-            "The check no longer asks GitHub whether the commit has a successful full test run.");
+        Assert.True(step!.Contains("check-runs?check_name=CI%20result", StringComparison.Ordinal),
+            "The check no longer reads the commit's CI result check. A workflow run's conclusion is not a verdict: a "
+            + "scheduled run that skips a red commit still ends 'success'.");
+        Assert.True(step.Contains("^[0-9]+$", StringComparison.Ordinal) && Regex.IsMatch(step, @"Cannot read the test result[\s\S]*?exit 1"),
+            "The check no longer refuses when GitHub's answer is not a number. An error must refuse, never fall through.");
+
+        var job = yml[yml.IndexOf("  verify-tested:", StringComparison.Ordinal)..yml.IndexOf("- name: Refuse a tag on untested code", StringComparison.Ordinal)];
+        Assert.True(Regex.IsMatch(job, @"(?m)^      checks: read\s*$"),
+            "verify-tested no longer has checks: read. The workflow's own permissions leave it at none, and the call answers 403.");
         Assert.True(Regex.IsMatch(step, @"Untested release[\s\S]*?exit 1"), "The check no longer stops on an untested parent.");
         Assert.True(Regex.IsMatch(step, @"Untested change in the release commit[\s\S]*?exit 1"),
             "The check no longer stops on a release commit that changes more than the version and the notes.");

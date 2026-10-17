@@ -31,8 +31,9 @@ So now:
 - **The release workflow refuses anything else.** Its first job, "The tagged commit is a tested commit
   plus its notes", stops every build unless the tagged commit has a green full run, or its parent does
   and the tagged commit changes only those two files.
-- **One release seat.** `new-release.ps1 -Claim` creates the branch `release-claim/v<version>` only if
-  it does not exist; a second session is refused and told who holds it. Only the holder can release.
+- **One release seat.** `new-release.ps1 -Claim` creates the branch `release-claim` only if it does
+  not exist, naming the version and the holder; a second session is refused and told who holds it, and
+  only the holder can release. One release at a time, of any version.
 - Work merged after the last good commit is not in this release. It goes in the next one. Nothing
   waits for it.
 
@@ -97,10 +98,9 @@ one, and stop. If you abandon a release, run `-Unclaim`.
 .\scripts\new-release.ps1 -Release -Version <version>      # answer N at the question
 ```
 
-It needs the notes file to exist, so write a stub of at least 200 characters first, or run it again
-after Step 5. It prints the last good commit, the commits since the last tag that it covers, and how many
+It prints the last good commit, the commits since the last tag that it covers, and how many
 newer commits on main are still waiting for their first green run. Those waiting commits are NOT in this
-release - do not describe them in the notes.
+release - do not describe them in the notes. Without a notes file yet, it stops there and says so.
 
 ### Step 3: Assemble the change list
 
