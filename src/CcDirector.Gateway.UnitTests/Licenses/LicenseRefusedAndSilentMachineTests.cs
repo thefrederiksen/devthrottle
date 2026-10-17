@@ -256,7 +256,7 @@ public sealed class LicenseRefusedAndSilentMachineTests : IDisposable
         Assert.Equal(machine.MachineId, Assert.Single(Overview().Machines).MachineId);   // the same row on the next read
 
         // The sign-in verdicts are filled in over the same overview the route answers with, and must not trip on it.
-        LicenseSignInFold.Apply(overview, Picture().Overview.Machines, Array.Empty<LicenseApprover>(), Array.Empty<LicenseSwitchLogEntity>(), _ => true);
+        LicenseSignInFold.Apply(overview, Picture().Overview.Machines, Array.Empty<LicenseApprover>(), Array.Empty<LicenseSwitchLogEntity>(), _ => true, _now);
         Assert.False(machine.CanAddSpare);
         Assert.Equal("A spare can be added to machine-a once a report from it is accepted.", machine.AddSpareText);
     }

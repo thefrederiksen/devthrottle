@@ -905,15 +905,12 @@ public static class LicenseDisplayFold
             // on every machine. The row's message says which.
             NoRoomKind => NothingSwitchedKindText,
             LicenseRenewalFailureLog.Kind => "Renewal failing",
-<<<<<<< HEAD
             LicenseLogKinds.AlarmOpened => "Alarm opened",
             LicenseLogKinds.AlarmClosed => "Alarm closed",
-=======
             LicenseLogKinds.ReportRefused => ReportRefusedText,
             LicenseLogKinds.ReportAccepted => "Reports accepted",
             LicenseLogKinds.MachineSilent => "Not reporting",
             LicenseLogKinds.ReportingAgain => "Reporting again",
->>>>>>> 9b6cf239f (Licenses: a refused report and a silent machine are visible machine statuses)
             _ => "Note",
         };
         var message = string.IsNullOrWhiteSpace(row.Message) ? null : row.Message;

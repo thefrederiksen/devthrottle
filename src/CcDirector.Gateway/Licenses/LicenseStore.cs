@@ -23,7 +23,6 @@ public static class LicenseLogKinds
     /// null. Written and read by <see cref="LicenseRenewalFailureLog"/> only.</summary>
     public const string RenewalFailed = "renewal-failed";
 
-<<<<<<< HEAD
     /// <summary>A license alarm opened (<see cref="LicenseAlarmService"/>): the problem and the one thing to do. Final
     /// when written.</summary>
     public const string AlarmOpened = "alarm-opened";
@@ -31,7 +30,7 @@ public static class LicenseLogKinds
     /// <summary>A license alarm closed by itself, because the check that raised it no longer finds it true. Final when
     /// written.</summary>
     public const string AlarmClosed = "alarm-closed";
-=======
+
     /// <summary>A machine whose reports the Gateway refuses for what they say (<see cref="LicenseReportRefusal"/>). One
     /// row for each run of the same refusal, open while it lasts: written by the first refused report, kept by every
     /// one after it (<c>SendCount</c> and <c>LastSentAtUtc</c>), ended by a report with another refusal - which opens
@@ -49,7 +48,6 @@ public static class LicenseLogKinds
 
     /// <summary>A silent machine is reporting again. Final when written.</summary>
     public const string ReportingAgain = "reporting-again";
->>>>>>> 9b6cf239f (Licenses: a refused report and a silent machine are visible machine statuses)
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>

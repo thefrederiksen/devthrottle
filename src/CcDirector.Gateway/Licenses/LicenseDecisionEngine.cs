@@ -552,22 +552,9 @@ public static class LicenseDecisionEngine
         return (eligible, skipped);
     }
 
-<<<<<<< HEAD
-=======
     /// <summary>Why a machine whose reports are refused is not sent a switch, as a clause the skip sentences end with.</summary>
     public const string ReportsRefusedWhy = "its reports are being refused, so what it holds now is not known";
 
-    private static bool HoldsUsableSpare(LicenseMachineState machine, string accountEmail) =>
-        machine.Spares.Any(s => SameAccount(s.AccountEmail, accountEmail)
-            && s.ReadError is not (LicenseReadErrors.Unauthorized or LicenseReadErrors.RefreshFailed));
-
-    // An unknown expiry is not "at or before" anything, so it does not block (contract 5.7); the forecast
-    // shows it as not known.
-    private static bool SpareSignInExpiresTooSoon(LicenseMachineState machine, string accountEmail, DateTime now) =>
-        machine.Spares.Any(s => SameAccount(s.AccountEmail, accountEmail)
-            && s.SignInExpiresAtUtc is { } expires && expires <= now + LicenseContract.SwitchNotAfter);
-
->>>>>>> 9b6cf239f (Licenses: a refused report and a silent machine are visible machine statuses)
     private static List<TiredWindow> TiredWindows(LicenseAccountReading reading, DateTime now)
     {
         var tired = new List<TiredWindow>();
