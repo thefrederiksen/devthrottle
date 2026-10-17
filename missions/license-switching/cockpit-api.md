@@ -835,7 +835,9 @@ A `machine-silent` row is written once by the minute check when a machine that h
 than 10 minutes (five report intervals): "No report has come from it since 2026-10-16 09:12 UTC, for more than 10
 minutes: its Director may have stopped. It is not switched until it reports again." The minute check after a report
 from it is accepted ends it and writes one `reporting-again` row. A machine whose reports are refused is not silent,
-and gets no such row.
+and gets no such row. If a silent machine's Director comes back with reports the Gateway refuses, the next minute
+check ends the silent row with no `reporting-again` row: the machine is sending again but is not reporting, and its
+`report-refused` row says why.
 
 An `approval` row is one approval the Gateway relayed between machines (contract section 8.3), final when
 written: the daily renewal's, which no person started, as well as one for a sign-in started from the Cockpit. Its

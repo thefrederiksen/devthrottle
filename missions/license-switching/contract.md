@@ -1050,12 +1050,18 @@ next minute, with nothing else to clear it.
 - `machine-silent`, titled "Machine stopped reporting". What is wrong: "machine-a has sent no report since
   2026-10-16 09:12 UTC, so it is not switched: its Director may have stopped." The one thing to do: "Start the
   Director on machine-a, or check that machine-a is on and connected." Raised only past the dead limit (10 minutes),
-  never at it.
+  never at it. When the label is too long for those sentences (two machines of one 128-character name are labelled
+  "name (user)"), what is wrong is "A machine has sent no report since ..., so it is not switched; the Licenses page
+  names it." and the one thing to do is "Start the Director on machine-a."
+- A refused machine is never also alarmed as silent, in either order: a refused machine gets no silent row, and a
+  silent machine whose Director comes back with refused reports has its silent row ended by the next minute check, so
+  its silent alarm closes and only the refused one stays.
 
 One alarm for each machine, about no one account. Its machine is the machine's row in the overview, or for a refused
 machine none of whose reports was ever accepted, the stand-in row the Licenses page lists it under, so the alarm and
 the page name the same machine. A refusal changing its reason keeps the one alarm and brings its sentence up to date.
-Raises for one tenant run one at a time. A raise with nothing open writes no log line.
+Raises for one tenant run one at a time, and each kind is raised on its own: a kind whose raise fails is logged, the
+other kind is still raised, and then the failure is thrown. A raise with nothing open writes no log line.
 
 ## 10. Phase 6 additions - standing approvers (Track C)
 
