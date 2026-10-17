@@ -30,6 +30,10 @@ public static class LicenseSignInFold
     public static string DirectorOfflineText(string label)
         => $"The Director on {label} is not connected, so a sign-in cannot be started there.";
 
+    /// <summary>Why the browser profiles of a machine cannot be listed while an approver is chosen.</summary>
+    public static string BrowserProfilesOfflineText(string label)
+        => $"{label}'s Director is not connected, so its browser profiles cannot be listed.";
+
     public static string AlreadyRunningText(string label, string accountEmail)
         => $"A sign-in for {accountEmail} on {label} is already running.";
 
@@ -39,16 +43,23 @@ public static class LicenseSignInFold
     public static string NotHeldText(string label, string accountEmail)
         => $"{label} holds no sign-in for {accountEmail}. Use Add a spare to sign it in there.";
 
-    /// <summary>The sentence a sign-in row carries from the moment it is written until its Director answers.</summary>
-    public static string AskedText(string label, string accountEmail, string reason) => reason == LicenseSignInReasons.Renewal
-        ? $"Asked the Director on {label} to renew the sign-in for {accountEmail}."
-        : $"Asked the Director on {label} to sign in to {accountEmail} as a new spare.";
+    /// <summary>The sentence a sign-in row carries from the moment it is written until its Director answers.
+    /// An automatic one says so, and why: no person asked for it.</summary>
+    public static string AskedText(string label, string accountEmail, string reason) => reason switch
+    {
+        LicenseSignInReasons.AutomaticSpare =>
+            $"Started automatically: {label} holds no sign-in for {accountEmail}, the account it would switch to next, so the Director on {label} was asked to sign in to it as a new spare.",
+        LicenseSignInReasons.AutomaticRenewal =>
+            $"Started automatically: the sign-in {label} holds for {accountEmail}, the account it would switch to next, cannot be switched to, so the Director on {label} was asked to renew it.",
+        LicenseSignInReasons.Renewal => $"Asked the Director on {label} to renew the sign-in for {accountEmail}.",
+        _ => $"Asked the Director on {label} to sign in to {accountEmail} as a new spare.",
+    };
 
     /// <summary>The sentence of a row that was settled from the machine's report because no answer came back.</summary>
     public static string SettledFromReportText(string label, string accountEmail, string? reason, bool made)
     {
         const string how = "Settled from the machine's report: no answer to this sign-in came back";
-        if (reason == LicenseSignInReasons.Renewal)
+        if (LicenseSignInReasons.IsRenewal(reason))
             return made
                 ? $"{how}, and the report shows the sign-in for {accountEmail} on {label} was renewed."
                 : $"{how}, and the report does not show a newer sign-in for {accountEmail} on {label}.";
@@ -59,7 +70,7 @@ public static class LicenseSignInFold
 
     /// <summary>The sentence of a row that was ended because its machine has sent no report for a day.</summary>
     public static string MachineNotSeenText(string label, string accountEmail, string? reason)
-        => reason == LicenseSignInReasons.Renewal
+        => LicenseSignInReasons.IsRenewal(reason)
             ? $"Ended without an answer: {label} has not been seen for a day, so it is not known whether the sign-in for {accountEmail} was renewed. Renew now can be asked for again when the machine is back."
             : $"Ended without an answer: {label} has not been seen for a day, so it is not known whether it signed in to {accountEmail}. Add a spare can be asked for again when the machine is back.";
 
@@ -179,6 +190,11 @@ public static class LicenseSignInFold
             dto.AddSpareText = connected
                 ? $"Signs {dto.Label} in to another account, to be held there as a spare."
                 : DirectorOfflineText(dto.Label);
+            dto.DirectorId = machine.DirectorId;
+            dto.CanListBrowserProfiles = connected;
+            dto.BrowserProfilesText = connected
+                ? $"The browser profiles of {dto.Label}'s Director."
+                : BrowserProfilesOfflineText(dto.Label);
             dto.SignInsInProgress = running.Select(r => new LicenseSignInInProgressDto
             {
                 SignInId = r.SwitchId ?? "",
@@ -199,7 +215,7 @@ public static class LicenseSignInFold
 
     private static string InProgressText(LicenseSwitchLogEntity row, string label) => row.State == LicenseLogStates.Unknown
         ? $"A sign-in for {row.ToAccountEmail} was sent to {label} and no answer has come back yet."
-        : row.Reason == LicenseSignInReasons.Renewal
+        : LicenseSignInReasons.IsRenewal(row.Reason)
             ? $"{label} is renewing its sign-in for {row.ToAccountEmail}."
             : $"{label} is signing in to {row.ToAccountEmail}.";
 
@@ -209,7 +225,7 @@ public static class LicenseSignInFold
     public static LicenseLogEntryDto LogEntry(LicenseSwitchLogEntity row, string label)
     {
         ArgumentNullException.ThrowIfNull(row);
-        var renewal = row.Reason == LicenseSignInReasons.Renewal;
+        var renewal = LicenseSignInReasons.IsRenewal(row.Reason);
         var account = row.ToAccountEmail;
         var message = string.IsNullOrWhiteSpace(row.Message) ? null : row.Message;
         var (stateText, stateTone, summary) = row.State switch
@@ -243,6 +259,8 @@ public static class LicenseSignInFold
             {
                 LicenseSignInReasons.Manual => "Add a spare",
                 LicenseSignInReasons.Renewal => "Renew now",
+                LicenseSignInReasons.AutomaticSpare => "Automatic: a new spare",
+                LicenseSignInReasons.AutomaticRenewal => "Automatic: a renewal",
                 null => "",
                 var other => other,
             },

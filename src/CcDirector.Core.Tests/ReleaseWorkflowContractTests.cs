@@ -159,9 +159,8 @@ public sealed class ReleaseWorkflowContractTests
                 + "message and then carry on to push the tag - the exact defect these guards exist to stop.");
         }
 
-        // The tag step checks the notes IN THE CANDIDATE, and it has to do so BEFORE the tag is created, or it
-        // is decoration.
-        var guardAt = script.IndexOf("ls-tree --name-only $candidate -- $notesRel", StringComparison.Ordinal);
+        // The notes are checked BEFORE the tag is created, or the check is decoration.
+        var guardAt = script.IndexOf("if (-not (Test-Path $notesPath))", StringComparison.Ordinal);
         var tagAt = script.IndexOf("git -C $repoRoot tag $tagName", StringComparison.Ordinal);
         Assert.True(guardAt > 0 && tagAt > 0 && guardAt < tagAt,
             $"{ScriptPath} checks the release notes AFTER creating the tag. The point of the local guard is to fail "
@@ -169,35 +168,97 @@ public sealed class ReleaseWorkflowContractTests
     }
 
     /// <summary>
-    /// The frozen candidate (Release Process Fix mission, 10 October 2026). The release workflow runs no
-    /// tests and a pushed tag cannot be un-pushed, so the script may tag only a commit the release gate
-    /// passed on. It used to merge the bump and tag in one run with no gate between them. Now step 1
-    /// freezes the candidate and never tags; step 2 (-Tag) tags only after assert-gated.ps1 accepts it.
+    /// A release is a tag on the LAST GOOD COMMIT (the owner, 17 October 2026). The full test suite runs on main
+    /// by itself, and the script may tag only the newest commit a full run passed, plus one commit holding nothing
+    /// but the version and the notes. The old flow made a new release commit and tested it from scratch; v2.23.0
+    /// took fifteen hours that way. And only the session holding the release claim may tag: on 17 October two
+    /// sessions fixed the same failure in parallel because nothing stopped a second release seat.
     /// </summary>
     [Fact]
-    public void NewReleaseScript_TagsOnlyACandidateTheReleaseGateAccepted()
+    public void NewReleaseScript_TagsOnlyTheLastGoodCommitPlusItsNotes_AndOnlyForTheClaimHolder()
     {
         var script = File.ReadAllText(Path.Combine(GetRepoRoot(), ScriptPath));
 
         var tagCalls = Regex.Matches(script, @"git -C \$repoRoot tag \$tagName");
         Assert.True(tagCalls.Count == 1,
-            $"{ScriptPath} creates a tag in {tagCalls.Count} places. Exactly one place may tag: the -Tag step, "
-            + "after the gate is proven.");
-
+            $"{ScriptPath} creates a tag in {tagCalls.Count} places. Exactly one place may tag: the -Release step, "
+            + "after the last good commit and the claim are proven.");
         var tagAt = tagCalls[0].Index;
-        var assertAt = script.IndexOf("& $assertGated $candidate", StringComparison.Ordinal);
-        Assert.True(assertAt > 0 && assertAt < tagAt,
-            $"{ScriptPath} tags without first running assert-gated.ps1 on the candidate. A tag on a commit the "
-            + "release gate never passed ships whatever the default gate does not run.");
 
-        var refusal = Regex.Match(script, @"& \$assertGated \$candidate\s*\r?\n\s*if \(\$LASTEXITCODE -ne 0\) \{\s*\r?\n\s*Fail ");
-        Assert.True(refusal.Success,
-            $"{ScriptPath} runs assert-gated.ps1 but does not stop when it refuses.");
+        var lastGoodAt = script.IndexOf("actions/workflows/ci.yml/runs?branch=main&status=success", StringComparison.Ordinal);
+        Assert.True(lastGoodAt > 0 && lastGoodAt < tagAt,
+            $"{ScriptPath} no longer finds the last good commit from the green test runs on main before it tags. "
+            + "A tag on a commit no full run passed ships whatever the local gate does not run.");
 
-        var freezeAt = script.IndexOf("STEP 1: FREEZE THE CANDIDATE ====", StringComparison.Ordinal);
-        Assert.True(freezeAt > tagAt,
-            $"{ScriptPath}: the candidate step must come after the tag step's exit, so step 1 can never reach "
-            + "the tag.");
+        // A workflow run's conclusion is not a test verdict: a scheduled run that SKIPS an already-tested commit,
+        // red or green, ends "success". Only the "CI result" check says the commit was tested and passed.
+        var verdictAt = script.IndexOf("check-runs?check_name=CI%20result", StringComparison.Ordinal);
+        Assert.True(verdictAt > 0 && verdictAt < tagAt,
+            $"{ScriptPath} no longer confirms the last good commit by its CI result check. A skipped scheduled run on a "
+            + "RED commit ends 'success', so a red commit would become releasable two hours after it failed.");
+
+        // The release tag sits on a CHILD of its last good commit, so `git describe <last good>` names the release
+        // BEFORE it, and the same code could be released again under a new number.
+        Assert.True(script.Contains("tag --merged origin/main", StringComparison.Ordinal),
+            $"{ScriptPath} no longer finds the last release among the tags reachable from main.");
+        var alreadyAt = script.IndexOf("is already in it", StringComparison.Ordinal);
+        Assert.True(alreadyAt > 0 && alreadyAt < tagAt,
+            $"{ScriptPath} no longer refuses to release a last good commit that the last release already contains.");
+
+        var onlyTwoFilesAt = script.IndexOf("changes more than the version and the notes", StringComparison.Ordinal);
+        Assert.True(onlyTwoFilesAt > 0 && onlyTwoFilesAt < tagAt,
+            $"{ScriptPath} no longer proves, before tagging, that the release commit adds only the version and the "
+            + "notes to the last good commit. Anything more is untested code.");
+
+        var releaseAt = script.IndexOf("# --- 1. This session holds the claim", StringComparison.Ordinal);
+        var claimAt = releaseAt < 0 ? -1 : script.IndexOf("if ($held.Holder -ne $identity) { Fail", releaseAt, StringComparison.Ordinal);
+        Assert.True(releaseAt > 0 && claimAt > 0 && claimAt < tagAt,
+            $"{ScriptPath} no longer refuses to release for a session that does not hold the claim.");
+
+        Assert.True(script.Contains("--force-with-lease=refs/heads/${claimBranch}:", StringComparison.Ordinal),
+            $"{ScriptPath} no longer creates the claim with an empty lease. Without it two seats racing can both "
+            + "believe they hold the claim.");
+    }
+
+    /// <summary>
+    /// The workflow makes the same check where it cannot be skipped: no build starts until the tagged commit is
+    /// proven to be a tested commit, or a tested commit plus only the version and the notes.
+    /// </summary>
+    [Fact]
+    public void Workflow_RefusesATagOnUntestedCode_BeforeAnyBuildStarts()
+    {
+        var yml = Workflow();
+        var step = StepBody(yml, "Refuse a tag on untested code");
+        Assert.False(step is null, $"{WorkflowPath} no longer has a 'Refuse a tag on untested code' step.");
+        Assert.True(step!.Contains("check-runs?check_name=CI%20result", StringComparison.Ordinal),
+            "The check no longer reads the commit's CI result check. A workflow run's conclusion is not a verdict: a "
+            + "scheduled run that skips a red commit still ends 'success'.");
+        Assert.True(step.Contains("^[0-9]+$", StringComparison.Ordinal) && Regex.IsMatch(step, @"Cannot read the test result[\s\S]*?exit 1"),
+            "The check no longer refuses when GitHub's answer is not a number. An error must refuse, never fall through.");
+
+        var job = yml[yml.IndexOf("  verify-tested:", StringComparison.Ordinal)..yml.IndexOf("- name: Refuse a tag on untested code", StringComparison.Ordinal)];
+        Assert.True(Regex.IsMatch(job, @"(?m)^      checks: read\s*$"),
+            "verify-tested no longer has checks: read. The workflow's own permissions leave it at none, and the call answers 403.");
+        Assert.True(Regex.IsMatch(step, @"Untested release[\s\S]*?exit 1"), "The check no longer stops on an untested parent.");
+        Assert.True(Regex.IsMatch(step, @"Untested change in the release commit[\s\S]*?exit 1"),
+            "The check no longer stops on a release commit that changes more than the version and the notes.");
+
+        // Each build job's header - the lines between its name and its first step - must say it needs the check.
+        var buildJobs = Regex.Matches(yml, @"(?m)^  (build-[a-z0-9-]+):\s*$");
+        Assert.True(buildJobs.Count > 0, $"No build jobs found in {WorkflowPath}.");
+        var notWaiting = buildJobs
+            .Select(job =>
+            {
+                var rest = yml[job.Index..];
+                var stepsAt = rest.IndexOf("    steps:", StringComparison.Ordinal);
+                return (Name: job.Groups[1].Value, Header: stepsAt > 0 ? rest[..stepsAt] : rest);
+            })
+            .Where(job => !Regex.IsMatch(job.Header, @"(?m)^    needs: verify-tested\s*$"))
+            .Select(job => job.Name)
+            .ToList();
+        Assert.True(notWaiting.Count == 0,
+            $"These build jobs in {WorkflowPath} do not wait for verify-tested: {string.Join(", ", notWaiting)}. Every "
+            + "build must wait for it, or an untested tag is built and published.");
     }
 
     /// <summary>

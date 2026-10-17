@@ -18,7 +18,9 @@ import { render, screen, cleanup, waitFor, within, fireEvent } from "@testing-li
 //   - a started sign-in is shown in the Gateway's sentences, and how it ended is read from its row of the log, never
 //     asked for again;
 //   - after an approver is set or removed the page shows the Gateway's sentence and reads the approvers again: it
-//     keeps no list of its own.
+//     keeps no list of its own;
+//   - the approver form is four pick lists and nothing typed; the browser profiles are read from the Director that
+//     reports the chosen machine, and Save pressed with a choice missing sends nothing and names each one.
 import { LicensesView } from "./LicensesView";
 import {
   APPROVERS,
@@ -445,23 +447,78 @@ describe("LicensesView: Add a spare at the wire", () => {
 });
 
 describe("LicensesView: who approves the sign-ins of an account", () => {
+  const MAC_PROFILES = "GET /directors/dir-mac/browsers";
+  const WINDOWS_PROFILES = "GET /directors/dir-windows/browsers";
+  const GUEST_PROFILES = "GET /directors/dir-windows-guest/browsers";
+
+  beforeEach(() => {
+    // Both Directors are connected, so the Gateway says their browser profiles can be listed. A second user of
+    // the-windows-machine reports too, from its own Director, so that machine has two users to choose from.
+    for (const machine of overview.machines) {
+      machine.canListBrowserProfiles = true;
+      machine.browserProfilesText = `The browser profiles of ${machine.label}'s Director.`;
+    }
+    const windows = overview.machines.find((m) => m.machineName === WINDOWS);
+    if (windows === undefined) throw new Error(`no ${WINDOWS}`);
+    overview.machines.push({
+      ...copyOf(windows),
+      machineId: "guest-machine-id",
+      osUser: "guest",
+      label: `${WINDOWS} (guest)`,
+      directorId: "dir-windows-guest",
+      browserProfilesText: `The browser profiles of ${WINDOWS} (guest)'s Director.`,
+    });
+    answers[MAC_PROFILES] = () => json(200, { browsers: [{ id: "work", name: "work" }, { id: "personal", name: "Personal" }] });
+    answers[WINDOWS_PROFILES] = () => json(200, { browsers: [{ id: "work", name: "work" }] });
+    answers[GUEST_PROFILES] = () => json(200, { browsers: [{ id: "guest-profile", name: "Guest" }] });
+  });
+
   function editor(): HTMLElement {
     return screen.getByTestId("lic-approver-editor");
   }
 
-  function field(label: string): HTMLInputElement {
-    return within(editor()).getByLabelText(label) as HTMLInputElement;
+  function field(label: string): HTMLSelectElement {
+    return within(editor()).getByLabelText(label) as HTMLSelectElement;
   }
 
-  function type(account: string, machine: string, user: string, profile: string): void {
-    fireEvent.change(field("Claude account"), { target: { value: account } });
-    fireEvent.change(field("Approving machine"), { target: { value: machine } });
-    fireEvent.change(field("Operating system user on that machine"), { target: { value: user } });
-    fireEvent.change(field("Browser profile on that machine"), { target: { value: profile } });
+  const ACCOUNT = "Claude account";
+  const MACHINE = "Approving machine";
+  const USER = "Operating system user on that machine";
+  const PROFILE = "Browser profile on that machine";
+
+  function choose(label: string, value: string): void {
+    fireEvent.change(field(label), { target: { value } });
+  }
+
+  /** The values a pick list offers, less its "Choose ..." line. */
+  function offered(label: string): string[] {
+    return [...field(label).options].map((option) => option.value).filter((value) => value !== "");
+  }
+
+  /** Choose all four, waiting for the machine's browser profiles to be listed before choosing one. */
+  async function chooseAll(account: string, machine: string, user: string, profile: string): Promise<void> {
+    choose(ACCOUNT, account);
+    choose(MACHINE, machine);
+    choose(USER, user);
+    await waitFor(() => expect(offered(PROFILE)).toContain(profile));
+    choose(PROFILE, profile);
   }
 
   function saveButton(): HTMLButtonElement {
     return within(editor()).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+  }
+
+  function missingLines(): string[] {
+    const list = within(editor()).queryByTestId("lic-approver-missing");
+    return list === null ? [] : [...list.querySelectorAll("li")].map((line) => line.textContent ?? "");
+  }
+
+  function profilesText(): string | null {
+    return within(editor()).queryByTestId("lic-approver-profiles")?.textContent ?? null;
+  }
+
+  async function openNew(): Promise<void> {
+    fireEvent.click(await screen.findByRole("button", { name: "Set an approver" }));
   }
 
   it("shows the Gateway's sentence in place of the list when no approver is set", async () => {
@@ -520,17 +577,227 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     expect(rows[0].querySelectorAll("td")[1].textContent).toBe("the-mac (owner)");
   });
 
-  it("sets an approver with one application/json PUT of the four fields, shows the Gateway's sentence, and reads the approvers again", async () => {
+  it("offers four pick lists and nothing to type: the page's accounts, the machines that reported, and their users", async () => {
+    render(<LicensesView />);
+    await openNew();
+
+    expect(editor().querySelectorAll("input, textarea").length).toBe(0);
+    expect(offered(ACCOUNT)).toEqual([ACCOUNT_A, ACCOUNT_B, ACCOUNT_C]);
+    expect(offered(MACHINE)).toEqual([MAC, WINDOWS]);
+    choose(MACHINE, WINDOWS);
+    expect(offered(USER)).toEqual(["owner", "guest"]);
+  });
+
+  it("opens from Set an approver with nothing chosen at all, and Save is not shut", async () => {
+    render(<LicensesView />);
+    await openNew();
+
+    expect([field(ACCOUNT).value, field(MACHINE).value, field(USER).value, field(PROFILE).value]).toEqual(["", "", "", ""]);
+    expect(saveButton().disabled).toBe(false);
+    expect(missingLines()).toEqual([]);
+    // No machine is chosen, so no Director is asked for anything.
+    expect(reads(MAC_PROFILES) + reads(WINDOWS_PROFILES)).toBe(0);
+  });
+
+  it("opens from an account's own card with that account chosen and nothing else, and brings the form to the eye", async () => {
+    render(<LicensesView />);
+
+    fireEvent.click(within(await card(ACCOUNT_C)).getByRole("button", { name: "Set the approver" }));
+
+    expect(field(ACCOUNT).value).toBe(ACCOUNT_C);
+    expect(field(ACCOUNT).disabled).toBe(false);
+    expect([field(MACHINE).value, field(USER).value, field(PROFILE).value]).toEqual(["", "", ""]);
+    expect(document.activeElement).toBe(field(ACCOUNT));
+  });
+
+  it("opens fresh from another card: the account chosen for one card is not carried to the next", async () => {
+    render(<LicensesView />);
+    fireEvent.click(within(await card(ACCOUNT_C)).getByRole("button", { name: "Set the approver" }));
+    choose(MACHINE, MAC);
+
+    fireEvent.click(within(await card(ACCOUNT_A)).getByRole("button", { name: "Set the approver" }));
+
+    expect(field(ACCOUNT).value).toBe(ACCOUNT_A);
+    expect(field(MACHINE).value).toBe("");
+  });
+
+  it("chooses the user for you when the machine has only one, and lists that machine's browser profiles from its own Director", async () => {
+    render(<LicensesView />);
+    await openNew();
+
+    choose(MACHINE, MAC);
+
+    expect(field(USER).value).toBe("owner");
+    await waitFor(() => expect(offered(PROFILE)).toEqual(["work", "personal"]));
+    expect([...field(PROFILE).options].map((o) => o.textContent)).toEqual(["Choose a browser profile", "work", "Personal (personal)"]);
+    expect(reads(MAC_PROFILES)).toBe(1);
+    expect(reads(WINDOWS_PROFILES)).toBe(0);
+    expect(profilesText()).toBeNull();
+  });
+
+  it("clears the user and the browser profile when the machine is changed", async () => {
+    render(<LicensesView />);
+    await openNew();
+    choose(MACHINE, MAC);
+    await waitFor(() => expect(offered(PROFILE)).toContain("work"));
+    choose(PROFILE, "work");
+    expect([field(USER).value, field(PROFILE).value]).toEqual(["owner", "work"]);
+
+    choose(MACHINE, WINDOWS);
+
+    // Two users report from the-windows-machine, so none is chosen for you; with no user there is no Director to ask.
+    expect([field(USER).value, field(PROFILE).value]).toEqual(["", ""]);
+    expect(offered(PROFILE)).toEqual([]);
+    expect(field(PROFILE).disabled).toBe(true);
+  });
+
+  it("clears the browser profile when the user is changed, and lists the other user's profiles from that user's Director", async () => {
+    render(<LicensesView />);
+    await openNew();
+    choose(MACHINE, WINDOWS);
+    choose(USER, "owner");
+    await waitFor(() => expect(offered(PROFILE)).toEqual(["work"]));
+    choose(PROFILE, "work");
+
+    choose(USER, "guest");
+
+    expect(field(PROFILE).value).toBe("");
+    await waitFor(() => expect(offered(PROFILE)).toEqual(["guest-profile"]));
+    expect(reads(GUEST_PROFILES)).toBe(1);
+  });
+
+  it("says it is loading the browser profiles, naming the machine, while the Director has not answered", async () => {
+    answers[MAC_PROFILES] = () => new Promise<Response>(() => undefined);
+    render(<LicensesView />);
+    await openNew();
+
+    choose(MACHINE, MAC);
+
+    await waitFor(() => expect(profilesText()).toBe("Loading the browser profiles on the-mac..."));
+    expect(offered(PROFILE)).toEqual([]);
+    expect(field(PROFILE).disabled).toBe(true);
+  });
+
+  it("says in the Gateway's words that the Director is not connected, lists no profile, and asks it nothing", async () => {
+    const mac = overview.machines.find((m) => m.machineName === MAC);
+    if (mac === undefined) throw new Error(`no ${MAC}`);
+    // The Gateway's own answer for a machine whose Director is not connected (the example overview).
+    const offline = OVERVIEW.machines.find((m) => m.machineName === MAC);
+    if (offline === undefined) throw new Error(`no ${MAC}`);
+    mac.canListBrowserProfiles = offline.canListBrowserProfiles;
+    mac.browserProfilesText = offline.browserProfilesText;
+    render(<LicensesView />);
+    await openNew();
+
+    choose(MACHINE, MAC);
+
+    expect(profilesText()).toBe("the-mac's Director is not connected, so its browser profiles cannot be listed.");
+    expect(offered(PROFILE)).toEqual([]);
+    expect(reads(MAC_PROFILES)).toBe(0);
+  });
+
+  it("says so when the machine's Director has no browser profiles", async () => {
+    answers[MAC_PROFILES] = () => json(200, { browsers: [] });
+    render(<LicensesView />);
+    await openNew();
+
+    choose(MACHINE, MAC);
+
+    await waitFor(() => expect(profilesText()).toBe("the-mac's Director has no browser profiles."));
+    expect(offered(PROFILE)).toEqual([]);
+  });
+
+  it("shows the Gateway's sentence when the Director cannot be asked for its browser profiles", async () => {
+    const sentence = "The Director on the-mac is not connected right now, so the command was not delivered.";
+    answers[MAC_PROFILES] = () => json(502, { error: sentence });
+    render(<LicensesView />);
+    await openNew();
+
+    choose(MACHINE, MAC);
+
+    await waitFor(() => expect(profilesText()).toContain(sentence));
+    expect(offered(PROFILE)).toEqual([]);
+  });
+
+  it.each([
+    [
+      "nothing chosen",
+      async () => undefined,
+      [
+        "Choose the Claude account.",
+        "Choose the approving machine.",
+        "Choose the operating system user on the approving machine.",
+        "Choose the browser profile on the approving machine.",
+      ],
+    ],
+    [
+      "the account missing",
+      async () => {
+        choose(MACHINE, MAC);
+        await waitFor(() => expect(offered(PROFILE)).toContain("work"));
+        choose(PROFILE, "work");
+      },
+      ["Choose the Claude account."],
+    ],
+    [
+      "the machine missing",
+      async () => choose(ACCOUNT, ACCOUNT_A),
+      [
+        "Choose the approving machine.",
+        "Choose the operating system user on the approving machine.",
+        "Choose the browser profile on the approving machine.",
+      ],
+    ],
+    [
+      "the user missing",
+      async () => {
+        choose(ACCOUNT, ACCOUNT_A);
+        choose(MACHINE, WINDOWS);
+      },
+      ["Choose the operating system user on the-windows-machine.", "Choose the browser profile on the-windows-machine."],
+    ],
+    [
+      "the browser profile missing",
+      async () => {
+        choose(ACCOUNT, ACCOUNT_A);
+        choose(MACHINE, MAC);
+        await waitFor(() => expect(offered(PROFILE)).toContain("work"));
+      },
+      ["Choose the browser profile on the-mac."],
+    ],
+  ])("with %s, Save sends nothing and says exactly what is missing, one line each", async (_name, fill, lines) => {
+    render(<LicensesView />);
+    await openNew();
+    await fill();
+    // Nothing is said before Save is pressed.
+    expect(missingLines()).toEqual([]);
+
+    fireEvent.click(saveButton());
+
+    expect(missingLines()).toEqual(lines);
+    expect(writes()).toEqual([]);
+    expect(saveButton().disabled).toBe(false);
+    expect(screen.getByTestId("lic-approver-editor")).not.toBeNull();
+  });
+
+  it("takes each missing line away as its choice is made", async () => {
+    render(<LicensesView />);
+    await openNew();
+    fireEvent.click(saveButton());
+    expect(missingLines().length).toBe(4);
+
+    choose(ACCOUNT, ACCOUNT_A);
+    choose(MACHINE, MAC);
+
+    expect(missingLines()).toEqual(["Choose the browser profile on the-mac."]);
+  });
+
+  it("sets an approver with exactly one application/json PUT of the four choices, shows the Gateway's sentence, and reads the approvers again", async () => {
     answers[READ_APPROVERS] = () => json(200, APPROVERS_EMPTY);
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
     render(<LicensesView />);
-    fireEvent.click(await screen.findByRole("button", { name: "Set an approver" }));
-    // Nothing can be saved before all four are given.
-    expect(saveButton().disabled).toBe(true);
-    type(` ${ACCOUNT_A} `, "the-mac", "owner", "");
-    expect(saveButton().disabled).toBe(true);
-    type(` ${ACCOUNT_A} `, " the-mac", "owner ", " work ");
-    expect(saveButton().disabled).toBe(false);
+    await openNew();
+    await chooseAll(ACCOUNT_A, MAC, "owner", "work");
     expect(writes()).toEqual([]);
     // From here the Gateway lists the approver it stored.
     answers[READ_APPROVERS] = () => json(200, APPROVERS);
@@ -542,21 +809,33 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     expect(writes().length).toBe(1);
     expect(writes()[0].call).toBe(SET_APPROVER);
     expect(writes()[0].contentType).toBe("application/json");
-    // Each field as typed, less the space around it, and no other field.
-    expect(writes()[0].text).toBe(JSON.stringify({ accountEmail: ACCOUNT_A, machineName: "the-mac", osUser: "owner", browserProfile: "work" }));
+    // The four choices, and no other field.
+    expect(writes()[0].text).toBe(JSON.stringify({ accountEmail: ACCOUNT_A, machineName: MAC, osUser: "owner", browserProfile: "work" }));
     expect(screen.queryByTestId("lic-approver-editor")).toBeNull();
-    // The list on screen is the Gateway's next answer, not one the page made up from what was typed.
+    // The list on screen is the Gateway's next answer, not one the page made up from what was chosen.
     await waitFor(() => expect(screen.getAllByTestId("lic-approver").length).toBe(2));
     expect(reads(READ_APPROVERS)).toBe(readsBefore + 1);
     expect(screen.queryByTestId("lic-approvers-empty")).toBeNull();
+  });
+
+  it("sends the profile's identifier, not its name, so renaming the profile does not break the approver", async () => {
+    answers[SET_APPROVER] = () => json(200, APPROVER_SET);
+    render(<LicensesView />);
+    await openNew();
+    await chooseAll(ACCOUNT_C, MAC, "owner", "personal");
+
+    fireEvent.click(saveButton());
+
+    await screen.findByTestId("lic-approver-answer");
+    expect(JSON.parse(writes()[0].text ?? "{}").browserProfile).toBe("personal");
   });
 
   it("keeps the list as the Gateway last gave it when the read after a set has not answered: it adds no row of its own", async () => {
     answers[READ_APPROVERS] = () => json(200, APPROVERS_EMPTY);
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
     render(<LicensesView />);
-    fireEvent.click(await screen.findByRole("button", { name: "Set an approver" }));
-    type(ACCOUNT_A, "the-mac", "owner", "work");
+    await openNew();
+    await chooseAll(ACCOUNT_A, MAC, "owner", "work");
     answers[READ_APPROVERS] = () => new Promise<Response>(() => undefined);
 
     fireEvent.click(saveButton());
@@ -569,17 +848,18 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   it.each([
     ["400 invalid_browser_profile", 400, APPROVER_REFUSED],
     ["403 owner_only", 403, SET_OWNER_ONLY],
-  ])("shows a %s in the Gateway's sentence, word for word, and keeps the editor open with what was typed", async (_name, status, refusal) => {
+  ])("shows a %s in the Gateway's sentence, word for word, and keeps the form open with what was chosen", async (_name, status, refusal) => {
     answers[SET_APPROVER] = () => json(status, refusal);
     render(<LicensesView />);
-    fireEvent.click(await screen.findByRole("button", { name: "Set an approver" }));
-    type(ACCOUNT_C, "the-mac", "owner", "a/b");
+    await openNew();
+    await chooseAll(ACCOUNT_C, MAC, "owner", "work");
 
     fireEvent.click(saveButton());
 
     expect((await within(editor()).findByTestId("lic-approver-error")).textContent).toBe(refusal.error);
-    expect(field("Browser profile on that machine").value).toBe("a/b");
+    expect([field(ACCOUNT).value, field(MACHINE).value, field(USER).value, field(PROFILE).value]).toEqual([ACCOUNT_C, MAC, "owner", "work"]);
     expect(saveButton().disabled).toBe(false);
+    expect(missingLines()).toEqual([]);
     expect(screen.queryByTestId("lic-approver-answer")).toBeNull();
     expect(writes().length).toBe(1);
   });
@@ -587,8 +867,8 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
   it("takes the sentence of the answer before off the screen when the next write is refused: it is not that write's outcome", async () => {
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
     render(<LicensesView />);
-    fireEvent.click(await screen.findByRole("button", { name: "Set an approver" }));
-    type(ACCOUNT_A, "the-mac", "owner", "work");
+    await openNew();
+    await chooseAll(ACCOUNT_A, MAC, "owner", "work");
     fireEvent.click(saveButton());
     expect((await screen.findByTestId("lic-approver-answer")).textContent).toBe(APPROVER_SET.text);
 
@@ -600,30 +880,40 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     expect(screen.queryByTestId("lic-approver-answer")).toBeNull();
   });
 
-  it("changes an approver from its own row: the editor opens on what is stored and keeps its account", async () => {
+  it("changes an approver from its own row: the form opens on what is stored and keeps its account", async () => {
     answers[SET_APPROVER] = () => json(200, APPROVER_SET);
+    render(<LicensesView />);
+    const rows = await screen.findAllByTestId("lic-approver");
+
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "Change" }));
+
+    expect(field(ACCOUNT).value).toBe(ACCOUNT_A);
+    expect(field(ACCOUNT).disabled).toBe(true);
+    expect([field(MACHINE).value, field(USER).value]).toEqual([MAC, "owner"]);
+    await waitFor(() => expect(field(PROFILE).value).toBe("work"));
+    choose(PROFILE, "personal");
+    fireEvent.click(saveButton());
+
+    await screen.findByTestId("lic-approver-answer");
+    expect(writes().length).toBe(1);
+    expect(writes()[0].text).toBe(JSON.stringify({ accountEmail: ACCOUNT_A, machineName: MAC, osUser: "owner", browserProfile: "personal" }));
+  });
+
+  it("changes an approver on a machine that never reported with no machine chosen: that machine is not in the list", async () => {
     render(<LicensesView />);
     const rows = await screen.findAllByTestId("lic-approver");
 
     fireEvent.click(within(rows[1]).getByRole("button", { name: "Change" }));
 
-    expect(field("Claude account").value).toBe(ACCOUNT_B);
-    expect(field("Claude account").disabled).toBe(true);
-    expect(field("Approving machine").value).toBe("the-laptop");
-    expect(field("Operating system user on that machine").value).toBe("owner");
-    expect(field("Browser profile on that machine").value).toBe("personal");
-    fireEvent.change(field("Browser profile on that machine"), { target: { value: "work" } });
-    fireEvent.click(saveButton());
-
-    await screen.findByTestId("lic-approver-answer");
-    expect(writes().length).toBe(1);
-    expect(writes()[0].text).toBe(JSON.stringify({ accountEmail: ACCOUNT_B, machineName: "the-laptop", osUser: "owner", browserProfile: "work" }));
+    expect(field(ACCOUNT).value).toBe(ACCOUNT_B);
+    expect([field(MACHINE).value, field(USER).value, field(PROFILE).value]).toEqual(["", "", ""]);
+    expect(offered(MACHINE)).not.toContain("the-laptop");
   });
 
-  it("sends nothing when the editor is cancelled", async () => {
+  it("sends nothing when the form is cancelled", async () => {
     render(<LicensesView />);
-    fireEvent.click(await screen.findByRole("button", { name: "Set an approver" }));
-    type(ACCOUNT_C, "the-mac", "owner", "work");
+    await openNew();
+    await chooseAll(ACCOUNT_C, MAC, "owner", "work");
 
     fireEvent.click(within(editor()).getByRole("button", { name: "Cancel" }));
 
@@ -682,7 +972,7 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     render(<LicensesView />);
 
     expect(await screen.findByText("no account is bound to this request")).toBeTruthy();
-    expect(screen.getAllByTestId("lic-sign-in-machine").length).toBe(2);
+    expect(screen.getAllByTestId("lic-sign-in-machine").length).toBe(overview.machines.length);
     expect(screen.queryByTestId("lic-approvers")).toBeNull();
     expect(screen.queryByTestId("lic-approvers-empty")).toBeNull();
   });

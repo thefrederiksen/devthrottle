@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -387,3 +388,120 @@ def test_doctor_reports_legacy_aliases(isolated_install):
     assert reported == set(setup_ops.LEGACY_ALIAS_NAMES)
     # On a clean isolated install none of the retired aliases resolve on PATH.
     assert all(entry["resolvedPath"] is None for entry in data["legacyAliases"])
+
+
+# ---- user systemd units (devthrottle_internal#2475) ----------------------------------------------
+
+_BROKEN_LAUNCHER_UNIT = """[Unit]
+Description=DevThrottle Launcher
+
+[Service]
+Type=simple
+ExecStart="/home/tester/.dotnet/dotnet"
+Restart=on-failure
+RestartSec=5
+"""
+
+
+def _write_user_unit(name: str, content: str) -> Path:
+    unit_dir = Path.home() / ".config" / "systemd" / "user"
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    unit = unit_dir / name
+    unit.write_text(content, encoding="utf-8")
+    return unit
+
+
+@pytest.mark.skipif(os.name == "nt" or sys.platform == "darwin", reason="systemd user units are Linux only")
+def test_doctor_names_a_crash_looping_launcher_unit(isolated_install, monkeypatch):
+    # Arrange
+    _write_healthy_script(isolated_install, "cc-devthrottle")
+    _write_user_unit("devthrottle-launcher.service", _BROKEN_LAUNCHER_UNIT)
+    asked = []
+
+    def fake_run(args, **kwargs):
+        asked.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="NRestarts=29190\nActiveState=activating\nSubState=auto-restart\n", stderr="")
+
+    monkeypatch.setattr(setup_ops.subprocess, "run", fake_run)
+
+    # Act
+    data = setup_ops.doctor_data()
+
+    # Assert
+    assert asked and asked[0][:4] == ["systemctl", "--user", "show", "devthrottle-launcher.service"]
+    assert data["userUnits"][0]["crashLooping"] is True
+    assert data["userUnits"][0]["restarts"] == 29190
+    assert data["userUnits"][0]["execStart"] == '"/home/tester/.dotnet/dotnet"'
+    assert data["needsRepair"] is True
+    assert any("devthrottle-launcher.service is crash-looping (29190 restarts" in p for p in data["problems"])
+
+
+@pytest.mark.skipif(os.name == "nt" or sys.platform == "darwin", reason="systemd user units are Linux only")
+def test_doctor_healthy_unit_is_listed_but_not_a_problem(isolated_install, monkeypatch):
+    # Arrange
+    _write_healthy_script(isolated_install, "cc-devthrottle")
+    _write_user_unit("devthrottle-gateway.service", '[Service]\nExecStart="/opt/gw/devthrottle-gateway" --managed\n')
+    monkeypatch.setattr(
+        setup_ops.subprocess, "run",
+        lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="NRestarts=0\nActiveState=active\nSubState=running\n", stderr=""),
+    )
+
+    # Act
+    data = setup_ops.doctor_data()
+
+    # Assert
+    assert [u["name"] for u in data["userUnits"]] == ["devthrottle-gateway.service"]
+    assert data["userUnits"][0]["crashLooping"] is False
+    assert data["problems"] == []
+
+
+def test_doctor_without_unit_files_asks_systemd_nothing(isolated_install, monkeypatch):
+    # Arrange
+    _write_healthy_script(isolated_install, "cc-devthrottle")
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("systemctl must not be asked about a unit that has no file")
+
+    monkeypatch.setattr(setup_ops.subprocess, "run", must_not_run)
+
+    # Act
+    data = setup_ops.doctor_data()
+
+    # Assert
+    assert data["userUnits"] == []
+
+
+def test_parse_systemctl_show_reads_key_value_lines():
+    assert setup_ops._parse_systemctl_show("NRestarts=3\nActiveState=failed\n\nbad line\n") == {
+        "NRestarts": "3",
+        "ActiveState": "failed",
+    }
+
+
+# ---- repair names a missing PATH entry (devthrottle_internal#2474) -------------------------------
+
+def test_repair_names_a_shim_directory_missing_from_path(isolated_install, monkeypatch, tmp_path, capsys):
+    # Arrange
+    monkeypatch.setenv("PATH", str(tmp_path / "elsewhere"))
+    delegated = []
+    monkeypatch.setattr(setup_ops, "_run_setup_command", lambda *args: delegated.append(args))
+
+    # Act
+    setup_ops.repair()
+
+    # Assert
+    err = capsys.readouterr().err
+    shim_dir = str(setup_ops._shim_dir(setup_ops.DevThrottleInstaller()))
+    assert f"PATH: {shim_dir} is not on this" in err
+    assert delegated == [("repair", "workstation", False, False)]
+
+
+def test_repair_says_nothing_about_path_when_the_shim_directory_is_on_it(isolated_install, monkeypatch, capsys):
+    # Arrange
+    monkeypatch.setattr(setup_ops, "_run_setup_command", lambda *args: None)
+
+    # Act
+    setup_ops.repair()
+
+    # Assert
+    assert "PATH:" not in capsys.readouterr().err

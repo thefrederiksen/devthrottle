@@ -108,7 +108,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
     {
         var ctx = Context();
         var (status, json) = Read(ctx, LicenseEndpoints.Overview(ctx, _ => tenant, new LicenseSnapshotSource(_store, _reads), () => _now,
-            _approvers, _log, _directors.IsConnected));
+            _approvers, _log, _directors.IsConnected, LicenseReadinessTestKit.ForReading(_db, _store, _directors.IsConnected, () => _now)));
         Assert.Equal(200, status);
         return json;
     }
@@ -444,6 +444,35 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
         Assert.True(machine.GetProperty("active").GetProperty("canRenewNow").GetBoolean());
         Assert.Equal("Signs the-mac in to account-a@example.com again, replacing the sign-in it holds.", machine.GetProperty("active").GetProperty("renewNowText").GetString());
         Assert.True(machine.GetProperty("spares")[0].GetProperty("canRenewNow").GetBoolean());
+    }
+
+    [Fact]
+    public void Overview_NamesTheDirectorThatReportsEachMachine_AndOffersItsBrowserProfiles_WhileItIsConnected()
+    {
+        Reports(One, "the-mac", "dir-mac", Holding(A, true));
+        Reports(One, "the-windows-machine", "dir-windows", Holding(B, true));
+
+        var machines = Overview(One).GetProperty("machines").EnumerateArray()
+            .ToDictionary(m => m.GetProperty("machineName").GetString()!);
+
+        Assert.Equal("dir-mac", machines["the-mac"].GetProperty("directorId").GetString());
+        Assert.Equal("dir-windows", machines["the-windows-machine"].GetProperty("directorId").GetString());
+        Assert.True(machines["the-mac"].GetProperty("canListBrowserProfiles").GetBoolean());
+        Assert.Equal("The browser profiles of the-mac's Director.", machines["the-mac"].GetProperty("browserProfilesText").GetString());
+    }
+
+    [Fact]
+    public void Overview_SaysInWordsThatTheBrowserProfilesCannotBeListed_WhenTheMachinesDirectorIsNotConnected()
+    {
+        Reports(One, "the-mac", "dir-mac", Holding(A, true));
+        _directors.Disconnect(One, "dir-mac");
+
+        var machine = Overview(One).GetProperty("machines")[0];
+
+        Assert.Equal("dir-mac", machine.GetProperty("directorId").GetString());
+        Assert.False(machine.GetProperty("canListBrowserProfiles").GetBoolean());
+        Assert.Equal("the-mac's Director is not connected, so its browser profiles cannot be listed.",
+            machine.GetProperty("browserProfilesText").GetString());
     }
 
     [Fact]

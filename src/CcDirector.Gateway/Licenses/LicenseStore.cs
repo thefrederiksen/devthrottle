@@ -14,6 +14,10 @@ public static class LicenseLogKinds
     public const string SpareAdded = "spare-added";
     public const string SpareRemoved = "spare-removed";
 
+    /// <summary>The machine was switched by hand (contract section 2.6): an account signed in straight into its default
+    /// config while it also held it as a spare, and the stale spare moved to a backup. One row per report that says so.</summary>
+    public const string SwitchedByHand = "switched-by-hand";
+
     /// <summary>An exhaustion event: an account in use reached the threshold and no account had room, so nothing was
     /// switched. One row per event, open while its <c>FinishedAtUtc</c> is null.</summary>
     public const string NoRoom = "no-room";
@@ -136,6 +140,7 @@ public sealed class LicenseStore
                 ctx.LicenseMachines.Add(machine);
             }
             var active = report.Holdings.FirstOrDefault(h => h.IsActive);
+            var previousActive = machine.ActiveAccountEmail;
             machine.MachineName = report.MachineName.Trim();
             machine.OsUser = report.OsUser.Trim();
             machine.DirectorId = directorId;
@@ -176,6 +181,9 @@ public sealed class LicenseStore
                 foreach (var row in removed)
                     ctx.LicenseSwitchLog.Add(SpareRow(ctx, machine, directorId, LicenseLogKinds.SpareRemoved, row.AccountEmail, row.IsActive, now));
             }
+
+            if (report.SwitchedByHand is { } hand)
+                ctx.LicenseSwitchLog.Add(HandSwitchRow(ctx, machine, directorId, NormalizeEmail(hand.AccountEmail), previousActive, byEmail, now));
 
             ctx.SaveChanges();
             var removedEmails = removed.Select(r => r.AccountEmail).ToList();
@@ -297,6 +305,35 @@ public sealed class LicenseStore
             Message = added
                 ? $"The machine's report shows a new {what} for {email}."
                 : $"The machine's report no longer shows the {what} for {email}.",
+            CreatedAtUtc = now,
+            FinishedAtUtc = now,
+            TenantId = ctx.ActiveTenant!,
+        };
+    }
+
+    /// <summary>
+    /// The one log row for a report that says the machine was switched by hand (contract section 2.6). The account the
+    /// machine was on before is named as gone only when this Gateway can tell: the machine's previous report had it
+    /// active, and this report no longer holds it anywhere - its sign-in was overwritten by the hand sign-in.
+    /// </summary>
+    private static LicenseSwitchLogEntity HandSwitchRow(GatewayDbContext ctx, LicenseMachineEntity machine, string directorId,
+        string email, string? previousActive, IReadOnlyDictionary<string, LicenseHolding> held, DateTime now)
+    {
+        var lost = previousActive is not null && previousActive != email && !held.ContainsKey(previousActive);
+        var message = $"{machine.MachineName} was switched to {email} by hand; the old spare for {email} was moved to a backup on the machine."
+            + (lost ? $" The account it was on before, {previousActive}, is no longer held on the machine: the sign-in by hand overwrote it." : "");
+        FileLog.Write($"[LicenseStore] HandSwitchRow: machine={machine.Id}, account={email}, previous={previousActive ?? "(none)"}, previousLost={lost}");
+        return new LicenseSwitchLogEntity
+        {
+            Kind = LicenseLogKinds.SwitchedByHand,
+            MachineId = machine.Id,
+            MachineName = machine.MachineName,
+            OsUser = machine.OsUser,
+            DirectorId = directorId,
+            FromAccountEmail = lost ? previousActive! : "",
+            ToAccountEmail = email,
+            State = LicenseLogStates.Recorded,
+            Message = message,
             CreatedAtUtc = now,
             FinishedAtUtc = now,
             TenantId = ctx.ActiveTenant!,

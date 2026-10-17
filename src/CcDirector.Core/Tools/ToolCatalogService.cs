@@ -5,8 +5,8 @@ namespace CcDirector.Core.Tools;
 
 /// <summary>
 /// Builds the tool catalog: reads the embedded manifest, resolves each tool's runnable binary
-/// against the installed layout (a native exe in bin, else the python console-script exe in the
-/// sibling pyenv\Scripts directory that the installer's bin\&lt;name&gt;.cmd shims forward to),
+/// against the installed layout (a native exe in bin, else the python console script in the sibling
+/// pyenv - pyenv\Scripts on Windows, pyenv/bin on macOS and Linux - that the installer's shims forward to),
 /// attaches the universal presence + version checks plus any declared smoke check, and reports
 /// which built binaries are NOT in the manifest so coverage gaps are never silent.
 ///
@@ -116,7 +116,7 @@ public sealed class ToolCatalogService
 
     private ToolDescriptor BuildDescriptor(ToolManifestEntry entry)
     {
-        // "Built into this build" = present in the app's bundled bin dir (or its sibling pyenv\Scripts).
+        // "Built into this build" = present in the app's bundled bin dir (or its sibling pyenv console scripts).
         var resolvedInBin = ResolveRunnableBinary(entry.Name);
         var isBuilt = resolvedInBin is not null;
 
@@ -161,12 +161,18 @@ public sealed class ToolCatalogService
 
     /// <summary>
     /// Resolve the RUNNABLE binary for a tool against the installed layout, in order:
-    /// a native exe in the bin directory (e.g. .NET tools), else - on Windows - the python
-    /// console-script exe in the sibling <c>pyenv\Scripts</c> directory, which is exactly where
-    /// the installer's <c>bin\&lt;name&gt;.cmd</c> shims forward to (PythonToolsInstaller writes
-    /// <c>"%~dp0..\pyenv\Scripts\&lt;name&gt;.exe" %*</c>). Resolving the shim TARGET keeps
-    /// execution direct (no cmd.exe hop, no batch argument re-parsing) and makes IsBuilt truthful
-    /// on shim-based installs. Returns null when the tool is not built in either location.
+    /// a native exe in the bin directory (e.g. .NET tools), else the python console script in the
+    /// sibling pyenv: <c>pyenv\Scripts\&lt;name&gt;.exe</c> on Windows, which is exactly where the
+    /// installer's <c>bin\&lt;name&gt;.cmd</c> shims forward to (PythonToolsInstaller writes
+    /// <c>"%~dp0..\pyenv\Scripts\&lt;name&gt;.exe" %*</c>), and <c>pyenv/bin/&lt;name&gt;</c> on macOS
+    /// and Linux, which is what the installer's <c>~/.local/bin</c> links point at. Resolving the shim
+    /// TARGET keeps execution direct (no cmd.exe hop, no batch argument re-parsing) and makes IsBuilt
+    /// truthful on shim-based installs. Returns null when the tool is not built in either location.
+    ///
+    /// The macOS and Linux half was missing until issue devthrottle_internal#2474: the bin directory is
+    /// never created there, so IsBuilt was always false and a tool counted as available only when the
+    /// Director's own PATH happened to hold <c>~/.local/bin</c>. A Director started over SSH did not, and
+    /// reported all twelve tools "not built" right after a successful repair.
     /// </summary>
     private string? ResolveRunnableBinary(string toolName)
     {
@@ -174,18 +180,14 @@ public sealed class ToolCatalogService
         if (File.Exists(native))
             return native;
 
-        if (OperatingSystem.IsWindows())
-        {
-            var root = Path.GetDirectoryName(Path.GetFullPath(_binDir));
-            if (root is not null)
-            {
-                var pyenvExe = Path.Combine(root, "pyenv", "Scripts", toolName + ".exe");
-                if (File.Exists(pyenvExe))
-                    return pyenvExe;
-            }
-        }
+        var root = Path.GetDirectoryName(Path.GetFullPath(_binDir));
+        if (root is null)
+            return null;
 
-        return null;
+        var pyenvScript = OperatingSystem.IsWindows()
+            ? Path.Combine(root, "pyenv", "Scripts", toolName + ".exe")
+            : Path.Combine(root, "pyenv", "bin", toolName);
+        return File.Exists(pyenvScript) ? pyenvScript : null;
     }
 
     /// <summary>The bin file name for a tool. On Windows tools build to <c>&lt;name&gt;.exe</c>.</summary>

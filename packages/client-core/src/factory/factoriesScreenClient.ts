@@ -101,6 +101,14 @@ export interface FactoryListRow {
   leftOpenText: string | null;
   /** The Seats tab, where each seat shows its marker; null with no flag. */
   leftOpenHref: string | null;
+  /** "4 seats". */
+  seatCountText: string;
+  /** "Next start today 07:00 (Scout)": the soonest due run; null when nothing is due. */
+  nextStartText: string | null;
+  /** "Last run: Scout, today 06:20 - succeeded"; null when no seat has run yet. */
+  lastRunText: string | null;
+  /** The tone of lastRunText; null with it. */
+  lastRunTone: FactoryTone | null;
 }
 
 export interface FactoriesListView {
@@ -159,6 +167,11 @@ export interface FactoryDraftRow {
   lineText: string;
   /** Its factory page, on the Definition tab. */
   href: string;
+  /** "DRAFT": the pill on its card. */
+  stateWord: string;
+  stateTone: FactoryTone;
+  /** "3 seats": how many seats its draft definition names. */
+  seatCountText: string;
 }
 
 /** One active schedule that is no seat of any registered factory (issue #3650). */

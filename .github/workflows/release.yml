@@ -10,6 +10,75 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------
+  # First job: the tagged commit is a TESTED commit plus its notes
+  # ---------------------------------------------------------------
+  # A RELEASE IS A TAG ON THE LAST GOOD COMMIT (the owner, 17 October 2026). The full test suite runs on
+  # main by itself (ci.yml, every two hours when main has moved), and a release is cut from the newest
+  # commit it passed - scripts/new-release.ps1 -Release adds one commit on top of it holding ONLY the
+  # version in Directory.Build.props and the notes file, and tags that. Nothing is tested at release time,
+  # so nothing at release time can go red. v2.23.0 took fifteen hours under the old flow, whose release
+  # commit was new code-wise and had to be tested from scratch.
+  #
+  # This job is the same check, made where it cannot be skipped: no build starts unless EITHER the tagged
+  # commit itself passed the full test run, OR its parent did and the tagged commit changes nothing but
+  # Directory.Build.props and docs/public/release-notes/<tag>.md. Anything else is untested code about to
+  # be shipped, and is refused before forty minutes of builds are spent on it.
+  #
+  # "Passed" means the commit's "CI result" check concluded success - the verdict of a run that TESTED it,
+  # the same check the deploy gate reads. NOT the workflow run's conclusion: a scheduled run that skips an
+  # already-tested commit, red or green, still ends "success". And an answer that is not a number refuses:
+  # a check that cannot read GitHub must not fall through to "fine".
+  verify-tested:
+    name: The tagged commit is a tested commit plus its notes
+    runs-on: ubuntu-latest
+    # The workflow's own permissions (contents: write) leave every other scope at none; reading the
+    # commit's check runs needs checks: read, or the call answers 403.
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Refuse a tag on untested code
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Prints how many "CI result" checks on the commit concluded success. Exits the job on any error.
+          green() {
+            local n
+            n=$(gh api "repos/${GITHUB_REPOSITORY}/commits/$1/check-runs?check_name=CI%20result&per_page=100" --jq '[.check_runs[] | select(.conclusion == "success")] | length')
+            if ! [[ "$n" =~ ^[0-9]+$ ]]; then
+              echo "::error title=Cannot read the test result::GitHub did not answer with a count for the CI result check of $1 (got '$n'). Refusing rather than guessing."
+              exit 1
+            fi
+            echo "$n"
+          }
+          TAGGED="$GITHUB_SHA"
+          TAGGED_GREEN=$(green "$TAGGED")
+          if [ "$TAGGED_GREEN" -gt 0 ]; then
+            echo "$GITHUB_REF_NAME is on $TAGGED, which has a successful full test run."
+            exit 0
+          fi
+          PARENT=$(git rev-parse "$TAGGED^")
+          PARENT_GREEN=$(green "$PARENT")
+          if [ "$PARENT_GREEN" -eq 0 ]; then
+            echo "::error title=Untested release::Neither $TAGGED nor its parent $PARENT passed the full test run (no successful CI result check). Release from the last good commit: scripts/new-release.ps1 -Release."
+            exit 1
+          fi
+          ALLOWED_NOTES="docs/public/release-notes/${GITHUB_REF_NAME}.md"
+          BAD=$(git diff --name-only "$PARENT" "$TAGGED" | grep -v -x -e "Directory.Build.props" -e "$ALLOWED_NOTES" || true)
+          if [ -n "$BAD" ]; then
+            echo "::error title=Untested change in the release commit::$TAGGED changes more than the version and the notes on top of the tested commit $PARENT:"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME is the tested commit $PARENT plus only the version and $ALLOWED_NOTES."
+
+  # ---------------------------------------------------------------
   # Job 1: Build the main CC Director Avalonia app (Windows)
   # ---------------------------------------------------------------
   # CcDirector.Wpf was archived in commit c557e58c -- the Avalonia app
@@ -17,6 +86,7 @@ jobs:
   build-director-win:
     name: Build CC Director (Windows)
     runs-on: windows-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -69,6 +139,7 @@ jobs:
   build-director-mac:
     name: Build CC Director (macOS arm64)
     runs-on: macos-14
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -114,6 +185,7 @@ jobs:
   build-python-bundle-mac:
     name: Build Python Tools Bundle (macOS arm64)
     runs-on: macos-14
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -144,6 +216,7 @@ jobs:
   build-setup-mac:
     name: Build Setup Wizard (macOS arm64)
     runs-on: macos-14
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -209,6 +282,7 @@ jobs:
   build-gateway-win:
     name: Build CC Gateway (Windows)
     runs-on: windows-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -402,6 +476,7 @@ jobs:
   build-launcher-win:
     name: Build CC Launcher (Windows)
     runs-on: windows-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -452,6 +527,7 @@ jobs:
   build-launcher-mac:
     name: Build CC Launcher (macOS arm64)
     runs-on: macos-14
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -493,6 +569,7 @@ jobs:
   build-director-linux:
     name: Build CC Director (Linux x64)
     runs-on: ubuntu-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -535,6 +612,7 @@ jobs:
   build-python-bundle-linux:
     name: Build Python Tools Bundle (Linux x64)
     runs-on: ubuntu-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -568,6 +646,7 @@ jobs:
   build-setup-linux:
     name: Build Setup Wizard (Linux x64)
     runs-on: ubuntu-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -618,6 +697,7 @@ jobs:
   build-launcher-linux:
     name: Build CC Launcher (Linux x64)
     runs-on: ubuntu-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -661,6 +741,7 @@ jobs:
   build-python-bundle-win:
     name: Build Python Tools Bundle (Windows)
     runs-on: windows-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5
@@ -690,6 +771,7 @@ jobs:
   build-setup-wizard-win:
     name: Build Setup Wizard (Windows)
     runs-on: windows-latest
+    needs: verify-tested
 
     steps:
       - uses: actions/checkout@v5

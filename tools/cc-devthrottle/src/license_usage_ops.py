@@ -2,8 +2,7 @@
 `license_usage`, in the AXI shape (docs/axi-standard.md).
 
 `license usage --json` is what the Director reads: `{count, total, defaultConfigDir, storeDir, recovered,
-accounts}`,
-the same envelope as `license list --json`, where `accounts` are the contract's `LicenseHolding` rows
+healed, accounts}`, the same envelope as `license list --json` (`healed` lists the hand sign-ins this run healed), where `accounts` are the contract's `LicenseHolding` rows
 (missions/license-switching/contract.md section 2.2), active first. `--active` reads only the
 active holding (the Director reads it every 2 minutes, the spares at most every 10).
 
@@ -11,7 +10,9 @@ WHY RENEWING A SPARE IS ASKED FOR, NOT AUTOMATIC. A renewal rewrites a stored si
 refresh token. A command that looks like a read never does that on its own, run as often as an agent
 likes. The Director asks for it - `license usage --refresh` renews every spare that is due and then
 reads it, so one call keeps spares fresh and reports them, and a renewal that fails is that row's
-`refresh-failed`. `license refresh` renews without reading, for a person or a test.
+`refresh-failed`. The same flag renews the ACTIVE key when it is due and no Claude Code session can be
+using it (`license_usage.refresh_key`); the Director passes it on its two-minute active read too.
+`license refresh` renews spares without reading, for a person or a test; it never touches the active key.
 
 Both commands open the key store exactly as `license list` does (`license_ops._open`): the same
 `--default-config-dir` and `--store-dir`, the same environment variables, and the same refusal of the
@@ -111,6 +112,7 @@ def usage(json_output: bool, fields: Optional[str], default_config_dir: Optional
             "defaultConfigDir": store.default_config_dir,
             "storeDir": store.store_dir,
             "recovered": store.last_recovery,
+            "healed": license_ops.healed_json(store),
             "accounts": [r.to_json() for r in readings],
         }, indent=2))
         return
