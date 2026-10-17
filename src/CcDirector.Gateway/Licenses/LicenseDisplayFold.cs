@@ -803,6 +803,9 @@ public static class LicenseDisplayFold
         // A sign-in started from the Cockpit is a row of its own kind, with its own words (contract section 8.4).
         if (row.Kind == LicenseSignInLog.Kind)
             return LicenseSignInFold.LogEntry(row, label);
+        // So is an approval the relay passed between machines, the daily renewal's included.
+        if (row.Kind == LicenseApprovalLog.Kind)
+            return LicenseApprovalLog.LogEntry(row, label);
         var (stateText, stateTone) = row.State switch
         {
             LicenseLogStates.Pending when row.ReasonCode == LicenseGatewayReasonCodes.DirectorOffline => ("Waiting for the machine", LicenseTones.Warning),

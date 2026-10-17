@@ -744,7 +744,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `approval` (Approval). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
 | `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A machine that is no longer listed in the overview still has its identifier and its label here. |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. |
@@ -770,6 +770,8 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `recorded` | Recorded | neutral | no |
 | `open` on a `renewal-failed` row | Failing | bad | yes |
 | `ended` on a `renewal-failed` row | Over | neutral | no |
+| `approved` on an `approval` row | Approved | good | no |
+| `refused` on an `approval` row | Refused | bad | no |
 | any other word | the word itself | neutral | no |
 
 The `summary` of a switch row says "is switching" only while it is `pending` or `unknown`. A switch row in a state
@@ -787,6 +789,16 @@ and is kept, the label must be true of both.
 A failed switch row whose machine was held by it says so at the end of its `summary`: "It was not the first time in
 a row that this switch failed this way, so the automatic switch left {the machine} out until {yyyy-MM-dd HH:mm
 UTC}." The first failure of a run holds nothing and has no such sentence.
+
+An `approval` row is one approval the Gateway relayed between machines (contract section 8.3), final when
+written: the daily renewal's, which no person started, as well as one for a sign-in started from the Cockpit. Its
+machine fields are the machine that ASKED, `toAccountEmail` the account, `state` `approved` or `refused`, and on a
+refusal `reasonCode` the contract's word with its `reasonText`. Its `message` and `summary` are the Gateway's own
+sentence naming the machine set to approve - "the-pc approved the sign-in for account-a@example.com on the-mac.",
+"the-mac approved its own sign-in for account-a@example.com.", "The sign-in for account-a@example.com on the-mac was
+not approved by the-pc: the approving browser needs a fresh claude.ai sign-in on the approval page." It never carries
+the address the sign-in was approved at, the sealed approval, or the approving machine's own words. A request from a
+Director that has never reported for the account writes no row: there is no machine to put it against.
 
 A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
 machine's renewal of a sign-in is failing and that sign-in ends within three days, and open until the machine
