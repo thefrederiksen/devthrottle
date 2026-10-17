@@ -612,16 +612,19 @@ public static class LicenseDecisionEngine
         string best, MovePlan plan)
     {
         var parts = new List<string>();
-        foreach (var group in plan.Moves.GroupBy(m => m.Target, StringComparer.Ordinal))
+        var groups = plan.Moves.GroupBy(m => m.Target, StringComparer.Ordinal).ToList();
+        foreach (var group in groups)
         {
             var names = group.Select(m => Label(snapshot, m.Machine)).ToList();
             parts.Add(group.Key == best
                 ? $"{Join(names)} switched to {best}, the account with the lowest weekly use that has room"
                 : $"{Join(names)} switched to {group.Key}, the best account with room {(names.Count == 1 ? "it holds" : "they hold")} a sign-in for");
         }
-        var bestNamed = plan.Moves.Any(m => m.Target == best);
+        // A machine left behind gives its reason for the BEST account. "it" can only stand for that account when it is the
+        // one account named before: with two named, "it" would read as the last one, so the account is named again.
+        var itIsBest = groups.Count == 1 && groups[0].Key == best;
         parts.AddRange(plan.LeftBehind.Select(r =>
-            $"{Label(snapshot, r.MachineName, r.OsUser)} {NotReadyClause(r, bestNamed ? "it" : r.TargetAccountEmail)} and {SwitchesWhenReady(r)}"));
+            $"{Label(snapshot, r.MachineName, r.OsUser)} {NotReadyClause(r, itIsBest ? "it" : r.TargetAccountEmail)} and {SwitchesWhenReady(r)}"));
         return $"{source} reached {DescribeWindows(tired)}; {string.Join("; ", parts)}.";
     }
 

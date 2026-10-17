@@ -142,7 +142,9 @@ did not build it):
   the current rate; from that, the expected next switch and its target. The target is named whenever an
   account has room, and the sentence names any machine that would not move and why.
 - Switch now with a target chosen moves the machines that are ready for it, and says which machines it
-  leaves and why; with no target named it does exactly what the automatic switch would do.
+  leaves and why; with no target named it does exactly what the automatic switch would do. The Licenses
+  page's own Switch now, the Gateway's choice, is sent with no target, so the button moves every ready
+  machine just as the automatic switch would, and its sentence says where each one goes.
 
 **Cockpit - the Licenses page**
 - Accounts table, machines, schedule/forecast, switch log, Switch now. Follows

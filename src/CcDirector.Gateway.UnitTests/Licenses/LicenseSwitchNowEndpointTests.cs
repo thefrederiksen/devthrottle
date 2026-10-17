@@ -221,6 +221,23 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
             json.GetProperty("text").GetString());
     }
 
+    [Fact]
+    public void SwitchNow_WithNoTarget_ThatSendsMachinesToTwoAccounts_SaysWhereEachOneIs_AndNamesNoSingleTarget()
+    {
+        // The best account (B, ordinal tie-break) is held by the Windows machine only; the Mac holds only C. With no
+        // target the moves are the automatic ones, so the two machines go to two accounts - and the answer says so.
+        Reports(TenantOne, Windows, "dir-win", A, new[] { B, C });
+        Reports(TenantOne, Mac, "dir-mac", A, new[] { C });
+
+        var (status, _, json) = Post(TenantOne, Body(A));
+
+        Assert.Equal(200, status);
+        Assert.Equal(new[] { ("dir-mac", C), ("dir-win", B) },
+            _sent.Select(s => (s.DirectorId, s.Request.TargetAccountEmail)).OrderBy(s => s.DirectorId, StringComparer.Ordinal).ToArray());
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("targetAccountEmail").ValueKind);
+        Assert.Equal($"{Mac} is now on {C}. {Windows} is now on {B}.", json.GetProperty("text").GetString());
+    }
+
     // ---- refused: a status, a word, a finished sentence - and nothing written or sent ----
 
     [Fact]

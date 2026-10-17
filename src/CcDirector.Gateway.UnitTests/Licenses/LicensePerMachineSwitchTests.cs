@@ -197,6 +197,22 @@ public sealed class LicensePerMachineSwitchTests
         Assert.Empty(result.Emails);
     }
 
+    [Fact]
+    public void Decide_TwoAccountsNamedAndAMachineLeftBehind_TheLogNamesTheAccountItsReasonIsAbout()
+    {
+        // machine-a takes the best account, machine-b the second best, and machine-c holds a sign-in for neither. Its
+        // reason is about the BEST account; "it" after two accounts would read as the second, so the account is named.
+        var snapshot = Snapshot(
+            [Reading(Tired, 97, 50, active: true), Reading(Empty, 5, 5), Reading(Third, 10, 20)],
+            [Machine("machine-a", Tired, Empty, Third), Machine("machine-b", Tired, Third), Machine("machine-c", Tired)]);
+
+        var result = LicenseDecisionEngine.Decide(snapshot);
+
+        Assert.Equal($"{Tired} reached 97% of its 5-hour window; machine-a switched to {Empty}, the account with the lowest weekly use that has room; "
+                     + $"machine-b switched to {Third}, the best account with room it holds a sign-in for; "
+                     + $"machine-c holds no sign-in for {Empty} and switches as soon as it does.", result.Switches[0].Explanation);
+    }
+
     // ----- the no-room event only when it is true -----
 
     [Fact]

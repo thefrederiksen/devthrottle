@@ -238,9 +238,10 @@ public static class LicenseDisplayFold
             return;
         }
 
-        // The automatic choice is the best account with room (the engine's NextTarget). The page sends Switch now with
-        // the target it shows, so the sentence is the answer for THAT target: the machines ready for it move, and each
-        // one that is not says why.
+        // The automatic choice is the best account with room (the engine's NextTarget). The page sends Switch now with NO
+        // target when the Gateway's choice is the one picked (cockpit-api.md), so the sentence is the AUTOMATIC answer:
+        // each machine to the best account with room it is ready for, which can be two accounts - the moves the
+        // schedule on the same page describes, and the ones the switch at 97% would make.
         var best = LicenseDecisionEngine.NextTarget(snapshot, dto.AccountEmail);
         LicenseManualSwitchVerdict? toBest = null;
         foreach (var other in snapshot.Accounts.Select(a => a.AccountEmail).Where(e => e != dto.AccountEmail).OrderBy(e => e, StringComparer.Ordinal))
@@ -258,15 +259,31 @@ public static class LicenseDisplayFold
         }
 
         dto.CanSwitchNow = dto.SwitchTargets.Any(t => t.CanChoose);
-        var answer = toBest ?? automatic;
+        // A best account some machine is ready for makes the automatic answer accepted too: it moves at least those.
+        var offered = toBest is { Accepted: true } && automatic.Accepted;
+        var answer = offered ? automatic : toBest ?? automatic;
         var leftOut = string.Concat(answer.Skipped.Select(s => $" {names.Label(s.MachineName, s.OsUser)} is not switched: {s.Why}."));
-        dto.SwitchNowTargetAccountEmail = toBest is { Accepted: true } ? best : null;
-        if (toBest is { Accepted: true })
-            dto.SwitchNowText = $"Moves {Names(toBest.Switches.Select(s => names.Label(s.MachineName, s.OsUser)).ToList())} to {best}." + leftOut;
+        dto.SwitchNowTargetAccountEmail = offered ? best : null;
+        if (offered)
+            dto.SwitchNowText = AutomaticMovesText(automatic, best!, names) + leftOut;
         else if (dto.CanSwitchNow)
             dto.SwitchNowText = $"{answer.RefusalMessage} A target can still be chosen by hand." + leftOut;
         else
             dto.SwitchNowText = answer.RefusalMessage + leftOut;
+    }
+
+    // Where the automatic Switch now moves the machines, grouped by account: "Moves machine-a and machine-b to
+    // account-b." - or, when some are not ready for the best account and go to the next best they are ready for,
+    // "Moves machine-a to account-b; machine-b and machine-c to account-c, the best account with room they are ready for."
+    private static string AutomaticMovesText(LicenseManualSwitchVerdict automatic, string best, MachineNames names)
+    {
+        var groups = automatic.Switches
+            .GroupBy(s => s.TargetAccountEmail, StringComparer.Ordinal)
+            .Select(g => (Names: g.Select(s => names.Label(s.MachineName, s.OsUser)).ToList(), Target: g.Key))
+            .Select(g => g.Target == best
+                ? $"{Names(g.Names)} to {g.Target}"
+                : $"{Names(g.Names)} to {g.Target}, the best account with room {(g.Names.Count == 1 ? "it is" : "they are")} ready for");
+        return $"Moves {string.Join("; ", groups)}.";
     }
 
     // The bar that keeps this account out of the AUTOMATIC choice now, or null: the one that lasts longest when it
@@ -325,25 +342,29 @@ public static class LicenseDisplayFold
                 Why = $"{labels(s.MachineName, s.OsUser)} is not switched: {s.Why}.",
             }).ToList(),
         };
-        response.Text = SwitchNowText(response);
+        response.Text = SwitchNowText(response, rows.Select(r => r.ToAccountEmail).ToList());
         return response;
     }
 
-    // The whole outcome in one sentence: how many machines are on the target, how many are still on their way, how
-    // many failed - each said only when it is not none - and then the machines that were left out.
-    private static string SwitchNowText(LicenseSwitchNowResponse response)
+    // The whole outcome in one sentence: for each account the machines were sent to, which are on it, which are still
+    // on their way and which failed - each said only when it is not none - and then the machines that were left out.
+    // The account is each ROW's own, because a Switch now with no target can send machines to two accounts.
+    private static string SwitchNowText(LicenseSwitchNowResponse response, IReadOnlyList<string> targets)
     {
-        var target = response.TargetAccountEmail;
-        var done = response.Switches.Where(s => s.State is LicenseLogStates.Switched or LicenseLogStates.AlreadyActive).Select(s => s.Label).ToList();
-        var failed = response.Switches.Where(s => s.State == LicenseLogStates.Failed).Select(s => s.Label).ToList();
-        var waiting = response.Switches.Where(s => s.State is not (LicenseLogStates.Switched or LicenseLogStates.AlreadyActive or LicenseLogStates.Failed)).Select(s => s.Label).ToList();
         var parts = new List<string>();
-        if (done.Count > 0)
-            parts.Add($"{Names(done)} {(done.Count == 1 ? "is" : "are")} now on {target}.");
-        if (waiting.Count > 0)
-            parts.Add($"The switch of {Names(waiting)} to {target} has not finished; the switch log shows how it ends.");
-        if (failed.Count > 0)
-            parts.Add($"The switch of {Names(failed)} to {target} failed; the switch log says why.");
+        foreach (var group in response.Switches.Select((s, i) => (Switch: s, Target: targets[i])).GroupBy(x => x.Target, StringComparer.Ordinal))
+        {
+            var target = group.Key;
+            var done = group.Where(x => x.Switch.State is LicenseLogStates.Switched or LicenseLogStates.AlreadyActive).Select(x => x.Switch.Label).ToList();
+            var failed = group.Where(x => x.Switch.State == LicenseLogStates.Failed).Select(x => x.Switch.Label).ToList();
+            var waiting = group.Where(x => x.Switch.State is not (LicenseLogStates.Switched or LicenseLogStates.AlreadyActive or LicenseLogStates.Failed)).Select(x => x.Switch.Label).ToList();
+            if (done.Count > 0)
+                parts.Add($"{Names(done)} {(done.Count == 1 ? "is" : "are")} now on {target}.");
+            if (waiting.Count > 0)
+                parts.Add($"The switch of {Names(waiting)} to {target} has not finished; the switch log shows how it ends.");
+            if (failed.Count > 0)
+                parts.Add($"The switch of {Names(failed)} to {target} failed; the switch log says why.");
+        }
         parts.AddRange(response.Skipped.Select(s => s.Why));
         return string.Join(" ", parts);
     }

@@ -178,12 +178,14 @@ export function LicensesView() {
 
   // A refusal throws with the Gateway's own sentence; the dialog stays open and shows it.
   //
-  // NOTHING IS SENT WITHOUT A TARGET. The target starts as the Gateway's own choice and is otherwise the one the
-  // person picked. Where the Gateway chose none (switchNowTargetAccountEmail is null) and nothing is picked, a call
-  // would be refused, so the confirmation cannot be given and this never sends.
+  // The target starts as the Gateway's own choice and is otherwise the one the person picked. The Gateway's choice is
+  // sent as NO target, which makes exactly the automatic moves switchNowText describes - each machine to the best
+  // account with room it is ready for (cockpit-api.md). A target picked by hand is sent as named. Where the Gateway
+  // chose none (switchNowTargetAccountEmail is null) and nothing is picked, the confirmation cannot be given and this
+  // never sends.
   const confirmSwitchNow = async () => {
     if (confirming === null || target === null) return;
-    const result = await switchLicenseNow(confirming.accountEmail, target);
+    const result = await switchLicenseNow(confirming.accountEmail, target === confirming.switchNowTargetAccountEmail ? null : target);
     setLastSwitch(result);
     refreshAll();
   };

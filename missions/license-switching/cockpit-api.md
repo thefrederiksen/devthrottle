@@ -96,8 +96,8 @@ person only: the owner's own phone or browser, and nobody else (section 6).
 | `signInExpiry` | The sign-in for this account that expires FIRST, across every machine holding it: `expiresAtUtc`, `machine` (the machine it is on, rule 9), `verdict` (the expiry verdict below), `text` ("Sign-in on the-windows-machine expires in 2 days 5 hours", "Sign-in on the-mac expired 3 hours ago") and `tone`. When no machine holding the account gave an expiry: `expiresAtUtc` and `machine` are null, `verdict` is `not known` and `text` is "Sign-in expiry not known". When no machine holds the account: the same, with "Not signed in on any machine". This is the sign-in expiry, not the subscription's renewal date (section 1). |
 | `activeOnMachines`, `spareOnMachines` | The machines working on it, and the machines holding it as a spare - each one the four fields of rule 9. |
 | `canSwitchNow` | The Switch now control is offered for this account. |
-| `switchNowText` | What Switch now would do ("Moves the-mac and the-windows-machine to account-b@example.com."), or the sentence saying why it is not offered. Always a sentence. |
-| `switchNowTargetAccountEmail` | The target Switch now takes when none is named; null when it would take none. |
+| `switchNowText` | What Switch now with no target would do - the automatic moves, each machine to the best account with room it is ready for, which can be two accounts ("Moves the-mac and the-windows-machine to account-b@example.com.", "Moves machine-a to account-b@example.com; machine-b and machine-c to account-c@example.com, the best account with room they are ready for.") - or the sentence saying why it is not offered. Always a sentence. |
+| `switchNowTargetAccountEmail` | The Gateway's choice, the best account with room, when a Switch now with no target would be accepted; null when it would not. The page pre-selects it and, when it is the one picked, sends NO target (section 6), so the moves are the ones `switchNowText` describes. |
 | `switchTargets` | Every other account as a target: `accountEmail`, `canChoose`, `unavailableText` (the sentence when it cannot be chosen), `isAutomaticChoice`. Empty when no machine on this account can be switched. |
 
 **The status of an account.** Exactly one, the first that applies. What the owner must act on outranks what the
@@ -1082,8 +1082,8 @@ connected, is still an accepted call, and each machine's own state says how it s
 
 | Field | What it is |
 |---|---|
-| `targetAccountEmail` | The account the machines were sent to: the one named, or the one chosen. |
-| `text` | The whole outcome in one sentence, ready to show: "the-windows-machine is now on account-b@example.com.", "The switch of the-mac to account-b@example.com has not finished; the switch log shows how it ends.", "The switch of the-mac to account-b@example.com failed; the switch log says why." - one part for each kind that happened, then each machine left out with its reason. |
+| `targetAccountEmail` | The account the machines were sent to: the one named, or the one chosen. Null when a call with no target sent the machines to more than one account; each machine's `summary` names its own. |
+| `text` | The whole outcome in one sentence, ready to show: "the-windows-machine is now on account-b@example.com.", "The switch of the-mac to account-b@example.com has not finished; the switch log shows how it ends.", "The switch of the-mac to account-b@example.com failed; the switch log says why." - one part for each kind that happened, for each account the machines were sent to ("the-windows-machine is now on account-b@example.com. the-mac is now on account-c@example.com."), then each machine left out with its reason. |
 | `switches[]` | One per machine sent a switch, as its row of the switch log stood when the Gateway answered: `switchId` (the switch itself), `entryId` (that row's `entryId` in section 4, so the page can find it in the log), `machineName`, `osUser`, `label` (rule 9), and `state`, `stateText`, `stateTone` and `summary` - the same four a log row carries (section 4). |
 | `skipped[]` | The machines on the account that were NOT sent a switch: `machineName`, `osUser`, `label`, and `why`, a finished sentence ("the-linux-machine is not switched: its last report is too old."). |
 
@@ -1129,6 +1129,11 @@ it. The page should still disable the control while a call is out.
 can be NAMED - a barred account, most often. A call with no `targetAccountEmail` would be refused `409` `no-target`.
 So the page's default action exists only when `switchNowTargetAccountEmail` is not null; otherwise the owner picks
 one of the `switchTargets` whose `canChoose` is true, and the page sends that one.
+
+**When `switchNowTargetAccountEmail` is the one picked, the page sends no target.** Naming it would move only the
+machines ready for it and leave the rest on an account at its limit, while the automatic switch would send them to
+the next best account they are ready for. Sending none makes exactly the automatic moves, which `switchNowText` and
+the schedule both describe. A target picked by hand is sent as named.
 
 ### Who may call the writes
 

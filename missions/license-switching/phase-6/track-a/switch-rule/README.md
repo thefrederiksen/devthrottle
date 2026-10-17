@@ -12,7 +12,8 @@ cause.
 ## What changed
 
 All of it is in the Gateway's pure decision code and the folds that put it into words. The switch
-command, the Director, the store and the Cockpit's code are unchanged.
+command, the Director and the store are unchanged; the Cockpit changes one line, sending no target for
+the Gateway's own choice (review finding 1).
 
 - **One definition of ready** - `LicenseDecisionEngine.Readiness(machine, account, now)`. A machine is
   ready for an account when its latest report shows a sign-in for it that was not refused and whose
@@ -59,6 +60,13 @@ command, the Director, the store and the Cockpit's code are unchanged.
   account with room they hold a sign-in for."
 - Account card: "Moves machine-a, machine-b and machine-c to account-b@example.com. machine-d is not
   switched: it holds no sign-in for account-b@example.com."
+- Account card, the tie case: "Moves machine-a to account-b@example.com; machine-b and machine-c to
+  account-c@example.com, the best account with room they are ready for."
+- Switch log, two accounts named and a machine left behind: "...; machine-b switched to
+  account-c@example.com, the best account with room it holds a sign-in for; machine-c holds no sign-in
+  for account-b@example.com and switches as soon as it does."
+- Switch now with no target, moves to two accounts: "the-mac is now on account-c@example.com.
+  the-windows-machine is now on account-b@example.com."
 - Forecast: "account-a@example.com has reached 97% of its weekly limit; machine-a, machine-b and
   machine-c then move to account-b@example.com, the account the Gateway would choose today. machine-d
   would not move: it holds no sign-in for account-b@example.com."
@@ -150,20 +158,55 @@ the tie between two accounts; two users of one computer named apart; under the t
 
 ## Known limits
 
-- Switch now on the page names one target. When the best account is held by only some machines, the
-  page's Switch now moves those and leaves the rest, saying why; the automatic switch would send the
-  rest to the second-best account. Choosing that second account by hand moves them too. A Switch now
-  sent with no target makes the automatic, possibly split, moves; its answer's single
-  `targetAccountEmail` then names the last target written, and each row carries its own.
 - A target that is not the automatic choice shows no sentence of which machines it would leave before
   it is clicked (the target list has only `unavailableText`); the answer after the click lists them.
+- The two limits this section first listed (the page's Switch now doing less than the automatic switch
+  in the tie case, and the answer's single target) were review findings 1 and 2, and are fixed below.
 
 ## Proof
 
 - `.\scripts\test-local.ps1` and `.\scripts\test-local.ps1 -Parked`: results in the pull request.
-- The Licenses tests of `CcDirector.Gateway.UnitTests`: 848 passed, 0 failed.
+- The Licenses tests of `CcDirector.Gateway.UnitTests`, after the review fixes and the rebase onto main
+  with the license alarm: 886 passed, 0 failed.
 - The Cockpit Licenses web tests (`npx vitest run src/licenses` in `apps/cockpit`): 81 passed.
 
 ## Review findings
 
-None yet.
+The review is committed beside this file as `review.md` (a separate review session, 17 October 2026).
+Its verdict: mergeable once findings 1 to 3 are answered. All three are accepted and fixed, each with a
+test that was run against the code before the fix and failed there (the revert proof: the four changed
+code files put back to the first commit, the four new tests run - all four failed - and the files
+restored).
+
+1. **Accepted, fixed. The page's Switch now did less than the automatic switch in the tie case.** The
+   card's sentence is now the AUTOMATIC answer (`PreviewManual` with no target), grouped by account:
+   "Moves machine-a to account-b@example.com; machine-b and machine-c to account-c@example.com, the
+   best account with room they are ready for." When the Gateway's choice is the one picked, the Cockpit
+   sends NO target, so the button makes exactly those moves - the same ones the schedule on the page and
+   the switch at 97% make. A target picked by hand is still sent as named. `switchNowTargetAccountEmail`
+   is set only when a Switch now with no target would be accepted. cockpit-api.md sections 2 and 6 and
+   MISSION.md section 5 say so. Tests: `SwitchNow_TheTieCase_TheCardDescribesTheAutomaticMoves_ToBothAccounts_AsTheScheduleDoes`
+   (the card's sentence and the schedule's, pinned side by side); in the Cockpit, the confirmation test
+   in `LicensesView.test.tsx` and the wire test in `LicensesViewWrites.test.tsx` now pin that the Gateway's
+   choice is sent as `targetAccountEmail: null` (they pinned the named target before; that was the defect).
+2. **Accepted, fixed. A Switch now with no target and split moves answered with a false sentence.** The
+   answer's sentence is now grouped by each switch log row's own target ("the-mac is now on
+   account-c@example.com. the-windows-machine is now on account-b@example.com."), and the result's single
+   `targetAccountEmail` is the account only when every switch in the answer went to it, null otherwise.
+   Test: `SwitchNow_WithNoTarget_ThatSendsMachinesToTwoAccounts_SaysWhereEachOneIs_AndNamesNoSingleTarget`
+   (through the route: each machine sent to its own account, `targetAccountEmail` null, the sentence).
+3. **Accepted, fixed. "it" in the switch log row could point at the wrong account.** "it" is now used only
+   when exactly one account is named before it and that account is the best one; otherwise the account is
+   named. Test: `Decide_TwoAccountsNamedAndAMachineLeftBehind_TheLogNamesTheAccountItsReasonIsAbout`
+   ("...; machine-c holds no sign-in for account-b@example.com and switches as soon as it does.").
+4. **Noted, no change.** `nextSwitch.targetAccountEmail` names the best account while `machines` lists
+   every machine that moves, to either account; the sentence beside them is right. A3 is told here: do
+   not pair the two fields to mean "these machines go to that account".
+5. **Noted, no change in this pull request.** "too old to show it has room" for an account never read
+   was the same words before this change and only the raw route can reach it; it is worth "has never been
+   read" when that sentence is next touched.
+6. **Noted, no change.** The radio is still marked "The Gateway's choice" and disabled when no machine is
+   ready for the best account; nothing is pre-selected then, and the sentence beside it says why.
+7. **Noted, no change.** The "switch keeps failing" email's "{best} has room for its machines" when the
+   held machines are not ready for it is pre-existing and an edge case; the license alarm track gives the
+   better sentence.

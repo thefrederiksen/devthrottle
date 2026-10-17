@@ -1098,6 +1098,26 @@ public sealed class LicenseDisplayFoldTests : IDisposable
     }
 
     [Fact]
+    public void SwitchNow_TheTieCase_TheCardDescribesTheAutomaticMoves_ToBothAccounts_AsTheScheduleDoes()
+    {
+        // The best account (B) is held by machine-a only, the second best (C) by all three. The page sends no target for
+        // the Gateway's choice, so the card must say what the automatic switch does: machine-a to B, the other two to C -
+        // never that two ready machines stay on an account at its limit.
+        Apply(Report("machine-a", Holding(A, true, 97, 50), Holding(B, false, 5, 5), Holding(C, false, 10, 20)), seq: 1);
+        Apply(Report("machine-b", Holding(A, true, 97, 50), Holding(C, false, 10, 20)), seq: 2);
+        Apply(Report("machine-c", Holding(A, true, 97, 50), Holding(C, false, 10, 20)), seq: 3);
+
+        var card = Account(A, T0);
+        var forecast = Forecast(T0, new LicenseUsageHistory());
+
+        Assert.True(card.CanSwitchNow);
+        Assert.Equal(B, card.SwitchNowTargetAccountEmail);
+        Assert.Equal($"Moves machine-a to {B}; machine-b and machine-c to {C}, the best account with room they are ready for.", card.SwitchNowText);
+        Assert.Equal($"{A} has reached 97% of its 5-hour window; machine-a then moves to {B}, the account the Gateway would choose today; "
+                     + $"machine-b and machine-c then move to {C}, the best account with room they are ready for.", forecast.NextSwitchText);
+    }
+
+    [Fact]
     public void SwitchNowAndForecast_AnAccountHasRoomAndNoMachineIsReady_SayTheAccountHasRoom_NeverThatNoneHas()
     {
         Apply(Report("machine-a", Holding(A, true, 20, 97)), seq: 1);
