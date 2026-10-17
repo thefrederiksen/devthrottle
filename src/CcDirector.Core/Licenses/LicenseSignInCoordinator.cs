@@ -32,15 +32,19 @@ public sealed class LicenseSignInCoordinator
     private readonly Func<DateTime> _utcNow;
     private readonly bool _enabled;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly LicenseBrowserLane _lane;
     private readonly SemaphoreSlim _oneAtATime = new(1, 1);
     private volatile ILicenseApprovalRelay? _relay;
     private volatile ILicenseApprovalSeal? _seal;
 
     /// <param name="delay">Test seam: how the wait for an approval's deadline passes.</param>
+    /// <param name="lane">Keeps the daily approver check out of a running sign-in; shared with the approver and the
+    /// check (<see cref="LicenseSwitching"/>). A lane of its own when not given.</param>
     public LicenseSignInCoordinator(ILicenseCommandLine tool, LicenseKeyHolderLock holder, LicenseSignInResultStore results,
         LicenseUsageReporter reporter, LicenseApprovalExchange approvals, Func<DateTime> utcNow, bool enabled,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null, LicenseBrowserLane? lane = null)
     {
+        _lane = lane ?? new LicenseBrowserLane();
         _tool = tool ?? throw new ArgumentNullException(nameof(tool));
         _holder = holder ?? throw new ArgumentNullException(nameof(holder));
         _results = results ?? throw new ArgumentNullException(nameof(results));
@@ -145,6 +149,7 @@ public sealed class LicenseSignInCoordinator
     /// already knows; null to ask the tool if it matters.</param>
     private async Task<LicenseSignInAnswer> RunAsync(string signInId, string email, DateTime notAfterUtc, bool? profileHere, CancellationToken cancellationToken)
     {
+        using var inLane = await _lane.EnterWorkAsync($"sign-in {signInId}", cancellationToken);
         var relay = _relay;
         var seal = _seal;
         // The tool is told to wait for another machine's approval only while one can be asked for and opened here.
@@ -283,10 +288,15 @@ public sealed class LicenseApprover
     private readonly ILicenseCommandLine _tool;
     private readonly Func<DateTime> _utcNow;
     private readonly bool _enabled;
+    private readonly LicenseBrowserLane _lane;
     private volatile ILicenseApprovalSeal? _seal;
 
-    public LicenseApprover(ILicenseCommandLine tool, Func<DateTime> utcNow, bool enabled)
+    /// <param name="lane">Keeps the daily approver check out of a running approval; shared with the sign-ins and the
+    /// check. Approvals never wait for sign-ins in it, so this machine can approve its own sign-in. A lane of its own
+    /// when not given.</param>
+    public LicenseApprover(ILicenseCommandLine tool, Func<DateTime> utcNow, bool enabled, LicenseBrowserLane? lane = null)
     {
+        _lane = lane ?? new LicenseBrowserLane();
         _tool = tool ?? throw new ArgumentNullException(nameof(tool));
         _utcNow = utcNow ?? throw new ArgumentNullException(nameof(utcNow));
         _enabled = enabled;
@@ -317,7 +327,9 @@ public sealed class LicenseApprover
         if (string.IsNullOrWhiteSpace(request.BrowserProfile))
             return Refused(request, LicenseRenewalErrors.NoApprover, LicenseRenewalSentences.For(LicenseRenewalErrors.NoApprover));
 
-        var answer = await _tool.ApproveAsync(request.AuthorizeUrl, email, request.BrowserProfile, cancellationToken);
+        LicenseApproveAnswer answer;
+        using (await _lane.EnterWorkAsync($"approval {request.SignInId}", cancellationToken))
+            answer = await _tool.ApproveAsync(request.AuthorizeUrl, email, request.BrowserProfile, cancellationToken);
         if (!answer.Approved || string.IsNullOrWhiteSpace(answer.Approval))
         {
             var reason = answer.ReasonCode ?? LicenseRenewalErrors.ApprovalFailed;

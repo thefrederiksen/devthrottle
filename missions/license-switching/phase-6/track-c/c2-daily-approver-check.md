@@ -1,0 +1,99 @@
+# Track C, Developer C2 - the Director's daily approver check
+
+Pull request 2 of 3. Built on the approver contract (pull request 4109) and on `license check-approver` (pull
+request 4116, which must merge first: this Director runs that command).
+
+## What changed
+
+- **The offer setting.** `licenseSwitching.offerApprovers` in config.json, beside `licenseSwitching.enabled` and
+  read the same way (`LicenseApproverOfferSetting`, the same shape as `LicenseSwitchingSetting`): off unless it is
+  exactly `true`, read at start, and logged at start on the same line as the switching setting
+  (`[LicenseSwitching] CreateForThisMachine: enabled=..., offersApprovers=...`).
+- **`LicenseApproverCheck`** (`src/CcDirector.Core/Licenses`), on the Director's scheduler the way
+  `LicenseRenewer` is: it looks every 10 minutes, runs once at start and then once every 24 hours, and does nothing
+  while license switching is off or while this Director is not the key holder. A run:
+  1. asks the Gateway `GetLicenseApproverAssignments` for the records that name this machine;
+  2. runs `license check-approver --browser <identifier> --email <account>` for each;
+  3. when the offer setting is on, also runs `license check-approver --browser <identifier>` with no account for
+     each of this Director's own browser profiles (from the machine's browser registry), so the tool says who each
+     is signed in as;
+  4. sends everything in ONE `ReportLicenseApproverChecks`, even when every row failed, and an empty report when
+     there was nothing to check.
+  A check the tool could not run is a `check-failed` row, never left out. Each row's detail is one of the
+  Director's own fixed sentences (`LicenseApproverCheckSentences`), never the tool's text, which can quote what a
+  browser step printed. Rows name the profile by its identifier; the display name goes in `browserProfileName` when
+  it has the shape the Gateway takes, and is left out otherwise, so an odd name cannot get the whole row refused.
+  A report the Gateway did not take is sent again at the next look without running every check again, unless it
+  is a day old (the Gateway refuses rows older than its not-checked window), when the checks run again. At most 32
+  rows, the contract's limit; checks beyond that are not run and the log says how many.
+- **The tool call.** `ILicenseCommandLine.CheckApproverAsync` runs `license check-approver --json` with an eight
+  minute limit (the tool's own waits add to about six and a half). Only the contract's state words are taken: a
+  state outside `LicenseApproverStates.Reportable`, a "can approve" naming no account or another one, or an answer
+  for another account than asked is read as no answer.
+- **The hub calls.** `GatewayStreamClient` gains `CanCheckLicenseApprovers` (connected, and the Gateway offered both
+  methods in Hello), `GetLicenseApproverAssignmentsAsync` and `ReportLicenseApproverChecksAsync`;
+  `GatewayLicenseApproverChannel` hands them to the check, attached and detached with the tunnel beside the
+  approval relay.
+
+## One check at a time, never during a sign-in or an approval - which rule, and why
+
+Neither of the two offered. A new `LicenseBrowserLane`, shared by the sign-in coordinator, the approver and the
+check (`LicenseSwitching` makes one and hands it to all three):
+
+- The **key store lock** is about the key store, which a check never touches; what collides is two browser-harness
+  runs on this machine's profiles.
+- The **coordinator's one-at-a-time lock** is held for the whole of a sign-in, including the wait for another
+  machine's approval, and that other machine can be this one: a Director that approves its own renewal. An
+  approval made to take that lock would wait for the sign-in that waits for it - a deadlock until the sign-in's
+  deadline. Pull request 3 proves the self-renewal path end to end; this lane is built so it cannot deadlock there.
+
+So in the lane, sign-ins and approvals never wait for each other. A check starts only when none is running, one
+check at a time; a sign-in or approval that starts while a check runs waits for that one check to end. A check
+that is merely WAITING holds nothing back.
+
+## The tests, in plain words
+
+`src/CcDirector.Core.UnitTests/Licenses/LicenseApproverCheckTests.cs` - a fake license tool, a fake tunnel and a
+fake profile list:
+
+- `TickAsync_AssignedRecords_AreCheckedWithTheirAccount_AndGoUpInOneReport` - each record that names this machine
+  is checked with its own account; one report carries both rows, with the identifier, the display name, the
+  account, the state and the time of the check.
+- `TickAsync_OfferOff_OwnProfilesAreNotChecked` - with the setting off, no profile is checked without an account.
+- `TickAsync_OfferOn_EveryOwnProfileIsCheckedWithNoAccount_AndTheReportSaysItOffers` - with it on, every own
+  profile is checked with no account as well, and the report says the machine offers.
+- `TickAsync_LicenseSwitchingOff_ChecksNothing_AndAsksTheGatewayNothing` and
+  `TickAsync_NotTheKeyHolder_ChecksNothing_AndAsksTheGatewayNothing` - nothing at all runs, and the Gateway is not
+  even asked.
+- `TickAsync_ToolGaveNoAnswer_IsReportedCheckFailed_NeverLeftOut` - a check that failed is a `check-failed` row
+  with its sentence.
+- `TickAsync_EveryRowFailed_TheReportIsStillSent` and `TickAsync_NothingAssignedAndNothingOffered_SendsAnEmptyReport`.
+- `TickAsync_RunsOnceADay` - after a run, nothing for 23 hours, then a run at 24.
+- `TickAsync_GatewayKeepsNoApproverRecords_NoCheckRuns_AndOneRunsOnceItDoes` and
+  `TickAsync_AssignmentsCannotBeAsked_NoCheckRuns_AndItIsTriedAgain` - no check runs with nowhere to report it.
+- `TickAsync_ReportNotTaken_IsSentAgainAtTheNextLook_WithoutCheckingAgain` and
+  `TickAsync_ReportUnsentForADay_IsCheckedAgain_NotSentStale`.
+- `TickAsync_DetailIsTheDirectorsOwnWords_NeverTheTools` - the fixed sentences, each within the contract's length,
+  and the fake tool's planted text appears nowhere in the report.
+- `TickAsync_ProfileNameOfAShapeTheGatewayRefuses_IsNotSent_TheRowStillIs` - also a record naming a profile this
+  machine does not have: the row goes, with no name.
+- `TickAsync_MoreThanAReportTakes_StopsAtThirtyTwoRows`.
+- `TickAsync_ASignInIsRunning_TheCheckWaitsForIt_AndRunsAfter` and
+  `TickAsync_AnApprovalArrivesDuringACheck_WaitsForTheCheckToEnd` - the lane, seen from the check.
+
+`LicenseBrowserLaneTests.cs`: a sign-in and its own approval never wait for each other; a check waits for a running
+sign-in; an approval waits for a running check; a WAITING check holds no approval back (the self-renewal case);
+one check at a time; leaving twice leaves once; a cancelled wait takes nothing.
+
+`LicenseSignInCommandLineTests.ReadApproverCheck_OnlyTheContractsWordsForTheAccountAsked_AreAnAnswer` - the four
+answers that are taken, and the six that are not.
+
+`LicenseApproverOfferSettingTests.cs` - off unless exactly true; it sits beside the switching setting without
+changing it; its patch writes only its own key.
+
+Not tested here: the three-line hub calls and the channel class, which only pass their arguments to
+`HubConnection.InvokeAsync`; the hosted proof of the whole path is pull request 3's.
+
+## Gate output
+
+See the end of this file.

@@ -66,6 +66,13 @@ public interface ILicenseCommandLine
     /// those answers ran first; the reporter takes them after each tool call to say so in its next report.
     /// </summary>
     IReadOnlyList<LicenseHandSwitch> TakeHandSwitches();
+
+    /// <summary>Whether the browser profile <paramref name="browserProfile"/> (its identifier) could approve a sign-in
+    /// for <paramref name="accountEmail"/> now, read from a real approval page and pressing nothing
+    /// (<c>license check-approver</c>). With a null email the tool first reads which account the profile is signed in
+    /// to claude.ai as. Never throws for a run that gave no readable answer: that is
+    /// <see cref="LicenseApproverStates.CheckFailed"/>, with <see cref="LicenseApproverToolAnswer.ToolAnswered"/> false.</summary>
+    Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken);
 }
 
 /// <summary>What <c>license switch --json</c> answered. Its words are the contract's (section 3.3).</summary>

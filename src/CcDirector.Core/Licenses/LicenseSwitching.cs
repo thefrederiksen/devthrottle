@@ -28,9 +28,13 @@ public sealed class LicenseSwitching : IDisposable
     /// no report loop, no renewal, the key holder lock is never taken, and every switch, sign-in and approval is
     /// answered failed or refused.</param>
     /// <param name="signInDelay">Test seam: how the wait for another machine's approval passes (<see cref="LicenseSignInCoordinator"/>).</param>
+    /// <param name="offersApprovers">The offer setting (<see cref="Configuration.LicenseApproverOfferSetting"/>): the
+    /// daily approver check looks at this Director's own browser profiles too.</param>
+    /// <param name="browserProfiles">This Director's own browser profiles; the machine's registry when not given.</param>
     public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser, bool enabled,
-        Func<TimeSpan, CancellationToken, Task>? signInDelay = null)
+        Func<TimeSpan, CancellationToken, Task>? signInDelay = null, bool offersApprovers = false, ILicenseBrowserProfiles? browserProfiles = null)
     {
+        BrowserLane = new LicenseBrowserLane();
         Enabled = enabled;
         HolderLock = new LicenseKeyHolderLock(directorFolder);
         Reporter = new LicenseUsageReporter(tool, HolderLock, utcNow, machineName, osUser);
@@ -38,10 +42,18 @@ public sealed class LicenseSwitching : IDisposable
         Coordinator = new LicenseSwitchCoordinator(tool, HolderLock, Results, Reporter, utcNow, enabled);
         Approvals = new LicenseApprovalExchange();
         SignInResults = new LicenseSignInResultStore(Path.Combine(directorFolder, "sign-in-results"), utcNow);
-        SignIns = new LicenseSignInCoordinator(tool, HolderLock, SignInResults, Reporter, Approvals, utcNow, enabled, signInDelay);
-        Approver = new LicenseApprover(tool, utcNow, enabled);
+        SignIns = new LicenseSignInCoordinator(tool, HolderLock, SignInResults, Reporter, Approvals, utcNow, enabled, signInDelay, BrowserLane);
+        Approver = new LicenseApprover(tool, utcNow, enabled, BrowserLane);
         Renewer = new LicenseRenewer(tool, HolderLock, Reporter, SignIns, utcNow);
+        ApproverCheck = new LicenseApproverCheck(tool, HolderLock, BrowserLane, browserProfiles ?? new AutomationBrowserProfiles(),
+            utcNow, enabled, offersApprovers);
     }
+
+    /// <summary>Keeps the daily approver check out of a running sign-in or approval.</summary>
+    public LicenseBrowserLane BrowserLane { get; }
+
+    /// <summary>The daily check of this machine's approver browser profiles (phase 6, Track C).</summary>
+    public LicenseApproverCheck ApproverCheck { get; }
 
     /// <summary>Whether license switching is on for this Director (read once, at start).</summary>
     public bool Enabled { get; }
@@ -84,9 +96,10 @@ public sealed class LicenseSwitching : IDisposable
         var storeDir = Environment.GetEnvironmentVariable(StoreDirVariable);
         var folder = DirectorFolder(storeDir);
         var enabled = Configuration.LicenseSwitchingSetting.Get();
-        FileLog.Write($"[LicenseSwitching] CreateForThisMachine: enabled={enabled}, folder={folder}, isolatedConfig={!string.IsNullOrWhiteSpace(configDir)}, isolatedStore={!string.IsNullOrWhiteSpace(storeDir)}");
+        var offersApprovers = Configuration.LicenseApproverOfferSetting.Get();
+        FileLog.Write($"[LicenseSwitching] CreateForThisMachine: enabled={enabled}, offersApprovers={offersApprovers}, folder={folder}, isolatedConfig={!string.IsNullOrWhiteSpace(configDir)}, isolatedStore={!string.IsNullOrWhiteSpace(storeDir)}");
         return new LicenseSwitching(new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(configDir, storeDir, AllowRealDefault: enabled)),
-            folder, () => DateTime.UtcNow, Environment.MachineName, Environment.UserName, enabled);
+            folder, () => DateTime.UtcNow, Environment.MachineName, Environment.UserName, enabled, offersApprovers: offersApprovers);
     }
 
     /// <summary>Puts the usage reporter on the scheduler once for the life of the process, when license switching is
@@ -104,10 +117,12 @@ public sealed class LicenseSwitching : IDisposable
         SignInResults.Prune();
         Reporter.Start(Background.BackgroundJobs.Default);
         Renewer.Start(Background.BackgroundJobs.Default);
+        ApproverCheck.Start(Background.BackgroundJobs.Default);
     }
 
     public void Dispose()
     {
+        ApproverCheck.Stop();
         Renewer.Stop();
         Reporter.Stop();
         HolderLock.Dispose();
