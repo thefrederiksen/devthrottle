@@ -50,6 +50,7 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     }
 
     private readonly TestClock _clock = new();
+    private readonly List<(TenantId Tenant, LicenseOwnerEmail Email)> _ownerEmails = new();
 
     private GatewayHost _gateway = null!;
     private HostedTestDevice _alice;
@@ -76,6 +77,12 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
             streamMode: true,
             options: new GatewayHostOptions { Hosted = true });
         _gateway.LicenseClock = _clock;
+        // Every owner email of this host is taken here: no test of this class reaches the account service.
+        _gateway.LicenseOwnerMail = (tenant, email, _) =>
+        {
+            lock (_ownerEmails) _ownerEmails.Add((tenant, email));
+            return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
+        };
         await _gateway.StartAsync();
 
         // The Gateway database is shared by every host this test process starts, so the accounts and the Directors
@@ -438,6 +445,11 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     [Fact]
     public async Task ASignedOutCheck_OverTheDirectorsHub_OpensTheApproverAlarm_AndACanApproveCheckClosesIt()
     {
+        // Bob has a healthy approver for the SAME account, so a raise that read or wrote across accounts would show.
+        using var bobSet = await SetApprover(_bobOwner, A, BobMachine);
+        Assert.Equal(HttpStatusCode.OK, bobSet.StatusCode);
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single((await _bobDirector.ReportLicenseApproverChecksAsync(CanApprove(A))).Rows).Outcome);
+        await _gateway.LicenseApproverAlarm.WhenIdleAsync();
         using var set = await SetApprover(_aliceOwner, A, ApprovingMachine);
         Assert.Equal(HttpStatusCode.OK, set.StatusCode);
 
@@ -455,6 +467,8 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
         Assert.Equal((LicenseApproverAlarm.Kind.Key, A), (open.Kind, open.AccountEmail));
         Assert.Equal($"The approver for {A} (browser profile \"work\" on {ApprovingMachine}) is not signed in to claude.ai.", open.Problem);
         Assert.Empty(_gateway.LicenseAlarms.ListOpen(_bob.Tenant));
+        Assert.Equal("ready", (await Get(_bobOwner, LicenseSignInRoutes.Approvers)).GetProperty("approvers")[0].GetProperty("status").GetString());
+        lock (_ownerEmails) Assert.Equal(_alice.Tenant, Assert.Single(_ownerEmails).Tenant);
 
         // It signs back in, the next check says so, and the alarm closes by itself.
         var healthy = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
