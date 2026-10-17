@@ -61,11 +61,40 @@ release and its exact commit.
 
 ## How to cut a release
 
-**Three steps: freeze the candidate, gate it once, tag it.** The full run-book is the
-`release-manager` skill.
+**A release is a tag on the last good commit** - the newest commit on main that the full test run
+passed. The full run-book is the `release-manager` skill.
 
-1. **Write `docs/public/release-notes/vX.Y.Z.md`** in a worktree cut from
-   origin/main. This file *is* the release page - the workflow publishes it
+1. **Claim the release:** `scripts/new-release.ps1 -Claim -Version X.Y.Z`. Only one session can hold
+   a version's claim.
+
+2. **Write `docs/public/release-notes/vX.Y.Z.md`** in a worktree. This file *is* the release page - the
+   workflow publishes it verbatim and **fails if it is missing or under 200 non-whitespace
+   characters**. It will not generate a substitute, because a page of internal pull request titles
+   looks like release notes and therefore ships unread. Leave it uncommitted; the script commits it.
+
+3. **Release:** `scripts/new-release.ps1 -Release -Version X.Y.Z -Yes`.
+
+### What the script does, and why in this order
+
+**The version is stamped on the last good commit, never on main's tip.** The script finds the newest
+commit on main with a successful full test run, and adds ONE commit on top of it that changes only
+`<Version>` in `Directory.Build.props` and adds the notes. That commit cannot change what any test
+sees, so it needs no test run of its own. The old flow merged the bump into main, which made a new
+commit that had to be tested from scratch; v2.23.0 took fifteen hours that way.
+
+**It proves that before anything is pushed**, then pushes branch `release/vX.Y.Z`, tags its commit,
+pushes the tag, and merges the branch back to main with a **merge commit** - never a squash - so the
+tagged commit stays on main's history and main carries the version and the notes.
+
+**main is protected by a ruleset requiring a pull request**, which is why the version reaches main
+through that merge rather than a push.
+
+**The release workflow checks it again where it cannot be skipped:** its first job refuses to build a
+tag whose commit is neither tested nor a tested commit plus only those two files.
+
+The script also refuses: a version that is not higher than the last release, a release when nothing new
+has passed a full run since the last tag, missing or placeholder notes, an existing tag, and a session
+that does not hold the claim. This file *is* the release page - the workflow publishes it
    verbatim and **fails if it is missing or under 200 non-whitespace
    characters**. It will not generate a substitute, because a page of internal
    pull request titles looks like release notes and therefore ships unread.

@@ -5,109 +5,108 @@ description: Guided run-book for cutting a DevThrottle release - assemble the ch
 
 # Release Manager
 
-The end-to-end run-book for releasing DevThrottle. Follow the steps in order. Each
-step has a gate you must clear before the next. The goal is a release that is
-accurate (never claims a design document is a shipped feature), documented in
-plain language that humans, search engines, and other agents can read, and
-announced only to people who have not opted out.
+The end-to-end run-book for releasing DevThrottle. **A release is a version tag on the LAST GOOD
+COMMIT** - the newest commit on main that a full test run passed - plus the notes. Nothing is tested
+at release time, so nothing at release time can go red. The target is one hour from "release it" to a
+published installer, and most of that hour is the owner reading the notes and the build running.
 
-This is enterprise software with a public repository. The release notes are a
-public, permanent record. Get them right.
+This is enterprise software with a public repository. The release notes are a public, permanent
+record. Get them right.
+
+## Why it works this way (17 October 2026)
+
+v2.23.0 took fifteen hours. The old flow merged a version bump and the notes into main, which made a
+NEW commit that had to be tested from scratch; a red result meant a fix, another commit and another
+full run, and two sessions fixed the same failure in parallel because nothing stopped a second release
+seat. Meanwhile GitHub's full run had already passed the code. The owner's words: "Why the hell can we
+not just release our software when we say, and then an hour later we have a release?"
+
+So now:
+- **Main is tested by itself.** `.github/workflows/ci.yml` runs the full suite (Release build, every
+  suite including the parked ones) every two hours when main has moved. Every commit it passes is a
+  last good commit. A red run opens an issue - fix or revert it at once, before other work.
+- **A release is cut from the last good commit, never from main's tip.** `scripts/new-release.ps1
+  -Release` adds ONE commit on top of it holding only the version in `Directory.Build.props` and the
+  notes file, tags that, and merges it back to main with a merge commit.
+- **The release workflow refuses anything else.** Its first job, "The tagged commit is a tested commit
+  plus its notes", stops every build unless the tagged commit has a green full run, or its parent does
+  and the tagged commit changes only those two files.
+- **One release seat.** `new-release.ps1 -Claim` creates the branch `release-claim/v<version>` only if
+  it does not exist; a second session is refused and told who holds it. Only the holder can release.
+- Work merged after the last good commit is not in this release. It goes in the next one. Nothing
+  waits for it.
 
 ## Quick Reference
 
 | Step | What happens | Gate before moving on |
 |------|--------------|-----------------------|
-| 1 | Pre-flight: sync to origin/main, confirm it is green | Your view is not stale; the mainline builds and passes |
-| 2 | Decide the version number | Agreed with the human |
-| 3 | Assemble the change list from git | Full list, categorized |
+| 1 | Claim the release: `new-release.ps1 -Claim -Version <v>` | You hold the claim |
+| 2 | Find the last good commit: `new-release.ps1 -Release -Version <v>`, answer N | You know exactly which commits ship |
+| 3 | Assemble the change list, last tag .. last good commit | Full list, categorized |
 | 4 | Accuracy gate: shipped vs designed | Every headline is real, running code |
 | 5 | Write the canonical release notes markdown | File written in the required shape |
 | 6 | Coordinate the internal documentation site | Internal session has the file, building in draft |
-| 7 | Human signs off on the notes | The human says the wording is correct |
-| 8 | Freeze the candidate: `new-release.ps1` merges bump and notes in ONE pull request | Merged; its merge commit is the candidate |
-| 9 | Gate the candidate once; the human tags it with `new-release.ps1 -Tag` | `assert-gated.ps1` accepts the candidate; tag pushed |
+| 7 | The owner signs off on the notes | The owner says the wording is correct |
+| 8 | Deploy the Gateway if the release needs it | `/healthz` reports a commit that has the Gateway side |
+| 9 | Release: `new-release.ps1 -Release -Version <v> -Yes` | Tag pushed, workflow green, release Latest |
 | 10 | Announce to the mailing list | Only if the opt-out feature is live and tested |
 | 11 | Post-release verification | Download and unsubscribe both work |
 
 ## CRITICAL rules
 
-- **Never claim a design document is a shipped feature.** Step 4 exists because it
-  is easy to read an architecture document and write "we added X" when the code
-  is not merged, or is merged but turned off by default. Verify against the code.
-- **A release that adds or changes a Gateway hub method deploys the hosted Gateway
-  BEFORE the tag is pushed.** The desktop Director auto-updates; the hosted Gateway
-  does not - it ships only when someone runs the deploy workflow. So a release that
-  teaches the Director to call something the live Gateway has never heard of puts
-  every machine in the fleet on a version the Gateway cannot serve, the moment they
-  update. That is not hypothetical: v1.9.9 made the per-session Gateway key the only
-  door an agent has to the fleet, the hosted Gateway had not been deployed since
-  before `RegisterSessionKey` existed, and every session on every machine had its key
-  refused with 401 until the Gateway was deployed hours later (#2457, #2459).
-  Check with `git diff <last-tag>..origin/main -- src/CcDirector.Gateway/Streaming/`;
-  if anything there changed, deploy first (see the `deploy-hosted-gateway` skill),
-  confirm `/healthz` reports the new commit, and only then cut the tag.
-- **The human publishes the release, never the agent.** Cutting the tag is an
-  outward-facing, hard-to-reverse action. Prepare everything; the human clicks
-  publish.
-- **Never send a bulk email without a working, tested unsubscribe.** Step 10 is
-  gated on the mailing-list opt-out feature being live. If it is not, hold the
-  email and ship the release without it.
-- **Do not commit unless the human asks.** Even after one commit, a later commit
-  needs its own explicit request.
-- **The candidate is frozen.** The version bump and the notes merge together in one
-  pull request, and its merge commit is the release candidate. The notes are never
-  edited after that merge, the gate runs once on that commit, and the tag goes on that
-  commit even when main has moved on. Work merged after the candidate waits for the
-  next release. See Step 8.
-- **One seat runs the release gate.** The release seat - the session running this
-  skill - is the only session that runs `-Parked` for a candidate. Every other session
-  runs the default gate. Two release gates on one machine fight over the Gateway test
-  lock, and the loser executes nothing.
-- **Work in your own worktree cut from origin/main**, never the shared checkout. Stage
-  only the files you created or changed, by name. Never `git add -A`.
-- **Plain English, no abbreviations. ASCII only, no emoji or special symbols.**
-  This applies to the notes, the emails, and every message.
+- **Release only from the last good commit.** Never tag main's tip, never cut a "candidate", never run
+  the full gate at release time. If no new commit has a green run since the last tag, there is nothing
+  to release yet: start a run by hand (`gh workflow run CI --repo thefrederiksen/devthrottle --ref main`)
+  and release when it is green.
+- **Never claim a design document is a shipped feature.** Step 4 exists because it is easy to read an
+  architecture document and write "we added X" when the code is not merged, or is merged but turned off
+  by default. Verify against the code AT THE LAST GOOD COMMIT (`git show <last-good>:path`).
+- **A release that adds or changes a Gateway hub method deploys the hosted Gateway BEFORE the tag.** The
+  desktop Director auto-updates; the hosted Gateway does not. v1.9.9 shipped a Director that called a
+  hub method the live Gateway had never heard of, and every session's key was refused with 401 until the
+  Gateway was deployed hours later (#2457, #2459). Check with
+  `git diff <last-tag>..<last-good> -- src/CcDirector.Gateway/Streaming/ src/CcDirector.Gateway.Contracts/`;
+  if the Gateway has not been deployed at or after those changes, deploy first (`deploy-hosted-gateway`
+  skill) and confirm `/healthz`.
+- **The owner signs off the notes; the release seat then releases.** When the owner says to release,
+  run `-Release -Yes` yourself - never hand the command back.
+- **Never send a bulk email without a working, tested unsubscribe.** Step 10 is gated on it.
+- **Work in your own worktree cut from origin/main**, never the shared checkout.
+- **Plain English, no abbreviations. ASCII only, no emoji or special symbols.** This applies to the
+  notes, the emails, and every message.
 
 ## Workflow
 
-### Step 1: Pre-flight
-
-The single most common mistake is releasing from a stale local view. Do this first:
+### Step 1: Claim the release
 
 ```bash
-git fetch origin --tags -q
-git rev-list --count <last-tag>..origin/main    # how many commits shipped
+git fetch origin --tags
+git worktree add ../devthrottle-release-v<version> --detach origin/main
+cd ../devthrottle-release-v<version>
+.\scripts\new-release.ps1 -Claim -Version <version>
 ```
 
-- Confirm the release is cut from `origin/main`, and that your local branch is not
-  behind it. The code you are documenting lives on `origin/main`; your working
-  branch may not have it.
-- Know that a release is gated by a LOCAL run, not by continuous integration, and that the run
-  which counts happens later - on the frozen candidate, the merge commit of the bump-and-notes
-  pull request (Step 8). A run against the pull-request head does not count: the squash merge
-  produces a different commit. It is ONE command,
-  `.\scripts\test-local.ps1 -Parked -Configuration Release`, and it is the one release-blocking
-  wait, because the release workflow runs ZERO tests and a pushed tag cannot be un-pushed. A
-  release is the single place "fix it forward" is unavailable.
-- An early warning is the DEFAULT run (`.\scripts\test-local.ps1`), never `-Parked`. A parked run
-  now is not the gate - the candidate does not exist yet - and it is one more contender for the
-  Gateway test lock.
+Apply semantic versioning (`docs/Release-Process.md`): new backward-compatible features raise the minor
+number; bug fixes only raise the patch number. Put the number in front of the owner together with the
+notes, not as a separate wait. If the claim is refused, another seat is releasing: tell the owner which
+one, and stop. If you abandon a release, run `-Unclaim`.
 
-### Step 2: Decide the version number
+### Step 2: Find the last good commit
 
-- Find the last product tag: `git tag --sort=-creatordate` (ignore non-product
-  tags such as `agenteyes-latest`).
-- Apply semantic versioning (see `docs/Release-Process.md`): new backward-
-  compatible features raise the minor number (for example v1.0.7 to v1.1.0); bug
-  fixes only raise the patch number.
-- Confirm the number with the human.
+```bash
+.\scripts\new-release.ps1 -Release -Version <version>      # answer N at the question
+```
+
+It needs the notes file to exist, so write a stub of at least 200 characters first, or run it again
+after Step 5. It prints the last good commit, the commits since the last tag that it covers, and how many
+newer commits on main are still waiting for their first green run. Those waiting commits are NOT in this
+release - do not describe them in the notes.
 
 ### Step 3: Assemble the change list
 
 ```bash
-git log <last-tag>..origin/main --first-parent --format="%s"
-git log <last-tag>..origin/main --merges --format="%s"
+git log <last-tag>..<last-good> --first-parent --format="%s"
+git log <last-tag>..<last-good> --merges --format="%s"
 ```
 
 Read every line. Group the changes into a small number of themes (for example
@@ -116,7 +115,7 @@ few headline items from the many smaller ones.
 
 ### Step 4: Accuracy gate (mandatory)
 
-For each headline item, verify against the code, not the documentation:
+For each headline item, verify against the code at the last good commit, not the documentation:
 
 - Does real, running code implement it, or does only a design or plan document
   exist? Search for the actual types, endpoints, and interface elements.
@@ -127,14 +126,13 @@ For each headline item, verify against the code, not the documentation:
   reader could check and find false.
 
 If a headline is design-only or flag-gated, change the wording to the truth, or
-drop it, before writing the notes. When in doubt, spawn a read-only Explore agent
-to return an evidence-backed verdict per feature with file paths.
+drop it, before writing the notes.
 
 ### Step 5: Write the canonical release notes
 
-Write to `docs/public/release-notes/v<version>.md` in the public repository. This
-file is the single source of truth: the GitHub release body and the internal
-documentation website both draw from it. Newest release at the top of the folder.
+Write `docs/public/release-notes/v<version>.md` in your worktree. It may stay uncommitted: the release
+step commits it on top of the last good commit. This file is the single source of truth: the GitHub
+release body and the internal documentation website both draw from it.
 
 Use exactly this shape, because the internal site folds it in near-mechanically:
 
@@ -174,9 +172,8 @@ no release facts; it only expands and phrases what the public file states.
   (body file `website/src/content/docs/reference/changelog.jsx`, manifest
   `website/src/content/docsList.js`). Every release prepends a new
   `## v<version>` block, newest first. Do not create a new changelog page.
-- The internal pipeline is a React body plus a manifest record, not markdown with
-  front matter, so the transform from your markdown is the internal session's
-  job. You only owe it clean, structured markdown in the shape above.
+- The transform from your markdown is the internal session's job. You only owe it
+  clean, structured markdown in the shape above.
 - To coordinate, open or find a session on the internal repository and hand it the
   path to your finished file:
 
@@ -188,129 +185,48 @@ cc-devthrottle message send <session-id> "<one-line message with the file path>"
   Fleet messages must be a single line; newlines are truncated. For anything long,
   write a brief to a file and send the path.
 - The internal session builds in draft and holds until you send an explicit
-  "FINAL" message. Do not send FINAL until the human has signed off (Step 7) and,
-  if the changelog would claim the release shipped, until the release is actually
-  cut (Step 9). Publishing the changelog before the tag exists claims a release
-  that has not happened.
+  "FINAL" message. Do not send FINAL until the release is published (Step 9).
 
-### Step 7: Human sign-off
+### Step 7: The owner signs off
 
-Show the human the full notes text. Change whatever they ask. Nothing is committed,
-published, or sent until they confirm the wording is correct.
+Publish the notes and the version number to the owner as a dev report (or show them in the chat when
+the owner is there). Change whatever they ask. Nothing is tagged until they confirm.
 
-### Step 8: Freeze the candidate
+### Step 8: Deploy the Gateway if the release needs it
 
-Only when the human asks you to commit. The version bump and the notes travel in ONE
-pull request, and its merge commit is the release candidate. Never merge them separately:
-the release workflow requires the notes file in the tagged tree and the gate must run on
-the tagged commit, so every separate notes edit is a new commit that voids any gate run
-already under way. v2.18.0 rewrote its notes four times this way, each time to cover
-work merged while a gate was running.
+See the CRITICAL rule. If `/healthz` already reports a commit at or after the last good commit's
+Gateway changes, there is nothing to do.
 
-`scripts/new-release.ps1` does this step, and only this step:
+### Step 9: Release
 
-    git fetch origin
-    git worktree add ../devthrottle-release-v<version> -b release/v<version> origin/main
-    cd ../devthrottle-release-v<version>
-    # write docs/public/release-notes/v<version>.md here, covering the last tag up to origin/main
-    .\scripts\new-release.ps1 -Version <version> -Yes
+```bash
+.\scripts\new-release.ps1 -Release -Version <version> -Yes
+```
 
-`-Version` and `-Yes` are what let a seat run it: without them it asks, and a
-non-interactive session cannot answer. The human's sign-off is Step 7. It refuses unless
-the checkout is exactly origin/main plus the notes file. It bumps
-`Directory.Build.props` (the version lives in exactly that one file), commits the bump with
-the notes, opens the `release: v<version>` pull request and merges it - and it does NOT tag.
+It checks the claim and the notes, makes the one release commit on the last good commit, proves it
+changes only the version and the notes, pushes `release/v<version>`, tags it, pushes the tag, merges
+the branch back to main with a merge commit (never a squash - the tagged commit must stay on main's
+history), and gives up the claim. Then watch the release workflow to the end:
 
-The notes describe the last tag up to the base the pull request was cut from, so the
-candidate must be exactly that base plus this one commit. The script checks both ends:
-- If main moved before the merge, it stops with the pull request open and unmerged, and
-  lists what landed. **If main moved**, recut in the same worktree. Copy
-  `docs/public/release-notes/v<version>.md` out of it first, then, inside it:
+```bash
+gh run list --repo thefrederiksen/devthrottle --workflow release.yml --limit 1
+gh run watch <id> --repo thefrederiksen/devthrottle --exit-status
+gh release view v<version> --repo thefrederiksen/devthrottle --json isDraft,assets
+```
 
-      gh pr close release/v<version>
-      git checkout --detach origin/main
-      git branch -D release/v<version>
-      git push origin --delete release/v<version>
-      git fetch origin
-      git checkout -b release/v<version> origin/main
+The release is done when it is published (not a draft) with `release-manifest.json` attached. v2.23.0
+went from tag to published in nine minutes.
 
-  Detaching first frees the branch, which git will not delete while it is checked out.
-  Copy the notes back in, extend them to cover what landed, and run the script again.
-- After the merge it checks that the candidate's parent is that base. If not, it says so:
-  the candidate carries work the notes do not cover, and must not be gated or tagged.
+**Do NOT create or publish a GitHub release by hand, and do NOT paste the notes into the release body.**
+The workflow creates the release as a DRAFT, attaches every asset, and publishes it only once
+`release-manifest.json` is attached. A release published before its assets exist is "latest" while
+uninstallable (issue #1079), and a hand-written body is how v1.8.7 shipped a list of pull-request
+titles (issue #1106).
 
-It prints the candidate commit, C. From here the candidate is frozen:
-- The notes are never edited again for this candidate.
-- Work merged to main after C waits for the next release. It is not added to the notes
-  and does not move the candidate.
+If the workflow's first job refuses the tag, read its message: the tagged commit was not a tested
+commit plus its notes. Do not work around it.
 
-### Step 9: Gate the candidate once, then tag it (the human publishes)
-
-Read this whole step before you start. The release seat runs the gate and confirms it is
-green; the human runs the tag step, because pushing a tag is the one irreversible act.
-
-1. **Run the release gate ONCE, on the candidate C, in a worktree of its own.** Only the
-   release seat runs it, and it is one command:
-
-       git fetch origin
-       git worktree add ../devthrottle-gate-v<version> --detach <C>
-       cd ../devthrottle-gate-v<version>
-       .\scripts\test-local.ps1 -Parked -Configuration Release
-
-   - `-Parked` adds the three suites the default run skips: `Gateway.Tests`, `Core.Tests` and
-     `Gateway.UnitTests`. The installer suites (`cc-director-setup.Tests`,
-     `cc-director-setup-engine.Tests`, `cc-director-setup-cli.Tests`) are already in the
-     script's own project list. Do not run them again by hand.
-   - `-Configuration Release` matches what is shipped. The script defaults to **Debug**.
-   - The worktree is detached at C on purpose: main may move during the run, and the gate
-     certifies C, not whatever main is when the run finishes.
-2. **If the gate is red, C is not released.** Do not run the gate on C again: a worktree
-   detached at C never sees a fix made on main, so a second run is a retry, and a retry that
-   happens to pass hides the defect. Find the cause - a flaky test is a defect in the test,
-   and it is fixed like any other - and fix it on main. Then cut a new candidate: a pull
-   request that corrects the notes to cover everything merged since the last tag, merged when
-   nothing else has landed since its base, whose merge commit is the new C. Nothing checks that
-   last condition for you on a recut candidate: before gating it, confirm
-   `git rev-parse <C>^` is the base you extended the notes against. Gate it once.
-3. **The human tags the gated candidate:**
-
-       .\scripts\new-release.ps1 -Tag <C>
-
-   It refuses unless C is on origin/main, C itself changes the notes for its version (a later
-   commit that merely carries them is not a candidate), and
-   `scripts/assert-gated.ps1 <C>` accepts it - that script refuses a commit with no green
-   `-Parked` run recorded against it. If `assert-gated.ps1` is not in the checkout, the tag
-   step refuses too: nothing can prove C was gated. Only then does it tag C and push the tag.
-
-   The tag goes on C even when main has moved on. A tag does not have to be the tip of main,
-   and C is on main because it is the squash commit of the candidate pull request. That push
-   is the last manual act. Monitor the Actions run.
-4. Remove the gate and release worktrees and the local release branch (the merge deleted
-   the remote one): `git worktree remove ../devthrottle-gate-v<version>`,
-   `git worktree remove ../devthrottle-release-v<version>`, `git branch -D release/v<version>`.
-
-**Do NOT create or publish a GitHub release by hand, and do NOT paste the notes into
-the release body.** The workflow does both: it creates the release as a DRAFT, attaches
-every asset, and publishes it only once `release-manifest.json` is provably attached.
-
-Two defects live in the habit of doing it by hand, and both produce something that
-looks right to whoever reads it:
-
-- A release published before its assets exist is "latest" while being uninstallable.
-  Measured on v1.8.8: published 10:48:48Z, assets attached 10:54:11Z, and a launcher
-  that checked at 10:54:05Z failed. A failed update check renders exactly like being up
-  to date, so nobody notices (issue #1079). If you pre-create a published release, the
-  workflow attaches its assets to yours and the window comes straight back.
-- Pasting or generating the body by hand is why the page was right by accident rather
-  than by design; v1.8.7 shipped a list of internal pull-request titles (issue #1106).
-
-If you ever cut a tag before the bump commit is on `main`, reconcile it: push the
-tagged commit to a `release/v<version>` branch, open a pull request into `main`, and
-merge it with a **merge commit, never a squash**, so the tagged commit stays
-reachable from the mainline.
-
-Once the tag exists, send the internal session "FINAL" so it deploys the changelog
-and any concept pages.
+Once the release is published, send the internal session "FINAL" so it deploys the changelog.
 
 ### Step 10: Announce to the mailing list (gated)
 
@@ -323,7 +239,7 @@ When the precondition is met:
 
 1. Draft the announcement email from the canonical release notes (use the `/write`
    skill for voice).
-2. Render an HTML mockup and get the human's approval in the chat.
+2. Render an HTML mockup and get the owner's approval in the chat.
 3. Send only to members who have not opted out. Every message must carry a working
    one-click unsubscribe link and a physical postal address, with an honest sender
    and subject.
@@ -355,48 +271,27 @@ This feature is built and tested once; thereafter Step 10 simply uses it.
 
 ## Examples
 
-**User:** `/release-manager`
+**Owner:** "Release it."
 
-**Agent:**
-1. Fetches origin, finds the mainline is 59 commits ahead of the last tag v1.1.0.
-2. Proposes v1.2.0 (new features, backward compatible); the human agrees.
-3. Assembles the change list; groups it into roles, transcription, mobile, security.
-4. Verifies the two headliners against the code: the role model is shipped and on
-   by default; the second is merged but defaults to off, so writes it as an opt-in
-   preview rather than a headline feature.
-5. Writes `docs/public/release-notes/v1.2.0.md` in the required shape.
-6. Hands the file path to the internal session, which folds it into the changelog
-   in draft and holds for FINAL.
-7. The human signs off on the wording.
-8. On request, runs `scripts/new-release.ps1 -Version 1.2.0 -Yes` from a worktree cut from origin/main,
-   which merges the bump and the notes in one pull request and prints the candidate.
-9. Runs the release gate once on the candidate in a detached worktree; it is green,
-   so the human runs `new-release.ps1 -Tag <candidate>`, which checks
-   `assert-gated.ps1` and tags the candidate; Actions attaches the executable; the
-   agent sends the internal session FINAL.
-10. The opt-out feature is not yet live, so the announcement email is recorded as a
-    fast-follow rather than sent.
-11. Verifies the download link and the changelog page.
+**Release seat:**
+1. Cuts a worktree, runs `-Claim -Version 2.24.0` and holds the claim.
+2. Runs `-Release -Version 2.24.0`, answers N: last good commit 1a2b3c4, 23 commits since v2.23.0,
+   4 newer commits waiting for their first green run.
+3. Reads the 23 commits, groups them, checks the headliners against the code at 1a2b3c4.
+4. Writes `docs/public/release-notes/v2.24.0.md` and hands the path to the internal session.
+5. Publishes the notes to the owner; the owner says "looks good".
+6. The Gateway is already on a later commit - nothing to deploy.
+7. Runs `-Release -Version 2.24.0 -Yes`; watches the workflow; v2.24.0 is Latest with the manifest.
+8. Sends the internal session FINAL; checks the download link.
 
 ---
 
-**Skill Version:** 1.2
-**Last Updated:** 2026-10-10
-**Changes in 1.2:** The frozen candidate: the version bump and the notes merge in one pull
-request, its merge commit is the candidate, the notes are never edited after, the gate runs
-once on it, the tag goes on it, and work merged later waits. `scripts/new-release.ps1` now
-does Step 8 only, and refuses if main moved under the notes; its `-Tag` mode tags only a
-candidate `assert-gated.ps1` accepts. A red candidate is never re-run: the fix makes a new
-candidate. One seat runs the release gate.
-The gate is one command - the installer suites were already in the script, so the two
-hand-run `dotnet test` lines are gone. The early warning is the default run, never `-Parked`.
-The two stale claims about `new-release.ps1` and `docs/Release-Process.md` are gone.
-**Changes in 1.1:** Recovered - version 1.0 was written but never landed, and was named
-`skill.md` where the runtime requires `SKILL.md`, so it never loaded for any session
-despite being referenced. Renamed and corrected on landing: Step 9 now records that
-`main` is branch-protected, so `scripts/new-release.ps1` cannot finish (issue #1133) and
-the version bump reaches main through a pull request like any other change; that the
-version lives only in `Directory.Build.props`; and that `docs/Release-Process.md` is
-itself stale (it still cites `CcDirector.Wpf.csproj` from before the move to Avalonia).
-Added the tag-before-bump reconciliation recipe (merge commit, never squash). Refreshed
-the worked example, which described the already-shipped v1.1.0 as prospective.
+**Skill Version:** 2.0
+**Last Updated:** 2026-10-17
+**Changes in 2.0:** A release is a tag on the LAST GOOD COMMIT. The full suite runs on main every two
+hours by itself; `new-release.ps1` claims the release (one seat), finds the newest green commit, adds
+only the version and the notes, tags it and merges it back. The release workflow refuses a tag on
+anything else. The frozen candidate, the release gate at release time and the recut are gone from the
+flow - v2.23.0 lost fifteen hours to them while its code had already passed every test.
+**Changes in 1.2:** The frozen candidate (now retired).
+**Changes in 1.1:** Recovered the skill; the version lives only in `Directory.Build.props`.
