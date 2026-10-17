@@ -49,4 +49,10 @@ summaries.
 | `auto-mode-question-settled` (the control, answered "Don't show again") | 2 of 2 | 2 of 2 |
 | Claude Code `first`, `idle-short` | - | 2 of 2 each |
 
-**Cost:** 12 attempts. Each attempt that started made two one-word Sonnet turns; the two refused attempts made none.
+After the review (commit `cd0a3d38d`), on the committed tree (`rates-fix-committed.txt`, the rows tagged
+`cd0a3d38d132`): `auto-mode-question` 2 of 2 refused in words, `auto-mode-question-settled` 2 of 2. The first fix rows
+above carry `b18b5423932a+local-changes`, because they were recorded before the commit. The unsettled scenario now
+counts only on a machine whose Claude Code is offered the question; elsewhere it is a setup failure. The two main rows
+meet that test: the question is on the screen recorded in each.
+
+**Cost:** 16 attempts. Each attempt that started made two one-word Sonnet turns; the four refused attempts made none.

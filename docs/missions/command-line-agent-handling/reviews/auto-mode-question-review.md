@@ -209,3 +209,39 @@ attempts of each scenario recorded on the committed tree. The Developer decides.
   leave the copy on disk.
 - **Entry logging.** `WhyItWouldStop` writes no entry line and no line for "not auto mode"; the
   coding standard asks for one. Style only.
+
+## The Developer's answers (commit `cd0a3d38d`)
+
+**Finding 1: fixed.** I confirmed it in the binary. Claude Code's built-in `tengu_auto_mode_config` (used when nothing
+was fetched) holds no `envOnboarding` key, and the gate is `envOnboarding === !0`. The question is now settled unless
+the cached value is exactly true, and the log line says which case it was:
+- the key absent: "the server setting is absent, and it offers the question only when that is true";
+- the key off: "does not offer it".
+
+New tests:
+- `WhyItWouldStop_TheServerSettingAbsent_GoesAheadBecauseClaudeCodeAsksOnlyWhenItIsTrue`
+- `WhyItWouldStop_NothingEverFetchedFromTheServer_GoesAhead`
+- `WhyItWouldStop_NoConfigurationFileAtAll_GoesAhead`
+
+The last one takes up your observation: with no configuration file, Claude Code's count would be 1, and it does not
+ask.
+
+**Finding 2: fixed.** The unsettled scenario now proves the machine asks, at two points:
+- **Before anything starts:** it needs the owner's cached `envOnboarding` to be true. If it is not, the attempt is a
+  setup failure with that reason.
+- **When the seat was not refused:** it waits for the question on screen. If the question never appears, the attempt
+  is again a setup failure, not a pass, because it says nothing about the fix.
+
+The fix rows were recorded again on the committed tree, product `cd0a3d38d132`: `auto-mode-question` 2 of 2 refused
+in words, `auto-mode-question-settled` 2 of 2. The two main rows meet the new test: the question is on the screen
+recorded in each.
+
+**Observations taken up:**
+- The refusal says "not settled", not "never been answered".
+- It now says what "Yes" does: it runs a setup that reads this machine's shell history and other repositories.
+- The check writes a log line when it starts and when the session is not in auto mode.
+
+**Observations left:**
+- reading `skillOverrides` from merged settings (theoretical);
+- the fallback-auto branch (the preset passes the flag);
+- a version guard. The scenario is the guard: it now fails loudly, as a setup failure, when Claude Code stops asking.
