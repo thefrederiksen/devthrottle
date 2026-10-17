@@ -1,6 +1,9 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
+using CcDirector.Gateway.ApiModeDisplay;
+using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Contracts.ApiMode;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Streaming;
@@ -148,5 +151,122 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
     public void Read_ASessionIdThatIsNotAnIdentifier_IsABadRequest()
     {
         Assert.Equal(StatusCodes.Status400BadRequest, Status(Get(Alice, "not-a-session-id")));
+    }
+
+    // ----- a queued receipt's place in line, derived at read time -----
+
+    private const string Ack = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""";
+
+    private void RecordQueued(string prompt, long sequence, string generation = "gen-a", DateTime? started = null)
+    {
+        using (_boundary.EnterScope(Alice))
+            _store.RecordQueued(AliceDirector, AliceSession, prompt, "turnRunning", new ApiModeEventPosition(generation, started ?? T0, sequence), T0);
+    }
+
+    private Dictionary<string, string> WordsByPrompt()
+        => Body(Get(Alice, AliceSession)).Receipts.ToDictionary(r => r.PromptId, r => r.Words);
+
+    [Fact]
+    public void Read_ThreeQueuedPrompts_EachSaysItsPlaceInLine()
+    {
+        // Arrange
+        RecordQueued("p1", 1);
+        RecordQueued("p2", 2);
+        RecordQueued("p3", 3);
+
+        // Act
+        var receipts = Body(Get(Alice, AliceSession)).Receipts;
+
+        // Assert
+        Assert.Equal(new int?[] { 1, 2, 3 }, receipts.Select(r => r.QueuePosition));
+        Assert.Equal(new[]
+        {
+            "Queued, 1st in line: a turn is running",
+            "Queued, 2nd in line: a turn is running",
+            "Queued, 3rd in line: a turn is running",
+        }, receipts.Select(r => r.Words));
+    }
+
+    [Fact]
+    public void Read_TheOneAheadIsDelivered_TheWaitingPromptMovesUp()
+    {
+        // Arrange
+        RecordQueued("p1", 1);
+        RecordQueued("p2", 2);
+        using (_boundary.EnterScope(Alice))
+            _store.RecordDelivered(AliceDirector, AliceSession, "p1", "started", Ack, At(3), T0);
+
+        // Act
+        var receipts = Body(Get(Alice, AliceSession)).Receipts.ToDictionary(r => r.PromptId);
+
+        // Assert: the place is what it is now, not what it was when p2 was queued.
+        Assert.Equal(("Delivered", (int?)null), (receipts["p1"].Words, receipts["p1"].QueuePosition));
+        Assert.Equal(("Queued, 1st in line: a turn is running", (int?)1), (receipts["p2"].Words, receipts["p2"].QueuePosition));
+    }
+
+    [Fact]
+    public void Read_AReceiptStillQueuedFromAnOlderGeneration_SaysTheOldWordsWithNoPlace()
+    {
+        // Arrange: p1 was queued by a Director that has since restarted; p2 by the new one.
+        RecordQueued("p1", 7);
+        RecordQueued("p2", 1, "gen-b", T0.AddHours(1));
+
+        // Act
+        var receipts = Body(Get(Alice, AliceSession)).Receipts.ToDictionary(r => r.PromptId);
+
+        // Assert
+        Assert.Equal(("Queued: a turn is running", (int?)null), (receipts["p1"].Words, receipts["p1"].QueuePosition));
+        Assert.Equal(("Queued, 1st in line: a turn is running", (int?)1), (receipts["p2"].Words, receipts["p2"].QueuePosition));
+    }
+
+    [Fact]
+    public void Read_AndTheLiveRuling_GiveTheSameWordsForEveryReceiptAfterEveryEvent()
+    {
+        // Arrange: the same events reach the store (as the ingest writes it) and a live stream's ruling, and the stream's
+        // opening after a reset words the stored receipts the way the live endpoint does.
+        var events = new SessionEvent[]
+        {
+            Tests.ApiModeEvents.ApiModeEventTestData.Queued(1, "p1", sid: AliceSession, position: 1),
+            Tests.ApiModeEvents.ApiModeEventTestData.Queued(2, "p2", sid: AliceSession, position: 2),
+            Tests.ApiModeEvents.ApiModeEventTestData.Queued(3, "p3", sid: AliceSession, position: 3),
+            Tests.ApiModeEvents.ApiModeEventTestData.Refused(4, "p2", "Pi is not running: the process exited", PromptRefusedBy.Director, AliceSession),
+            Tests.ApiModeEvents.ApiModeEventTestData.Queued(5, "p2", sid: AliceSession, position: 2),
+            Tests.ApiModeEvents.ApiModeEventTestData.Delivered(6, "p1", Ack, AliceSession),
+            Tests.ApiModeEvents.ApiModeEventTestData.Delivered(7, "p3", Ack, AliceSession),
+        };
+        var ruling = new ApiModeLiveRuling();
+        var shown = new Dictionary<string, string>();
+
+        foreach (var e in events)
+        {
+            // Act
+            Apply(e);
+            foreach (var item in ruling.Rule(new ApiModeHeldEvent("gen-a", T0, e)))
+                shown[item.PromptId!] = item.Text;
+            var read = WordsByPrompt();
+            IReadOnlyList<ApiModeStoredReceipt> stored;
+            using (_boundary.EnterScope(Alice))
+                stored = _store.ReadWithPositions(AliceSession);
+            ApiModeLiveRuling.PlaceInLine(stored);
+            var opening = stored.ToDictionary(r => r.Receipt.PromptId, r => ApiModeLiveRuling.ReceiptItem(r.Receipt, 0).Text);
+
+            // Assert
+            Assert.Equal(read.OrderBy(kv => kv.Key, StringComparer.Ordinal), shown.OrderBy(kv => kv.Key, StringComparer.Ordinal));
+            Assert.Equal(read.OrderBy(kv => kv.Key, StringComparer.Ordinal), opening.OrderBy(kv => kv.Key, StringComparer.Ordinal));
+        }
+        Assert.Equal("Queued, 1st in line: a turn is running", WordsByPrompt()["p2"]);
+    }
+
+    /// <summary>One receipt event into the store, as the ingest writes it.</summary>
+    private void Apply(SessionEvent e)
+    {
+        using var scope = _boundary.EnterScope(Alice);
+        switch (e)
+        {
+            case PromptQueued q: _store.RecordQueued(AliceDirector, AliceSession, q.PromptId, ApiModeEventIngest.Word(q.Reason), At(q.Sequence), T0); break;
+            case PromptDelivered d: _store.RecordDelivered(AliceDirector, AliceSession, d.PromptId, ApiModeEventIngest.Word(d.Disposition), d.Acknowledgement, At(d.Sequence), T0); break;
+            case PromptRefused f: _store.RecordRefused(AliceDirector, AliceSession, f.PromptId, f.Reason, ApiModeEventIngest.Word(f.RefusedBy), At(f.Sequence), T0); break;
+            default: throw new InvalidOperationException($"no store write for {e.GetType().Name}");
+        }
     }
 }

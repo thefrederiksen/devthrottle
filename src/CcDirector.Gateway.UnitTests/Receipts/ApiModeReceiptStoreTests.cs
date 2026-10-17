@@ -353,6 +353,26 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     }
 
     [Fact]
+    public void Read_QueuedPrompts_AreReadInTheOrderTheyWereQueuedAndCarryNoStoredPlaceInLine()
+    {
+        // Arrange: p2 refused and retried behind p3. The place in line is derived from this order at read time (the
+        // receipts route and the live stream), never stored, so the store answers none.
+        var store = Store();
+        store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0);
+        store.RecordQueued(Director, Sid, "p2", "turnRunning", At(2), T0);
+        store.RecordRefused(Director, Sid, "p2", PiNotRunning, "director", At(3), T0);
+        store.RecordQueued(Director, Sid, "p3", "turnRunning", At(4), T0);
+
+        // Act
+        store.RecordQueued(Director, Sid, "p2", "turnRunning", At(5), T0);
+        var read = store.Read(Sid);
+
+        // Assert
+        Assert.Equal(new[] { "p1", "p3", "p2" }, read.Select(r => r.PromptId));
+        Assert.All(read, r => Assert.Null(r.QueuePosition));
+    }
+
+    [Fact]
     public void RecordTurnEnded_Twice_TheOutcomeIsWrittenOnce()
     {
         var store = Store();
