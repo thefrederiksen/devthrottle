@@ -37,9 +37,13 @@ public sealed class LicenseApproverReadiness
     /// can approve now, else the finished sentence of why not and the one thing to do - for example "No machine is set
     /// to approve sign-ins for alice@example.com. Set an approver for alice@example.com on the Licenses page."
     /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="accountEmail"/> is missing or not an account email: a
+    /// sentence folded from it would read as "no approver" when the fault is the caller's.</exception>
     public string? WhyNotReady(TenantId tenant, string? accountEmail)
     {
         var account = LicenseStore.NormalizeEmail(accountEmail);
+        if (!LicenseApproverStore.IsAccountEmail(account))
+            throw new ArgumentException("accountEmail is the email of a Claude account.", nameof(accountEmail));
         var now = _nowUtc();
         var approver = _approvers.Find(tenant, account);
         var label = approver is null ? "" : LicenseSignInFold.Label(_reads.Read(tenant, now).Machines, approver.MachineName, approver.OsUser);

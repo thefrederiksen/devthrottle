@@ -70,6 +70,7 @@ Each pins one sentence character for character, because the Cockpit and Track A 
 | `Verdict_AStateThatIsNotAStateWord_IsAnError` | A word with no sentence is an error, never a plausible guess. |
 | `WhyNotReady_ReadsTheStoredRecord_AndCallsTheMachineWhatThePageCallsIt` | Through the stores: the account is matched without case, and a machine sharing its name with another is called "machine-a (owner)", as on the page. |
 | `WhyNotReady_ForAHealthyApprover_IsNull_UntilItsCheckIsOver26HoursOld` | Ready at exactly 26 hours, not ready one second later. |
+| `WhyNotReady_ForAMissingOrNonEmailAccount_IsRefused_NeverASentenceWithAHole` (3 cases) | A missing, blank or non-email account is refused with `ArgumentException`, never answered with a sentence around nothing. Added for review finding 1. |
 | `WhyNotReady_NeverReadsAnotherTenantsApprover` | Tenant one's healthy approver does not make tenant two ready. |
 
 ### `LicenseSignInEndpointsTests` - the route (changed and new)
@@ -99,7 +100,7 @@ are unchanged and still pass: the guard was not touched.
 
 ## Gate
 
-`.\scripts	est-local.ps1 -Parked` at commit `9f79abe41` (clean tree, on `origin/main` after 4109 merged), with the
+`.\scripts\test-local.ps1 -Parked` at commit `9f79abe41` (clean tree; the branch's commit on top of `origin/main` after 4109 merged, whose tree differs from the pull request's head only in this file), with the
 temporary folder on D: as the Delivery Lead asked:
 
 ```

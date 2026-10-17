@@ -173,6 +173,17 @@ public sealed class LicenseApproverReadinessTests : IDisposable
         Assert.StartsWith("The approver for alice@example.com (browser profile \"work\" on machine-a) was last checked", _readiness.WhyNotReady(One, Alice));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("   ")]
+    [InlineData("not-an-email")]
+    public void WhyNotReady_ForAMissingOrNonEmailAccount_IsRefused_NeverASentenceWithAHole(string? account)
+    {
+        var refused = Assert.Throws<ArgumentException>(() => _readiness.WhyNotReady(One, account));
+
+        Assert.Equal("accountEmail", refused.ParamName);
+    }
+
     [Fact]
     public void WhyNotReady_NeverReadsAnotherTenantsApprover()
     {
