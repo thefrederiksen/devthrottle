@@ -113,6 +113,24 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSessions_TheWheelButton_ReachesTheWireByItsCamelCaseNames()
+    {
+        // Arrange: the protocol process holds the wheel and a turn is running, so the button is there and disabled.
+        PushRoster();
+        Ingest(Ready(1), Delivered(2, "p1", PlainAck), Started(3, "t1", "p1"));
+        var http = await StartAsync(withApiMode: true);
+
+        // Act
+        var wheel = (await RowAsync(http, Sid)).GetProperty("apiMode").GetProperty("wheelAction");
+
+        // Assert
+        Assert.Equal("takeTheWheel", wheel.GetProperty("verb").GetString());
+        Assert.Equal("Take the wheel", wheel.GetProperty("label").GetString());
+        Assert.False(wheel.GetProperty("enabled").GetBoolean());
+        Assert.Equal("A turn is running. Stop it, or wait for it to end, before taking the wheel.", wheel.GetProperty("disabledReason").GetString());
+    }
+
+    [Fact]
     public async Task GetSessions_ATerminalModeSession_IsByteForByteTheRowWithoutApiMode()
     {
         // Arrange: the same roster served by a Gateway with API mode wired and by one without it.

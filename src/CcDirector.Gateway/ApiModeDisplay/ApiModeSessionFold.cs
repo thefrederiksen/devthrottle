@@ -125,7 +125,39 @@ public static class ApiModeSessionFold
             LastTurnEnding = lastTurnEnding,
             AgentConnected = agentConnected,
             AgentLabel = agentLabel,
+            WheelAction = WheelAction(wheelHolder, working),
         };
+    }
+
+    /// <summary>The disabled take-the-wheel button's reason, while a turn is known to be running.</summary>
+    internal const string TurnRunningSoNoTake =
+        "A turn is running. Stop it, or wait for it to end, before taking the wheel.";
+
+    /// <summary>
+    /// The one wheel button the Terminal tab shows, ruled here and nowhere else. The Gateway disables a button only on
+    /// what it knows; every other refusal (the agent disconnected, a turn the Gateway cannot see, a terminal mid-turn on
+    /// a hand back) is the Director's to rule, and the wheel routes pass its refusal through verbatim.
+    /// </summary>
+    private static ApiModeWheelAction? WheelAction(string wheelHolder, bool? working)
+    {
+        switch (wheelHolder)
+        {
+            case WheelHolders.Protocol:
+                // Disabled only while a turn is KNOWN to be running: an unknown "working" is not a reason.
+                return working == true
+                    ? new ApiModeWheelAction { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = false, DisabledReason = TurnRunningSoNoTake }
+                    : new ApiModeWheelAction { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = true };
+            case WheelHolders.User:
+                return new ApiModeWheelAction { Verb = ApiModeWheelVerbs.HandBack, Label = "Hand back", Enabled = true };
+            case WheelHolders.None:
+                // No process holds the conversation, so there is no wheel to take or hand back. What "none" means after
+                // the user held the wheel (whether a hand back is still offered) is the Director's to define in phase 4,
+                // and this ruling is revisited then.
+                return null;
+            default:
+                // A wheel holder this Gateway has no words for: no button, never a guess at one.
+                return null;
+        }
     }
 
     /// <summary>The queue in words: how many prompts wait, and why (the Director's reason for each).</summary>
