@@ -47,8 +47,14 @@ public sealed class LicenseRefusedAndSilentMachineTests : IDisposable
 
     // ----- the helpers -----
 
-    private LicenseIngestOutcome Push(LicenseUsageReport? report, DateTime? at = null, string conn = "conn-1", long? seq = null, TenantId? tenant = null)
-        => _ingest.Ingest(tenant ?? Tenant, "dir-1", conn, seq ?? ++_sequence, report, at ?? _now);
+    private LicenseIngestOutcome Push(LicenseUsageReport? report, DateTime? at = null, string conn = "conn-1", long? seq = null, TenantId? tenant = null,
+        string director = "dir-1")
+        => _ingest.Ingest(tenant ?? Tenant, director, conn, seq ?? ++_sequence, report, at ?? _now);
+
+    // A second Director on the same machine as the same user, which takes the sign-ins when the first one stops
+    // (contract section 2.4): the machine's reports then come under another Director identifier.
+    private LicenseIngestOutcome PushFromSecondDirector(LicenseUsageReport? report)
+        => Push(report, conn: "conn-2", director: "dir-2");
 
     private static LicenseUsageReport Good(double fiveHour = 10) => Report("machine-a", Holding(A, true, fiveHour), Holding(B, false));
 
@@ -246,7 +252,8 @@ public sealed class LicenseRefusedAndSilentMachineTests : IDisposable
         Assert.Equal("No report from it has been accepted yet", machine.LastReportText);
         Assert.Null(machine.Active);
         Assert.Empty(machine.Spares);
-        Assert.Equal(LicenseDisplayFold.RefusedMachineId("dir-1"), machine.MachineId);
+        Assert.Equal(LicenseDisplayFold.RefusedMachineId(Assert.Single(Log(LicenseLogKinds.ReportRefused))), machine.MachineId);
+        Assert.Equal(machine.MachineId, Assert.Single(Overview().Machines).MachineId);   // the same row on the next read
 
         // The sign-in verdicts are filled in over the same overview the route answers with, and must not trip on it.
         LicenseSignInFold.Apply(overview, Picture().Overview.Machines, Array.Empty<LicenseApprover>(), Array.Empty<LicenseSwitchLogEntity>(), _ => true);
@@ -274,6 +281,63 @@ public sealed class LicenseRefusedAndSilentMachineTests : IDisposable
         var machine = TheMachine();
         Assert.Equal(LicenseMachineStatuses.Reporting, machine.Status);
         Assert.Single(Log(LicenseLogKinds.ReportAccepted));
+    }
+
+    // ----- the Director behind a machine changes (the review of pull request 4113, finding 1) -----
+
+    [Fact]
+    public void TwoDirectorsOfOneMachine_RefusedTheSameWay_AreOneRefusal_AndOneMachine()
+    {
+        _ingest.RegisterConnection(Tenant, "dir-2", "conn-2");
+        Push(HeldTwice());                                                // the first key holder, refused, then stopped
+
+        Assert.Equal(LicenseIngestOutcome.Malformed, PushFromSecondDirector(HeldTwice()));
+
+        var row = Assert.Single(Log(LicenseLogKinds.ReportRefused));
+        Assert.Equal(2, row.SendCount);
+        Assert.Equal("dir-2", row.DirectorId);
+        var machine = Assert.Single(Overview().Machines);
+        Assert.Equal(LicenseMachineStatuses.ReportRefused, machine.Status);
+    }
+
+    [Fact]
+    public void ARefusalSentByOneDirector_IsEndedByTheNextDirectorsAcceptedReport_AndNothingIsLeftOpen()
+    {
+        _ingest.RegisterConnection(Tenant, "dir-2", "conn-2");
+        Push(Good());
+        Push(HeldTwice());                                                // dir-1 refused, then stopped for good
+
+        Assert.Equal(LicenseIngestOutcome.Accepted, PushFromSecondDirector(Good()));
+
+        var machine = Assert.Single(Overview().Machines);
+        Assert.Equal(LicenseMachineStatuses.Reporting, machine.Status);
+        Assert.Equal(LicenseLogStates.Ended, Assert.Single(Log(LicenseLogKinds.ReportRefused)).State);
+        Assert.Single(Log(LicenseLogKinds.ReportAccepted));
+        Assert.Empty(_store.ListOpenMachineHealth(Tenant));
+    }
+
+    [Fact]
+    public async Task AMachineWhoseNextDirectorIsRefused_ShowsRefused_IsNotSwitched_AndIsNeverCalledSilent()
+    {
+        _ingest.RegisterConnection(Tenant, "dir-2", "conn-2");
+        Push(Good(fiveHour: 99));                                         // dir-1 is accepted, so the machine row names dir-1
+        _now = T0.AddMinutes(1);
+
+        PushFromSecondDirector(HeldTwice());
+
+        // While the reading is still fresh the account is at its limit: the machine is skipped, and says why.
+        Assert.Equal(LicenseDecisionEngine.ReportsRefusedWhy, Assert.Single(LicenseDecisionEngine.Decide(Picture().Snapshot).Skipped).Why);
+        await Tick();
+        Assert.Empty(_sentTo);
+        // Long past the silence limit by its last ACCEPTED report, and still refused every two minutes: not silent.
+        _now = T0.AddMinutes(20);
+        PushFromSecondDirector(HeldTwice());
+        await Tick();
+
+        var machine = Assert.Single(Overview().Machines);
+        Assert.Equal(LicenseMachineStatuses.ReportRefused, machine.Status);
+        Assert.Empty(Log(LicenseLogKinds.MachineSilent));
+        Assert.Empty(_sentTo);
     }
 
     // ----- connection bookkeeping is not a problem with the machine -----

@@ -873,8 +873,14 @@ public sealed class LicenseStore
     /// Record one report the Gateway refused for what it says, from the Director <paramref name="directorId"/>. The
     /// FIRST refusal opens a row of the log; the same refusal again only counts it on that row (how many, and the last
     /// time), so a machine refused every two minutes for a day writes one row; a DIFFERENT refusal ends that row and
-    /// opens another. The machine is named by the report when it can be, else by the machine row this Director last
-    /// reported, else not at all (a Director none of whose reports was ever accepted, whose report names no machine).
+    /// opens another.
+    ///
+    /// A REFUSAL BELONGS TO THE MACHINE, NOT TO THE DIRECTOR THAT SENT IT. Several Directors can run on one machine as
+    /// one user, and the one that holds the sign-ins - the only one that reports - changes when it stops (contract
+    /// section 2.4). So the refusal is named, matched and ended by the machine and its user
+    /// (<see cref="IsRefusalOf"/>): as the report names them when it can, else as the machine row this Director last
+    /// reported names them. Only a report that names no machine, from a Director none of whose reports was ever
+    /// accepted, is kept under the Director alone.
     /// </summary>
     /// <returns>Whether this refusal is new, a new reason, or the same as the last. The license alarm, once it exists,
     /// is raised where this returns anything but <see cref="LicenseRefusalChange.Same"/>.</returns>
@@ -887,21 +893,26 @@ public sealed class LicenseStore
         try
         {
             using var ctx = _db.CreateContext(tenant);
-            var open = OpenRefusals(ctx, directorId).ToList();
+            var named = NamesOf(report);
+            var machine = named is { } reported
+                ? MachineNamed(ctx, reported.Name, reported.User)
+                : ctx.LicenseMachines.AsNoTracking()
+                    .Where(m => m.DirectorId == directorId)
+                    .OrderByDescending(m => m.LastReportAtUtc)
+                    .FirstOrDefault();
+            var (name, user) = named ?? (machine is null ? ("", "") : (machine.MachineName, machine.OsUser));
+            var open = OpenRefusals(ctx).Where(r => IsRefusalOf(r, name, user, directorId)).ToList();
             if (open.Count == 1 && open[0].ReasonCode == refusal.Code && open[0].Message == message)
             {
                 open[0].SendCount++;
                 open[0].LastSentAtUtc = now;
+                // The Director that sends it now: the one a person would go and look at.
+                open[0].DirectorId = directorId;
                 ctx.SaveChanges();
                 FileLog.Write($"[LicenseStore] RecordRefusal: tenant={tenant.ToLogString()}, director={directorId}, reason={refusal.Code}, the same refusal again (refused {open[0].SendCount} times)");
                 return LicenseRefusalChange.Same;
             }
 
-            var machine = ctx.LicenseMachines.AsNoTracking()
-                .Where(m => m.DirectorId == directorId)
-                .OrderByDescending(m => m.LastReportAtUtc)
-                .FirstOrDefault();
-            var (name, user) = NamesOf(report) ?? (machine is null ? ("", "") : (machine.MachineName, machine.OsUser));
             foreach (var row in open)
             {
                 row.State = LicenseLogStates.Ended;
@@ -949,7 +960,8 @@ public sealed class LicenseStore
         try
         {
             using var ctx = _db.CreateContext(tenant);
-            var open = OpenRefusals(ctx, directorId).ToList();
+            // Whichever Director sent the refused reports: an accepted report of this machine and user ends them.
+            var open = OpenRefusals(ctx).Where(r => IsRefusalOf(r, report.MachineName, report.OsUser, directorId)).ToList();
             if (open.Count == 0)
                 return false;
             foreach (var row in open)
@@ -1080,17 +1092,43 @@ public sealed class LicenseStore
             .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.Id).ToList();
     }
 
-    private static IQueryable<LicenseSwitchLogEntity> OpenRefusals(GatewayDbContext ctx, string directorId)
-        => ctx.LicenseSwitchLog.Where(r => r.Kind == LicenseLogKinds.ReportRefused && r.DirectorId == directorId
-                                           && r.State == LicenseLogStates.Open && r.FinishedAtUtc == null);
+    /// <summary>
+    /// Whether the open refusal <paramref name="row"/> is about the machine <paramref name="machineName"/> and user
+    /// <paramref name="osUser"/>, reported by <paramref name="directorId"/>. A refusal that names its machine is about
+    /// that machine and user (compared as the store keys a machine), whichever Director sent it; one that names none is
+    /// about its Director's machine. The ONE rule every reader of a refusal uses: the store, the page, the decision
+    /// and the silence check.
+    /// </summary>
+    public static bool IsRefusalOf(LicenseSwitchLogEntity row, string machineName, string osUser, string directorId)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.MachineName.Length > 0
+            ? Key(row.MachineName) == Key(machineName) && Key(row.OsUser) == Key(osUser)
+            : string.Equals(row.DirectorId, directorId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Key(string? name) => (name ?? "").Trim().ToLowerInvariant();
+
+    // Every open refusal of the account: few, so they are matched here rather than in the database, with exactly the
+    // comparison a machine is keyed by.
+    private static List<LicenseSwitchLogEntity> OpenRefusals(GatewayDbContext ctx)
+        => ctx.LicenseSwitchLog.Where(r => r.Kind == LicenseLogKinds.ReportRefused
+                                           && r.State == LicenseLogStates.Open && r.FinishedAtUtc == null).ToList();
+
+    private static LicenseMachineEntity? MachineNamed(GatewayDbContext ctx, string machineName, string osUser)
+    {
+        var machineKey = Key(machineName);
+        var userKey = Key(osUser);
+        return ctx.LicenseMachines.AsNoTracking().FirstOrDefault(m => m.MachineKey == machineKey && m.OsUserKey == userKey);
+    }
 
     // The machine and the user a refused report names, when both can be stored as they are; null when the report is
-    // the reason they cannot be (it names none, or they are too long).
+    // the reason they cannot be (it names no machine or no user, or they are too long).
     private static (string Name, string User)? NamesOf(LicenseUsageReport? report)
     {
         var name = report?.MachineName?.Trim();
-        var user = report?.OsUser?.Trim() ?? "";
-        return string.IsNullOrEmpty(name) || name.Length > 128 || user.Length > 128 ? null : (name, user);
+        var user = report?.OsUser?.Trim();
+        return string.IsNullOrEmpty(name) || name.Length > 128 || user is null || user.Length > 128 ? null : (name, user);
     }
 
     private static string Clock(DateTime utc) => Utc(utc).ToString("yyyy-MM-dd HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);

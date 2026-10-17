@@ -576,7 +576,7 @@ public sealed class LicenseSwitchService
                     written++;
                 continue;
             }
-            if (now - machine.LastReportAtUtc <= LicenseStore.SilentAfter || picture.RefusalOf(machine.DirectorId) is not null)
+            if (now - machine.LastReportAtUtc <= LicenseStore.SilentAfter || picture.RefusalOf(machine) is not null)
                 continue;
             // The license alarm, once it exists, is raised here when a row was written.
             if (_store.OpenSilence(tenant, machine, now) is not null)

@@ -435,7 +435,7 @@ public static class LicenseDisplayFold
         var openSwitches = picture.OpenSwitches;
         var nowUtc = picture.Snapshot.NowUtc;
         var inProgress = SwitchInProgress(machine, openSwitches);
-        var refusal = picture.RefusalOf(machine.DirectorId);
+        var refusal = picture.RefusalOf(machine);
         // A refusal outranks "not reporting": a machine whose reports are refused stops being up to date, and the
         // refusal is why.
         var (status, text, tone, detail) = refusal is not null
@@ -488,20 +488,26 @@ public static class LicenseDisplayFold
         return $"{refusal.Message} Its Director is still sending reports: {count} refused since {Clock(refusal.CreatedAtUtc)}, the latest {Ago(nowUtc - latest)}.";
     }
 
-    // The open refusals of Directors that have no machine row: none of their reports was ever accepted.
+    // The open refusals of machines that have no machine row: none of their reports was ever accepted.
     private static List<LicenseSwitchLogEntity> RefusedWithNoMachine(LicensePicture picture)
         => picture.MachineHealth
-            .Where(r => r.Kind == LicenseLogKinds.ReportRefused && r.DirectorId is not null
-                        && !picture.Overview.Machines.Any(m => string.Equals(m.DirectorId, r.DirectorId, StringComparison.OrdinalIgnoreCase)))
+            .Where(r => r.Kind == LicenseLogKinds.ReportRefused
+                        && !picture.Overview.Machines.Any(m => LicenseStore.IsRefusalOf(r, m.MachineName, m.OsUser, m.DirectorId)))
             .ToList();
 
     /// <summary>
-    /// The identifier of the row of a machine known only from its refused reports: the same for the same Director on
-    /// every read, so the page keeps one row for it, and never one a real machine row could have (a machine's is its
-    /// database identifier).
+    /// The identifier of the row of a machine known only from its refused reports: the same for the same machine and
+    /// user on every read - or, when the report named no machine, the same Director - so the page keeps one row for
+    /// it, and never one a real machine row could have (a machine's is its database identifier).
     /// </summary>
-    public static string RefusedMachineId(string directorId)
-        => new Guid(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes("license-refused-director:" + directorId.ToLowerInvariant()))).ToString("N");
+    public static string RefusedMachineId(LicenseSwitchLogEntity refusal)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        var key = refusal.MachineName.Length > 0
+            ? $"license-refused-machine:{refusal.MachineName.Trim().ToLowerInvariant()}\n{refusal.OsUser.Trim().ToLowerInvariant()}"
+            : $"license-refused-director:{(refusal.DirectorId ?? "").ToLowerInvariant()}";
+        return new Guid(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(key))).ToString("N");
+    }
 
     /// <summary>
     /// A machine none of whose reports was ever accepted, shown from its open refusal: no holdings, no last report,
@@ -514,7 +520,7 @@ public static class LicenseDisplayFold
         var label = refusal.MachineName.Length > 0 ? refusal.MachineName : $"The machine of Director {refusal.DirectorId}";
         return new LicenseMachineDto
         {
-            MachineId = RefusedMachineId(refusal.DirectorId ?? ""),
+            MachineId = RefusedMachineId(refusal),
             MachineName = refusal.MachineName,
             OsUser = refusal.OsUser,
             Label = label,

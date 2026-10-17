@@ -18,11 +18,14 @@ public sealed record LicensePicture(
     IReadOnlyList<LicenseSwitchLogEntity> OpenSwitches,
     IReadOnlyList<LicenseSwitchLogEntity> MachineHealth)
 {
-    /// <summary>The open refusal of the Director <paramref name="directorId"/>, or null when its reports are not being
-    /// refused. Director identifiers compare without regard to case, as the ingest compares them.</summary>
-    public LicenseSwitchLogEntity? RefusalOf(string directorId)
-        => MachineHealth.FirstOrDefault(r => r.Kind == LicenseLogKinds.ReportRefused
-                                             && string.Equals(r.DirectorId, directorId, StringComparison.OrdinalIgnoreCase));
+    /// <summary>The open refusal of <paramref name="machine"/>'s reports, whichever of its Directors sent them, or null
+    /// when they are not being refused (<see cref="LicenseStore.IsRefusalOf"/>).</summary>
+    public LicenseSwitchLogEntity? RefusalOf(LicenseMachineView machine)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        return MachineHealth.FirstOrDefault(r => r.Kind == LicenseLogKinds.ReportRefused
+                                                 && LicenseStore.IsRefusalOf(r, machine.MachineName, machine.OsUser, machine.DirectorId));
+    }
 }
 
 /// <summary>
@@ -109,10 +112,9 @@ public sealed class LicenseSnapshotSource
             .Where(r => r.Kind == LicenseLogKinds.Switch && r.HeldUntilUtc is not null)
             .GroupBy(r => r.MachineId)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.CreatedAtUtc).First());
-        var refusedDirectors = (machineHealth ?? Array.Empty<LicenseSwitchLogEntity>())
-            .Where(r => r.Kind == LicenseLogKinds.ReportRefused && r.DirectorId is not null)
-            .Select(r => r.DirectorId!)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var refusals = (machineHealth ?? Array.Empty<LicenseSwitchLogEntity>())
+            .Where(r => r.Kind == LicenseLogKinds.ReportRefused)
+            .ToList();
         var machines = overview.Machines
             .Select(m => new LicenseMachineState(
                 m.MachineName,
@@ -128,7 +130,7 @@ public sealed class LicenseSnapshotSource
                 holdByMachine.TryGetValue(m.MachineId, out var held)
                     ? new LicenseHold(DateTime.SpecifyKind(held.HeldUntilUtc!.Value, DateTimeKind.Utc), held.FromAccountEmail, held.ToAccountEmail, held.ReasonCode)
                     : null,
-                refusedDirectors.Contains(m.DirectorId)))
+                refusals.Any(r => LicenseStore.IsRefusalOf(r, m.MachineName, m.OsUser, m.DirectorId))))
             .ToList();
 
         // The store hands over only the bars still in force, and the engine ignores one whose time has passed.
