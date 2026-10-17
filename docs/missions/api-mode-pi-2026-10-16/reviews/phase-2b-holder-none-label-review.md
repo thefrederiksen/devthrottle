@@ -184,3 +184,95 @@ on each, and the tests that pin them. The pull request body says the same and re
 
 The verdict is **hold** until the two tests pass under a recorded ruling for the Pi-exit state, and the
 Developer's answer names that state.
+
+## Re-review
+
+Re-reviewed at the pull request head `ffcc72792`, one commit past the reviewed head (`git diff 932fbed17..HEAD`:
+four files, the fold, its test file, this record and the phase review's Developer's answer). `origin/main` is still
+`f08847c53`; the branch is zero commits behind it and merges clean. Date: 17 October 2026. A different Reviewer session
+from the first review, in the same agent family, reading only.
+
+### Verdict
+
+**Approve.** Each of the four findings is fixed in the code, the tests and the record as the Developer's answers say,
+and nothing else that reads the label, the kind, the tone, the wheel action or the live stream changed or needed to.
+
+### What I read and ran
+
+**Read, in full, on the pull request head:** the whole diff since the first review; `ApiModeSessionFold.cs` in full
+(every reader of the holder and of the held events: `Agent`, the kind, the tone, `WheelAction`); both classes of
+`ApiModeSessionFoldTests.cs` with their fixtures; `ApiModeLiveRuling.DisconnectedWords` and its one caller in the live
+stream; `ConnectionEnded` in `SessionEvents.cs` (`Reason` is a required, non-nullable string, so the new suffix can never
+read "ended: " with nothing after it); `ApiModeVerdictOnTheRosterTests.cs` wherever it asserts the agent label or pushes a
+holder of `none`; the `AgentLabel` summary in `ApiModeDisplayDtos.cs`; the Developer's answer under finding 2 of the phase
+review; the pull request body; the commit message (no attribution line of any kind).
+
+**Searched the whole repository** for every reader of "No agent process is running", "Agent disconnected",
+"The last connection ended" and `agentLabel`: the only readers are the fold, the live ruling, the Gateway unit tests and
+the mission records. No web client (`packages`, `apps`) reads the API-mode verdict yet beyond the generated schema, so
+no renderer holds a conditional on the old words. The `AgentLabel` hits in the Cockpit and the Avalonia app are a
+different field (the fleet manager placement and the session's agent kind), not this one.
+
+**Ran, once, after confirming no other test host was running:** `dotnet test` on `CcDirector.Gateway.UnitTests` filtered
+to `ApiModeSessionFoldTests` and `ApiModeSessionVerdictTests`. Result: **36 passed, 0 failed, 0 skipped**, the same
+count the pull request body reports.
+
+**Could not reach:** a running Gateway, Director or Pi. I did not re-run `ApiModeVerdictOnTheRosterTests` or
+`ApiModeLiveRulingTests` (one run only, by the brief); I checked them by reading instead, below.
+
+### Finding by finding
+
+**Finding 1 (two tests in the changed file failed; the proof ran one class). Fixed.** Both tests,
+`Stamp_RefusedBeforeAcknowledgement_NoTurnAndTheAgentIsGone` and `Stamp_FailedMidTurn_SaysTheLastTurnFailedWithItsReason`,
+now assert the ruled words with the exit code still present, and they pass in my run of the whole file. The pull request
+body now reports the whole file, both classes, and the count matches.
+
+**Finding 2 (the held exit reason was dropped for a holder of `none`). Fixed, with option (a) as ruled.** `Agent` computes
+the latest held connection event before the `none` check and returns "No agent process is running. The last connection
+ended: " plus the reason verbatim when that event is a `ConnectionEnded`, else the plain headline. The reason reaches the
+label unchanged, as the old disconnected label carried it. Three tests pin the three cases: a held ending with holder
+`none` (the terminal state), a held ready with holder `none` (no ending, new test), and the two Pi-exit fixtures through
+the real ingest and store. The `user` path still returns before any held event is read; the `protocol` path uses the same
+`latest` expression it did before, only moved up, so its words are unchanged, which
+`Fold_AHeldDisconnectWhileTheProtocolHoldsTheWheel_SaysTheAgentDisconnected` pins.
+
+**Finding 3 (two comments described the old order). Fixed.** The class summary's third bullet and the section comment
+above the `Agent` call both say a holder of `user` or `none` answers before any held event is read, and that for `none` a
+held `ConnectionEnded` follows as history. The comment inside `Agent` says why.
+
+**Finding 4 (the record said less than the change). Fixed.** The Developer's answer under finding 2 of the phase review
+names both states a holder of `none` covers, the ruling on each, the five tests that pin them, and the whole-file proof.
+The pull request body says the same, and the commit message records the ruling as well.
+
+### Nothing new broken
+
+- **Kind.** `stopped` for every `none` row, computed apart from `Agent`; untouched by this commit.
+- **Tone.** For `none`, `red` only when the last turn failed, else `neutral`; the `red` for a disconnected agent still
+  applies to holder `protocol` only. `Stamp_FailedMidTurn_SaysTheLastTurnFailedWithItsReason` asserts `red` and passes.
+- **Wheel action.** `WheelAction` is unchanged in this commit; a live `none` row still offers Hand back, enabled, which
+  sits well beside "No agent process is running". The roster test `GetSessions_AnEndedSessionThatNobodyHolds_ShowsNoWheelButton`
+  pushes holder `none` with a held ready and asserts only that the button is null; the label it would carry is the plain
+  headline either way.
+- **The live ruling.** `ApiModeLiveRuling.DisconnectedWords` is unchanged and the fold still calls it for the `protocol`
+  path. The live stream's item for a `ConnectionEnded` still reads "Agent disconnected: <reason>", which is right for a
+  stream of what happened; `ApiModeLiveRulingTests` asserts exactly that and nothing in it changed.
+- **The roster.** `GetSessions_AnApiModeSessionThatFailedMidTurn_CarriesTheVerdict` pushes the default holder, `protocol`,
+  so its "Agent disconnected: Pi exited during the turn (exit code 137)" is unaffected, as the first review said.
+
+### Observation (not a finding)
+
+The `AgentLabel` summary in `ApiModeDisplayDtos.cs` lists three example forms ("Agent connected (model)",
+"Agent disconnected: ...", "Not known ...") and names neither "The agent runs in your terminal" nor the two
+"No agent process is running" forms. That was already so before this pull request, and the summary presents itself as
+examples, so it is not a hold. The next seat that touches the contract could complete the list.
+
+### Summary
+
+| Finding | Fixed in code | Fixed in tests | Fixed in the record |
+|---|---|---|---|
+| 1. Two tests failed; the proof ran one class | yes | yes, 36 of 36 pass in my run | yes, the body reports the whole file |
+| 2. The held exit reason was dropped | yes, option (a) | yes, three tests | yes, the ruling is recorded |
+| 3. Two comments described the old order | yes | - | - |
+| 4. The record left out the Pi-exit state | - | - | yes, both states named |
+
+The verdict is **approve**: the pull request may merge.
