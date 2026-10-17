@@ -902,7 +902,8 @@ public partial class NewSessionDialog : Window
     {
         try
         {
-            if (sender is not RadioButton rb || rb.IsChecked != true) return;
+            // Every change, the unchecking too: the radio being checked fires BEFORE the group unchecks the other one,
+            // so acting only on a check would read API mode as still chosen when Terminal is picked.
             UpdateConnectionDescription();
         }
         catch (Exception ex)

@@ -18,8 +18,8 @@
 - heading "Working" [level=2]
 - list:
   - listitem:
-    - link "101 Prompt Delivery - Pi in API mode Ready started 16:18 open 0m Pi API mode SOREN_NORTH devthrottle":
+    - link "101 Prompt Delivery - Pi in API mode Ready started 09:42 open 0m Pi API mode SOREN_NORTH devthrottle":
       - /url: /mobile/session/aaaaaaaa-0000-4000-8000-000000000001
   - listitem:
-    - link "102 Prompt Delivery - Pi in its terminal Ready started 16:18 open 0m Pi SOREN_NORTH devthrottle":
+    - link "102 Prompt Delivery - Pi in its terminal Ready started 09:42 open 0m Pi SOREN_NORTH devthrottle":
       - /url: /mobile/session/aaaaaaaa-0000-4000-8000-000000000002

@@ -11,9 +11,12 @@ const { chromium } = require("playwright-core");
 
 const OUT = process.argv[2];
 const NOW = new Date().toISOString();
+// The Gateway's sentence for Pi's API mode choice, word for word as ConnectionModes.DescriptionOf("api", "Pi") writes it.
+const PI_API_MODE = "Prompts are handed to Pi as messages, and each one is confirmed or refused with a reason. " +
+  "The Chat shows the conversation live. You can take the wheel to use Pi's own terminal, then hand it back.";
 const directors = [{ directorId: "north-1", machineName: "SOREN_NORTH", displayName: "North", version: "2.20.0", startedAt: "2026-10-16T08:00:00Z", lastSeen: NOW, controlEndpoint: "", sessions: 2 }];
 const agents = [
-  { type: "Pi", displayName: "Pi", defaultModel: "glm-5.3", modelLabel: "GLM-5.3", connections: [{ mode: "terminal", label: "Terminal" }, { mode: "api", label: "API mode" }] },
+  { type: "Pi", displayName: "Pi", defaultModel: "glm-5.3", modelLabel: "GLM-5.3", connections: [{ mode: "terminal", label: "Terminal", description: null }, { mode: "api", label: "API mode", description: PI_API_MODE } ] },
   { type: "ClaudeCode", displayName: "Claude Code", defaultModel: "opus", modelLabel: "Opus", connections: [{ mode: "terminal", label: "Terminal" }] },
 ];
 const repos = [

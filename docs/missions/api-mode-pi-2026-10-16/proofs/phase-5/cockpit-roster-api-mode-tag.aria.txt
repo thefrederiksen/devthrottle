@@ -55,11 +55,11 @@
   - text: SOREN_NORTH
   - list:
     - listitem:
-      - link "101 Prompt Delivery - Pi in API mode Ready started 16:18 open 0m API mode":
+      - link "101 Prompt Delivery - Pi in API mode Ready started 09:42 open 0m API mode":
         - /url: /session/aaaaaaaa-0000-4000-8000-000000000001
       - button "Session menu"
     - listitem:
-      - link "102 Prompt Delivery - Pi in its terminal Ready started 16:18 open 0m":
+      - link "102 Prompt Delivery - Pi in its terminal Ready started 09:42 open 0m":
         - /url: /session/aaaaaaaa-0000-4000-8000-000000000002
       - button "Session menu"
   - button "What do the colours mean?"

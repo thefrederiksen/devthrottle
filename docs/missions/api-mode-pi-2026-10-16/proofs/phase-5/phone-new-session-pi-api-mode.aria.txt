@@ -12,3 +12,4 @@
   - group "Connection":
     - button "Terminal"
     - button "API mode" [pressed]
+  - paragraph: Prompts are handed to Pi as messages, and each one is confirmed or refused with a reason. The Chat shows the conversation live. You can take the wheel to use Pi's own terminal, then hand it back.
