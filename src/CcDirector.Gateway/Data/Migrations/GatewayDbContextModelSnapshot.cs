@@ -228,6 +228,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<long>("LastSequence")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("PromptText")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("QueueReason")
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");

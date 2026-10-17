@@ -557,6 +557,32 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Items_AReceipt_CarriesThePromptTextVerbatim()
+    {
+        await StartAsync();
+        const string spoken = "  run the tests\nthen tell me what failed  \n";
+        PushA(new PromptQueued { SessionId = ApiSession, Sequence = 1, At = T0, PromptId = "p1", PromptText = spoken, Reason = PromptQueuedReason.TurnRunning, Position = 1 });
+
+        var page = await GetPageAsync(Alice, ApiSession);
+
+        var item = Assert.Single(page.Items);
+        Assert.Equal(ApiModeLiveItemKinds.Receipt, item.Kind);
+        Assert.Equal(spoken, item.PromptText);
+    }
+
+    [Fact]
+    public async Task Items_AResetStartsFromAStoredReceiptWithoutText_PromptTextIsNull()
+    {
+        await StartAsync();
+        RecordDelivered("p0");   // stored with no prompt text, as from an older Director
+
+        var page = await GetPageAsync(Alice, ApiSession, after: "gen-a:7");
+
+        Assert.Equal(ApiModeLiveResetCodes.MissedEvents, page.Reset!.Code);
+        Assert.Null(Assert.Single(page.Items).PromptText);
+    }
+
+    [Fact]
     public async Task Items_ABrandNewSessionWithNothingHeld_AnswersEmptyWithNoReset()
     {
         await StartAsync();
