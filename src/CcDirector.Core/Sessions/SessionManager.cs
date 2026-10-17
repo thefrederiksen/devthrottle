@@ -379,6 +379,8 @@ public sealed class SessionManager : IDisposable
         FactoryDefinitionVersion = s.FactoryDefinitionVersion,
         FactoryKit = s.FactoryKit,
         LaunchModel = s.LaunchModel,
+        // API mode only (issue #4070): a terminal session's row stays exactly what it was before the field existed.
+        ConnectionMode = s.ConnectionMode == SessionConnectionMode.Api ? SessionConnectionModeWords.ToWord(s.ConnectionMode) : null,
     };
 
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)
