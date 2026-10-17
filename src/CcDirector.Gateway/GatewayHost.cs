@@ -524,6 +524,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Has a sign-in approved on the machine set for its account, and passes the answer back (contract section 8.3).</summary>
     internal Licenses.LicenseApprovalRelay LicenseApprovals { get; }
 
+    /// <summary>License Switching phase 6 (Track C): the approver records each Director registers or checks, decided
+    /// against the owner's records (<c>DirectorHub.ReportLicenseApproverChecks</c>).</summary>
+    internal Licenses.LicenseApproverRegistration LicenseApproverRegistrations { get; }
+
     /// <summary>The sign-in rows of the Licenses log.</summary>
     internal Licenses.LicenseSignInLog LicenseSignInLog { get; }
 
@@ -2484,6 +2488,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
         // SendCommandAsync resolves a Director's connection for that tenant alone.
         LicenseApprovers = new Licenses.LicenseApproverStore(_tenantSettings);
+        LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow);
         LicenseSignInLog = new Licenses.LicenseSignInLog(_gatewayDb);
         var licenseCommands = Licenses.LicenseCommandSenders.Over(SendCommandAsync);
         LicenseApprovals = new Licenses.LicenseApprovalRelay(LicenseApprovers, LicenseReads, IsDirectorConnected,
@@ -4480,6 +4485,8 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(LicenseNow);
         // And DirectorHub.RequestLicenseApproval hands each request to the relay.
         builder.Services.AddSingleton(LicenseApprovals);
+        // And DirectorHub.GetLicenseApproverAssignments / ReportLicenseApproverChecks to the approver registrations.
+        builder.Services.AddSingleton(LicenseApproverRegistrations);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
