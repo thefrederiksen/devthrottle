@@ -21,6 +21,7 @@ internal interface IDirectorHubCalls
     Task PushSnapshotAsync(long sequence, SessionDto[] sessions);
     Task PushDeltaAsync(long sequence, SessionDto session);
     Task<TurnWatermark?> PushTurnsAsync(long sequence, TurnPushBatch batch, CancellationToken ct);
+    Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct);
     Task RevokeSessionKeyAsync(string sessionId);
     Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories);
 }
@@ -53,6 +54,10 @@ internal sealed class HubConnectionCalls : IDirectorHubCalls
 
     public Task<TurnWatermark?> PushTurnsAsync(long sequence, TurnPushBatch batch, CancellationToken ct)
         => _connection.InvokeAsync<TurnWatermark?>("PushTurns", sequence, batch, ct);
+
+    // Invoked generically, so the Gateway's answer - stored, refused for now, or refused for good - is read.
+    public Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct)
+        => _connection.InvokeAsync<ApiModeEventWatermark?>("PushApiModeEvents", batch, ct);
 
     public Task RevokeSessionKeyAsync(string sessionId)
         => _connection.InvokeAsync("RevokeSessionKey", sessionId);
