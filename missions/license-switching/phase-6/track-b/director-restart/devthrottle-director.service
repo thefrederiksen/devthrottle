@@ -1,0 +1,32 @@
+# The owner's own systemd user unit for the Director (see ../director-restart.md).
+# Copy to ~/.config/systemd/user/devthrottle-director.service, then:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now devthrottle-director.service
+# %h is systemd's own word for the account's home folder, so nothing here names a user.
+
+[Unit]
+Description=DevThrottle Director
+# The Director is a desktop window: start it with the desktop, stop it when the desktop ends.
+PartOf=graphical-session.target
+After=graphical-session.target
+# Give up after 5 starts in 10 minutes, so a Director that crashes at once does not spin.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/cc-director/app/cc-director
+# Start it again only when it did not end on purpose: a non-zero exit code, or killed by a signal other
+# than the four systemd counts as clean (SIGHUP, SIGINT, SIGTERM, SIGPIPE). An out-of-memory kill is a
+# SIGKILL and is restarted. A deliberate quit exits with 0 and is left alone.
+Restart=on-failure
+RestartSec=10
+# A .NET program that is asked to stop with SIGTERM can report 143 (128 + 15). That is a stop on
+# purpose too - logging out, or "systemctl --user stop" - so it counts as clean.
+SuccessExitStatus=143
+# When the Director's own process exits, kill only that process. The default (control-group) would also
+# kill every agent session it started, and the updated build an update hands over to.
+KillMode=process
+
+[Install]
+WantedBy=graphical-session.target
