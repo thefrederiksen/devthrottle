@@ -32,6 +32,7 @@ public sealed class LicenseApproverAlarmTests : IDisposable
     private readonly LicenseApproverAlarm _alarm;
     private readonly List<(TenantId Tenant, LicenseOwnerEmail Email)> _emails = new();
     private readonly List<(TenantId Tenant, LicenseAlarmOpened Alarm)> _pushes = new();
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _logged = new();
     private DateTime _now = T0;
     private long _sequence;
 
@@ -42,7 +43,7 @@ public sealed class LicenseApproverAlarmTests : IDisposable
         _approvers = new LicenseApproverStore(new TenantSettingsStore(_db));
         _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
         _alarm = new LicenseApproverAlarm(_approvers, new LicenseReadModel(_licenses), _alarms, _ => new NoScope(), () => _now,
-            CancellationToken.None);
+            CancellationToken.None, _logged.Enqueue);
         _licenses.ApplyReport(One, DirectorA, ++_sequence, Report(MachineA, _now, Holding(A, true)), _now, TimeSpan.Zero);
     }
 
@@ -61,20 +62,29 @@ public sealed class LicenseApproverAlarmTests : IDisposable
         return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
     }
 
+    // A push the test can hold open, to stop a raise part way.
+    private TaskCompletionSource? _holdPush;
+    private readonly TaskCompletionSource _pushStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     private Task Push(TenantId tenant, IReadOnlyList<LicenseAlarmOpened> opened, CancellationToken ct)
     {
         foreach (var alarm in opened)
             _pushes.Add((tenant, alarm));
-        return Task.CompletedTask;
+        _pushStarted.TrySetResult();
+        return _holdPush?.Task ?? Task.CompletedTask;
     }
 
     /// <summary>Account A's approver on machine A, profile "work", as its last check left it.</summary>
     private void ApproverOfA(string? state, DateTime? checkedAt, string machine = MachineA, TenantId? tenant = null)
+        => ApproverOf(A, state, checkedAt, machine, tenant);
+
+    private void ApproverOf(string account, string? state, DateTime? checkedAt, string machine = MachineA, TenantId? tenant = null,
+        string? detail = null)
         => _approvers.Change(tenant ?? One, records =>
         {
-            var next = records.Approvers.Where(a => a.AccountEmail != A).ToList();
-            next.Add(new LicenseApprover(A, machine, "owner", "work", LicenseApproverSources.Registered, state, checkedAt,
-                state == LicenseApproverStates.CanApprove ? A : null, null, "Work Chrome"));
+            var next = records.Approvers.Where(a => a.AccountEmail != account).ToList();
+            next.Add(new LicenseApprover(account, machine, "owner", "work", LicenseApproverSources.Registered, state, checkedAt,
+                state == LicenseApproverStates.CanApprove ? account : null, detail, "Work Chrome"));
             return ((IReadOnlyList<LicenseApprover>?)next, 0);
         }, _now);
 
@@ -89,11 +99,11 @@ public sealed class LicenseApproverAlarmTests : IDisposable
 
         Assert.Equal(1, raised.Opened);
         var open = Assert.Single(_alarms.ListOpen(One));
-        Assert.Equal((LicenseApproverAlarm.Kind.Key, MachineA, A), (open.Kind, open.MachineName, open.AccountEmail));
+        // About the account alone: the sentence names the machine.
+        Assert.Equal((LicenseApproverAlarm.Kind.Key, Guid.Empty, "", A), (open.Kind, open.MachineId, open.MachineName, open.AccountEmail));
         Assert.Equal("The approver for account-a@example.com (browser profile \"Work Chrome\" on machine-a) needs a fresh claude.ai sign-in on the approval page.",
             open.Problem);
         Assert.Equal("Open that browser on machine-a and sign in to claude.ai once.", open.Action);
-        Assert.Equal(new LicenseReadModel(_licenses).Read(One, _now).Machines.Single().MachineId, open.MachineId);
         Assert.Single(_pushes);
         Assert.Single(_emails);
     }
@@ -152,6 +162,85 @@ public sealed class LicenseApproverAlarmTests : IDisposable
         // Stored as "about no one machine": the empty identifier and name.
         Assert.Equal((Guid.Empty, "", A), (open.MachineId, open.MachineName, open.AccountEmail));
         Assert.Contains("on machine-z", open.Problem);
+    }
+
+    [Fact]
+    public async Task AnApproversMachineReportingForTheFirstTime_KeepsTheSameAlarm_NoSecondPushOrEmail()
+    {
+        ApproverOfA(null, null, machine: "machine-z");
+        await Raise();
+        var first = Assert.Single(_alarms.ListOpen(One)).Id;
+
+        // machine-z's Director starts and reports, before its first approver check.
+        _licenses.ApplyReport(One, "dir-z", ++_sequence, Report("machine-z", _now), _now, TimeSpan.Zero);
+        var raised = await Raise();
+
+        Assert.Equal((0, 1, 0), (raised.Opened, raised.StillOpen, raised.Closed));
+        Assert.Equal(first, Assert.Single(_alarms.ListOpen(One)).Id);
+        Assert.Single(_pushes);
+        Assert.Single(_emails);
+    }
+
+    [Fact]
+    public async Task AnApproverWhoseSentenceIsTooLongForAnAlarm_CostsOnlyItsOwnAlarm_TheOthersStillOpen()
+    {
+        // A 300-character account: its "could not be checked" sentence with a 200-character detail is past 400.
+        var longAccount = new string('x', 288) + "@example.com";
+        ApproverOf(longAccount, LicenseApproverStates.CheckFailed, _now, detail: new string('d', 199) + ".");
+        ApproverOfA(LicenseApproverStates.SignedOut, _now);
+
+        await Raise();
+
+        Assert.Equal(A, Assert.Single(_alarms.ListOpen(One)).AccountEmail);
+        Assert.Contains(_logged, l => l.Contains($"REFUSED the alarm of account={longAccount}"));
+    }
+
+    [Fact]
+    public async Task AnApproverWithALongDetailAndALongAccount_WithinTheLimit_StillOpens()
+    {
+        // The review's case: a 200-character detail and a 100-character account still fit one alarm sentence.
+        var account = new string('y', 88) + "@example.com";
+        ApproverOf(account, LicenseApproverStates.CheckFailed, _now, detail: new string('d', 199) + ".");
+
+        await Raise();
+
+        var open = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal(account, open.AccountEmail);
+        Assert.True(open.Problem.Length <= LicenseAlarmService.MaxSentenceLength);
+    }
+
+    [Fact]
+    public async Task TwoRaisesOfOneTenant_RunOneAtATime_SoTheSecondReadsTheRecordsAsTheyAreWhenItsTurnComes()
+    {
+        ApproverOfA(LicenseApproverStates.SignedOut, _now);
+        _holdPush = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = Raise();
+        await _pushStarted.Task;
+
+        // While the first raise is still inside (its push held), the approver reports healthy and a second raise starts,
+        // then the approver signs out again. Reading before its turn, the second would carry the healthy read and close
+        // an alarm that is true again; waiting its turn, it reads signed out and leaves the alarm open.
+        ApproverOfA(LicenseApproverStates.CanApprove, _now);
+        var second = Raise();
+        Assert.False(second.IsCompleted);
+        ApproverOfA(LicenseApproverStates.SignedOut, _now);
+
+        _holdPush.SetResult();
+        await first;
+        var raised = await second;
+
+        Assert.Equal((0, 1, 0), (raised.Opened, raised.StillOpen, raised.Closed));
+        Assert.Single(_alarms.ListOpen(One));
+    }
+
+    [Fact]
+    public async Task AMinuteRaiseWithNothingToSay_WritesNoLogLine()
+    {
+        await Raise();
+        ApproverOfA(LicenseApproverStates.CanApprove, _now);
+        await Raise();
+
+        Assert.Empty(_logged);
     }
 
     [Fact]

@@ -16,6 +16,15 @@ namespace CcDirector.Gateway.Licenses;
 /// alarms once its 26 hours have passed. Each raise passes EVERY approver of the tenant that cannot approve now, so an
 /// approver that recovers, or is removed, closes its alarm by itself.
 ///
+/// ONE ALARM PER ACCOUNT, about the account alone. There is one approver per account, and its sentences name the machine,
+/// so the alarm is never keyed on the machine's row: a machine that reports for the first time would otherwise turn one
+/// unchanged problem into a closed alarm and a new one, with a second push and a second email.
+///
+/// ONE RAISE AT A TIME FOR EACH TENANT, reading the records after the previous raise wrote, so a raise that read the
+/// records before a check report can never reopen the alarm that report's raise just closed.
+///
+/// QUIET WHEN THERE IS NOTHING TO SAY: the minute raise of a tenant with no approver that cannot approve writes no line.
+///
 /// An account with no approver at all is NOT an alarm here: a machine with its own browser profile for an account needs
 /// none, and whether an account is ready to sign in is Track A's readiness, which asks
 /// <see cref="LicenseApproverReadiness.WhyNotReady"/>.
@@ -31,17 +40,23 @@ public sealed class LicenseApproverAlarm
     private readonly Func<TenantId, IDisposable> _enterScope;
     private readonly Func<DateTime> _nowUtc;
     private readonly CancellationToken _lifetime;
+    private readonly Action<string> _log;
 
     // The raises started by RaiseSoon and not finished, so tests wait on them and never on a clock.
     private readonly object _gate = new();
     private readonly List<Task> _running = new();
 
+    // One raise at a time for each tenant: the records are read and the alarm raised under it.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<TenantId, SemaphoreSlim> _raising = new();
+
     /// <param name="alarms">The one license alarm mechanism (contract section 9).</param>
     /// <param name="enterScope">Enters a tenant's scope for a raise started off the caller's own scope.</param>
     /// <param name="lifetime">Cancelled when the Gateway stops.</param>
+    /// <param name="log">Where this class's log lines go; the Gateway's log unless a test watches them.</param>
     public LicenseApproverAlarm(LicenseApproverStore approvers, LicenseReadModel reads, LicenseAlarmService alarms,
-        Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime)
+        Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime, Action<string>? log = null)
     {
+        _log = log ?? FileLog.Write;
         _approvers = approvers ?? throw new ArgumentNullException(nameof(approvers));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
         _alarms = alarms ?? throw new ArgumentNullException(nameof(alarms));
@@ -50,35 +65,55 @@ public sealed class LicenseApproverAlarm
         _lifetime = lifetime;
     }
 
-    /// <summary>The alarms that are true now for <paramref name="tenant"/>: one for each approver that cannot approve.</summary>
+    /// <summary>The alarms that are true now for <paramref name="tenant"/>: one for each approver that cannot approve,
+    /// about its account alone. An approver whose sentence is longer than an alarm takes
+    /// (<see cref="LicenseAlarmService.MaxSentenceLength"/>) is left out and logged with its account: it costs that one
+    /// alarm, never every approver alarm of the tenant.</summary>
     public IReadOnlyList<LicenseAlarmCondition> ConditionsNow(TenantId tenant)
     {
         var now = _nowUtc();
+        var approvers = _approvers.ListQuietly(tenant);
+        if (approvers.Count == 0)
+            return Array.Empty<LicenseAlarmCondition>();
         var machines = _reads.Read(tenant, now).Machines;
         var conditions = new List<LicenseAlarmCondition>();
-        foreach (var approver in _approvers.List(tenant))
+        foreach (var approver in approvers)
         {
             var machine = machines.FirstOrDefault(m => approver.NamesMachine(m.MachineName, m.OsUser));
             var label = LicenseSignInFold.Label(machines, machine?.MachineName ?? approver.MachineName, machine?.OsUser ?? approver.OsUser);
             var verdict = LicenseApproverReadiness.Verdict(approver, label, now);
             if (verdict.WhatToDo is null)
                 continue;
-            // A machine that has never reported has no row to name, so the alarm is about the account alone; its
-            // sentences still name the machine.
-            conditions.Add(new LicenseAlarmCondition(machine?.MachineId, machine is null ? null : label, approver.AccountEmail,
-                verdict.HealthText, verdict.WhatToDo));
+            if (verdict.HealthText.Length > LicenseAlarmService.MaxSentenceLength || verdict.WhatToDo.Length > LicenseAlarmService.MaxSentenceLength)
+            {
+                _log($"[LicenseApproverAlarm] ConditionsNow: REFUSED the alarm of account={approver.AccountEmail}, tenant={tenant.ToLogString()}: "
+                              + $"its sentences are {verdict.HealthText.Length} and {verdict.WhatToDo.Length} characters, past the {LicenseAlarmService.MaxSentenceLength} an alarm takes");
+                continue;
+            }
+            conditions.Add(new LicenseAlarmCondition(null, null, approver.AccountEmail, verdict.HealthText, verdict.WhatToDo));
         }
         return conditions;
     }
 
-    /// <summary>Raise the approver alarm for one tenant now, passing every approver that cannot approve.</summary>
+    /// <summary>Raise the approver alarm for one tenant now, passing every approver that cannot approve. One raise at a
+    /// time for each tenant: the records are read under the same wait the alarm is raised under.</summary>
     public async Task<LicenseAlarmRaised> RaiseAsync(TenantId tenant, CancellationToken ct)
     {
-        var conditions = ConditionsNow(tenant);
-        var raised = await _alarms.RaiseAsync(tenant, Kind, conditions, ct).ConfigureAwait(false);
-        FileLog.Write($"[LicenseApproverAlarm] RaiseAsync: tenant={tenant.ToLogString()}, cannotApprove={conditions.Count}, "
-                      + $"opened={raised.Opened}, stillOpen={raised.StillOpen}, closed={raised.Closed}");
-        return raised;
+        var gate = _raising.GetOrAdd(tenant, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var conditions = ConditionsNow(tenant);
+            var raised = await _alarms.RaiseAsync(tenant, Kind, conditions, ct).ConfigureAwait(false);
+            // Quiet when there is nothing to say; the alarm service logs every open and close itself.
+            if (conditions.Count > 0)
+                _log($"[LicenseApproverAlarm] RaiseAsync: tenant={tenant.ToLogString()}, cannotApprove={conditions.Count}");
+            return raised;
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     /// <summary>
@@ -97,11 +132,11 @@ public sealed class LicenseApproverAlarm
             }
             catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
             {
-                FileLog.Write($"[LicenseApproverAlarm] RaiseSoon: tenant={tenant.ToLogString()} stopped, the Gateway is stopping");
+                _log($"[LicenseApproverAlarm] RaiseSoon: tenant={tenant.ToLogString()} stopped, the Gateway is stopping");
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[LicenseApproverAlarm] RaiseSoon FAILED: tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
+                _log($"[LicenseApproverAlarm] RaiseSoon FAILED: tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
             }
         });
         lock (_gate)
@@ -149,7 +184,7 @@ public sealed class LicenseApproverAlarm
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[LicenseApproverAlarm] TickEveryTenantAsync: the raise FAILED for tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
+            _log($"[LicenseApproverAlarm] TickEveryTenantAsync: the raise FAILED for tenant={tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
         }
     }
 }
