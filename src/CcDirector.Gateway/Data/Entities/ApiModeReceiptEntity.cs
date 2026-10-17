@@ -81,11 +81,11 @@ public sealed class ApiModeReceiptEntity : TenantScopedEntity
     /// nothing, so a re-sent batch cannot move a receipt backwards.</summary>
     public long LastSequence { get; set; }
 
-    /// <summary>When the generation of the event that created the row started: with <see cref="FirstSequence"/>, the
-    /// order receipts are read in.</summary>
+    /// <summary>When the generation of the event that created the row started - or, when a retry superseded a Refused
+    /// receipt, of the retry's first event: with <see cref="FirstSequence"/>, the order receipts are read in.</summary>
     public DateTime FirstGenerationStartedUtc { get; set; }
 
-    /// <summary>The sequence of the event that created the row, inside its generation.</summary>
+    /// <summary>The sequence of the event that created the row (or of the retry's first event), inside its generation.</summary>
     public long FirstSequence { get; set; }
 
     /// <summary>When this Gateway first stored the row (the Gateway's injected clock).</summary>

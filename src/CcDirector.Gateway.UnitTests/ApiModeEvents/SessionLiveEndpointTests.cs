@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
+using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
@@ -338,6 +339,32 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         Assert.Equal(("items", (string?)null), (opening!.Event, opening.Id));
         Assert.Equal(("receipt:p0", "Delivered"), (Single(opening).ItemId, Single(opening).Text));
         Assert.Equal("gen-a:5", first!.Id);
+    }
+
+    [Fact]
+    public async Task Stream_StartedFromAStoredRefusal_ARetryRefusedLiveShowsTheReasonTheReceiptsRouteAnswers()
+    {
+        // The review of pull request #4142, finding 1. The Gateway holds nothing for the session (it restarted), and the
+        // store holds gw-1 refused while the Director restarted Pi. The user presses again: the retry is queued behind a
+        // running turn, then refused by Pi itself. The stream must show the second reason, not keep the first.
+        const string piNotRunning = "Pi is not running: the process exited";
+        const string busy = "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.";
+        await StartAsync();
+        using (_boundary.EnterScope(Alice))
+            _receipts.RecordRefused(AliceDirector, ApiSession, "gw-1", piNotRunning, "director", new ApiModeEventPosition("gen-a", GenAStarted, 40), T0.UtcDateTime);
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await stream.NextAsync();
+        PushA(Queued(41, "gw-1"), Refused(42, "gw-1", busy, PromptRefusedBy.Agent));
+        var queued = await stream.NextAsync();
+        var refused = await stream.NextAsync();
+
+        Assert.Equal("Refused: " + piNotRunning, Single(opening!).Text);
+        Assert.Equal(("gen-a:41", "Queued: a turn is running"), (queued!.Id, Single(queued).Text));
+        Assert.Equal(("gen-a:42", "Refused: " + busy), (refused!.Id, Single(refused).Text));
+        // What the receipts route answers: the stored receipt, worded by the one ruling.
+        using (_boundary.EnterScope(Alice))
+            Assert.Equal(Single(refused).Text, ApiModeLiveRuling.ReceiptWords(Assert.Single(_receipts.Read(ApiSession))));
     }
 
     // ----- the stream: a continued cursor never shows a wrong picture (review of pull request #4083, finding 1) -----
@@ -873,12 +900,14 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
 
     private static ConnectionReady Ready(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, AgentSessionId = "e173b676-b5d6-4605-bc6c-cdbc82fd42a7", Model = "gpt-5.6-sol" };
     private static PromptDelivered Delivered(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Disposition = PromptDisposition.Started, Acknowledgement = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""" };
+    private static PromptQueued Queued(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Reason = PromptQueuedReason.TurnRunning, Position = 1 };
+    private static PromptRefused Refused(long seq, string prompt, string reason, PromptRefusedBy by) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Reason = reason, RefusedBy = by };
     private static TurnStarted Started(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", PromptIds = new[] { "p1" } };
     private static MessageText Text(long seq, string text) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", MessageId = "m1", Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Delta, Text = text };
     private static ToolCallStarted ToolStart(long seq, string name, string input) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = "tc1", ToolName = name, Kind = ToolCallKind.Execute, Input = input };
     private static ToolCallFinished ToolEnd(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = "tc1", Outcome = ToolCallOutcome.Succeeded, Output = "total 0", DurationMilliseconds = 12 };
     private static TurnEnded Failed(long seq, string reason) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", Outcome = TurnOutcome.Failed, Reason = reason, AgentStopReason = null, Usage = new TurnUsage { Input = 0, Output = 0, CacheRead = 0, CacheWrite = 0 } };
-    private static ApiModeHeldEvent Held(long seq) => new("gen-a", Text(seq, "x"));
+    private static ApiModeHeldEvent Held(long seq) => new("gen-a", GenAStarted, Text(seq, "x"));
 
     // ----- reading frames -----
 
