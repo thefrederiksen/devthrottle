@@ -172,7 +172,17 @@ public static class LicenseSignInFold
 
         foreach (var dto in overview.Machines)
         {
-            var machine = machines.First(m => m.MachineId.ToString("N") == dto.MachineId);
+            var machine = machines.FirstOrDefault(m => m.MachineId.ToString("N") == dto.MachineId);
+            if (machine is null)
+            {
+                // A machine known only from its refused reports (LicenseDisplayFold.RefusedMachine): it holds nothing
+                // the Gateway has accepted, so nothing can be started on it.
+                if (dto.Status != LicenseMachineStatuses.ReportRefused)
+                    throw new InvalidOperationException($"The overview lists machine {dto.MachineId}, which is neither a machine of the picture nor a refused one.");
+                dto.CanAddSpare = false;
+                dto.AddSpareText = $"A spare can be added to {dto.Label} once a report from it is accepted.";
+                continue;
+            }
             var connected = isConnected(machine.DirectorId);
             var running = openSignIns.Where(r => r.MachineId == machine.MachineId).OrderBy(r => r.CreatedAtUtc).ToList();
             dto.CanAddSpare = connected;
