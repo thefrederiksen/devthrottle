@@ -115,6 +115,58 @@ public sealed class ApiModeVerdictReceiptsTests : IDisposable
         Assert.Equal(fromTheStore, fromTheBatch);
     }
 
+    // ----- a retry of a delivery that was not delivered: the later receipt stands, so the fold counts its turn -----
+    // (event model section 2, "What a promptId is"; phase 2 phase review, finding 1)
+
+    private ApiModeSessionDisplay StampOne()
+    {
+        var batch = new ApiModeVerdictReceipts(_db);
+        var rows = new[] { ApiRow(Sid) };
+        ApiModeRowStamp.Stamp(rows, new ApiModeDisplayFacts(_buffer, batch.Read), Alice);
+        return rows[0].ApiMode!;
+    }
+
+    [Fact]
+    public void Stamp_APromptRefusedThenDeliveredOnRetry_CountsItsTurnAsWorking()
+    {
+        // Arrange: the first press was refused while the Director restarted Pi; the re-press under the same id was
+        // acknowledged and started a turn.
+        Push(Alice,
+            Ready(1),
+            Refused(2, "gw-1", "Pi is not running: the process exited", PromptRefusedBy.Director),
+            Delivered(5, "gw-1", PlainAck),
+            Started(6, "t1", "gw-1"));
+
+        // Act
+        var verdict = StampOne();
+
+        // Assert
+        Assert.Equal(1, verdict.TurnNumber);
+        Assert.True(verdict.Working);
+        Assert.Equal("Working - turn 1", verdict.ActivityLabel);
+    }
+
+    [Fact]
+    public void Stamp_ARetryDeliveredAfterAnotherPromptsTurn_IsTheLatestTurn()
+    {
+        // Arrange: gw-1 refused; p2 delivered and its turn done; then gw-1's retry delivered and its turn started.
+        Push(Alice,
+            Ready(1),
+            Refused(2, "gw-1", "Pi is not running: the process exited", PromptRefusedBy.Director),
+            Delivered(3, "p2", PlainAck),
+            Started(4, "t1", "p2"),
+            Ended(5, "t1", TurnOutcome.Done, null, "stop"),
+            Delivered(6, "gw-1", RefusalFirstAck),
+            Started(7, "t2", "gw-1"));
+
+        // Act
+        var verdict = StampOne();
+
+        // Assert
+        Assert.Equal(2, verdict.TurnNumber);
+        Assert.Equal("Working - turn 2", verdict.ActivityLabel);
+    }
+
     // ----- the stamp reads once per roster -----
 
     [Fact]

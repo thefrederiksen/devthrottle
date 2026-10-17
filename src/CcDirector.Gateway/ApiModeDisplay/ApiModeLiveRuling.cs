@@ -17,7 +17,8 @@ namespace CcDirector.Gateway.ApiModeDisplay;
 ///
 /// <para><b>What it remembers</b>, and why it is an instance: a tool card's title (the finish event carries no tool
 /// name), which prompts each turn carried (so a turn that failed rewrites those prompts' receipts, event model rule 5),
-/// and each prompt's receipt so far. Nothing else. It does no input or output and reads no clock: the same events give
+/// each prompt's receipt so far, and the sequence of the last receipt event ruled for it (so an older event handed over
+/// after a newer one changes nothing). Nothing else. It does no input or output and reads no clock: the same events give
 /// the same items.</para>
 ///
 /// <para><b>After an incomplete replay</b> (<see cref="ApiModeEvents.ApiModeEventReplay.Complete"/> false: a Gateway
@@ -44,6 +45,9 @@ public sealed class ApiModeLiveRuling
     // The prompts whose ending this ruling took from the store, not from an event. A reader started from the stored
     // receipts is then handed, again, the very event that ended each of them; that replay is not a second ending.
     private readonly HashSet<string> _endingsFromStore = new(StringComparer.Ordinal);
+    // The sequence of the last receipt event ruled for each prompt, so an older event handed over after a newer one
+    // changes nothing.
+    private readonly Dictionary<string, long> _receiptSequences = new(StringComparer.Ordinal);
 
     /// <summary>A ruling for a reader that starts at the first event of a complete replay.</summary>
     public ApiModeLiveRuling()
@@ -78,21 +82,22 @@ public sealed class ApiModeLiveRuling
         ArgumentNullException.ThrowIfNull(e);
         return e switch
         {
-            PromptQueued q => ReceiptChange(q.Sequence, q.PromptId, r =>
+            PromptQueued q => ReceiptChange(q, r =>
             {
-                if (r.State != ApiModeReceiptState.Queued) return; // a late Queued after an ending changes nothing
+                if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, q)) return;
+                r.State = ApiModeReceiptState.Queued;
                 r.QueueReason = Word(q.Reason);
             }),
-            PromptDelivered d => ReceiptChange(d.Sequence, d.PromptId, r =>
+            PromptDelivered d => ReceiptChange(d, r =>
             {
-                if (IsFinal(r, d)) return;
+                if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, d)) return;
                 r.State = ApiModeReceiptState.Delivered;
                 r.Disposition = Word(d.Disposition);
                 r.Acknowledgement = d.Acknowledgement;
             }),
-            PromptRefused f => ReceiptChange(f.Sequence, f.PromptId, r =>
+            PromptRefused f => ReceiptChange(f, r =>
             {
-                if (IsFinal(r, f)) return;
+                if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, f)) return;
                 r.State = ApiModeReceiptState.Refused;
                 r.RefusalReason = f.Reason;
                 r.RefusedBy = Word(f.RefusedBy);
@@ -157,6 +162,9 @@ public sealed class ApiModeLiveRuling
 
     /// <summary>How many second endings this ruling has logged (a Director defect each), for the tests.</summary>
     internal int SecondEndingsLogged { get; private set; }
+
+    /// <summary>How many refused receipts a retry's later event replaced (each logged), for the tests.</summary>
+    internal int SupersedesLogged { get; private set; }
 
     // ----- the receipt's words: ONE function for the stored read and the live stream -----
 
@@ -234,16 +242,32 @@ public sealed class ApiModeLiveRuling
 
     // ----- the rest of the ruling -----
 
-    private IReadOnlyList<ApiModeLiveItem> ReceiptChange(long sequence, string promptId, Action<ApiModeReceiptDto> change)
+    private IReadOnlyList<ApiModeLiveItem> ReceiptChange(SessionEvent e, Action<ApiModeReceiptDto> change)
     {
+        var promptId = PromptIdOf(e);
+        if (_receiptSequences.TryGetValue(promptId, out var last) && e.Sequence <= last)
+        {
+            // An older event handed over after a newer one: it never overwrites what the newer one decided.
+            FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: {e.GetType().Name} is not after sequence {last}, already ruled for this prompt; it changes nothing");
+            return Array.Empty<ApiModeLiveItem>();
+        }
+        _receiptSequences[promptId] = e.Sequence;
         if (!_receipts.TryGetValue(promptId, out var receipt))
         {
             receipt = new ApiModeReceiptDto { PromptId = promptId, State = ApiModeReceiptState.Queued };
             _receipts[promptId] = receipt;
         }
         change(receipt);
-        return ReceiptIfChanged(receipt, sequence);
+        return ReceiptIfChanged(receipt, e.Sequence);
     }
+
+    private static string PromptIdOf(SessionEvent e) => e switch
+    {
+        PromptQueued q => q.PromptId,
+        PromptDelivered d => d.PromptId,
+        PromptRefused f => f.PromptId,
+        _ => throw new InvalidOperationException($"ApiModeLiveRuling: {e.GetType().Name} is not a receipt event"),
+    };
 
     private IReadOnlyList<ApiModeLiveItem> ReceiptIfChanged(ApiModeReceiptDto receipt, long sequence)
     {
@@ -254,17 +278,57 @@ public sealed class ApiModeLiveRuling
         return new[] { ReceiptItem(receipt, sequence) };
     }
 
-    /// <summary>Delivered and Refused are final (event model rule 1): a second ending is a Director defect, logged, and
-    /// the first one stands - as the receipt store keeps it. The first replay of the ending a stored receipt was built
-    /// from is that same ending, not a second one, and is not logged.</summary>
-    private bool IsFinal(ApiModeReceiptDto receipt, SessionEvent e)
+    /// <summary>
+    /// Whether a receipt event replaces a receipt that already ended - as the receipt store decides it (event model
+    /// section 2: a retry of a delivery that was not delivered reuses its Gateway id, and the later receipt stands).
+    /// A Refused receipt is replaced by the retry's Queued, Delivered or Refused, logged. Delivered is final (rule 1): a
+    /// second ending after it is a Director defect, logged, and the delivery stands; a Queued after it changes nothing.
+    ///
+    /// <para>A ruling started from the stored receipts is handed again events the store has already ruled on, since
+    /// the store is at or ahead of every event a reader is handed. Until the event a stored ending was built from comes
+    /// back, an earlier event of that prompt is such a replay and changes nothing, unlogged (the store logged any defect
+    /// in it): an earlier attempt's Queued, and the refusal a stored delivery superseded. A Delivered after a stored
+    /// refusal is the retry, newer than the store's read, and replaces it. Without the stored positions a reader cannot
+    /// tell a refused-twice prompt's first refusal from its last, so the first one back is taken as the stored ending;
+    /// a later event of the earlier attempt may then show for a moment before the stored ending replaces it again, and
+    /// the last item a reader is handed is always the stored one.</para>
+    /// </summary>
+    private bool Supersedes(ApiModeReceiptDto receipt, SessionEvent e)
     {
-        if (receipt.State == ApiModeReceiptState.Queued) return false;
-        var sameEnding = (e is PromptDelivered) == (receipt.State == ApiModeReceiptState.Delivered);
-        if (sameEnding && _endingsFromStore.Remove(receipt.PromptId)) return true;
+        var promptId = receipt.PromptId;
+        if (_endingsFromStore.Contains(promptId))
+        {
+            var sameEnding = e is PromptDelivered ? receipt.State == ApiModeReceiptState.Delivered
+                : e is PromptRefused && receipt.State == ApiModeReceiptState.Refused;
+            if (sameEnding)
+            {
+                _endingsFromStore.Remove(promptId);
+                return false;
+            }
+            if (e is PromptQueued || receipt.State == ApiModeReceiptState.Delivered)
+                return false;
+            _endingsFromStore.Remove(promptId);
+        }
+
+        if (receipt.State == ApiModeReceiptState.Refused)
+        {
+            SupersedesLogged++;
+            FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: SUPERSEDE, the prompt was refused (\"{receipt.RefusalReason}\") and {e.GetType().Name} is its retry under the same id; the later receipt stands");
+            receipt.QueueReason = null;
+            receipt.Disposition = null;
+            receipt.Acknowledgement = null;
+            receipt.RefusalReason = null;
+            receipt.RefusedBy = null;
+            receipt.TurnId = null;
+            receipt.TurnOutcome = null;
+            receipt.TurnOutcomeReason = null;
+            return true;
+        }
+
+        if (e is PromptQueued) return false; // a delivered prompt is never queued again; the store logs it
         SecondEndingsLogged++;
-        FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={receipt.PromptId} sequence={e.Sequence}: a second ending ({e.GetType().Name}) after {receipt.State}; the first stands");
-        return true;
+        FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: a second ending ({e.GetType().Name}) after {receipt.State}; a delivered prompt is never sent again, so the delivery stands");
+        return false;
     }
 
     private IReadOnlyList<ApiModeLiveItem> TurnStart(TurnStarted s)

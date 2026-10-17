@@ -273,16 +273,21 @@ public sealed class ApiModeLiveRulingTests
     }
 
     [Fact]
-    public void Rule_AStoredDeliveryThenAReplayedRefusal_IsLoggedAsASecondEnding()
+    public void Rule_AStoredDeliveryThenTheRefusalItSuperseded_ChangesNothingAndIsNotLogged()
     {
-        // Arrange: the store says Delivered, so a refusal is not the event the receipt was built from.
+        // Arrange: the store says Delivered - a retry's delivery that superseded a refusal - and the reader is handed
+        // the events the store has already ruled on, the superseded refusal first.
         var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" } });
 
         // Act
-        ruling.Rule(Refused(5, "p1", "too late", PromptRefusedBy.Director));
+        var refusal = ruling.Rule(Refused(1, "p1", "Pi is not running: the process exited", PromptRefusedBy.Director));
+        var delivery = ruling.Rule(Delivered(5, "p1", PlainAck));
 
         // Assert
-        Assert.Equal(1, ruling.SecondEndingsLogged);
+        Assert.Empty(refusal);
+        Assert.Empty(delivery);
+        Assert.Equal(0, ruling.SecondEndingsLogged);
+        Assert.Equal(0, ruling.SupersedesLogged);
     }
 
     [Fact]
@@ -297,6 +302,130 @@ public sealed class ApiModeLiveRulingTests
 
         // Assert
         Assert.Equal(1, ruling.SecondEndingsLogged);
+    }
+
+    [Fact]
+    public void Rule_ADeliveryAfterADelivery_TheFirstStandsAndItIsLogged()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Delivered(1, "p1", PlainAck));
+
+        // Act
+        var items = ruling.Rule(Delivered(2, "p1", RefusalFirstAck));
+
+        // Assert
+        Assert.Empty(items);
+        Assert.Equal(1, ruling.SecondEndingsLogged);
+        Assert.Equal(0, ruling.SupersedesLogged);
+    }
+
+    // ----- a retry of a delivery that was not delivered reuses its Gateway id: the later receipt stands -----
+    // (event model section 2, "What a promptId is"; phase 2 phase review, finding 1)
+
+    private const string PiNotRunning = "Pi is not running: the process exited";
+
+    [Fact]
+    public void Rule_RefusedThenDeliveredOnRetry_TheReceiptReadsDelivered()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        var refused = ruling.Rule(Refused(1, "gw-1", PiNotRunning, PromptRefusedBy.Director));
+
+        // Act
+        var delivered = ruling.Rule(Delivered(5, "gw-1", PlainAck));
+
+        // Assert
+        Assert.Equal(new[] { "Refused: " + PiNotRunning }, ReceiptWordsOf(refused, "gw-1"));
+        var item = Assert.Single(delivered);
+        Assert.Equal("receipt:gw-1", item.ItemId);
+        Assert.Equal("Delivered", item.Text);
+        Assert.Equal("green", item.Tone);
+        Assert.Equal(5, item.Sequence);
+        Assert.Equal(1, ruling.SupersedesLogged);
+        Assert.Equal(0, ruling.SecondEndingsLogged);
+    }
+
+    [Fact]
+    public void Rule_RefusedThenDeliveredOnRetryThenTheTurnFailed_TheReceiptShowsTheFailedTurn()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+
+        // Act
+        var items = RuleAll(ruling, new SessionEvent[]
+        {
+            Refused(1, "gw-1", PiNotRunning, PromptRefusedBy.Director),
+            Delivered(5, "gw-1", PlainAck),
+            Started(6, "t1", "gw-1"),
+            Ended(9, "t1", TurnOutcome.Failed, "Pi exited during the turn (exit code 137)", null),
+        });
+
+        // Assert
+        Assert.Equal(
+            new[] { "Refused: " + PiNotRunning, "Delivered", "Delivered - the turn failed: Pi exited during the turn (exit code 137)" },
+            ReceiptWordsOf(items, "gw-1"));
+    }
+
+    [Fact]
+    public void Rule_RefusedThenRefusedAgainOnRetry_TheLaterReasonStands()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Refused(1, "gw-1", PiNotRunning, PromptRefusedBy.Director));
+
+        // Act
+        var items = ruling.Rule(Refused(4, "gw-1", RefusalBusy, PromptRefusedBy.Agent));
+
+        // Assert
+        Assert.Equal(new[] { "Refused: " + RefusalBusy }, ReceiptWordsOf(items, "gw-1"));
+        Assert.Equal(1, ruling.SupersedesLogged);
+    }
+
+    [Fact]
+    public void Rule_RefusedThenQueuedOnRetry_TheReceiptReadsQueued()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Refused(1, "gw-1", PiNotRunning, PromptRefusedBy.Director));
+
+        // Act
+        var items = ruling.Rule(Queued(3, "gw-1", PromptQueuedReason.TurnRunning));
+
+        // Assert
+        Assert.Equal(new[] { "Queued: a turn is running" }, ReceiptWordsOf(items, "gw-1"));
+    }
+
+    [Fact]
+    public void Rule_AnOlderRefusalHandedOverAfterTheRetrysDelivery_ChangesNothing()
+    {
+        // Arrange: refused at 1, delivered on retry at 5.
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Refused(1, "gw-1", PiNotRunning, PromptRefusedBy.Director));
+        ruling.Rule(Delivered(5, "gw-1", PlainAck));
+
+        // Act: the first refusal again, and a refusal with a lower sequence than the delivery.
+        var replayed = ruling.Rule(Refused(1, "gw-1", PiNotRunning, PromptRefusedBy.Director));
+        var older = ruling.Rule(Refused(3, "gw-1", "an earlier attempt", PromptRefusedBy.Director));
+
+        // Assert: neither overwrites, and neither is a second ending - they are older, not later.
+        Assert.Empty(replayed);
+        Assert.Empty(older);
+        Assert.Equal(0, ruling.SecondEndingsLogged);
+    }
+
+    [Fact]
+    public void Rule_AStoredRefusalThenTheRetrysDelivery_TheReceiptReadsDelivered()
+    {
+        // Arrange: a reader started from the store, which holds the refusal; the retry is acknowledged after the read.
+        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "gw-1", State = ApiModeReceiptState.Refused, RefusalReason = PiNotRunning, RefusedBy = "director" } });
+
+        // Act
+        var items = ruling.Rule(Delivered(5, "gw-1", PlainAck));
+
+        // Assert
+        Assert.Equal(new[] { "Delivered" }, ReceiptWordsOf(items, "gw-1"));
+        Assert.Equal(1, ruling.SupersedesLogged);
     }
 
     // ----- what the ruling remembers (review of pull request #4083, finding 1) -----
