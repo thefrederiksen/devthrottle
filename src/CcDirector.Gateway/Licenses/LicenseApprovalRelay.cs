@@ -238,7 +238,7 @@ public sealed class LicenseApprovalRelay
     }
 
     /// <summary>The Licenses log row for one answered relay, against the machine whose Director asked. A Director that
-    /// has never reported for this account holds no sign-in the Gateway knows of, so it has no machine to record
+    /// has never reported to this DevThrottle account holds no sign-in the Gateway knows of, so it has no machine to record
     /// against: that is said in a line, and nothing is written.</summary>
     private void Record(TenantId tenant, string askingDirectorId, string signInId, string account, Decided decided)
     {
@@ -246,7 +246,7 @@ public sealed class LicenseApprovalRelay
         var asking = _reads.Read(tenant, now).Machines.FirstOrDefault(m => string.Equals(m.DirectorId, askingDirectorId, StringComparison.Ordinal));
         if (asking is null)
         {
-            FileLog.Write($"[LicenseApprovalRelay] signIn={signInId}, account={account}: not in the Licenses log, the Director that asked ({askingDirectorId}) has never reported for this account");
+            FileLog.Write($"[LicenseApprovalRelay] signIn={signInId}, account={account}: not in the Licenses log, the Director that asked ({askingDirectorId}) has never reported to this DevThrottle account");
             return;
         }
         _log.Record(tenant, asking, signInId, account, decided.ApproverMachine, decided.Answer.Outcome, decided.Answer.ReasonCode, now);

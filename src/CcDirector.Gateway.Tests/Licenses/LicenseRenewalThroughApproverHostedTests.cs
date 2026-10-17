@@ -24,8 +24,11 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// run on one Director at once, with no deadlock. And an approver whose approval page asks for a fresh claude.ai
 /// sign-in fails the renewal with that reason and its plain sentence, never a generic failure.
 ///
-/// Nothing here waits on a clock: the wait for an approval ends only when the answer arrives, or the test is
-/// cancelled, and background relays are awaited through <c>WhenIdleAsync</c>.
+/// Nothing here waits on a clock to pass: the wait for an approval ends only when the answer arrives, and background
+/// relays are awaited through <c>WhenIdleAsync</c>. One bound exists, and it only ever FAILS a test: every renewal,
+/// report and command here runs under <see cref="_hang"/>, cancelled after two minutes, so a deadlock - the thing the
+/// self-approval test is for - fails the named test with a cancellation instead of hanging the run. A passing run
+/// takes a few seconds and never reaches it.
 /// </summary>
 public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
 {
@@ -49,6 +52,9 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
     }
 
     private readonly TestClock _clock = new();
+
+    /// <summary>Cancelled two minutes after the test starts: a hang fails the test, it never decides a pass.</summary>
+    private readonly CancellationTokenSource _hang = new(TimeSpan.FromMinutes(2));
     private readonly string _run = Guid.NewGuid().ToString("N")[..12];
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-license-renewal-" + Guid.NewGuid().ToString("N"));
     private readonly List<IAsyncDisposable> _toDispose = new();
@@ -79,6 +85,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
     public async Task DisposeAsync()
     {
         _ownerHttp.Dispose();
+        _hang.Dispose();
         foreach (var item in _toDispose) await item.DisposeAsync();
         foreach (var item in _toDisposeToo) item.Dispose();
         await _gateway.StopAsync();
@@ -97,7 +104,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
         await ReportAsync(renewed);
         await SetApproverAsync(Due, ApprovingMachine);
 
-        var rows = await renewed.Licenses.Renewer.TickAsync(CancellationToken.None);
+        var rows = await renewed.Licenses.Renewer.TickAsync(_hang.Token);
         await _gateway.LicenseApprovals.WhenIdleAsync();
 
         var row = Assert.Single(rows!, r => r.AccountEmail == Due);
@@ -128,7 +135,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
         await ReportAsync(machine);
         await SetApproverAsync(Due, ApprovingMachine);
 
-        var rows = await machine.Licenses.Renewer.TickAsync(CancellationToken.None);
+        var rows = await machine.Licenses.Renewer.TickAsync(_hang.Token);
         await _gateway.LicenseApprovals.WhenIdleAsync();
 
         Assert.Equal(LicenseRenewalResults.Renewed, Assert.Single(rows!, r => r.AccountEmail == Due).Result);
@@ -153,7 +160,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
         await ReportAsync(renewed);
         await SetApproverAsync(Due, ApprovingMachine);
 
-        var rows = await renewed.Licenses.Renewer.TickAsync(CancellationToken.None);
+        var rows = await renewed.Licenses.Renewer.TickAsync(_hang.Token);
         await _gateway.LicenseApprovals.WhenIdleAsync();
 
         var row = Assert.Single(rows!, r => r.AccountEmail == Due);
@@ -198,7 +205,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
         // The Director's own command surface for the two verbs the relay sends, exactly as its tunnel runs them.
         director.OnCommandAsync(command => command.Verb switch
         {
-            LicenseContract.ApproveVerb => LicenseSignInExecutor.ApproveAsync(licenses.Approver, command, CancellationToken.None),
+            LicenseContract.ApproveVerb => LicenseSignInExecutor.ApproveAsync(licenses.Approver, command, _hang.Token),
             LicenseContract.ApprovalResultVerb => Task.FromResult(LicenseSignInExecutor.DeliverApproval(licenses.Approvals, command)),
             _ => Task.FromResult(DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {command.Verb}")),
         });
@@ -211,7 +218,7 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
     {
         if (afterSpareRead) _clock.UtcNow += LicenseContract.SpareReadInterval;
         machine.Licenses.Reporter.RequestReport(LicenseReportTriggers.Changed);
-        var report = await machine.Licenses.Reporter.TickAsync(CancellationToken.None);
+        var report = await machine.Licenses.Reporter.TickAsync(_hang.Token);
         return report ?? throw new InvalidOperationException($"{machine.Name} sent no report.");
     }
 

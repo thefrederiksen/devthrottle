@@ -845,7 +845,7 @@ sentence naming the machine set to approve - "the-pc approved the sign-in for ac
 "the-mac approved its own sign-in for account-a@example.com.", "The sign-in for account-a@example.com on the-mac was
 not approved by the-pc: the approving browser needs a fresh claude.ai sign-in on the approval page." It never carries
 the address the sign-in was approved at, the sealed approval, or the approving machine's own words. A request from a
-Director that has never reported for the account writes no row: there is no machine to put it against.
+Director that has never reported to this DevThrottle account writes no row: there is no machine to put it against.
 
 A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
 machine's renewal of a sign-in is failing and that sign-in ends within three days, and open until the machine

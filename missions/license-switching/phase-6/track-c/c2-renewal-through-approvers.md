@@ -31,7 +31,7 @@ Licenses page shows it as "Approval", "Approved" or "Refused".
   reason word only (`LicenseDisplayFold.RenewalWhy`). The existing `LicenseSignInKeepsNothingTests`, which searches
   the bytes of the database after a relay for both, passes with these rows in it.
 - **It is written after the answer is sent**, so a store that cannot take it never delays or loses the answer.
-- **A request from a Director that has never reported for the account writes no row**, and says so in a line: it
+- **A request from a Director that has never reported to this DevThrottle account writes no row**, and says so in a line: it
   holds no sign-in the Gateway knows of, so there is no machine to put it against. The answer is still sent.
 - A sign-in started from the Cockpit and approved through the relay now has two rows: its sign-in row (what was done)
   and its approval row (who approved). They say different things.
