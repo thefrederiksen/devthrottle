@@ -104,6 +104,10 @@ public static class LicenseExtraUsageStates
 /// <summary>How a machine is doing.</summary>
 public static class LicenseMachineStatuses
 {
+    /// <summary>Its Director is reporting, and the Gateway refuses what the report says: it breaks the contract's
+    /// shape. Outranks every other status, because it is also WHY the machine's facts are old.</summary>
+    public const string ReportRefused = "report-refused";
+
     /// <summary>Its last report is too old.</summary>
     public const string NotReporting = "not-reporting";
 
@@ -339,19 +343,27 @@ public sealed class LicenseMachineDto
     /// <summary>One of <see cref="LicenseMachineStatuses"/>.</summary>
     public string Status { get; set; } = "";
 
-    /// <summary>The label: "Reporting", "Not reporting", "Switching", "Signed out".</summary>
+    /// <summary>The label: "Reporting", "Report refused", "Not reporting since 2026-10-16 09:12 UTC", "Switching",
+    /// "Signed out".</summary>
     public string StatusText { get; set; } = "";
 
     /// <summary>One of <see cref="LicenseTones"/>.</summary>
     public string StatusTone { get; set; } = "";
 
-    /// <summary>The machine's last report is too old; it is not sent a switch until it reports again.</summary>
+    /// <summary>The sentence saying what the status means and why, drawn as given; null when the status needs none.
+    /// Set for <see cref="LicenseMachineStatuses.ReportRefused"/> (the refusal, in words) and
+    /// <see cref="LicenseMachineStatuses.NotReporting"/>.</summary>
+    public string? StatusDetail { get; set; }
+
+    /// <summary>The machine's last report is too old, or its reports are refused; it is not sent a switch until a
+    /// report is accepted.</summary>
     public bool IsStale { get; set; }
 
-    /// <summary>When the Gateway accepted its last report.</summary>
-    public DateTime LastReportAtUtc { get; set; }
+    /// <summary>When the Gateway accepted its last report; null for a machine whose reports have only ever been
+    /// refused.</summary>
+    public DateTime? LastReportAtUtc { get; set; }
 
-    /// <summary>"Last report 1 minute ago".</summary>
+    /// <summary>"Last report 1 minute ago", or "No report from it has been accepted yet".</summary>
     public string LastReportText { get; set; } = "";
 
     /// <summary>The machine's active sign-in; null when it is signed in to none.</summary>

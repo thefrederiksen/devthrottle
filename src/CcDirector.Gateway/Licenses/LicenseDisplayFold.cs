@@ -71,14 +71,19 @@ public static class LicenseDisplayFold
         var now = picture.Snapshot.NowUtc;
         FileLog.Write($"[LicenseDisplayFold] Overview: accounts={picture.Overview.Accounts.Count}, machines={picture.Overview.Machines.Count}");
 
-        var empty = IsEmpty(picture.Overview);
+        // A Director whose reports have only ever been refused has no machine row: it is shown from its refusal, so a
+        // machine that is alive and refused is never missing from the page.
+        var refusedOnly = RefusedWithNoMachine(picture);
+        var empty = IsEmpty(picture.Overview) && refusedOnly.Count == 0;
         var response = new LicenseOverviewResponse
         {
             AsOfUtc = Utc(now),
             IsEmpty = empty,
             EmptyText = empty ? NothingReportedText : null,
             Accounts = picture.Overview.Accounts.Select(a => Account(a, picture)).ToList(),
-            Machines = picture.Overview.Machines.Select(m => Machine(m, picture)).ToList(),
+            Machines = picture.Overview.Machines.Select(m => Machine(m, picture))
+                .Concat(refusedOnly.Select(r => RefusedMachine(r, now)))
+                .ToList(),
         };
         FileLog.Write($"[LicenseDisplayFold] Overview: empty={empty}, canSwitchNow={response.Accounts.Count(a => a.CanSwitchNow)}");
         return response;
@@ -430,10 +435,17 @@ public static class LicenseDisplayFold
         var openSwitches = picture.OpenSwitches;
         var nowUtc = picture.Snapshot.NowUtc;
         var inProgress = SwitchInProgress(machine, openSwitches);
-        var (status, text, tone) = machine.IsStale ? (LicenseMachineStatuses.NotReporting, "Not reporting", LicenseTones.Warning)
-            : inProgress is not null ? (LicenseMachineStatuses.Switching, "Switching", LicenseTones.Neutral)
-            : machine.ActiveAccountEmail is null ? (LicenseMachineStatuses.SignedOut, "Signed out", LicenseTones.Warning)
-            : (LicenseMachineStatuses.Reporting, "Reporting", LicenseTones.Good);
+        var refusal = picture.RefusalOf(machine.DirectorId);
+        // A refusal outranks "not reporting": a machine whose reports are refused stops being up to date, and the
+        // refusal is why.
+        var (status, text, tone, detail) = refusal is not null
+                ? (LicenseMachineStatuses.ReportRefused, ReportRefusedText, LicenseTones.Bad, RefusedDetail(refusal, nowUtc))
+            : machine.IsStale
+                ? (LicenseMachineStatuses.NotReporting, $"Not reporting since {Clock(machine.LastReportAtUtc)}", LicenseTones.Warning,
+                    $"No report has come from it for {Span(nowUtc - machine.LastReportAtUtc)}. It is not switched until it reports again.")
+            : inProgress is not null ? (LicenseMachineStatuses.Switching, "Switching", LicenseTones.Neutral, (string?)null)
+            : machine.ActiveAccountEmail is null ? (LicenseMachineStatuses.SignedOut, "Signed out", LicenseTones.Warning, null)
+            : (LicenseMachineStatuses.Reporting, "Reporting", LicenseTones.Good, null);
         // A read error of a sign-in whose account no machine has ever read must not speak of "the numbers shown":
         // the card shows none.
         var everRead = picture.Overview.Accounts.Where(a => a.Freshest is not null).Select(a => a.AccountEmail).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -449,7 +461,8 @@ public static class LicenseDisplayFold
             Status = status,
             StatusText = text,
             StatusTone = tone,
-            IsStale = machine.IsStale,
+            StatusDetail = detail,
+            IsStale = machine.IsStale || refusal is not null,
             LastReportAtUtc = Utc(machine.LastReportAtUtc),
             LastReportText = $"Last report {Ago(nowUtc - machine.LastReportAtUtc)}",
             Active = holdings.FirstOrDefault(h => h.IsActive),
@@ -457,6 +470,61 @@ public static class LicenseDisplayFold
             SwitchInProgress = inProgress,
             HeldUntilUtc = hold is null ? null : Utc(hold.HeldUntilUtc),
             HeldText = hold is null ? null : HeldText(hold, nowUtc),
+        };
+    }
+
+    /// <summary>What a machine whose reports are refused is called in its status.</summary>
+    public const string ReportRefusedText = "Report refused";
+
+    /// <summary>What a machine none of whose reports was ever accepted says of its last report.</summary>
+    public const string NoReportAcceptedText = "No report from it has been accepted yet";
+
+    // The refusal in words, and then what shows the machine is alive: how many reports it has sent that were refused,
+    // and when the latest came.
+    private static string RefusedDetail(LicenseSwitchLogEntity refusal, DateTime nowUtc)
+    {
+        var latest = Utc(refusal.LastSentAtUtc ?? refusal.CreatedAtUtc);
+        var count = refusal.SendCount == 1 ? "1 report" : $"{refusal.SendCount} reports";
+        return $"{refusal.Message} Its Director is still sending reports: {count} refused since {Clock(refusal.CreatedAtUtc)}, the latest {Ago(nowUtc - latest)}.";
+    }
+
+    // The open refusals of Directors that have no machine row: none of their reports was ever accepted.
+    private static List<LicenseSwitchLogEntity> RefusedWithNoMachine(LicensePicture picture)
+        => picture.MachineHealth
+            .Where(r => r.Kind == LicenseLogKinds.ReportRefused && r.DirectorId is not null
+                        && !picture.Overview.Machines.Any(m => string.Equals(m.DirectorId, r.DirectorId, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+    /// <summary>
+    /// The identifier of the row of a machine known only from its refused reports: the same for the same Director on
+    /// every read, so the page keeps one row for it, and never one a real machine row could have (a machine's is its
+    /// database identifier).
+    /// </summary>
+    public static string RefusedMachineId(string directorId)
+        => new Guid(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes("license-refused-director:" + directorId.ToLowerInvariant()))).ToString("N");
+
+    /// <summary>
+    /// A machine none of whose reports was ever accepted, shown from its open refusal: no holdings, no last report,
+    /// and the refusal as its status. It is named the way its report named it, or by its Director when the report
+    /// named no machine it could be stored as.
+    /// </summary>
+    public static LicenseMachineDto RefusedMachine(LicenseSwitchLogEntity refusal, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        var label = refusal.MachineName.Length > 0 ? refusal.MachineName : $"The machine of Director {refusal.DirectorId}";
+        return new LicenseMachineDto
+        {
+            MachineId = RefusedMachineId(refusal.DirectorId ?? ""),
+            MachineName = refusal.MachineName,
+            OsUser = refusal.OsUser,
+            Label = label,
+            Status = LicenseMachineStatuses.ReportRefused,
+            StatusText = ReportRefusedText,
+            StatusTone = LicenseTones.Bad,
+            StatusDetail = RefusedDetail(refusal, nowUtc),
+            IsStale = true,
+            LastReportAtUtc = null,
+            LastReportText = NoReportAcceptedText,
         };
     }
 
@@ -811,10 +879,15 @@ public static class LicenseDisplayFold
             LicenseLogStates.Switched => ("Switched", LicenseTones.Good),
             LicenseLogStates.AlreadyActive => ("Already on the target", LicenseTones.Good),
             LicenseLogStates.Failed => ("Failed", LicenseTones.Bad),
+            LicenseLogStates.Recorded when row.Kind is LicenseLogKinds.ReportAccepted or LicenseLogKinds.ReportingAgain => ("Recorded", LicenseTones.Good),
             LicenseLogStates.Recorded => ("Recorded", LicenseTones.Neutral),
             // A failed-renewal warning: open while the renewal keeps failing, ended when one has worked.
             LicenseLogStates.Open when row.Kind == LicenseRenewalFailureLog.Kind => ("Failing", LicenseTones.Bad),
             LicenseLogStates.Ended when row.Kind == LicenseRenewalFailureLog.Kind => ("Over", LicenseTones.Neutral),
+            // A refusal or a silence: open while it lasts, over once a report from the machine has been accepted.
+            LicenseLogStates.Open when row.Kind == LicenseLogKinds.ReportRefused => ("Refused", LicenseTones.Bad),
+            LicenseLogStates.Open when row.Kind == LicenseLogKinds.MachineSilent => ("Silent", LicenseTones.Warning),
+            LicenseLogStates.Ended when row.Kind is LicenseLogKinds.ReportRefused or LicenseLogKinds.MachineSilent => ("Over", LicenseTones.Neutral),
             _ => (string.IsNullOrWhiteSpace(row.State) ? "Recorded" : row.State, LicenseTones.Neutral),
         };
         var kindText = row.Kind switch
@@ -826,8 +899,15 @@ public static class LicenseDisplayFold
             // on every machine. The row's message says which.
             NoRoomKind => NothingSwitchedKindText,
             LicenseRenewalFailureLog.Kind => "Renewal failing",
+<<<<<<< HEAD
             LicenseLogKinds.AlarmOpened => "Alarm opened",
             LicenseLogKinds.AlarmClosed => "Alarm closed",
+=======
+            LicenseLogKinds.ReportRefused => ReportRefusedText,
+            LicenseLogKinds.ReportAccepted => "Reports accepted",
+            LicenseLogKinds.MachineSilent => "Not reporting",
+            LicenseLogKinds.ReportingAgain => "Reporting again",
+>>>>>>> 9b6cf239f (Licenses: a refused report and a silent machine are visible machine statuses)
             _ => "Note",
         };
         var message = string.IsNullOrWhiteSpace(row.Message) ? null : row.Message;
@@ -854,7 +934,9 @@ public static class LicenseDisplayFold
             State = row.State,
             StateText = stateText,
             StateTone = stateTone,
-            IsOpen = row.Kind is NoRoomKind or LicenseRenewalFailureLog.Kind ? row.FinishedAtUtc is null : LicenseLogStates.IsOpen(row.State),
+            IsOpen = row.Kind is NoRoomKind or LicenseRenewalFailureLog.Kind or LicenseLogKinds.ReportRefused or LicenseLogKinds.MachineSilent
+                ? row.FinishedAtUtc is null
+                : LicenseLogStates.IsOpen(row.State),
             ReasonCode = row.ReasonCode,
             ReasonText = ReasonText(row.ReasonCode),
             Message = message,
@@ -876,7 +958,9 @@ public static class LicenseDisplayFold
                 }
                 : message ?? kindText,
             SendCount = row.SendCount,
-            LastSentAtUtc = UtcOrNull(row.LastSentAtUtc),
+            // On a refusal row that column is the latest refused report, and on a silence row the last accepted one -
+            // neither is a send of a command.
+            LastSentAtUtc = row.Kind is LicenseLogKinds.ReportRefused or LicenseLogKinds.MachineSilent ? null : UtcOrNull(row.LastSentAtUtc),
             // On a failed-renewal row that column is when the sign-in was made, not when anything started.
             StartedOnMachineAtUtc = row.Kind == LicenseRenewalFailureLog.Kind ? null : UtcOrNull(row.DirectorStartedAtUtc),
             FinishedOnMachineAtUtc = UtcOrNull(row.DirectorFinishedAtUtc),

@@ -736,7 +736,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
     [Theory]
     [InlineData(6 * 60, LicenseMachineStatuses.Reporting, "Reporting", false)]
-    [InlineData(6 * 60 + 1, LicenseMachineStatuses.NotReporting, "Not reporting", true)]
+    [InlineData(6 * 60 + 1, LicenseMachineStatuses.NotReporting, "Not reporting since 2026-10-11 03:12 UTC", true)]
     public void Machine_IsNotReporting_OneSecondPastSixMinutesWithoutAReport(int seconds, string status, string text, bool stale)
     {
         Apply(Report("m1", Holding(A, true), Holding(B, false)));
