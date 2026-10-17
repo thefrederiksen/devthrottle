@@ -106,9 +106,13 @@ C#:
   clean origin/main too - the same set with and without this change, compared test by test.
 - `.\scripts\test-local.ps1`: RESULT GREEN, every suite outcome Completed with all tests executed. It ran on the
   working tree that became commit f89a3a0e8 (the only later change is this file).
-- `.\scripts\test-local.ps1 -Parked`: REFUSED before building (exit 7) - drive C: had 11.6 GB free and a release gate
-  needs 15 GB. The temporary folders filling it belong to other sessions' runs, so nothing was deleted. In its place
-  the License tests of the parked suites were run directly on the committed change:
-  `CcDirector.Gateway.UnitTests` filtered to `CcDirector.Gateway.Tests.Licenses`: 830 passed, 0 failed;
-  `CcDirector.Gateway.Tests` filtered to `License`: 21 passed, 0 failed; `CcDirector.Core.Tests` holds no License
-  tests. The full `-Parked` run is still owed once there is room, and is required for pull request 3.
+- `.\scripts\test-local.ps1 -Parked`: first REFUSED before building (exit 7) - drive C: had 11.6 GB free and a
+  release gate needs 15 GB. Run again on the Delivery Lead's instruction with TEMP and TMP on D:, at commit
+  b75edad0c (this branch rebased onto origin/main). Every suite Completed with all tests executed, among them the
+  three parked ones: `CcDirector.Gateway.UnitTests` 13,834, `CcDirector.Gateway.Tests` 1,764 in four shards,
+  `CcDirector.Core.Tests` 4,538. One test failed, in a suite this change does not touch:
+  `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused`, whose own message says Windows
+  returned no short name for its folder - drive D: makes no short (8.3) names, and the folder was on D: only because
+  TEMP was. Re-run alone with `-RerunFailed` (TEMP back on C:) it passed: the gate's verdict is FLAKY, a test that
+  fails on correct code. It passed in the default run above too. It is reported to the Tech Lead, not deleted here:
+  that is a test-only pull request of its own.
