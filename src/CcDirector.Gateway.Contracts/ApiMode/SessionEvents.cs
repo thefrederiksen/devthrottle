@@ -63,6 +63,12 @@ public sealed record PromptQueued : SessionEvent
     [JsonPropertyName("promptId")]
     public required string PromptId { get; init; }
 
+    /// <summary>The prompt exactly as the Director wrote it to the agent - or, when it never was written, exactly as it
+    /// would have been - verbatim: never trimmed, reworded or shortened, newlines and leading or trailing spaces kept.
+    /// Carried so the Gateway can store it on the prompt's receipt.</summary>
+    [JsonPropertyName("promptText")]
+    public required string PromptText { get; init; }
+
     [JsonPropertyName("reason")]
     public required PromptQueuedReason Reason { get; init; }
 
@@ -78,6 +84,12 @@ public sealed record PromptDelivered : SessionEvent
     [JsonPropertyName("promptId")]
     public required string PromptId { get; init; }
 
+    /// <summary>The prompt exactly as the Director wrote it to the agent - or, when it never was written, exactly as it
+    /// would have been - verbatim: never trimmed, reworded or shortened, newlines and leading or trailing spaces kept.
+    /// Carried so the Gateway can store it on the prompt's receipt.</summary>
+    [JsonPropertyName("promptText")]
+    public required string PromptText { get; init; }
+
     [JsonPropertyName("disposition")]
     public required PromptDisposition Disposition { get; init; }
 
@@ -92,6 +104,12 @@ public sealed record PromptRefused : SessionEvent
 {
     [JsonPropertyName("promptId")]
     public required string PromptId { get; init; }
+
+    /// <summary>The prompt exactly as the Director wrote it to the agent - or, when it never was written, exactly as it
+    /// would have been - verbatim: never trimmed, reworded or shortened, newlines and leading or trailing spaces kept.
+    /// Carried so the Gateway can store it on the prompt's receipt.</summary>
+    [JsonPropertyName("promptText")]
+    public required string PromptText { get; init; }
 
     /// <summary>The agent's own words, or the Director's when the agent never answered.</summary>
     [JsonPropertyName("reason")]

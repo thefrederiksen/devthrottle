@@ -18,15 +18,18 @@ public sealed class SessionEventJsonTests
     private static readonly JsonSerializerOptions Json = SessionEventJson.Options;
     private static readonly DateTimeOffset At = new(2026, 10, 16, 12, 0, 0, TimeSpan.Zero);
 
+    /// <summary>A prompt whose newlines and leading and trailing spaces must survive the wire unchanged.</summary>
+    private const string SpacedText = "  Reply with exactly the word PONG\n\nthen stop.\r\n  ";
+
     /// <summary>One of every event, with every optional field filled, in the order a real session could
     /// produce them.</summary>
     private static List<SessionEvent> OneOfEach() =>
     [
         new ConnectionReady { SessionId = "s1", Sequence = 1, At = At, AgentSessionId = "pi-1", Model = "gpt-5.6-sol" },
-        new PromptQueued { SessionId = "s1", Sequence = 2, At = At, PromptId = "p1", Reason = PromptQueuedReason.AgentStarting, Position = 1 },
+        new PromptQueued { SessionId = "s1", Sequence = 2, At = At, PromptId = "p1", PromptText = SpacedText, Reason = PromptQueuedReason.AgentStarting, Position = 1 },
         new PromptDelivered
         {
-            SessionId = "s1", Sequence = 3, At = At, PromptId = "p1", Disposition = PromptDisposition.Started,
+            SessionId = "s1", Sequence = 3, At = At, PromptId = "p1", PromptText = SpacedText, Disposition = PromptDisposition.Started,
             Acknowledgement = "{\"id\":\"req-1\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true,\"data\":{\"disposition\":\"started\"}}",
         },
         new TurnStarted { SessionId = "s1", Sequence = 4, At = At, TurnId = "t1", PromptIds = ["p1"] },
@@ -48,7 +51,7 @@ public sealed class SessionEventJsonTests
             SessionId = "s1", Sequence = 10, At = At, TurnId = "t1", Outcome = TurnOutcome.Done, Reason = null, AgentStopReason = "stop",
             Usage = new TurnUsage { Input = 3, Output = 8, CacheRead = 3871, CacheWrite = 26 },
         },
-        new PromptRefused { SessionId = "s1", Sequence = 11, At = At, PromptId = "p2", Reason = "Agent is already processing.", RefusedBy = PromptRefusedBy.Agent },
+        new PromptRefused { SessionId = "s1", Sequence = 11, At = At, PromptId = "p2", PromptText = "A second prompt", Reason = "Agent is already processing.", RefusedBy = PromptRefusedBy.Agent },
         new ConnectionEnded { SessionId = "s1", Sequence = 12, At = At, ExitCode = 137, Reason = "Pi exited (exit code 137)", StderrTail = ["line one", "line two"] },
     ];
 
@@ -73,15 +76,15 @@ public sealed class SessionEventJsonTests
 
     [Theory]
     [InlineData(0, "ConnectionReady", "sessionId,sequence,at,agentSessionId,model")]
-    [InlineData(1, "PromptQueued", "sessionId,sequence,at,promptId,reason,position")]
-    [InlineData(2, "PromptDelivered", "sessionId,sequence,at,promptId,disposition,acknowledgement")]
+    [InlineData(1, "PromptQueued", "sessionId,sequence,at,promptId,promptText,reason,position")]
+    [InlineData(2, "PromptDelivered", "sessionId,sequence,at,promptId,promptText,disposition,acknowledgement")]
     [InlineData(3, "TurnStarted", "sessionId,sequence,at,turnId,promptIds")]
     [InlineData(4, "MessageText", "sessionId,sequence,at,turnId,messageId,channel,kind,text")]
     [InlineData(5, "ToolCallStarted", "sessionId,sequence,at,turnId,toolCallId,toolName,kind,input")]
     [InlineData(6, "PermissionRequested", "sessionId,sequence,at,turnId,requestId,toolCallId,title,options")]
     [InlineData(7, "ToolCallFinished", "sessionId,sequence,at,turnId,toolCallId,outcome,output,durationMilliseconds")]
     [InlineData(9, "TurnEnded", "sessionId,sequence,at,turnId,outcome,reason,agentStopReason,usage")]
-    [InlineData(10, "PromptRefused", "sessionId,sequence,at,promptId,reason,refusedBy")]
+    [InlineData(10, "PromptRefused", "sessionId,sequence,at,promptId,promptText,reason,refusedBy")]
     [InlineData(11, "ConnectionEnded", "sessionId,sequence,at,exitCode,reason,stderrTail")]
     public void Serialize_EachEvent_WritesTheDiscriminatorFirstThenTheEventModelFieldNames(int index, string type, string fields)
     {
@@ -159,7 +162,36 @@ public sealed class SessionEventJsonTests
     public void Deserialize_MissingRequiredField_Throws()
     {
         // Arrange: a PromptRefused with no reason - a receipt that cannot say why must not read as one that can.
-        const string json = """{"type":"PromptRefused","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00","promptId":"p1","refusedBy":"agent"}""";
+        const string json = """{"type":"PromptRefused","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00","promptId":"p1","promptText":"hi","refusedBy":"agent"}""";
+
+        // Act + Assert
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json, Json));
+    }
+
+    [Fact]
+    public void Serialize_PromptEvents_CarryThePromptTextUnchanged()
+    {
+        // Arrange
+        var events = OneOfEach();
+
+        // Act
+        var back = JsonSerializer.Deserialize<List<SessionEvent>>(JsonSerializer.Serialize(events, Json), Json)!;
+
+        // Assert: newlines, a carriage return and the leading and trailing spaces all come back as they went.
+        Assert.Equal(SpacedText, Assert.IsType<PromptQueued>(back[1]).PromptText);
+        Assert.Equal(SpacedText, Assert.IsType<PromptDelivered>(back[2]).PromptText);
+        Assert.Equal("A second prompt", Assert.IsType<PromptRefused>(back[10]).PromptText);
+        Assert.Equal(SpacedText, (string)JsonNode.Parse(JsonSerializer.Serialize(events[1], Json))!["promptText"]!);
+    }
+
+    [Theory]
+    [InlineData("PromptQueued", ",\"reason\":\"turnRunning\",\"position\":1")]
+    [InlineData("PromptDelivered", ",\"disposition\":\"started\",\"acknowledgement\":\"{}\"")]
+    [InlineData("PromptRefused", ",\"reason\":\"busy\",\"refusedBy\":\"agent\"")]
+    public void Deserialize_PromptEventWithoutItsText_Throws(string type, string rest)
+    {
+        // Arrange: a prompt event with no promptText - a receipt that cannot say what was sent must not be read.
+        var json = $$"""{"type":"{{type}}","sessionId":"s1","sequence":1,"at":"2026-10-16T12:00:00+00:00","promptId":"p1"{{rest}}}""";
 
         // Act + Assert
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SessionEvent>(json, Json));
@@ -206,7 +238,7 @@ public sealed class SessionEventJsonTests
     public void Deserialize_DiscriminatorNotFirstWithoutTheSharedOptions_Throws()
     {
         // Arrange: why SessionEventJson.Options exists - a reader with default options cannot read a stored event.
-        const string json = """{"at":"2026-10-16T12:00:00+00:00","type":"PromptRefused","reason":"busy","sequence":1,"promptId":"p1","refusedBy":"agent","sessionId":"s1"}""";
+        const string json = """{"at":"2026-10-16T12:00:00+00:00","type":"PromptRefused","reason":"busy","sequence":1,"promptId":"p1","promptText":"hi","refusedBy":"agent","sessionId":"s1"}""";
 
         // Act + Assert
         Assert.Throws<NotSupportedException>(() => JsonSerializer.Deserialize<SessionEvent>(json));
