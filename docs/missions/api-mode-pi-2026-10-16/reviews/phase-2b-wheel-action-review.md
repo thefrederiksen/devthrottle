@@ -153,6 +153,15 @@ whose terminal exited can be resumed only from the command line. Option (a) is t
 choose; the fold's `Agent` label for `none` ("No agent process is running") already tells the user
 why the button is there.
 
+Developer's answer: **Accepted, option (a)**, ruled by the Tech Lead, 17 October 2026. On holder `none` the fold now
+offers **Hand back, enabled** (verb `handBack`, label "Hand back", `DisabledReason` null). The reason: the Director's
+phase 4 branch (#4094) sets `none` when the user's terminal exits on its own and accepts a hand back there, which
+resumes the conversation over the protocol, and the Gateway's hand back route forwards it. Without the button, a
+session whose terminal exited has prompts queued and nothing to press. The fold's "revisited in phase 4" comment is
+replaced by this reasoning and names #4094. An unknown holder still gets no button. The test
+`Fold_NoProcessHoldsTheWheel_ShowsNoWheelButton` is replaced by `Fold_NoProcessHoldsTheWheel_OffersHandBackEnabled`,
+which asserts all four fields.
+
 ### Finding 2 (low): the wire value `handBack` is never asserted as a literal, so a misspelt constant would pass every test
 
 **Where:** `Fold_TheUserHasTheWheel_OffersHandBackEnabled` asserts
@@ -171,6 +180,12 @@ which would also prove the hand back button's camel-case names, which the existi
 proves only for take. While there, `Fold_TheProtocolHoldsTheWheelAfterAGatewayRestart_OffersTakeTheWheelEnabled`
 is the one enabled case that does not assert `DisabledReason` is null; the other three do.
 
+Developer's answer: **Accepted, fixed.** Every fold test now asserts the wire values as the string literals
+`"takeTheWheel"` and `"handBack"`, never the constant against itself. A new roster test,
+`GetSessions_TheUserHasTheWheel_TheHandBackButtonReachesTheWireByItsCamelCaseNames`, pushes the user holding the wheel
+and reads `verb` (`"handBack"`), `label`, `enabled` and a null `disabledReason` off the real `GET /sessions`.
+`Fold_TheProtocolHoldsTheWheelAfterAGatewayRestart_OffersTakeTheWheelEnabled` now asserts `DisabledReason` is null.
+
 ## Notes, not findings
 
 - **A. The fold is stricter than the Director on a running turn, and that is a choice worth
@@ -183,6 +198,11 @@ is the one enabled case that does not assert `DisabledReason` is null; the other
   defensible product choice (stopping a turn is not something to do by accident), and the phase 6
   proof's "take the wheel twice: the second is refused" is unaffected. It should be written down,
   because a reader comparing the button to the route will otherwise read it as a disagreement.
+
+  Developer's answer: Recorded, and the ruling is kept, by the Tech Lead's decision. The button stays disabled while a
+  turn is known to be running. A take mid-turn would stop the turn as a side effect; the user has Stop for that, so
+  taking the wheel never silently ends work. The fold's comment on the `protocol` case now says so, so a reader
+  comparing the button to the route reads a choice, not a disagreement.
 - **B. The route reads the holder case-insensitively; the fold reads it ordinally.** A Director
   pushing `"Protocol"` would be ruled by the route as `protocol` and by the fold as a holder it has
   no words for: no button, kind `unknown`. Pre-existing in the fold, not introduced here, and

@@ -143,17 +143,19 @@ public static class ApiModeSessionFold
         switch (wheelHolder)
         {
             case WheelHolders.Protocol:
-                // Disabled only while a turn is KNOWN to be running: an unknown "working" is not a reason.
+                // Disabled only while a turn is KNOWN to be running: an unknown "working" is not a reason. The Director
+                // would accept a take mid-turn, but it would stop the turn as a side effect; the user has Stop for that,
+                // so taking the wheel never silently ends work.
                 return working == true
                     ? new ApiModeWheelAction { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = false, DisabledReason = TurnRunningSoNoTake }
                     : new ApiModeWheelAction { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = true };
             case WheelHolders.User:
                 return new ApiModeWheelAction { Verb = ApiModeWheelVerbs.HandBack, Label = "Hand back", Enabled = true };
             case WheelHolders.None:
-                // No process holds the conversation, so there is no wheel to take or hand back. What "none" means after
-                // the user held the wheel (whether a hand back is still offered) is the Director's to define in phase 4,
-                // and this ruling is revisited then.
-                return null;
+                // The Director sets "none" when the user's terminal exits on its own, and accepts a hand back there: it
+                // resumes the conversation over the protocol (pull request #4094), and the hand back route forwards it.
+                // Without this button a session whose terminal exited has prompts queued and nothing to press.
+                return new ApiModeWheelAction { Verb = ApiModeWheelVerbs.HandBack, Label = "Hand back", Enabled = true };
             default:
                 // A wheel holder this Gateway has no words for: no button, never a guess at one.
                 return null;

@@ -191,7 +191,7 @@ public sealed class ApiModeSessionFoldTests
         // Assert
         Assert.True(verdict.Working);
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
-        Assert.Equal(ApiModeWheelVerbs.TakeTheWheel, wheel.Verb);
+        Assert.Equal("takeTheWheel", wheel.Verb);
         Assert.Equal("Take the wheel", wheel.Label);
         Assert.False(wheel.Enabled);
         Assert.Equal("A turn is running. Stop it, or wait for it to end, before taking the wheel.", wheel.DisabledReason);
@@ -208,7 +208,7 @@ public sealed class ApiModeSessionFoldTests
 
         // Assert
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
-        Assert.Equal(ApiModeWheelVerbs.TakeTheWheel, wheel.Verb);
+        Assert.Equal("takeTheWheel", wheel.Verb);
         Assert.Equal("Take the wheel", wheel.Label);
         Assert.True(wheel.Enabled);
         Assert.Null(wheel.DisabledReason);
@@ -226,7 +226,7 @@ public sealed class ApiModeSessionFoldTests
         // Assert
         Assert.False(verdict.AgentConnected);
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
-        Assert.Equal(ApiModeWheelVerbs.TakeTheWheel, wheel.Verb);
+        Assert.Equal("takeTheWheel", wheel.Verb);
         Assert.True(wheel.Enabled);
         Assert.Null(wheel.DisabledReason);
     }
@@ -243,8 +243,9 @@ public sealed class ApiModeSessionFoldTests
         // Assert
         Assert.Null(verdict.AgentConnected);
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
-        Assert.Equal(ApiModeWheelVerbs.TakeTheWheel, wheel.Verb);
+        Assert.Equal("takeTheWheel", wheel.Verb);
         Assert.True(wheel.Enabled);
+        Assert.Null(wheel.DisabledReason);
     }
 
     [Fact]
@@ -258,20 +259,27 @@ public sealed class ApiModeSessionFoldTests
 
         // Assert
         var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
-        Assert.Equal(ApiModeWheelVerbs.HandBack, wheel.Verb);
+        Assert.Equal("handBack", wheel.Verb);
         Assert.Equal("Hand back", wheel.Label);
         Assert.True(wheel.Enabled);
         Assert.Null(wheel.DisabledReason);
     }
 
     [Fact]
-    public void Fold_NoProcessHoldsTheWheel_ShowsNoWheelButton()
+    public void Fold_NoProcessHoldsTheWheel_OffersHandBackEnabled()
     {
+        // Arrange: the user's terminal exited on its own; a hand back resumes the conversation over the protocol (#4094).
+        var receipts = new[] { Delivered("p1", "t1", "done") };
+
         // Act
-        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, new[] { Delivered("p1", "t1", "done") }, NothingHeld)!;
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, receipts, NothingHeld)!;
 
         // Assert
-        Assert.Null(verdict.WheelAction);
+        var wheel = Assert.IsType<ApiModeWheelAction>(verdict.WheelAction);
+        Assert.Equal("handBack", wheel.Verb);
+        Assert.Equal("Hand back", wheel.Label);
+        Assert.True(wheel.Enabled);
+        Assert.Null(wheel.DisabledReason);
     }
 
     [Fact]

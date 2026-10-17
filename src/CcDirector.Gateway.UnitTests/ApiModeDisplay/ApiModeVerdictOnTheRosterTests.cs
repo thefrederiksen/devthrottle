@@ -131,6 +131,24 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSessions_TheUserHasTheWheel_TheHandBackButtonReachesTheWireByItsCamelCaseNames()
+    {
+        // Arrange
+        PushRoster(apiWheel: WheelHolders.User);
+        Ingest(Ready(1));
+        var http = await StartAsync(withApiMode: true);
+
+        // Act
+        var wheel = (await RowAsync(http, Sid)).GetProperty("apiMode").GetProperty("wheelAction");
+
+        // Assert
+        Assert.Equal("handBack", wheel.GetProperty("verb").GetString());
+        Assert.Equal("Hand back", wheel.GetProperty("label").GetString());
+        Assert.True(wheel.GetProperty("enabled").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, wheel.GetProperty("disabledReason").ValueKind);
+    }
+
+    [Fact]
     public async Task GetSessions_ATerminalModeSession_IsByteForByteTheRowWithoutApiMode()
     {
         // Arrange: the same roster served by a Gateway with API mode wired and by one without it.
