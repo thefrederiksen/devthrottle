@@ -485,7 +485,7 @@ def test_license_usage_Json_IsTheContractShapeAndHasNoToken(machine, capsys):
     license_usage_ops.usage(True, None, *_dirs(machine), http_get=FakeGet(HttpAnswer(200, GOOD_BODY)))
     out = capsys.readouterr().out
     answer = json.loads(out)
-    assert set(answer) == {"count", "total", "defaultConfigDir", "storeDir", "recovered", "accounts"}
+    assert set(answer) == {"count", "total", "defaultConfigDir", "storeDir", "recovered", "healed", "accounts"}
     assert (answer["count"], answer["total"]) == (2, 2)
     assert answer["defaultConfigDir"] == str(machine.default_config_dir)
     rows = answer["accounts"]

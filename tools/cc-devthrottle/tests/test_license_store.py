@@ -147,7 +147,13 @@ class World:
             found += [str(p) for p in sorted(spares.iterdir()) if p.is_dir()]
         if self.signins.is_dir():
             found += [str(p) for p in sorted(self.signins.iterdir()) if p.is_dir()]
+        found += self.backups()
         return found
+
+    def backups(self) -> list[str]:
+        """The folders a heal of a hand sign-in moved stale spares into."""
+        root = Path(self.store_dir) / "hand-sign-in-backups"
+        return [str(p) for p in sorted(root.iterdir()) if p.is_dir()] if root.is_dir() else []
 
     def key_at(self, folder: str) -> str | None:
         key = self.backend().read(folder)
@@ -605,17 +611,171 @@ def test_contract_DiskErrorThatPersists_IsExchangeFailedUnknown_AndTheNextRunRec
     world.assert_each_signin_in_exactly_one_place()
 
 
-def test_exchange_ActiveAccountAlsoHeldAsSpare_IsRefusedRatherThanOverwritingASignin(world):
+def test_exchange_ActiveAccountAlsoHeldAsSpare_TheStaleSpareIsHealedAwayFirstAndTheSwitchRuns(world):
     # Someone ran `claude auth login` straight into the default folder for an account the store holds a
-    # spare of. Putting the active key away would overwrite that spare - a different, independent sign-in.
+    # spare of. Before the hand sign-in heal this switch was refused (putting the active key away would have
+    # overwritten the spare). Now the stale spare is moved to a backup first, so the switch has room and runs,
+    # and nothing is overwritten: the old spare is in its backup, the hand sign-in is a spare again.
     _machine_with_active_and_spare(world)
-    world.sign_in(world.default, ACCOUNT_B)
+    old_spare_b = world.key_at(str(Path(world.store_dir) / "spares" / license_store.spare_slug(ACCOUNT_B)))
+    hand_b = world.sign_in(world.default, ACCOUNT_B)
     world.store().add(world.new_signin_folder(ACCOUNT_C))
-    before = world.snapshot()
 
-    with pytest.raises(LicenseStoreError, match="would overwrite"):
-        world.store().switch(ACCOUNT_C)
-    assert world.snapshot() == before
+    world.store().switch(ACCOUNT_C)
+
+    assert _held(world) == {ACCOUNT_C: "active", ACCOUNT_B: "spare"}
+    assert world.key_at(str(Path(world.store_dir) / "spares" / license_store.spare_slug(ACCOUNT_B))) == hand_b
+    [backup] = world.backups()
+    assert world.key_at(backup) == old_spare_b
+    world.gone_ok = frozenset(k for k, e in world.secrets.items() if e == ACCOUNT_A)  # overwritten by the hand sign-in
+    world.assert_each_signin_in_exactly_one_place()
+
+
+# ===== a sign-in made by hand into the default folder for an account held as a spare =====
+
+
+def _files(folder: str) -> dict[str, bytes]:
+    """Every file under `folder`, by its path relative to it, byte for byte."""
+    root = Path(folder)
+    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def _hand_sign_in_over_a_spare(world: World) -> tuple[str, dict[str, bytes], str]:
+    """A on the machine and B held as a spare; then B signed in BY HAND into the default folder, overwriting A.
+    Returns the spare folder, its files byte for byte, and the spare's key, all as they were before any heal."""
+    _machine_with_active_and_spare(world)
+    spare = str(Path(world.store_dir) / "spares" / license_store.spare_slug(ACCOUNT_B))
+    (Path(spare) / "projects-cache.txt").write_text("something Claude Code keeps in a config folder", encoding="utf-8")
+    files, key = _files(spare), world.key_at(spare)
+    world.sign_in(world.default, ACCOUNT_B)
+    # A's key was overwritten by the hand sign-in: gone, and nothing here can bring it back.
+    world.gone_ok = frozenset(k for k, e in world.secrets.items() if e == ACCOUNT_A)
+    return spare, files, key
+
+
+def _log_records(world: World) -> list[dict]:
+    path = Path(world.store_dir) / "license-store.log"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_heal_ActiveAlsoHeldAsSpare_SpareMovesWholeToABackupAndIsHeldOnce(world):
+    # The account in the default folder is also a spare: the spare is stale, so its folder is moved, whole and
+    # unchanged, out of the spares into a backup folder, and the account is listed exactly once, as active.
+    spare, files, key = _hand_sign_in_over_a_spare(world)
+    store = world.store()
+
+    held = store.held_accounts()
+
+    assert [(a.email, a.role) for a in held] == [(ACCOUNT_B, "active")]
+    assert not os.path.exists(spare)
+    [backup] = world.backups()
+    assert Path(backup).parent == Path(world.store_dir) / "hand-sign-in-backups"
+    assert Path(backup).name.startswith(license_store.spare_slug(ACCOUNT_B) + "-")
+    assert _files(backup) == files, "the backup is not the spare's folder byte for byte"
+    assert world.key_at(backup) == key
+    [heal] = store.last_heals
+    assert (heal.account, heal.moved_from, heal.moved_to) == (ACCOUNT_B, spare, backup)
+    assert heal.duplicate_key_removed is False
+    world.assert_each_signin_in_exactly_one_place()
+    [logged] = [r for r in _log_records(world) if r["event"] == "hand-sign-in-healed"]
+    assert (logged["account"], logged["moved_from"], logged["moved_to"]) == (ACCOUNT_B, spare, backup)
+    log = (Path(world.store_dir) / "license-store.log").read_text(encoding="utf-8")
+    assert not any(secret in log for secret in world.secrets)
+    assert not (Path(world.store_dir) / "journal.json").exists()
+
+
+def test_heal_NothingToHeal_TouchesNothing(world):
+    _machine_with_active_and_spare(world)
+    before = world.snapshot()
+    store = world.store()
+    store.held_accounts()
+    assert store.last_heals == [] and world.backups() == [] and world.snapshot() == before
+
+
+def test_heal_NeverDeletes_TwoHealsOfOneAccountKeepBothBackups(world):
+    # The same account signed in by hand twice over a spare of it: two heals, two backups, both kept, with
+    # different names even when both heals fall in the same second.
+    spare, _, first_key = _hand_sign_in_over_a_spare(world)
+    world.store().held_accounts()
+    world.sign_in(spare, ACCOUNT_B)  # a spare of B again, as `license sign-in` or a switch could leave it
+    second_key = world.key_at(spare)
+
+    store = world.store()
+    store.held_accounts()
+
+    backups = world.backups()
+    assert len(backups) == 2 and len(set(backups)) == 2
+    assert sorted(world.key_at(b) for b in backups) == sorted([first_key, second_key])
+    assert [a.email for a in store.held_accounts()] == [ACCOUNT_B]
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_heal_LockTaken_DoesNothing_AndTheNextRoundHeals(world):
+    # A switch, a renewal or a sign-in's write holds the store lock: the heal never runs inside it. The read that
+    # would have healed is refused whole, as every store read is while the lock is held, and changes nothing; the
+    # next round, with the lock free, heals.
+    spare, files, _ = _hand_sign_in_over_a_spare(world)
+    before = world.snapshot()
+    holder = world.store()
+    with holder.exclusive():
+        with pytest.raises(LicenseStoreError) as refused:
+            world.store().held_accounts()
+    assert refused.value.reason_code == "switch-in-progress"
+    assert world.snapshot() == before and world.backups() == [] and _files(spare) == files
+
+    store = world.store()
+    store.held_accounts()
+
+    assert len(store.last_heals) == 1 and len(world.backups()) == 1
+    world.assert_each_signin_in_exactly_one_place()
+
+
+def test_heal_SpareHeldTheSameKey_TheDuplicateIsRemovedSoTheKeyIsInOnePlace(world):
+    # A duplicate no operation of this store leaves behind, but if one is found the backup must not become a
+    # second home for the live key: the backup keeps the folder, the duplicate key is dropped from it (the default
+    # folder is proven to hold it), and the key is in exactly one place.
+    _machine_with_active_and_spare(world)
+    spare = str(Path(world.store_dir) / "spares" / license_store.spare_slug(ACCOUNT_B))
+    world.backend().write(world.default, HeldKey(world.key_at(spare)))
+    (Path(world.default) / ".claude.json").write_text((Path(spare) / ".claude.json").read_text(encoding="utf-8"),
+                                                      encoding="utf-8")
+    world.gone_ok = frozenset(k for k, e in world.secrets.items() if e == ACCOUNT_A)
+    store = world.store()
+
+    store.held_accounts()
+
+    [backup] = world.backups()
+    assert store.last_heals[0].duplicate_key_removed is True
+    assert world.key_at(backup) is None and world.key_at(world.default) is not None
+    world.assert_each_signin_in_exactly_one_place()
+
+
+@pytest.mark.parametrize("kind", ["file", "keychain"])
+def test_heal_CrashAtEveryChangePoint_TheNextRunFinishesTheHeal(tmp_path, kind):
+    # A crash at each change point of the heal - the journal, the rename, the Keychain move - is finished by the
+    # next run: the spare ends in exactly one backup, never lost, never in two places, and the heal is reported.
+    def make(tag):
+        w = World(tmp_path / tag, kind)
+        w.removed = set()
+        _hand_sign_in_over_a_spare(w)
+        return w
+
+    probe = make("probe")
+    labels = []
+    probe.store(checkpoint=labels.append).held_accounts()
+    assert "rename-folder" in labels, labels
+
+    for n in range(1, len(labels) + 1):
+        w = make(f"crash{n}")
+        assert _run_with_crash_at(w, n, lambda store: store.held_accounts()), f"no crash at {labels[n - 1]}"
+        store = w.store()
+        held = [(a.email, a.role) for a in store.held_accounts()]
+
+        assert held == [(ACCOUNT_B, "active")], f"crash at {labels[n - 1]}: {held}"
+        assert len(w.backups()) == 1, f"crash at {labels[n - 1]}: {w.backups()}"
+        assert [h.account for h in store.last_heals] == [ACCOUNT_B], f"crash at {labels[n - 1]}"
+        w.assert_each_signin_in_exactly_one_place()
+        assert not (Path(w.store_dir) / "journal.json").exists()
 
 
 def test_exchange_ActiveKeyWithNoAccountBlock_IsRefused(world):

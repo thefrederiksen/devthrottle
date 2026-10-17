@@ -294,6 +294,7 @@ internal static class Program
         /// <summary>The control for the error report count: a sign-in that really fails, started on purpose.</summary>
         public Task<LicenseSignInStart> StartASignInThatFailsAsync(string email) => real.StartSignInAsync(email, false, CancellationToken.None);
         public Task<LicenseApproveAnswer> ApproveAsync(string url, string email, string profile, CancellationToken ct) => throw new NotSupportedException();
+        public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches() => real.TakeHandSwitches();
     }
 
     /// <summary>The approving machine's license tool: it holds nothing, and its browser approval is a fixed answer.</summary>
@@ -307,6 +308,7 @@ internal static class Program
         public Task<IReadOnlyList<LicenseRenewalRow>> CheckRenewalsAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<bool?> HasBrowserProfileAsync(string email, CancellationToken ct) => throw new NotSupportedException();
         public Task<LicenseSignInStart> StartSignInAsync(string email, bool ask, CancellationToken ct) => throw new NotSupportedException();
+        public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches() => Array.Empty<LicenseHandSwitch>();
         public Task<LicenseApproveAnswer> ApproveAsync(string url, string email, string profile, CancellationToken ct) =>
             Task.FromResult(Refuse is { } reason ? LicenseApproveAnswer.Refused(reason) : new LicenseApproveAnswer { Approved = true, Approval = Answer });
     }

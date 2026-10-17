@@ -66,6 +66,43 @@ public sealed class LicenseCommandLineTests
     }
 
     [Fact]
+    public void ReadHandSwitches_AHealedRow_IsReadAsEmailAndTimeOnly()
+    {
+        // The shape license list --json and license usage --json print when the store healed a hand sign-in.
+        const string json = """
+            {"count": 1, "healed": [{"accountEmail": "Account-B@Example.com", "movedFrom": "/store/spares/account-b-example.com",
+              "movedTo": "/store/hand-sign-in-backups/account-b-example.com-20261011T030100Z", "healedAtUtc": "2026-10-11T03:01:00Z",
+              "duplicateKeyRemoved": false}],
+             "accounts": [{"email": "account-b@example.com", "role": "active"}]}
+            """;
+
+        var healed = Assert.Single(CcDevthrottleLicenseCommandLine.ReadHandSwitches(json, "list"));
+
+        Assert.Equal("account-b@example.com", healed.AccountEmail);
+        Assert.Equal(new DateTime(2026, 10, 11, 3, 1, 0, DateTimeKind.Utc), healed.HealedAtUtc);
+        Assert.Equal(DateTimeKind.Utc, healed.HealedAtUtc.Kind);
+    }
+
+    [Theory]
+    [InlineData("""{"accounts": []}""")]
+    [InlineData("""{"healed": [], "accounts": []}""")]
+    public void ReadHandSwitches_NoHealedRows_IsEmpty(string json)
+    {
+        // An older tool prints no healed field; it healed nothing.
+        Assert.Empty(CcDevthrottleLicenseCommandLine.ReadHandSwitches(json, "usage"));
+    }
+
+    [Theory]
+    [InlineData("""{"healed": {}, "accounts": []}""")]
+    [InlineData("""{"healed": [{"accountEmail": "a@example.com", "movedFrom": "x", "movedTo": "y"}], "accounts": []}""")]
+    [InlineData("""{"healed": [{"healedAtUtc": "2026-10-11T03:01:00Z", "movedFrom": "x", "movedTo": "y"}], "accounts": []}""")]
+    [InlineData("""{"healed": [{"accountEmail": "a@example.com", "healedAtUtc": "2026-10-11T03:01:00Z"}], "accounts": []}""")]
+    public void ReadHandSwitches_ARowNotInTheToolsShape_Throws(string json)
+    {
+        Assert.Throws<LicenseCommandLineException>(() => CcDevthrottleLicenseCommandLine.ReadHandSwitches(json, "list"));
+    }
+
+    [Fact]
     public void ReadListedAccounts_KeyStoreRows_MapsRoleToActive()
     {
         // The shape license list --json prints: email and role, among the key store's own fields.
