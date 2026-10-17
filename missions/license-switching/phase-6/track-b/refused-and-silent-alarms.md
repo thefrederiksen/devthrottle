@@ -62,6 +62,13 @@ production does:
   one that the real overview fold gives the stand-in row.
 - `AMachineSilentPastTheDeadLimit_OpensOneAlarm_AndReportingAgainClosesIt`: no alarm exactly at the 10-minute limit,
   one alarm past it with the exact sentences, and reporting again closes it.
+- `ASilentMachineWhoseDirectorComesBackRefused_IsNoLongerSilent_OnlyRefused` (review finding 1): silent first, then
+  refused. The silent row ends without a `reporting-again` row, only the refused alarm stays, and an accepted report
+  then leaves no alarm.
+- `TwoSilentMachinesWithTheLongestNames_AreBothAlarmed_InSentencesAnAlarmHolds` (review finding 2): two machines of
+  one 128-character name and two 128-character users go silent; both alarms open in sentences that fit.
+- `ARefusedRaiseThatFails_StillRaisesTheSilentKind_AndThenFails` (review finding 2): a refused raise that throws
+  still lets the silent kind be raised, and the raise then fails.
 - `NothingOpen_RaisesNothing_AndClosesNoOtherKind`: a raise with nothing open leaves another kind's alarm open.
 - `OneAccountsRefusedMachine_RaisesNoAlarmInAnotherAccount`: one account's refusal raises nothing in a second account.
 - `AReasonTooLongForAnAlarm_SendsTheOwnerToThePage_AndNeverBreaksTheRaise`: a reason built around a 300-character
@@ -72,20 +79,20 @@ The approver alarm's identical line is not covered either. The live proof below 
 
 ## The gate
 
-Run on commit `9b7cdda8c`, with TEMP and TMP on D:. The next commit changes only this file.
+Last run on commit `3e43574bb`, after the review fixes and a rebase onto origin/main, with TEMP and TMP on D:.
 
-- **`-Parked -Filter License`: GREEN**, tree clean. Gateway.UnitTests: 1074 run, 1074 passed. Gateway.Tests: 23 run,
-  23 passed (shard 3 of 4). Core.UnitTests: 199. Avalonia.Tests: 32.
-- **The default run: not green, for reasons outside this change.**
-  - Three suites were stopped at the 120-second ceiling on a loaded machine (Core.UnitTests, Avalonia.Tests,
-    setup-engine.Tests). Every other suite completed with no failure, including Gateway.UnitTests (5027 run).
-  - Run alone, Avalonia.Tests passed 1089 of 1089 and setup-engine.Tests passed 919 of 919.
-  - Core.UnitTests failed 1 of 2219, twice in a row:
-    `BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne`.
-    The message was "COUNT DIFFERS: tools/cc-director-setup-engine/LauncherSelfUpdate.cs has 3 site(s) in code, the
-    register says 2". This change touches neither that file nor `docs/BackgroundWork.md`, and its base is the current
-    origin/main (`9a5032dc2`). So that test is red on main itself, from the launcher work, and is reported to the
-    Tech Lead. It is not fixed here.
+- **`-Parked -Filter License`: GREEN**, tree clean. The suites with tests in the filter:
+  - Gateway.UnitTests: 1087
+  - Gateway.Tests: 26 (shard 3 of 4)
+  - Core.UnitTests: 253
+  - Avalonia.Tests: 32
+- **The default run:** every suite that completed passed, including Core.UnitTests with 2273 and Gateway.UnitTests
+  with 5044. Two suites were stopped at the 120-second ceiling on a loaded machine. Run alone, Avalonia.Tests passed
+  1089 of 1089 and setup-engine.Tests passed 917 of 917.
+- The `BackgroundWorkRegisterTests` failure on the first head (`9b7cdda8c`) was on main and is fixed there by #4175.
+  It passes on this head.
+- **Revert proof of the review fixes:** with the old `LicenseSwitchService.cs` and `LicenseMachineHealthAlarm.cs`,
+  the three new tests fail and the seven earlier ones pass. With the fixes restored, all ten pass.
 
 ## What the live proof should look for (after a deploy; this piece deploys nothing)
 
