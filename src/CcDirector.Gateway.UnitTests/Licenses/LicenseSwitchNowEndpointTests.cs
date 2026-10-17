@@ -33,6 +33,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseApproverStore _approvers;
     private readonly LicenseSignInLog _signIns;
+    private readonly LicenseReadinessService _readiness;
     private readonly LicenseStore _store;
     private readonly LicenseSnapshotSource _snapshots;
     private readonly LicenseSwitchService _service;
@@ -47,6 +48,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
         _store = new LicenseStore(db);
         _approvers = new LicenseApproverStore(new CcDirector.Gateway.Settings.TenantSettingsStore(db));
         _signIns = new LicenseSignInLog(db);
+        _readiness = LicenseReadinessTestKit.ForReading(db, _store, (_, _) => false, () => _now);
         _snapshots = new LicenseSnapshotSource(_store, new LicenseReadModel(_store));
         _director = request => Answer(request, LicenseSwitchOutcomes.Switched);
         _service = new LicenseSwitchService(_store, _snapshots,
@@ -118,7 +120,8 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     private JsonElement AccountOnThePage(TenantId tenant, string email)
     {
         var ctx = Context();
-        var result = LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now, _approvers, _signIns, (_, _) => false);
+        var result = LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now, _approvers, _signIns, (_, _) => false,
+            _readiness);
         result.ExecuteAsync(ctx).GetAwaiter().GetResult();
         var json = JsonDocument.Parse(Encoding.UTF8.GetString(((MemoryStream)ctx.Response.Body).ToArray())).RootElement.Clone();
         return json.GetProperty("accounts").EnumerateArray().Single(a => a.GetProperty("accountEmail").GetString() == email);

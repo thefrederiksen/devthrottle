@@ -215,6 +215,14 @@ export interface LicenseMachine extends LicenseMachineRef {
   canListBrowserProfiles: boolean;
   /** What listing them does, or the sentence saying why they cannot be listed. Drawn as given. */
   browserProfilesText: string;
+  /** "ready", "not-ready" or "no-room": whether it is ready for the account it would switch to next; null when it is on
+   * no account. Never branched on here: the sentence beside it says what it means. */
+  readiness: string | null;
+  /** The account it would switch to next; null when no other account has room. */
+  readinessTargetAccountEmail: string | null;
+  /** The Gateway's sentence, "Ready for ..." or "Not ready: ..." with what is being done about it. Drawn as given. */
+  readinessText: string | null;
+  readinessTone: LicenseTone | null;
 }
 
 /** GET /gateway/licenses. */

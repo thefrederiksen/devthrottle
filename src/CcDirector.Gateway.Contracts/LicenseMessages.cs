@@ -336,8 +336,28 @@ public static class LicenseSignInOutcomes
 /// <summary>Why the Gateway asked for a sign-in (contract section 8.4).</summary>
 public static class LicenseSignInReasons
 {
+    /// <summary>"Add a spare", asked for by a person on the Licenses page.</summary>
     public const string Manual = "manual";
+
+    /// <summary>"Renew now", asked for by a person on the Licenses page.</summary>
     public const string Renewal = "renewal";
+
+    /// <summary>A new spare the Gateway started on its own, because a machine was not ready for the account it would
+    /// switch to next (License Switching phase 6, readiness).</summary>
+    public const string AutomaticSpare = "auto-spare";
+
+    /// <summary>A renewal the Gateway started on its own, because the sign-in a machine holds for the account it would
+    /// switch to next was refused or expires too soon (License Switching phase 6, readiness).</summary>
+    public const string AutomaticRenewal = "auto-renewal";
+
+    /// <summary>True for a word of this list.</summary>
+    public static bool IsKnown(string? reason) => reason is Manual or Renewal or AutomaticSpare or AutomaticRenewal;
+
+    /// <summary>True when the sign-in renews one the machine already holds; false when it adds a new spare.</summary>
+    public static bool IsRenewal(string? reason) => reason is Renewal or AutomaticRenewal;
+
+    /// <summary>True when the Gateway started the sign-in on its own, with no person asking.</summary>
+    public static bool IsAutomatic(string? reason) => reason is AutomaticSpare or AutomaticRenewal;
 }
 
 /// <summary>Why a <see cref="LicenseUsageReport"/> was sent (contract section 2.3).</summary>

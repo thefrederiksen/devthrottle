@@ -841,7 +841,7 @@ public sealed class LicenseSignInRequest
 {
     public string SignInId { get; set; } = "";        // 32 lower-case hex, Gateway-minted
     public string AccountEmail { get; set; } = "";
-    public string Reason { get; set; } = "";          // "manual" | "renewal"
+    public string Reason { get; set; } = "";          // "manual" | "renewal" | "auto-spare" | "auto-renewal"
     public DateTime NotAfterUtc { get; set; }         // the Director refuses to START after this
 }
 
@@ -991,6 +991,11 @@ Raising is idempotent, so a check that runs every minute simply raises what it s
 Cockpit's frame and the phone's shell render them as a red banner on every page, verbatim, and draw nothing when no
 alarm is open. **There is no route that raises or clears an alarm** - only Gateway code calls `RaiseAsync`.
 
+### 9.6 The readiness alarm, `not-ready-at-80` (Track A)
+
+Raised by the Gateway's readiness check (`Licenses.LicenseReadinessService`, once a minute, after the switch check and
+the settling of sign-ins with no answer). See section 11.
+
 ## 10. Phase 6 additions - standing approvers (Track C)
 
 The types are in `src/CcDirector.Gateway.Contracts/LicenseApproverMessages.cs`. A Director whose machine offers its
@@ -1078,3 +1083,49 @@ account is ready is Track A's readiness, which asks `LicenseApproverReadiness.Wh
 one at a time, each reading the records after the previous one wrote. An approver whose sentence is longer than an alarm
 takes (400 characters) costs only its own alarm, logged with its account. A raise with nothing to say writes no log
 line.
+
+## 11. Phase 6 - readiness on every minute, and the automatic sign-in (Track A, piece A3)
+
+**What is judged.** For every machine on an account: the account it would switch to next
+(`LicenseDecisionEngine.NextTarget`), and whether the machine is ready for it (`LicenseDecisionEngine.Readiness`, the
+one definition of ready). "No other account has room" is its own state (`no-room`), never a readiness gap. The pure fold
+is `Licenses.LicenseReadinessFold`; the Licenses page and the minute check call the same `Judge` on the same facts.
+
+**What is done about a machine that is not ready**, in this order:
+
+1. A sign-in for that machine and account is open (`pending` or `unknown`): wait.
+2. The account's approver cannot approve - `LicenseApproverReadiness.WhyNotReady` (section 10, Track C's one check)
+   says so: start nothing. The reason shown is that sentence.
+3. The machine's Director is not connected: start nothing. It is judged again every minute, so the sign-in starts on
+   the first minute the Director is back. No row is written while it is offline.
+4. The last sign-in for that machine and account ended `added` or `renewed` less than 10 minutes ago: wait for the
+   machine's next report, rather than sign it in twice.
+5. The last sign-ins failed: wait 2, 5, 15 or 30 minutes after the last failed one, by how many failed in a row, then
+   hourly. The count is read from the sign-in rows of the Licenses log (the last day of them), newest first, up to the
+   first that did not fail - so it survives a Gateway restart and needs no store of its own.
+6. Otherwise: start a sign-in now through `LicenseSignInService.Start` (section 8.4), with the reason `auto-spare` when
+   the machine holds no sign-in for the account, or `auto-renewal` when the sign-in it holds was refused or expires
+   too soon. Each is refused exactly as "Add a spare" or "Renew now" is; in particular a second one while one is
+   running for that machine and account is refused `sign_in_running`, and the check relies on that.
+
+**The two new reason words** travel in `LicenseSignInRequest.Reason` and are kept on the sign-in row. A Director only
+logs the word. The Licenses log shows them as "Automatic: a new spare" and "Automatic: a renewal"; the row's first
+sentence begins "Started automatically:".
+
+**The alarm.** On each check the readiness check raises kind `not-ready-at-80` (title "Not ready to switch") with one
+condition per machine that is not ready while the account it is on stands, on a fresh reading (section 5.2), at or
+above 80% of either window (a window whose reset time has passed does not count). The condition's machine is the
+machine, its account is the account in use, and its words are:
+
+- what is wrong: "machine-a is not ready to switch off account-a@example.com, which is at 85% of its weekly limit: it
+  holds no sign-in for account-b@example.com, the account it would switch to next."
+- the one thing to do: the approver's sentence when the approver cannot approve; "Start the Director on machine-a."
+  when its Director is not connected; otherwise "Nothing to do yet: DevThrottle is signing it in; if this stays, sign
+  machine-a in to account-b@example.com from the Licenses page."
+
+It closes by itself (section 9.2) when the machine becomes ready, when the account falls back under 80%, or when its
+reading is no longer fresh.
+
+**Only where automation is switched on.** A tenant none of whose machines has reported is left alone: nothing read,
+nothing started, no alarm raised. A Director reports licenses only with license switching switched on for it (the
+13 October ruling keeps that to the owner's own tenant), the same rule as section 10.3.
