@@ -47,6 +47,7 @@ if ($Wsl) {
     $condition = $condition.Trim("'")
     $script = @"
 set -u
+echo strict=on
 uid=`$(id -u)
 cond=`$(printf '%s' "$condition" | sed "s/%U/`$uid/")
 d=`$(mktemp -d)
@@ -57,9 +58,24 @@ sh -c "`$cond"; echo "running=`$?"
 kill `$pid; wait `$pid 2>/dev/null
 rm -rf "`$d"
 "@
-    # Without a byte-order mark: PowerShell 5.1 otherwise prefixes one, and sh reads it as part of the first word.
-    $OutputEncoding = New-Object System.Text.UTF8Encoding $false
-    $out = ($script -replace "`r", '') | wsl.exe -e sh -s
+    # Written to a file with no byte-order mark and run as a file. Piping the text into sh let PowerShell put a mark in
+    # front of it, and sh then read the first line as a command named "<mark>set", so "set -u" never ran (review of
+    # #4117, round two). "strict=on" is printed only after "set -u" has run, and the check below requires it.
+    $scriptFile = Join-Path ([System.IO.Path]::GetTempPath()) ("restart-condition-check-" + [guid]::NewGuid().ToString('N') + ".sh")
+    [System.IO.File]::WriteAllText($scriptFile, ($script -replace "`r", ''), (New-Object System.Text.UTF8Encoding $false))
+    try {
+        $wslPath = (wsl.exe -e wslpath -a $scriptFile.Replace('\', '/')).Trim()
+        # Errors from sh are evidence for the check below, not a reason to stop: Windows PowerShell 5.1 turns a
+        # native program's error output into a terminating error under 'Stop'.
+        $ErrorActionPreference = 'Continue'
+        $out = wsl.exe -e sh $wslPath 2>&1 | ForEach-Object { "$_" }
+        $ErrorActionPreference = 'Stop'
+    }
+    finally {
+        Remove-Item -LiteralPath $scriptFile -ErrorAction SilentlyContinue
+    }
+    Check 'WSL: the check ran in strict mode (set -u took effect, no stray first line)' (
+        ($out | Select-String '^strict=on$').Count -eq 1 -and ($out | Select-String 'not found').Count -eq 0) ($out -join ' | ')
     $none = ($out | Select-String '^none=(\d+)').Matches.Groups[1].Value
     $running = ($out | Select-String '^running=(\d+)').Matches.Groups[1].Value
     Check 'WSL: with no Director running the condition lets the start go ahead (exit 0)' ($none -eq '0') "exit=$none"

@@ -19,6 +19,8 @@ StartLimitBurst=5
 [Service]
 Type=simple
 # Do not start a second Director beside one that is already running - one opened from the app menu, say.
+# "One" is ANY process named cc-director owned by this account: a named instance, a development build and the
+# short-lived update relauncher all count, and while one runs the installed Director is not started.
 # Off Windows a second copy cannot bring the first one's window forward; it shows "already running" and
 # exits with 1, which this unit would read as a crash and retry. pgrep finds a running cc-director owned by
 # this account and the "!" turns that into exit 1, which makes systemd SKIP the start: not a failure, and

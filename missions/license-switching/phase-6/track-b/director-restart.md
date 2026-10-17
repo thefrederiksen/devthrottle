@@ -68,6 +68,18 @@ time. The unit therefore checks, before every start including every restart, whe
 running for this account (`ExecCondition`). If one is, systemd skips the start: that is not a failure, and it is
 not retried. This was the review's second finding, and it is how the unit avoids that loop.
 
+**"A Director" means ANY process named `cc-director` that this account runs**, not only the installed one. That
+includes three cases (review of #4117, round two):
+
+- a named instance;
+- a development build run from a repository;
+- the update relauncher (`--apply-update`), which runs for a few seconds.
+
+While any of them runs, the unit skips starting the installed Director. For the relauncher that is a moment. For a
+development build it lasts as long as that build runs, and then nothing watches the installed Director. On a
+machine where development builds run, start the installed Director by hand after closing them, or accept that it
+is not watched meanwhile.
+
 A fatal start-up error also exits with 1, and restarting is the wrong answer to it. The restart limit stops
 that: after five starts in ten minutes, systemd gives up.
 
@@ -129,6 +141,8 @@ Notes:
 
 - It needs systemd 243 or later (for `ExecCondition`) and `pgrep`. Every current Ubuntu, Debian and Fedora
   release has both.
+- The start is skipped while ANY `cc-director` of this account runs: a named instance or a development build
+  counts, not only the installed Director.
 - Do not also keep an XDG autostart entry for the Director. The unit's start condition would skip its own start
   if the autostart one came first, and then nothing would watch the Director.
 - After a quit, the unit stays stopped until the next sign-in or `systemctl --user start devthrottle-director`.
@@ -147,6 +161,7 @@ PASS A crash loop gives up (StartLimitBurst set)
 PASS Started with the desktop (WantedBy=graphical-session.target)
 PASS No second Director: the start is skipped while one runs (ExecCondition with pgrep)
 PASS The agents can be found: the search path names the user install folders
+PASS WSL: the check ran in strict mode (set -u took effect, no stray first line)
 PASS WSL: with no Director running the condition lets the start go ahead (exit 0)
 PASS WSL: with a Director running the condition skips the start (exit 1)
 All checks passed.
@@ -160,11 +175,17 @@ What the checks are:
   - leaves the sessions alive;
   - gives up on a crash loop;
   - starts with the desktop;
-  - skips its start while a Director runs;
+  - skips its start while any Director of this account runs;
   - puts the agents' install folders on the search path.
-- **The last two run the unit's own start condition**, copied from the file, in WSL. They run it once with
-  nothing running, which lets the start go ahead. Then they run it with a throwaway process named `cc-director`
-  running, which skips the start. Nothing is registered or started as a service.
+- **The last three run in WSL**, from a script file written without a byte-order mark.
+  - The first proves the script ran in strict mode (`set -u`).
+  - The other two run the unit's own start condition, copied from the file: once with nothing running, which lets
+    the start go ahead, and once with a throwaway process named `cc-director` running, which skips it.
+
+  Nothing is registered or started as a service.
+  - **The fix:** the first version piped the script into `sh`. PowerShell put a byte-order mark in front of it,
+    which turned the first line into an unknown command, so `set -u` never ran (review of #4117, round two).
+  - **The check can fail:** with the file written WITH a mark again, the strict-mode check reports FAILED.
 
 **The checks can fail.** With the `!` taken out of the start condition, the same script reported 3 checks
 FAILED and exited 1. The file was then restored. (The first version of this pull request showed the same for

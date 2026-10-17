@@ -71,3 +71,32 @@ This pull request still changes nothing outside `missions/`, and nothing in it i
 so the gate was not run again on the rebased head. What it would test is exactly origin/main 0702c88ce, which
 pull request #4115's gate runs cover (`review-4115-answers.md`). The proof script above is this pull request's
 test, and it was run on the rebased head.
+
+## Round two
+
+The round-two review is `review-4117-round-2.md`. It found both round-one findings answered and nothing that must
+change. The Tech Lead asked for two of its observations to be dealt with before merging.
+
+1. **The byte-order mark stopped `set -u` in the WSL check.** **Fixed.** The review saw `sh: 1: set: not found` with an
+   invisible character in front of `set`.
+   - **The cause:** the script was piped into `sh`, and PowerShell put a byte-order mark in front of it, so `sh` read
+     the first line as an unknown command. My earlier attempt, setting `$OutputEncoding`, did not stop it in every
+     environment.
+   - **The fix:** the check now writes the script to a temporary file with no mark, runs that file in WSL, and
+     deletes it.
+   - **A new tenth check** requires the line `strict=on`, which the script prints only after `set -u` has run, and
+     requires no "not found" anywhere in the output.
+   - **The check can fail:** with the file written with a mark again, it reports FAILED.
+   - **The transcript:** the committed one shows the run on the new head, with all 10 checks passing.
+2. **The start is skipped while ANY Director of the user runs.** **Said.** `pgrep -x cc-director` matches any process
+   of that name the account runs: a named instance, a development build, and the short-lived update relauncher.
+   The proof now says so in its own paragraph, with what it means for a machine that runs development builds. The
+   instructions' notes and the unit's own comment say it too, and the check's description reads "any Director of
+   this account".
+3. **The new build is unwatched after an update until the next sign-in.** Already said in the proof, and the review
+   agrees.
+4. **The gate.** Not re-run: nothing outside `missions/` changed. The review agrees.
+5. **No real name.** Checked again: nothing.
+
+Two things the review could not reach, which are also stated in the proof: a real Linux desktop with
+`graphical-session.target`, and a crashed Director under the unit.
