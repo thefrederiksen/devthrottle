@@ -141,6 +141,22 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `spares` | The spares it holds, in account email order. |
 | `switchInProgress` | Null, or `switchId`, `fromAccountEmail`, `toAccountEmail`, `text` - the switch it is in the middle of and one sentence saying where it stands. The two emails are "" when only the machine's own report says a switch is running. |
 | `heldUntilUtc`, `heldText` | **Both null unless the machine is held out of the automatic switch** because its switch keeps failing the same way (contract section 5.8). Then: the time it is held until, and the Gateway's sentence saying so, why and until when. The page draws `heldText` in the schedule, under the machine's status, exactly as given; never compare `heldUntilUtc` with now. Switch now is still offered for its account, and still sends the machine a switch at once. |
+| `readiness`, `readinessTargetAccountEmail`, `readinessText`, `readinessTone` | **Phase 6: whether it is ready for the account it would switch to next.** `readiness` is `ready`, `not-ready` or `no-room` (no other account has room - not a readiness gap); the account is null for `no-room`. All four are null when the machine is on no account. The page draws `readinessText` on the machine's line in the schedule, in `readinessTone`, exactly as given, and never decides anything from the state word. |
+
+**Readiness** (`readiness`, `readinessText`, phase 6; contract section 11). The sentences, word for word:
+"Ready for account-b@example.com." (good); "No other account has room for it to switch to." (neutral); and for a
+machine that is not ready (warning), "Not ready: {why}" and what the Gateway is doing about it, where {why} is the one
+definition of ready's own clause ("holds no sign-in for account-b@example.com", "holds a sign-in for
+account-b@example.com that was refused", or "... that expires at 2026-10-16 03:05 UTC, before a switch could finish"):
+- "Not ready: {why}; DevThrottle is starting a sign-in to account-b@example.com now."
+- "Not ready: {why}; a sign-in to account-b@example.com is running, started at 10:42 UTC."
+- "Not ready: {why}; the last sign-in failed at 10:42 UTC ({the Director's reason}); trying again at 10:47 UTC."
+- "Not ready: {why}; it was signed in at 10:42 UTC, and its next report should show it."
+- "Not ready: {why}; it was signed in 2 times within an hour and its reports still do not show it; trying again at
+  11:22 UTC."
+- "Not ready: {why}, and the Director on machine-a is not connected, so it cannot be signed in yet."
+- "Not ready: {why}. {the approver's sentence}", for example "... No machine is set to approve sign-ins for
+  account-b@example.com. Set an approver for account-b@example.com on the Licenses page."
 
 **A machine that is held** (`heldUntilUtc`, `heldText`). The sentence is "Held out of the automatic switch for
 {how long}, until {yyyy-MM-dd HH:mm UTC}: its switch from {account} to {account} has failed more than once in a row
@@ -464,7 +480,11 @@ show nothing. Section 6 has the sentences and the tone rule.
       "signInsInProgress": [],
       "directorId": "dir-mac",
       "canListBrowserProfiles": false,
-      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed."
+      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -545,7 +565,11 @@ show nothing. Section 6 has the sentences and the tone rule.
       "signInsInProgress": [],
       "directorId": "dir-windows",
       "canListBrowserProfiles": false,
-      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed."
+      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     }
   ]
 }
@@ -1512,7 +1536,7 @@ The names are those of every other row. What differs:
 |---|---|
 | `kindText` | "Sign-in". |
 | `toAccountEmail` | The account signed in to. `fromAccountEmail` is empty. |
-| `why`, `whyText` | `manual` "Add a spare", or `renewal` "Renew now". |
+| `why`, `whyText` | `manual` "Add a spare", `renewal` "Renew now", or one the Gateway started on its own (phase 6, contract section 11): `auto-spare` "Automatic: a new spare", `auto-renewal` "Automatic: a renewal". |
 | `state`, `stateText`, `stateTone` | `pending` "Signing in" (neutral), `unknown` "Sent, no answer yet" (warning), `added` "Signed in" (good), `renewed` "Renewed" (good), `failed` "Failed" (bad). |
 | `isOpen` | True for `pending` and `unknown`: the sign-in has not ended. |
 | `reasonCode`, `reasonText` | When failed: the word and its sentence (`no-approver`, `approver-offline`, `approval-failed`, `wrong-account`, `browser-not-signed-in`, `login-failed`, `expired`, `store-refused`, `not-key-holder`, `director-offline`, `director-error`). |

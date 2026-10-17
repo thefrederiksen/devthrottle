@@ -108,7 +108,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
     {
         var ctx = Context();
         var (status, json) = Read(ctx, LicenseEndpoints.Overview(ctx, _ => tenant, new LicenseSnapshotSource(_store, _reads), () => _now,
-            _approvers, _log, _directors.IsConnected));
+            _approvers, _log, _directors.IsConnected, LicenseReadinessTestKit.ForReading(_db, _store, _directors.IsConnected, () => _now)));
         Assert.Equal(200, status);
         return json;
     }

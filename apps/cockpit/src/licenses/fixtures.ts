@@ -327,7 +327,11 @@ export const OVERVIEW: LicenseOverview = {
       "signInsInProgress": [],
       "directorId": "dir-mac",
       "canListBrowserProfiles": false,
-      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed."
+      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -408,7 +412,11 @@ export const OVERVIEW: LicenseOverview = {
       "signInsInProgress": [],
       "directorId": "dir-windows",
       "canListBrowserProfiles": false,
-      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed."
+      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     }
   ]
 };

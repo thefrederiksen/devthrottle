@@ -65,7 +65,8 @@ public sealed class OverviewExample
         var ctx = new DefaultHttpContext { RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider() };
         ctx.Response.Body = new MemoryStream();
         var result = LicenseEndpoints.Overview(ctx, _ => tenant, new LicenseSnapshotSource(store, new LicenseReadModel(store)), () => T0,
-            new LicenseApproverStore(new TenantSettingsStore(db)), new LicenseSignInLog(db), (_, _) => false);
+            new LicenseApproverStore(new TenantSettingsStore(db)), new LicenseSignInLog(db), (_, _) => false,
+            LicenseReadinessTestKit.ForReading(db, store, (_, _) => false, () => T0));
         await result.ExecuteAsync(ctx);
 
         Assert.Equal(200, ctx.Response.StatusCode);

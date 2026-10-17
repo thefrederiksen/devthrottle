@@ -389,6 +389,37 @@ public sealed class LicenseMachineDto
 
     /// <summary>What listing the browser profiles does, or the sentence saying why they cannot be listed.</summary>
     public string BrowserProfilesText { get; set; } = "";
+
+    /// <summary>
+    /// Whether this machine is ready to move to the account it would switch to next (License Switching phase 6): one of
+    /// <see cref="LicenseReadinessStates"/>; null when the machine is signed in to no account, so there is nothing to
+    /// switch it off.
+    /// </summary>
+    public string? Readiness { get; set; }
+
+    /// <summary>The account it would switch to next; null when no other account has room, or when
+    /// <see cref="Readiness"/> is null.</summary>
+    public string? ReadinessTargetAccountEmail { get; set; }
+
+    /// <summary>The finished sentence: "Ready for account-b@example.com.", or "Not ready: " with the reason and what the
+    /// Gateway is doing about it. Null exactly when <see cref="Readiness"/> is.</summary>
+    public string? ReadinessText { get; set; }
+
+    /// <summary>One of <see cref="LicenseTones"/>; null exactly when <see cref="Readiness"/> is.</summary>
+    public string? ReadinessTone { get; set; }
+}
+
+/// <summary>Whether a machine is ready to move to the account it would switch to next.</summary>
+public static class LicenseReadinessStates
+{
+    /// <summary>It holds a usable sign-in for that account.</summary>
+    public const string Ready = "ready";
+
+    /// <summary>It does not; the sentence says why and what the Gateway is doing about it.</summary>
+    public const string NotReady = "not-ready";
+
+    /// <summary>No other account has room, so there is nothing to be ready for. Not a readiness gap.</summary>
+    public const string NoRoom = "no-room";
 }
 
 /// <summary>One sign-in a machine holds, active or spare.</summary>

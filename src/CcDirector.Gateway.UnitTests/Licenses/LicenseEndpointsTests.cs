@@ -63,7 +63,8 @@ public sealed class LicenseEndpointsTests : IDisposable
     {
         var ctx = Context();
         return Read(ctx, LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now,
-            new LicenseApproverStore(new CcDirector.Gateway.Settings.TenantSettingsStore(_db)), new LicenseSignInLog(_db), (_, _) => false));
+            new LicenseApproverStore(new CcDirector.Gateway.Settings.TenantSettingsStore(_db)), new LicenseSignInLog(_db), (_, _) => false,
+            LicenseReadinessTestKit.ForReading(_db, _store, (_, _) => false, () => _now)));
     }
 
     private (int Status, string Text, JsonElement Json) Forecast(TenantId? tenant)
@@ -152,8 +153,13 @@ public sealed class LicenseEndpointsTests : IDisposable
             "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "isStale",
             "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "heldUntilUtc", "heldText", "canAddSpare", "addSpareText",
             "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
+            "readiness", "readinessTargetAccountEmail", "readinessText", "readinessTone",
         }, Names(machine));
         Assert.Equal(("the-windows-machine", "owner", A), (machine.GetProperty("machineName").GetString(), machine.GetProperty("osUser").GetString(), machine.GetProperty("activeAccountEmail").GetString()));
+        // It holds the sign-in for B, the account it would switch to next (phase 6, readiness).
+        Assert.Equal(("ready", B, "Ready for account-b@example.com.", "good"),
+            (machine.GetProperty("readiness").GetString(), machine.GetProperty("readinessTargetAccountEmail").GetString(),
+             machine.GetProperty("readinessText").GetString(), machine.GetProperty("readinessTone").GetString()));
         var spare = machine.GetProperty("spares")[0];
         Assert.Equal(new[]
         {

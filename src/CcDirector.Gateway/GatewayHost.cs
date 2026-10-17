@@ -536,6 +536,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// every check report and on the once-a-minute license check.</summary>
     internal Licenses.LicenseApproverAlarm LicenseApproverAlarm { get; }
 
+    /// <summary>License Switching phase 6: readiness on every minute - each machine against the account it would switch
+    /// to next, the automatic sign-in that fixes a gap, and the 80% alarm. The Licenses page reads its judgement.</summary>
+    internal Licenses.LicenseReadinessService LicenseReadiness { get; }
+
     /// <summary>The sign-in rows of the Licenses log.</summary>
     internal Licenses.LicenseSignInLog LicenseSignInLog { get; }
 
@@ -2949,6 +2953,11 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
         LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow,
             LicenseApproverAlarm.RaiseSoon);
+
+        // Readiness on every minute (phase 6): the account each machine would switch to next, a sign-in started at once
+        // for each machine not ready for it, and the license alarm when one is still not ready at 80%.
+        LicenseReadiness = new Licenses.LicenseReadinessService(LicenseStore, LicenseSnapshots, LicenseSignInLog, LicenseSignIns,
+            LicenseApproverReadiness.WhyNotReady, IsDirectorConnected, LicenseAlarms, LicenseNow.UtcNow);
 
         // Gateway device registration (issue #857): on sign-in (and as a first-launch/retry safety net on
         // the heartbeat) register THIS Gateway as a device with the cloud account and store the issued
@@ -5844,7 +5853,8 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantInScope: () => _tenantPass.Current,
             approvers: LicenseApprovers,
             signIns: LicenseSignInLog,
-            isConnected: IsDirectorConnected);
+            isConnected: IsDirectorConnected,
+            readiness: LicenseReadiness);
 
         // The sign-in routes of the Licenses page (contract section 8): who approves each account's sign-ins, and
         // "Add a spare" and "Renew now". Only the read of the approvers is in SessionKeyGuard's allow list.
@@ -7047,6 +7057,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // A sign-in started from the Cockpit whose answer never came back is settled once no Director could
             // still be running it: by asking its Director again, else from a later report (contract section 8.4).
             await LicenseSignIns.SettleEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+            // Readiness (phase 6): judged after the switches and the settling, so it reads the rows they just ended.
+            await LicenseReadiness.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {

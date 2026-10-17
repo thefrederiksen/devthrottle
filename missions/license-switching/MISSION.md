@@ -170,6 +170,35 @@ accounts; per-session account choice (all sessions on a machine share the active
 | 4 | Adding a spare to a machine from the Cockpit/CLI, using the proven email-link flow | Reviewer | after 1 |
 | 5 | Deploy (Gateway via `deploy-hosted-gateway`), install the Director build on the owner's machines, set up spares, QA report | QA seat that did not build | last |
 
+### Phase 6: it runs itself
+
+The owner, 16 October 2026: "at 80%, of license expiry, we need to make sure that the next License is available on
+all the computers ... this is an automated step that does not need the user." And his ruling: "Check all the time;
+start fixing at once, alarm loudly only if it is still not ready at 80%." Each item's record is in `phase-6/`.
+
+- **Readiness and the 80% alarm (track A, piece A3; `phase-6/track-a/readiness/`).** Every minute, for every machine
+  on an account, the Gateway works out the account it would switch to next and whether the machine is ready for it,
+  with the one definition of ready above. "No other account has room" is its own state, not a gap. The Licenses page
+  shows it on each machine's line, in the Gateway's words: "Ready for account-b@example.com." or "Not ready: ..."
+  with the reason and what is being done about it.
+  - **A machine that is not ready is fixed at once, with no person.** The Gateway starts a sign-in for it through
+    the existing "Add a spare" pipeline (or "Renew now" when the sign-in it holds was refused or expires too soon),
+    approved by the account's approver, and the Licenses log shows the row as automatic. It starts nothing while a
+    sign-in for that machine and account is running; while the account's approver cannot approve (the reason is
+    then the approver's own sentence, from Track C's one check); or while the machine's Director is not connected
+    (looked at again every minute, so it starts as soon as the Director is back).
+  - **A sign-in that failed is tried again after a wait**: 2, 5, 15 and 30 minutes, then hourly, counted from the
+    failed sign-in rows of the Licenses log, so it survives a Gateway restart. Sign-ins that end well but never show
+    in the machine's reports are repeated hourly after the second, not every ten minutes.
+  - **The alarm.** When the account a machine is on stands at or above 80% of either window, on a fresh reading,
+    and the machine is still not ready, the license alarm opens for that machine: it names the machine, the account
+    in use, the account it would switch to and why it cannot, and the one thing to do - true to what the last attempt
+    did. It stays open while the reading is stale, and closes by itself only on a fresh reading under 80%, when the
+    machine becomes ready, or when the machine leaves the account. Under 80% there is no alarm, and the fixing still
+    runs.
+  - Only where automation is switched on: a Director reports licenses only with license switching on for it, so a
+    tenant whose machines never reported gets no sign-in and no alarm.
+
 ## 7. The check
 
 - Unit tests for the decision engine: under 97% does nothing; 97% on the 5-hour window switches;
