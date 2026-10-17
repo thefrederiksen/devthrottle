@@ -322,6 +322,8 @@ public sealed class LicenseRenewalThroughApproverHostedTests : IAsyncLifetime
 
         public Task<bool?> HasBrowserProfileAsync(string accountEmail, CancellationToken cancellationToken) => Task.FromResult<bool?>(false);
 
+        public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches() => Array.Empty<LicenseHandSwitch>();
+
         public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken)
         {
             Assert.True(askAnotherMachineWhenNoBrowser, "with no profile here, the renewal must be allowed to ask another machine");
