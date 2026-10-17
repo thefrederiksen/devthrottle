@@ -163,7 +163,7 @@ Run on this branch, on 17 October 2026, on top of origin/main `08dec1140`:
   Gateway.Tests (four shards, 1764) and Core.Tests (4538) passed. **The six fail on origin/main as well, without
   this change:** run alone on this branch's commit, all six failed again. Run alone in a clean, detached checkout of
   origin/main `08dec1140`, the same filter gave "Failed: 6, Passed: 50, Total: 56". So they are broken on main
-  already (prompt delivery, most likely the "look before typing" change, #4072) and are not caused by this piece.
+  already (they are prompt-delivery tests; why they fail was not looked into here) and are not caused by this piece.
   `-RerunFailed` could not be used: the parked run was on an uncommitted tree, and the script rightly refuses to
   re-run against a different commit.
 - Cockpit: `npx vitest run src/licenses` 5 files, 82 tests passed (81 before, plus the new one); `tsc --noEmit` clean
