@@ -346,12 +346,13 @@ public sealed class ApiModeSessionHostTests
 
         // Assert: the resume fails with the stated reason, no prompt was written into the empty conversation, and the
         // waiting prompt is refused with that reason.
-        Assert.Equal("Resume failed: Pi's conversation '311ffc3b-7a39-45cf-bcb5-596c494cdbbf' has no messages (messageCount 0)", ended.Reason);
+        const string resumeFailed = "Resume failed: Pi's conversation '311ffc3b-7a39-45cf-bcb5-596c494cdbbf' has no messages (messageCount 0)";
+        Assert.Equal($"{resumeFailed}. Pi exited (exit code 0)", ended.Reason);
         Assert.Empty(rig.Sink.Events.OfType<ConnectionReady>());
         Assert.Equal(["get_state"], pi.WrittenTypes);
         Assert.False(receipt.Delivered);
         Assert.Equal(PromptRefusedBy.Director, receipt.RefusedBy);
-        Assert.Equal($"{ApiModeSessionHost.ExitedBeforeWritingReason}: {ended.Reason}", receipt.RefusalReason);
+        Assert.Equal($"{ApiModeSessionHost.ExitedBeforeWritingReason}: {resumeFailed}", receipt.RefusalReason);
     }
 
     [Fact]
@@ -467,7 +468,9 @@ public sealed class ApiModeSessionHostTests
         Assert.Equal(TurnOutcome.Failed, failed.Outcome);
         Assert.StartsWith(PiDialect.AcknowledgedButNeverStartedReason, failed.Reason);
         Assert.Contains(PiDialect.RestartingPiReason, failed.Reason);
-        Assert.Equal(failed.Reason, rig.Sink.Events.OfType<ConnectionEnded>().Single().Reason);
+        var stuckEnded = rig.Sink.Events.OfType<ConnectionEnded>().Single();
+        Assert.NotEmpty(stuckEnded.StderrTail);
+        Assert.Equal($"{failed.Reason}. Pi exited (exit code 0). Standard error: {string.Join(" | ", stuckEnded.StderrTail)}", stuckEnded.Reason);
         // ...the stuck Pi was asked to exit, a new one started with the same arguments on the same conversation...
         Assert.True(stuck.Process.InputClosed);
         Assert.Same(stuck.Process.StartedWith, restarted.Process.StartedWith);
