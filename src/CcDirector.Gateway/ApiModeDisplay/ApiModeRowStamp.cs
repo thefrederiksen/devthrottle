@@ -1,4 +1,5 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 
@@ -77,6 +78,6 @@ internal static class ApiModeRowStamp
         var t = tenant!.Value;
         var receipts = facts!.ReadReceipts(t, apiRows.Select(s => s.SessionId).ToList());
         foreach (var s in apiRows)
-            s.ApiMode = ApiModeSessionFold.Fold(s.ConnectionMode, s.WheelHolder, receipts[s.SessionId], facts.Held(t, s.SessionId));
+            s.ApiMode = ApiModeSessionFold.Fold(s.ConnectionMode, s.WheelHolder, GatewayDictationEndpoint.IsExited(s), receipts[s.SessionId], facts.Held(t, s.SessionId));
     }
 }
