@@ -857,6 +857,10 @@ public sealed class Session : IDisposable
     /// </summary>
     public bool Crashed { get; private set; }
 
+    /// <summary>Why an API-mode session's agent ended, as its event stream says (the last <c>ConnectionEnded</c>'s
+    /// reason); null for a terminal session and before the end (issue #4070).</summary>
+    public string? EndReason { get; private set; }
+
     /// <summary>
     /// The pure decision for "did this session crash?" A process exit is treated as a crash when it
     /// returns a non-zero exit code OR when the session dropped out while it was actively working
@@ -2210,43 +2214,65 @@ public sealed class Session : IDisposable
     /// </summary>
     public void SetStatusColor(string color, string reason, bool llm = false,
         StatusColorSource source = StatusColorSource.ActivityState)
+        => SetStatusColorCore(color, reason, llm, source, final: false);
+
+    /// <summary>Guards the colour, its reason and its precedence, so a write cannot land between another's check and
+    /// its write - in particular after the crash colour, which is final.</summary>
+    private readonly object _statusColorLock = new();
+
+    /// <summary>Set once the crash colour is written: a crashed session's colour and reason never change again. A
+    /// session that died before the Wingman first saw it would otherwise be painted the plain gray "exited" over it
+    /// (an API-mode Pi whose resume found nothing ends within milliseconds of its creation; issue #4070).</summary>
+    private bool _statusColorFinal;
+
+    private void SetStatusColorCore(string color, string reason, bool llm, StatusColorSource source, bool final)
     {
         if (string.IsNullOrEmpty(color)) return;
-
-        // Source precedence (issue #136 option C). Within one activity-state
-        // generation, a positive-evidence verdict (a real on-screen question /
-        // permission gate / corroborated needs-user) is sticky: a lower-confidence
-        // write -- the activity-state mapping or a byte-stream guess -- cannot
-        // repaint over it. This is what stops the badge flip-flopping. A genuine
-        // state change bumps the generation (SetActivityState) and releases it.
-        var gen = Interlocked.Read(ref _activityGeneration);
-        if (gen == _lastColorGeneration
-            && _lastColorSource == StatusColorSource.PositiveEvidence
-            && source != StatusColorSource.PositiveEvidence)
+        string old;
+        lock (_statusColorLock)
         {
-            FileLog.Write($"[Session] SetStatusColor dropped (lower precedence than sticky positive-evidence): color={color}, source={source}, gen={gen}");
-            return;
+            if (_statusColorFinal)
+            {
+                FileLog.Write($"[Session] SetStatusColor dropped (the session crashed; its colour is final): color={color}, reason={reason}");
+                return;
+            }
+
+            // Source precedence (issue #136 option C). Within one activity-state
+            // generation, a positive-evidence verdict (a real on-screen question /
+            // permission gate / corroborated needs-user) is sticky: a lower-confidence
+            // write -- the activity-state mapping or a byte-stream guess -- cannot
+            // repaint over it. This is what stops the badge flip-flopping. A genuine
+            // state change bumps the generation (SetActivityState) and releases it.
+            var gen = Interlocked.Read(ref _activityGeneration);
+            if (!final
+                && gen == _lastColorGeneration
+                && _lastColorSource == StatusColorSource.PositiveEvidence
+                && source != StatusColorSource.PositiveEvidence)
+            {
+                FileLog.Write($"[Session] SetStatusColor dropped (lower precedence than sticky positive-evidence): color={color}, source={source}, gen={gen}");
+                return;
+            }
+
+            old = StatusColor;
+            var newReason = reason ?? "";
+            // Record precedence even when colour+reason are unchanged, so a repeated
+            // positive-evidence verdict keeps (or re-establishes) its stickiness.
+            _lastColorSource = source;
+            _lastColorGeneration = gen;
+            if (old == color && LastStatusReason == newReason) return;
+            StatusColor = color;
+            LastStatusReason = newReason;
+
+            var evt = new WingmanEvent(DateTime.UtcNow, old, color, newReason, llm);
+            lock (_wingmanEventsLock)
+            {
+                _wingmanEvents.AddFirst(evt);
+                while (_wingmanEvents.Count > WingmanEventLogCapacity)
+                    _wingmanEvents.RemoveLast();
+            }
         }
 
-        var old = StatusColor;
-        var newReason = reason ?? "";
-        // Record precedence even when colour+reason are unchanged, so a repeated
-        // positive-evidence verdict keeps (or re-establishes) its stickiness.
-        _lastColorSource = source;
-        _lastColorGeneration = gen;
-        if (old == color && LastStatusReason == newReason) return;
-        StatusColor = color;
-        LastStatusReason = newReason;
-
-        var evt = new WingmanEvent(DateTime.UtcNow, old, color, newReason, llm);
-        lock (_wingmanEventsLock)
-        {
-            _wingmanEvents.AddFirst(evt);
-            while (_wingmanEvents.Count > WingmanEventLogCapacity)
-                _wingmanEvents.RemoveLast();
-        }
-
-        OnStatusColorChanged?.Invoke(old, color, LastStatusReason);
+        OnStatusColorChanged?.Invoke(old, color, reason ?? "");
     }
 
     /// <summary>
@@ -4751,16 +4777,24 @@ public sealed class Session : IDisposable
     /// An API-mode session's activity, read from the agent's own events (issue #4070), the way a terminal session's is
     /// read from its screen: working from the turn's start to its end, waiting for a prompt once the agent named its
     /// conversation and whenever a turn ends. The process's end is the ordinary exit path.
+    ///
+    /// A turn ended by the process ending is not a wait for input: the dialect publishes that turn's <c>TurnEnded</c> in
+    /// the same batch as the <c>ConnectionEnded</c>, and the session stays <see cref="ActivityState.Working"/> so the
+    /// exit that follows is read as one while working - the rule of issue #959, as it is for a terminal session.
     /// </summary>
     private void OnApiModeEvents(IReadOnlyList<Gateway.Contracts.ApiMode.SessionEvent> events)
     {
+        var processEnded = events.Any(e => e is Gateway.Contracts.ApiMode.ConnectionEnded);
         foreach (var e in events)
         {
             switch (e)
             {
                 case Gateway.Contracts.ApiMode.ConnectionReady:
-                case Gateway.Contracts.ApiMode.TurnEnded:
                     SetActivityState(ActivityState.WaitingForInput);
+                    break;
+                case Gateway.Contracts.ApiMode.TurnEnded:
+                    if (!processEnded)
+                        SetActivityState(ActivityState.WaitingForInput);
                     break;
                 case Gateway.Contracts.ApiMode.TurnStarted:
                     SetActivityState(ActivityState.Working);
@@ -5392,9 +5426,12 @@ public sealed class Session : IDisposable
         // Decide crash-vs-clean BEFORE we overwrite the activity state: a session that dropped out
         // while it was actively working is a crash even if its exit code is 0 (issue #959).
         var wasWorking = ActivityState == ActivityState.Working;
-        var crashed = IsUnexpectedExit(exitCode, wasWorking);
+        // An API-mode session's stream says how its agent ended (issue #4070): Pi exits 0 whenever its input closes, so
+        // a resume that found nothing or a record the Director could not read ends with code 0 and is still a failure.
+        var streamSaysFailed = _apiMode?.EndedInFailure == true;
+        var crashed = IsUnexpectedExit(exitCode, wasWorking) || streamSaysFailed;
 
-        ExitCode = exitCode;
+        EndReason = _apiMode?.EndReason;
         Crashed = crashed;
         Status = crashed ? SessionStatus.Failed : SessionStatus.Exited;
         // Process exit is an authoritative, transport-independent signal - drive the
@@ -5406,11 +5443,15 @@ public sealed class Session : IDisposable
         // this authoritative crash colour is not dropped by the sticky positive-evidence guard.
         if (crashed)
         {
-            var reason = exitCode == 0
-                ? "crashed: the agent process ended unexpectedly while working"
-                : $"crashed: the agent process exited with code {exitCode}";
-            SetStatusColor(CcDirector.Core.Wingman.StatusColor.Error, reason);
+            var reason = EndReason is { } streamReason
+                ? $"failed: {streamReason}"
+                : exitCode == 0
+                    ? "crashed: the agent process ended unexpectedly while working"
+                    : $"crashed: the agent process exited with code {exitCode}";
+            SetStatusColorCore(CcDirector.Core.Wingman.StatusColor.Error, reason, llm: false, StatusColorSource.ActivityState, final: true);
         }
+        // Last, so a reader that sees the exit code also sees the whole verdict: crashed, status, colour and reason.
+        ExitCode = exitCode;
 
         // Announce the exit exactly once (a backend could theoretically raise its
         // ProcessExited more than once). This is an event-raise on a backend thread,
