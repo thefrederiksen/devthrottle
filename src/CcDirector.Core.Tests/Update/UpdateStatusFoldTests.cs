@@ -150,6 +150,23 @@ public class UpdateStatusFoldTests
         // would offer to destroy exactly what the hold protects.
         Assert.False(view.CanInstallNow);
         Assert.Null(view.InstallNowLabel);
+        // Smart Restart IS offered: it hands every session over first, and without it a Director that always
+        // has a session running never installs an update at all.
+        Assert.True(view.CanSmartRestartToInstall);
+        Assert.Equal("Smart Restart to install it", view.SmartRestartToInstallLabel);
+    }
+
+    [Fact]
+    public void Staged_WithNoSessions_OffersThePlainInstall_NotSmartRestart()
+    {
+        // Nothing to hand over, so the one-click install is the right action and Smart Restart is not offered.
+        var view = UpdateStatusFold.Fold(Facts(
+            new UpdaterState { StagedVersion = "1.9.1" },
+            sessions: 0, launcherRunning: true));
+
+        Assert.True(view.CanInstallNow);
+        Assert.False(view.CanSmartRestartToInstall);
+        Assert.Null(view.SmartRestartToInstallLabel);
     }
 
     [Fact]
