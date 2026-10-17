@@ -213,6 +213,49 @@ when the `TurnEnded` is the dialect's exit synthesis so the existing rule fires,
 stream says so, or both. Whichever it is, the creation test should pin `Failed`, and a test should pin a
 Pi that ends with exit code 0 mid-turn.
 
+**Answer (accepted; phase 4, branch `apimode/p4-silent-end`).** Both shapes, and the end now says what went
+wrong:
+
+- **The stream decides, not the exit code.** `PiDialect.EndedInFailure` is set when Pi's process ends: true when
+  the Director had required a stop (a resume that found nothing, a turn that never began), or a turn was
+  running, or a prompt was delivered with no turn, or a prompt was never acknowledged. An idle Pi whose input
+  was closed is not a failure. `ApiModeSessionHost.EndedInFailure` adds the host's own failures (a restart that
+  could not start Pi, the Director's event loop failing). `ApiModeSessionBackend` reads it and the
+  `ConnectionEnded` reason before it raises `ProcessExited`, and `Session.OnBackendProcessExited` marks the
+  session `Failed` and `Crashed` when the stream says so, whatever the exit code.
+- **The issue #959 rule now fires too.** A `TurnEnded` in the same batch as the `ConnectionEnded` (the dialect's
+  exit synthesis) no longer moves the session to `WaitingForInput`, so the exit is read as one while working.
+- **The end says what went wrong, the exit code and the standard error tail.** The turn and never-started
+  paths already did; the resume that found nothing and the prompt never acknowledged did not. Their
+  `ConnectionEnded` reason now ends with `Pi exited (exit code N)` and, when Pi wrote any, `Standard error: ...`.
+  The session carries the reason as `Session.EndReason`, and its status reason (on the session row) reads
+  `failed: <that reason>` instead of the generic "crashed" words.
+- **The failure colour is final.** A Pi whose resume found nothing ends within milliseconds of creation, before
+  the Wingman first sees it; the Wingman's plain "exited" no longer paints over the failure.
+
+- **A record the Director could not read ends failed too, even with nothing in hand** (finding 1 of the pull
+  request's own review, `phase-4-silent-end-review.md`): the host tells the dialect, so the stop reason is the
+  end's reason.
+
+Tests, in `CcDirector.Core.UnitTests` (145 of 145 API mode tests pass):
+`CreateSession_ApiModePiResumeFindsNothing_SessionEndsWithTheReason` (now pins `Failed`, exit code 0 and the
+reason), `CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason`,
+`CreateSession_ApiModePiIdleEndsWithExitCodeZero_SessionExitsCleanly` (the clean exit still reads clean),
+`SetStatusColor_AfterTheSessionFailed_IsDroppedAndTheFailureAndItsReasonStay`,
+`OnProcessExited_BeforeAcknowledgement_EndReasonCarriesTheExitCodeAndStandardError`,
+`OnProcessExited_AfterAResumeThatFoundNothing_EndReasonCarriesTheStopReasonExitCodeAndStandardError` and
+`OnProcessExited_IdleWithNothingInHand_IsNotAFailure`, and after the pull request's review
+`OnRecord_UnreadableGetStateAnswerWhileIdle_EndsInFailureWithTheReason`,
+`CreateSession_ApiModePiRecordUnreadableWhileIdle_SessionFailsWithTheReason`,
+`RequireStopForUnreadableRecord_ThenPiExitedIdle_EndsInFailureWithTheReason`,
+`OnProcessExited_IdleWithNonZeroCodeAndStandardError_ReasonCarriesTheStandardError`,
+`CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween` and
+`TurnStartBound_RestartCannotStartPi_EndsInFailureWithBothReasons`. Five existing tests that pinned the old end wording were
+updated to the new wording. Also run: the API mode tests in `CcDirector.Gateway.UnitTests` (272 of 272 pass;
+the Gateway shows the `ConnectionEnded` reason verbatim), and the session colour and crash tests in
+`CcDirector.Core.Tests` (`SessionStatusWingmanTests`, `SessionReapOnExitTests`, `SessionDeletionReaperTests`,
+57 of 57 pass), because the final colour applies to every session.
+
 ## Weighed and not raised
 
 Each of these was looked at and judged not to prove a harm on a path the merged code can reach today. They

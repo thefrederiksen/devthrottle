@@ -278,6 +278,86 @@ public sealed class PiDialectTests
     }
 
     [Fact]
+    public void OnProcessExited_BeforeAcknowledgement_EndReasonCarriesTheExitCodeAndStandardError()
+    {
+        // Arrange
+        WritePrompt("p1");
+        Take(_dialect.OnStderrLine("Error: cannot reach the model"));
+
+        // Act
+        Take(_dialect.OnProcessExited(0));
+
+        // Assert: Pi exits 0 when its input closes, so the reason says what went wrong, the code and the standard error.
+        Assert.Equal("Pi exited before acknowledging (exit code 0). Standard error: Error: cannot reach the model",
+            _events.OfType<ConnectionEnded>().Single().Reason);
+        Assert.True(_dialect.EndedInFailure);
+    }
+
+    [Fact]
+    public void OnProcessExited_AfterAResumeThatFoundNothing_EndReasonCarriesTheStopReasonExitCodeAndStandardError()
+    {
+        // Arrange
+        var resuming = new PiDialect("s1", "agent-1", resuming: true, _clock, _numbering);
+        Ready(resuming, messageCount: 0);
+        var stop = resuming.StopReason!;
+        Take(resuming.OnStderrLine("Error: session file unreadable"));
+
+        // Act
+        Take(resuming.OnProcessExited(0));
+
+        // Assert
+        Assert.Equal($"{stop}. Pi exited (exit code 0). Standard error: Error: session file unreadable",
+            _events.OfType<ConnectionEnded>().Single().Reason);
+        Assert.True(resuming.EndedInFailure);
+    }
+
+    [Fact]
+    public void OnProcessExited_IdleWithNothingInHand_IsNotAFailure()
+    {
+        // Arrange
+        Ready();
+
+        // Act
+        Take(_dialect.OnProcessExited(0));
+
+        // Assert
+        Assert.Equal("Pi exited (exit code 0)", _events.OfType<ConnectionEnded>().Single().Reason);
+        Assert.False(_dialect.EndedInFailure);
+    }
+
+    [Fact]
+    public void OnProcessExited_IdleWithNonZeroCodeAndStandardError_ReasonCarriesTheStandardError()
+    {
+        // Arrange
+        Ready();
+        Take(_dialect.OnStderrLine("Error: ENOSPC no space left on device"));
+
+        // Act
+        Take(_dialect.OnProcessExited(1));
+
+        // Assert: the code is the only sign of the failure, so the standard error must travel with it.
+        Assert.Equal("Pi exited (exit code 1). Standard error: Error: ENOSPC no space left on device",
+            _events.OfType<ConnectionEnded>().Single().Reason);
+    }
+
+    [Fact]
+    public void RequireStopForUnreadableRecord_ThenPiExitedIdle_EndsInFailureWithTheReason()
+    {
+        // Arrange
+        Ready();
+
+        // Act
+        _dialect.RequireStopForUnreadableRecord("The Director could not read Pi's record 7: bad shape");
+        Take(_dialect.OnProcessExited(0));
+
+        // Assert
+        Assert.True(_dialect.EndedInFailure);
+        Assert.False(_dialect.CanWritePrompt);
+        Assert.Equal("The Director could not read Pi's record 7: bad shape. Pi exited (exit code 0)",
+            _events.OfType<ConnectionEnded>().Single().Reason);
+    }
+
+    [Fact]
     public void OnProcessExited_CalledTwice_Throws()
     {
         // Arrange
@@ -503,7 +583,7 @@ public sealed class PiDialectTests
         Assert.Single(_events.OfType<TurnEnded>());
         Assert.Single(_events.OfType<PromptDelivered>());
         Assert.DoesNotContain(_events, e => e is PromptRefused);
-        Assert.Equal("Pi acknowledged the prompt but never started it. The Director is restarting Pi; the prompt is not sent again",
+        Assert.Equal("Pi acknowledged the prompt but never started it. The Director is restarting Pi; the prompt is not sent again. Pi exited (exit code 137)",
             _events.OfType<ConnectionEnded>().Single().Reason);
     }
 
