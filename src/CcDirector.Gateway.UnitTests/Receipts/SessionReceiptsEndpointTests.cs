@@ -12,6 +12,7 @@ using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 using Xunit;
+using static CcDirector.Gateway.Tests.ApiModeEvents.ApiModeEventTestData;
 
 namespace CcDirector.Gateway.Tests.Receipts;
 
@@ -291,5 +292,60 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
             case PromptRefused f: _store.RecordRefused(AliceDirector, AliceSession, f.PromptId, f.Reason, ApiModeEventIngest.Word(f.RefusedBy), At(f.Sequence), T0); break;
             default: throw new InvalidOperationException($"no store write for {e.GetType().Name}");
         }
+    }
+
+    // ----- a turn whose end was lost: the endpoint and the live stream give the same words (item 7) -----
+
+    private static readonly DateTime GenerationBStarted = T0.AddMinutes(30);
+
+    private IReadOnlyList<ApiModeStoredReceipt> AliceStored()
+    {
+        using (_boundary.EnterScope(Alice))
+            return _store.ReadWithPositions(AliceSession);
+    }
+
+    [Fact]
+    public void Read_ATurnWhoseEndWasLost_GivesTheWordsTheLiveStreamGives()
+    {
+        // Arrange: p1 delivered and carried by t1 in generation A; t1's TurnEnded fell in the hole, and generation B's
+        // ConnectionReady proves t1 is over. A live reader rebuilt from the store before the store ruled it.
+        AliceHasADeliveredPrompt();
+        using (_boundary.EnterScope(Alice))
+            _store.RecordTurnStarted(AliceDirector, AliceSession, "t1", new[] { "p1" }, At(2));
+        var reader = new ApiModeLiveRuling(AliceStored());
+        var proof = new ApiModeHeldEvent("gen-b", GenerationBStarted, Ready(1, AliceSession));
+        using (_boundary.EnterScope(Alice))
+            _store.RecordTurnOverProven(AliceDirector, AliceSession, ApiModeLostTurnEnd.Continuing.None, "ConnectionReady", proof.Position);
+
+        // Act
+        var served = Assert.Single(Body(Get(Alice, AliceSession)).Receipts);
+        var live = Assert.Single(reader.Rule(proof), i => i.ItemId == "receipt:p1");
+        var rebuilt = ApiModeLiveRuling.ReceiptItem(Assert.Single(AliceStored()).Receipt, 0);
+
+        // Assert
+        Assert.Equal("Delivered - the turn's end was lost when the Director reconnected", served.Words);
+        Assert.Equal("neutral", served.Tone);
+        Assert.Equal((served.Words, served.Tone), (live.Text, live.Tone));
+        Assert.Equal((served.Words, served.Tone), (rebuilt.Text, rebuilt.Tone));
+    }
+
+    [Fact]
+    public void Read_ATurnStillRunningInTheNextGeneration_GivesTheWordsTheLiveStreamGives()
+    {
+        // Arrange: the same, but generation B continues t1 itself, which proves nothing.
+        AliceHasADeliveredPrompt();
+        using (_boundary.EnterScope(Alice))
+            _store.RecordTurnStarted(AliceDirector, AliceSession, "t1", new[] { "p1" }, At(2));
+        var reader = new ApiModeLiveRuling(AliceStored());
+        var shownFirst = ApiModeLiveRuling.ReceiptItem(Assert.Single(AliceStored()).Receipt, 0);
+
+        // Act
+        var live = reader.Rule(new ApiModeHeldEvent("gen-b", GenerationBStarted, Text(1, "t1", "NG")));
+        var served = Assert.Single(Body(Get(Alice, AliceSession)).Receipts);
+
+        // Assert: no receipt item, so the reader keeps the words it opened with, which are the endpoint's.
+        Assert.DoesNotContain(live, i => i.ItemId == "receipt:p1");
+        Assert.Equal("Delivered", served.Words);
+        Assert.Equal((served.Words, served.Tone), (shownFirst.Text, shownFirst.Tone));
     }
 }

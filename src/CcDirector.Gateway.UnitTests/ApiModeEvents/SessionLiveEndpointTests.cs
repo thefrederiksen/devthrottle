@@ -168,9 +168,10 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         Assert.Equal(ApiModeLiveResetCodes.NewGeneration, body.Code);
         Assert.Equal(new[] { $"/sessions/{ApiSession}/receipts", $"/sessions/{ApiSession}/history" }, body.RebuildFrom);
         Assert.False(string.IsNullOrWhiteSpace(body.Message));
-        // Then the stored receipts, with no id (they are not an event), so what follows continues from them...
+        // Then the stored receipts, with no id (they are not an event), so what follows continues from them. p1's turn
+        // never ended in generation A, and generation B's ConnectionReady proves it is over, so its end was lost (item 7)...
         Assert.Null(next!.Id);
-        Assert.Equal(new[] { ("p1", "Delivered", 0L), ("p2", "Delivered", 0L) }, Items(next).Select(i => (i.PromptId!, i.Text, i.Sequence)));
+        Assert.Equal(new[] { ("p1", "Delivered - the turn's end was lost when the Director reconnected", 0L), ("p2", "Delivered", 0L) }, Items(next).Select(i => (i.PromptId!, i.Text, i.Sequence)));
         // ...and the new generation's events: its connection line; p2's delivery is already in the receipts, so it adds nothing.
         Assert.Equal(("gen-b:1", ApiModeLiveItemKinds.Connection), (after!.Id, Single(after).Kind));
     }
