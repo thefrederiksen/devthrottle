@@ -346,12 +346,33 @@ public sealed class ApiModeSessionHostTests
 
         // Assert: the resume fails with the stated reason, no prompt was written into the empty conversation, and the
         // waiting prompt is refused with that reason.
-        Assert.Equal("Resume failed: Pi's conversation '311ffc3b-7a39-45cf-bcb5-596c494cdbbf' has no messages (messageCount 0)", ended.Reason);
+        const string resumeFailed = "Resume failed: Pi's conversation '311ffc3b-7a39-45cf-bcb5-596c494cdbbf' has no messages (messageCount 0)";
+        Assert.Equal($"{resumeFailed}. Pi exited (exit code 0)", ended.Reason);
         Assert.Empty(rig.Sink.Events.OfType<ConnectionReady>());
         Assert.Equal(["get_state"], pi.WrittenTypes);
         Assert.False(receipt.Delivered);
         Assert.Equal(PromptRefusedBy.Director, receipt.RefusedBy);
-        Assert.Equal($"{ApiModeSessionHost.ExitedBeforeWritingReason}: {ended.Reason}", receipt.RefusalReason);
+        Assert.Equal($"{ApiModeSessionHost.ExitedBeforeWritingReason}: {resumeFailed}", receipt.RefusalReason);
+    }
+
+    [Fact]
+    public async Task OnRecord_UnreadableGetStateAnswerWhileIdle_EndsInFailureWithTheReason()
+    {
+        // Arrange: the get_state answer without "success", a field the dialect must read, so Pi's shape changed. It is
+        // the first record every session reads, before any prompt can be written: Pi has nothing in hand.
+        var pi = new ScriptedPi("plain") { EditStdout = line => line.Replace("\"command\":\"get_state\",\"success\":true,", "\"command\":\"get_state\",") };
+        await using var rig = StartHost(pi);
+
+        // Act
+        var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
+
+        // Assert: Pi exited 0 when the Director closed its input, and the end is still a failure, in its own words.
+        Assert.True(rig.Host.EndedInFailure);
+        Assert.StartsWith("The Director could not read Pi's record 1: ", ended.Reason);
+        Assert.Contains(". Pi exited (exit code 0)", ended.Reason);
+        Assert.Equal(0, ended.ExitCode);
+        Assert.Empty(rig.Sink.Events.OfType<ConnectionReady>());
+        Assert.Single(rig.Host.Defects);
     }
 
     [Fact]
@@ -440,6 +461,31 @@ public sealed class ApiModeSessionHostTests
     }
 
     [Fact]
+    public async Task TurnStartBound_RestartCannotStartPi_EndsInFailureWithBothReasons()
+    {
+        // Arrange: the Pi acknowledges and never begins its turn, and there is no Pi to restart with - the factory
+        // throws when the host asks it for one.
+        var stuck = new ScriptedPi("plain") { AcknowledgeOnly = true };
+        await using var rig = StartHost(stuck);
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        Assert.True((await rig.Host.SendPromptAsync("Reply with exactly the word PONG", CancellationToken.None)).Delivered);
+        var second = rig.Host.SendPromptAsync("Second", CancellationToken.None);
+        await rig.Sink.WaitForAsync<PromptQueued>();
+
+        // Act
+        rig.Clock.Advance(ApiModeSessionDefaults.TurnStartBound);
+        var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
+        var secondReceipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
+
+        // Assert: the session's end is a failure and says both what went wrong and that the restart failed.
+        Assert.True(rig.Host.EndedInFailure);
+        Assert.StartsWith(PiDialect.AcknowledgedButNeverStartedReason, ended.Reason);
+        Assert.Contains(". Restarting Pi failed: ", ended.Reason);
+        Assert.False(secondReceipt.Delivered);
+        Assert.Contains(". Restarting Pi failed: ", secondReceipt.RefusalReason);
+    }
+
+    [Fact]
     public async Task TurnStartBound_PiAcknowledgesAndNeverStarts_TurnFailsAndPiRestartsOnTheConversationWithoutResending()
     {
         // Arrange: the first Pi acknowledges the prompt and never begins its turn; the restarted one behaves.
@@ -467,7 +513,9 @@ public sealed class ApiModeSessionHostTests
         Assert.Equal(TurnOutcome.Failed, failed.Outcome);
         Assert.StartsWith(PiDialect.AcknowledgedButNeverStartedReason, failed.Reason);
         Assert.Contains(PiDialect.RestartingPiReason, failed.Reason);
-        Assert.Equal(failed.Reason, rig.Sink.Events.OfType<ConnectionEnded>().Single().Reason);
+        var stuckEnded = rig.Sink.Events.OfType<ConnectionEnded>().Single();
+        Assert.NotEmpty(stuckEnded.StderrTail);
+        Assert.Equal($"{failed.Reason}. Pi exited (exit code 0). Standard error: {string.Join(" | ", stuckEnded.StderrTail)}", stuckEnded.Reason);
         // ...the stuck Pi was asked to exit, a new one started with the same arguments on the same conversation...
         Assert.True(stuck.Process.InputClosed);
         Assert.Same(stuck.Process.StartedWith, restarted.Process.StartedWith);

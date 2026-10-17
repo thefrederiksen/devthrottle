@@ -81,6 +81,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     private ApiModeProcessStartInfo? _startInfo;
     private Connection? _connection;
     private ConnectionEnded? _sessionEnded;
+    private bool _sessionEndedInFailure;
     private bool _conversationHasMessages;
     private int _restarts;
 
@@ -122,6 +123,11 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// <summary>Completes once the session's Pi has ended for good (not for a restart) and every event before the end
     /// was published. Carries the last <see cref="ConnectionEnded"/>, whose reason says why.</summary>
     public Task<ConnectionEnded> Ended => _ended.Task;
+
+    /// <summary>Whether the session's end was a failure as the stream tells it (<see cref="PiDialect.EndedInFailure"/>,
+    /// a restart that could not start Pi, or the Director's own event loop failing). Read once <see cref="Ended"/> has
+    /// completed; the reason is <see cref="Ended"/>'s.</summary>
+    public bool EndedInFailure => Volatile.Read(ref _sessionEndedInFailure);
 
     /// <summary>Raised once, after <see cref="Ended"/> and after the last <see cref="Published"/>, with the exit code the
     /// last process reported.</summary>
@@ -468,7 +474,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         try
         {
             if (!connection.Ended)
-                OnProcessEndedLocked(connection, end);
+                OnProcessEndedLocked(connection, end, loopFailed: true);
         }
         finally
         {
@@ -500,8 +506,11 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             // refuses every prompt without a receipt and ends any running turn (the dialect's contract).
             FileLog.Write($"[ApiModeSessionHost] OnRecord FAILED: session={_sessionId}, record {record.Sequence}: {ex.Message}");
             AddDefect($"the dialect could not read record {record.Sequence}: {ex.Message}");
+            var reason = $"The Director could not read Pi's record {record.Sequence}: {ex.Message}";
+            // Told to the dialect, so the end says it and reads failed even with nothing in hand (issue #4070).
+            connection.Dialect.RequireStopForUnreadableRecord(reason);
             connection.ShuttingDown = true;
-            _ = StopProcessAsync(connection, $"the Director could not read Pi's record: {ex.Message}");
+            _ = StopProcessAsync(connection, reason);
             return;
         }
 
@@ -513,7 +522,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         await WriteQueuedPromptsLocked(connection).ConfigureAwait(false);
     }
 
-    private void OnProcessEndedLocked(Connection connection, ApiModeProcessEnded end)
+    private void OnProcessEndedLocked(Connection connection, ApiModeProcessEnded end, bool loopFailed = false)
     {
         FeedErrorLinesLocked(connection);
         connection.DisarmTurnStartTimer();
@@ -532,6 +541,12 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         TakeEventsLocked(step.Events);
         AddDefects(step.Defects);
         var connectionEnded = (ConnectionEnded)step.Events[^1];
+        var failure = connection.Dialect.EndedInFailure;
+        if (loopFailed)
+        {
+            connectionEnded = connectionEnded with { Reason = $"{connectionEnded.Reason}. The Director stopped Pi because its event loop failed" };
+            failure = true;
+        }
         connection.Ended = true;
 
         foreach (var stop in _stops.Values)
@@ -562,9 +577,11 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
                 FileLog.Write($"[ApiModeSessionHost] Restarting Pi FAILED: session={_sessionId}: {ex.Message}");
                 connectionEnded = connectionEnded with { Reason = $"{connectionEnded.Reason}. Restarting Pi failed: {ex.Message}" };
                 RefuseQueuedLocked(connectionEnded.Reason);
+                failure = true;
             }
         }
 
+        Volatile.Write(ref _sessionEndedInFailure, failure);
         _sessionEnded = connectionEnded;
     }
 

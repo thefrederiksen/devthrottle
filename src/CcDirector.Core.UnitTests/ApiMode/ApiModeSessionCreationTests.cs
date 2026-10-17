@@ -293,10 +293,111 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         var ended = await sink.WaitForAsync<ConnectionEnded>();
         await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
 
-        // Assert
+        // Assert: Pi exited 0 when its input closed, and the session still reads failed, with the stream's reason.
         Assert.StartsWith("Resume failed:", ended.Reason);
         Assert.Contains("messageCount 0", ended.Reason);
+        Assert.EndsWith(". Pi exited (exit code 0)", ended.Reason);
         Assert.Empty(sink.Events.OfType<ConnectionReady>());
-        Assert.True(session.Status is SessionStatus.Exited or SessionStatus.Failed);
+        Assert.Equal(0, session.ExitCode);
+        Assert.Equal(SessionStatus.Failed, session.Status);
+        Assert.True(session.Crashed);
+        Assert.Equal(ended.Reason, session.EndReason);
+        Assert.Equal($"failed: {ended.Reason}", session.LastStatusReason);
+    }
+
+    [Fact]
+    public async Task CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason()
+    {
+        // Arrange: the recording of a Pi gone while its reply streamed, ending with code 0 instead of the kill.
+        var pi = new ScriptedPi("exit") { ExitCode = 0 };
+        var (_, session, sink) = CreateApiModeSession(pi);
+        await WaitForActivityAsync(session, ActivityState.WaitingForInput);
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExited += code => exited.TrySetResult(code);
+
+        // Act
+        await session.SendTextAsync("Write a long answer", Door);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: the turn ended failed in the stream, and the session is failed with the stream's reason, not a clean exit.
+        var turn = Assert.Single(sink.Events.OfType<TurnEnded>());
+        Assert.Equal(TurnOutcome.Failed, turn.Outcome);
+        var ended = Assert.Single(sink.Events.OfType<ConnectionEnded>());
+        Assert.Equal(0, ended.ExitCode);
+        Assert.StartsWith("Pi exited during the turn (exit code 0)", ended.Reason);
+        Assert.Equal(0, session.ExitCode);
+        Assert.Equal(SessionStatus.Failed, session.Status);
+        Assert.True(session.Crashed);
+        Assert.Equal(ended.Reason, session.EndReason);
+        Assert.Equal($"failed: {ended.Reason}", session.LastStatusReason);
+    }
+
+    [Fact]
+    public async Task CreateSession_ApiModePiIdleEndsWithExitCodeZero_SessionExitsCleanly()
+    {
+        // Arrange: Pi waiting for a prompt, nothing in hand.
+        var pi = new ScriptedPi("plain");
+        var (_, session, sink) = CreateApiModeSession(pi);
+        await WaitForActivityAsync(session, ActivityState.WaitingForInput);
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExited += code => exited.TrySetResult(code);
+
+        // Act
+        pi.Process.Exit(0);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: an end with nothing in hand is a clean exit, as for a terminal session; the reason is still carried.
+        Assert.Equal(SessionStatus.Exited, session.Status);
+        Assert.False(session.Crashed);
+        Assert.Equal(Assert.Single(sink.Events.OfType<ConnectionEnded>()).Reason, session.EndReason);
+    }
+
+    [Fact]
+    public async Task CreateSession_ApiModePiRecordUnreadableWhileIdle_SessionFailsWithTheReason()
+    {
+        // Arrange: Pi's get_state answer lacks a field the dialect must read; the Director stops Pi, which exits 0.
+        var pi = new ScriptedPi("plain") { EditStdout = line => line.Replace("\"command\":\"get_state\",\"success\":true,", "\"command\":\"get_state\",") };
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Act
+        var (_, session, sink) = CreateApiModeSession(pi);
+        session.OnExited += code => exited.TrySetResult(code);
+        // The session may already have ended before the handler was attached: the create returns while Pi answers.
+        if (session.ExitCode is { } already)
+            exited.TrySetResult(already);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: not a clean exit, and the reason says what went wrong.
+        var ended = Assert.Single(sink.Events.OfType<ConnectionEnded>());
+        Assert.StartsWith("The Director could not read Pi's record 1: ", ended.Reason);
+        Assert.Equal(0, session.ExitCode);
+        Assert.Equal(SessionStatus.Failed, session.Status);
+        Assert.True(session.Crashed);
+        Assert.Equal(ended.Reason, session.EndReason);
+        Assert.Equal($"failed: {ended.Reason}", session.LastStatusReason);
+    }
+
+    [Fact]
+    public async Task CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween()
+    {
+        // Arrange: the issue #959 rule on its own - the exit-synthesised TurnEnded must not read as a wait for input.
+        var pi = new ScriptedPi("exit") { ExitCode = 0 };
+        var (_, session, _) = CreateApiModeSession(pi);
+        await WaitForActivityAsync(session, ActivityState.WaitingForInput);
+        var transitions = new List<(ActivityState From, ActivityState To)>();
+        session.OnActivityStateChanged += (from, to) => { lock (transitions) transitions.Add((from, to)); };
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExited += code => exited.TrySetResult(code);
+
+        // Act
+        await session.SendTextAsync("Write a long answer", Door);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert
+        lock (transitions)
+        {
+            Assert.Equal((ActivityState.Working, ActivityState.Exited), transitions[^1]);
+            Assert.DoesNotContain((ActivityState.Working, ActivityState.WaitingForInput), transitions);
+        }
     }
 }

@@ -124,6 +124,28 @@ public sealed class PiDialect
     /// <summary>Set once this process must be stopped, with the reason (a resume that found no conversation).</summary>
     public string? StopReason => _stopReason;
 
+    /// <summary>
+    /// Set by <see cref="OnProcessExited"/>: whether Pi's end was a failure as the stream tells it - the Director had
+    /// required Pi to stop (a resume that found nothing, a record it could not read, a turn that never began), or Pi
+    /// ended with a turn running, a delivered prompt whose turn never began, or a prompt it never acknowledged. False
+    /// for an end with nothing in hand (an idle Pi whose input was closed). The exit code is not consulted: Pi exits 0
+    /// whenever its input closes.
+    /// </summary>
+    public bool EndedInFailure { get; private set; }
+
+    /// <summary>
+    /// The Director could not read one of Pi's records (<see cref="OnStdoutRecord"/> threw: Pi's shape changed) and is
+    /// stopping this process. The reason becomes the stop reason, so the end is a failure in its own words even when Pi
+    /// had nothing in hand - the record every session reads first, the <c>get_state</c> answer, comes before any prompt.
+    /// </summary>
+    public void RequireStopForUnreadableRecord(string reason)
+    {
+        FileLog.Write($"[PiDialect] RequireStopForUnreadableRecord: session={_sessionId}, reason={reason}");
+        if (_exited)
+            throw new InvalidOperationException("RequireStopForUnreadableRecord was called after Pi exited.");
+        RequireStop(new StepBuilder(), reason);
+    }
+
     // ---------------------------------------------------------------- commands
 
     /// <summary>A <c>prompt</c> command. Never with <c>streamingBehavior</c>: the Director owns the queue.</summary>
@@ -266,6 +288,7 @@ public sealed class PiDialect
         var stderr = _stderrSinceMark.ToList();
 
         var unacknowledged = _awaitingOrder.Select(id => _awaitingResponse[id]).Where(c => c.Type == "prompt").ToList();
+        EndedInFailure = _stopReason is not null || _turn is not null || _deliveredAwaitingTurn.Count > 0 || unacknowledged.Count > 0;
         foreach (var prompt in unacknowledged)
             Refuse(step, prompt.PromptId!, ExitedBeforeAcknowledgingReason, PromptRefusedBy.Director);
 
@@ -287,10 +310,15 @@ public sealed class PiDialect
             EndNeverStartedTurn(step, neverStartedReason);
         }
 
-        var reason = _stopReason
+        // A failed end says what went wrong, the exit code and the standard error tail (issue #4070): Pi exits 0 whenever
+        // its input closes, so the code alone never tells.
+        var stderrDetail = stderr.Count > 0 ? ". Standard error: " + string.Join(" | ", stderr) : "";
+        var reason = (_stopReason is not null ? $"{_stopReason}. Pi exited (exit code {exitCode}){stderrDetail}" : null)
             ?? turnReason
             ?? neverStartedReason
-            ?? (unacknowledged.Count > 0 ? ExitedBeforeAcknowledgingReason : $"Pi exited (exit code {exitCode})");
+            ?? (unacknowledged.Count > 0
+                ? $"{ExitedBeforeAcknowledgingReason} (exit code {exitCode}){stderrDetail}"
+                : $"Pi exited (exit code {exitCode}){stderrDetail}");
         step.Events.Add(new ConnectionEnded
         {
             SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
@@ -302,7 +330,7 @@ public sealed class PiDialect
         _inFlight.Clear();
         _deliveredAwaitingTurn.Clear();
         _queuedByAgent.Clear();
-        FileLog.Write($"[PiDialect] OnProcessExited: session={_sessionId}, reason={reason}");
+        FileLog.Write($"[PiDialect] OnProcessExited: session={_sessionId}, reason={reason}, failure={EndedInFailure}");
         return step.Build();
     }
 
