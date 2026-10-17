@@ -207,10 +207,17 @@ if ((Get-NativeExitCode { git -C $repoRoot merge-base --is-ancestor $lastGood $l
     Fail "Nothing new has passed a full test run since ${lastTag}: the last good commit $lastGood is already in it." "Wait for the next green run on main (every two hours when main has moved), or start one by hand: gh workflow run CI --repo $repoSlug --ref main"
 }
 $inRelease = @(git -C $repoRoot log --oneline --no-merges "$lastTagCommit..$lastGood")
+# The newest green commit can be the merge that brought the last release back to main: not inside that
+# tag's history, yet holding no new work.
+if ($inRelease.Count -eq 0) {
+    Fail "Nothing new has passed a full test run since ${lastTag}: $lastGood adds no commits to it." "Wait for the next green run on main, or start one by hand: gh workflow run CI --repo $repoSlug --ref main"
+}
+# Compared with the highest FINAL release only, so 2.24.0 may follow its own 2.24.0-rc1. Version sort puts
+# a release candidate above its final, and an existing tag is refused at the start in any case.
 $numeric = { param($v) [version](($v -replace '^v', '') -replace '-rc\d+$', '') }
-$highestTag = @(git -C $repoRoot tag --list "v*" --sort=-v:refname)[0]
-if ((& $numeric $newVersion) -le (& $numeric $highestTag)) {
-    Fail "$tagName is not higher than the highest release $highestTag." "Pick the next version."
+$highestFinal = @(git -C $repoRoot tag --list "v*" --sort=-v:refname | Where-Object { $_ -notmatch '-rc\d+$' })[0]
+if ($highestFinal -and (& $numeric $newVersion) -le (& $numeric $highestFinal)) {
+    Fail "$tagName is not higher than the highest release $highestFinal." "Pick the next version."
 }
 $waiting = @(git -C $repoRoot log --oneline --no-merges "$lastGood..origin/main")
 
