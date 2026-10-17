@@ -168,15 +168,22 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
         Assert.Equal(new[]
         {
             "accountEmail", "machineName", "osUser", "browserProfile", "machineId", "label", "canApproveNow", "status", "statusText",
-            "statusTone", "text",
+            "statusTone", "text", "browserProfileName", "source", "state", "checkedAtUtc", "healthText", "whatToDo",
         }, Names(set));
         Assert.Equal((A, "the-mac", "owner", "work", mac, "the-mac"),
             (set.GetProperty("accountEmail").GetString(), set.GetProperty("machineName").GetString(), set.GetProperty("osUser").GetString(),
              set.GetProperty("browserProfile").GetString(), set.GetProperty("machineId").GetString(), set.GetProperty("label").GetString()));
-        Assert.True(set.GetProperty("canApproveNow").GetBoolean());
-        Assert.Equal(("ready", "Ready", "good", "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."),
+        // Just set by the owner, so never checked: an absence is never read as healthy, and the page says so.
+        Assert.False(set.GetProperty("canApproveNow").GetBoolean());
+        Assert.Equal(("cannot-approve", "Not checked", "warning", "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day."),
             (set.GetProperty("status").GetString(), set.GetProperty("statusText").GetString(), set.GetProperty("statusTone").GetString(),
              set.GetProperty("text").GetString()));
+        Assert.Equal(("owner", "not-checked", JsonValueKind.Null),
+            (set.GetProperty("source").GetString(), set.GetProperty("state").GetString(), set.GetProperty("checkedAtUtc").ValueKind));
+        Assert.Equal("The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
+            set.GetProperty("healthText").GetString());
+        Assert.Equal("Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
+            set.GetProperty("whatToDo").GetString());
 
         var list = List(One).Json;
         Assert.False(list.GetProperty("isEmpty").GetBoolean());
@@ -417,7 +424,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
 
         var a = accounts.Single(x => x.GetProperty("accountEmail").GetString() == A);
         Assert.Equal(List(One).Json.GetProperty("approvers")[0].GetRawText(), a.GetProperty("approver").GetRawText());
-        Assert.Equal(("Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work.", "good"),
+        Assert.Equal(("The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.", "warning"),
             (a.GetProperty("approverText").GetString(), a.GetProperty("approverTone").GetString()));
         var b = accounts.Single(x => x.GetProperty("accountEmail").GetString() == B);
         Assert.Equal(JsonValueKind.Null, b.GetProperty("approver").ValueKind);
@@ -510,6 +517,104 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
         var set = Set(One, Approver()).Json;
 
         Assert.Equal("the-mac (owner)", set.GetProperty("label").GetString());
-        Assert.StartsWith("Sign-ins for account-a@example.com are approved on the-mac (owner), in the browser profile work.", set.GetProperty("text").GetString());
+        Assert.StartsWith("The approver for account-a@example.com (browser profile \"work\" on the-mac (owner)) has never been checked.",
+            set.GetProperty("text").GetString());
+        Assert.Contains("the Director on the-mac (owner) is running", set.GetProperty("whatToDo").GetString());
+    }
+
+    // ---- the approver's health (phase 6, Track C) ----
+
+    /// <summary>The approver of account A on the-mac, as a check by that machine's Director left it.</summary>
+    private void Checked(string state, DateTime checkedAt, string? shown = null, string? detail = null, string source = LicenseApproverSources.Owner,
+        string? name = null)
+        => _approvers.Change(One, records =>
+        {
+            var next = records.Approvers.Where(r => r.AccountEmail != A).ToList();
+            next.Add(new LicenseApprover(A, "the-mac", "owner", "work", source, state, checkedAt, shown, detail, name));
+            return ((IReadOnlyList<LicenseApprover>?)next, 0);
+        }, _now);
+
+    [Fact]
+    public void AnApproverWhoseLastCheckFoundItCanApprove_IsReady_AndSaysWhenItWasChecked()
+    {
+        Reports(One, "the-mac", "dir-mac", Holding(A, true));
+        Checked(LicenseApproverStates.CanApprove, _now.AddHours(-3), shown: A, source: LicenseApproverSources.Registered);
+
+        var row = List(One).Json.GetProperty("approvers")[0];
+
+        Assert.True(row.GetProperty("canApproveNow").GetBoolean());
+        Assert.Equal(("ready", "Ready", "good", "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."),
+            (row.GetProperty("status").GetString(), row.GetProperty("statusText").GetString(), row.GetProperty("statusTone").GetString(),
+             row.GetProperty("text").GetString()));
+        Assert.Equal(("registered", "can-approve", "2026-10-11T00:12:00Z", JsonValueKind.Null),
+            (row.GetProperty("source").GetString(), row.GetProperty("state").GetString(), row.GetProperty("checkedAtUtc").GetString(),
+             row.GetProperty("whatToDo").ValueKind));
+        Assert.Equal("The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
+            row.GetProperty("healthText").GetString());
+    }
+
+    [Fact]
+    public void AnApproverThatNeedsAFreshSignIn_CannotApprove_AndTheRowSaysTheOneThingToDo()
+    {
+        Reports(One, "the-mac", "dir-mac", Holding(A, true));
+        Checked(LicenseApproverStates.NeedsFreshSignIn, _now.AddHours(-1));
+
+        var row = List(One).Json.GetProperty("approvers")[0];
+
+        Assert.False(row.GetProperty("canApproveNow").GetBoolean());
+        Assert.Equal(("cannot-approve", "Cannot approve", "warning", "needs-fresh-sign-in"),
+            (row.GetProperty("status").GetString(), row.GetProperty("statusText").GetString(), row.GetProperty("statusTone").GetString(),
+             row.GetProperty("state").GetString()));
+        Assert.Equal("The approver for account-a@example.com (browser profile \"work\" on the-mac) needs a fresh claude.ai sign-in on the approval page. "
+                     + "Open that browser on the-mac and sign in to claude.ai once.", row.GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public void TheSentences_SayTheProfilesDisplayName_WhenACheckHasSeenOne_AndTheRowKeepsTheIdentifier()
+    {
+        Reports(One, "the-mac", "dir-mac", Holding(A, true));
+        Checked(LicenseApproverStates.SignedOut, _now, name: "Work Chrome");
+
+        var row = List(One).Json.GetProperty("approvers")[0];
+
+        Assert.Equal(("work", "Work Chrome"), (row.GetProperty("browserProfile").GetString(), row.GetProperty("browserProfileName").GetString()));
+        Assert.Equal("The approver for account-a@example.com (browser profile \"Work Chrome\" on the-mac) is not signed in to claude.ai.",
+            row.GetProperty("healthText").GetString());
+    }
+
+    [Fact]
+    public void AnApproverWhoseDirectorIsNotConnected_SaysThatFirst_AndStillCarriesItsHealth()
+    {
+        _store.ApplyReport(One, "dir-mac", ++_sequence, Report("the-mac", _now, Holding(A, true)), _now, TimeSpan.Zero);
+        Checked(LicenseApproverStates.CanApprove, _now, shown: A);
+
+        var row = List(One).Json.GetProperty("approvers")[0];
+
+        Assert.False(row.GetProperty("canApproveNow").GetBoolean());
+        Assert.Equal(("not-connected", "can-approve"), (row.GetProperty("status").GetString(), row.GetProperty("state").GetString()));
+    }
+
+    [Fact]
+    public void RemoveApprover_OfARegisteredRecord_KeepsTheOwnersRemoval()
+    {
+        Reports(One, "the-mac", "dir-mac", Holding(A, true));
+        Checked(LicenseApproverStates.CanApprove, _now, shown: A, source: LicenseApproverSources.Registered);
+
+        var (status, json) = Remove(One, "?accountEmail=" + A);
+
+        Assert.Equal(200, status);
+        Assert.True(json.GetProperty("removed").GetBoolean());
+        Assert.Equal(new[] { new LicenseApproverRemoval(A, "the-mac", "owner", "work", _now) }, _approvers.ListRemovals(One));
+    }
+
+    [Fact]
+    public void RemoveApprover_OfAnOwnerSetRecord_KeepsNoRemoval()
+    {
+        Reports(One, "the-mac", "dir-mac", Holding(A, true));
+        Set(One, Approver());
+
+        Assert.Equal(200, Remove(One, "?accountEmail=" + A).Status);
+
+        Assert.Empty(_approvers.ListRemovals(One));
     }
 }

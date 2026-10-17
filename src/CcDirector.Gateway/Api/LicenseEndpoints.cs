@@ -111,11 +111,12 @@ public static class LicenseEndpoints
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
             // The page does not judge the open "no account has room" events, so none are passed.
-            var picture = snapshots.ReadPicture(tenant, nowUtc(), NoExhaustions);
+            var now = nowUtc();
+            var picture = snapshots.ReadPicture(tenant, now, NoExhaustions);
             var response = LicenseDisplayFold.Overview(picture);
             // Who approves each account's sign-ins, and where a sign-in can be started now (contract section 8).
             LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
-                directorId => isConnected(tenant, directorId));
+                directorId => isConnected(tenant, directorId), now);
             FileLog.Write($"[LicenseEndpoints] GET overview: tenant={tenant.ToLogString()}, accounts={response.Accounts.Count}, machines={response.Machines.Count}");
             return Results.Json(response);
         }

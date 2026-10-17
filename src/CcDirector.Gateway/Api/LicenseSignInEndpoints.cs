@@ -116,7 +116,7 @@ public static class LicenseSignInEndpoints
                 return Refuse(set.RefusalWord == "too_many_approvers" ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest,
                     set.RefusalWord!, set.RefusalText!);
 
-            var dto = LicenseSignInFold.Approver(approver, reads.Read(tenant, now).Machines, directorId => isConnected(tenant, directorId));
+            var dto = LicenseSignInFold.Approver(approver, reads.Read(tenant, now).Machines, directorId => isConnected(tenant, directorId), now);
             FileLog.Write($"[LicenseSignInEndpoints] PUT /gateway/licenses/approvers: tenant={tenant.ToLogString()}, account={dto.AccountEmail}, status={dto.Status}");
             return Results.Json(dto);
         }

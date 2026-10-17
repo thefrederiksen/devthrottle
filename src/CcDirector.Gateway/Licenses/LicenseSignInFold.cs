@@ -82,7 +82,9 @@ public static class LicenseSignInFold
     /// approved there now.</summary>
     /// <param name="machines">Every machine of the account that has reported.</param>
     /// <param name="isConnected">Whether a Director of this account, by its identifier, is connected now.</param>
-    public static LicenseApproverDto Approver(LicenseApprover approver, IReadOnlyList<LicenseMachineView> machines, Func<string, bool> isConnected)
+    /// <param name="nowUtc">The moment the record's health is judged at (the not-checked rule).</param>
+    public static LicenseApproverDto Approver(LicenseApprover approver, IReadOnlyList<LicenseMachineView> machines, Func<string, bool> isConnected,
+        DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(approver);
         ArgumentNullException.ThrowIfNull(machines);
@@ -90,14 +92,20 @@ public static class LicenseSignInFold
         var machine = machines.FirstOrDefault(m => string.Equals(m.MachineName, approver.MachineName, StringComparison.OrdinalIgnoreCase)
                                                    && string.Equals(m.OsUser, approver.OsUser, StringComparison.OrdinalIgnoreCase));
         var label = Label(machines, machine?.MachineName ?? approver.MachineName, machine?.OsUser ?? approver.OsUser);
-        var who = $"Sign-ins for {approver.AccountEmail} are approved on {label}, in the browser profile {approver.BrowserProfile}.";
+        var who = $"Sign-ins for {approver.AccountEmail} are approved on {label}, in the browser profile {LicenseApproverReadiness.ProfileName(approver)}.";
+        var health = LicenseApproverReadiness.Verdict(approver, label, nowUtc);
+        // A machine that cannot be reached is said first: nothing about the profile matters until its Director is there.
+        // Then the profile's own health, so "Ready" is never shown beside a profile that cannot approve.
         var (status, statusText, tone, text) = machine is null
             ? (LicenseApproverStatuses.NeverReported, "Not reporting yet", LicenseTones.Warning,
                 $"{who} No Director on {label} has reported to this account, so no sign-in can be approved there yet.")
             : !isConnected(machine.DirectorId)
                 ? (LicenseApproverStatuses.NotConnected, "Not connected", LicenseTones.Warning,
                     $"{who} The Director on {label} is not connected, so no sign-in can be approved there now.")
-                : (LicenseApproverStatuses.Ready, "Ready", LicenseTones.Good, who);
+                : health.WhatToDo is null
+                    ? (LicenseApproverStatuses.Ready, "Ready", LicenseTones.Good, who)
+                    : (LicenseApproverStatuses.CannotApprove, health.State == LicenseApproverStates.NotChecked ? "Not checked" : "Cannot approve",
+                        LicenseTones.Warning, $"{health.HealthText} {health.WhatToDo}");
         return new LicenseApproverDto
         {
             AccountEmail = approver.AccountEmail,
@@ -111,6 +119,12 @@ public static class LicenseSignInFold
             StatusText = statusText,
             StatusTone = tone,
             Text = text,
+            BrowserProfileName = approver.BrowserProfileName,
+            Source = approver.Source,
+            State = health.State,
+            CheckedAtUtc = approver.CheckedAtUtc,
+            HealthText = health.HealthText,
+            WhatToDo = health.WhatToDo,
         };
     }
 
@@ -125,7 +139,7 @@ public static class LicenseSignInFold
             AsOfUtc = Utc(nowUtc),
             IsEmpty = approvers.Count == 0,
             EmptyText = approvers.Count == 0 ? NoApproversText : null,
-            Approvers = approvers.OrderBy(a => a.AccountEmail, StringComparer.Ordinal).Select(a => Approver(a, machines, isConnected)).ToList(),
+            Approvers = approvers.OrderBy(a => a.AccountEmail, StringComparer.Ordinal).Select(a => Approver(a, machines, isConnected, nowUtc)).ToList(),
         };
     }
 
@@ -139,7 +153,7 @@ public static class LicenseSignInFold
     /// <param name="machines">The machines the overview was folded from.</param>
     /// <param name="openSignIns">The account's sign-in rows that have not ended (<see cref="LicenseSignInLog.ListOpen"/>).</param>
     public static void Apply(LicenseOverviewResponse overview, IReadOnlyList<LicenseMachineView> machines, IReadOnlyList<LicenseApprover> approvers,
-        IReadOnlyList<LicenseSwitchLogEntity> openSignIns, Func<string, bool> isConnected)
+        IReadOnlyList<LicenseSwitchLogEntity> openSignIns, Func<string, bool> isConnected, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(machines);
@@ -151,7 +165,7 @@ public static class LicenseSignInFold
         foreach (var account in overview.Accounts)
         {
             var approver = approvers.FirstOrDefault(a => a.AccountEmail == account.AccountEmail);
-            account.Approver = approver is null ? null : Approver(approver, machines, isConnected);
+            account.Approver = approver is null ? null : Approver(approver, machines, isConnected, nowUtc);
             account.ApproverText = account.Approver?.Text ?? NoApproverForAccountText;
             account.ApproverTone = account.Approver?.StatusTone ?? LicenseTones.Neutral;
         }

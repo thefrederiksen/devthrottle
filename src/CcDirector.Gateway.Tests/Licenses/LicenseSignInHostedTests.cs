@@ -198,8 +198,19 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     {
         using var set = await SetApprover(_aliceOwner, A, ApprovingMachine);
         Assert.Equal(HttpStatusCode.OK, set.StatusCode);
-        Assert.Equal("ready", (await Json(set)).GetProperty("status").GetString());
+        // Just set, it has never been checked, and an absence is never read as healthy.
+        Assert.Equal("cannot-approve", (await Json(set)).GetProperty("status").GetString());
+        // The approving machine's Director checks the profile and reports it over its own hub connection.
+        var answer = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(answer.Rows).Outcome);
+        Assert.Equal("ready", (await Get(_aliceOwner, LicenseSignInRoutes.Approvers)).GetProperty("approvers")[0].GetProperty("status").GetString());
     }
+
+    private static LicenseApproverCheckReport CanApprove(string account, string profile = "work") => new()
+    {
+        OffersApprovers = true,
+        Rows = [new LicenseApproverCheckRow { BrowserProfile = profile, AccountEmail = account, ShownAccount = account, State = LicenseApproverStates.CanApprove, CheckedAtUtc = Now }],
+    };
 
     // ---- the relay ----
 
@@ -388,6 +399,40 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, raise.StatusCode);
         Assert.True(_gateway.RaisedSessions.IsRaised(_alice.Tenant, sessionId));
         return Client(key);
+    }
+
+    [Fact]
+    public async Task ARegisteredApprover_ComesInOverTheDirectorsHub_ASessionKeyStillCannotRemoveIt_AndTheOwnersRemovalSticks()
+    {
+        // The approving machine's Director registers its profile for account A, which Alice's machines hold.
+        var registered = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverCheckOutcomes.Registered, Assert.Single(registered.Rows).Outcome);
+        var row = (await Get(_aliceOwner, LicenseSignInRoutes.Approvers)).GetProperty("approvers")[0];
+        Assert.Equal((ApprovingMachine, "registered", "ready"),
+            (row.GetProperty("machineName").GetString(), row.GetProperty("source").GetString(), row.GetProperty("status").GetString()));
+        var assigned = Assert.Single((await _approver.GetLicenseApproverAssignmentsAsync()).Rows);
+        Assert.Equal((A, "work"), (assigned.AccountEmail, assigned.BrowserProfile));
+
+        // Neither a session key nor a raised one may remove it or replace it: the guard is unchanged.
+        using var raised = await ARaisedSessionOfAlice();
+        using var remove = await _aliceSession.DeleteAsync($"gateway/licenses/approvers?accountEmail={Uri.EscapeDataString(A)}");
+        using var raisedRemove = await raised.DeleteAsync($"gateway/licenses/approvers?accountEmail={Uri.EscapeDataString(A)}");
+        using var put = await SetApprover(_aliceSession, A, TargetMachine);
+        using var raisedPut = await SetApprover(raised, A, TargetMachine);
+        foreach (var response in new[] { remove, raisedRemove, put, raisedPut })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal("session_key_out_of_scope", (await Json(response)).GetProperty("code").GetString());
+        }
+        Assert.Equal(LicenseApproverSources.Registered, _gateway.LicenseApprovers.Find(_alice.Tenant, A)!.Source);
+        Assert.Empty(_gateway.LicenseApprovers.ListRemovals(_alice.Tenant));
+
+        // The owner removes it, and the next check does not bring it back.
+        using var removed = await _aliceOwner.DeleteAsync($"gateway/licenses/approvers?accountEmail={Uri.EscapeDataString(A)}");
+        Assert.Equal(HttpStatusCode.OK, removed.StatusCode);
+        var again = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverRefusals.OwnerRemoved, Assert.Single(again.Rows).Reason);
+        Assert.True((await Get(_aliceOwner, LicenseSignInRoutes.Approvers)).GetProperty("isEmpty").GetBoolean());
     }
 
     [Fact]
