@@ -1503,7 +1503,12 @@ public sealed class WingmanVoiceService
         // THE FLIGHT STANDS DOWN BEFORE EITHER ARM on the session's state and its plan, so an attempt it will skip reaches
         // no provider whatever the stored reading holds - a brand-new session with no reading, or a plan that stands the
         // reading down over a reading that has words. Asked only when an arm would otherwise count (issue #4154).
-        var wouldReachProvider = (judgeWouldBeAsked || speechWouldBeMade) && verdicts.SweepWouldReachTheJudge(tenant, sid);
+        var standDown = judgeWouldBeAsked || speechWouldBeMade ? verdicts.SweepStandDownCause(tenant, sid) : null;
+        // ...AND WHAT THE SKIPPED FLIGHT WOULD HAVE SAID IS STILL SAID. A brand-new session's flight records "nothing to
+        // narrate" (GenerateOnceAsync, the Skipped arm), and that fact is what its card reads. An attempt that no longer
+        // runs must record it here, or the card counts up to "Voice did not arrive" at a session that has said nothing.
+        if (standDown == ActivityCauses.BrandNew) SetNothingToNarrate(tenant, sid, nothing: true);
+        var wouldReachProvider = (judgeWouldBeAsked || speechWouldBeMade) && standDown is null;
         return new SweepGenerationInput(screenGrid, wouldReachProvider);
     }
 

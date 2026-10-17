@@ -385,6 +385,9 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(0, await SweepPassAsync(rig, route));
         Assert.Equal(0, rig.Env.JudgeCalls);
         Assert.Null(rig.Env.Latest(Tenant, Sid));
+        // ...and the card still says what the skipped flight used to record: nothing to narrate, not a voice that never
+        // arrived (seen on production right after the first version of this fix shipped).
+        Assert.True(rig.Voice.NothingToNarrateFor(Tenant, Sid));
     }
 
     /// <summary>
