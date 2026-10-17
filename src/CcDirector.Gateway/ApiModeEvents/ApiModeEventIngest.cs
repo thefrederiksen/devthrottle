@@ -72,6 +72,9 @@ public sealed class ApiModeEventIngest
     private void FeedReceipts(string directorId, SessionEvent e, ApiModeEventPosition position)
     {
         var at = e.At.UtcDateTime;
+        // Before the event's own change, so a TurnStarted rules the turn before it lost and only then links its prompts.
+        if (ApiModeLostTurnEnd.Proves(e, out var continuing))
+            _receipts.RecordTurnOverProven(directorId, e.SessionId, continuing, ApiModeLostTurnEnd.Describe(e, position), position);
         switch (e)
         {
             case PromptQueued q:

@@ -220,6 +220,40 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Equal(new long[] { 1, 2 }, held.Events.Select(e => e.Event.Sequence));
     }
 
+    // ----- a turn whose end was lost in a hole between two generations (item 7) -----
+
+    [Fact]
+    public void Accept_AHoleThenTheSameTurnContinuesInTheNewGeneration_RulesNothingAndItsRealEndStands()
+    {
+        // Arrange: t1 runs in generation A; then a hole, and the same Pi process carries on with t1 in generation B.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck), Started(3, "t1", "p1"), Text(4, "t1", "PO")));
+
+        // Act
+        Push(B(Text(1, "t1", "NG")));
+        var whileRunning = Receipt("p1").TurnOutcome;
+        Push(B(Ended(2, "t1", TurnOutcome.Done, null, "stop")));
+
+        // Assert: a new generation alone proves nothing.
+        Assert.Null(whileRunning);
+        Assert.Equal("done", Receipt("p1").TurnOutcome);
+    }
+
+    [Fact]
+    public void Accept_AHoleThatSwallowedTheTurnsEnd_TheNextTurnsStartRulesItLost()
+    {
+        // Arrange: t1's TurnEnded and the next prompt's delivery fell in the hole.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck), Started(3, "t1", "p1"), Text(4, "t1", "PO")));
+
+        // Act
+        Push(B(Delivered(1, "p2", PlainAck), Started(2, "t2", "p2")));
+
+        // Assert
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, Receipt("p1").TurnOutcome);
+        var p2 = Receipt("p2");
+        Assert.Equal("t2", p2.TurnId);
+        Assert.Null(p2.TurnOutcome);
+    }
+
     // ----- a malformed batch stores nothing -----
 
     public static TheoryData<string> Faults => new()

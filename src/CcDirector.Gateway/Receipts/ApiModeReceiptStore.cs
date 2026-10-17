@@ -32,7 +32,9 @@ namespace CcDirector.Gateway.Receipts;
 ///    logged and refused, and the delivery stands. The position rule comes first, so an older event replayed after a
 ///    newer one never supersedes anything.
 ///  - ONE TURN PER PROMPT. A turn start links the delivered prompts it names to its turn id; a turn end writes its
-///    outcome onto exactly those receipts, once.
+///    outcome onto exactly those receipts, once. The one exception is a turn whose end was lost in a hole between two
+///    generations (<see cref="ApiModeLostTurnEnd"/>): on proof that it is over the Gateway rules it <c>lost</c>
+///    (<see cref="RecordTurnOverProven"/>), and the turn's real <c>TurnEnded</c>, should it still arrive, replaces that.
 ///  - VERBATIM. The acknowledgement and the reasons are stored as received, never shortened or reworded; an oversized
 ///    one is refused whole rather than cut (<see cref="MaxVerbatimLength"/>).
 ///  - ATOMIC ACROSS PROCESSES. One transaction per change. The primary key is the prompt, so two Gateways creating the
@@ -201,7 +203,9 @@ public sealed class ApiModeReceiptStore
     /// <summary>
     /// A turn began with these prompts (<c>TurnStarted</c>): each delivered prompt it names is linked to the turn, so the
     /// turn's end can be shown beside its receipt. A prompt with no receipt, not delivered, or already carried by
-    /// another turn is a Director defect: logged, and that prompt is left as it was. Answers how many receipts changed.
+    /// another turn is a Director defect: logged, and that prompt is left as it was. A prompt ruled lost with no turn (its
+    /// turn's start fell in the hole too, <see cref="ApiModeLostTurnEnd"/>) is linked whatever this event's position, and
+    /// the lost ending is cleared: the turn's real start replaces it. Answers how many receipts changed.
     /// </summary>
     public int RecordTurnStarted(string directorId, string sessionId, string turnId, IReadOnlyList<string> promptIds, ApiModeEventPosition position)
     {
@@ -223,6 +227,18 @@ public sealed class ApiModeReceiptStore
                 {
                     FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} has no receipt; a turn can only carry a delivered prompt, so it is not linked");
                     return null;
+                }
+                if (row.TurnId is null && row.TurnOutcome == ApiModeLostTurnEnd.Outcome)
+                {
+                    // THE REAL START REPLACES THE LOST ENDING, WHATEVER ITS POSITION (ApiModeLostTurnEnd): the receipt was
+                    // ruled lost because its turn's start fell in the hole too, and here that turn is after all. The
+                    // position still never moves backwards.
+                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} was ruled {ApiModeLostTurnEnd.Outcome} with no turn; its turn's real start replaces the lost ending");
+                    row.TurnId = turnId;
+                    EndTurn(row, null, null, null);
+                    if (IsNewer(position, row)) Touch(row, position);
+                    else row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
+                    return "carried by turn " + turnId + ", replacing the lost ending";
                 }
                 if (!IsNewer(position, row)) return null;
                 if (row.State != nameof(ApiModeReceiptState.Delivered))
@@ -277,15 +293,34 @@ public sealed class ApiModeReceiptStore
         using var ctx = _db.CreateContext();
         using var tx = ctx.Database.BeginTransaction();
         var rows = ctx.ApiModeReceipts.Where(r => r.SessionId == sessionId && r.TurnId == turnId).ToList();
+        var open = rows.Where(r => r.TurnOutcome is null).ToList();
         var changed = 0;
-        foreach (var row in rows)
+        if (open.Count > 0)
         {
-            if (!IsNewer(position, row) || row.TurnOutcome is not null) continue;
-            row.TurnOutcome = outcome;
-            row.TurnOutcomeReason = reason;
-            row.TurnEndedAtUtc = at;
-            Touch(row, position);
-            changed++;
+            foreach (var row in open)
+            {
+                if (!IsNewer(position, row)) continue;
+                EndTurn(row, outcome, reason, at);
+                Touch(row, position);
+                changed++;
+            }
+        }
+        else
+        {
+            // THE REAL ENDING REPLACES THE LOST ONE, WHATEVER ITS POSITION (ApiModeLostTurnEnd): "lost" is the Gateway's
+            // inference, never history, so the forward-only rule must not drop the turn's own TurnEnded. The position
+            // still never moves backwards. Only when no receipt of this turn id is still open: a receipt still waiting
+            // under the same id belongs to a turn running now, and this TurnEnded is that turn's. Turn ids are unique only
+            // per Director process, and the phase 2 review (observation C) found no path today that keeps one session id
+            // across two processes, so this guards a case that should not arise rather than one that does.
+            foreach (var row in rows.Where(r => r.TurnOutcome == ApiModeLostTurnEnd.Outcome))
+            {
+                FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId} prompt={row.PromptId} at={position}: the turn's real ending ({outcome}) arrived after the Gateway ruled it lost; it replaces the lost ending");
+                EndTurn(row, outcome, reason, at);
+                if (IsNewer(position, row)) Touch(row, position);
+                else row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
+                changed++;
+            }
         }
         ctx.SaveChanges();
         tx.Commit();
@@ -293,6 +328,69 @@ public sealed class ApiModeReceiptStore
             FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId} at={position}: no receipt is carried by this turn; nothing to show its outcome on");
         else if (changed > 0)
             FileLog.Write($"[ApiModeReceiptStore] RecordTurnEnded session={sessionId} turn={turnId} at={position}: outcome={outcome} written on {changed} receipt(s)");
+        return changed;
+    }
+
+    private static void EndTurn(ApiModeReceiptEntity row, string? outcome, string? reason, DateTime? at)
+    {
+        row.TurnOutcome = outcome;
+        row.TurnOutcomeReason = reason;
+        row.TurnEndedAtUtc = at;
+    }
+
+    /// <summary>
+    /// An event that proves every earlier turn of the session is over (<see cref="ApiModeLostTurnEnd.Proves"/>) arrived
+    /// in a later generation than a turn's last event: that turn's <c>TurnEnded</c> fell in a hole and will never come.
+    /// Every Delivered receipt whose turn has no outcome - with its turn id, or with none when the turn's start was lost
+    /// too - other than <paramref name="continuing"/>'s own, is given the lost ending
+    /// (<see cref="ApiModeLostTurnEnd.Outcome"/>) under <see cref="ApiModeLostTurnEnd.Applies"/>, the condition the live
+    /// ruling applies too. Answers how many receipts changed.
+    /// </summary>
+    /// <param name="proof">What proved it, for the log line.</param>
+    public int RecordTurnOverProven(string directorId, string sessionId, ApiModeLostTurnEnd.Continuing continuing, string proof, ApiModeEventPosition position)
+    {
+        RequireId(directorId, nameof(directorId));
+        RequireId(sessionId, nameof(sessionId));
+        if (continuing.TurnId is not null) RequireId(continuing.TurnId, "continuing.TurnId");
+        ArgumentNullException.ThrowIfNull(continuing.PromptIds, "continuing.PromptIds");
+        foreach (var promptId in continuing.PromptIds) RequireId(promptId, "continuing.PromptIds");
+        ArgumentException.ThrowIfNullOrWhiteSpace(proof);
+        RequirePosition(position);
+
+        lock (_gate)
+        {
+            try { return ProveTurnsOverOnce(sessionId, continuing, proof, position); }
+            catch (DbUpdateException ex)
+            {
+                FileLog.Write($"[ApiModeReceiptStore] RecordTurnOverProven session={sessionId}: write lost a race with another writer ({ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
+                return ProveTurnsOverOnce(sessionId, continuing, proof, position);
+            }
+        }
+    }
+
+    private int ProveTurnsOverOnce(string sessionId, ApiModeLostTurnEnd.Continuing continuing, string proof, ApiModeEventPosition position)
+    {
+        using var ctx = _db.CreateContext();
+        using var tx = ctx.Database.BeginTransaction();
+        var delivered = nameof(ApiModeReceiptState.Delivered);
+        var candidates = ctx.ApiModeReceipts
+            .Where(r => r.SessionId == sessionId && r.State == delivered && r.TurnOutcome == null)
+            .ToList();
+        var changed = 0;
+        foreach (var row in candidates)
+        {
+            if (!ApiModeLostTurnEnd.Applies(position, continuing, row.PromptId, ApiModeReceiptState.Delivered, row.TurnId, row.TurnOutcome, row.LastGeneration, row.LastGenerationStartedUtc))
+                continue;
+            FileLog.Write($"[ApiModeReceiptStore] RecordTurnOverProven session={sessionId} prompt={row.PromptId} turn={row.TurnId ?? "(its start was lost too)"}: its last event was at {row.LastGeneration}#{row.LastSequence} and {proof} proves the turn is over; its TurnEnded was lost when the Director reconnected, so the turn's ending is ruled {ApiModeLostTurnEnd.Outcome}");
+            // No reason and no end time: how and when the turn ended is not known.
+            row.TurnOutcome = ApiModeLostTurnEnd.Outcome;
+            row.TurnOutcomeReason = null;
+            row.TurnEndedAtUtc = null;
+            Touch(row, position);
+            changed++;
+        }
+        ctx.SaveChanges();
+        tx.Commit();
         return changed;
     }
 
