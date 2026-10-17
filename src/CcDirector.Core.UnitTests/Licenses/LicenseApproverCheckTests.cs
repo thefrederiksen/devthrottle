@@ -434,6 +434,9 @@ public sealed class LicenseApproverCheckTests : IDisposable
         var result = await signIn;
 
         Assert.Equal((LicenseSignInOutcomes.Failed, LicenseRenewalErrors.Expired), (result.Outcome, result.ReasonCode));
+        // Its own sentence: no approval was asked for, so "no approval came back" would send the owner to the wrong
+        // machine.
+        Assert.Equal(LicenseSignInCoordinator.TooLateMessage, result.Message);
         Assert.Empty(_tool.SignInCalls);
         Assert.Empty(_tool.BrowserQuestions);
         release.SetResult();
@@ -458,5 +461,34 @@ public sealed class LicenseApproverCheckTests : IDisposable
         _clock.Advance(TimeSpan.FromHours(1));
         Assert.NotNull(await check.TickAsync(CancellationToken.None));
         Assert.Equal(2, _tool.ApproverCheckCalls.Count);
+    }
+
+    [Fact]
+    public async Task SignIn_TheGatewayAskedFor_ThatWaitedLongForTheOneAtATimeLock_WithNoCheckRunning_StillRuns()
+    {
+        // Second review of 4123, finding 1: the allowance limits only the wait for a running check. A sign-in that
+        // waited for the daily renewal to finish runs as it did before the lane existed.
+        Check();
+        _tool.LocalSignIns[AccountA] = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Renewed };
+        _tool.LocalSignIns[AccountB] = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Added };
+        var renewalRuns = new TaskCompletionSource();
+        _tool.SignInGate = renewalRuns;
+        var renewal = _licenses!.SignIns.RenewAsync(AccountA, hasBrowserProfileHere: true, CancellationToken.None);
+        Assert.Single(_tool.SignInCalls);
+
+        var signIn = _licenses.SignIns.SignInAsync(new LicenseSignInRequest
+        {
+            SignInId = SignIn, AccountEmail = AccountB, Reason = LicenseSignInReasons.Manual, NotAfterUtc = _clock.Now.AddMinutes(10),
+        }, CancellationToken.None);
+        Assert.False(signIn.IsCompleted);
+        _clock.Advance(TimeSpan.FromSeconds(31));
+        _tool.SignInGate = null;
+        renewalRuns.SetResult();
+
+        Assert.Equal(LicenseSignInOutcomes.Renewed, (await renewal).Outcome);
+        var result = await signIn;
+        Assert.Equal((LicenseSignInOutcomes.Added, (string?)null), (result.Outcome, result.ReasonCode));
+        Assert.Equal(new[] { AccountA, AccountB }, _tool.SignInCalls.Select(c => c.Email));
+        Assert.Empty(_delay.Asked);
     }
 }

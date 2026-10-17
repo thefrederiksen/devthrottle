@@ -24,6 +24,9 @@ public sealed class LicenseSignInCoordinator
     /// <summary>The sentence every sign-in is answered with while license switching is off on this Director.</summary>
     internal const string TurnedOffMessage = "License switching is turned off on this Director, so nothing was changed.";
 
+    /// <summary>The sentence of a sign-in that waited for a running approver check until it was too late to start.</summary>
+    internal const string TooLateMessage = "An approver check was running on this machine until it was too late to start the sign-in in time, so nothing was started.";
+
     /// <summary>How long after a sign-in the Gateway asked for arrives it may still start. The Gateway waits
     /// <see cref="LicenseContract.SignInCommandTimeout"/> for the answer, and a sign-in that starts needs up to
     /// <see cref="LicenseContract.SignInApprovalWait"/> and <see cref="LicenseContract.SignInFinishAllowance"/> to
@@ -81,9 +84,6 @@ public sealed class LicenseSignInCoordinator
     {
         ArgumentNullException.ThrowIfNull(request);
         var email = Normalize(request.AccountEmail);
-        // The Gateway's wait for the answer began when it sent this; it is taken as now.
-        var startBy = _utcNow() + StartAllowance;
-        if (request.NotAfterUtc < startBy) startBy = request.NotAfterUtc;
         FileLog.Write($"[LicenseSignInCoordinator] SignInAsync: signInId={request.SignInId}, account={email}, reason={request.Reason}");
 
         // Off: nothing touches the key store. "Not the key holder" is literally true of a Director that never takes
@@ -106,6 +106,11 @@ public sealed class LicenseSignInCoordinator
             // The same SignInId, sent again while the first was still running, answers what the first one did.
             if (_results.Find(request.SignInId) is { } finishedMeanwhile)
                 return Replay(finishedMeanwhile);
+
+            // Measured once this sign-in holds the one-at-a-time lock, so the allowance limits only the wait for a
+            // running approver check: a sign-in that waited for another sign-in or a renewal runs as it always did.
+            var startBy = _utcNow() + StartAllowance;
+            if (request.NotAfterUtc < startBy) startBy = request.NotAfterUtc;
 
             LicenseSignInAnswer answer;
             if (_utcNow() > request.NotAfterUtc)
@@ -169,7 +174,7 @@ public sealed class LicenseSignInCoordinator
         if (inLane is null || _utcNow() > startBy)
         {
             FileLog.Write($"[LicenseSignInCoordinator] signInId={signInId}: an approver check on this machine ran until it was too late to start ({LicenseRenewalErrors.Expired}); no sign-in was started");
-            return LicenseSignInAnswer.Failed(LicenseRenewalErrors.Expired);
+            return new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Failed, ReasonCode = LicenseRenewalErrors.Expired, Sentence = TooLateMessage };
         }
         var relay = _relay;
         var seal = _seal;
@@ -262,7 +267,7 @@ public sealed class LicenseSignInCoordinator
     {
         LicenseSignInOutcomes.Added => $"{email} was signed in and is held as a spare.",
         LicenseSignInOutcomes.Renewed => $"The sign-in for {email} was renewed.",
-        _ => LicenseRenewalSentences.For(answer.ReasonCode ?? LicenseRenewalErrors.LoginFailed),
+        _ => answer.Sentence ?? LicenseRenewalSentences.For(answer.ReasonCode ?? LicenseRenewalErrors.LoginFailed),
     };
 
     private LicenseSignInResult Build(LicenseSignInRequest request, string outcome, string? reasonCode, string? message, LicenseSignInAnswer? answer) => new()
@@ -309,7 +314,14 @@ public sealed class LicenseApprover
     /// <summary>How long after an approval request arrives <c>license approve</c> may still start. The Gateway waits
     /// <see cref="LicenseContract.ApproveCommandTimeout"/> for the answer and the tool may run
     /// <see cref="LicenseContract.ApproveToolTimeout"/>; one that started later could press Authorize for a sign-in
-    /// that was already given up. Thirty seconds.</summary>
+    /// that was already given up. Thirty seconds.
+    ///
+    /// ACCEPTED, WITH NO MARGIN (second review of 4123, finding 3). This bounds when the tool STARTS, not when its answer
+    /// arrives: a tool started at the last moment and run to its own limit answers at the very end of the Gateway's
+    /// wait, with the two transits unpaid, and the start is capped at the request's deadline rather than at the
+    /// deadline less the tool's run - so for a few seconds the tool can still be running after the waiting machine has
+    /// given up. It needs a wait for a check near thirty seconds AND a tool run near its 150-second limit; a normal run
+    /// is tens of seconds, and the second half was so before the lane existed. Accepted by the Tech Lead.</summary>
     public static readonly TimeSpan ToolStartAllowance = LicenseContract.ApproveCommandTimeout - LicenseContract.ApproveToolTimeout;
 
     /// <summary>The sentence of an approval that waited for a running approver check until it was too late.</summary>
