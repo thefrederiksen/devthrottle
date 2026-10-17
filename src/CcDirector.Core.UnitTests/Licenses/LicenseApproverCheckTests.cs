@@ -20,6 +20,7 @@ public sealed class LicenseApproverCheckTests : IDisposable
     private readonly FakeClock _clock = new();
     private readonly FakeLicenseCommandLine _tool = new();
     private readonly FakeApproverChannel _channel = new();
+    private readonly ControlledDelay _delay = new();
     private readonly FakeBrowserProfiles _profiles = new FakeBrowserProfiles().Add("work-chrome", "Work Chrome").Add("home-edge", "Home Edge");
     private LicenseSwitching? _licenses;
 
@@ -32,7 +33,7 @@ public sealed class LicenseApproverCheckTests : IDisposable
     private LicenseApproverCheck Check(bool offers = false, bool enabled = true, bool holdTheKey = true)
     {
         _licenses = new LicenseSwitching(_tool, _folder.Path, _clock.UtcNow, "machine-a", "owner", enabled,
-            offersApprovers: offers, browserProfiles: _profiles);
+            signInDelay: _delay.Wait, offersApprovers: offers, browserProfiles: _profiles);
         if (holdTheKey) Assert.True(_licenses.HolderLock.TryAcquire());
         _licenses.ApproverCheck.AttachChannel(_channel);
         return _licenses.ApproverCheck;
@@ -283,14 +284,14 @@ public sealed class LicenseApproverCheckTests : IDisposable
     {
         _channel.Assign(AccountA, "work-chrome");
         var check = Check();
-        var signIn = await _licenses!.BrowserLane.EnterWorkAsync("a test sign-in", CancellationToken.None);
+        var signIn = await _licenses!.BrowserLane.EnterWorkAsync("a test sign-in", TimeSpan.FromMinutes(10), CancellationToken.None);
 
         // Everything before the lane completes at once, so the tick is waiting in the lane when the call returns.
         var tick = check.TickAsync(CancellationToken.None);
         Assert.False(tick.IsCompleted);
         Assert.Empty(_tool.ApproverCheckCalls);
 
-        signIn.Dispose();
+        signIn!.Dispose();
         Assert.NotNull(await tick);
         Assert.Single(_tool.ApproverCheckCalls);
     }
@@ -304,11 +305,158 @@ public sealed class LicenseApproverCheckTests : IDisposable
         var tick = check.TickAsync(CancellationToken.None);
         Assert.True(_tool.ApproverCheckRunning, "the check is held running inside the lane");
 
-        var approval = _licenses!.BrowserLane.EnterWorkAsync("a test approval", CancellationToken.None);
+        var approval = _licenses!.BrowserLane.EnterWorkAsync("a test approval", TimeSpan.FromMinutes(10), CancellationToken.None);
         Assert.False(approval.IsCompleted);
 
         _tool.ApproverCheckGate.SetResult();
         await tick;
-        (await approval).Dispose();
+        (await approval)!.Dispose();
+    }
+
+    [Fact]
+    public async Task TickAsync_AnApprovalArrivesDuringARunOfTwoChecks_GoesInBetweenThem_NotAfterBoth()
+    {
+        _channel.Assign(AccountA, "work-chrome").Assign(AccountB, "home-edge");
+        var firstRow = new TaskCompletionSource();
+        _tool.ApproverCheckGate = firstRow;
+        var check = Check();
+        var tick = check.TickAsync(CancellationToken.None);
+        var approval = _licenses!.BrowserLane.EnterWorkAsync("a test approval", TimeSpan.FromMinutes(10), CancellationToken.None);
+
+        // The second check is not held: were it to take the lane back first, it would run to the end before the
+        // approval got in.
+        _tool.ApproverCheckGate = null;
+        firstRow.SetResult();
+        var inLane = await approval;
+
+        Assert.Single(_tool.ApproverCheckCalls);
+        Assert.False(tick.IsCompleted);
+        inLane!.Dispose();
+        Assert.Equal(2, (await tick)!.Rows.Count);
+    }
+
+    // ----- an approval or sign-in that meets a running check never acts after it is too late (review of 4123) -----
+
+    private const string SignIn = "abcdefabcdefabcdefabcdefabcdef12";
+
+    private LicenseApproveRequest Approve() => new()
+    {
+        SignInId = SignIn,
+        AccountEmail = AccountA,
+        AuthorizeUrl = "https://claude.example/oauth/authorize?login_hint=account-a",
+        BrowserProfile = "work-chrome",
+        SealToRecipient = "the-waiting-machine",
+        NotAfterUtc = _clock.Now.AddMinutes(3),
+    };
+
+    /// <summary>A run of one check, held running in the lane until the test lets it go.</summary>
+    private async Task<(Task<LicenseApproverCheckReport?> Tick, TaskCompletionSource Release)> ACheckIsRunningAsync()
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        var release = new TaskCompletionSource();
+        _tool.ApproverCheckGate = release;
+        var check = Check();
+        _licenses!.Approver.AttachSeal(new FakeApprovalSeal());
+        var tick = check.TickAsync(CancellationToken.None);
+        Assert.True(_tool.ApproverCheckRunning, "the check is held running inside the lane");
+        await Task.CompletedTask;
+        return (tick, release);
+    }
+
+    [Fact]
+    public async Task Approve_DuringACheck_ThatOutlastsTheTimeToApproveInTime_IsRefusedExpired_AndPressesNothing()
+    {
+        var (tick, release) = await ACheckIsRunningAsync();
+
+        var approval = _licenses!.Approver.ApproveAsync(Approve(), CancellationToken.None);
+        // It waits no longer than the Gateway's wait for it leaves room for the tool to run.
+        Assert.Equal(new[] { LicenseApprover.ToolStartAllowance }, _delay.Asked);
+        Assert.Equal(TimeSpan.FromSeconds(30), LicenseApprover.ToolStartAllowance);
+        Assert.False(approval.IsCompleted);
+
+        _clock.Advance(TimeSpan.FromSeconds(31));
+        _delay.PassAll();
+        var answer = await approval;
+
+        Assert.Equal((LicenseApprovalOutcomes.Refused, LicenseRenewalErrors.Expired), (answer.Outcome, answer.ReasonCode));
+        Assert.Equal(LicenseApprover.TooLateMessage, answer.Message);
+        Assert.Empty(_tool.ApproveCalls);
+        release.SetResult();
+        await tick;
+    }
+
+    [Fact]
+    public async Task Approve_DuringACheck_ThatEndsOnlyAfterTheTimeRanOut_IsRefusedExpired_AndPressesNothing()
+    {
+        // The check ends before the wait's timer fires, but the time to approve in has already gone: the time is
+        // looked at again once the approval is in the lane.
+        var (tick, release) = await ACheckIsRunningAsync();
+        var approval = _licenses!.Approver.ApproveAsync(Approve(), CancellationToken.None);
+
+        _clock.Advance(TimeSpan.FromSeconds(31));
+        release.SetResult();
+        var answer = await approval;
+
+        Assert.Equal((LicenseApprovalOutcomes.Refused, LicenseRenewalErrors.Expired), (answer.Outcome, answer.ReasonCode));
+        Assert.Empty(_tool.ApproveCalls);
+        await tick;
+    }
+
+    [Fact]
+    public async Task Approve_DuringACheck_ThatEndsInTime_Approves()
+    {
+        var (tick, release) = await ACheckIsRunningAsync();
+        var approval = _licenses!.Approver.ApproveAsync(Approve(), CancellationToken.None);
+
+        _clock.Advance(TimeSpan.FromSeconds(29));
+        release.SetResult();
+        var answer = await approval;
+
+        Assert.Equal(LicenseApprovalOutcomes.Approved, answer.Outcome);
+        Assert.Single(_tool.ApproveCalls);
+        await tick;
+    }
+
+    [Fact]
+    public async Task SignIn_TheGatewayAskedFor_DuringACheck_ThatOutlastsItsTime_FailsExpired_AndStartsNoLogin()
+    {
+        var (tick, release) = await ACheckIsRunningAsync();
+
+        var signIn = _licenses!.SignIns.SignInAsync(new LicenseSignInRequest
+        {
+            SignInId = SignIn, AccountEmail = AccountA, Reason = LicenseSignInReasons.Renewal, NotAfterUtc = _clock.Now.AddMinutes(10),
+        }, CancellationToken.None);
+        Assert.Equal(new[] { LicenseSignInCoordinator.StartAllowance }, _delay.Asked);
+        Assert.Equal(TimeSpan.FromSeconds(30), LicenseSignInCoordinator.StartAllowance);
+
+        _clock.Advance(TimeSpan.FromSeconds(31));
+        _delay.PassAll();
+        var result = await signIn;
+
+        Assert.Equal((LicenseSignInOutcomes.Failed, LicenseRenewalErrors.Expired), (result.Outcome, result.ReasonCode));
+        Assert.Empty(_tool.SignInCalls);
+        Assert.Empty(_tool.BrowserQuestions);
+        release.SetResult();
+        await tick;
+    }
+
+    [Fact]
+    public async Task TickAsync_AReportTakenLate_TheNextChecksRunADayAfterTheyStarted_NotADayAfterTheReport()
+    {
+        // The Gateway reads a record as not checked 26 hours after its check, so the next checks cannot wait for a
+        // day after a report that was taken late.
+        _channel.Assign(AccountA, "work-chrome");
+        _channel.ReportFailWith = "the Gateway stream is not connected";
+        var check = Check();
+        Assert.Null(await check.TickAsync(CancellationToken.None));
+
+        _channel.ReportFailWith = null;
+        _clock.Advance(TimeSpan.FromHours(23));
+        Assert.NotNull(await check.TickAsync(CancellationToken.None));
+        Assert.Single(_tool.ApproverCheckCalls);
+
+        _clock.Advance(TimeSpan.FromHours(1));
+        Assert.NotNull(await check.TickAsync(CancellationToken.None));
+        Assert.Equal(2, _tool.ApproverCheckCalls.Count);
     }
 }

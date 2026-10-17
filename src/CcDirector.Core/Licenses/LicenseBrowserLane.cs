@@ -17,13 +17,27 @@ namespace CcDirector.Core.Licenses;
 /// a deadlock until the sign-in's deadline. So sign-ins and approvals never wait for each other here; only a check
 /// waits for them, and only a RUNNING check makes them wait. A check that is waiting holds nothing back, so a
 /// sign-in that needs an approval from this machine always gets it.
+///
+/// WAITING WORK GOES FIRST, AND WAITS ONLY UNTIL IT IS TOO LATE (review of 4123). A sign-in or approval that is
+/// waiting stops the NEXT check from starting, so a run of many checks lets it in after the one running now, never
+/// after the whole run. And it waits only as long as its caller says it may still start: a sign-in or approval that
+/// would start after the Gateway stopped listening for it is never started at all, because an approval pressed for a
+/// sign-in that was already abandoned is spent for nothing.
 /// </summary>
 public sealed class LicenseBrowserLane
 {
     private readonly object _gate = new();
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private int _working;
+    private int _waitingWork;
     private bool _checking;
     private TaskCompletionSource _changed = NewSignal();
+
+    /// <param name="delay">Test seam: how the longest wait for a running check passes.</param>
+    public LicenseBrowserLane(Func<TimeSpan, CancellationToken, Task>? delay = null)
+    {
+        _delay = delay ?? Task.Delay;
+    }
 
     /// <summary>How many sign-ins and approvals are running now.</summary>
     public int Working
@@ -37,29 +51,78 @@ public sealed class LicenseBrowserLane
         get { lock (_gate) return _checking; }
     }
 
-    /// <summary>Enters for a sign-in or an approval: at once, unless a check is running, and then when it ends. Any
-    /// number may be in at once. Dispose the answer to leave.</summary>
-    public async Task<IDisposable> EnterWorkAsync(string what, CancellationToken cancellationToken)
+    /// <summary>How many sign-ins and approvals are waiting for a running check to end.</summary>
+    public int WaitingWork
     {
-        while (true)
+        get { lock (_gate) return _waitingWork; }
+    }
+
+    /// <summary>
+    /// Enters for a sign-in or an approval: at once, unless a check is running, and then when it ends - but never after
+    /// <paramref name="longestWait"/>, when it answers null and the caller must not start. Any number may be in at
+    /// once. Dispose the answer to leave. While it waits, no further check starts.
+    /// </summary>
+    /// <param name="longestWait">How long the work may wait and still start in time; zero or less gives up at once
+    /// when a check is running.</param>
+    public async Task<IDisposable?> EnterWorkAsync(string what, TimeSpan longestWait, CancellationToken cancellationToken)
+    {
+        Task wait;
+        lock (_gate)
         {
-            Task wait;
+            if (!_checking)
+            {
+                _working++;
+                return new Leaver(this, check: false);
+            }
+            _waitingWork++;
+            wait = _changed.Task;
+        }
+        FileLog.Write($"[LicenseBrowserLane] EnterWorkAsync: {what} waits for the approver check that is running, at most {longestWait.TotalSeconds:0} seconds");
+        using var stopTimer = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var tooLate = longestWait > TimeSpan.Zero ? _delay(longestWait, stopTimer.Token) : Task.CompletedTask;
+        try
+        {
+            while (true)
+            {
+                var first = await Task.WhenAny(wait, tooLate);
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (_gate)
+                {
+                    // Looked at before the timer: work whose check ended in the same moment as its wait still starts.
+                    if (!_checking)
+                    {
+                        _waitingWork--;
+                        _working++;
+                        return new Leaver(this, check: false);
+                    }
+                    if (first == tooLate)
+                    {
+                        _waitingWork--;
+                        FileLog.Write($"[LicenseBrowserLane] EnterWorkAsync: {what} gave up, the approver check was still running when it could no longer start in time");
+                        Signal();
+                        return null;
+                    }
+                    wait = _changed.Task;
+                }
+            }
+        }
+        catch
+        {
             lock (_gate)
             {
-                if (!_checking)
-                {
-                    _working++;
-                    return new Leaver(this, check: false);
-                }
-                wait = _changed.Task;
+                _waitingWork--;
+                Signal();
             }
-            FileLog.Write($"[LicenseBrowserLane] EnterWorkAsync: {what} waits for the approver check that is running");
-            await wait.WaitAsync(cancellationToken);
+            throw;
+        }
+        finally
+        {
+            stopTimer.Cancel();
         }
     }
 
-    /// <summary>Enters for one approver check: when no sign-in, no approval and no other check is running. Dispose the
-    /// answer to leave.</summary>
+    /// <summary>Enters for one approver check: when no sign-in, no approval and no other check is running, and no
+    /// sign-in or approval is waiting to. Dispose the answer to leave.</summary>
     public async Task<IDisposable> EnterCheckAsync(CancellationToken cancellationToken)
     {
         var logged = false;
@@ -68,7 +131,7 @@ public sealed class LicenseBrowserLane
             Task wait;
             lock (_gate)
             {
-                if (!_checking && _working == 0)
+                if (!_checking && _working == 0 && _waitingWork == 0)
                 {
                     _checking = true;
                     return new Leaver(this, check: true);
@@ -86,14 +149,19 @@ public sealed class LicenseBrowserLane
 
     private void Leave(bool check)
     {
-        TaskCompletionSource changed;
         lock (_gate)
         {
             if (check) _checking = false;
             else _working--;
-            changed = _changed;
-            _changed = NewSignal();
+            Signal();
         }
+    }
+
+    /// <summary>Wakes every waiter to look again. Called under the gate; the waiters run on their own, not here.</summary>
+    private void Signal()
+    {
+        var changed = _changed;
+        _changed = NewSignal();
         changed.TrySetResult();
     }
 

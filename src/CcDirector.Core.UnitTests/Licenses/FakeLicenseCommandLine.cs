@@ -382,6 +382,41 @@ internal sealed class FakeReportSink : ILicenseReportSink
 }
 
 /// <summary>A clock a test moves by hand.</summary>
+/// <summary>A delay a test ends by hand, so nothing waits on a real clock. A wait cancelled by its caller ends as
+/// cancelled, as Task.Delay's does.</summary>
+internal sealed class ControlledDelay
+{
+    private readonly object _gate = new();
+    private readonly List<TaskCompletionSource> _pending = new();
+
+    /// <summary>Every wait asked for, in order.</summary>
+    public List<TimeSpan> Asked { get; } = new();
+
+    public Task Wait(TimeSpan span, CancellationToken cancellationToken)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_gate)
+        {
+            Asked.Add(span);
+            _pending.Add(done);
+        }
+        cancellationToken.Register(() => done.TrySetCanceled(cancellationToken));
+        return done.Task;
+    }
+
+    /// <summary>Ends every wait still running, as if its time had passed.</summary>
+    public void PassAll()
+    {
+        List<TaskCompletionSource> pending;
+        lock (_gate)
+        {
+            pending = _pending.ToList();
+            _pending.Clear();
+        }
+        foreach (var done in pending) done.TrySetResult();
+    }
+}
+
 internal sealed class FakeClock
 {
     public DateTime Now { get; set; } = new(2026, 10, 11, 3, 0, 0, DateTimeKind.Utc);

@@ -27,14 +27,15 @@ public sealed class LicenseSwitching : IDisposable
     /// <param name="enabled">The license switching setting (<see cref="Configuration.LicenseSwitchingSetting"/>). Off:
     /// no report loop, no renewal, the key holder lock is never taken, and every switch, sign-in and approval is
     /// answered failed or refused.</param>
-    /// <param name="signInDelay">Test seam: how the wait for another machine's approval passes (<see cref="LicenseSignInCoordinator"/>).</param>
+    /// <param name="signInDelay">Test seam: how the wait for another machine's approval passes (<see cref="LicenseSignInCoordinator"/>),
+    /// and the longest wait of a sign-in or approval for a running approver check (<see cref="LicenseBrowserLane"/>).</param>
     /// <param name="offersApprovers">The offer setting (<see cref="Configuration.LicenseApproverOfferSetting"/>): the
     /// daily approver check looks at this Director's own browser profiles too.</param>
     /// <param name="browserProfiles">This Director's own browser profiles; the machine's registry when not given.</param>
     public LicenseSwitching(ILicenseCommandLine tool, string directorFolder, Func<DateTime> utcNow, string machineName, string osUser, bool enabled,
         Func<TimeSpan, CancellationToken, Task>? signInDelay = null, bool offersApprovers = false, ILicenseBrowserProfiles? browserProfiles = null)
     {
-        BrowserLane = new LicenseBrowserLane();
+        BrowserLane = new LicenseBrowserLane(signInDelay);
         Enabled = enabled;
         HolderLock = new LicenseKeyHolderLock(directorFolder);
         Reporter = new LicenseUsageReporter(tool, HolderLock, utcNow, machineName, osUser);
