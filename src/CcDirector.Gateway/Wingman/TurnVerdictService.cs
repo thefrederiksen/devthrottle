@@ -1982,6 +1982,51 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
+    /// Would an AUTOMATIC path be granted <see cref="TryClaimLateNarration"/> for this stop right now? The same rule, asked
+    /// without taking anything: the stop is the latest, and no claim for it is held - neither a call running nor one spent.
+    /// The voice sweep asks it before it spends a slot (issue #4154): a stop that cannot get words automatically plays
+    /// nothing and costs nothing, and counting it as a cost let a few such sessions hold every slot for ever.
+    /// </summary>
+    /// <param name="latestVerdictId">The id of the session's LATEST reading, as the caller just read it - not re-read here,
+    /// so the sweep pays no second query for it. A stop that moves on in between is refused by the claim itself.</param>
+    internal bool LateNarrationWouldBeClaimed(TenantId tenant, string sid, string latestVerdictId)
+    {
+        if (string.IsNullOrWhiteSpace(latestVerdictId)) return false;
+        return !_narrationClaims.TryGetValue((tenant, sid), out var claimed)
+               || !string.Equals(claimed.VerdictId, latestVerdictId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Give back this session's SPENT narration claim, whichever stop it was for - the session is switching voice on, and
+    /// that is a person asking for the stop in front of them (issue #4154). A claim for an older stop is dropped too: it
+    /// guards nothing, since a newer stop's claim replaces it anyway. A RUNNING call keeps its claim, so no second call is
+    /// ever started beside it. Reads nothing but the claims in memory, so it cannot fail on a database.
+    /// </summary>
+    internal void ReleaseSpentNarrationClaim(TenantId tenant, string sid)
+    {
+        var key = (tenant, sid);
+        if (!_narrationClaims.TryGetValue(key, out var claimed) || claimed.Running) return;
+        // ICollection's Remove is the only compare-and-remove ConcurrentDictionary exposes.
+        if (((ICollection<KeyValuePair<(TenantId Tenant, string SessionId), NarrationClaim>>)_narrationClaims)
+            .Remove(new KeyValuePair<(TenantId Tenant, string SessionId), NarrationClaim>(key, claimed)))
+            FileLog.Write($"[TurnVerdictService] spent narration claim released, voice switched on: sid={sid} verdict={claimed.VerdictId}");
+    }
+
+    /// <summary>
+    /// Would the idle sweep's reading of this session reach the judge, or stand down before any call? The flight's own
+    /// first gates, asked the same way: the session-state skip (held, not live, brand new, exited, working) and the plan.
+    /// The voice sweep asks it before it spends a slot on a session whose stop is not the one already read: a brand-new
+    /// session is never read at all, so counting it as a cost let a few of them hold every slot for ever (issue #4154,
+    /// found in review). The flight asks all of it again inside its own boundary; this only decides whether the attempt
+    /// is counted.
+    /// </summary>
+    internal bool SweepWouldReachTheJudge(TenantId tenant, string sid)
+    {
+        if (SessionStateSkipCause(_env.ReadSessionState(tenant, sid), TurnVerdictTrigger.Sweep) is not null) return false;
+        return _env.PlanForNarration(tenant, sid) is not (NarrationPlan.NeedsPro or NarrationPlan.Unknown);
+    }
+
+    /// <summary>
     /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
     /// has its own stop and its own narration, so text for an older one is dropped and logged. Returns whether it was saved.
     /// </summary>
