@@ -25,9 +25,9 @@ to this DevThrottle account", which is what the match by Director identifier amo
 After rebasing onto origin/main (which added `TakeHandSwitches` to `ILicenseCommandLine`; the hosted test's fake
 now answers it with an empty list, as the other fakes do), both gates were run with TEMP and TMP on `D:\cc-gate-temp`:
 
-- `.\scripts	est-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Core.UnitTests 199, Avalonia.Tests 32,
+- `.\scripts\test-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Core.UnitTests 199, Avalonia.Tests 32,
   Gateway.Tests 26 (the hosted renewal tests among them), Gateway.UnitTests 1044, every suite outcome=Completed.
-- `.\scripts	est-local.ps1` (default): every suite green except one test in Core.UnitTests,
+- `.\scripts\test-local.ps1` (default): every suite green except one test in Core.UnitTests,
   `BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne`:
   "tools/cc-director-setup-engine/LauncherSelfUpdate.cs has 3 site(s) in code, the register says 2". That file and
   `docs/BackgroundWork.md` are untouched by this pull request; the third site came to main with #4162, which did not
