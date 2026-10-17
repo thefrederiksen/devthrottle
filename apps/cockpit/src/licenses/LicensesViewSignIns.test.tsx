@@ -20,7 +20,9 @@ import { render, screen, cleanup, waitFor, within, fireEvent } from "@testing-li
 //   - after an approver is set or removed the page shows the Gateway's sentence and reads the approvers again: it
 //     keeps no list of its own;
 //   - the approver form is four pick lists and nothing typed; the browser profiles are read from the Director that
-//     reports the chosen machine, and Save pressed with a choice missing sends nothing and names each one.
+//     reports the chosen machine, and Save pressed with a choice missing sends nothing and names each one;
+//   - each approver row shows the Gateway's own sentences - who made it, why a sign-in cannot reach the machine, the
+//     profile's health and the one thing to do - each once, and nothing worked out from canApproveNow.
 import { LicensesView } from "./LicensesView";
 import {
   APPROVERS,
@@ -548,22 +550,151 @@ describe("LicensesView: who approves the sign-ins of an account", () => {
     expect(screen.queryByTestId("lic-approver")).toBeNull();
   });
 
-  it("lists each approver with the Gateway's label, status in its tone, and sentence", async () => {
+  /** The status cell's sentences of one row, by what each one is; null for one the row does not draw. */
+  function sentences(row: HTMLElement): Record<string, string | null> {
+    const of = (id: string) => within(row).queryByTestId(id)?.textContent ?? null;
+    return {
+      status: of("lic-approver-status"),
+      source: of("lic-approver-source"),
+      reach: of("lic-approver-reach"),
+      health: of("lic-approver-health"),
+      todo: of("lic-approver-todo"),
+    };
+  }
+
+  /** The approvers answer with account A's row changed, as the Gateway words that state (its own tests' sentences). */
+  function withRowA(change: Partial<(typeof APPROVERS.approvers)[number]>): typeof APPROVERS {
+    const answer = copyOf(APPROVERS);
+    Object.assign(answer.approvers[0], change);
+    return answer;
+  }
+
+  // The Gateway's words for an approver whose last check found the approval page asking for a fresh sign-in
+  // (LicenseSignInEndpointsTests.AnApproverThatNeedsAFreshSignIn_CannotApprove_AndTheRowSaysTheOneThingToDo).
+  const NEEDS_FRESH_SIGN_IN = {
+    canApproveNow: false,
+    status: "cannot-approve",
+    statusText: "Cannot approve",
+    statusTone: "warning" as const,
+    source: "owner",
+    sourceText: "Set by you.",
+    reachText: null,
+    state: "needs-fresh-sign-in",
+    healthText: 'The approver for account-a@example.com (browser profile "work" on the-mac) needs a fresh claude.ai sign-in on the approval page.',
+    whatToDo: "Open that browser on the-mac and sign in to claude.ai once.",
+  };
+
+  it("lists each approver with the Gateway's label, the profile, and the status in its tone", async () => {
     render(<LicensesView />);
 
     const rows = await screen.findAllByTestId("lic-approver");
     expect(rows.length).toBe(2);
     const cells = (row: HTMLElement) => [...row.querySelectorAll("td")].slice(0, 3).map((cell) => cell.textContent);
     expect(cells(rows[0])).toEqual([ACCOUNT_A, "the-mac", "work"]);
-    expect(within(rows[0]).getByTestId("lic-approver-status").textContent).toBe("Ready");
     expect(within(rows[0]).getByTestId("lic-approver-status").className).toContain("lic-tone-good");
-    expect(within(rows[0]).getByTestId("lic-approver-text").textContent).toBe(APPROVERS.approvers[0].text);
     expect(cells(rows[1])).toEqual([ACCOUNT_B, "the-laptop", "personal"]);
-    expect(within(rows[1]).getByTestId("lic-approver-status").textContent).toBe("Not reporting yet");
     expect(within(rows[1]).getByTestId("lic-approver-status").className).toContain("lic-tone-warning");
-    expect(within(rows[1]).getByTestId("lic-approver-text").textContent).toBe(APPROVERS.approvers[1].text);
     expect(screen.queryByTestId("lic-approvers-empty")).toBeNull();
     expect(screen.queryByTestId("lic-approver-answer")).toBeNull();
+  });
+
+  it("shows a healthy registered row in the Gateway's words: Ready, who registered it, its health, and nothing to do", async () => {
+    render(<LicensesView />);
+
+    const row = (await screen.findAllByTestId("lic-approver"))[0];
+
+    const given = APPROVERS.approvers[0];
+    expect(sentences(row)).toEqual({ status: "Ready", source: given.sourceText, reach: null, health: given.healthText, todo: null });
+    expect(given.sourceText).toBe("Registered by the-mac's Director.");
+  });
+
+  it("shows a row that needs a fresh sign-in with the Gateway's health sentence and the one thing to do", async () => {
+    answers[READ_APPROVERS] = () => json(200, withRowA(NEEDS_FRESH_SIGN_IN));
+    render(<LicensesView />);
+
+    const row = (await screen.findAllByTestId("lic-approver"))[0];
+
+    expect(sentences(row)).toEqual({
+      status: "Cannot approve",
+      source: "Set by you.",
+      reach: null,
+      health: NEEDS_FRESH_SIGN_IN.healthText,
+      todo: NEEDS_FRESH_SIGN_IN.whatToDo,
+    });
+    expect(within(row).getByTestId("lic-approver-status").className).toContain("lic-tone-warning");
+  });
+
+  it("shows a row that has not been checked, on a machine that never reported, with why and the one thing to do", async () => {
+    render(<LicensesView />);
+
+    const row = (await screen.findAllByTestId("lic-approver"))[1];
+
+    const given = APPROVERS.approvers[1];
+    expect(sentences(row)).toEqual({
+      status: "Not reporting yet",
+      source: "Set by you.",
+      reach: given.reachText,
+      health: given.healthText,
+      todo: given.whatToDo,
+    });
+  });
+
+  it("says each sentence once: the row's sentences together are the Gateway's whole text, with nothing of the page's own", async () => {
+    answers[READ_APPROVERS] = () => json(200, withRowA(NEEDS_FRESH_SIGN_IN));
+    render(<LicensesView />);
+
+    const rows = await screen.findAllByTestId("lic-approver");
+
+    // Row B: the Gateway's text is who approves it, then why a sign-in cannot reach it; the row says the second part
+    // once (reach) and adds the health and what to do, which the text does not carry for an unreachable machine.
+    const b = APPROVERS.approvers[1];
+    expect(b.text.endsWith(` ${b.reachText}`)).toBe(true);
+    // Row A: the Gateway's text for a profile that cannot approve is its health and what to do; the row shows exactly
+    // those two, and no reach sentence, because the machine is reachable.
+    const statusCell = rows[0].querySelectorAll("td")[3];
+    expect(statusCell.textContent).toBe(
+      `Cannot approve${NEEDS_FRESH_SIGN_IN.sourceText}${NEEDS_FRESH_SIGN_IN.healthText}${NEEDS_FRESH_SIGN_IN.whatToDo}`,
+    );
+  });
+
+  it("never turns canApproveNow into words: the status shown is the Gateway's statusText, whatever canApproveNow says", async () => {
+    // The relay asks a connected approver whatever its health, so the page promises nothing from canApproveNow.
+    answers[READ_APPROVERS] = () => json(200, withRowA({ ...NEEDS_FRESH_SIGN_IN, canApproveNow: true }));
+    render(<LicensesView />);
+
+    const row = (await screen.findAllByTestId("lic-approver"))[0];
+
+    expect(sentences(row).status).toBe("Cannot approve");
+    expect(row.textContent).not.toContain("Ready");
+  });
+
+  it("shows the profile's display name once a check has seen it, and always the identifier the record holds", async () => {
+    answers[READ_APPROVERS] = () => json(200, withRowA({ browserProfile: "work-chrome", browserProfileName: "Work Chrome" }));
+    render(<LicensesView />);
+
+    const rows = await screen.findAllByTestId("lic-approver");
+
+    expect(within(rows[0]).getByTestId("lic-approver-profile-name").textContent).toBe("Work Chrome");
+    expect(within(rows[0]).getByTestId("lic-approver-profile-id").textContent).toBe("work-chrome");
+    // No check has named row B's profile: the identifier alone, with no name of the page's own.
+    expect(within(rows[1]).queryByTestId("lic-approver-profile-name")).toBeNull();
+    expect(within(rows[1]).getByTestId("lic-approver-profile-id").textContent).toBe("personal");
+  });
+
+  it("offers Remove on a registered row: one DELETE naming its account, after the confirmation", async () => {
+    answers[REMOVE_APPROVER] = () => json(200, APPROVER_REMOVED);
+    render(<LicensesView />);
+    const row = (await screen.findAllByTestId("lic-approver"))[0];
+    expect(sentences(row).source).toBe("Registered by the-mac's Director.");
+
+    fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("alertdialog", { name: `Remove the approver of ${ACCOUNT_A}?` });
+    expect(writes()).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+
+    await screen.findByTestId("lic-approver-answer");
+    expect(writes().length).toBe(1);
+    expect(writes()[0].url).toBe("/gateway/licenses/approvers?accountEmail=account-a%40example.com");
   });
 
   it("calls an approving machine by the Gateway's label, not by its machine name", async () => {

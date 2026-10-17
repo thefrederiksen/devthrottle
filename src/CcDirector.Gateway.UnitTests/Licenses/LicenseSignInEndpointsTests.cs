@@ -168,7 +168,8 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
         Assert.Equal(new[]
         {
             "accountEmail", "machineName", "osUser", "browserProfile", "machineId", "label", "canApproveNow", "status", "statusText",
-            "statusTone", "text", "browserProfileName", "source", "state", "checkedAtUtc", "healthText", "whatToDo",
+            "statusTone", "text", "browserProfileName", "source", "sourceText", "reachText", "state", "checkedAtUtc", "healthText",
+            "whatToDo",
         }, Names(set));
         Assert.Equal((A, "the-mac", "owner", "work", mac, "the-mac"),
             (set.GetProperty("accountEmail").GetString(), set.GetProperty("machineName").GetString(), set.GetProperty("osUser").GetString(),
@@ -180,6 +181,8 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
              set.GetProperty("text").GetString()));
         Assert.Equal(("owner", "not-checked", JsonValueKind.Null),
             (set.GetProperty("source").GetString(), set.GetProperty("state").GetString(), set.GetProperty("checkedAtUtc").ValueKind));
+        // Set by the owner, on a machine whose Director is connected: nothing stands between a sign-in and the machine.
+        Assert.Equal(("Set by you.", JsonValueKind.Null), (set.GetProperty("sourceText").GetString(), set.GetProperty("reachText").ValueKind));
         Assert.Equal("The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
             set.GetProperty("healthText").GetString());
         Assert.Equal("Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
@@ -204,6 +207,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
             (set.GetProperty("status").GetString(), set.GetProperty("statusText").GetString(), set.GetProperty("statusTone").GetString()));
         Assert.Equal("Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
             set.GetProperty("text").GetString());
+        Assert.Equal("The Director on the-mac is not connected, so no sign-in can be approved there now.", set.GetProperty("reachText").GetString());
     }
 
     [Fact]
@@ -217,6 +221,8 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
             (set.GetProperty("status").GetString(), set.GetProperty("statusText").GetString(), set.GetProperty("statusTone").GetString()));
         Assert.Equal("Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. No Director on the-mac has reported to this account, so no sign-in can be approved there yet.",
             set.GetProperty("text").GetString());
+        Assert.Equal("No Director on the-mac has reported to this account, so no sign-in can be approved there yet.",
+            set.GetProperty("reachText").GetString());
     }
 
     [Fact]
@@ -580,6 +586,9 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
              row.GetProperty("whatToDo").ValueKind));
         Assert.Equal("The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
             row.GetProperty("healthText").GetString());
+        // Registered by the machine's own Director: the row says so, naming the machine.
+        Assert.Equal(("Registered by the-mac's Director.", JsonValueKind.Null),
+            (row.GetProperty("sourceText").GetString(), row.GetProperty("reachText").ValueKind));
     }
 
     [Fact]

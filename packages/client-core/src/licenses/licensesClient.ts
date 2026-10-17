@@ -90,6 +90,10 @@ export interface LicenseApprover {
   browserProfileName: string | null;
   /** Who made the record: owner | registered. */
   source: string;
+  /** Who made the record, in words: "Set by you." or "Registered by machine-a's Director.". Drawn as given. */
+  sourceText: string;
+  /** Why no sign-in can reach the approving machine now; null when its Director is connected. Drawn as given. */
+  reachText: string | null;
   /** Its health now: can-approve | signed-out | needs-fresh-sign-in | wrong-account | check-failed | not-checked. */
   state: string;
   /** When it was last checked; null when it never was. */
