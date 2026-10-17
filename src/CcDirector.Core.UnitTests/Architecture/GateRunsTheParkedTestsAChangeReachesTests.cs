@@ -33,6 +33,9 @@ public sealed class GateRunsTheParkedTestsAChangeReachesTests
         // Started once every default suite has been waited on, so it cannot take the processor from them.
         var start = script.IndexOf("if ($ri -ge $running.Count) {", StringComparison.Ordinal);
         Assert.True(start > select, "The parked classes are no longer started after the default suites have finished.");
+        // The wait loop ends only when nothing parked is still pending.
+        var stop = script.IndexOf("if ($parkedPending.Count -eq 0) { break }", start, StringComparison.Ordinal);
+        Assert.True(stop > start && stop - start < 200, "The wait loop no longer waits for the pending parked classes before it ends.");
         var launch = script.IndexOf("$r = Start-TestSuite $s.Project \"\" (@(\"--filter\", $selFilter) + $parkedBlame)", start, StringComparison.Ordinal);
         Assert.True(launch > start, "The selected parked classes are no longer started.");
         Assert.Contains("\"FullyQualifiedName~.$_.\"", script);
