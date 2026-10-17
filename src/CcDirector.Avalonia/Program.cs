@@ -167,7 +167,43 @@ internal static class Program
         // mutex still held by its dying parent and exit - leaving NO Director at all, worse than either
         // problem being solved. It now carries the parent process id and the wait handled above, which
         // is the same handshake its sibling has always had, so the guard can come first.
-        using var guard = SingleInstanceGuard.TryAcquire();
+        SingleInstanceGuard? acquired;
+        GuardHeldBy heldBy;
+        try
+        {
+            acquired = SingleInstanceGuard.TryAcquire(out heldBy);
+        }
+        catch (Exception ex)
+        {
+            // The locks could not even be checked (an unreadable shared lock file, say). Starting without them is
+            // how two Directors end up on one folder, so this refuses - loudly, which an exception leaving Main
+            // would not be (issue devthrottle_internal#2489).
+            var lockMessage = ShownError.Report("start-up", "check that no other Director is running",
+                "The Director could not check whether another Director is already running on this data folder, "
+                + $"so it did not start.\n\nFolder: {InstanceContext.InstanceHome}\n\n{ex.Message}", ex, fatal: true);
+            ShowStartupNotice(lockMessage, "Director - Startup error", MB_ICONERROR);
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
+            FileLog.Stop();
+            return 1;
+        }
+        using var guard = acquired;
+        if (guard is null && heldBy == GuardHeldBy.SameHome)
+        {
+            // A DIFFERENT program file already runs on this data folder (issue devthrottle_internal#2489).
+            // Its window is not ours to raise, and running beside it would clear its sessions.json at start-up.
+            var homeMessage =
+                "Another Director is already running on this data folder." + Environment.NewLine + Environment.NewLine +
+                $"Folder: {InstanceContext.InstanceHome}" + Environment.NewLine +
+                $"Exe: {Environment.ProcessPath ?? "(unknown)"}" + Environment.NewLine + Environment.NewLine +
+                "Two Directors on one folder overwrite each other's sessions and settings. " +
+                "To run a second Director, give it an instance of its own: start it with --instance <name>, " +
+                "or create one in the instance picker.";
+            ShowStartupNotice(homeMessage, "Director", MB_ICONWARNING);
+            FileLog.Write($"[Program] Second Director refused: another one runs on {InstanceContext.InstanceHome}.");
+            ErrorReporter.FlushBeforeExit(ErrorReporter.ExitFlushBudget);
+            FileLog.Stop();
+            return 1;
+        }
         if (guard is null)
         {
             // A second launch must NOT vanish silently -- "clicking does nothing" is exactly the
