@@ -133,6 +133,10 @@ public sealed class TerminalStateDetector : IDisposable
     private readonly ITerminalSizeRule _sizeRule;
     private readonly TimeProvider _timeProvider;
     private readonly ConcurrentDictionary<Guid, Watcher> _watchers = new();
+
+    // API-mode sessions this detector follows for the wheel (issue #4070, phase 4): the handler that re-wires each one when
+    // the user's terminal appears or goes away.
+    private readonly ConcurrentDictionary<Guid, (Session Session, Action Handler)> _apiModeSessions = new();
     private bool _started;
     private bool _disposed;
 
@@ -286,12 +290,22 @@ public sealed class TerminalStateDetector : IDisposable
     /// </summary>
     private void OnSessionRemoved(Session session)
     {
+        if (_apiModeSessions.TryRemove(session.Id, out var followed))
+            followed.Session.OnTerminalChanged -= followed.Handler;
         if (_watchers.TryRemove(session.Id, out var w))
             w.Dispose();
     }
 
     private void Wire(Session session)
     {
+        // An API-mode session has a terminal only while the user holds its wheel: it is watched exactly then, so its
+        // activity while the user types into Pi's terminal is read as any terminal's is - which is what refuses a hand
+        // back mid-turn. While the protocol holds it, its activity comes from Pi's own events instead.
+        if (session.ConnectionMode == Core.ApiMode.SessionConnectionMode.Api)
+        {
+            FollowApiModeSession(session);
+            return;
+        }
         if (session.Buffer is null) return;
         // Remote (GitHub Actions) sessions self-report activity from authoritative run
         // status via the backend's ActivitySink. The silence heuristic would misfire
@@ -305,6 +319,37 @@ public sealed class TerminalStateDetector : IDisposable
             w.Start();
         else
             w.Dispose();
+    }
+
+    private void FollowApiModeSession(Session session)
+    {
+        void Rewire()
+        {
+            if (_watchers.TryRemove(session.Id, out var old))
+                old.Dispose();
+            if (_disposed || session.Buffer is null)
+            {
+                FileLog.Write($"[TerminalStateDetector] API-mode session={session.Id}: no terminal, not watched");
+                return;
+            }
+            var w = new Watcher(session, _driveState, _quietThreshold, _activityProducer,
+                _contentRule, _settleCheckDelay, _maxSettleCheckDeferral, _rowRule, _sizeRule,
+                _timeProvider);
+            if (_watchers.TryAdd(session.Id, w))
+            {
+                w.Start();
+                FileLog.Write($"[TerminalStateDetector] API-mode session={session.Id}: the user has the wheel; its terminal is watched");
+            }
+            else
+            {
+                w.Dispose();
+            }
+        }
+
+        if (!_apiModeSessions.TryAdd(session.Id, (session, Rewire)))
+            return;
+        session.OnTerminalChanged += Rewire;
+        Rewire();
     }
 
     /// <summary>
@@ -327,6 +372,9 @@ public sealed class TerminalStateDetector : IDisposable
         _disposed = true;
         _sessionManager.OnSessionCreated -= OnSessionCreated;
         _sessionManager.OnSessionRemoved -= OnSessionRemoved;
+        foreach (var (_, followed) in _apiModeSessions)
+            followed.Session.OnTerminalChanged -= followed.Handler;
+        _apiModeSessions.Clear();
         foreach (var w in _watchers.Values)
             w.Dispose();
         _watchers.Clear();

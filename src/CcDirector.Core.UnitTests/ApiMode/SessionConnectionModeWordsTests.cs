@@ -47,14 +47,13 @@ public sealed class SessionConnectionModeWordsTests
     }
 
     [Theory]
-    [InlineData(SessionConnectionMode.Api, false, WheelHolders.Protocol)]
-    [InlineData(SessionConnectionMode.Api, true, WheelHolders.None)]
-    [InlineData(SessionConnectionMode.Terminal, false, WheelHolders.None)]
-    [InlineData(SessionConnectionMode.Terminal, true, WheelHolders.None)]
-    public void WheelHolderOf_ModeAndWhetherItEnded_IsWhoHoldsTheConversation(SessionConnectionMode mode, bool ended, string holder)
+    [InlineData(SessionWheelHolder.None, WheelHolders.None)]
+    [InlineData(SessionWheelHolder.Protocol, WheelHolders.Protocol)]
+    [InlineData(SessionWheelHolder.User, WheelHolders.User)]
+    public void WheelHolderWord_EachHolder_IsPhaseTwosWord(SessionWheelHolder wheelHolder, string holder)
     {
         // Act
-        var result = SessionConnectionModeWords.WheelHolderOf(mode, ended);
+        var result = SessionConnectionModeWords.WheelHolderWord(wheelHolder);
 
         // Assert
         Assert.Equal(holder, result);

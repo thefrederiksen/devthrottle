@@ -63,6 +63,14 @@ internal sealed class SessionCommandServices
     public Func<Task>? ReapplyGatewayAsync { get; init; }
 
     /// <summary>
+    /// Push one session's row to the Gateway and complete only once the Gateway has applied it (API mode mission, issue
+    /// #4070, phase 4: <c>DirectorHub.PushDelta</c> over <c>InvokeAsync</c>, never the fire-and-forget delta). The wheel
+    /// commands await it before they reply, so the Gateway already holds the new wheel holder when its answer goes out.
+    /// Null when this Director has no Gateway stream.
+    /// </summary>
+    public Func<SessionDto, CancellationToken, Task>? PushSessionRowAsync { get; init; }
+
+    /// <summary>
     /// The License Switching mission: this process's license switching (the key holder lock, the switch and its stored
     /// results, the sign-ins and approvals), for the <c>license-switch</c>, <c>license-sign-in</c>,
     /// <c>license-approve</c> and <c>license-approval-result</c> verbs. One per process, never per host, because the lock is held for the
@@ -845,8 +853,7 @@ internal static class SessionCommandExecutor
     }
 
     /// <summary>The words a terminal session's Stop is refused with: it has no protocol to abort over.</summary>
-    internal const string TurnStopNotApiModeReason =
-        "This session is not in API mode, so there is no protocol turn to stop. Use interrupt for a terminal session.";
+    internal const string TurnStopNotApiModeReason = Session.NoProtocolTurnReason;
 
     /// <summary>
     /// The <c>turn-stop</c> verb (API mode mission, issue #4070): Stop an API-mode session's running turn with the
@@ -865,7 +872,9 @@ internal static class SessionCommandExecutor
         return await TurnStopCoreAsync(session);
     }
 
-    /// <summary>The turn-stop core, past the guards: refuse a terminal session, otherwise Pi's abort, confirmed.</summary>
+    /// <summary>The turn-stop core, past the guards: refuse a terminal session; otherwise Pi's abort, confirmed - or, when
+    /// the protocol does not hold the conversation (the user has the wheel, or no process holds it), refused in the
+    /// Director's own words, because nothing was stopped (phase 4).</summary>
     internal static async Task<DirectorCommandResult> TurnStopCoreAsync(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -875,9 +884,73 @@ internal static class SessionCommandExecutor
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, TurnStopNotApiModeReason);
         }
 
-        await session.CancelTurnAsync();
+        var refusal = await session.StopApiModeTurnAsync();
+        if (refusal is not null)
+        {
+            FileLog.Write($"[SessionCommandExecutor] TurnStopCoreAsync: REFUSED session={session.Id}: {refusal}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, refusal);
+        }
         FileLog.Write($"[SessionCommandExecutor] TurnStopCoreAsync: session={session.Id}, the agent confirmed the stop");
         return DirectorCommandResult.Success();
+    }
+
+    /// <summary>
+    /// The <c>wheel-take</c> and <c>wheel-hand-back</c> verbs (API mode mission, issue #4070, phase 4). The switch is the
+    /// session's (<see cref="Session.TakeWheelAsync"/>, <see cref="Session.HandBackWheelAsync"/>), which refuses what the
+    /// ownership lock forbids. A refusal is answered Conflict in the Director's own words, which the Gateway passes through.
+    /// </summary>
+    internal static async Task<DirectorCommandResult> WheelAsync(SessionManager sessionManager, string directorId, DirectorCommand command,
+        SessionCommandServices? services, bool take)
+    {
+        FileLog.Write($"[SessionCommandExecutor] WheelAsync: session={command.SessionId}, take={take}");
+        if (!Guid.TryParse(command.SessionId, out var guid))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "invalid session id format");
+        var session = sessionManager.GetSession(guid);
+        if (session is null)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+        return await WheelCoreAsync(session, directorId, services?.PushSessionRowAsync, take);
+    }
+
+    /// <summary>
+    /// The wheel core, past the guards. THE CONTRACT (the Delivery Lead's final ruling): after a switch and before the
+    /// reply, the session's new row - its new wheel holder - is pushed to the Gateway through
+    /// <paramref name="pushSessionRow"/>, which completes only once the Gateway has applied it, so the Gateway never
+    /// answers a following request from the old holder. A Director with no way to report the switch does not make it.
+    /// </summary>
+    internal static async Task<DirectorCommandResult> WheelCoreAsync(Session session, string directorId,
+        Func<SessionDto, CancellationToken, Task>? pushSessionRow, bool take)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var what = take ? "take" : "hand back";
+        if (session.ConnectionMode != Core.ApiMode.SessionConnectionMode.Api)
+        {
+            FileLog.Write($"[SessionCommandExecutor] WheelCoreAsync: REFUSED {what} session={session.Id}: not in API mode");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, Session.NoWheelReason);
+        }
+        if (pushSessionRow is null)
+        {
+            FileLog.Write($"[SessionCommandExecutor] WheelCoreAsync: REFUSED {what} session={session.Id}: no Gateway stream to report it on");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict,
+                "This Director has no Gateway stream to report the change on, so the wheel was not switched.");
+        }
+
+        var result = take ? await session.TakeWheelAsync() : await session.HandBackWheelAsync();
+        if (!result.Done)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, result.Refusal!);
+
+        var row = ControlEndpoints.Map(session, directorId);
+        try
+        {
+            await pushSessionRow(row, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionCommandExecutor] WheelCoreAsync FAILED to report the {what} of session={session.Id}: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict,
+                $"The wheel was switched (now held by: {row.WheelHolder}), but the Gateway could not be told ({ex.Message}); the session's next update will carry it.");
+        }
+        FileLog.Write($"[SessionCommandExecutor] WheelCoreAsync: session={session.Id}, {what} done and reported, holder={row.WheelHolder}");
+        return DirectorCommandResult.Success(Serialize(row));
     }
 
     /// <summary>The interrupt core, past the guards. A driver's <see cref="NotSupportedException"/> is the

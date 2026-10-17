@@ -68,6 +68,9 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
         "repo-add", "repo-rename", "handover-create", "handover-delete",
         // API mode (issue #4070): Stop for an API-mode session, sent by the Gateway's POST /sessions/{id}/turn/stop.
         "turn-stop",
+        // API mode, phase 4: take the wheel and hand it back, sent by the Gateway's POST /sessions/{id}/wheel/take and
+        // /wheel/hand-back under these names (GatewayEndpoints.WheelTakeCommand and WheelHandBackCommand).
+        "wheel-take", "wheel-hand-back",
     };
 
     public async Task<DirectorCommandResult> ExecuteAsync(SessionCommandContext context, DirectorCommand command, CancellationToken cancellationToken)
@@ -78,6 +81,8 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
             "prompt" => await SessionCommandExecutor.PromptAsync(sessionManager, command, context.Source),
             "interrupt" => await SessionCommandExecutor.InterruptAsync(sessionManager, command),
             "turn-stop" => await SessionCommandExecutor.TurnStopAsync(sessionManager, command),
+            "wheel-take" => await SessionCommandExecutor.WheelAsync(sessionManager, context.DirectorId, command, context.Services, take: true),
+            "wheel-hand-back" => await SessionCommandExecutor.WheelAsync(sessionManager, context.DirectorId, command, context.Services, take: false),
             "escape" => await SessionCommandExecutor.EscapeAsync(sessionManager, command),
             "hold" => SessionCommandExecutor.Hold(sessionManager, command),
             "kill" => await SessionCommandExecutor.KillAsync(sessionManager, command),
