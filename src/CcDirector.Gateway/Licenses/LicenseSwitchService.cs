@@ -430,7 +430,7 @@ public sealed class LicenseSwitchService
         var machinesById = overview.Machines.ToDictionary(m => m.MachineId);
         var open = Classify(tenant, picture.OpenSwitches);
         var sends = new List<PlannedSend>();
-        var written = 0;
+        var written = WatchSilence(tenant, picture, now);
 
         // 1. Rows whose outcome is not known: ask again with the same identifier, or settle from the machine's report.
         foreach (var row in open.OutcomeUnknown)
@@ -555,6 +555,34 @@ public sealed class LicenseSwitchService
         }
 
         return new TickPlan(sends, emails, written);
+    }
+
+    /// <summary>
+    /// A MACHINE THAT HAS GONE SILENT IS SAID ONCE. A machine that has reported and then sent nothing for longer than
+    /// <see cref="LicenseStore.SilentAfter"/> gets one row of the Licenses log; once a report from it has been
+    /// accepted, that row ends and one more says it is reporting again. Nothing is written for a machine whose reports
+    /// are being refused: it is not silent, and its refusal is already in the log. Returns how many rows it wrote.
+    /// </summary>
+    private int WatchSilence(TenantId tenant, LicensePicture picture, DateTime now)
+    {
+        var written = 0;
+        foreach (var machine in picture.Overview.Machines)
+        {
+            var silence = picture.MachineHealth.FirstOrDefault(r => r.Kind == LicenseLogKinds.MachineSilent && r.MachineId == machine.MachineId);
+            if (silence is not null)
+            {
+                // A report accepted after the row was written: the row was written on a picture older than that report.
+                if (machine.LastReportAtUtc > silence.CreatedAtUtc && _store.CloseSilence(tenant, silence.Id, machine, now))
+                    written++;
+                continue;
+            }
+            if (now - machine.LastReportAtUtc <= LicenseStore.SilentAfter || picture.RefusalOf(machine) is not null)
+                continue;
+            // The license alarm, once it exists, is raised here when a row was written.
+            if (_store.OpenSilence(tenant, machine, now) is not null)
+                written++;
+        }
+        return written;
     }
 
     private PlannedSend? PlanNewSwitch(TenantId tenant, LicenseMachineView machine, LicenseSwitchDecision decision, DateTime now)

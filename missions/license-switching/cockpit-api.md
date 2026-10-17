@@ -134,9 +134,10 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `machineId` | Stable for this machine and operating system user; use it as the list item's identity. |
 | `machineName`, `osUser`, `label` | The machine, the operating system user whose Claude sign-ins these are, and what to call it (rule 9). |
 | `activeAccountEmail` | The account it is on; null when it is signed in to none. |
-| `status`, `statusText`, `statusTone` | `not-reporting` (Not reporting, warning), `switching` (Switching, neutral), `signed-out` (Signed out, warning), `reporting` (Reporting, good) - the first that applies. |
-| `isStale` | Its last report is older than 6 minutes. It is not sent a switch until it reports again. |
-| `lastReportAtUtc`, `lastReportText` | When the Gateway took its last report, and "Last report 1 minute ago". |
+| `status`, `statusText`, `statusTone` | `report-refused` (Report refused, bad), `not-reporting` ("Not reporting since 2026-10-16 09:12 UTC", warning), `switching` (Switching, neutral), `signed-out` (Signed out, warning), `reporting` (Reporting, good) - the first that applies. |
+| `statusDetail` | The Gateway's sentence saying what the status means, drawn under it as given; null for `switching`, `signed-out` and `reporting`. For `report-refused` it is the refusal in words and what shows the Director is alive: "Its report was refused: it holds alice@example.com twice (once in use and once as a spare). It is not switched until a report is accepted. Its Director is still sending reports: 412 reports refused since 2026-10-16 01:02 UTC, the latest 1 minute ago." For `not-reporting`: "No report has come from it for 2 hours 5 minutes. It is not switched until it reports again." |
+| `isStale` | Its last report is older than 6 minutes, or its reports are refused. It is not sent a switch until a report is accepted. |
+| `lastReportAtUtc`, `lastReportText` | When the Gateway took its last report, and "Last report 1 minute ago". **`lastReportAtUtc` is null** for a machine none of whose reports has been accepted - one the page knows only from its refused reports; then `lastReportText` is "No report from it has been accepted yet", it holds nothing (`active` null, `spares` empty) and `canAddSpare` is false. |
 | `active` | Its active sign-in (the shape below); null when signed in to none. |
 | `spares` | The spares it holds, in account email order. |
 | `switchInProgress` | Null, or `switchId`, `fromAccountEmail`, `toAccountEmail`, `text` - the switch it is in the middle of and one sentence saying where it stands. The two emails are "" when only the machine's own report says a switch is running. |
@@ -429,6 +430,7 @@ show nothing. Section 6 has the sentences and the tone rule.
       "status": "reporting",
       "statusText": "Reporting",
       "statusTone": "good",
+      "statusDetail": null,
       "isStale": false,
       "lastReportAtUtc": "2026-10-11T03:11:00Z",
       "lastReportText": "Last report 1 minute ago",
@@ -495,6 +497,7 @@ show nothing. Section 6 has the sentences and the tone rule.
       "status": "reporting",
       "statusText": "Reporting",
       "statusTone": "good",
+      "statusDetail": null,
       "isStale": false,
       "lastReportAtUtc": "2026-10-11T03:12:00Z",
       "lastReportText": "Last report less than a minute ago",
@@ -768,16 +771,16 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `report-refused` (Report refused), `report-accepted` (Reports accepted), `machine-silent` (Not reporting), `reporting-again` (Reporting again). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
-| `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A machine that is no longer listed in the overview still has its identifier and its label here. |
+| `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A `report-refused` row of a machine none of whose reports was ever accepted also has `machineId` null; it names the machine as its report did, or "" when the report named none. A machine that is no longer listed in the overview still has its identifier and its label here. |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. |
 | `why`, `whyText` | Why a switch was asked for: `threshold` (Threshold reached) or `manual` (By hand). Null and "" on other rows. |
 | `state`, `stateText`, `stateTone`, `isOpen` | Where the row stands, in the table below. `isOpen` is true while it has not reached its end. |
 | `reasonCode`, `reasonText` | When a switch is waiting or failed: the reason word and its sentence. On a `no-room` or `renewal-failed` row: what became of the owner email - `owner-emailed` ("The owner was emailed."), `owner-email-failed` ("The owner has not been emailed yet; it is tried again."), `no-owner-account` ("This Gateway has no DevThrottle account to email.") - and null before the first try. Null otherwise. |
 | `message` | The sentence the machine or the Gateway wrote on the row; may be null. |
 | `summary` | The row in one sentence. Always set. |
-| `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. |
+| `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. On a `report-refused` row `sendCount` is how many reports were refused while it was open, and `lastSentAtUtc` is null: no command was sent. |
 | `startedOnMachineAtUtc`, `finishedOnMachineAtUtc`, `exchangeMilliseconds`, `finishedAtUtc` | The timings: the machine's own start and finish, the exchange step alone, and when the row reached its end by the Gateway's clock. Null when not known. |
 | `heldUntilUtc` | On a failed switch row that held its machine out of the automatic switch (contract section 5.8): the time it was held until. Null on every other row. It is a record of the moment, not a state: it stays on the row after the hold has passed. The row's `summary` says it; the page needs nothing else. |
 | `timingText` | "Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)"; null when there is nothing to say. |
@@ -794,6 +797,10 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `recorded` | Recorded | neutral | no |
 | `open` on a `renewal-failed` row | Failing | bad | yes |
 | `ended` on a `renewal-failed` row | Over | neutral | no |
+| `open` on a `report-refused` row | Refused | bad | yes |
+| `open` on a `machine-silent` row | Silent | warning | yes |
+| `ended` on a `report-refused` or `machine-silent` row | Over | neutral | no |
+| `recorded` on a `report-accepted` or `reporting-again` row | Recorded | good | no |
 | any other word | the word itself | neutral | no |
 
 The `summary` of a switch row says "is switching" only while it is `pending` or `unknown`. A switch row in a state
@@ -811,6 +818,22 @@ and is kept, the label must be true of both.
 A failed switch row whose machine was held by it says so at the end of its `summary`: "It was not the first time in
 a row that this switch failed this way, so the automatic switch left {the machine} out until {yyyy-MM-dd HH:mm
 UTC}." The first failure of a run holds nothing and has no such sentence.
+
+A `report-refused` row is one run of the SAME refusal of one machine's reports: the Gateway threw a report from the
+machine's Director away for what it says (an account held twice, two sign-ins in use at once, a number that is not
+a reading - every reason has its own sentence). It is written by the first refused report and counted, not written
+again, by every one after it - a machine refused every two minutes for a day writes ONE row. A report refused for
+another reason ends it and writes the next; a report that is accepted ends it and writes one `report-accepted` row,
+"Its reports are accepted again, after 412 reports refused since 2026-10-16 01:02 UTC." Its `message` and `summary`
+are the refusal: "Its report was refused: it holds alice@example.com twice (once in use and once as a spare). It is
+not switched until a report is accepted." A report dropped because it came from a connection the Director has since
+replaced, or with a sequence already sent, is bookkeeping and writes nothing.
+
+A `machine-silent` row is written once by the minute check when a machine that has reported sends nothing for more
+than 10 minutes (five report intervals): "No report has come from it since 2026-10-16 09:12 UTC, for more than 10
+minutes: its Director may have stopped. It is not switched until it reports again." The minute check after a report
+from it is accepted ends it and writes one `reporting-again` row. A machine whose reports are refused is not silent,
+and gets no such row.
 
 A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
 machine's renewal of a sign-in is failing and that sign-in ends within three days, and open until the machine

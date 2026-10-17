@@ -150,7 +150,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         var machine = json.GetProperty("machines")[0];
         Assert.Equal(new[]
         {
-            "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "isStale",
+            "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "statusDetail", "isStale",
             "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "heldUntilUtc", "heldText", "canAddSpare", "addSpareText",
             "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
             "readiness", "readinessTargetAccountEmail", "readinessText", "readinessTone",
