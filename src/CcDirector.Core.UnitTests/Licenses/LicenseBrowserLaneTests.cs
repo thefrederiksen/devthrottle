@@ -161,6 +161,9 @@ public sealed class LicenseBrowserLaneTests
         Assert.False(next.IsCompleted);
 
         first.Dispose();
+        // Whichever gets in first: were the check to win, the approval would wait for it, so the test would hang on
+        // the approval alone rather than fail.
+        Assert.Same(approval, await Task.WhenAny(approval, next));
         var inLane = await approval;
 
         Assert.NotNull(inLane);
