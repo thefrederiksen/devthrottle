@@ -174,12 +174,13 @@ public sealed class SessionManager : IDisposable
 
     /// <summary>
     /// Asked, for a Claude Code session nobody will answer (opened by another session, or a seat), whether it would stop on
-    /// Claude Code's one-time Bypass Permissions warning: given the session's own arguments, its full launch line and its
-    /// folder, it answers the sentence that refuses the start, or null to go ahead. The Director gives
-    /// <see cref="Claude.ClaudeBypassConsent.WhyItWouldStop"/> for this user and machine; when it is not set, nothing is
+    /// a question of Claude Code's that only the owner may answer - the one-time Bypass Permissions warning, or "Teach auto
+    /// mode about your environment?": given the session's own arguments, its full launch line and its folder, it answers
+    /// the sentence that refuses the start, or null to go ahead. The Director gives
+    /// <see cref="Claude.ClaudeStartQuestions.WhyItWouldStop"/> for this user and machine; when it is not set, nothing is
     /// refused.
     /// </summary>
-    public Func<string?, string, string, string?>? ClaudeBypassCheck { get; init; }
+    public Func<string?, string, string, string?>? ClaudeQuestionCheck { get; init; }
 
     /// <summary>
     /// Answers, before a seat's agent starts, whether this machine holds the secrets its kit lists and may use them for
@@ -949,14 +950,15 @@ public sealed class SessionManager : IDisposable
             if (agent.Kind == AgentKind.ClaudeCode && kitDirectory is not null)
                 TrustSeatFolder(id, home, pooled);
 
-            // CLAUDE CODE'S ONE-TIME BYPASS WARNING, WHICH NOBODY WOULD ANSWER (Command Line Agent Handling mission). A
-            // session opened by another session, or a seat, that would stop on it is refused here in words; the Director
-            // never accepts the warning for the owner (ClaudeBypassConsent). A session the owner opens is left alone.
+            // CLAUDE CODE'S QUESTIONS THAT ONLY THE OWNER MAY ANSWER, WHICH NOBODY WOULD (Command Line Agent Handling
+            // mission): the one-time Bypass Permissions warning and "Teach auto mode about your environment?". A session
+            // opened by another session, or a seat, that would stop on one is refused here in words; the Director never
+            // answers them for the owner (ClaudeStartQuestions). A session the owner opens is left alone.
             if (agent.Kind == AgentKind.ClaudeCode && (controllerSessionId is not null || kitDirectory is not null)
-                && ClaudeBypassCheck?.Invoke(userArgs, args, workingDirectory) is { } bypassRefusal)
+                && ClaudeQuestionCheck?.Invoke(userArgs, args, workingDirectory) is { } questionRefusal)
             {
-                FileLog.Write($"[SessionManager] CreateSession REFUSED: session={id}: {bypassRefusal}");
-                throw new Claude.ClaudeStartRefusedException(bypassRefusal);
+                FileLog.Write($"[SessionManager] CreateSession REFUSED: session={id}: {questionRefusal}");
+                throw new Claude.ClaudeStartRefusedException(questionRefusal);
             }
 
             // Inject CC_SESSION_ID so skills (e.g. /handover) can look up the session name, and
