@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The owner's own macOS launch agent for the Director (see ../director-restart.md).
+  Copy to ~/Library/LaunchAgents/com.devthrottle.director-keepalive.plist and replace "alice" with the
+  account's own home folder name. launchd does not expand "~", so the path must be written out in full.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.devthrottle.director-keepalive</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/alice/Applications/Director.app/Contents/MacOS/cc-director</string>
+    </array>
+    <!-- Start at sign-in. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Start it again ONLY when it did not exit with 0: a crash, a signal, a forced kill.
+         A deliberate quit exits with 0 and is left alone. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <!-- At least 30 seconds between starts, so a Director that crashes at once does not spin. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <!-- When the Director exits, launchd would otherwise kill every process it started: the agent
+         sessions, and the updated build an update hands over to. Leave them running. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
+    <!-- Only in a signed-in graphical session, never at the login window. -->
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
