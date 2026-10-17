@@ -49,7 +49,7 @@ internal static class Program
             ShowStartupNotice(notice, "Director - Unknown instance", MB_ICONERROR);
             // The log writer is a background thread and the notice can return at once (no zenity on Linux), so
             // flush before returning or the FATAL line is lost - the same reason the apply-update path stops it.
-            // ErrorReporter never started, so nothing goes to the Gateway: there is no instance to report as.
+            // exits-without-flush: ErrorReporter was never started on this path - no instance was chosen, so there is nothing to report as
             FileLog.Stop();
             return 2;
         }
