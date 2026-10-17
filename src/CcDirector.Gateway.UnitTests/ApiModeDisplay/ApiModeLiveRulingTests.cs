@@ -1,6 +1,8 @@
 using CcDirector.Gateway.ApiModeDisplay;
+using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
+using CcDirector.Gateway.Receipts;
 using Xunit;
 using static CcDirector.Gateway.Tests.ApiModeEvents.ApiModeEventTestData;
 
@@ -18,6 +20,14 @@ public sealed class ApiModeLiveRulingTests
         => events.SelectMany(ruling.Rule).ToList();
 
     private static List<ApiModeLiveItem> RuleAll(IEnumerable<SessionEvent> events) => RuleAll(new ApiModeLiveRuling(), events);
+
+    /// <summary>A receipt as the store answers it to a reader starting from it: last changed by the event at
+    /// <paramref name="lastSequence"/> of generation A.</summary>
+    private static ApiModeStoredReceipt Stored(ApiModeReceiptDto receipt, long lastSequence)
+        => new(receipt, new ApiModeEventPosition("gen-a", GenAStarted, lastSequence));
+
+    /// <summary>An event as the feed hands it to a reader: held in generation A.</summary>
+    private static ApiModeHeldEvent HeldA(SessionEvent e) => new("gen-a", GenAStarted, e);
 
     private static List<string> ReceiptWordsOf(IEnumerable<ApiModeLiveItem> items, string promptId)
         => items.Where(i => i.ItemId == "receipt:" + promptId).Select(i => i.Text).ToList();
@@ -200,10 +210,10 @@ public sealed class ApiModeLiveRulingTests
         // Arrange: after an incomplete replay the reader starts from the store, which says p1 is delivered and carried
         // by t1, still running.
         var stored = new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started", TurnId = "t1" };
-        var ruling = new ApiModeLiveRuling(new[] { stored });
+        var ruling = new ApiModeLiveRuling(new[] { Stored(stored, 30) });
 
         // Act
-        var items = ruling.Rule(Ended(40, "t1", TurnOutcome.Failed, "Pi exited during the turn (exit code 137)", null));
+        var items = ruling.Rule(HeldA(Ended(40, "t1", TurnOutcome.Failed, "Pi exited during the turn (exit code 137)", null)));
 
         // Assert
         Assert.Equal(new[] { "Delivered - the turn failed: Pi exited during the turn (exit code 137)" }, ReceiptWordsOf(items, "p1"));
@@ -247,10 +257,10 @@ public sealed class ApiModeLiveRulingTests
     {
         // Arrange: a reader started from the store, which wrote p1's receipt from the very delivery now replayed to it
         // (review of pull request #4083, finding 2).
-        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" } });
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" }, 5) });
 
         // Act
-        var items = ruling.Rule(Delivered(5, "p1", PlainAck));
+        var items = ruling.Rule(HeldA(Delivered(5, "p1", PlainAck)));
 
         // Assert
         Assert.Empty(items);
@@ -261,11 +271,11 @@ public sealed class ApiModeLiveRulingTests
     public void Rule_AnEndingAfterTheOneAStoredReceiptWasBuiltFrom_IsLoggedAsASecondEnding()
     {
         // Arrange
-        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" } });
-        ruling.Rule(Delivered(5, "p1", PlainAck));
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" }, 5) });
+        ruling.Rule(HeldA(Delivered(5, "p1", PlainAck)));
 
         // Act: the replay of the stored ending is quiet; a refusal after it is a real second ending.
-        var items = ruling.Rule(Refused(6, "p1", "too late", PromptRefusedBy.Director));
+        var items = ruling.Rule(HeldA(Refused(6, "p1", "too late", PromptRefusedBy.Director)));
 
         // Assert
         Assert.Empty(items);
@@ -277,11 +287,11 @@ public sealed class ApiModeLiveRulingTests
     {
         // Arrange: the store says Delivered - a retry's delivery that superseded a refusal - and the reader is handed
         // the events the store has already ruled on, the superseded refusal first.
-        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" } });
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, Disposition = "started" }, 5) });
 
         // Act
-        var refusal = ruling.Rule(Refused(1, "p1", "Pi is not running: the process exited", PromptRefusedBy.Director));
-        var delivery = ruling.Rule(Delivered(5, "p1", PlainAck));
+        var refusal = ruling.Rule(HeldA(Refused(1, "p1", "Pi is not running: the process exited", PromptRefusedBy.Director)));
+        var delivery = ruling.Rule(HeldA(Delivered(5, "p1", PlainAck)));
 
         // Assert
         Assert.Empty(refusal);
@@ -418,14 +428,77 @@ public sealed class ApiModeLiveRulingTests
     public void Rule_AStoredRefusalThenTheRetrysDelivery_TheReceiptReadsDelivered()
     {
         // Arrange: a reader started from the store, which holds the refusal; the retry is acknowledged after the read.
-        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "gw-1", State = ApiModeReceiptState.Refused, RefusalReason = PiNotRunning, RefusedBy = "director" } });
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "gw-1", State = ApiModeReceiptState.Refused, RefusalReason = PiNotRunning, RefusedBy = "director" }, 1) });
 
         // Act
-        var items = ruling.Rule(Delivered(5, "gw-1", PlainAck));
+        var items = ruling.Rule(HeldA(Delivered(5, "gw-1", PlainAck)));
 
         // Assert
         Assert.Equal(new[] { "Delivered" }, ReceiptWordsOf(items, "gw-1"));
         Assert.Equal(1, ruling.SupersedesLogged);
+    }
+
+    [Fact]
+    public void Rule_AStoredRefusalThenTheRetryQueuedAndRefusedLive_ShowsTheRetrysReason()
+    {
+        // Arrange: the review of pull request #4142, finding 1. Refused at 40 while the Director restarted Pi; the reader
+        // starts from the store, which holds that refusal; the user presses again and the retry arrives live.
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "gw-1", State = ApiModeReceiptState.Refused, RefusalReason = PiNotRunning, RefusedBy = "director" }, 40) });
+
+        // Act
+        var queued = ruling.Rule(HeldA(Queued(41, "gw-1")));
+        var refused = ruling.Rule(HeldA(Refused(42, "gw-1", RefusalBusy, PromptRefusedBy.Agent)));
+
+        // Assert: each is the retry, newer than what the store held, so the stream shows the second reason - the one the
+        // receipt store now holds and the receipts route answers.
+        Assert.Equal(new[] { "Queued: a turn is running" }, ReceiptWordsOf(queued, "gw-1"));
+        Assert.Equal(new[] { "Refused: " + RefusalBusy }, ReceiptWordsOf(refused, "gw-1"));
+        Assert.Equal(1, ruling.SupersedesLogged);
+    }
+
+    [Fact]
+    public void Rule_TheEventsAStoredRefusalWasBuiltFromReplayed_AreQuietAndLogNoSupersede()
+    {
+        // Arrange: refused twice - reason A at 2, then the retry's reason B at 6 - and the store holds the second. The
+        // reader starting from it is handed every one of those events again (the review's note 2).
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "gw-1", State = ApiModeReceiptState.Refused, RefusalReason = RefusalBusy, RefusedBy = "agent" }, 6) });
+
+        // Act
+        var items = new SessionEvent[]
+        {
+            Queued(1, "gw-1"),
+            Refused(2, "gw-1", PiNotRunning, PromptRefusedBy.Director),
+            Queued(4, "gw-1"),
+            Refused(6, "gw-1", RefusalBusy, PromptRefusedBy.Agent),
+        }.SelectMany(e => ruling.Rule(HeldA(e))).ToList();
+
+        // Assert: nothing is shown, nothing is a supersede, nothing is a second ending.
+        Assert.Empty(items);
+        Assert.Equal(0, ruling.SupersedesLogged);
+        Assert.Equal(0, ruling.SecondEndingsLogged);
+    }
+
+    [Fact]
+    public void Rule_AStoredRefusalThenTheRetryInALaterGeneration_IsTheRetryWhateverItsSequence()
+    {
+        // Arrange: refused at 40 of generation A; the Director restarted, and the retry is sequence 3 of generation B.
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "gw-1", State = ApiModeReceiptState.Refused, RefusalReason = PiNotRunning, RefusedBy = "director" }, 40) });
+
+        // Act
+        var items = ruling.Rule(new ApiModeHeldEvent("gen-b", GenBStarted, Delivered(3, "gw-1", PlainAck)));
+
+        // Assert
+        Assert.Equal(new[] { "Delivered" }, ReceiptWordsOf(items, "gw-1"));
+    }
+
+    [Fact]
+    public void Rule_AReceiptEventForAStoredPromptWithoutItsPosition_Throws()
+    {
+        // Arrange: without the position, the ruling cannot tell a replay from the retry, and it does not guess.
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "gw-1", State = ApiModeReceiptState.Refused, RefusalReason = PiNotRunning, RefusedBy = "director" }, 40) });
+
+        // Act + Assert
+        Assert.Throws<InvalidOperationException>(() => ruling.Rule(Refused(42, "gw-1", RefusalBusy, PromptRefusedBy.Agent)));
     }
 
     // ----- what the ruling remembers (review of pull request #4083, finding 1) -----
@@ -481,7 +554,7 @@ public sealed class ApiModeLiveRulingTests
     public void Remembers_ATurnEndOfATurnInTheStoredReceipts_IsTrue()
     {
         // Arrange
-        var ruling = new ApiModeLiveRuling(new[] { new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, TurnId = "t1" } });
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered, TurnId = "t1" }, 2) });
 
         // Act + Assert
         Assert.True(ruling.Remembers(Ended(3, "t1", TurnOutcome.Failed, "the model errored", null)));

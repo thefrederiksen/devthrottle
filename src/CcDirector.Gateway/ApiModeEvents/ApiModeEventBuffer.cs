@@ -144,7 +144,7 @@ public sealed class ApiModeEventBuffer : IApiModeEventFeed
                 var all = _all;
                 foreach (var incoming in fresh)
                 {
-                    var held = new ApiModeHeldEvent(generation, incoming.Event);
+                    var held = new ApiModeHeldEvent(generation, started, incoming.Event);
                     if (state.FirstHeldSequence < 0)
                         state.FirstHeldSequence = incoming.Event.Sequence;
                     state.Events.AddLast((held, incoming.Characters));

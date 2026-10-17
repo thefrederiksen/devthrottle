@@ -159,6 +159,24 @@ event's own `At`, so an event with a later `At` than the stored ending's is newe
 stamp every event with one `T0`, so those tests would need distinct times. Either way the new test to add is
 the one in the failure case above, asserting the retry's reason is shown.
 
+**Developer's answer (accepted, fixed with the proposed fix).** The live ruling now decides by position, never by
+"an ending is already held". The store hands a store-started ruling each receipt with the position of the last event
+it applied to the row (`ApiModeReceiptStore.ReadWithPositions`, an internal read path answering `ApiModeStoredReceipt`;
+the public `ApiModeReceiptDto` is unchanged). A held event now carries its generation's start
+(`ApiModeHeldEvent.GenerationStartedUtc`, set by the buffer from the batch), so the ruling compares an event to the
+stored position with the store's own rule, `ApiModeEventPosition.IsAfter`: at or before the stored position is a
+replay and changes nothing, unlogged; after it is ruled by the ordinary rule (a `Refused` receipt is superseded and
+logged, `Delivered` is final and a second ending is logged). The stream and the poll hand every event as a held event
+(`Rule(ApiModeHeldEvent)`); a receipt event for a stored prompt handed without a position throws rather than guess.
+`_endingsFromStore`, its same-kind guess and the recorded known limit are removed together. New tests: the concrete
+case above, as a ruling test (`Rule_AStoredRefusalThenTheRetryQueuedAndRefusedLive_ShowsTheRetrysReason`) and end to
+end through the stream against the store the receipts route reads
+(`Stream_StartedFromAStoredRefusal_ARetryRefusedLiveShowsTheReasonTheReceiptsRouteAnswers`); a replay of the stored
+refusal's own events, up to and including its position, is quiet and counts no supersede
+(`Rule_TheEventsAStoredRefusalWasBuiltFromReplayed_AreQuietAndLogNoSupersede`); a retry in a later generation is the
+retry whatever its sequence; a missing position throws; and the store's positioned read carries the last applied
+position, unmoved by an ending it refused.
+
 ## 4. Notes (none blocks the merge)
 
 **Note 2 (low). The flicker the Developer recorded writes a false `SUPERSEDE` line.** Stored `Refused` (reason
@@ -169,12 +187,22 @@ consumed as the stored ending, so `Queued(4)` finds the prompt no longer in `_en
 the log claims a retry that did not happen at that moment, on a routine reset path - the same shape of log
 noise #4083's finding 2 removed. The fix for finding 1 removes this too.
 
+**Developer's answer.** Removed with finding 1: every event of that replay is at or before the stored position, so
+none is ruled and none is logged. `Rule_TheEventsAStoredRefusalWasBuiltFromReplayed_AreQuietAndLogNoSupersede` is
+this exact sequence.
+
 **Note 3 (low). The ruling's guard is per generation by the callers' discipline, not by its own.**
 `_receiptSequences` compares raw sequences. It is correct today because `SessionLiveEndpoint` rebuilds the
 ruling on every generation change and a poll's ruling never spans two. If a future caller fed one ruling across
 a Director restart, every receipt event of the new generation (sequence 1 upward) would be refused as "not
 after" the old one. Worth one sentence in the class summary ("one ruling rules one generation"), or storing the
 held generation beside the sequence; not a defect now.
+
+**Developer's answer.** Documented, per the owner's ruling: the class summary of `ApiModeLiveRuling` now says one
+ruling rules one generation, that the sequence guard compares sequences only, and that it relies on its callers
+handing it one generation's events in order (the stream rebuilds on a generation change; a poll builds a ruling per
+request). Not enforced: the plain `Rule(SessionEvent)` path carries no generation, so enforcing it would mean every
+caller hands a position, which is a larger change than this note asks for.
 
 **Note 4 (pre-existing, outside this change). Two Gateways updating one existing row have no concurrency
 token.** The store's atomicity story covers two processes CREATING the same row (the key collides, the loser
@@ -184,6 +212,11 @@ wins regardless of which event is newer, so A committing last leaves `Delivered`
 `Supersede` runs inside the same update, so it neither widens nor narrows this; the overlap is the one-minute
 deploy window and the receipt is a single row. Recorded so it is not mistaken for a defect of this change if
 it is ever seen.
+
+**Developer's answer.** Agreed it is pre-existing and outside this pull request; no change, by the owner's ruling.
+Recorded as a follow-up: give `ApiModeReceiptEntity` a concurrency token (or make the update conditional on the row's
+last position), so two Gateways updating one row during a deploy's overlap cannot let an older event's commit land
+last.
 
 **Note 5.** Attribution sweep of the commit message, the pull request body and the changed files: clean.
 Plain English: clean. `RecordTurnStarted` is unchanged, as the phase review required; the Director is

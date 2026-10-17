@@ -299,6 +299,12 @@ public sealed class ApiModeReceiptStore
     /// <summary>Every stored receipt of the session in the ambient tenant, oldest prompt first. Empty when there are
     /// none.</summary>
     public IReadOnlyList<ApiModeReceiptDto> Read(string sessionId)
+        => ReadWithPositions(sessionId).Select(r => r.Receipt).ToList();
+
+    /// <summary>What <see cref="Read"/> answers, in the same order, each with the position of the last event applied to
+    /// it: for a live ruling that starts from the store and must tell an event the store already ruled on from a newer
+    /// one.</summary>
+    internal IReadOnlyList<ApiModeStoredReceipt> ReadWithPositions(string sessionId)
     {
         RequireId(sessionId, nameof(sessionId));
         lock (_gate)
@@ -310,7 +316,7 @@ public sealed class ApiModeReceiptStore
                 .ThenBy(r => r.FirstSequence)
                 .ThenBy(r => r.PromptId)
                 .AsEnumerable()
-                .Select(ToDto)
+                .Select(r => new ApiModeStoredReceipt(ToDto(r), new ApiModeEventPosition(r.LastGeneration, r.LastGenerationStartedUtc, r.LastSequence)))
                 .ToList();
         }
     }

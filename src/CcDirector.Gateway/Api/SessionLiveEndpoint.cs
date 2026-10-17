@@ -226,7 +226,7 @@ public static class SessionLiveEndpoint
                 page.Items.Clear();
                 page.Items.AddRange(ReceiptItems(stored));
             }
-            page.Items.AddRange(ruling.Rule(held.Event));
+            page.Items.AddRange(ruling.Rule(held));
         }
 
         // Past the last event read, even one the ruling had nothing to show for. With nothing new: the cursor the
@@ -333,7 +333,7 @@ public static class SessionLiveEndpoint
                         vouched = true;
                     }
 
-                    var items = ruling.Rule(held.Event);
+                    var items = ruling.Rule(held);
                     if (items.Count == 0) continue;
                     await ctx.Response.WriteAsync(ItemsFrame(held.Cursor, items, options), ct);
                     sent++;
@@ -576,7 +576,7 @@ public static class SessionLiveEndpoint
         if (sameGeneration)
             foreach (var earlier in held.Events.TakeWhile(e => e.Event.Sequence <= cursor.Sequence))
             {
-                ruling.Rule(earlier.Event);
+                ruling.Rule(earlier);
                 caughtUp++;
             }
         // With no cursor, a complete read is the generation from its first event with nothing let go.
@@ -585,18 +585,19 @@ public static class SessionLiveEndpoint
         return (ruling, Array.Empty<ApiModeLiveItem>(), vouched);
     }
 
-    /// <summary>The session's stored receipts, read inside the caller's tenant scope (the store is partitioned by it).</summary>
-    private static IReadOnlyList<ApiModeReceiptDto> StoredReceipts(
+    /// <summary>The session's stored receipts with the position each was last changed at, read inside the caller's
+    /// tenant scope (the store is partitioned by it).</summary>
+    private static IReadOnlyList<ApiModeStoredReceipt> StoredReceipts(
         ApiModeReceiptStore receipts, Tenancy.HostedTenantBoundary? tenantBoundary, TenantId tenant, string sid)
     {
         using (tenantBoundary?.EnterScope(tenant))
-            return receipts.Read(sid);
+            return receipts.ReadWithPositions(sid);
     }
 
     /// <summary>
     /// The stored receipts as items, ruled by the one receipt ruling. Their <see cref="ApiModeLiveItem.Sequence"/> is 0:
     /// they come from durable state, not from an event of the stream.
     /// </summary>
-    private static IReadOnlyList<ApiModeLiveItem> ReceiptItems(IReadOnlyList<ApiModeReceiptDto> stored) =>
-        stored.Select(r => ApiModeLiveRuling.ReceiptItem(r, 0)).ToList();
+    private static IReadOnlyList<ApiModeLiveItem> ReceiptItems(IReadOnlyList<ApiModeStoredReceipt> stored) =>
+        stored.Select(r => ApiModeLiveRuling.ReceiptItem(r.Receipt, 0)).ToList();
 }

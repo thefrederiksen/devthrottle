@@ -462,6 +462,24 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     }
 
     [Fact]
+    public void ReadWithPositions_EachReceipt_CarriesThePositionOfTheLastEventTheStoreApplied()
+    {
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", "Pi is not running: the process exited", "director", At(1), T0);
+        store.RecordDelivered(Director, Sid, "p2", "started", StartedAck, At(2), T0);
+        store.RecordQueued(Director, Sid, "gw-1", "turnRunning", At(3), T0);
+        store.RecordRefused(Director, Sid, "gw-1", BusyRefusal, "agent", At(4), T0);
+        // A second ending the store refuses: it applies nothing, so the position does not move.
+        store.RecordRefused(Director, Sid, "p2", "too late", "director", At(5), T0);
+
+        var positioned = store.ReadWithPositions(Sid);
+
+        Assert.Equal(store.Read(Sid).Select(r => (r.PromptId, r.State, r.RefusalReason)), positioned.Select(r => (r.Receipt.PromptId, r.Receipt.State, r.Receipt.RefusalReason)));
+        Assert.Equal(At(2), positioned.Single(r => r.Receipt.PromptId == "p2").LastPosition);
+        Assert.Equal(At(4), positioned.Single(r => r.Receipt.PromptId == "gw-1").LastPosition);
+    }
+
+    [Fact]
     public void Read_ASessionWithNoReceipts_IsEmpty()
     {
         Assert.Empty(Store().Read(Sid));

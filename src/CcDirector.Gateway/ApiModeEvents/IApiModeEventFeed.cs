@@ -52,11 +52,15 @@ public interface IApiModeEventFeed
 public readonly record struct ApiModeEventCursor(string Generation, long Sequence);
 
 /// <summary>One stored event, with the generation it arrived in (an event's own sequence restarts each
-/// generation, so the pair is its identity).</summary>
-public sealed record ApiModeHeldEvent(string Generation, SessionEvent Event)
+/// generation, so the pair is its identity) and when that generation started (so it can be ordered against an event of
+/// another generation, as the receipt store orders them).</summary>
+public sealed record ApiModeHeldEvent(string Generation, DateTime GenerationStartedUtc, SessionEvent Event)
 {
     /// <summary>This event's cursor: hand it back to read or follow what comes after it.</summary>
     public ApiModeEventCursor Cursor => new(Generation, Event.Sequence);
+
+    /// <summary>Where this event stands in its session's stream, by the receipt store's rule.</summary>
+    public Receipts.ApiModeEventPosition Position => new(Generation, GenerationStartedUtc, Event.Sequence);
 }
 
 /// <summary>
