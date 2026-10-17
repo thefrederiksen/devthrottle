@@ -83,4 +83,12 @@ public sealed class InstanceSelectionTests
         Assert.False(selection.MayStart);
         Assert.Contains("could not be read: file is locked", selection.Refusal);
     }
+
+    [Fact]
+    public void Unreadable_ErrorEndingInAFullStop_IsNotDoubled()
+    {
+        var selection = InstanceSelection.Unreadable("linuxtest", "Access to the path is denied.");
+
+        Assert.DoesNotContain("..", selection.Refusal);
+    }
 }

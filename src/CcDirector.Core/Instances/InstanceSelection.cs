@@ -48,7 +48,7 @@ public sealed record InstanceSelection(string Slug, bool WasExplicit, string? Di
     /// for. Without the list nobody can say the name is real, so the process does not start.</summary>
     public static InstanceSelection Unreadable(string requestedSlug, string error) => new(
         InstanceContext.Normalize(requestedSlug), true, null,
-        $"The Director was asked to start as the instance '{requestedSlug}', but the list of instances could not be read: {error}. "
+        $"The Director was asked to start as the instance '{requestedSlug}', but the list of instances could not be read: {error.TrimEnd('.')}. "
         + "It did not start, so it cannot run on another instance's data.");
 
     private static string RefusalFor(string requestedSlug, IReadOnlyList<NamedInstance> registered)
