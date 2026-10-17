@@ -913,3 +913,77 @@ end of the text, so an identifier followed by a line break is refused.
 | The Director's renewer wakes (a run happens once a day) | every 10 minutes |
 | A stored `LicenseSignInResult` is kept | 24 hours |
 | The seal's purpose word (`LicenseContract.ApprovalSealPurpose`) | `license-approval` |
+
+## 9. Phase 6 - the license alarm (one mechanism for every track)
+
+A problem with licenses is LOUD and STAYS until it is fixed. There is exactly one mechanism for that, on the Gateway:
+`Licenses.LicenseAlarmService`. Tracks A, B and C raise their alarms through it and never build another.
+
+### 9.1 What an alarm is
+
+An alarm names a **kind** (a short stable word the raising check chooses: `not-ready-at-80`), the **machine** (absent
+for an alarm about no one machine), the **account** (absent for an alarm about no one account), **what is wrong** in one
+plain-English sentence and **the one thing to do** in one plain-English sentence. It has an opened time and, once
+closed, a closed time. Its identity is tenant + kind + machine + account. Rows live in `license_alarms`, one row for
+each time a problem was open.
+
+### 9.2 How to raise one, and how it clears
+
+Declare the kind once, as a constant beside the check:
+
+```csharp
+static readonly LicenseAlarmKind NotReady = new("not-ready-at-80", "Not ready to switch");
+```
+
+The title is what a phone's locked screen shows: a few plain words, no full stop, never an email address (the
+constructor refuses one).
+
+On every run of the check, pass EVERY alarm of that kind that is true now - an empty list when none is:
+
+```csharp
+await alarms.RaiseAsync(tenant, NotReady, new[]
+{
+    new LicenseAlarmCondition(machine.MachineId, machine.MachineName, "alice@example.com",
+        "machine-a holds no spare that could take it off alice@example.com.",
+        "Sign machine-a in to a second account."),
+}, ct);
+```
+
+- **Not open yet:** it opens. One row in `license_alarms`, one `alarm-opened` row in the Licenses log, one push to the
+  owner's phones and one owner email.
+- **Already open:** it stays open and nothing is sent. Its two sentences are brought up to date.
+- **Open, but not in the list:** it closes by itself and writes an `alarm-closed` row in the Licenses log.
+- **Raised again after it closed:** a NEW alarm, with its own push and its own email.
+- A check speaks only for its own kind: it never closes another kind's alarm.
+
+Raising is idempotent, so a check that runs every minute simply raises what it sees every minute. The service is
+`GatewayHost.LicenseAlarms`.
+
+### 9.3 What the words must look like
+
+- Both sentences are plain English, one line each, ending in a full stop, at most 400 characters. A sentence that is
+  not refused with `ArgumentException`.
+- **What is wrong** names the machine and the account where they matter: "machine-a holds no spare that could take it
+  off alice@example.com." It may contain the account email: the banner and the email are read over the owner's own
+  signed-in connection or in the owner's own mailbox.
+- **The one thing to do** is one action the owner can take: "Sign machine-a in to a second account."
+- The banner's line is the two joined with a space, so write each as a whole sentence. When several alarms are open the
+  banner adds "N license problems need you." above them.
+- The push carries only "<machine>: <kind title>. Open Licenses to see what to do." - never the sentences, because a
+  push shows on a locked screen.
+
+### 9.4 The email and the push
+
+- **Email:** through `LicenseOwnerMailer`, the same channel as the "no account has room" email. Every alarm whose email
+  is due in one check of one tenant goes in ONE email. Recorded as emailed only when the mail service confirmed it; a
+  failed send is tried again on the Gateway's once-a-minute license check (one minute, two, four, up to an hour, or
+  longer when the mail service asks) for as long as the alarm is open. No email when it closes.
+- **Push:** through the Web Push subscriptions of the tenant (`Push.LicenseAlarmPushNotifier`), once when the alarm
+  opens, never retried. A tap opens the Cockpit's Licenses page (`/licenses`), because the phone has no Licenses screen
+  of its own.
+
+### 9.5 Where it shows
+
+`GET /gateway/licenses/alarms` (cockpit-api.md section 8) answers the open alarms with the banner's finished words. The
+Cockpit's frame and the phone's shell render them as a red banner on every page, verbatim, and draw nothing when no
+alarm is open. **There is no route that raises or clears an alarm** - only Gateway code calls `RaiseAsync`.

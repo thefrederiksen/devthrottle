@@ -1734,3 +1734,47 @@ gave.
 
 The owner's email for a renewal that keeps failing (contract section 8.1) is not part of this section; it follows in
 its own pull request.
+
+## 8. `GET /gateway/licenses/alarms` - the license alarms open now (phase 6)
+
+The red banner on every Cockpit page and on the phone. The shell shows `summary` when it is not null, then every
+alarm's `text` in order, then `linkText` as the link to the Licenses page - and nothing at all when `count` is 0. Every
+word is the Gateway's (`LicenseAlarmFold`); the client decides nothing. A read only: a session key may read it, and no
+route raises or clears an alarm (contract section 9).
+
+No alarm open:
+
+```
+{ "asOfUtc": "2026-10-17T08:00:00Z", "count": 0, "summary": null, "linkText": null, "alarms": [] }
+```
+
+Two open:
+
+```
+{
+  "asOfUtc": "2026-10-17T08:00:00Z",
+  "count": 2,
+  "summary": "2 license problems need you.",
+  "linkText": "Open Licenses",
+  "alarms": [
+    {
+      "alarmId": "0123456789abcdef0123456789abcdef",
+      "kind": "not-ready-at-80",
+      "machineName": "machine-a",
+      "accountEmail": "alice@example.com",
+      "text": "machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.",
+      "openedAtUtc": "2026-10-17T07:58:00Z"
+    },
+    {
+      "alarmId": "fedcba9876543210fedcba9876543210",
+      "kind": "stopped-reporting",
+      "machineName": "machine-b",
+      "accountEmail": null,
+      "text": "machine-b has not reported for 20 minutes. Check that the Director on machine-b is running.",
+      "openedAtUtc": "2026-10-17T07:59:00Z"
+    }
+  ]
+}
+```
+
+`machineName` is null for an alarm about no one machine, and `accountEmail` for an alarm about no one account.

@@ -405,6 +405,34 @@ export function getLicenseOverview(signal?: AbortSignal): Promise<LicenseOvervie
   return readJson<LicenseOverview>("/gateway/licenses", "read the licenses", "accounts", signal);
 }
 
+/** One open license alarm (License Switching phase 6). `text` is the banner's whole line for it, as the Gateway wrote it. */
+export interface LicenseAlarm {
+  alarmId: string;
+  /** The short stable word of the check that raised it, for example `not-ready-at-80`. */
+  kind: string;
+  machineName: string | null;
+  accountEmail: string | null;
+  text: string;
+  openedAtUtc: string;
+}
+
+/**
+ * The license alarms open now, with the red banner's finished words. A shell shows `summary` when it is not null, then
+ * every alarm's `text` in order, then `linkText` as the link to the Licenses page - and nothing at all when `count` is 0.
+ */
+export interface LicenseAlarms {
+  asOfUtc: string;
+  count: number;
+  summary: string | null;
+  linkText: string | null;
+  alarms: LicenseAlarm[];
+}
+
+/** GET /gateway/licenses/alarms - the license alarms open now, for the red banner on every page. */
+export function getLicenseAlarms(signal?: AbortSignal): Promise<LicenseAlarms> {
+  return readJson<LicenseAlarms>("/gateway/licenses/alarms", "read the license alarms", "alarms", signal);
+}
+
 /** GET /gateway/licenses/forecast - when each account is expected to reach its limit, and the next switch. */
 export function getLicenseForecast(signal?: AbortSignal): Promise<LicenseForecast> {
   return readJson<LicenseForecast>("/gateway/licenses/forecast", "read the license forecast", "machines", signal);

@@ -22,6 +22,14 @@ public static class LicenseLogKinds
     /// renewal keeps failing. One row for each failure streak of each sign-in, open while its <c>FinishedAtUtc</c> is
     /// null. Written and read by <see cref="LicenseRenewalFailureLog"/> only.</summary>
     public const string RenewalFailed = "renewal-failed";
+
+    /// <summary>A license alarm opened (<see cref="LicenseAlarmService"/>): the problem and the one thing to do. Final
+    /// when written.</summary>
+    public const string AlarmOpened = "alarm-opened";
+
+    /// <summary>A license alarm closed by itself, because the check that raised it no longer finds it true. Final when
+    /// written.</summary>
+    public const string AlarmClosed = "alarm-closed";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>

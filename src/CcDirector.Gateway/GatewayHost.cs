@@ -510,6 +510,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// while the sign-in is about to end. Run by the same once-a-minute check as <see cref="LicenseSwitches"/>.</summary>
     internal Licenses.LicenseRenewalEmailService LicenseRenewalEmails { get; }
 
+    /// <summary>License Switching phase 6: the ONE license alarm - raised by the Gateway's own checks, shown as the red
+    /// banner on every Cockpit page and on the phone, pushed and emailed once when it opens.</summary>
+    internal Licenses.LicenseAlarmService LicenseAlarms { get; }
+
     /// <summary>How the license checks email an account's owner: <see cref="Licenses.LicenseOwnerMailer.SendAsync"/>.
     /// A test puts a sender of its own here, so that a check run by the real host never reaches the account service.</summary>
     internal Licenses.LicenseOwnerEmailSender LicenseOwnerMail { get; set; }
@@ -1732,6 +1736,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Push.PushSubscriptionStore _pushSubscriptions;
     private Push.WebPushNeedsYouNotifier? _pushNotifier;
     private readonly Push.SecretTransferPushNotifier _secretTransferPush;
+    private readonly Push.LicenseAlarmPushNotifier _licenseAlarmPush;
+    private readonly Push.VapidWebPushSender _licenseAlarmPushSender;
     // The per-tenant driver for the app-icon dot, and the timer that fires it. The notifier holds no timer of
     // its own: a bare timer has no tenant, which is exactly why hosted push had to be switched off before.
     private Push.PushNeedsYouTenantSweep? _pushNeedsYouSweep;
@@ -2917,6 +2923,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // its own VAPID sender so its lifetime does not hang on the needs-you sweep starting.
         _secretTransferPush = new Push.SecretTransferPushNotifier(_pushSubscriptions,
             new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"));
+        // The license alarm push (License Switching phase 6): an alarm that opens is pushed to the same phones, each
+        // tenant's to its own, over its own sender for the same reason as the secret handoff push.
+        _licenseAlarmPushSender = new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com");
+        _licenseAlarmPush = new Push.LicenseAlarmPushNotifier(_pushSubscriptions, _licenseAlarmPushSender,
+            tenant => _tenantBoundary.EnterScope(tenant));
+        // The license alarm itself: the same owner email channel as the "no account has room" email, and this push.
+        LicenseAlarms = new Licenses.LicenseAlarmService(_gatewayDb, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
+            _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow);
 
         // Gateway device registration (issue #857): on sign-in (and as a first-launch/retry safety net on
         // the heartbeat) register THIS Gateway as a device with the cloud account and store the issued
@@ -5810,6 +5824,13 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // The sign-in routes of the Licenses page (contract section 8): who approves each account's sign-ins, and
         // "Add a spare" and "Renew now". Only the read of the approvers is in SessionKeyGuard's allow list.
+        // The license alarms open now (phase 6): the red banner of every Cockpit page and of the phone shell reads this.
+        // A read only, in SessionKeyGuard's allow list; no route raises or clears an alarm.
+        Api.LicenseEndpoints.MapAlarms(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            alarms: LicenseAlarms,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
+
         Api.LicenseSignInEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             approvers: LicenseApprovers,
@@ -7020,6 +7041,8 @@ public sealed class GatewayHost : IAsyncDisposable
         try
         {
             await LicenseRenewalEmails.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+            // An open license alarm whose owner email has not gone out is tried again here, beside the renewal emails.
+            await LicenseAlarms.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {
@@ -7552,6 +7575,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _pushNotifierTimer = null;
         try { _pushNotifier?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] push notifier dispose error: {ex.Message}"); }
         try { _secretTransferPush.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] secret transfer push dispose error: {ex.Message}"); }
+        try { _licenseAlarmPushSender.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license alarm push dispose error: {ex.Message}"); }
         try { _netDiagMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] netdiag monitor dispose error: {ex.Message}"); }
         try { _hostedAiSpendSweep?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] hosted-ai spend sweep dispose error: {ex.Message}"); }
         _pushNotifier = null;

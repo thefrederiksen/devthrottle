@@ -188,6 +188,11 @@ public sealed class PostgresProviderProofTests
         var expected = new[]
         {
             ("account_trials", "subject"),
+            // The API mode prompt receipts: the session, the prompt and the turn are exact keys. Declared "C" when the
+            // table was added and missed here (found by the license alarm pull request's run of this test).
+            ("api_mode_receipts", "PromptId"),
+            ("api_mode_receipts", "SessionId"),
+            ("api_mode_receipts", "TurnId"),
             // Two groups of dev report columns, interleaved below because the list is sorted:
             // - The dev report natural keys (the dev reports mission): dev_report_items.ClientItemId and
             //   SessionId, and dev_reports.Key and SessionId. A report is found by (session, report file path)
@@ -302,6 +307,9 @@ public sealed class PostgresProviderProofTests
             // the minted switch id and the closed words the engine selects on. Two emails Postgres considered equal and
             // SQLite did not would be one subscription on one provider and two on the other.
             ("license_accounts", "AccountEmail"),
+            // A license alarm is found again by its kind and its account (phase 6): one open alarm per identity.
+            ("license_alarms", "AccountEmail"),
+            ("license_alarms", "Kind"),
             ("license_bars", "AccountEmail"),
             ("license_bars", "Window"),
             ("license_holdings", "AccountEmail"),
