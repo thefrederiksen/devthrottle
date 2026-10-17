@@ -105,6 +105,7 @@ public static class LicenseRenewalSentences
         LicenseRenewalErrors.ApprovalFailed => "The approval in the browser did not complete.",
         LicenseRenewalErrors.WrongAccount => "The browser profile that approves this account is signed in to claude.ai as another account.",
         LicenseRenewalErrors.BrowserNotSignedIn => "The browser profile that approves this account is not signed in to claude.ai; sign it in by hand.",
+        LicenseRenewalErrors.NeedsFreshSignIn => "The browser profile that approves this account is signed in to claude.ai, but the approval page asks for a fresh sign-in; sign it in again by hand.",
         LicenseRenewalErrors.NoApprover => "No browser profile is set to approve this account, on this machine or another.",
         LicenseRenewalErrors.ApproverOffline => "The machine that approves this account has no Director connected.",
         LicenseRenewalErrors.Expired => "No approval came back from the other machine in time.",

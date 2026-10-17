@@ -19,6 +19,9 @@ in the AXI shape (docs/axi-standard.md).
   there is one, and otherwise behaves as `--remote-approval`. The Director runs these two: it asks what is due once
   a day and signs each due account in, so an account with no profile here is approved on another machine and no
   call is made that is expected to fail.
+- `license check-approver --browser <profile> [--email <account>]` says whether that profile could approve a
+  sign-in now, read from a real approval page and pressing nothing (`license_signin.check_approver`). With no email
+  it first reads which account the profile is signed in to claude.ai as. The Director runs it daily.
 - `license get-browser <email>` says which profile is set for an account on this machine, or that none is; exit 0
   either way.
 - A caller that CLOSES standard input while a sign-in waits for its code has called the sign-in off: the approval
@@ -130,6 +133,24 @@ def approve(url: str, email: str, browser: str, json_output: bool = False) -> No
         return
     # Only the code, so the caller can hand it to the waiting login as it is.
     print(code, flush=True)
+
+
+def check_approver(browser: str, email: Optional[str], json_output: bool) -> None:
+    """Whether a browser profile here could approve a sign-in now, read from a real approval page. Any state that
+    was read exits 0; `check-failed` - the check could not run - exits 1, still answering under `--json`."""
+    check = license_signin.check_approver(browser, email)
+    if json_output:
+        print(json.dumps(check.to_json(), indent=2), flush=True)
+    if check.state == license_signin.CHECK_FAILED:
+        axi_cli.fail(check.detail, ["browser-harness --doctor", "cc-devthrottle browser list"])
+    if not json_output:
+        axi_cli.write_lines(f"{check.state}: {check.detail}")
+        steps = {
+            license_signin.SIGNED_OUT: [f"cc-devthrottle browser signin \"{browser}\""],
+            license_signin.PAGE_NEEDS_FRESH_SIGN_IN: [f"cc-devthrottle browser signin \"{browser}\""],
+            license_signin.PAGE_WRONG_ACCOUNT: ["cc-devthrottle browser list --json"],
+        }.get(check.state, [_LIST])
+        axi_cli.print_next(steps)
 
 
 def set_browser(email: str, profile: str, default_config_dir: Optional[str], store_dir: Optional[str],

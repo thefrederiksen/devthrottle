@@ -35,6 +35,11 @@ owner configured for that account. Which profile is signed in as which account i
 the key store's folder on his machine (``sign-in-browsers.json``), never in this repository. A renewal that fails
 is reported in the result and makes the command exit non-zero - never silent.
 
+THE APPROVER CHECK. A profile that looks signed in can still be unable to approve: claude.ai can ask for a fresh
+sign-in on the approval page itself while its chat works. So ``check_approver`` opens a REAL approval page - from a
+throwaway login into a temporary folder, cancelled and deleted after - and reads it with the same ``classify_page``
+the approval uses, pressing nothing. The Director runs it daily for every approver it holds.
+
 NOTHING SECRET IS SHOWN. The new key never passes through this module: Claude Code writes it into the folder it
 belongs in, and nothing moves it. The authorize code passes through, is checked for shape, and is typed into the login; it is
 never logged, and no error message carries it.
@@ -43,12 +48,14 @@ never logged, and no error message carries it.
 from __future__ import annotations
 
 import datetime as _dt
+import inspect
 import json
 import logging
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -87,6 +94,7 @@ LOGIN_FAILED = "login-failed"              # claude auth login did not start, pr
 APPROVAL_FAILED = "approval-failed"        # the browser step did not produce a code
 WRONG_ACCOUNT = "wrong-account"            # the browser profile is signed in to claude.ai as someone else
 NOT_SIGNED_IN = "browser-not-signed-in"    # the browser profile is not signed in to claude.ai at all
+NEEDS_FRESH_SIGN_IN = "needs-fresh-sign-in"  # signed in, but the approval page asks for a recent sign-in ("reauth")
 NO_APPROVER = "no-approver"                # no browser profile is set to approve the account (contract 8.1)
 STORE_REFUSED = "store-refused"            # the key store would not take the new sign-in
 
@@ -293,15 +301,66 @@ def _abandon(store: LicenseStore, target) -> None:
 # ---------------------------------------------------------------------------------------------------
 
 
-#: What browser-harness runs to approve one authorize URL. It prints exactly one line starting "RESULT ", a JSON
-#: object whose "state" is code, wrong-account, not-signed-in, no-account-shown or no-code.
-_APPROVE_SCRIPT = r'''
+# What a settled approval page says. The approval and the daily approver check read a page with the same function, so
+# a page the check calls able to approve is a page the approval would approve on, and no other.
+CAN_APPROVE = "can-approve"                 # the Authorize button is on screen and the page names the right account
+PAGE_WRONG_ACCOUNT = "wrong-account"        # the page names another account
+SIGNED_OUT = "signed-out"                   # the page is claude.ai's sign-in page: no session at all
+PAGE_NEEDS_FRESH_SIGN_IN = "needs-fresh-sign-in"  # a session exists, but the page asks for a recent sign-in first
+CHECK_FAILED = "check-failed"               # the page is none of those, or the check could not run
+APPROVER_STATES = (CAN_APPROVE, PAGE_WRONG_ACCOUNT, SIGNED_OUT, PAGE_NEEDS_FRESH_SIGN_IN, CHECK_FAILED)
+
+
+def classify_page(text: str, address: str, authorize_on_screen: bool, email: str):
+    """What a settled approval page says for ``email``: ``(state, shown)``, where ``state`` is one of
+    ``APPROVER_STATES`` and ``shown`` the account the page says is signed in, or None.
+
+    The page shapes are the ones recorded live (test_license_signin.py holds copies with made-up names):
+
+    - the consent page: an Authorize button and "Logged in as <account>";
+    - the sign-in page: claude.ai/login, with "Continue with email" and no account;
+    - the "reauth" page, in two forms: the authorize page itself saying "Sign in again to continue ... granting this
+      access requires a recent sign-in" above "Logged in as <account>", with no Authorize button; or claude.ai/login
+      with ``reauth=1`` and the account as ``email``. The browser IS signed in (chat works) and still cannot approve.
+
+    The browser step runs this same function inside browser-harness (``_classifier_source``), so it imports what it
+    uses itself."""
+    import re as _re
+    import urllib.parse as _parse
+
+    parts = _parse.urlsplit(address or "")
+    query = _parse.parse_qs(parts.query)
+    login_page = parts.path.rstrip("/") == "/login"
+    reauth_login = login_page and query.get("reauth") == ["1"]
+    named = _re.search(r"Logged in as\s+([^\s]+@[^\s]+)", text or "", _re.I)
+    shown = named.group(1).strip().rstrip(".") if named else None
+    if shown is None and reauth_login:
+        shown = (query.get("email") or [""])[0].strip() or None
+    asks_again = reauth_login or bool(_re.search(r"requires a recent sign-in|Sign in again to continue", text or "",
+                                                 _re.I))
+    if shown and shown.lower() != email.strip().lower():
+        return "wrong-account", shown
+    if asks_again:
+        return "needs-fresh-sign-in", shown
+    if authorize_on_screen and shown:
+        return "can-approve", shown
+    if login_page:
+        return "signed-out", None
+    return "check-failed", shown
+
+
+def _classifier_source() -> str:
+    """``classify_page`` as source, for the browser step: one function, never a copy that can drift."""
+    return inspect.getsource(classify_page)
+
+
+#: The part of both browser steps that opens the URL and waits for a page that can be judged. Formatted with url,
+#: email and wait, after ``classify_page`` is defined.
+_SETTLE_SCRIPT = r'''
 import json, re, time
 URL = %(url)s
 EMAIL = %(email)s
 WAIT = %(wait)s
-SHOWN = re.compile(r"Logged in as\s+([^\s]+@[^\s]+)", re.I)
-CODE = re.compile(r"[A-Za-z0-9_\-]{20,}#[A-Za-z0-9_\-]{20,}")
 
 def authorize_button():
     # The consent page is long: the button can sit below the visible area, where a click at its position lands on
@@ -317,30 +376,40 @@ def authorize_button():
 def finish(state, **extra):
     print("RESULT " + json.dumps(dict(state=state, **extra)))
 
+def settle():
+    # Judge only a settled page: the Authorize button can render before the "Logged in as" line (seen live), and a
+    # page can pass through another on its way. An approvable page is taken at once; any other answer only when two
+    # reads in a row agree, and an unreadable page only when the time is up.
+    deadline = time.time() + WAIT
+    previous = None
+    while True:
+        authorize = authorize_button()
+        text = js("document.body ? document.body.innerText : ''") or ""
+        address = page_info().get("url", "")
+        state, shown = classify_page(text, address, authorize is not None, EMAIL)
+        if state == "can-approve" or (state != "check-failed" and state == previous) or time.time() >= deadline:
+            return state, shown, authorize, address.split("?")[0]
+        previous = state
+        time.sleep(2)
+
 new_tab(URL)
 tab = current_tab()
 # The tab is driven in the background, never brought to the front. A page can ignore input while it believes it
-# has no focus (a click was lost this way live), so focus is emulated for the approval and switched off after.
+# has no focus (a click was lost this way live), so focus is emulated while the page is read and switched off after.
 cdp("Emulation.setFocusEmulationEnabled", enabled=True)
+'''
+
+#: What browser-harness runs to approve one authorize URL. It prints exactly one line starting "RESULT ", a JSON
+#: object whose "state" is code, no-code, or one of the page states other than can-approve. It clicks Authorize only
+#: on a page ``classify_page`` calls can-approve.
+_APPROVE_SCRIPT = _SETTLE_SCRIPT + r'''
 try:
     wait_for_load()
-    deadline = time.time() + WAIT
-    text, authorize = "", None
-    # Judge only a settled page: the Authorize button can render before the "Logged in as" line (seen live).
-    while time.time() < deadline:
-        authorize = authorize_button()
-        text = js("document.body ? document.body.innerText : ''") or ""
-        if authorize and SHOWN.search(text):
-            break
-        time.sleep(2)
-    shown = SHOWN.search(text)
-    if not authorize:
-        finish("not-signed-in", url=page_info().get("url", ""))
-    elif not shown:
-        finish("no-account-shown")
-    elif shown.group(1).strip().rstrip(".").lower() != EMAIL.lower():
-        finish("wrong-account", shown=shown.group(1).strip().rstrip("."))
+    state, shown, authorize, address = settle()
+    if state != "can-approve":
+        finish(state, shown=shown, url=address)
     else:
+        CODE = re.compile(r"[A-Za-z0-9_\-]{20,}#[A-Za-z0-9_\-]{20,}")
         # A click made while the page is still settling can be lost (seen live: the consent page stayed up). So
         # the button is read again just before the click, and clicked again while it is still showing.
         time.sleep(1)
@@ -370,6 +439,45 @@ try:
                    text=" ".join(page.split())[:300], visibility=state[0], focused=state[1])
 finally:
     cdp("Emulation.setFocusEmulationEnabled", enabled=False)
+    cdp("Target.closeTarget", targetId=tab["targetId"])
+'''
+
+#: What browser-harness runs for the daily approver check: the same page, read the same way, and NOTHING pressed -
+#: no click, no typing, no sign-in. It prints exactly one "RESULT " line whose "state" is one of the page states.
+_CHECK_SCRIPT = _SETTLE_SCRIPT + r'''
+try:
+    wait_for_load()
+    state, shown, authorize, address = settle()
+    finish(state, shown=shown)
+finally:
+    cdp("Emulation.setFocusEmulationEnabled", enabled=False)
+    cdp("Target.closeTarget", targetId=tab["targetId"])
+'''
+
+#: Which account a browser profile is signed in to claude.ai as: claude.ai's own account endpoint, read from a
+#: claude.ai tab so the profile's session is what answers. Prints one "RESULT " line: state "account" with the
+#: email, "signed-out" (refused as unauthorised), or "unreadable" with the status.
+_ACCOUNT_SCRIPT = r'''
+import json
+def finish(state, **extra):
+    print("RESULT " + json.dumps(dict(state=state, **extra)))
+new_tab("https://claude.ai/")
+tab = current_tab()
+try:
+    wait_for_load()
+    answer = js("""fetch('/api/account', {credentials: 'include'}).then(async r => {
+        let email = null;
+        if (r.status === 200) { try { email = (await r.json()).email_address || null; } catch (e) {} }
+        return {status: r.status, email: email};
+    })""") or {}
+    status = answer.get("status")
+    if status in (401, 403):
+        finish("signed-out")
+    elif status == 200 and answer.get("email"):
+        finish("account", email=answer["email"])
+    else:
+        finish("unreadable", status=status)
+finally:
     cdp("Target.closeTarget", targetId=tab["targetId"])
 '''
 
@@ -458,38 +566,37 @@ def approve_in_browser(url: str, email: str, profile: str, *,
             [f"cc-devthrottle license approve --email {hints[0].strip()} --browser <its profile> <url>"])
     browser = open_profile(profile)
     try:
-        script = _APPROVE_SCRIPT % {"url": json.dumps(url.strip()), "email": json.dumps(email),
-                                    "wait": BROWSER_WAIT_SECONDS // 2}
-        out = run_harness(script, browser.environment(), BROWSER_WAIT_SECONDS + 30)
+        out = run_harness(_page_script(_APPROVE_SCRIPT, url, email), browser.environment(), BROWSER_WAIT_SECONDS + 30)
     finally:
         browser.stop()
-    lines = [line for line in out.splitlines() if line.startswith("RESULT ")]
-    if len(lines) != 1:
-        raise SignInError(APPROVAL_FAILED, "the browser step ended without a result")
-    try:
-        answer = json.loads(lines[0][len("RESULT "):])
-    except ValueError:
-        raise SignInError(APPROVAL_FAILED, "the browser step's result is not JSON") from None
+    answer = _result(out)
     state = answer.get("state")
     if state == "code" and isinstance(answer.get("code"), str) and CODE_SHAPE.match(answer["code"]):
         log.info("approve %s: approved in profile %s", email, profile)
         return answer["code"]
     log.warning("approve %s: refused in profile %s (%s)", email, profile, state)
-    if state == "wrong-account":
+    if state == PAGE_WRONG_ACCOUNT:
         raise SignInError(
             WRONG_ACCOUNT,
             f"the browser profile \"{profile}\" is signed in to claude.ai as {answer.get('shown')}, not {email}; "
             "nothing was approved.",
             ["cc-devthrottle browser list --json", f"cc-devthrottle license set-browser {email} <profile>"])
-    if state == "not-signed-in":
+    if state == SIGNED_OUT:
         raise SignInError(
             NOT_SIGNED_IN,
-            f"the browser profile \"{profile}\" showed no Authorize button: it is not signed in to claude.ai. "
+            f"the browser profile \"{profile}\" showed claude.ai's sign-in page: it is not signed in to claude.ai. "
             "Signing a profile in is done by hand, once.",
             [f"cc-devthrottle browser signin \"{profile}\""])
-    if state == "no-account-shown":
-        raise SignInError(APPROVAL_FAILED, "the consent page did not say which account is signed in, so nothing "
-                                           "was approved")
+    if state == PAGE_NEEDS_FRESH_SIGN_IN:
+        raise SignInError(
+            NEEDS_FRESH_SIGN_IN,
+            f"the browser profile \"{profile}\" is signed in to claude.ai, but the approval page asks for a fresh "
+            "sign-in first (\"Sign in again to continue\"); nothing was approved. Signing a profile in again is done "
+            "by hand, once.",
+            [f"cc-devthrottle browser signin \"{profile}\""])
+    if state == CHECK_FAILED:
+        raise SignInError(APPROVAL_FAILED, "the approval page showed neither an Authorize button for the account nor "
+                                           "a sign-in page, so nothing was approved")
     raise SignInError(APPROVAL_FAILED, f"Authorize was clicked {answer.get('clicks', '?')} time(s) but the page "
                                        f"showed no code (page visibility {answer.get('visibility', '?')}, focused "
                                        f"{answer.get('focused', '?')}; it is at "
@@ -497,9 +604,139 @@ def approve_in_browser(url: str, email: str, profile: str, *,
                                        f"{answer.get('text') or 'nothing'})")
 
 
+def _page_script(body: str, url: str, email: str) -> str:
+    """A browser step for one authorize URL: the shared page classifier, then ``body`` formatted for the URL."""
+    return _classifier_source() + body % {"url": json.dumps(url.strip()), "email": json.dumps(email),
+                                          "wait": BROWSER_WAIT_SECONDS // 2}
+
+
+def _result(out: str) -> dict:
+    """The one RESULT line a browser step prints, as JSON."""
+    lines = [line for line in out.splitlines() if line.startswith("RESULT ")]
+    if len(lines) != 1:
+        raise SignInError(APPROVAL_FAILED, "the browser step ended without a result")
+    try:
+        answer = json.loads(lines[0][len("RESULT "):])
+    except ValueError:
+        raise SignInError(APPROVAL_FAILED, "the browser step's result is not JSON") from None
+    if not isinstance(answer, dict):
+        raise SignInError(APPROVAL_FAILED, "the browser step's result is not a JSON object")
+    return answer
+
+
 def browser_approver(profile: str, **kwargs) -> Approve:
     """An ``approve`` for ``sign_in`` that approves in a browser profile on this machine."""
     return lambda url, email: approve_in_browser(url, email, profile, **kwargs)
+
+
+# ---------------------------------------------------------------------------------------------------
+# The daily approver check: can this browser profile approve a sign-in right now?
+# ---------------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ApproverCheck:
+    """What one look at a real approval page said. ``detail`` is this module's own sentence, never page text."""
+
+    browser_profile: str
+    account_email: Optional[str]
+    shown_account: Optional[str]
+    state: str
+    detail: str
+
+    def to_json(self) -> dict:
+        return {
+            "browserProfile": self.browser_profile,
+            "accountEmail": self.account_email,
+            "shownAccount": self.shown_account,
+            "state": self.state,
+            "detail": self.detail,
+        }
+
+
+def _detail(state: str, profile: str, email: Optional[str], shown: Optional[str]) -> str:
+    who = f"The browser profile \"{profile}\""
+    if state == CAN_APPROVE:
+        return f"{who} can approve sign-ins for {email}."
+    if state == PAGE_WRONG_ACCOUNT:
+        return f"{who} is signed in to claude.ai as {shown}, not {email}."
+    if state == SIGNED_OUT:
+        return f"{who} is not signed in to claude.ai."
+    if state == PAGE_NEEDS_FRESH_SIGN_IN:
+        return f"{who} is signed in to claude.ai, but the approval page for {email} asks for a fresh sign-in."
+    return f"{who} showed an approval page for {email} that was neither the consent page nor a sign-in page."
+
+
+def read_signed_in_account(env: Dict[str, str], run_harness: RunHarness = _run_harness) -> Optional[str]:
+    """The account the browser profile behind ``env`` is signed in to claude.ai as, or None when it is signed out.
+    Raises SignInError when claude.ai's answer is neither."""
+    answer = _result(run_harness(_ACCOUNT_SCRIPT, env, BROWSER_WAIT_SECONDS))
+    if answer.get("state") == "signed-out":
+        return None
+    if answer.get("state") == "account" and isinstance(answer.get("email"), str) and "@" in answer["email"]:
+        return answer["email"].strip().lower()
+    raise SignInError(APPROVAL_FAILED, f"claude.ai's account endpoint answered status {answer.get('status')}, which "
+                                       "says neither who is signed in nor that nobody is")
+
+
+def _temporary_login_folder() -> str:
+    """An empty folder of its own for the throwaway login: never a store folder, never the real default login."""
+    folder = tempfile.mkdtemp(prefix="cc-license-check-")
+    if is_real_default(folder):
+        raise SignInError(LOGIN_FAILED, f"the temporary folder {folder} is the machine's real Claude login folder")
+    return folder
+
+
+def check_approver(profile: str, email: Optional[str] = None, *,
+                   open_profile: Callable[[str], BrowserProfile] = director_browser,
+                   run_harness: RunHarness = _run_harness,
+                   start_login: Optional[StartLogin] = None,
+                   make_folder: Callable[[], str] = _temporary_login_folder) -> ApproverCheck:
+    """Could ``profile`` approve a sign-in for ``email`` now? Answered from a REAL approval page, because claude.ai
+    can demand a fresh sign-in there while its chat works (the 16 October report, problem 12).
+
+    With no ``email``, the account the profile is signed in to claude.ai as is read first; a signed-out profile is
+    answered ``signed-out`` with no account. The page comes from a throwaway ``claude auth login`` into a new
+    temporary folder, which is cancelled and deleted on every path. Nothing on the page is pressed: no Authorize, no
+    typing, no sign-in - the code that would come back is never asked for, so this can never sign anything in.
+
+    Every failure of the check itself is answered ``check-failed`` with why, never raised: the Director reports it."""
+    browser: Optional[BrowserProfile] = None
+    login: Optional[LoginProcess] = None
+    folder: Optional[str] = None
+    try:
+        browser = open_profile(profile)
+        env = browser.environment()
+        if email is None:
+            email = read_signed_in_account(env, run_harness)
+            if email is None:
+                log.info("check-approver %s: signed out of claude.ai", profile)
+                return ApproverCheck(profile, None, None, SIGNED_OUT, _detail(SIGNED_OUT, profile, None, None))
+        email = email.strip().lower()
+        folder = make_folder()
+        login = (start_login or start_claude_login)(folder, email)
+        url = login.authorize_url(URL_WAIT_SECONDS)
+        if not AUTHORIZE_URL.fullmatch(url.strip()):
+            raise SignInError(LOGIN_FAILED, "claude auth login printed something that is not an authorize URL")
+        answer = _result(run_harness(_page_script(_CHECK_SCRIPT, url, email), env, BROWSER_WAIT_SECONDS + 30))
+        state = answer.get("state")
+        if state not in APPROVER_STATES:
+            raise SignInError(APPROVAL_FAILED, f"the browser step answered a state this tool does not know ({state!r})")
+        shown = answer.get("shown") if isinstance(answer.get("shown"), str) else None
+        log.info("check-approver %s for %s: %s", profile, email, state)
+        return ApproverCheck(profile, email, shown, state, _detail(state, profile, email, shown))
+    except SignInError as ex:
+        log.warning("check-approver %s for %s: the check could not run (%s) %s", profile, email, ex.kind, ex)
+        return ApproverCheck(profile, email, None, CHECK_FAILED, f"The check could not run: {ex}")
+    finally:
+        if login is not None:
+            login.cancel()
+        # The login is ended first, so nothing still holds a file in the folder. A folder that cannot be removed is
+        # raised, never left behind quietly.
+        if folder is not None and os.path.isdir(folder):
+            shutil.rmtree(folder)
+        if browser is not None:
+            browser.stop()
 
 
 # ---------------------------------------------------------------------------------------------------

@@ -318,7 +318,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
             sentences.Add(Overview(T0).Machines.Single().Spares.Single().RenewalFailedText!);
         }
 
-        Assert.Equal(8, sentences.Count);                                // a word added to the contract shows up here
+        Assert.Equal(9, sentences.Count);                                // a word added to the contract shows up here
         Assert.All(sentences, s => Assert.StartsWith("Renewing this sign-in failed 5 minutes ago: ", s));
         Assert.All(sentences, s => Assert.EndsWith(".", s));
         Assert.Equal(sentences.Count, sentences.Distinct().Count());

@@ -940,6 +940,7 @@ public static class LicenseDisplayFold
         LicenseRenewalErrors.ApprovalFailed => "the approval in the browser did not complete",
         LicenseRenewalErrors.WrongAccount => "the approving browser is signed in as another account",
         LicenseRenewalErrors.BrowserNotSignedIn => "the approving browser is not signed in",
+        LicenseRenewalErrors.NeedsFreshSignIn => "the approving browser needs a fresh claude.ai sign-in on the approval page",
         LicenseRenewalErrors.NoApprover => "no browser is set to approve this account",
         LicenseRenewalErrors.ApproverOffline => "the machine that approves this account was not connected",
         LicenseRenewalErrors.Expired => "no approval came back in time",

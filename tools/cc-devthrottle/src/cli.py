@@ -2112,6 +2112,21 @@ def license_approve(
     license_signin_ops.approve(url, email, browser, json_output)
 
 
+@license_app.command("check-approver")
+def license_check_approver(
+    browser: str = typer.Option(..., "--browser", help="The browser profile on this machine to check."),
+    email: Optional[str] = typer.Option(
+        None, "--email", help="The account it should approve. Default: the account it is signed in to claude.ai as."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help="Output JSON: {browserProfile, accountEmail, shownAccount, state, detail}.",
+    ),
+) -> None:
+    """Check whether a browser profile can approve sign-ins, pressing nothing."""
+    license_signin_ops.check_approver(browser, email, json_output)
+
+
 @license_app.command("renew")
 def license_renew(
     account: Optional[str] = typer.Argument(None, help="One account's email. Default: every account held."),
