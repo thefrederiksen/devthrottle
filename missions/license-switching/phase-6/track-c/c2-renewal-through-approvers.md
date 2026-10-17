@@ -88,4 +88,10 @@ holding that was just renewed.
 Only C# changed; the Python tool did not, so `pytest tools/cc-devthrottle/tests` has nothing new to say and its
 4,729 passing tests from pull request 4116 stand.
 
-GATE_RESULTS
+At 7afb2a6bf, tree clean, on origin/main 5d4d8caca:
+
+- `.\scripts\test-local.ps1`: RESULT GREEN, every suite Completed with every test executed.
+- `.\scripts\test-local.ps1 -Parked` with TEMP and TMP on D:: RESULT GREEN, every suite Completed -
+  `CcDirector.Gateway.UnitTests` 14,010, `CcDirector.Gateway.Tests` 1,779 executed of 1,782 (three reported skipped
+  in shard 3, as on main), `CcDirector.Core.Tests` 4,539, `CcDirector.Core.UnitTests` 2,160,
+  `CcDirector.Reclaim.Tests` 305. The run waited for another session's parked gate to release the lock first.
