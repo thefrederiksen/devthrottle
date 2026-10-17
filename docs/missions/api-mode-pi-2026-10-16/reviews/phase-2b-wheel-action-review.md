@@ -159,8 +159,31 @@ phase 4 branch (#4094) sets `none` when the user's terminal exits on its own and
 resumes the conversation over the protocol, and the Gateway's hand back route forwards it. Without the button, a
 session whose terminal exited has prompts queued and nothing to press. The fold's "revisited in phase 4" comment is
 replaced by this reasoning and names #4094. An unknown holder still gets no button. The test
-`Fold_NoProcessHoldsTheWheel_ShowsNoWheelButton` is replaced by `Fold_NoProcessHoldsTheWheel_OffersHandBackEnabled`,
+`Fold_NoProcessHoldsTheWheel_ShowsNoWheelButton` is replaced by `Fold_NoProcessHoldsTheWheelOnALiveSession_OffersHandBackEnabled`,
 which asserts all four fields.
+
+**Changed by the Tech Lead after the Delivery Lead's check, 17 October 2026: an ended session shows no button.** Holder
+`none` is also what phase 1's #4088 pushes once an API-mode session ends, and an enabled Hand back there could never
+work, which rule 7 exists to prevent. So:
+- `none` on a session that has ended: no button (null).
+- `none` on a live session: Hand back, enabled, as above.
+- `protocol` or `user` on an ended row: no button either.
+
+"Ended" is the Gateway's existing rule, `GatewayDictationEndpoint.IsExited` (Status `Exited` or `Failed`, or
+ActivityState `Exited`, ignoring case), not a second copy. The fold stays pure: its one caller,
+`ApiModeRowStamp.Stamp`, reads `IsExited` off the row and passes it in as the new `sessionEnded` argument.
+
+Checked first, as the ruling asked, on #4094 at `b4fd8d012`: when the user's terminal exits on its own,
+`ApiModeSessionBackend.HandleTerminalExitAsync` sets the holder to `none`, disposes the terminal and calls
+`SetStatus` with "No process holds the conversation ...". It does NOT set `_hasExited` and does NOT raise
+`ProcessExited`. `Session.OnBackendStatusChanged` only writes that text to the log, and
+`Session.OnApiModeTerminalChanged` sets ActivityState `WaitingForInput` (no terminal, holder not `protocol`). So the row
+stays live, neither Status nor ActivityState is `Exited`, and the live-`none` Hand back is reachable.
+
+Tests: `Fold_AnEndedSession_ShowsNoWheelButtonWhoeverHeldTheWheel` (`none`, `protocol`, `user`, each null);
+`Fold_NoProcessHoldsTheWheelOnALiveSession_OffersHandBackEnabled`; and on the real `GET /sessions`,
+`GetSessions_AnEndedSessionThatNobodyHolds_ShowsNoWheelButton` (holder `none`, Status `Exited`, `wheelAction` null),
+which proves the caller passes the rule in.
 
 ### Finding 2 (low): the wire value `handBack` is never asserted as a literal, so a misspelt constant would pass every test
 

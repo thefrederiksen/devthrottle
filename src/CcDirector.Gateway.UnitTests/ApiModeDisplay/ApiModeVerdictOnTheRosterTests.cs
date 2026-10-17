@@ -149,6 +149,21 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSessions_AnEndedSessionThatNobodyHolds_ShowsNoWheelButton()
+    {
+        // Arrange: the session ended, so the Director pushes holder none and status Exited (#4088).
+        PushRoster(apiWheel: WheelHolders.None, apiStatus: "Exited");
+        Ingest(Ready(1));
+        var http = await StartAsync(withApiMode: true);
+
+        // Act
+        var verdict = (await RowAsync(http, Sid)).GetProperty("apiMode");
+
+        // Assert
+        Assert.Equal(JsonValueKind.Null, verdict.GetProperty("wheelAction").ValueKind);
+    }
+
+    [Fact]
     public async Task GetSessions_ATerminalModeSession_IsByteForByteTheRowWithoutApiMode()
     {
         // Arrange: the same roster served by a Gateway with API mode wired and by one without it.
@@ -204,13 +219,13 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
 
     // ----- helpers -----
 
-    private void PushRoster(string apiWheel = WheelHolders.Protocol)
+    private void PushRoster(string apiWheel = WheelHolders.Protocol, string apiStatus = "Running")
     {
         _registry.RegisterFromStream(DirectorId, "TEST-PC", "tester", "1.0", 1, Pushed, TenantId.Local);
         _pushed.RegisterConnection(TenantId.Local, DirectorId, ConnectionId);
         Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, ConnectionId, 1, new List<SessionDto>
         {
-            new() { SessionId = Sid, Name = "Pi in API mode", Agent = "Pi", Status = "Running", ActivityState = "Idle", LastActivityAt = Pushed, ConnectionMode = ConnectionModes.Api, WheelHolder = apiWheel },
+            new() { SessionId = Sid, Name = "Pi in API mode", Agent = "Pi", Status = apiStatus, ActivityState = "Idle", LastActivityAt = Pushed, ConnectionMode = ConnectionModes.Api, WheelHolder = apiWheel },
             new() { SessionId = TerminalSid, Name = "Pi in a terminal", Agent = "Pi", Status = "Running", ActivityState = "Idle", LastActivityAt = Pushed },
         }));
     }
