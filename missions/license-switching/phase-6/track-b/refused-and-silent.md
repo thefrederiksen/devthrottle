@@ -194,3 +194,14 @@ gave "Passed! - Failed: 0, Passed: 914, Total: 914".
 
 **After the review fix (finding 1), rebased on origin/main `6c783e3d4`:** the license tests "Passed! - Failed: 0,
 Passed: 860, Total: 860" (the three new two-Director tests included). The gate lines of this round follow.
+
+- `.\scripts\test-local.ps1` on `43a340bcd`: every suite that ran passed (Engine 85, HostedAgent 85, Launcher 214,
+  Terminal.Avalonia 71, Reclaim 305, DeliveryQualification 17, installer 39 / 884 / 74). `Core.UnitTests` and
+  `Avalonia.Tests` were stopped at the 120-second ceiling while other sessions' gates were running ("NOT a test
+  failure"). Both completed green in the parked run below.
+- `.\scripts\test-local.ps1 -Parked` on `43a340bcd`, with TEMP and TMP on D: as the Delivery Lead advised (the C:
+  disk is short of space): every suite Completed. That includes `CcDirector.Gateway.UnitTests` 13864 of 13864,
+  Gateway.Tests in four shards (1764), Core.Tests 4538, Core.UnitTests 2127 and Avalonia.Tests 1063. One test failed:
+  `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused`, with "Windows returned ... as the
+  short form of ...". The D: volume keeps no short file names, so this test cannot pass with TEMP on D:; the Delivery
+  Lead reports the same failure on clean main. In the default run above, with TEMP on C:, Reclaim passed 305 of 305.
