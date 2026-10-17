@@ -356,6 +356,26 @@ public sealed class ApiModeSessionHostTests
     }
 
     [Fact]
+    public async Task OnRecord_UnreadableGetStateAnswerWhileIdle_EndsInFailureWithTheReason()
+    {
+        // Arrange: the get_state answer without "success", a field the dialect must read, so Pi's shape changed. It is
+        // the first record every session reads, before any prompt can be written: Pi has nothing in hand.
+        var pi = new ScriptedPi("plain") { EditStdout = line => line.Replace("\"command\":\"get_state\",\"success\":true,", "\"command\":\"get_state\",") };
+        await using var rig = StartHost(pi);
+
+        // Act
+        var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
+
+        // Assert: Pi exited 0 when the Director closed its input, and the end is still a failure, in its own words.
+        Assert.True(rig.Host.EndedInFailure);
+        Assert.StartsWith("The Director could not read Pi's record 1: ", ended.Reason);
+        Assert.Contains(". Pi exited (exit code 0)", ended.Reason);
+        Assert.Equal(0, ended.ExitCode);
+        Assert.Empty(rig.Sink.Events.OfType<ConnectionReady>());
+        Assert.Single(rig.Host.Defects);
+    }
+
+    [Fact]
     public async Task Start_ResumeThatFoundTheConversation_AnswersFromIt()
     {
         // Arrange: the recording's Pi resumed the plain conversation and answered from it.
@@ -438,6 +458,31 @@ public sealed class ApiModeSessionHostTests
         Assert.NotEqual(first.Generation, second.Generation);
         Assert.True(second.GenerationStartedUtc > first.GenerationStartedUtc);
         Assert.Equal(1, second.Numbering.NextSequence());
+    }
+
+    [Fact]
+    public async Task TurnStartBound_RestartCannotStartPi_EndsInFailureWithBothReasons()
+    {
+        // Arrange: the Pi acknowledges and never begins its turn, and there is no Pi to restart with - the factory
+        // throws when the host asks it for one.
+        var stuck = new ScriptedPi("plain") { AcknowledgeOnly = true };
+        await using var rig = StartHost(stuck);
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        Assert.True((await rig.Host.SendPromptAsync("Reply with exactly the word PONG", CancellationToken.None)).Delivered);
+        var second = rig.Host.SendPromptAsync("Second", CancellationToken.None);
+        await rig.Sink.WaitForAsync<PromptQueued>();
+
+        // Act
+        rig.Clock.Advance(ApiModeSessionDefaults.TurnStartBound);
+        var ended = await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
+        var secondReceipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
+
+        // Assert: the session's end is a failure and says both what went wrong and that the restart failed.
+        Assert.True(rig.Host.EndedInFailure);
+        Assert.StartsWith(PiDialect.AcknowledgedButNeverStartedReason, ended.Reason);
+        Assert.Contains(". Restarting Pi failed: ", ended.Reason);
+        Assert.False(secondReceipt.Delivered);
+        Assert.Contains(". Restarting Pi failed: ", secondReceipt.RefusalReason);
     }
 
     [Fact]

@@ -506,8 +506,11 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             // refuses every prompt without a receipt and ends any running turn (the dialect's contract).
             FileLog.Write($"[ApiModeSessionHost] OnRecord FAILED: session={_sessionId}, record {record.Sequence}: {ex.Message}");
             AddDefect($"the dialect could not read record {record.Sequence}: {ex.Message}");
+            var reason = $"The Director could not read Pi's record {record.Sequence}: {ex.Message}";
+            // Told to the dialect, so the end says it and reads failed even with nothing in hand (issue #4070).
+            connection.Dialect.RequireStopForUnreadableRecord(reason);
             connection.ShuttingDown = true;
-            _ = StopProcessAsync(connection, $"the Director could not read Pi's record: {ex.Message}");
+            _ = StopProcessAsync(connection, reason);
             return;
         }
 

@@ -351,4 +351,53 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         Assert.False(session.Crashed);
         Assert.Equal(Assert.Single(sink.Events.OfType<ConnectionEnded>()).Reason, session.EndReason);
     }
+
+    [Fact]
+    public async Task CreateSession_ApiModePiRecordUnreadableWhileIdle_SessionFailsWithTheReason()
+    {
+        // Arrange: Pi's get_state answer lacks a field the dialect must read; the Director stops Pi, which exits 0.
+        var pi = new ScriptedPi("plain") { EditStdout = line => line.Replace("\"command\":\"get_state\",\"success\":true,", "\"command\":\"get_state\",") };
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Act
+        var (_, session, sink) = CreateApiModeSession(pi);
+        session.OnExited += code => exited.TrySetResult(code);
+        // The session may already have ended before the handler was attached: the create returns while Pi answers.
+        if (session.ExitCode is { } already)
+            exited.TrySetResult(already);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: not a clean exit, and the reason says what went wrong.
+        var ended = Assert.Single(sink.Events.OfType<ConnectionEnded>());
+        Assert.StartsWith("The Director could not read Pi's record 1: ", ended.Reason);
+        Assert.Equal(0, session.ExitCode);
+        Assert.Equal(SessionStatus.Failed, session.Status);
+        Assert.True(session.Crashed);
+        Assert.Equal(ended.Reason, session.EndReason);
+        Assert.Equal($"failed: {ended.Reason}", session.LastStatusReason);
+    }
+
+    [Fact]
+    public async Task CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween()
+    {
+        // Arrange: the issue #959 rule on its own - the exit-synthesised TurnEnded must not read as a wait for input.
+        var pi = new ScriptedPi("exit") { ExitCode = 0 };
+        var (_, session, _) = CreateApiModeSession(pi);
+        await WaitForActivityAsync(session, ActivityState.WaitingForInput);
+        var transitions = new List<(ActivityState From, ActivityState To)>();
+        session.OnActivityStateChanged += (from, to) => { lock (transitions) transitions.Add((from, to)); };
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExited += code => exited.TrySetResult(code);
+
+        // Act
+        await session.SendTextAsync("Write a long answer", Door);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert
+        lock (transitions)
+        {
+            Assert.Equal((ActivityState.Working, ActivityState.Exited), transitions[^1]);
+            Assert.DoesNotContain((ActivityState.Working, ActivityState.WaitingForInput), transitions);
+        }
+    }
 }

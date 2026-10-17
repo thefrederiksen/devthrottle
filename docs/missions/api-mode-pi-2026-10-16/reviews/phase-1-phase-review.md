@@ -233,14 +233,24 @@ wrong:
 - **The failure colour is final.** A Pi whose resume found nothing ends within milliseconds of creation, before
   the Wingman first sees it; the Wingman's plain "exited" no longer paints over the failure.
 
-Tests, in `CcDirector.Core.UnitTests` (139 of 139 API mode tests pass):
+- **A record the Director could not read ends failed too, even with nothing in hand** (finding 1 of the pull
+  request's own review, `phase-4-silent-end-review.md`): the host tells the dialect, so the stop reason is the
+  end's reason.
+
+Tests, in `CcDirector.Core.UnitTests` (145 of 145 API mode tests pass):
 `CreateSession_ApiModePiResumeFindsNothing_SessionEndsWithTheReason` (now pins `Failed`, exit code 0 and the
 reason), `CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason`,
 `CreateSession_ApiModePiIdleEndsWithExitCodeZero_SessionExitsCleanly` (the clean exit still reads clean),
 `SetStatusColor_AfterTheSessionFailed_IsDroppedAndTheFailureAndItsReasonStay`,
 `OnProcessExited_BeforeAcknowledgement_EndReasonCarriesTheExitCodeAndStandardError`,
 `OnProcessExited_AfterAResumeThatFoundNothing_EndReasonCarriesTheStopReasonExitCodeAndStandardError` and
-`OnProcessExited_IdleWithNothingInHand_IsNotAFailure`. Five existing tests that pinned the old end wording were
+`OnProcessExited_IdleWithNothingInHand_IsNotAFailure`, and after the pull request's review
+`OnRecord_UnreadableGetStateAnswerWhileIdle_EndsInFailureWithTheReason`,
+`CreateSession_ApiModePiRecordUnreadableWhileIdle_SessionFailsWithTheReason`,
+`RequireStopForUnreadableRecord_ThenPiExitedIdle_EndsInFailureWithTheReason`,
+`OnProcessExited_IdleWithNonZeroCodeAndStandardError_ReasonCarriesTheStandardError`,
+`CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween` and
+`TurnStartBound_RestartCannotStartPi_EndsInFailureWithBothReasons`. Five existing tests that pinned the old end wording were
 updated to the new wording. Also run: the API mode tests in `CcDirector.Gateway.UnitTests` (272 of 272 pass;
 the Gateway shows the `ConnectionEnded` reason verbatim), and the session colour and crash tests in
 `CcDirector.Core.Tests` (`SessionStatusWingmanTests`, `SessionReapOnExitTests`, `SessionDeletionReaperTests`,

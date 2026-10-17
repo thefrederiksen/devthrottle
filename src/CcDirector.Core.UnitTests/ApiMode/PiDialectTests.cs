@@ -326,6 +326,38 @@ public sealed class PiDialectTests
     }
 
     [Fact]
+    public void OnProcessExited_IdleWithNonZeroCodeAndStandardError_ReasonCarriesTheStandardError()
+    {
+        // Arrange
+        Ready();
+        Take(_dialect.OnStderrLine("Error: ENOSPC no space left on device"));
+
+        // Act
+        Take(_dialect.OnProcessExited(1));
+
+        // Assert: the code is the only sign of the failure, so the standard error must travel with it.
+        Assert.Equal("Pi exited (exit code 1). Standard error: Error: ENOSPC no space left on device",
+            _events.OfType<ConnectionEnded>().Single().Reason);
+    }
+
+    [Fact]
+    public void RequireStopForUnreadableRecord_ThenPiExitedIdle_EndsInFailureWithTheReason()
+    {
+        // Arrange
+        Ready();
+
+        // Act
+        _dialect.RequireStopForUnreadableRecord("The Director could not read Pi's record 7: bad shape");
+        Take(_dialect.OnProcessExited(0));
+
+        // Assert
+        Assert.True(_dialect.EndedInFailure);
+        Assert.False(_dialect.CanWritePrompt);
+        Assert.Equal("The Director could not read Pi's record 7: bad shape. Pi exited (exit code 0)",
+            _events.OfType<ConnectionEnded>().Single().Reason);
+    }
+
+    [Fact]
     public void OnProcessExited_CalledTwice_Throws()
     {
         // Arrange

@@ -133,6 +133,19 @@ public sealed class PiDialect
     /// </summary>
     public bool EndedInFailure { get; private set; }
 
+    /// <summary>
+    /// The Director could not read one of Pi's records (<see cref="OnStdoutRecord"/> threw: Pi's shape changed) and is
+    /// stopping this process. The reason becomes the stop reason, so the end is a failure in its own words even when Pi
+    /// had nothing in hand - the record every session reads first, the <c>get_state</c> answer, comes before any prompt.
+    /// </summary>
+    public void RequireStopForUnreadableRecord(string reason)
+    {
+        FileLog.Write($"[PiDialect] RequireStopForUnreadableRecord: session={_sessionId}, reason={reason}");
+        if (_exited)
+            throw new InvalidOperationException("RequireStopForUnreadableRecord was called after Pi exited.");
+        RequireStop(new StepBuilder(), reason);
+    }
+
     // ---------------------------------------------------------------- commands
 
     /// <summary>A <c>prompt</c> command. Never with <c>streamingBehavior</c>: the Director owns the queue.</summary>
@@ -305,7 +318,7 @@ public sealed class PiDialect
             ?? neverStartedReason
             ?? (unacknowledged.Count > 0
                 ? $"{ExitedBeforeAcknowledgingReason} (exit code {exitCode}){stderrDetail}"
-                : $"Pi exited (exit code {exitCode})");
+                : $"Pi exited (exit code {exitCode}){stderrDetail}");
         step.Events.Add(new ConnectionEnded
         {
             SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),
