@@ -436,6 +436,35 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ASignedOutCheck_OverTheDirectorsHub_OpensTheApproverAlarm_AndACanApproveCheckClosesIt()
+    {
+        using var set = await SetApprover(_aliceOwner, A, ApprovingMachine);
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+
+        // The approving machine's Director finds the profile signed out and says so over its own hub connection. The
+        // raise runs on the host's own task, inside the tenant's scope the host enters for it.
+        var signedOut = await _approver.ReportLicenseApproverChecksAsync(new LicenseApproverCheckReport
+        {
+            OffersApprovers = true,
+            Rows = [new LicenseApproverCheckRow { BrowserProfile = "work", AccountEmail = A, State = LicenseApproverStates.SignedOut, CheckedAtUtc = Now }],
+        });
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(signedOut.Rows).Outcome);
+        await _gateway.LicenseApproverAlarm.WhenIdleAsync();
+
+        var open = Assert.Single(_gateway.LicenseAlarms.ListOpen(_alice.Tenant));
+        Assert.Equal((LicenseApproverAlarm.Kind.Key, A), (open.Kind, open.AccountEmail));
+        Assert.Equal($"The approver for {A} (browser profile \"work\" on {ApprovingMachine}) is not signed in to claude.ai.", open.Problem);
+        Assert.Empty(_gateway.LicenseAlarms.ListOpen(_bob.Tenant));
+
+        // It signs back in, the next check says so, and the alarm closes by itself.
+        var healthy = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(healthy.Rows).Outcome);
+        await _gateway.LicenseApproverAlarm.WhenIdleAsync();
+
+        Assert.Empty(_gateway.LicenseAlarms.ListOpen(_alice.Tenant));
+    }
+
+    [Fact]
     public async Task TheFourWrites_AskedWithASessionKeyTheOwnerRaised_AreStillRefused_AndNothingIsStoredOrSent()
     {
         await AliceSetsHerApprover();
