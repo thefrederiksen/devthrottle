@@ -10,7 +10,8 @@ namespace CcDirector.Gateway.Tests;
 /// characters append, Backspace removes one, Enter submits the line and empties it, an escape sequence (a cursor key,
 /// a focus or mouse report, a bracketed-paste marker, an encoded Enter) puts nothing in it - answers an Enter with a
 /// turn's worth of output, and runs <see cref="OnWrite"/> as each write lands, which is how a test puts the owner's
-/// keystroke in the middle of the send.
+/// keystroke in the middle of the send. A screen a test paints straight into <see cref="Buffer"/> lasts only until the
+/// next echoed write redraws it; a test that needs its own screen to outlive a write sets <see cref="Echo"/> to false.
 ///
 /// IT DRAWS CLAUDE CODE'S COMPOSER ON ITS SCREEN (the Prompt Delivery mission, 16 October 2026). A send looks before it
 /// types: through the Session's own parser it reads the composer, and refuses when the screen shows no composer, a menu,
@@ -33,7 +34,9 @@ internal sealed class ScriptedTerminal : ISessionBackend
     private readonly List<string> _transcript = new();
     private bool _inEscape;
     private bool _csi;
+    private bool _csiParams;
     private bool _ss3;
+    private int _x10Payload;
     public int ProcessId => 0;
     public string Status => "scripted";
     public bool IsRunning => true;
@@ -59,6 +62,7 @@ internal sealed class ScriptedTerminal : ISessionBackend
             {
                 _inEscape = true;
                 _csi = false;
+                _csiParams = false;
                 _ss3 = false;
             }
             else if (ch == '\r')
@@ -84,13 +88,21 @@ internal sealed class ScriptedTerminal : ISessionBackend
         OnWrite?.Invoke(text);
     }
 
-    /// <summary>One character of an escape sequence: a CSI sequence ends at its final byte, an SS3 one after one
-    /// character, and any other escape is ESC plus the one character that follows it.</summary>
+    /// <summary>One character of an escape sequence: a CSI sequence ends at its final byte (an X10 mouse report,
+    /// "ESC [ M" with no parameters, carries three payload bytes after it), an SS3 one ends after one character, and
+    /// any other escape is ESC plus the one character that follows it.</summary>
     private void ConsumeEscape(char ch)
     {
+        if (_x10Payload > 0)
+        {
+            if (--_x10Payload == 0) _inEscape = false;
+            return;
+        }
         if (_csi)
         {
-            if (ch >= '\x40' && ch <= '\x7e') _inEscape = false;
+            if (ch < '\x40' || ch > '\x7e') { _csiParams = true; return; }
+            if (ch == 'M' && !_csiParams) { _x10Payload = 3; return; }
+            _inEscape = false;
             return;
         }
         if (_ss3) { _inEscape = false; return; }

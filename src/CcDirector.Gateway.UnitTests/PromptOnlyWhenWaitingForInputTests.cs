@@ -278,6 +278,9 @@ public sealed class PromptOnlyWhenWaitingForInputTests
 
         Assert.False(response.Accepted);
         Assert.True(response.RefusedBusy);
+        // The look's own words, not the owner-draft check's: that check saw no draft (asserted above).
+        Assert.Null(response.RefusedFor);
+        Assert.Contains("already holds", response.Error);
         Assert.Contains("never sent", response.Error);
         Assert.Empty(terminal.Writes);
         Assert.Equal("my draft ", terminal.Composer.ToString());
