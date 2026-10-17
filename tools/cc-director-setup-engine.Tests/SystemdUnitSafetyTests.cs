@@ -65,6 +65,14 @@ public sealed class SystemdUnitSafetyTests
     }
 
     [Fact]
+    public void GatewayUnitContent_IsLfOnly_WhateverTheCheckoutsLineEndings()
+    {
+        var unit = GatewaySystemdAutostart.UnitContent("/opt/gw/devthrottle-gateway", "--managed");
+
+        Assert.DoesNotContain("\r", unit);
+    }
+
+    [Fact]
     public void Tokens_QuotedPathWithSpaces_StaysOneWord()
     {
         Assert.Equal(new[] { "/home/t/My Apps/dotnet", "app.dll" },
