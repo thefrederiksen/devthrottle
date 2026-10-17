@@ -296,6 +296,7 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         // Assert: Pi exited 0 when its input closed, and the session still reads failed, with the stream's reason.
         Assert.StartsWith("Resume failed:", ended.Reason);
         Assert.Contains("messageCount 0", ended.Reason);
+        Assert.EndsWith(". Pi exited (exit code 0)", ended.Reason);
         Assert.Empty(sink.Events.OfType<ConnectionReady>());
         Assert.Equal(0, session.ExitCode);
         Assert.Equal(SessionStatus.Failed, session.Status);

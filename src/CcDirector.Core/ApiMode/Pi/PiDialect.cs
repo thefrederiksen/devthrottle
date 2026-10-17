@@ -297,10 +297,15 @@ public sealed class PiDialect
             EndNeverStartedTurn(step, neverStartedReason);
         }
 
-        var reason = _stopReason
+        // A failed end says what went wrong, the exit code and the standard error tail (issue #4070): Pi exits 0 whenever
+        // its input closes, so the code alone never tells.
+        var stderrDetail = stderr.Count > 0 ? ". Standard error: " + string.Join(" | ", stderr) : "";
+        var reason = (_stopReason is not null ? $"{_stopReason}. Pi exited (exit code {exitCode}){stderrDetail}" : null)
             ?? turnReason
             ?? neverStartedReason
-            ?? (unacknowledged.Count > 0 ? ExitedBeforeAcknowledgingReason : $"Pi exited (exit code {exitCode})");
+            ?? (unacknowledged.Count > 0
+                ? $"{ExitedBeforeAcknowledgingReason} (exit code {exitCode}){stderrDetail}"
+                : $"Pi exited (exit code {exitCode})");
         step.Events.Add(new ConnectionEnded
         {
             SessionId = _sessionId, Sequence = _numbering.NextSequence(), At = _clock.GetUtcNow(),

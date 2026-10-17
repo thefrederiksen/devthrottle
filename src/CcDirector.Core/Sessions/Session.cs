@@ -2259,6 +2259,8 @@ public sealed class Session : IDisposable
             // positive-evidence verdict keeps (or re-establishes) its stickiness.
             _lastColorSource = source;
             _lastColorGeneration = gen;
+            if (final)
+                _statusColorFinal = true;
             if (old == color && LastStatusReason == newReason) return;
             StatusColor = color;
             LastStatusReason = newReason;
