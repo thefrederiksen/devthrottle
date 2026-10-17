@@ -41,9 +41,9 @@ a turn also carry `turnId` (assigned by the Director; Pi has no turn id of its o
 
 | Event | Fields | Meaning |
 |---|---|---|
-| `PromptQueued` | `promptId`, `reason` (`userHasTheWheel`, `turnRunning`, `agentStarting`), `position` | The Director is holding the prompt; it has not been written to the agent. |
-| `PromptDelivered` | `promptId`, `disposition` (`started`, `queuedByAgent`, `handled`), `acknowledgement` (the agent's own reply, verbatim) | The agent itself acknowledged the prompt. This is the receipt. |
-| `PromptRefused` | `promptId`, `reason` (the agent's own words, or the Director's when the agent never answered), `refusedBy` (`agent`, `director`) | The prompt did not enter the conversation, and why. |
+| `PromptQueued` | `promptId`, `promptText`, `reason` (`userHasTheWheel`, `turnRunning`, `agentStarting`), `position` | The Director is holding the prompt; it has not been written to the agent. |
+| `PromptDelivered` | `promptId`, `promptText`, `disposition` (`started`, `queuedByAgent`, `handled`), `acknowledgement` (the agent's own reply, verbatim) | The agent itself acknowledged the prompt. This is the receipt. |
+| `PromptRefused` | `promptId`, `promptText`, `reason` (the agent's own words, or the Director's when the agent never answered), `refusedBy` (`agent`, `director`) | The prompt did not enter the conversation, and why. |
 | `TurnStarted` | `turnId`, `promptIds` | The agent began working on the prompt(s). |
 | `MessageText` | `turnId`, `messageId`, `channel` (`reply`, `thought`), `kind` (`delta`, `final`), `text` | Agent text. `delta` is appended for a live view; `final` replaces everything streamed for that message. `thought` is the Agent Client Protocol's thought chunk; whether it is shown is the Gateway's ruling (phase 2). |
 | `ToolCallStarted` | `turnId`, `toolCallId`, `toolName`, `kind` (`read`, `edit`, `execute`, `search`, `fetch`, `other`), `input` (verbatim) | A tool began running: the card appears as running. |
@@ -57,6 +57,13 @@ Three fields may be null, each when there is honestly no value: `reason` on a `d
 `agentStopReason` when the agent exited mid-turn, and `durationMilliseconds` when the dialect closed a
 tool the agent never finished. `toolCallId` on `PermissionRequested` is optional. Every other field is
 always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
+
+**`promptText` is always present on all three prompt events** (the Delivery Lead's ruling 15, 17 October 2026): the
+prompt exactly as the Director wrote it to the agent - or, for one that was never written, exactly as it would have
+been - verbatim, never trimmed, reworded or shortened, with its newlines and leading and trailing spaces kept. The
+Director fills it for every prompt whatever its source: the Gateway's prompt route, the owner typing in the desktop, a
+fleet message or doorbell, the framework's own text, a pre-prompt, and a prompt released from the Director's queue. It
+is there so the Gateway can store the prompt's text on its receipt row.
 
 **What a `promptId` is** (the Delivery Lead's rulings and the phase 1 integration review, finding 3, 16 October 2026):
 the Gateway's delivery id when the prompt came from the Gateway with one - its prompt route gives every prompt one -

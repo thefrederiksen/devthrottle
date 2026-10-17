@@ -253,6 +253,106 @@ public sealed class ApiModeSessionTests : IDisposable
         Assert.Single(sink.Events.OfType<PromptDelivered>());
     }
 
+    // ---------------------------------------------------------------- the prompt's text, from every source (ruling 15)
+
+    /// <summary>A prompt whose newlines and leading and trailing spaces must reach every event unchanged.</summary>
+    private const string SpacedText = "  Reply with exactly the word PONG\n\n  then stop.\r\n  ";
+
+    private static string MessageOf(string line) => System.Text.Json.JsonDocument.Parse(line).RootElement.GetProperty("message").GetString()!;
+
+    [Theory]
+    [InlineData(SendSource.UserInput, null)]          // the owner typing in the desktop
+    [InlineData(SendSource.UserInput, "upload-7f3a")] // the Gateway's prompt route, with its delivery id
+    [InlineData(SendSource.Delivery, "upload-91bc")]  // a dictation's own delivery through the Gateway
+    [InlineData(SendSource.Agent, null)]              // a fleet message
+    [InlineData(SendSource.Framework, null)]          // the framework's own text
+    public async Task SendTextAsync_EverySource_DeliveredCarriesTheTextExactlyAsWrittenToPi(SendSource source, string? deliveryId)
+    {
+        // Arrange
+        var pi = new ScriptedPi("plain");
+        var (session, _, sink) = StartSession(pi);
+
+        // Act
+        var outcome = await session.SendTextAsync(SpacedText, Door, source, deliveryId: deliveryId);
+
+        // Assert
+        Assert.True(outcome.Confirmed);
+        var delivered = Assert.Single(sink.Events.OfType<PromptDelivered>());
+        Assert.Equal(SpacedText, MessageOf(pi.Written[1]));
+        Assert.Equal(SpacedText, delivered.PromptText);
+        if (deliveryId is not null)
+            Assert.Equal(deliveryId, delivered.PromptId);
+    }
+
+    [Fact]
+    public async Task SendTextOnlyWhenWaitingForInputAsync_GuardedSend_DeliveredCarriesTheTextExactlyAsWrittenToPi()
+    {
+        // Arrange
+        var pi = new ScriptedPi("plain");
+        var (session, _, sink) = StartSession(pi);
+        await sink.WaitForAsync<ConnectionReady>();
+
+        // Act: the guarded send the Gateway's prompt route and the Fleet Manager use.
+        await session.SendTextOnlyWhenWaitingForInputAsync(SpacedText, Door, SendSource.Agent, null, appendEnter: true, deliveryId: "upload-3c2e");
+
+        // Assert
+        var delivered = Assert.Single(sink.Events.OfType<PromptDelivered>());
+        Assert.Equal("upload-3c2e", delivered.PromptId);
+        Assert.Equal(SpacedText, MessageOf(pi.Written[1]));
+        Assert.Equal(SpacedText, delivered.PromptText);
+    }
+
+    [Fact]
+    public async Task RingAsync_FleetDoorbell_DeliveredCarriesTheDoorbellLineExactly()
+    {
+        // Arrange
+        var pi = new ScriptedPi("plain");
+        var (session, _, sink) = StartSession(pi);
+        await sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        await FleetDoorbellRinger.RingAsync(session, 3);
+
+        // Assert
+        Assert.Equal(FleetDoorbellLine.For(3), MessageOf(pi.Written[1]));
+        Assert.Equal(FleetDoorbellLine.For(3), Assert.Single(sink.Events.OfType<PromptDelivered>()).PromptText);
+    }
+
+    [Fact]
+    public async Task DeliverPrePromptAsync_PrePrompt_QueuedAndDeliveredCarryTheTextExactlyAsWrittenToPi()
+    {
+        // Arrange
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        var (session, _, sink) = StartSession(pi);
+        await pi.WaitForWrittenAsync("get_state");
+
+        // Act: handed over before Pi is ready, so it waits in the Director's queue first.
+        var delivering = session.DeliverPrePromptAsync(SpacedText, TimeSpan.FromMinutes(10));
+        var queued = await sink.WaitForAsync<PromptQueued>();
+        pi.RespondToNext();
+        var written = await pi.WaitForWrittenAsync("prompt");
+        pi.RespondToNext();
+        await ScriptedPi.WithinHangGuard(delivering, "the pre-prompt's delivery");
+
+        // Assert
+        Assert.Equal(SpacedText, MessageOf(written));
+        Assert.Equal(SpacedText, queued.PromptText);
+        Assert.Equal(SpacedText, Assert.Single(sink.Events.OfType<PromptDelivered>()).PromptText);
+    }
+
+    [Fact]
+    public async Task SendTextAsync_PiRefuses_RefusedCarriesTheText()
+    {
+        // Arrange
+        var (session, _, sink) = StartSession(new ScriptedPi("refusal") { PromptAnswers = [2] });
+
+        // Act
+        await session.SendTextAsync(SpacedText, Door);
+
+        // Assert
+        Assert.Equal(SpacedText, Assert.Single(sink.Events.OfType<PromptRefused>()).PromptText);
+    }
+
     [Fact]
     public void Start_ApiModeBackend_StartsPiInRpcModeWithTheSameLaunchLineAndEnvironment()
     {

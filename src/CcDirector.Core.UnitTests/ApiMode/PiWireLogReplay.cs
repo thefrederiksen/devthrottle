@@ -65,7 +65,8 @@ internal sealed class PiWireLogReplay
                     catch (JsonException) { continue; }
                     var type = command.GetProperty("type").GetString()!;
                     var promptId = type == "prompt" ? $"prompt-{++prompts}" : null;
-                    replay.Take(dialect.OnCommandWritten(new PiCommand(command.GetProperty("id").GetString()!, type, line, promptId)));
+                    var promptText = type == "prompt" ? command.GetProperty("message").GetString()! : null;
+                    replay.Take(dialect.OnCommandWritten(new PiCommand(command.GetProperty("id").GetString()!, type, line, promptId, promptText)));
                     break;
                 }
                 case "stdout":
