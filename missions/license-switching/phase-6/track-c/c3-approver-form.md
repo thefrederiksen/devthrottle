@@ -168,6 +168,17 @@ pixels. It is the existing table, not this form.
 
 ## The gate
 
+**After the review (17 October, rebased onto `origin/main` at `0702c88ce`)** - see `review-4111-answers.md`:
+
+- `npm run typecheck` (`tsc --noEmit`) in `apps/cockpit`: no errors. (`npm test` below is `vitest run`, which does not
+  type-check; this was run separately.)
+- The Licenses tests in the Cockpit: 5 files, 100 tests, all passed.
+- `CcDirector.Gateway.UnitTests`, run directly for `PromptOnlyWhenWaitingForInputTests`, `FleetManagerEventServiceTests`
+  and both Licenses test classes: 225 passed, 0 failed. The six failures below were the old base's; main's #4107 fixed
+  them.
+
+The rest of this section is the run before the review, on the old base `08dec1140`.
+
 **Cockpit** (`npm test` in `apps/cockpit`): 116 files, 1270 tests, all passed after one fix - the error-display scan
 (`errorDisplaySites.test.ts`) flagged the missing-choice list's `role="alert"`; it now carries a written exemption
 ("the choices the person has not made yet, said when Save is pressed; nothing failed").

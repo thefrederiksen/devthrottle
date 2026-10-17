@@ -1309,7 +1309,7 @@ its Director reports, and `status` is `ready` while that Director is connected.
 ### 7.2 `PUT /gateway/licenses/approvers` - set the approver of one account
 
 Body (`LicenseSetApproverRequest`): `{ "accountEmail": "...", "machineName": "...", "osUser": "...",
-"browserProfile": "..." }`. Setting an account that has an approver replaces it. The machine does not have to have
+"browserProfile": "..." }`. `browserProfile` is the browser profile's identifier (the Director's slug, for example "work-chrome", as `GET /directors/{id}/browsers` lists it in `id`), never its display name. Setting an account that has an approver replaces it. The machine does not have to have
 reported yet. Answered `200` with the approver as stored:
 
 ```json
