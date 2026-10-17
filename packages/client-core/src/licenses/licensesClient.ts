@@ -197,7 +197,10 @@ export interface LicenseMachine extends LicenseMachineRef {
   status: string;
   statusText: string;
   statusTone: LicenseTone;
+  /** The Gateway's sentence saying what the status means and why (a refused report, a machine not reporting); null when the status needs none. Drawn as given. */
+  statusDetail: string | null;
   isStale: boolean;
+  /** Null for a machine none of whose reports has been accepted. */
   lastReportAtUtc: string | null;
   lastReportText: string;
   active: LicenseHolding | null;

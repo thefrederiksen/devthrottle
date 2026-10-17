@@ -192,6 +192,33 @@ describe("LicensesView: each row shows its own forecast", () => {
     expect(screen.queryAllByTestId("lic-machine-readiness")).toHaveLength(0);
   });
 
+  it("draws a refused machine's status and its sentence exactly as the Gateway gave them, with no last report time", async () => {
+    // The Gateway decides that a machine's reports are refused and says why; the page only lays it out. A machine
+    // whose reports were never accepted has no last report time, and the page must not need one.
+    const refused = "Its report was refused: it holds account-a@example.com twice (once in use and once as a spare). It is "
+      + "not switched until a report is accepted. Its Director is still sending reports: 412 reports refused since "
+      + "2026-10-16 01:02 UTC, the latest 1 minute ago.";
+    const answers = distinctAnswers();
+    const windows = answers.overview.machines.find((m) => m.machineId === answers.windowsId);
+    if (windows === undefined) throw new Error("the example overview has no the-windows-machine");
+    windows.status = "report-refused";
+    windows.statusText = "Report refused";
+    windows.statusTone = "bad";
+    windows.statusDetail = refused;
+    windows.lastReportAtUtc = null;
+    windows.lastReportText = "No report from it has been accepted yet";
+    serve(answers);
+    render(<LicensesView />);
+
+    const rows = within(await screen.findByTestId("lic-schedule")).getAllByTestId("lic-schedule-row");
+    const mac = rows.find((row) => row.textContent?.includes("the-mac")) as HTMLElement;
+    const windowsRow = rows.find((row) => row.textContent?.includes(WINDOWS_LABEL)) as HTMLElement;
+    expect(within(windowsRow).getByTestId("lic-machine-status-detail").textContent).toBe(refused);
+    expect(windowsRow.textContent).toContain("Report refused");
+    expect(windowsRow.textContent).toContain("No report from it has been accepted yet");
+    expect(within(mac).queryByTestId("lic-machine-status-detail")).toBeNull();
+  });
+
   it("draws nothing for a hold on a machine the Gateway does not call held, whatever time it carries", async () => {
     const answers = distinctAnswers();
     for (const machine of answers.overview.machines) {

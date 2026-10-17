@@ -534,7 +534,10 @@ public static class LicenseDecisionEngine
         foreach (var machine in MachinesOn(snapshot, source))
         {
             string? why = null;
-            if (IsMachineStale(machine, snapshot.NowUtc))
+            // Refused first: it is also why the machine's last accepted report grows old.
+            if (machine.ReportsRefused)
+                why = ReportsRefusedWhy;
+            else if (IsMachineStale(machine, snapshot.NowUtc))
                 why = "its last report is too old";
             else if (machine.HasOpenSwitch)
                 why = "a switch sent to it has not finished";
@@ -548,6 +551,9 @@ public static class LicenseDecisionEngine
         }
         return (eligible, skipped);
     }
+
+    /// <summary>Why a machine whose reports are refused is not sent a switch, as a clause the skip sentences end with.</summary>
+    public const string ReportsRefusedWhy = "its reports are being refused, so what it holds now is not known";
 
     private static List<TiredWindow> TiredWindows(LicenseAccountReading reading, DateTime now)
     {

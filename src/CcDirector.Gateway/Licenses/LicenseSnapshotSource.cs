@@ -8,12 +8,25 @@ namespace CcDirector.Gateway.Licenses;
 /// One tenant's license picture read at one moment: what the Licenses page lists (<see cref="Overview"/>), what the
 /// decision engine and the forecast judge (<see cref="Snapshot"/>), and the switch log rows still open
 /// (<see cref="OpenSwitches"/>). All three come from one read, so a page built from them cannot show a machine as
-/// switchable in one place and mid-switch in another.
+/// switchable in one place and mid-switch in another. <see cref="MachineHealth"/> is every open
+/// <see cref="LicenseLogKinds.ReportRefused"/> and <see cref="LicenseLogKinds.MachineSilent"/> row
+/// (<see cref="LicenseStore.ListOpenMachineHealth"/>): a machine whose reports are refused, or that has gone silent.
 /// </summary>
 public sealed record LicensePicture(
     LicenseOverview Overview,
     LicenseSnapshot Snapshot,
-    IReadOnlyList<LicenseSwitchLogEntity> OpenSwitches);
+    IReadOnlyList<LicenseSwitchLogEntity> OpenSwitches,
+    IReadOnlyList<LicenseSwitchLogEntity> MachineHealth)
+{
+    /// <summary>The open refusal of <paramref name="machine"/>'s reports, whichever of its Directors sent them, or null
+    /// when they are not being refused (<see cref="LicenseStore.IsRefusalOf"/>).</summary>
+    public LicenseSwitchLogEntity? RefusalOf(LicenseMachineView machine)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        return MachineHealth.FirstOrDefault(r => r.Kind == LicenseLogKinds.ReportRefused
+                                                 && LicenseStore.IsRefusalOf(r, machine.MachineName, machine.OsUser, machine.DirectorId));
+    }
+}
 
 /// <summary>
 /// THE ONE PLACE A <see cref="LicenseSnapshot"/> IS BUILT FROM THE STORE (License Switching). The minute check, Switch
@@ -54,8 +67,9 @@ public sealed class LicenseSnapshotSource
             var open = _store.ListOpenSwitches(tenant);
             var bars = _store.ListActiveBars(tenant, nowUtc);
             var holds = _store.ListHolds(tenant, nowUtc);
-            var snapshot = Build(overview, open, bars, openExhaustions, nowUtc, holds);
-            return new LicensePicture(overview, snapshot, open);
+            var health = _store.ListOpenMachineHealth(tenant);
+            var snapshot = Build(overview, open, bars, openExhaustions, nowUtc, holds, health);
+            return new LicensePicture(overview, snapshot, open, health);
         }
         catch (Exception ex)
         {
@@ -67,12 +81,14 @@ public sealed class LicenseSnapshotSource
     /// <summary>
     /// The snapshot, as pure code. An account's reading is its freshest one, judged by the time the store corrected
     /// for clock skew; an account never read has no windows and no read time, which the engine reads as stale. A
-    /// machine has an open switch when the log holds a <c>pending</c> or <c>unknown</c> row for it, and a hold when
-    /// <paramref name="holds"/> - <see cref="LicenseStore.ListHolds"/> - has a row for it.
+    /// machine has an open switch when the log holds a <c>pending</c> or <c>unknown</c> row for it, a hold when
+    /// <paramref name="holds"/> - <see cref="LicenseStore.ListHolds"/> - has a row for it, and its reports are refused
+    /// when <paramref name="machineHealth"/> - <see cref="LicenseStore.ListOpenMachineHealth"/> - has an open refusal
+    /// for its Director.
     /// </summary>
     public static LicenseSnapshot Build(LicenseOverview overview, IReadOnlyList<LicenseSwitchLogEntity> openSwitches,
         IReadOnlyList<LicenseBarEntity> bars, IReadOnlyList<LicenseExhaustion> openExhaustions, DateTime nowUtc,
-        IReadOnlyList<LicenseSwitchLogEntity>? holds = null)
+        IReadOnlyList<LicenseSwitchLogEntity>? holds = null, IReadOnlyList<LicenseSwitchLogEntity>? machineHealth = null)
     {
         ArgumentNullException.ThrowIfNull(overview);
         ArgumentNullException.ThrowIfNull(openSwitches);
@@ -96,6 +112,9 @@ public sealed class LicenseSnapshotSource
             .Where(r => r.Kind == LicenseLogKinds.Switch && r.HeldUntilUtc is not null)
             .GroupBy(r => r.MachineId)
             .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.CreatedAtUtc).First());
+        var refusals = (machineHealth ?? Array.Empty<LicenseSwitchLogEntity>())
+            .Where(r => r.Kind == LicenseLogKinds.ReportRefused)
+            .ToList();
         var machines = overview.Machines
             .Select(m => new LicenseMachineState(
                 m.MachineName,
@@ -110,7 +129,8 @@ public sealed class LicenseSnapshotSource
                 m.Holdings.FirstOrDefault(h => h.IsActive)?.SignInExpiresAtUtc,
                 holdByMachine.TryGetValue(m.MachineId, out var held)
                     ? new LicenseHold(DateTime.SpecifyKind(held.HeldUntilUtc!.Value, DateTimeKind.Utc), held.FromAccountEmail, held.ToAccountEmail, held.ReasonCode)
-                    : null))
+                    : null,
+                refusals.Any(r => LicenseStore.IsRefusalOf(r, m.MachineName, m.OsUser, m.DirectorId))))
             .ToList();
 
         // The store hands over only the bars still in force, and the engine ignores one whose time has passed.

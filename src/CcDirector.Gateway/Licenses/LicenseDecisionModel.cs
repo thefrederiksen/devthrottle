@@ -67,6 +67,8 @@ public sealed record LicenseHold(DateTime HeldUntilUtc, string FromAccountEmail,
 /// <param name="ActiveSignInExpiresAtUtc">When the active holding's sign-in expires; null when not known.</param>
 /// <param name="Hold">The hold its latest switch row carries, when that row was a repeated failure; else null. Whether
 /// it is in force is <see cref="LicenseDecisionEngine.IsHeld"/>.</param>
+/// <param name="ReportsRefused">Its Director is sending reports and the Gateway refuses them for what they say, so what
+/// the machine holds now is not known. It is never sent a switch, exactly as a stale machine is not.</param>
 public sealed record LicenseMachineState(
     string MachineName,
     string OsUser,
@@ -76,7 +78,8 @@ public sealed record LicenseMachineState(
     bool HasOpenSwitch,
     string? SwitchInProgressId,
     DateTime? ActiveSignInExpiresAtUtc = null,
-    LicenseHold? Hold = null);
+    LicenseHold? Hold = null,
+    bool ReportsRefused = false);
 
 /// <summary>Why a machine is not ready to move to an account (<see cref="LicenseReadiness"/>).</summary>
 public static class LicenseNotReadyReasons
@@ -216,7 +219,7 @@ public sealed record LicenseManualSwitchVerdict(
 /// <summary>Refusal codes for Switch now.</summary>
 public static class LicenseManualRefusals
 {
-    /// <summary>No machine is on the account, or every machine on it is stale or mid-switch.</summary>
+    /// <summary>No machine is on the account, or every machine on it is stale, refused or mid-switch.</summary>
     public const string NoMachineToSwitch = "no-machine-to-switch";
 
     /// <summary>The named target is the account the machines are already on.</summary>

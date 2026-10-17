@@ -61,7 +61,8 @@ public sealed class LicenseHandSwitchTests : IDisposable
     {
         // What the machine sent on 16 October, before the heal existed: account B in use and B as a spare.
         var report = Report("machine-a", Holding(B, true), Holding(B, false));
-        Assert.Equal("an account held twice", LicenseUsageIngest.Malformed(report));
+        Assert.Equal(new LicenseReportRefusal(LicenseReportRefusalCodes.AccountHeldTwice,
+            $"it holds {B} twice (once in use and once as a spare)"), LicenseUsageIngest.Malformed(report));
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public sealed class LicenseHandSwitchTests : IDisposable
     {
         var report = Report("machine-a", Holding(B, true), Holding(A, false));
         report.SwitchedByHand = new LicenseHandSwitch { AccountEmail = email, HealedAtUtc = T0 };
-        Assert.Equal("a switch by hand to an account that is not the active holding", LicenseUsageIngest.Malformed(report));
+        Assert.Equal(LicenseReportRefusalCodes.SwitchedByHandNotActive, LicenseUsageIngest.Malformed(report)?.Code);
     }
 
     /// <summary>The license tool, answering fixed JSON through the Director's own parsers.</summary>
