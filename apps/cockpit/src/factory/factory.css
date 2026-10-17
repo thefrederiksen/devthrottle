@@ -2056,20 +2056,33 @@ a:focus .ff-bay rect {
   margin-bottom: 16px;
 }
 
+/* The drafts are cards like the published factories, dashed so a draft never reads as running (17 Oct 2026). */
 .fa-drafts {
-  margin-top: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  margin-top: 18px;
 }
 
-.fa-draft-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
-  border: 1px dashed var(--border);
-  border-radius: 6px;
-  background: var(--surface);
+.fa-group-heading.fa-group-draft {
+  color: var(--text-dim);
+}
+
+.fa-card-draft {
+  border-style: dashed;
+  border-left-style: solid;
+  min-height: 0;
+}
+
+/* A card's facts: its seats, its next start, its last run (17 Oct 2026). */
+.fa-card-fact {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* What is secondary on the Factories tab - the archived factories and the schedules outside any factory - sits under
+   a rule, below every factory and draft. */
+.fa-secondary {
+  margin-top: 28px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
