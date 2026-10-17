@@ -888,6 +888,7 @@ public static class LicenseDisplayFold
         LicenseGatewayReasonCodes.NoOwnerAccount => "This Gateway has no DevThrottle account to email.",
         LicenseGatewayReasonCodes.DirectorError => "The machine's Director answered with an error.",
         LicenseCannotSwitchReasons.ToolMissing => "The DevThrottle tool is missing from the machine's Python tool environment.",
+        LicenseStore.CannotSwitchReasonNotKnown => "The machine's Director says it cannot run a switch, for a reason this Gateway does not know.",
         _ => reasonCode,
     };
 

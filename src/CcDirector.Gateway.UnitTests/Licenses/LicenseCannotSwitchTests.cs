@@ -172,5 +172,10 @@ public sealed class LicenseCannotSwitchTests : IDisposable
         Assert.Equal("Cannot switch: its Director says it cannot run a switch, for a reason this Gateway does not know",
             MachineDto("m1", T0).StatusText);
         Assert.Empty(LicenseDecisionEngine.Decide(Picture(T0).Snapshot).Switches);
+
+        // The log row's reason is a sentence too, never the stored code word (review of #4115, observation 2).
+        var row = Assert.Single(_store.ListLog(Tenant, T0.AddDays(-1)));
+        Assert.Equal("The machine's Director says it cannot run a switch, for a reason this Gateway does not know.",
+            LicenseDisplayFold.ReasonText(row.ReasonCode));
     }
 }
