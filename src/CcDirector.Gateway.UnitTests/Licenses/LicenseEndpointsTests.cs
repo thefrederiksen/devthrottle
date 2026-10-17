@@ -151,7 +151,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         {
             "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "isStale",
             "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "heldUntilUtc", "heldText", "canAddSpare", "addSpareText",
-            "signInsInProgress",
+            "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
         }, Names(machine));
         Assert.Equal(("the-windows-machine", "owner", A), (machine.GetProperty("machineName").GetString(), machine.GetProperty("osUser").GetString(), machine.GetProperty("activeAccountEmail").GetString()));
         var spare = machine.GetProperty("spares")[0];

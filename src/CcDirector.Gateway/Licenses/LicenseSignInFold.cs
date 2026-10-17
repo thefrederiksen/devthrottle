@@ -30,6 +30,10 @@ public static class LicenseSignInFold
     public static string DirectorOfflineText(string label)
         => $"The Director on {label} is not connected, so a sign-in cannot be started there.";
 
+    /// <summary>Why the browser profiles of a machine cannot be listed while an approver is chosen.</summary>
+    public static string BrowserProfilesOfflineText(string label)
+        => $"{label}'s Director is not connected, so its browser profiles cannot be listed.";
+
     public static string AlreadyRunningText(string label, string accountEmail)
         => $"A sign-in for {accountEmail} on {label} is already running.";
 
@@ -165,6 +169,11 @@ public static class LicenseSignInFold
             dto.AddSpareText = connected
                 ? $"Signs {dto.Label} in to another account, to be held there as a spare."
                 : DirectorOfflineText(dto.Label);
+            dto.DirectorId = machine.DirectorId;
+            dto.CanListBrowserProfiles = connected;
+            dto.BrowserProfilesText = connected
+                ? $"The browser profiles of {dto.Label}'s Director."
+                : BrowserProfilesOfflineText(dto.Label);
             dto.SignInsInProgress = running.Select(r => new LicenseSignInInProgressDto
             {
                 SignInId = r.SwitchId ?? "",

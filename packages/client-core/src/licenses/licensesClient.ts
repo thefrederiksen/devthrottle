@@ -197,6 +197,12 @@ export interface LicenseMachine extends LicenseMachineRef {
   addSpareText: string;
   /** The sign-ins on this machine that have not ended. */
   signInsInProgress: LicenseSignInInProgress[];
+  /** The Director that sent the machine's last report: the one asked for its browser profiles. */
+  directorId: string;
+  /** That Director is connected, so its browser profiles can be listed now. */
+  canListBrowserProfiles: boolean;
+  /** What listing them does, or the sentence saying why they cannot be listed. Drawn as given. */
+  browserProfilesText: string;
 }
 
 /** GET /gateway/licenses. */
@@ -361,6 +367,14 @@ export interface LicenseSetApprover {
   machineName: string;
   osUser: string;
   browserProfile: string;
+}
+
+/** One browser profile of a Director, as GET /directors/{id}/browsers lists it: only what the approver form reads. */
+export interface LicenseBrowserProfile {
+  /** The stable identifier. It is what an approver is set to, so renaming the profile does not break the approver. */
+  id: string;
+  /** What the owner calls it. */
+  name: string;
 }
 
 /** The answer of DELETE /gateway/licenses/approvers: whether one was set, and the sentence saying which. */
@@ -531,6 +545,21 @@ export async function setLicenseApprover(approver: LicenseSetApprover, signal?: 
     throw new GatewayError(res.status, "The Gateway answered the approver without its 'text' sentence.");
   }
   return body;
+}
+
+/**
+ * GET /directors/{directorId}/browsers - the browser profiles of one Director, for choosing an approver's profile.
+ * `directorId` is a machine's directorId in the overview. A Director that cannot be reached throws GatewayError
+ * carrying the Gateway's own sentence.
+ */
+export async function listLicenseBrowserProfiles(directorId: string, signal?: AbortSignal): Promise<LicenseBrowserProfile[]> {
+  const body = await readJson<{ browsers: LicenseBrowserProfile[] }>(
+    `/directors/${encodeURIComponent(directorId)}/browsers`,
+    "list the browser profiles",
+    "browsers",
+    signal,
+  );
+  return body.browsers.map(({ id, name }) => ({ id, name }));
 }
 
 /**

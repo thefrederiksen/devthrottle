@@ -379,6 +379,16 @@ public sealed class LicenseMachineDto
 
     /// <summary>The sign-ins started from the Cockpit that this machine has not finished, oldest first.</summary>
     public List<LicenseSignInInProgressDto> SignInsInProgress { get; set; } = new();
+
+    /// <summary>The Director that sent this machine's last accepted report: the one that is asked for the machine's
+    /// browser profiles (<c>GET /directors/{id}/browsers</c>) when an approver is being chosen.</summary>
+    public string DirectorId { get; set; } = "";
+
+    /// <summary>That Director is connected, so its browser profiles can be listed now.</summary>
+    public bool CanListBrowserProfiles { get; set; }
+
+    /// <summary>What listing the browser profiles does, or the sentence saying why they cannot be listed.</summary>
+    public string BrowserProfilesText { get; set; } = "";
 }
 
 /// <summary>One sign-in a machine holds, active or spare.</summary>

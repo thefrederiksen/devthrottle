@@ -461,7 +461,10 @@ show nothing. Section 6 has the sentences and the tone rule.
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-mac",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed."
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -539,7 +542,10 @@ show nothing. Section 6 has the sentences and the tone rule.
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-windows",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed."
     }
   ]
 }
@@ -1624,6 +1630,9 @@ On a machine (`LicenseMachineDto`):
 | `canAddSpare` | Add a spare is offered for this machine. |
 | `addSpareText` | What it does, or the sentence saying why it is not offered - the same sentence the route refuses with. |
 | `signInsInProgress` | The sign-ins on this machine that have not ended: `signInId`, `accountEmail`, `text`. |
+| `directorId` | The Director that sent the machine's last accepted report. The approver form asks it for the machine's browser profiles (`GET /directors/{id}/browsers`). |
+| `canListBrowserProfiles` | That Director is connected, so its browser profiles can be listed now. |
+| `browserProfilesText` | What listing them does, or the sentence saying why they cannot be listed ("the-mac's Director is not connected, so its browser profiles cannot be listed."). |
 
 On each sign-in a machine holds (`LicenseMachineHoldingDto`, in `active` and `spares`):
 
