@@ -987,3 +987,68 @@ Raising is idempotent, so a check that runs every minute simply raises what it s
 `GET /gateway/licenses/alarms` (cockpit-api.md section 8) answers the open alarms with the banner's finished words. The
 Cockpit's frame and the phone's shell render them as a red banner on every page, verbatim, and draw nothing when no
 alarm is open. **There is no route that raises or clears an alarm** - only Gateway code calls `RaiseAsync`.
+
+## 10. Phase 6 additions - standing approvers (Track C)
+
+The types are in `src/CcDirector.Gateway.Contracts/LicenseApproverMessages.cs`. A Director whose machine offers its
+browser profiles as approvers checks each profile daily by reading a real approval page (it never presses Authorize,
+never signs in and never types anything), and reports what it found over its own hub connection. The owner-only routes
+stay owner-only; no session key gains anything.
+
+### 10.1 Hub methods (Director to Gateway)
+
+| Method | Payload | Answer |
+|---|---|---|
+| `GetLicenseApproverAssignments()` | none | `{ rows: [{ accountEmail, browserProfile, source }] }` - the records that name the caller's machine and operating system user |
+| `ReportLicenseApproverChecks(report)` | `{ offersApprovers, rows: [{ browserProfile, accountEmail, shownAccount, state, checkedAtUtc, detail }] }` | `{ rows: [{ browserProfile, accountEmail, outcome, reason }] }`, one per row, in order |
+
+Both are refused before Hello and are listed in the Hello answer only by a Gateway that keeps registrations. The
+tenant and the Director are the connection's binding. The machine and operating system user are the Licenses read
+model's record of which machine that Director last reported for - never anything in the payload. A Director that
+reports for no machine of the tenant gets no assignments and every row of its report is refused
+`not-the-reporting-director`.
+
+### 10.2 Words
+
+- State (`LicenseApproverStates`): `can-approve`, `signed-out`, `needs-fresh-sign-in`, `wrong-account`,
+  `check-failed`, and the Gateway's own `not-checked` (never reported by a Director).
+- Source (`LicenseApproverSources`): `owner`, `registered`. A record stored before sources existed reads `owner`.
+- Outcome (`LicenseApproverCheckOutcomes`): `registered`, `health-updated`, `nothing-to-store`, `refused`.
+- Refusal (`LicenseApproverRefusals`): `not-the-reporting-director`, `invalid-row`, `account-not-held`,
+  `not-offered`, `owner-set`, `owner-removed`, `healthy-incumbent`, `record-names-another-approver`,
+  `too-many-approvers`.
+
+### 10.3 The rule
+
+A report that is missing, has no rows, or has more than 32 rows fails the call and nothing of it is kept. Each row is
+then decided under the approver store's lock, against the records as the earlier rows of the same report left them:
+
+1. A row with a field missing, too long or of the wrong shape is `invalid-row`: the profile must be a profile name;
+   the accounts emails; the state a reportable word; the check no more than 5 minutes ahead of the Gateway's clock and
+   no older than 26 hours; the detail at most 200 characters with no control character; and a `can-approve` row must
+   name its account and show no other.
+2. A row with no account stores nothing.
+3. A row for an account whose record names exactly the caller's machine, user and that profile updates that record's
+   health, whoever made the record.
+4. Any other row that is not `can-approve` stores nothing when the account has no record, and is refused
+   `record-names-another-approver` when it has one.
+5. A `can-approve` row registers the profile as the account's approver, marked `registered`, unless: the report said
+   the machine does not offer (`not-offered`); no machine of the tenant holds the account (`account-not-held`); the
+   owner set the account's approver (`owner-set`); the owner removed this same registration (`owner-removed`, until the
+   owner sets an approver for that account again); a registered incumbent can approve and was checked within 26 hours
+   (`healthy-incumbent`); or the tenant already keeps 64 approvers (`too-many-approvers`).
+
+There is no separate tenant guard: a Director reports licenses only with license switching switched on for it, so
+rule "the reporting Director" and rule "an account the tenant holds" already bind a registration to a machine where
+the owner switched automation on, and the machine's offer setting is off by default.
+
+### 10.4 The not-checked rule
+
+A record whose last check is older than 26 hours (`LicenseApproverContract.NotCheckedAfter`), or that was never
+checked, reads `not-checked`. An absence is never read as healthy.
+
+### 10.5 The owner's removal
+
+The owner removing a registered record (`DELETE /gateway/licenses/approvers`) keeps a removal record of its account,
+machine, user and profile (the tenant setting `license_approver_removals`, at most 64, oldest dropped first). The owner
+setting an approver for that account clears that account's removal records.
