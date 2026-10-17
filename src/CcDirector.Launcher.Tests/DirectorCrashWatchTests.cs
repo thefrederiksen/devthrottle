@@ -37,7 +37,19 @@ public sealed class DirectorCrashWatchTests : IDisposable
         try { Directory.Delete(_root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
+    /// <summary>Whether the test's swap lock is held. Every test but one uses this stand-in, so no outcome depends on
+    /// when a real mutex is let go; <see cref="CheckOnceAsync_RealSwapLockHeld_WaitsAndStartsOnTheNextLook"/> keeps the
+    /// real lock.</summary>
+    private bool _swapHeld;
+
     private DirectorCrashWatch NewWatch() => new(() => _machine, () => _start(), _ledger, () => _now)
+    {
+        IsProcessGone = d => _gonePids.Contains(d.Pid),
+        RunUnderSwapLock = work => Task.FromResult(_swapHeld ? DirectorCrashWatchOutcome.RestartHeldOff : work()),
+    };
+
+    /// <summary>The same watch on the production swap lock, under a name only this test uses.</summary>
+    private DirectorCrashWatch NewWatchOnTheRealSwapLock() => new(() => _machine, () => _start(), _ledger, () => _now)
     {
         IsProcessGone = d => _gonePids.Contains(d.Pid),
         SwapLockName = _swapLockName,
@@ -111,7 +123,11 @@ public sealed class DirectorCrashWatchTests : IDisposable
             StopLedger = _ledger,
         };
         supervisor.ReadTheMachine = () => _machine;
-        var watch = new DirectorCrashWatch(supervisor) { IsProcessGone = d => _gonePids.Contains(d.Pid), SwapLockName = _swapLockName };
+        var watch = new DirectorCrashWatch(supervisor)
+        {
+            IsProcessGone = d => _gonePids.Contains(d.Pid),
+            RunUnderSwapLock = work => Task.FromResult(work()),
+        };
 
         IsRunning(a);
         await watch.CheckOnceAsync();
@@ -189,11 +205,13 @@ public sealed class DirectorCrashWatchTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckOnceAsync_SwapLockHeld_WaitsAndStartsOnTheNextLook()
+    public async Task CheckOnceAsync_RealSwapLockHeld_WaitsAndStartsOnTheNextLook()
     {
         // An update swapping the Director holds the swap lock; the restart is held off, not dropped, and runs on
-        // the next look once the lock is free.
-        var watch = NewWatch();
+        // the next look once the lock is free. On the REAL lock, to prove the production path takes it. Its outcome
+        // cannot depend on timing: the holder has let go and its thread has ended before the second look, and the
+        // first look never held the lock, so there is no hold of the watch's own for it to find.
+        var watch = NewWatchOnTheRealSwapLock();
         var a = Director("director-a", 101);
         IsRunning(a);
         await watch.CheckOnceAsync();
@@ -217,6 +235,26 @@ public sealed class DirectorCrashWatchTests : IDisposable
         Assert.Equal(0, _starts);
         release.Set();
         holder.Join();
+
+        Assert.Equal(DirectorCrashWatchOutcome.Restarted, await watch.CheckOnceAsync());
+        Assert.Equal(1, _starts);
+    }
+
+    [Fact]
+    public async Task CheckOnceAsync_SwapLockHeldOverSeveralLooks_IsNeverCountedAndStartsOnceFree()
+    {
+        // While the lock is held, every look holds the restart off and none counts toward the limit; the first look
+        // after it is free starts the Director, once.
+        var watch = NewWatch();
+        var a = Director("director-a", 101);
+        IsRunning(a);
+        await watch.CheckOnceAsync();
+        Crashes(a);
+
+        _swapHeld = true;
+        for (var i = 0; i < DirectorCrashWatch.MaxRestarts + 2; i++)
+            Assert.Equal(DirectorCrashWatchOutcome.RestartHeldOff, await watch.CheckOnceAsync());
+        _swapHeld = false;
 
         Assert.Equal(DirectorCrashWatchOutcome.Restarted, await watch.CheckOnceAsync());
         Assert.Equal(1, _starts);

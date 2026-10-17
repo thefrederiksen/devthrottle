@@ -96,7 +96,7 @@ request, so it is a known limit, written down here.
 
 ## Tests
 
-`src/CcDirector.Launcher.Tests/DirectorCrashWatchTests.cs`, 15 tests (14 facts and a two-case theory). Each one
+`src/CcDirector.Launcher.Tests/DirectorCrashWatchTests.cs`, 16 tests (15 facts and a two-case theory). Each one
 in a sentence:
 
 - **A crash:** a Director that dies with its journal on disk is started again, once.
@@ -109,7 +109,10 @@ in a sentence:
   - five restarts, then a give-up, and no sixth start;
   - a Director started by hand turns crash restarts back on.
 - **Spread-out crashes:** restarts older than ten minutes do not count toward the limit.
-- **An update holding the swap lock:** the restart is held off and runs on the next look.
+- **An update holding the swap lock:** the restart is held off and runs on the next look. This is proven on the
+  REAL lock, so the production path is shown to take it.
+- **A lock held over several looks:** every look holds the restart off and none counts toward the limit; the first
+  look after it is free starts the Director, once.
 - **After a handover:** the watch follows the Director that took over, and restarts it if it crashes.
 - **A development build:** a build that is not the installed image is not watched.
 - **A machine that cannot be read** (several claimants, or one unreadable claim): nothing is started.
@@ -123,7 +126,8 @@ in a sentence:
 
 None of them starts a real Director, waits on a real timer or depends on anything else on this machine. The
 machine reading and the start are scripted, the clock is injected, and the crash journal is a real file in a
-throwaway folder. The swap-lock test holds a test-only lock name. The supervisor tests name a process id
+throwaway folder. Every test but one uses a stand-in for the swap lock that the test holds or frees, so no
+outcome depends on when a real mutex is let go; the one real-lock test holds a test-only lock name. The supervisor tests name a process id
 (`int.MaxValue`) that cannot exist.
 
 **The tests can fail.** Each break below was made to the code alone, with the tests unchanged:
@@ -134,7 +138,23 @@ throwaway folder. The swap-lock test holds a test-only lock name. The supervisor
 | Every disappearance is read as a crash | `CheckOnceAsync_DirectorQuitOnPurpose_IsNotStartedAgain`, `CheckOnceAsync_RegistrationGoneButProcessStillExiting_DecidesNothingUntilItHasLeft` |
 | No restart limit | `CheckOnceAsync_CrashLoop_GivesUpAfterTheLimitUntilADirectorRunsAgain`, `CheckOnceAsync_StartThrows_IsTriedAgainAndCountsTowardTheLimit` |
 
-Restored, all 14 passed. With the `Forget` test added after review, all 15 pass.
+Restored, all 14 passed. With the `Forget` test and the held-lock test added after review, all 16 pass.
+
+**Under load.** At 39d82be42 the Tech Lead's gate failed `CheckOnceAsync_CrashLoop_GivesUpAfterTheLimitUntilADirectorRunsAgain`
+(expected `Restarted`, got `RestartHeldOff`). It passed alone. The cause is worked out from the code, not observed:
+
+- `RestartHeldOff` is returned only when the named mutex is owned at that instant.
+- In that test the only owner of the name is the watch's own previous look.
+- `BinarySwapLock` hands back its answer before its thread releases the mutex, so a look that follows at once can
+  find the earlier hold.
+- It did not reproduce: the old code passed 15 runs in a row with every core busy.
+
+The tests now use a stand-in lock instead (`DirectorCrashWatch.RunUnderSwapLock`, a seam that production fills with
+`BinarySwapLock`). In production, looks are 15 seconds apart, which makes that moment irrelevant.
+
+The whole Launcher suite (230 tests) then passed **5 of 5 with every processor core busy**, under 24 processes the
+test run started to load them, and stopped after. That was checked to be the new binary: it lists 16 crash-watch
+tests. Before that, it passed 5 of 5 under the machine's own 96% load from other work.
 
 **Not proven here.** The watch was not run against a real installed Director on a real machine; the brief
 forbids changing a live machine's state. It is proven by the tests above and by the code paths they drive.

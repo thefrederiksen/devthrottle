@@ -151,6 +151,11 @@ public sealed class DirectorCrashWatch
         _startDirector = startDirector ?? throw new ArgumentNullException(nameof(startDirector));
         _ledger = ledger ?? throw new ArgumentNullException(nameof(ledger));
         _utcNow = utcNow ?? throw new ArgumentNullException(nameof(utcNow));
+        RunUnderSwapLock = work => BinarySwapLock.RunExclusivelyAsync(
+            work: () => Task.FromResult(work()),
+            whenBusy: _ => DirectorCrashWatchOutcome.RestartHeldOff,
+            who: "director-crash-watch",
+            name: SwapLockName);
     }
 
     /// <summary>Whether the watched Director's process has left. A seam only so a test can say "it is gone".</summary>
@@ -158,6 +163,15 @@ public sealed class DirectorCrashWatch
 
     /// <summary>The machine-wide swap lock. <see cref="BinarySwapLock.Name"/> in production; a test uses its own.</summary>
     internal string SwapLockName { get; init; } = BinarySwapLock.Name;
+
+    /// <summary>
+    /// Runs the start under the swap lock, or answers <see cref="DirectorCrashWatchOutcome.RestartHeldOff"/> when the
+    /// lock is taken. Production uses <see cref="BinarySwapLock"/> under <see cref="SwapLockName"/>. A SEAM ONLY SO A
+    /// TEST DECIDES WHEN THE LOCK IS HELD: the real lock hands back its answer a moment before its own thread lets go
+    /// of the mutex, so a test that looks twice in a row could find its own previous hold - an outcome decided by the
+    /// machine's load, not by the code. Fifteen seconds between looks make that moment irrelevant in production.
+    /// </summary>
+    internal Func<Func<DirectorCrashWatchOutcome>, Task<DirectorCrashWatchOutcome>> RunUnderSwapLock { get; set; }
 
     /// <summary>The Director being watched, or null.</summary>
     public SupervisedDirector? Watched => _watched;
@@ -290,18 +304,14 @@ public sealed class DirectorCrashWatch
 
         // Under the swap lock, and without waiting for it: an update stopping and swapping the Director holds it,
         // and starting the old build in the middle of that swap is the one start that must never happen.
-        var outcome = await BinarySwapLock.RunExclusivelyAsync(
-            work: () =>
-            {
-                // Counted before the start, so a start that throws also counts toward the limit.
-                _restarts.Add(now);
-                return Task.FromResult(_startDirector()
-                    ? DirectorCrashWatchOutcome.Restarted
-                    : DirectorCrashWatchOutcome.AlreadyRunningAgain);
-            },
-            whenBusy: _ => DirectorCrashWatchOutcome.RestartHeldOff,
-            who: "director-crash-watch",
-            name: SwapLockName);
+        var outcome = await RunUnderSwapLock(() =>
+        {
+            // Counted before the start, so a start that throws also counts toward the limit.
+            _restarts.Add(now);
+            return _startDirector()
+                ? DirectorCrashWatchOutcome.Restarted
+                : DirectorCrashWatchOutcome.AlreadyRunningAgain;
+        });
 
         _pendingCrash = outcome == DirectorCrashWatchOutcome.RestartHeldOff ? crashed : null;
         FileLog.Write(outcome switch

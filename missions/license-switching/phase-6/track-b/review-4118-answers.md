@@ -10,6 +10,21 @@ observations. Every point is answered below, in the review's order. The branch w
 head, so the run must be on that commit; its results go into `launcher-crash-restart.md` when the Tech Lead sends
 them.
 
+## The gate run at 39d82be42 was red
+
+The Tech Lead's default gate failed two tests. Both are dealt with.
+
+- **`SystemdUnitSafetyTests.GatewayUnitContent_CarriesTheStartLimitInTheUnitSection`** failed on line endings. It is
+  fixed on main by #4159, and the branch is now rebased onto origin/main a47954287, which has it.
+- **`CheckOnceAsync_CrashLoop_GivesUpAfterTheLimitUntilADirectorRunsAgain`** got `RestartHeldOff` under load. Its
+  outcome depended on when the real swap lock's thread let go of the mutex. Every test now uses a stand-in lock the
+  test controls, except the one test that exists to prove the production path takes the real lock. That test cannot
+  meet the same moment: its holder has let go and its thread has ended before the look that takes the lock.
+  - The proof, under "Under load", gives the reasoning: worked out from the code, and not reproduced in 15 runs of
+    the old code.
+  - It also gives the evidence: the whole Launcher suite passed 5 of 5 with every core busy, checked to be the new
+    binary.
+
 ## Finding 2 - the proof repeats the Windows-only "second copy exits 0" claim
 
 **Agreed, and corrected.** The section "What this changes for the owner's setup in pull request #4117" now says
@@ -62,6 +77,6 @@ wrong. The proof now says so, under `DirectorStopLedger`.
 
 ## Tests
 
-15 tests in `DirectorCrashWatchTests.cs`: the 14 the review read, plus the `Forget` test. All pass on the rebased
+16 tests in `DirectorCrashWatchTests.cs`: the 14 the review read, the `Forget` test, and the held-lock test. All pass on the rebased
 branch (`dotnet test` of the launcher tests filtered to `DirectorCrashWatchTests`). The gate is the Tech Lead's run,
 under finding 1.
