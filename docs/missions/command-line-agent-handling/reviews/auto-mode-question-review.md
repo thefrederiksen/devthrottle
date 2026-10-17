@@ -1,8 +1,8 @@
 # Review: refuse a seat that Claude Code would stop on "Teach auto mode about your environment?"
 
 Pull request #4180, branch `auto-mode-dialog`, reviewed at commit `ce2a27585` on 17 October 2026.
-Reviewer seat of the Command Line Agent Handling mission, running Claude Code on Fable (a different
-agent family from the writer). Read only: nothing was built or fixed here.
+Reviewer seat of the Command Line Agent Handling mission, on a reviewer seat of a different
+agent family from the writer. Read only: nothing was built or fixed here.
 
 ## Verdict
 
