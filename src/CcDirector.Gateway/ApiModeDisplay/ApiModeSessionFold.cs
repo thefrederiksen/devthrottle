@@ -192,6 +192,9 @@ public static class ApiModeSessionFold
     {
         if (wheelHolder == WheelHolders.User)
             return (false, "The agent runs in your terminal");
+        // The holder is the Director's current report and a held event is history; the current report wins (#4094).
+        if (wheelHolder == WheelHolders.None)
+            return (false, "No agent process is running");
 
         var latest = held.Events.Select(h => h.Event).LastOrDefault(e => e is ConnectionReady or ConnectionEnded);
         switch (latest)
@@ -202,8 +205,6 @@ public static class ApiModeSessionFold
                 return (true, $"Agent connected ({ready.Model})");
         }
 
-        if (wheelHolder == WheelHolders.None)
-            return (false, "No agent process is running");
         if (wheelHolder != WheelHolders.Protocol)
             return (null, "Not known: the Director reports a wheel holder this Gateway does not know");
         // The protocol process holds the conversation, and no connection event is held here. With the whole

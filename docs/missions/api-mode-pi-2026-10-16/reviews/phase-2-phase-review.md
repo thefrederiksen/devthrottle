@@ -206,6 +206,15 @@ not on a user's screen today; it will be the day #4094 merges unless the fold ch
 event, or phase 4 writes a `ConnectionEnded` when the user's terminal exits (the event model's `ConnectionEnded`
 is for the agent process, and the terminal is one). The seat integrating phase 4 decides which.
 
+Developer's answer: **Accepted, fixed in the Gateway.** The Tech Lead ruled the fold checks `none` before the held
+event: the wheel holder is the Director's current report and a held event is history, and the current report wins.
+`ApiModeSessionFold.Agent` now answers "No agent process is running" for a holder of `none` before it reads any held
+`ConnectionReady` or `ConnectionEnded`; the `user` and `protocol` paths are unchanged. Two tests in
+`ApiModeSessionFoldTests`: `Fold_AHeldDisconnectWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunning` (a held
+`ConnectionEnded` "the user took the wheel" with holder `none` gives kind `stopped` and the none label) and
+`Fold_AHeldDisconnectWhileTheProtocolHoldsTheWheel_SaysTheAgentDisconnected` (the same held event with holder
+`protocol` still gives "Agent disconnected: the user took the wheel").
+
 ## Observations (not findings: no harm proven on main, recorded so the next seat need not rediscover them)
 
 - **A. No producer on main.** Nothing on main pushes an API-mode event to the Gateway; the Director's sink is the

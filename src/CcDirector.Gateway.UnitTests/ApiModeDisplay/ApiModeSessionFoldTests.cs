@@ -126,6 +126,36 @@ public sealed class ApiModeSessionFoldTests
     }
 
     [Fact]
+    public void Fold_AHeldDisconnectWhenNoProcessHoldsTheWheel_SaysNoAgentProcessIsRunning()
+    {
+        // Arrange: the user took the wheel (the disconnect is held), then their terminal exited on its own - the Director
+        // reports "none" and writes no further event (#4094). The current report outranks the held history.
+        var held = HeldWhole(Ready(1), Gone(2, 0, "the user took the wheel"));
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.None, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held)!;
+
+        // Assert
+        Assert.Equal("stopped", verdict.Kind);
+        Assert.False(verdict.AgentConnected);
+        Assert.Equal("No agent process is running", verdict.AgentLabel);
+    }
+
+    [Fact]
+    public void Fold_AHeldDisconnectWhileTheProtocolHoldsTheWheel_SaysTheAgentDisconnected()
+    {
+        // Arrange
+        var held = HeldWhole(Ready(1), Gone(2, 1, "the user took the wheel"));
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held)!;
+
+        // Assert
+        Assert.False(verdict.AgentConnected);
+        Assert.Equal("Agent disconnected: the user took the wheel", verdict.AgentLabel);
+    }
+
+    [Fact]
     public void Fold_TheWholeGenerationHeldAndNoConnectionYet_SaysTheAgentIsStarting()
     {
         // Act
