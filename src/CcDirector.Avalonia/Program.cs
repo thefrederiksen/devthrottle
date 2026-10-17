@@ -48,6 +48,11 @@ internal static class Program
         FileLog.Write($"[Program] Instance: slug={InstanceContext.Slug}, isDefault={InstanceContext.IsDefault}, " +
                       $"explicit={InstanceContext.WasExplicitlySelected}, home={InstanceContext.InstanceHome}");
 
+        // Put ~/.local/bin on this process's PATH on macOS and Linux when whatever started the Director left it
+        // out - an SSH start does (issue devthrottle_internal#2474). Before any session starts, so every
+        // session inherits it and can run cc-devthrottle, and so a Smart Restart hands it to the next build.
+        CcDirector.Core.Tools.ToolShimPath.EnsureOnProcessPath();
+
         // Raise the thread-pool floor before anything opens a session or dials the Gateway (issue
         // #2818). Every session blocks two pool workers for its whole life, so on a Director carrying
         // sessions the keep-alive ping that holds the tunnel open - a timer callback on this same pool -

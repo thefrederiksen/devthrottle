@@ -154,6 +154,15 @@ public static class ToolHealthProbe
             {
                 var results = await runner.RunAllForToolAsync(descriptor, ct);
                 var firstFailure = results.FirstOrDefault(r => !r.Passed);
+                var pathGap = firstFailure is null ? PathGapReason(descriptor, OperatingSystem.IsWindows()) : null;
+                if (pathGap is not null)
+                {
+                    // The tool runs from its install, but the Director's PATH cannot find it, so neither can
+                    // any session this Director starts. Say that, not "not built" (issue devthrottle_internal#2474).
+                    FileLog.Write($"[ToolHealthProbe] {descriptor.Name} FAILED: {pathGap}");
+                    return (input: new ToolHealthInput(descriptor.Name, true, descriptor.IsExpected, false, pathGap),
+                            outcome: new ToolCheckOutcome(descriptor.Name, ToolVerdict.NotWorking, pathGap));
+                }
                 if (firstFailure is null)
                 {
                     return (input: new ToolHealthInput(descriptor.Name, true, descriptor.IsExpected, true),
@@ -178,6 +187,18 @@ public static class ToolHealthProbe
                       $"notBuilt={summary.NotBuilt}, broken={summary.Broken}" +
                       (summary.Failures.Count == 0 ? "" : $", failing: {string.Join("; ", summary.Failures)}"));
         return snapshot;
+    }
+
+    /// <summary>
+    /// The reason a tool that passed every check is still not usable, or null when it is. On macOS and
+    /// Linux a tool found in its install (<c>pyenv/bin</c>) but not on the Director's PATH runs for this
+    /// probe and for nobody else: sessions find tools by PATH. Windows is left out because its tools are
+    /// found through the managed bin directory the installer puts on PATH, which this check does not model.
+    /// </summary>
+    internal static string? PathGapReason(ToolDescriptor descriptor, bool isWindows)
+    {
+        if (isWindows || !descriptor.IsBuilt || descriptor.IsOnPath) return null;
+        return $"installed, but the Director's PATH is missing {ToolShimPath.UnixShimDir}";
     }
 
     /// <summary>

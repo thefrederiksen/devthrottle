@@ -39,6 +39,9 @@ public static class GatewaySystemdAutostart
     public static string UnitContent(string exePath, string? arguments)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(exePath);
+        // A runtime host with no program after it can only fail, and Restart=on-failure would restart it for
+        // ever (issue devthrottle_internal#2475). Refuse it here, before anything is written.
+        SystemdUnitSafety.RequireRunnableCommand(exePath, arguments);
         var execStart = string.IsNullOrWhiteSpace(arguments)
             ? $"\"{exePath}\""
             : $"\"{exePath}\" {arguments}";
@@ -47,6 +50,7 @@ public static class GatewaySystemdAutostart
             [Unit]
             Description=DevThrottle Gateway
             After=network.target
+            {SystemdUnitSafety.StartLimitLines}
 
             [Service]
             Type=simple
