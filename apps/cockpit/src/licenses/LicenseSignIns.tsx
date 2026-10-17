@@ -249,6 +249,7 @@ function ApproverEditor({
         </div>
       )}
       {missing.length > 0 && (
+        // error-report-exempt: the choices the person has not made yet, said when Save is pressed; nothing failed
         <ul className="lic-approver-missing" role="alert" data-testid="lic-approver-missing">
           {missing.map((line) => (
             <li key={line}>{line}</li>
