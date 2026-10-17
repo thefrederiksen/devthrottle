@@ -410,6 +410,7 @@ public sealed class NarrationCallTests : IDisposable
         rig.Env.Plan = () => NarrationPlan.Unknown;
         Assert.Equal(0, await SweepPassAsync(rig, route));
         Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.False(rig.Voice.NothingToNarrateFor(Tenant, Sid));   // only a brand-new session's stand-down says that
 
         rig.Env.Plan = () => NarrationPlan.Allowed;
         Assert.Equal(1, await SweepPassAsync(rig, route));
