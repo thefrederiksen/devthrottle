@@ -174,15 +174,16 @@ public sealed class LicenseCommandLineTests
     }
 
     [Fact]
-    public async Task ReadUsageAsync_ActiveOnly_RunsTheToolWithoutRefresh()
+    public async Task ReadUsageAsync_ActiveOnly_AlsoRunsTheToolWithRefresh()
     {
-        // The active key is the sessions' to renew; the active-only read never asks the tool to renew anything.
+        // Phase 6: the active key is renewed in place when no Claude Code session can be using it, on the reporter's
+        // two-minute active read - the same round, no new timer. The tool decides whether it is due and safe.
         using var tool = RecordingTool.Create();
         var adapter = new CcDevthrottleLicenseCommandLine(new LicenseCommandLineOptions(null, null), () => tool.Path);
 
         await adapter.ReadUsageAsync(activeOnly: true, CancellationToken.None);
 
-        Assert.Equal(new[] { "license", "usage", "--active", "--json" }, tool.Arguments());
+        Assert.Equal(new[] { "license", "usage", "--active", "--refresh", "--json" }, tool.Arguments());
     }
 
     [Theory]
