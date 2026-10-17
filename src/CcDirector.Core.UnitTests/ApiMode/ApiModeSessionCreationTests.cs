@@ -37,6 +37,9 @@ public sealed class ApiModeSessionCreationTests : IDisposable
     private readonly string _piResolved;
     private readonly List<IDisposable> _disposables = [];
 
+    // The terminal state detector's clock: a fake one, so nothing but a test's own Advance moves its readings.
+    private readonly FakeTimeProvider _detectorClock = new(Start);
+
     public ApiModeSessionCreationTests()
     {
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
@@ -82,7 +85,8 @@ public sealed class ApiModeSessionCreationTests : IDisposable
             ApiModeClock = new FakeTimeProvider(Start),
         });
         configure?.Invoke(manager);
-        var detector = Track(new TerminalStateDetector(manager, driveState: true));
+        var detector = Track(new TerminalStateDetector(manager, driveState: true, TerminalStateDetector.QuietThreshold,
+            timeProvider: _detectorClock));
         detector.Start();
         var autoResume = Track(new TransientErrorAutoResume(manager));
         autoResume.Start();
@@ -201,8 +205,12 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         Assert.True((await session.TakeWheelAsync()).Done);
         var working = WaitForActivityAsync(session, ActivityState.Working);
 
-        // Act: Pi writes to its terminal - a turn running, as the detector reads any terminal - and the user hands back.
+        // Act: Pi writes to its terminal - a turn running, as the detector reads any terminal, once its settle check has
+        // looked - and the user hands back. Only the detector's fake clock moves, in steps of the settle check and never as
+        // far as the quiet threshold, so the reading cannot turn back to waiting before the hand back reads it.
         terminals[0].Draw("Working... reading the files\r\n");
+        for (var moved = TimeSpan.Zero; !working.IsCompleted && moved <= TerminalStateDetector.MaxSettleCheckDeferral; moved += TerminalStateDetector.SettleCheckDelay)
+            _detectorClock.Advance(TerminalStateDetector.SettleCheckDelay);
         await working;
         var handBack = await session.HandBackWheelAsync();
 
@@ -211,6 +219,41 @@ public sealed class ApiModeSessionCreationTests : IDisposable
         Assert.Equal(ApiModeSessionBackend.TerminalMidTurnReason, handBack.Refusal);
         Assert.Equal(SessionWheelHolder.User, session.WheelHolder);
         Assert.False(terminals[0].HasExited);
+    }
+
+    [Fact]
+    public async Task TakeWheelAsync_ThenHandBack_EverySessionMachineryCopesAcrossTheSwitch()
+    {
+        // Arrange: a real create with every per-session component running - the recorder, the session log and the
+        // Wingman's watcher among them, which read a session's buffer once, at its creation, when an API-mode session has
+        // none - and the user's wheel on a fake terminal. Two Pi processes: the first, and the one the hand back starts.
+        var pis = new Queue<ScriptedPi>([new ScriptedPi("plain"), new ScriptedPi("plain")]);
+        var terminals = new List<FakeTerminalBackend>();
+        var (_, session, sink) = CreateApiModeSession(pis.Peek(), configure: m =>
+        {
+            m.ApiModeProcessFactory = () => pis.Dequeue().Process;
+            m.ApiModeTerminalFactory = () =>
+            {
+                var terminal = new FakeTerminalBackend();
+                terminals.Add(terminal);
+                return terminal;
+            };
+        });
+        await sink.WaitForAsync<ConnectionReady>();
+
+        // Act: take, Pi draws in its terminal, the terminal settles idle, hand back, then a prompt over the protocol.
+        Assert.True((await session.TakeWheelAsync()).Done);
+        terminals[0].Draw("pi> hello from the terminal\r\n");
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        var handBack = await session.HandBackWheelAsync();
+        var outcome = await session.SendTextAsync("Reply with exactly the word PONG", Door);
+
+        // Assert: the switch went through with all of them attached, and the session carries on over the protocol.
+        Assert.True(handBack.Done);
+        Assert.True(outcome.Confirmed);
+        Assert.Equal(SessionWheelHolder.Protocol, session.WheelHolder);
+        Assert.Null(session.Buffer);
+        Assert.False(session.Status is SessionStatus.Exited or SessionStatus.Failed);
     }
 
     [Fact]

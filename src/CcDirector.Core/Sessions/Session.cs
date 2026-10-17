@@ -4710,7 +4710,7 @@ public sealed class Session : IDisposable
     public async Task CancelTurnAsync()
     {
         // API mode (issue #4070): Stop is the agent's own abort, confirmed by the agent ending the turn cancelled.
-        if (_apiMode is { } apiMode) { await StopApiModeTurnAsync(apiMode); return; }
+        if (_apiMode is not null) { await StopApiModeTurnAsync(); return; }
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] CancelTurnAsync: session={Id}, driver={Driver.Kind}");
         using (await BeginInputAsync())
@@ -4787,15 +4787,19 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] HandBackWheelAsync: session={Id}, holder={WheelHolder}, activity={ActivityState}");
         if (_apiMode is null)
             return WheelSwitchResult.Refused(NoWheelReason);
-        var result = await _apiMode.HandBackWheelAsync(() => ActivityState == ActivityState.Working, CancellationToken.None);
+        // Starting is set under the ownership lock before Pi is started, so it can never land after Pi names its
+        // conversation (which sets waiting for a prompt).
+        var result = await _apiMode.HandBackWheelAsync(() => ActivityState == ActivityState.Working,
+            () => SetActivityState(ActivityState.Starting), CancellationToken.None);
         FileLog.Write($"[Session] HandBackWheelAsync done: session={Id}, " + (result.Done ? "the protocol holds the conversation" : $"REFUSED - {result.Refusal}"));
         return result;
     }
 
     /// <summary>
     /// An API-mode session's terminal appeared or went away: the screen is fed from the user's terminal while they hold the
-    /// wheel, and empty otherwise. While the protocol holds the conversation again, the session is starting until Pi names
-    /// its conversation; with no process at all (the terminal exited on its own), it waits for a prompt, which queues.
+    /// wheel, and empty otherwise. With no process at all (the terminal exited on its own, or Pi could not be started
+    /// again), the session waits for a prompt, which queues. When the protocol holds the conversation again the activity is
+    /// left alone: the hand back set it to starting before Pi started, and Pi's own events have moved it on since.
     /// </summary>
     private void OnApiModeTerminalChanged()
     {
@@ -4819,7 +4823,8 @@ public sealed class Session : IDisposable
         }
         else
         {
-            SetActivityState(WheelHolder == SessionWheelHolder.Protocol ? ActivityState.Starting : ActivityState.WaitingForInput);
+            if (WheelHolder != SessionWheelHolder.Protocol)
+                SetActivityState(ActivityState.WaitingForInput);
         }
         FileLog.Write($"[Session] OnApiModeTerminalChanged: session={Id}, holder={WheelHolder}, terminal={(buffer is null ? "none" : "attached")}");
         try
@@ -4854,14 +4859,25 @@ public sealed class Session : IDisposable
         }
     }
 
-    /// <summary>Stop the running turn of an API-mode session with the agent's own abort, and wait for the agent to
-    /// confirm it (issue #4070).</summary>
-    private async Task StopApiModeTurnAsync(ApiModeSessionBackend apiMode)
+    /// <summary>
+    /// Stop the running turn of an API-mode session with the agent's own abort, and wait for the agent to confirm it
+    /// (issue #4070). Null when the agent confirmed it (the turn ended cancelled, or nothing was running); otherwise the
+    /// true reason nothing was stopped - the user holds the wheel and the turn runs in Pi's terminal, no process holds the
+    /// conversation, or the session has ended (phase 4) - and for a terminal session, which has no protocol turn.
+    /// </summary>
+    public async Task<string?> StopApiModeTurnAsync()
     {
-        FileLog.Write($"[Session] StopApiModeTurnAsync: session={Id}");
-        var ended = await apiMode.Host.StopAsync(CancellationToken.None);
-        FileLog.Write($"[Session] StopApiModeTurnAsync done: session={Id}, turn={ended?.TurnId ?? "(none running)"}, outcome={ended?.Outcome.ToString() ?? "(none)"}");
+        FileLog.Write($"[Session] StopApiModeTurnAsync: session={Id}, holder={WheelHolder}");
+        if (_apiMode is null)
+            return NoProtocolTurnReason;
+        var refusal = await _apiMode.StopTurnAsync(CancellationToken.None);
+        FileLog.Write($"[Session] StopApiModeTurnAsync done: session={Id}, " + (refusal is null ? "the agent confirmed the stop" : $"REFUSED - {refusal}"));
+        return refusal;
     }
+
+    /// <summary>The words a terminal session's protocol Stop is refused with.</summary>
+    public const string NoProtocolTurnReason =
+        "This session is not in API mode, so there is no protocol turn to stop. Use interrupt for a terminal session.";
 
     /// <summary>Hard interrupt (Ctrl+C where the tool supports it; pi does NOT -
     /// its driver throws because Ctrl+C twice quits pi).</summary>

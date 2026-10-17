@@ -56,6 +56,15 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// <summary>The reason on the <see cref="ConnectionEnded"/> of a Pi process stopped because the user took the wheel.</summary>
     public const string UserTookTheWheelReason = "The user took the wheel: Pi's conversation is open in its terminal";
 
+    /// <summary>The reason on the <see cref="TurnEnded"/> of a turn Pi cut short with its abort because the user took the
+    /// wheel - never the Stop button's words, so the record tells the two apart.</summary>
+    public const string TurnStoppedForTheWheelReason = "stopped because the user took the wheel: the conversation was opened in Pi's terminal";
+
+    /// <summary>The start of the reason on the <see cref="TurnEnded"/> of a turn whose abort Pi did not confirm within the
+    /// take's grace, so its process was closed under it (Pi's own reason for the end follows in brackets).</summary>
+    public const string TurnAbortUnconfirmedReason =
+        "ended because the user took the wheel: Pi did not confirm its abort in time, so its process was closed";
+
     private readonly string _sessionId;
     private readonly string _agentSessionId;
     private readonly bool _resuming;
@@ -332,8 +341,10 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// Take the wheel, the protocol's half (API mode mission, issue #4070, phase 4): end this session's Pi process so the
     /// conversation can be opened in Pi's terminal, without ending the session. From the first step no prompt is written
     /// and no Pi process is started - a send queues with <see cref="PromptQueuedReason.UserHasTheWheel"/>, and the
-    /// turn-start restart does not run. A running turn is stopped first with Pi's own abort, confirmed by Pi. Then Pi's
-    /// input is closed, and it is killed if it has not exited within <paramref name="grace"/>. Returns once the process
+    /// turn-start restart does not run. A running turn is stopped first with Pi's own abort, waited for up to
+    /// <paramref name="grace"/> on the injected clock; that turn ends with the take's reason
+    /// (<see cref="TurnStoppedForTheWheelReason"/>, or <see cref="TurnAbortUnconfirmedReason"/> when Pi never confirmed).
+    /// Then Pi's input is closed, and it is killed if it has not exited within <paramref name="grace"/>. Returns once the process
     /// has ended and its <see cref="ConnectionEnded"/> (reason <see cref="UserTookTheWheelReason"/>) was published.
     /// Throws when the session has ended or the wheel is already taken.
     /// </summary>
@@ -358,10 +369,25 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             _lock.Release();
         }
 
+        var abortUnconfirmed = false;
         if (turnToStop)
         {
-            var stopped = await StopAsync(cancellationToken).ConfigureAwait(false);
-            FileLog.Write($"[ApiModeSessionHost] SuspendAsync: session={_sessionId}, the running turn was stopped first ({stopped?.Outcome.ToString() ?? "none was running"})");
+            // Bounded by the grace on the injected clock: Pi answers an abort only once it is idle, and the caller holds the
+            // session's ownership lock across this wait, so a Pi that never confirms must not keep every later take, hand
+            // back and kill waiting behind it. When the bound runs out Pi's input is closed as below, and the transport
+            // kills it after the same grace.
+            using var bound = new CancellationTokenSource(grace, _clock);
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bound.Token);
+            try
+            {
+                var stopped = await StopAsync(linked.Token).ConfigureAwait(false);
+                FileLog.Write($"[ApiModeSessionHost] SuspendAsync: session={_sessionId}, the running turn was stopped first ({stopped?.Outcome.ToString() ?? "none was running"})");
+            }
+            catch (OperationCanceledException) when (bound.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                FileLog.Write($"[ApiModeSessionHost] SuspendAsync: session={_sessionId}, Pi did not confirm its abort within {grace.TotalMilliseconds}ms; its process is closed under the turn");
+                abortUnconfirmed = true;
+            }
         }
 
         Connection connection;
@@ -370,6 +396,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         {
             connection = _connection!;
             connection.Suspending = true;
+            connection.AbortUnconfirmed = abortUnconfirmed;
         }
         finally
         {
@@ -716,6 +743,8 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
 
     private void TakeEventsLocked(IReadOnlyList<SessionEvent> events)
     {
+        if (_suspended)
+            events = WithTheWheelsReasonLocked(events);
         _stream.Publish(events);
         if (events.Count > 0)
             _observed.Writer.TryWrite(events);
@@ -738,6 +767,24 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// While a take is under way, a turn it cut short ends with the take's reason: cancelled by Pi's abort, the wheel's
+    /// words instead of the Stop button's; failed because Pi never confirmed the abort and its process was closed, a reason
+    /// that says so, with Pi's own after it. Every other event is unchanged.
+    /// </summary>
+    private IReadOnlyList<SessionEvent> WithTheWheelsReasonLocked(IReadOnlyList<SessionEvent> events)
+    {
+        if (!events.Any(e => e is TurnEnded { Outcome: not TurnOutcome.Done }))
+            return events;
+        var abortUnconfirmed = _connection is { AbortUnconfirmed: true };
+        return events.Select(e => e switch
+        {
+            TurnEnded { Outcome: TurnOutcome.Cancelled } ended => ended with { Reason = TurnStoppedForTheWheelReason },
+            TurnEnded { Outcome: TurnOutcome.Failed } ended when abortUnconfirmed => ended with { Reason = $"{TurnAbortUnconfirmedReason} ({ended.Reason})" },
+            _ => e,
+        }).ToList();
     }
 
     private async Task WriteQueuedPromptsLocked(Connection connection)
@@ -959,6 +1006,9 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
 
         /// <summary>The user is taking the wheel: this process ends without ending the session or starting another.</summary>
         public bool Suspending { get; set; }
+
+        /// <summary>The take's abort was not confirmed by Pi within the grace, so this process was closed under its turn.</summary>
+        public bool AbortUnconfirmed { get; set; }
 
         /// <summary>Completes once this process's end has been handled under the host's lock.</summary>
         public TaskCompletionSource EndHandled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

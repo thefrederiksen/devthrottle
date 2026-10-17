@@ -1808,6 +1808,16 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// change that replaces the client (ReapplyGatewayAsync) is picked up without
     /// re-subscribing. NotifySessionState is a no-op while disabled/unregistered.
     /// </summary>
+    /// <summary>
+    /// The holder of an API-mode session's wheel (API mode mission, issue #4070, phase 4) is read by the Gateway's wheel
+    /// commands to refuse a take or a hand back, so a change of holder pushes like any other fold input. The two wheel
+    /// commands await their own push; this one carries the changes no command made - the user's terminal exiting on its
+    /// own, a hand back whose Pi could not be started - which ride no activity change when the session was already
+    /// waiting for a prompt, and would otherwise reach the Gateway only on the ten-second re-push.
+    /// </summary>
+    internal static void PushOnWheelChange(Core.Sessions.Session session, Action<SessionDto> notifyDelta, string directorId) =>
+        session.OnTerminalChanged += () => notifyDelta(ControlEndpoints.Map(session, directorId));
+
     private void WireDoorbellPush()
     {
         void Attach(Core.Sessions.Session session)
@@ -1891,6 +1901,8 @@ public sealed class ControlApiHost : IAsyncDisposable
             // owner off the pushed row to decide whose stops these are, so it must not wait for the re-push.
             session.OnControllerChanged += () =>
                 _streamClient?.NotifyDelta(ControlEndpoints.Map(session, DirectorId));
+
+            PushOnWheelChange(session, row => _streamClient?.NotifyDelta(row), DirectorId);
         }
 
         _sessionManager.OnSessionCreated += session =>

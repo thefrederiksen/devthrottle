@@ -853,8 +853,7 @@ internal static class SessionCommandExecutor
     }
 
     /// <summary>The words a terminal session's Stop is refused with: it has no protocol to abort over.</summary>
-    internal const string TurnStopNotApiModeReason =
-        "This session is not in API mode, so there is no protocol turn to stop. Use interrupt for a terminal session.";
+    internal const string TurnStopNotApiModeReason = Session.NoProtocolTurnReason;
 
     /// <summary>
     /// The <c>turn-stop</c> verb (API mode mission, issue #4070): Stop an API-mode session's running turn with the
@@ -873,7 +872,9 @@ internal static class SessionCommandExecutor
         return await TurnStopCoreAsync(session);
     }
 
-    /// <summary>The turn-stop core, past the guards: refuse a terminal session, otherwise Pi's abort, confirmed.</summary>
+    /// <summary>The turn-stop core, past the guards: refuse a terminal session; otherwise Pi's abort, confirmed - or, when
+    /// the protocol does not hold the conversation (the user has the wheel, or no process holds it), refused in the
+    /// Director's own words, because nothing was stopped (phase 4).</summary>
     internal static async Task<DirectorCommandResult> TurnStopCoreAsync(Session session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -883,7 +884,12 @@ internal static class SessionCommandExecutor
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, TurnStopNotApiModeReason);
         }
 
-        await session.CancelTurnAsync();
+        var refusal = await session.StopApiModeTurnAsync();
+        if (refusal is not null)
+        {
+            FileLog.Write($"[SessionCommandExecutor] TurnStopCoreAsync: REFUSED session={session.Id}: {refusal}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, refusal);
+        }
         FileLog.Write($"[SessionCommandExecutor] TurnStopCoreAsync: session={session.Id}, the agent confirmed the stop");
         return DirectorCommandResult.Success();
     }

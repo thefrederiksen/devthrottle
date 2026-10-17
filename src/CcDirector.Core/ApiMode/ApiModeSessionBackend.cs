@@ -54,6 +54,18 @@ public sealed class ApiModeSessionBackend : ISessionBackend
     public const string TerminalMidTurnReason =
         "Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.";
 
+    /// <summary>Why a hand back is refused while the user's terminal, asked to exit and then killed, has not exited yet.</summary>
+    public const string TerminalStillRunningReason =
+        "Pi's terminal was asked to exit and then killed, but it has not exited yet, so the wheel was not handed back: two processes may never hold one conversation. The terminal is still yours; hand back again once it has gone.";
+
+    /// <summary>Why a Stop is refused while the user holds the wheel: the turn runs in Pi's terminal, out of the protocol's reach.</summary>
+    public const string StopWhileUserHoldsReason =
+        "You have the wheel of this session, so its turn runs in Pi's terminal, where Stop cannot reach it: nothing was stopped. Stop it in the terminal, then hand back if you want the session to continue in API mode.";
+
+    /// <summary>Why a Stop is refused while no process holds the conversation (the user's terminal exited on its own).</summary>
+    public const string StopWithNoHolderReason =
+        "No process holds this session's conversation (its terminal exited), so no turn is running and nothing was stopped. Hand back to continue in API mode, or take the wheel to open the terminal again.";
+
     private readonly string _sessionId;
     private readonly string _agentSessionId;
     private readonly bool _resuming;
@@ -257,14 +269,18 @@ public sealed class ApiModeSessionBackend : ISessionBackend
     /// Hand the wheel back: refused while <paramref name="terminalMidTurn"/> says the terminal is in the middle of a turn
     /// (it is read under the ownership lock), and refused while the protocol already holds the conversation. Otherwise the
     /// user's terminal is ended cleanly (or found already gone), and only once it has exited, Pi's API-mode process starts
-    /// again on the same conversation; prompts that waited are then written in order, each with its own receipt.
+    /// again on the same conversation; prompts that waited are then written in order, each with its own receipt. A terminal
+    /// that has not exited although it was asked to and then killed stays the user's, and the hand back is refused with
+    /// <see cref="TerminalStillRunningReason"/>. <paramref name="beforeResume"/> runs under the ownership lock just before
+    /// Pi is started, so whatever it sets cannot land after anything the new Pi reports.
     /// </summary>
-    public async Task<WheelSwitchResult> HandBackWheelAsync(Func<bool> terminalMidTurn, CancellationToken cancellationToken)
+    public async Task<WheelSwitchResult> HandBackWheelAsync(Func<bool> terminalMidTurn, Action beforeResume, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(terminalMidTurn);
+        ArgumentNullException.ThrowIfNull(beforeResume);
         FileLog.Write($"[ApiModeSessionBackend] HandBackWheelAsync: session={_sessionId}, holder={_wheelHolder}");
         var host = Host;
-        var detached = false;
+        var changed = false;
         await _ownership.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -276,10 +292,12 @@ public sealed class ApiModeSessionBackend : ISessionBackend
             {
                 if (terminalMidTurn())
                     return Refuse("hand back", TerminalMidTurnReason);
-                await EndTerminalLocked(terminal).ConfigureAwait(false);
-                detached = true;
+                if (!await EndTerminalLocked(terminal).ConfigureAwait(false))
+                    return Refuse("hand back", TerminalStillRunningReason);
+                changed = true;
             }
 
+            beforeResume();
             try
             {
                 await host.ResumeAsync(cancellationToken).ConfigureAwait(false);
@@ -287,6 +305,7 @@ public sealed class ApiModeSessionBackend : ISessionBackend
             catch (Exception ex)
             {
                 FileLog.Write($"[ApiModeSessionBackend] HandBackWheelAsync FAILED to start Pi again: session={_sessionId}: {ex.Message}");
+                changed = true;
                 _wheelHolder = SessionWheelHolder.None;
                 SetStatus("No process holds the conversation");
                 return Refuse("hand back", $"Pi could not be started again over the protocol ({ex.Message}). No process holds the conversation; hand back again, or take the wheel to open it in the terminal.");
@@ -298,10 +317,42 @@ public sealed class ApiModeSessionBackend : ISessionBackend
         finally
         {
             _ownership.Release();
-            if (detached)
+            if (changed)
                 RaiseTerminalChanged();
         }
         return WheelSwitchResult.Switched;
+    }
+
+    /// <summary>
+    /// Stop the running turn with Pi's own abort, and wait for Pi to confirm it. Null when Pi confirmed (the turn ended
+    /// cancelled, or nothing was running); otherwise the true reason nothing was stopped: the user holds the wheel and the
+    /// turn runs in the terminal (<see cref="StopWhileUserHoldsReason"/>), no process holds the conversation
+    /// (<see cref="StopWithNoHolderReason"/>), or the session has ended.
+    /// </summary>
+    public async Task<string?> StopTurnAsync(CancellationToken cancellationToken)
+    {
+        FileLog.Write($"[ApiModeSessionBackend] StopTurnAsync: session={_sessionId}, holder={_wheelHolder}");
+        var host = Host;
+        // Read under the ownership lock, so a switch under way is seen finished (a take is bounded), never half done; the
+        // lock is not held across Pi's answer, which comes only once Pi is idle.
+        string? refusal;
+        await _ownership.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            refusal = StopRefusal();
+        }
+        finally
+        {
+            _ownership.Release();
+        }
+        if (refusal is not null)
+            return RefuseStop(refusal);
+        var ended = await host.StopAsync(cancellationToken).ConfigureAwait(false);
+        // Nothing answered because Pi was not running: a take began while the stop was on its way.
+        if (ended is null && (host.Suspended || StopRefusal() is not null))
+            return RefuseStop(StopRefusal() ?? StopWhileUserHoldsReason);
+        FileLog.Write($"[ApiModeSessionBackend] StopTurnAsync: session={_sessionId}, Pi confirmed the stop, turn={ended?.TurnId ?? "(none running)"}");
+        return null;
     }
 
     /// <summary>The user's terminal's keystrokes. Refused while the protocol holds the conversation: there is no terminal.</summary>
@@ -344,7 +395,15 @@ public sealed class ApiModeSessionBackend : ISessionBackend
         {
             if (_terminal is { } terminal)
             {
-                await EndTerminalLocked(terminal).ConfigureAwait(false);
+                if (!await EndTerminalLocked(terminal).ConfigureAwait(false))
+                {
+                    // The session is ending, so no Pi will be started beside it: the terminal is let go and disposed, which
+                    // kills it if it still runs.
+                    FileLog.Write($"[ApiModeSessionBackend] GracefulShutdownAsync: session={_sessionId}, the user's terminal has not exited; disposing it as the session ends");
+                    _terminal = null;
+                    _wheelHolder = SessionWheelHolder.None;
+                    terminal.Dispose();
+                }
                 detached = true;
             }
         }
@@ -374,18 +433,26 @@ public sealed class ApiModeSessionBackend : ISessionBackend
 
     // ---------------------------------------------------------------- the terminal
 
-    /// <summary>End the user's terminal and wait until it has exited. Under the ownership lock.</summary>
-    private async Task EndTerminalLocked(ISessionBackend terminal)
+    /// <summary>
+    /// End the user's terminal: asked to exit, and killed after <see cref="TerminalShutdownMilliseconds"/>. Under the
+    /// ownership lock. True once it has exited: it is then detached and disposed. False when it has not exited yet - the
+    /// terminal hosts send the kill and return without waiting for the exit - and then nothing changed: it is still the
+    /// user's terminal, and its exit, when it comes, is handled as its own (<see cref="HandleTerminalExitAsync"/>). Its
+    /// exit event during the wait is handled only after the lock is released, by which time it is detached and ignored.
+    /// </summary>
+    private async Task<bool> EndTerminalLocked(ISessionBackend terminal)
     {
-        // Detached first, so its exit is read as expected rather than as the terminal exiting on its own.
-        _terminal = null;
-        _wheelHolder = SessionWheelHolder.None;
         FileLog.Write($"[ApiModeSessionBackend] ending the user's terminal: session={_sessionId}, process {terminal.ProcessId}");
         await terminal.GracefulShutdownAsync(TerminalShutdownMilliseconds).ConfigureAwait(false);
         if (!terminal.HasExited)
-            throw new InvalidOperationException(
-                $"The terminal of session {_sessionId} did not exit, so Pi was not started over the protocol: two processes may never hold one conversation.");
+        {
+            FileLog.Write($"[ApiModeSessionBackend] the user's terminal has NOT exited after its shutdown: session={_sessionId}, process {terminal.ProcessId}; it stays attached");
+            return false;
+        }
+        _terminal = null;
+        _wheelHolder = SessionWheelHolder.None;
         terminal.Dispose();
+        return true;
     }
 
     /// <summary>
@@ -437,6 +504,22 @@ public sealed class ApiModeSessionBackend : ISessionBackend
     {
         FileLog.Write($"[ApiModeSessionBackend] {what} REFUSED: session={_sessionId}: {reason}");
         return WheelSwitchResult.Refused(reason);
+    }
+
+    /// <summary>Why a Stop cannot reach a turn now, or null when the protocol holds the conversation.</summary>
+    private string? StopRefusal() =>
+        _hasExited ? $"Session {_sessionId} has ended, so there is no turn to stop."
+        : _wheelHolder switch
+        {
+            SessionWheelHolder.User => StopWhileUserHoldsReason,
+            SessionWheelHolder.None => StopWithNoHolderReason,
+            _ => null,
+        };
+
+    private string RefuseStop(string reason)
+    {
+        FileLog.Write($"[ApiModeSessionBackend] stop REFUSED: session={_sessionId}: {reason}");
+        return reason;
     }
 
     private void RaiseTerminalChanged()

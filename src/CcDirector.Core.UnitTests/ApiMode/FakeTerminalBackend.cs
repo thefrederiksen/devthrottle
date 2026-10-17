@@ -62,10 +62,19 @@ internal sealed class FakeTerminalBackend : ISessionBackend
     /// <summary>Pi in the terminal draws something: bytes on the session's screen.</summary>
     public void Draw(string text) => Buffer!.Write(System.Text.Encoding.UTF8.GetBytes(text));
 
-    /// <summary>A clean shutdown: the terminal exits with code 0.</summary>
+    /// <summary>False for a terminal that is still running after its shutdown returns, as the real terminal hosts leave one
+    /// whose exit did not come within the timeout: they send the kill and return without waiting for the exit.</summary>
+    public bool ExitsOnShutdown { get; set; } = true;
+
+    /// <summary>How many times the terminal was asked to shut down.</summary>
+    public int ShutdownsAsked { get; private set; }
+
+    /// <summary>A clean shutdown: the terminal exits with code 0 (unless <see cref="ExitsOnShutdown"/> is false).</summary>
     public Task GracefulShutdownAsync(int timeoutMs = 5000)
     {
-        Exit(0);
+        ShutdownsAsked++;
+        if (ExitsOnShutdown)
+            Exit(0);
         return Task.CompletedTask;
     }
 

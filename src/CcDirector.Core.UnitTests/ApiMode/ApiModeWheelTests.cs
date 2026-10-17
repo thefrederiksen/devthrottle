@@ -419,6 +419,193 @@ public sealed class ApiModeWheelTests : IDisposable
     }
 
     [Fact]
+    public async Task HandBackWheelAsync_TheTerminalHasNotExitedAfterItsShutdown_IsRefusedAndNoPiStartsBesideIt()
+    {
+        // Arrange: the user has the wheel, and the terminal will still be running when its shutdown returns - as the real
+        // terminal hosts leave one whose exit did not come within the timeout: they send the kill and return.
+        var rig = StartSession(new ScriptedPi("plain"), new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        await rig.Session.TakeWheelAsync();
+        var terminal = rig.Terminals[0];
+        terminal.ExitsOnShutdown = false;
+
+        // Act: two hand backs while it runs, then its exit arrives, then a third hand back.
+        var first = await rig.Session.HandBackWheelAsync();
+        var second = await rig.Session.HandBackWheelAsync();
+        var holderWhileItRuns = rig.Session.WheelHolder;
+        var bufferWhileItRuns = rig.Session.Buffer;
+        var pisWhileItRuns = rig.PisStarted.Count;
+        var detached = WhenTerminalChanges(rig.Session);
+        terminal.Exit(137);
+        await detached;
+        var third = await rig.Session.HandBackWheelAsync();
+
+        // Assert: refused in words while the terminal ran, which stayed the user's and attached; no Pi beside it; the hand
+        // back after its exit started Pi, and only then.
+        Assert.False(first.Done);
+        Assert.Equal(ApiModeSessionBackend.TerminalStillRunningReason, first.Refusal);
+        Assert.False(second.Done);
+        Assert.Equal(2, terminal.ShutdownsAsked);
+        Assert.Equal(SessionWheelHolder.User, holderWhileItRuns);
+        Assert.Same(terminal.Buffer, bufferWhileItRuns);
+        Assert.Equal(1, pisWhileItRuns);
+        Assert.True(terminal.Disposed);
+        Assert.True(third.Done);
+        Assert.Equal(SessionWheelHolder.Protocol, rig.Session.WheelHolder);
+        Assert.Equal(
+        [
+            "pi started (every terminal exited: True)",
+            "terminal made (every pi exited: True)",
+            "terminal started",
+            "terminal exited",
+            "pi started (every terminal exited: True)",
+        ], rig.Timeline);
+    }
+
+    [Fact]
+    public async Task StopApiModeTurnAsync_WhileTheUserHoldsTheWheel_IsRefusedWithTheReasonAndStopsNothing()
+    {
+        // Arrange
+        var rig = StartSession(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        await rig.Session.TakeWheelAsync();
+
+        // Act
+        var refusal = await rig.Session.StopApiModeTurnAsync();
+
+        // Assert: the true reason; nothing typed into the terminal, no abort to any Pi, and the user still holds it.
+        Assert.Equal(ApiModeSessionBackend.StopWhileUserHoldsReason, refusal);
+        Assert.Empty(rig.Terminals[0].Written);
+        Assert.DoesNotContain("abort", rig.PisStarted[0].WrittenTypes);
+        Assert.Equal(SessionWheelHolder.User, rig.Session.WheelHolder);
+    }
+
+    [Fact]
+    public async Task StopApiModeTurnAsync_AfterTheTerminalExitedOnItsOwn_IsRefusedBecauseNothingRuns()
+    {
+        // Arrange
+        var rig = StartSession(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        await rig.Session.TakeWheelAsync();
+        var detached = WhenTerminalChanges(rig.Session);
+        rig.Terminals[0].Exit(0);
+        await detached;
+
+        // Act
+        var refusal = await rig.Session.StopApiModeTurnAsync();
+
+        // Assert
+        Assert.Equal(ApiModeSessionBackend.StopWithNoHolderReason, refusal);
+        Assert.Single(rig.PisStarted);
+    }
+
+    [Fact]
+    public async Task StopApiModeTurnAsync_WhileTheProtocolHoldsIt_IsPisAbortConfirmed()
+    {
+        // Arrange: the refusal recording answers an abort while idle.
+        var rig = StartSession(new ScriptedPi("refusal"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        var refusal = await rig.Session.StopApiModeTurnAsync();
+
+        // Assert
+        Assert.Null(refusal);
+        Assert.Contains("abort", rig.PisStarted[0].WrittenTypes);
+    }
+
+    [Fact]
+    public async Task TakeWheelAsync_PiNeverConfirmsItsAbort_TheTakeEndsAfterTheGraceAndTheTerminalOpens()
+    {
+        // Arrange: a Pi that answers only when the test says, in the middle of a turn; its abort will never be answered.
+        var pi = new ScriptedPi("abort") { AutoRespond = false };
+        var rig = StartSession(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        var sending = rig.Session.SendTextAsync("Count slowly to fifty", Door);
+        await pi.WaitForWrittenAsync("prompt");
+        pi.RespondToNext();
+        Assert.True((await ScriptedPi.WithinHangGuard(sending, "the prompt's receipt")).Confirmed);
+        await rig.Sink.WaitForAsync<TurnStarted>();
+
+        // Act: the take writes the abort, which Pi never answers, and the grace passes on the fake clock.
+        var taking = rig.Session.TakeWheelAsync();
+        await pi.WaitForWrittenAsync("abort");
+        rig.Clock.Advance(ApiModeSessionDefaults.ShutdownGrace);
+        var take = await ScriptedPi.WithinHangGuard(taking, "the take, past a Pi that never confirms its abort");
+        await rig.Sink.WaitForAsync<ConnectionEnded>();
+
+        // Assert: the take completed, Pi had exited before the terminal was made, and the turn ended saying why.
+        Assert.True(take.Done);
+        Assert.Equal(SessionWheelHolder.User, rig.Session.WheelHolder);
+        Assert.Equal(["pi started (every terminal exited: True)", "terminal made (every pi exited: True)", "terminal started"], rig.Timeline);
+        var ended = rig.Sink.Events.OfType<TurnEnded>().Single();
+        Assert.Equal(TurnOutcome.Failed, ended.Outcome);
+        Assert.StartsWith(ApiModeSessionHost.TurnAbortUnconfirmedReason, ended.Reason);
+        Assert.Equal(["TurnEnded", "ConnectionEnded"],
+            rig.Sink.Events.Where(e => e is TurnEnded or ConnectionEnded).Select(e => e.GetType().Name));
+    }
+
+    [Fact]
+    public async Task TakeWheelAsync_DuringARunningTurn_EndsThatTurnWithTheWheelsReasonBeforePisProcessEnds()
+    {
+        // Arrange: Pi is in the middle of a turn (the abort recording).
+        var rig = StartSession(new ScriptedPi("abort"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        Assert.True((await rig.Session.SendTextAsync("Count slowly to fifty", Door)).Confirmed);
+        await rig.Sink.WaitForAsync<TurnStarted>();
+
+        // Act
+        var take = await rig.Session.TakeWheelAsync();
+        await rig.Sink.WaitForAsync<ConnectionEnded>();
+
+        // Assert: the turn ended cancelled by Pi's abort, in the wheel's words and not the Stop button's, and then Pi's
+        // process ended with the take's reason.
+        Assert.True(take.Done);
+        var ended = rig.Sink.Events.OfType<TurnEnded>().Single();
+        Assert.Equal(TurnOutcome.Cancelled, ended.Outcome);
+        Assert.Equal(ApiModeSessionHost.TurnStoppedForTheWheelReason, ended.Reason);
+        Assert.Equal(["TurnEnded", "ConnectionEnded"],
+            rig.Sink.Events.Where(e => e is TurnEnded or ConnectionEnded).Select(e => e.GetType().Name));
+        Assert.Equal(ApiModeSessionHost.UserTookTheWheelReason, rig.Sink.Events.OfType<ConnectionEnded>().Single().Reason);
+    }
+
+    [Fact]
+    public async Task HandBackWheelAsync_PiNamesItsConversationBeforeTheHandBackFinishes_TheSessionEndsWaitingForInput()
+    {
+        // Arrange: the user has the wheel.
+        var rig = StartSession(new ScriptedPi("plain"), new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        await rig.Session.TakeWheelAsync();
+        // The new Pi's ConnectionReady once the session itself has read it: this handler runs after the session's own.
+        var readyRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Backend.EventsPublished += events =>
+        {
+            if (events.Any(e => e is ConnectionReady { Sequence: > 1 }))
+                readyRead.TrySetResult();
+        };
+        // The order the race allows, made certain: the hand back, once Pi is started, does not finish until the session
+        // has read Pi's ConnectionReady.
+        rig.Backend.StatusChanged += status =>
+        {
+            if (status == "Running")
+                Assert.True(readyRead.Task.Wait(ScriptedPi.HangGuard), "the session never read the new Pi's ConnectionReady");
+        };
+        var states = new List<ActivityState>();
+        rig.Session.OnActivityStateChanged += (_, now) => { lock (states) states.Add(now); };
+
+        // Act
+        var handBack = await rig.Session.HandBackWheelAsync();
+
+        // Assert: starting before Pi started, then waiting once Pi named its conversation - and nothing after it.
+        Assert.True(handBack.Done);
+        Assert.Equal(ActivityState.WaitingForInput, rig.Session.ActivityState);
+        lock (states)
+            Assert.Equal([ActivityState.Starting, ActivityState.WaitingForInput], states);
+    }
+
+    [Fact]
     public async Task TakeWheelAsync_TerminalSession_IsRefused()
     {
         // Arrange
