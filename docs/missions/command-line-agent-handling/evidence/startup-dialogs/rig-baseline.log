@@ -1,0 +1,16 @@
+[rig] scenario run 20261017-140628 on product dfdb177818b8; ledger /home/soren/ReposFred/_delivery-qa/ledger.jsonl
+[rig] claude: /home/soren/.local/bin/claude (2.1.302 (Claude Code)), args: --model haiku --allowedTools Bash(sleep:*)
+[scenario] trusted-worktree on claude: the first prompt of a session in a new git worktree of a repository the owner trusts (#2898)
+[scenario] trusted-worktree   claude  len=94     director=OK         truth=ARRIVED  PASS 2.7s 
+[scenario] trusted-worktree on claude: the first prompt of a session in a new git worktree of a repository the owner trusts (#2898)
+[scenario] trusted-worktree   claude  len=94     director=OK         truth=ARRIVED  PASS 2.6s 
+[scenario] trusted-worktree on claude: the first prompt of a session in a new git worktree of a repository the owner trusts (#2898)
+[scenario] trusted-worktree   claude  len=94     director=OK         truth=ARRIVED  PASS 2.6s 
+
+3 attempts counted (0 setup failures not counted).
+
+product dfdb177818b8  (2026-10-17 14:06 to 14:06 UTC)
+  agent    scenario            pass   of   rate  95% interval   failures (director/truth)
+  claude   trusted-worktree       3    3   100%    44% - 100%   
+  claude   ALL SCENARIOS          3    3   100%    44% - 100%   
+

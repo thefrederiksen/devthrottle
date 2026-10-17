@@ -173,6 +173,15 @@ public sealed class SessionManager : IDisposable
     public Claude.ClaudeFolderTrust? ClaudeFolderTrust { get; init; }
 
     /// <summary>
+    /// Asked, for a Claude Code session nobody will answer (opened by another session, or a seat), whether it would stop on
+    /// Claude Code's one-time Bypass Permissions warning: given the session's own arguments, its full launch line and its
+    /// folder, it answers the sentence that refuses the start, or null to go ahead. The Director gives
+    /// <see cref="Claude.ClaudeBypassConsent.WhyItWouldStop"/> for this user and machine; when it is not set, nothing is
+    /// refused.
+    /// </summary>
+    public Func<string?, string, string, string?>? ClaudeBypassCheck { get; init; }
+
+    /// <summary>
     /// Answers, before a seat's agent starts, whether this machine holds the secrets its kit lists and may use them for
     /// run (Factory Definition mission, phase 5, design section 6). The installed cc-secrets by default; it is run only
     /// for a seat that lists a secret. A test hands in one with a faked list.
@@ -940,6 +949,16 @@ public sealed class SessionManager : IDisposable
             if (agent.Kind == AgentKind.ClaudeCode && kitDirectory is not null)
                 TrustSeatFolder(id, home, pooled);
 
+            // CLAUDE CODE'S ONE-TIME BYPASS WARNING, WHICH NOBODY WOULD ANSWER (Command Line Agent Handling mission). A
+            // session opened by another session, or a seat, that would stop on it is refused here in words; the Director
+            // never accepts the warning for the owner (ClaudeBypassConsent). A session the owner opens is left alone.
+            if (agent.Kind == AgentKind.ClaudeCode && (controllerSessionId is not null || kitDirectory is not null)
+                && ClaudeBypassCheck?.Invoke(userArgs, args, workingDirectory) is { } bypassRefusal)
+            {
+                FileLog.Write($"[SessionManager] CreateSession REFUSED: session={id}: {bypassRefusal}");
+                throw new Claude.ClaudeStartRefusedException(bypassRefusal);
+            }
+
             // Inject CC_SESSION_ID so skills (e.g. /handover) can look up the session name, and
             // CC_DIRECTOR_ID so the session knows WHICH Director it belongs to (identity only).
             //
@@ -1154,6 +1173,19 @@ public sealed class SessionManager : IDisposable
                     args = $"{args} {CcDirector.Core.Codex.CodexHookInstaller.BypassTrustFlag}".Trim();
                     _log?.Invoke("Installed Codex fleet-preamble SessionStart hook (--dangerously-bypass-hook-trust).");
                 }
+
+                // CODEX'S START-UP QUESTIONS (Command Line Agent Handling mission; #3404, #2898): its update check is
+                // turned off, and a folder the owner already trusts in Claude Code is trusted for this run, so neither
+                // "Update available!" nor "Trust this folder?" swallows the first prompt. A folder nobody trusted still asks.
+                var trustedByOwner = ClaudeFolderTrust?.Covers(workingDirectory) == true;
+                var callerSetsUpdateCheck = args.Contains("check_for_update_on_startup", StringComparison.Ordinal);
+                args = CcDirector.Core.Codex.CodexStartupArguments.Append(args, workingDirectory, trustedByOwner);
+                var updateCheck = callerSetsUpdateCheck
+                    ? "its update check as the launch line sets it"
+                    : "its update check off";
+                _log?.Invoke(trustedByOwner
+                    ? $"Started Codex with {updateCheck}, and {workingDirectory} trusted for this run because Claude Code's record trusts it."
+                    : $"Started Codex with {updateCheck}.");
             }
 
             // For Pi, write the fleet preamble to a per-session file and pass it via

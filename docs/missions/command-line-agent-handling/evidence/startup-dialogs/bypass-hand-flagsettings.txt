@@ -1,0 +1,2 @@
+laude Code Claude Codev2.1.302Haiku 5.5 Claude Max ~/ReposFred/_delivery-qa/claude-trusted/c87126aa5 medium /effortTry "how does <filepath> work?" Transcript saving is off inherited CLAUDE_CODE_CHILD_SESSION marker restart with CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 to keep bypass permissions on (shift+tab to cycle)ou've used 75% of your weekly limit resets Oct 22, 5pm (America/New_York) /usage-credits to keep using Claude Code
+Session terminated, killing shell... ...killed.
