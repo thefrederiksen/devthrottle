@@ -354,7 +354,7 @@ public sealed class LicenseApproverRegistrationTests : IDisposable
 
     public static TheoryData<string> RowsOfTheWrongShape() => new()
     {
-        "no profile", "profile of the wrong shape", "profile too long", "account not an email", "account too long",
+        "no profile", "profile of the wrong shape", "profile too long", "profile with a space around it", "account not an email", "account too long",
         "shown account not an email", "unknown state", "not-checked reported", "checked in the future", "checked over 26 hours ago",
         "detail too long", "detail with a line break", "can approve with no account", "can approve showing another account", "null row",
     };
@@ -368,6 +368,7 @@ public sealed class LicenseApproverRegistrationTests : IDisposable
             "no profile" => Row(profile: null!),
             "profile of the wrong shape" => Row(profile: "work; rm -rf"),
             "profile too long" => Row(profile: new string('w', 65)),
+            "profile with a space around it" => Row(profile: " work "),
             "account not an email" => Row(account: "not-an-email"),
             "account too long" => Row(account: new string('a', 400) + "@example.com"),
             "shown account not an email" => Row(shown: "a@b@c"),
@@ -402,13 +403,53 @@ public sealed class LicenseApproverRegistrationTests : IDisposable
     }
 
     [Fact]
-    public void Report_AccountsAreComparedLowerCased_AndTheProfileTrimmed()
+    public void Report_AccountsAreComparedLowerCased()
     {
-        AssertRow(Check(DirectorA, Row(profile: " work ", account: "Account-A@Example.com", shown: "ACCOUNT-A@example.com")),
-            LicenseApproverCheckOutcomes.Registered);
+        AssertRow(Check(DirectorA, Row(account: "Account-A@Example.com", shown: "ACCOUNT-A@example.com")), LicenseApproverCheckOutcomes.Registered);
 
         var stored = _approvers.Find(One, A)!;
         Assert.Equal((A, Work, A), (stored.AccountEmail, stored.BrowserProfile, stored.ShownAccount));
+    }
+
+    [Fact]
+    public void Report_TheProfileIdentifierIsComparedExactly_ADifferentSpellingIsAnotherProfile()
+    {
+        Assert.True(_approvers.Set(One, A, MachineA, "owner", "work-chrome", _now).Accepted);
+
+        // "Work-Chrome" is not the identifier the owner set, so it is not this record's check.
+        AssertRow(Check(DirectorA, Row(profile: "Work-Chrome", state: LicenseApproverStates.SignedOut, shown: null)),
+            LicenseApproverCheckOutcomes.Refused, LicenseApproverRefusals.RecordNamesAnotherApprover);
+        Assert.Null(_approvers.Find(One, A)!.State);
+    }
+
+    [Fact]
+    public void Report_KeepsTheProfilesDisplayName_AsTheLastNameSeen()
+    {
+        AssertRow(Check(DirectorA, WithName(Row(profile: "work-chrome"), " Work Chrome ")), LicenseApproverCheckOutcomes.Registered);
+        Assert.Equal(("work-chrome", "Work Chrome"), (_approvers.Find(One, A)!.BrowserProfile, _approvers.Find(One, A)!.BrowserProfileName));
+
+        // A later check that names nothing keeps the last name seen; one that names a new name replaces it.
+        AssertRow(Check(DirectorA, Row(profile: "work-chrome")), LicenseApproverCheckOutcomes.HealthUpdated);
+        Assert.Equal("Work Chrome", _approvers.Find(One, A)!.BrowserProfileName);
+        AssertRow(Check(DirectorA, WithName(Row(profile: "work-chrome"), "Office")), LicenseApproverCheckOutcomes.HealthUpdated);
+        Assert.Equal("Office", _approvers.Find(One, A)!.BrowserProfileName);
+    }
+
+    [Theory]
+    [InlineData("a display name that is far too long to be the name of a browser profile at all, past 64")]
+    [InlineData("Work; rm -rf")]
+    [InlineData(" ")]
+    public void Report_ADisplayNameOfTheWrongShape_IsRefusedWhole(string name)
+    {
+        AssertRow(Check(DirectorA, WithName(Row(), name)), LicenseApproverCheckOutcomes.Refused, LicenseApproverRefusals.InvalidRow);
+
+        AssertNothingStored();
+    }
+
+    private static LicenseApproverCheckRow WithName(LicenseApproverCheckRow row, string name)
+    {
+        row.BrowserProfileName = name;
+        return row;
     }
 
     // ----- the log -----

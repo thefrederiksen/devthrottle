@@ -1000,13 +1000,20 @@ stay owner-only; no session key gains anything.
 | Method | Payload | Answer |
 |---|---|---|
 | `GetLicenseApproverAssignments()` | none | `{ rows: [{ accountEmail, browserProfile, source }] }` - the records that name the caller's machine and operating system user |
-| `ReportLicenseApproverChecks(report)` | `{ offersApprovers, rows: [{ browserProfile, accountEmail, shownAccount, state, checkedAtUtc, detail }] }` | `{ rows: [{ browserProfile, accountEmail, outcome, reason }] }`, one per row, in order |
+| `ReportLicenseApproverChecks(report)` | `{ offersApprovers, rows: [{ browserProfile, browserProfileName, accountEmail, shownAccount, state, checkedAtUtc, detail }] }` | `{ rows: [{ browserProfile, accountEmail, outcome, reason }] }`, one per row, in order |
 
 Both are refused before Hello and are listed in the Hello answer only by a Gateway that keeps registrations. The
 tenant and the Director are the connection's binding. The machine and operating system user are the Licenses read
 model's record of which machine that Director last reported for - never anything in the payload. A Director that
 reports for no machine of the tenant gets no assignments and every row of its report is refused
 `not-the-reporting-director`.
+
+`browserProfile` is everywhere the profile's IDENTIFIER on the Director (for example `work-chrome`), never its display
+name: in the approver record, the Cockpit's `PUT`, the assignment and check rows, and the `license-approve` request. It
+is stable across a rename and compared exactly, with no "either spelling" matching. A record set by display name
+before this rule never matches a check, so it reads `not-checked` and says so, and the owner sets it again. A check
+row also carries `browserProfileName`, the display name (at most 64 characters, the shape of a profile name, or null);
+the Gateway keeps it on the record as the last name seen and says it in its sentences.
 
 ### 10.2 Words
 
@@ -1025,7 +1032,7 @@ An empty list is taken and answered with an empty list: a machine with no profil
 then decided under the approver store's lock, against the records as the earlier rows of the same report left them:
 
 1. A row with a field missing, too long or of the wrong shape is `invalid-row`: the profile must be a profile name;
-   the accounts emails; the state a reportable word; the check no more than 5 minutes ahead of the Gateway's clock and
+   the display name, when given, a profile name of at most 64 characters; the accounts emails; the state a reportable word; the check no more than 5 minutes ahead of the Gateway's clock and
    no older than 26 hours; the detail at most 200 characters with no control character; and a `can-approve` row must
    name its account and show no other.
 2. A row with no account stores nothing.

@@ -200,7 +200,7 @@ public sealed class LicenseApproverStoreTests : IDisposable
 
         var raw = _settings.Get(One, TenantSettingKeys.LicenseApprovers)!;
         var stored = Assert.Single(JsonDocument.Parse(raw).RootElement.EnumerateArray().ToList());
-        Assert.Equal(new[] { "accountEmail", "machineName", "osUser", "browserProfile", "source", "state", "checkedAtUtc", "shownAccount", "detail" },
+        Assert.Equal(new[] { "accountEmail", "machineName", "osUser", "browserProfile", "source", "state", "checkedAtUtc", "shownAccount", "detail", "browserProfileName" },
             stored.EnumerateObject().Select(p => p.Name));
         Assert.Equal(LicenseApproverSources.Owner, stored.GetProperty("source").GetString());
     }

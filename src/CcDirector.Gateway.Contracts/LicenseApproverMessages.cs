@@ -86,6 +86,8 @@ public sealed class LicenseApproverAssignment
 {
     public string AccountEmail { get; set; } = "";
 
+    /// <summary>The browser profile's IDENTIFIER on the Director (for example "work-chrome"), never its display name.
+    /// It is stable across a rename and is compared exactly.</summary>
     public string BrowserProfile { get; set; } = "";
 
     /// <summary>One of <see cref="LicenseApproverSources"/>.</summary>
@@ -106,7 +108,14 @@ public sealed class LicenseApproverCheckReport
 /// <summary>One profile's check.</summary>
 public sealed class LicenseApproverCheckRow
 {
+    /// <summary>The browser profile's IDENTIFIER on the Director (for example "work-chrome"), never its display name.
+    /// It is stable across a rename and is compared exactly.</summary>
     public string BrowserProfile { get; set; } = "";
+
+    /// <summary>The profile's display name as the browser shows it (for example "Work Chrome"), or null. At most 64
+    /// characters, the same shape as a profile name. The Gateway keeps it as the last name seen and says it in its
+    /// sentences, so the owner never has to read an identifier.</summary>
+    public string? BrowserProfileName { get; set; }
 
     /// <summary>The account checked, or null when the profile showed none.</summary>
     public string? AccountEmail { get; set; }
@@ -133,6 +142,7 @@ public sealed class LicenseApproverCheckAnswer
 /// <summary>What the Gateway did with one row.</summary>
 public sealed class LicenseApproverCheckRowAnswer
 {
+    /// <summary>The row's browser profile identifier, once checked; empty for a row refused as invalid.</summary>
     public string BrowserProfile { get; set; } = "";
 
     public string? AccountEmail { get; set; }

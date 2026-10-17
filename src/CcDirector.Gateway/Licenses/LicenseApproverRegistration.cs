@@ -135,7 +135,11 @@ public sealed class LicenseApproverRegistration
         // The record names exactly this machine, user and profile: whoever made it, this is its check.
         if (existing is not null && existing.Names(machine.MachineName, machine.OsUser, row.BrowserProfile))
         {
-            approvers[at] = existing with { State = row.State, CheckedAtUtc = row.CheckedAtUtc, ShownAccount = row.ShownAccount, Detail = row.Detail };
+            approvers[at] = existing with
+            {
+                State = row.State, CheckedAtUtc = row.CheckedAtUtc, ShownAccount = row.ShownAccount, Detail = row.Detail,
+                BrowserProfileName = row.BrowserProfileName ?? existing.BrowserProfileName,
+            };
             stored = true;
             return Answer(row.BrowserProfile, account, LicenseApproverCheckOutcomes.HealthUpdated, null);
         }
@@ -161,7 +165,7 @@ public sealed class LicenseApproverRegistration
             return Refused(LicenseApproverRefusals.TooManyApprovers);
 
         var registered = new LicenseApprover(account, machine.MachineName, machine.OsUser, row.BrowserProfile, LicenseApproverSources.Registered,
-            row.State, row.CheckedAtUtc, row.ShownAccount, row.Detail);
+            row.State, row.CheckedAtUtc, row.ShownAccount, row.Detail, row.BrowserProfileName);
         if (existing is null) approvers.Add(registered);
         else approvers[at] = registered;
         stored = true;
@@ -176,9 +180,19 @@ public sealed class LicenseApproverRegistration
             return null;
         if (row.BrowserProfile is not { Length: <= LicenseApproverStore.MaxNameLength } givenProfile)
             return null;
-        var profile = givenProfile.Trim();
+        // The identifier is compared exactly, so it is taken exactly as sent: no trimming that could make two spellings one.
+        var profile = givenProfile;
         if (!LicenseApproverStore.BrowserProfileShape.IsMatch(profile))
             return null;
+        string? profileName = null;
+        if (row.BrowserProfileName is not null)
+        {
+            if (row.BrowserProfileName.Length > LicenseApproverStore.MaxNameLength)
+                return null;
+            profileName = row.BrowserProfileName.Trim();
+            if (!LicenseApproverStore.BrowserProfileShape.IsMatch(profileName))
+                return null;
+        }
         if (!Email(row.AccountEmail, out var account) || !Email(row.ShownAccount, out var shown))
             return null;
         if (row.State is null || !LicenseApproverStates.Reportable.Contains(row.State))
@@ -204,7 +218,8 @@ public sealed class LicenseApproverRegistration
             return null;
         return new LicenseApproverCheckRow
         {
-            BrowserProfile = profile, AccountEmail = account, ShownAccount = shown, State = row.State, CheckedAtUtc = checkedAt, Detail = detail,
+            BrowserProfile = profile, BrowserProfileName = profileName, AccountEmail = account, ShownAccount = shown, State = row.State,
+            CheckedAtUtc = checkedAt, Detail = detail,
         };
     }
 

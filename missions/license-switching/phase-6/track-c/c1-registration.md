@@ -27,6 +27,13 @@ Pull request 2 (the plain-English readiness sentence, the approvers route's new 
   it. `LicenseApproverHealth.StateOf` is the not-checked rule in one place.
 - **`missions/license-switching/contract.md` section 9** documents all of it.
 
+## Which string a browser profile is
+
+`browserProfile` is always the profile's identifier on the Director (for example "work-chrome"), compared exactly,
+never trimmed and never matched against another spelling (the Tech Lead's decision of 17 October, after the review of
+4111). The check row also carries `browserProfileName`, the display name, which the record keeps as the last name
+seen, so pull request 2's sentences can say "Work Chrome" instead of an identifier.
+
 ## Why there is no separate tenant guard
 
 The design names "only where license switching automation is allowed" as a refusal. There is no Gateway-side record
@@ -70,9 +77,12 @@ on a throwaway SQLite file. Machine A (Director `dir-a`) holds accounts A and B;
 | `Report_WithMoreRowsThanAllowed_IsRefusedWhole_AndStoresNothing` | 33 good rows | The call is refused with the limit sentence; nothing stored | A Director could flood the store |
 | `Report_WithExactlyTheMostRowsAllowed_IsTaken` | 32 rows | Taken: the first registers, the rest update its health | The limit would be off by one |
 | `Report_MissingOrWithNoRows_IsRefused` | A null report, a report with no row list | Refused; nothing stored | A malformed call would crash or be read as "no checks" |
-| `Report_ARowOfTheWrongShape_IsRefusedWhole_AndStoresNothing` (15 cases) | No profile; a profile with characters a profile cannot have; a profile over 64 characters; an account or shown account that is not an email; an account too long; an unknown state; `not-checked` reported; a check dated more than 5 minutes ahead; a check older than 26 hours; a detail over 200 characters; a detail with a line break; can-approve with no account; can-approve showing another account; a null row | Each is refused `invalid-row`, its account is not echoed, nothing is stored | Bad input would be stored, said back in a sentence, or handed to a command on the approving machine |
+| `Report_ARowOfTheWrongShape_IsRefusedWhole_AndStoresNothing` (16 cases) | No profile; a profile with characters a profile cannot have; a profile over 64 characters; a profile identifier with a space around it (an identifier is taken exactly, never trimmed); an account or shown account that is not an email; an account too long; an unknown state; `not-checked` reported; a check dated more than 5 minutes ahead; a check older than 26 hours; a detail over 200 characters; a detail with a line break; can-approve with no account; can-approve showing another account; a null row | Each is refused `invalid-row`, its account is not echoed, nothing is stored | Bad input would be stored, said back in a sentence, or handed to a command on the approving machine |
 | `Report_ARefusedRow_DoesNotStopTheOtherRowsOfTheSameReport` | A bad row and a good row | The bad one refused, the good one registered | One bad profile would stop every check of a machine |
-| `Report_AccountsAreComparedLowerCased_AndTheProfileTrimmed` | Mixed-case accounts, a padded profile | Stored lower-cased and trimmed, matching the owner's form | The same account would be two records |
+| `Report_AccountsAreComparedLowerCased` | Mixed-case accounts | Stored lower-cased, matching the owner's form | The same account would be two records |
+| `Report_TheProfileIdentifierIsComparedExactly_ADifferentSpellingIsAnotherProfile` | The owner set identifier "work-chrome"; the Director reports "Work-Chrome" | Refused as another approver; no health written | A display name or a different spelling would be read as the record's check |
+| `Report_KeepsTheProfilesDisplayName_AsTheLastNameSeen` | A registration with display name " Work Chrome ", then a check with no name, then one named "Office" | The name is kept trimmed, kept when a check names none, replaced when a check names a new one | The owner would have to read an identifier, or a check with no name would erase the last one |
+| `Report_ADisplayNameOfTheWrongShape_IsRefusedWhole` (3 cases) | A display name over 64 characters, one with characters a profile name cannot have, one that is only a space | Refused `invalid-row`, nothing stored | Unchecked text would be stored and said back in a sentence |
 | `Report_LogsEveryAcceptedAndRefusedRow_WithTheAccountAndTheMachine_AndNeverTextThatWasNotChecked` | A registration, an invalid row carrying a line break and a marker word, an account not held | Each row has a log line with the machine, the account (or `-` when unchecked), the outcome and the reason; the marker never appears | Refusals would be silent, or a payload could write fake log lines |
 | `Assignments_AreTheRecordsThatNameTheCallersMachineAndUser_OwnerSetAndRegistered_AndNoOthers` | An owner record and a registered record on machine A, an owner record on machine B | Machine A's Director gets exactly its two, with their sources | A Director would check profiles it does not hold, or miss one |
 | `Assignments_ForADirectorThatReportsForNoMachineOfTheTenant_AreEmpty` | A stranger Director; `dir-a` in another tenant | Both get nothing | Records would leak to Directors that do not hold them |
@@ -81,7 +91,7 @@ on a throwaway SQLite file. Machine A (Director `dir-a`) holds accounts A and B;
 
 | Test | What it proves |
 |---|---|
-| `WhatIsStored_IsExactlyTheFieldsOfTheContract_WhoMadeTheRecordAndItsLastCheck` | The stored record has exactly the nine fields, and an owner's record says `owner`. Changed from the four-field test. |
+| `WhatIsStored_IsExactlyTheFieldsOfTheContract_WhoMadeTheRecordAndItsLastCheck` | The stored record has exactly the ten fields (with the last display name seen), and an owner's record says `owner`. Changed from the four-field test. |
 | `ARecordStoredBeforeSourcesExisted_ReadsAsOwnerSet_AndNeverChecked` | A record written before this change reads as owner-set and `not-checked` - so no registration can overwrite it, and it is never read as healthy. |
 | `ARecordWhoseSourceIsNotASourceWord_IsAnError` | A stored source the code does not know is an error, never guessed. |
 | `ARecordWhoseStateIsNotAWordADirectorMayReport_IsAnError` (2 cases) | A stored state that is not a reportable word - an unknown word, or the Gateway-only `not-checked` - is an error, never folded into a sentence. Added for review finding 1. |
@@ -142,4 +152,4 @@ the same six again, and the same six fail on an untouched checkout of `origin/ma
 failed). They come from the "look before typing" change already on main, and a fix branch for them exists
 (`fix/4072-six-gateway-tests`). The seventh, `FleetManagerEventServiceTests.ADirectorOlderThanTheIdleCheck_IsSentNothing_AndTheEventsWait`,
 failed once and passed on the re-run: it failed on correct code and belongs to the same area. Every license test
-passed: 888 in the license namespace, including the 111 of the three classes above.
+passed: 888 in the license namespace, including the 111 of the three classes above. After the review fixes and the identifier change: 896 run, 896 passed.

@@ -12,7 +12,8 @@ namespace CcDirector.Gateway.Licenses;
 /// <param name="AccountEmail">The account, lower-cased.</param>
 /// <param name="MachineName">The approving machine, as its Director reports it.</param>
 /// <param name="OsUser">The operating system user on that machine whose Director approves.</param>
-/// <param name="BrowserProfile">The browser profile there that is signed in to claude.ai as the account.</param>
+/// <param name="BrowserProfile">The IDENTIFIER of the browser profile there that is signed in to claude.ai as the account
+/// (the Director's identifier, for example "work-chrome", never the display name). Compared exactly.</param>
 /// <param name="Source">Who made the record: <see cref="LicenseApproverSources.Owner"/> or
 /// <see cref="LicenseApproverSources.Registered"/>. A record stored before sources existed reads as owner-set.</param>
 /// <param name="State">The state the last check reported (<see cref="LicenseApproverStates.Reportable"/>); null when the
@@ -20,9 +21,11 @@ namespace CcDirector.Gateway.Licenses;
 /// <param name="CheckedAtUtc">When the last check ran, as the checking Director said; null when never checked.</param>
 /// <param name="ShownAccount">Who the approval page said is signed in at the last check, or null.</param>
 /// <param name="Detail">The checking Director's short sentence from its own fixed words, or null.</param>
+/// <param name="BrowserProfileName">The profile's display name as the last check saw it, or null when no check has named
+/// it. Said in sentences in place of the identifier.</param>
 public sealed record LicenseApprover(string AccountEmail, string MachineName, string OsUser, string BrowserProfile,
     string Source = LicenseApproverSources.Owner, string? State = null, DateTime? CheckedAtUtc = null, string? ShownAccount = null,
-    string? Detail = null)
+    string? Detail = null, string? BrowserProfileName = null)
 {
     /// <summary>True when this record names that machine, operating system user and browser profile.</summary>
     public bool Names(string machineName, string osUser, string browserProfile)
@@ -176,6 +179,7 @@ public sealed class LicenseApproverStore
                 approver = approver with
                 {
                     State = all[at].State, CheckedAtUtc = all[at].CheckedAtUtc, ShownAccount = all[at].ShownAccount, Detail = all[at].Detail,
+                    BrowserProfileName = all[at].BrowserProfileName,
                 };
             if (at < 0) all.Add(approver);
             else all[at] = approver;
