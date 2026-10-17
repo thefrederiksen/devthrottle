@@ -46,6 +46,8 @@ public static class GatewaySystemdAutostart
             ? $"\"{exePath}\""
             : $"\"{exePath}\" {arguments}";
 
+        // A raw string literal takes its line endings from the checkout, so a build from a Windows checkout
+        // wrote CRLF unit files - mixed with the LF of StartLimitLines - for a Linux machine. Always LF.
         return $"""
             [Unit]
             Description=DevThrottle Gateway
@@ -60,7 +62,7 @@ public static class GatewaySystemdAutostart
             [Install]
             WantedBy=default.target
 
-            """;
+            """.ReplaceLineEndings("\n");
     }
 
     /// <summary>
