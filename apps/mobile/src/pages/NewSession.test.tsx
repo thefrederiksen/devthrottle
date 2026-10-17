@@ -391,12 +391,11 @@ describe("mobile new session", () => {
   // API mode mission #4070, phase 5: the shared Connection row sits in the review, and only for an agent the Gateway
   // offers both connections. Terminal is chosen until the person picks API mode.
   it("offers Connection in the review for an agent the Gateway offers API mode, and sends API mode when chosen", async () => {
-    api.getAgents.mockResolvedValue([
-      agent("Pi", "Pi agent", "GLM", [
-        { mode: "terminal", label: "Terminal" },
-        { mode: "api", label: "API mode" },
-      ]),
-    ]);
+    const connections = [
+      { mode: "terminal", label: "Terminal", description: null },
+      { mode: "api", label: "API mode", description: "Prompts are handed to Pi agent as messages." },
+    ];
+    api.getAgents.mockResolvedValue([agent("Pi", "Pi agent", "GLM", connections)]);
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Select Director North Director" }));
     fireEvent.click(await screen.findByRole("button", { name: "Select agent Pi agent" }));
@@ -405,7 +404,9 @@ describe("mobile new session", () => {
 
     expect(screen.getByRole("group", { name: "Connection" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Terminal" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByTestId("connection-choice-description")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "API mode" }));
+    expect(screen.getByTestId("connection-choice-description").textContent).toBe("Prompts are handed to Pi agent as messages.");
     fireEvent.click(screen.getByRole("button", { name: "Create session" }));
 
     await waitFor(() => expect(api.createSession).toHaveBeenCalledTimes(1));

@@ -12,6 +12,15 @@ function agent(modes: Array<[string, string]>): AgentChoice {
 
 const BOTH = agent([["terminal", "Terminal"], ["api", "API mode"]]);
 
+const SENTENCE = "Prompts are handed to Pi as messages, and each one is confirmed or refused with a reason.";
+const DESCRIBED: AgentChoice = {
+  ...BOTH,
+  connections: [
+    { mode: "terminal", label: "Terminal", description: null },
+    { mode: "api", label: "API mode", description: SENTENCE },
+  ],
+};
+
 describe("ConnectionChoiceRow", () => {
   afterEach(() => cleanup());
 
@@ -52,6 +61,24 @@ describe("ConnectionChoiceRow", () => {
     render(<ConnectionChoiceRow agent={BOTH} chosen="smoke-signals" onChoose={() => {}} idPrefix="t" />);
 
     expect(screen.getByRole("button", { name: "Terminal" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("says what API mode means, in the Gateway's words, while API mode is the choice", () => {
+    render(<ConnectionChoiceRow agent={DESCRIBED} chosen="api" onChoose={() => {}} idPrefix="t" />);
+
+    expect(screen.getByTestId("connection-choice-description").textContent).toBe(SENTENCE);
+  });
+
+  it("says nothing under the row while the terminal is the choice", () => {
+    render(<ConnectionChoiceRow agent={DESCRIBED} chosen="terminal" onChoose={() => {}} idPrefix="t" />);
+
+    expect(screen.queryByTestId("connection-choice-description")).toBeNull();
+  });
+
+  it("says nothing for a choice an older Gateway sent no sentence for", () => {
+    render(<ConnectionChoiceRow agent={BOTH} chosen="api" onChoose={() => {}} idPrefix="t" />);
+
+    expect(screen.queryByTestId("connection-choice-description")).toBeNull();
   });
 
   it("cannot be changed while the session is being created", () => {

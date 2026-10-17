@@ -898,6 +898,34 @@ public partial class NewSessionDialog : Window
         }
     }
 
+    private void ConnectionRadio_CheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (sender is not RadioButton rb || rb.IsChecked != true) return;
+            UpdateConnectionDescription();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[NewSessionDialog] ConnectionRadio_CheckedChanged FAILED: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The sentence under the Connection row (API mode mission #4070): what the chosen connection means, in the words
+    /// the Cockpit and the phone show for the same choice. Hidden while the terminal is chosen or the row is hidden.
+    /// </summary>
+    private void UpdateConnectionDescription()
+    {
+        if (ConnectionDescriptionText is null || ConnectionApiRadio is null) return;
+        var entry = SelectedAgentEntry;
+        var agentName = entry is null || string.IsNullOrWhiteSpace(entry.DisplayName) ? SelectedAgentKind.ToString() : entry.DisplayName;
+        var description = NewSessionConnection.DescriptionFor(SelectedAgentKind, agentName, ConnectionApiRadio.IsChecked == true, _apiModeOffered);
+        ConnectionDescriptionText.Text = description ?? "";
+        ConnectionDescriptionText.IsVisible = description is not null;
+        FileLog.Write($"[NewSessionDialog] UpdateConnectionDescription: agent={SelectedAgentKind}, shown={description is not null}");
+    }
+
     /// <summary>
     /// Apply the consequences of the currently selected agent entry (issue #490): the
     /// BypassPermissions checkbox is Claude-only, and the Custom-CLI command/args panel shows only
@@ -940,6 +968,7 @@ public partial class NewSessionDialog : Window
             if (!showsConnection && ConnectionTerminalRadio is not null)
                 ConnectionTerminalRadio.IsChecked = true;
         }
+        UpdateConnectionDescription();
         if (isRawCli && entry is not null && CustomCommandBox is not null
             && string.IsNullOrWhiteSpace(CustomCommandBox.Text))
         {

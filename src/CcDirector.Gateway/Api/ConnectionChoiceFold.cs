@@ -14,15 +14,16 @@ internal static class ConnectionChoiceFold
 {
     /// <summary>
     /// Replace each Director-reported agent's declared connections with the OFFERED ones, labelled (Terminal always, API
-    /// mode only for a wrapper that declares it while <paramref name="apiModeOffered"/> is on). An older Director that
-    /// reports no connections gets Terminal alone. Mutates and returns <paramref name="agents"/>.
+    /// mode only for a wrapper that declares it while <paramref name="apiModeOffered"/> is on), each with the sentence the
+    /// row shows while it is selected. An older Director that reports no connections gets Terminal alone. Mutates and
+    /// returns <paramref name="agents"/>.
     /// </summary>
     public static List<AgentChoiceDto> Offer(List<AgentChoiceDto> agents, bool apiModeOffered)
     {
         foreach (var agent in agents)
         {
             var declared = agent.Connections.Select(c => c.Mode).ToList();
-            agent.Connections = ConnectionChoiceDto.For(ConnectionModes.Offered(declared, apiModeOffered));
+            agent.Connections = ConnectionChoiceDto.For(ConnectionModes.Offered(declared, apiModeOffered), agent.DisplayName);
         }
         FileLog.Write($"[ConnectionChoiceFold] Offer: {agents.Count} agent(s), apiModeOffered={apiModeOffered}, " +
                       $"with API mode={agents.Count(a => a.Connections.Count > 1)}");

@@ -180,15 +180,16 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
         {
             if (!entry.Enabled) continue;
             if (!seenKinds.Add(entry.Type)) continue; // one row per kind: create launches the first enabled of a kind
+            var displayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Type.ToString() : entry.DisplayName;
             choices.Add(new AgentChoiceDto
             {
                 Type = entry.Type.ToString(),
-                DisplayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Type.ToString() : entry.DisplayName,
+                DisplayName = displayName,
                 DefaultModel = entry.DefaultModel ?? "",
                 ModelLabel = ResolveModelLabel(entry.Type, entry.DefaultModel),
                 // What the wrapper DECLARES, not what is offered: the Gateway folds this to the offered choices
                 // (ConnectionModes.Offered), so whether API mode is offered is ruled in one place (issue #4070).
-                Connections = ConnectionChoiceDto.For(DeclaredConnectionModes(entry.Type)),
+                Connections = ConnectionChoiceDto.For(DeclaredConnectionModes(entry.Type), displayName),
             });
         }
         FileLog.Write($"[CatalogReadExecutor] agents-list: {choices.Count} enabled agent kind(s)");

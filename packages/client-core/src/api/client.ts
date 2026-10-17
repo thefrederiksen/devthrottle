@@ -222,6 +222,9 @@ export interface ConnectionChoice {
   mode: string;
   /** "Terminal" or "API mode". */
   label: string;
+  /** The Gateway's sentence shown under the Connection row while this choice is selected, verbatim; null (or absent,
+   *  from an older Gateway) when there is nothing to say - Terminal never has one. */
+  description?: string | null;
 }
 
 // The app's credential is the per-device key it obtained at enrollment (issue #908/#1088), read from
@@ -2112,7 +2115,8 @@ function readConnections(raw: unknown): ConnectionChoice[] {
   return raw
     .map((c) => {
       const entry = (c ?? {}) as Record<string, unknown>;
-      return { mode: String(entry.mode ?? ""), label: String(entry.label ?? "") };
+      const description = typeof entry.description === "string" && entry.description.length > 0 ? entry.description : null;
+      return { mode: String(entry.mode ?? ""), label: String(entry.label ?? ""), description };
     })
     .filter((c) => c.mode.length > 0 && c.label.length > 0);
 }

@@ -156,13 +156,48 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Fact]
-    public void ConnectionChoiceFor_Modes_IsOneLabelledChoicePerModeInOrder()
+    public void ConnectionChoiceFor_Modes_IsOneLabelledDescribedChoicePerModeInOrder()
     {
         // Act
-        var choices = ConnectionChoiceDto.For(new[] { ConnectionModes.Terminal, ConnectionModes.Api });
+        var choices = ConnectionChoiceDto.For(new[] { ConnectionModes.Terminal, ConnectionModes.Api }, "Pi");
 
         // Assert
         Assert.Equal(new[] { ("terminal", "Terminal"), ("api", "API mode") }, choices.Select(c => (c.Mode, c.Label)));
+        Assert.Null(choices[0].Description);
+        Assert.Equal(ConnectionModes.DescriptionOf(ConnectionModes.Api, "Pi"), choices[1].Description);
+    }
+
+    [Fact]
+    public void DescriptionOf_ApiMode_SaysWhatItDoesForTheNamedAgent_AndPromisesOnlyWhatTheMissionDelivers()
+    {
+        // Act
+        var description = ConnectionModes.DescriptionOf(ConnectionModes.Api, "Pi");
+
+        // Assert
+        Assert.Equal(
+            "Prompts are handed to Pi as messages, and each one is confirmed or refused with a reason. " +
+            "The Chat shows the conversation live. You can take the wheel to use Pi's own terminal, then hand it back.",
+            description);
+    }
+
+    [Fact]
+    public void DescriptionOf_Terminal_IsNone_TheDefaultNeedsNoExplaining()
+    {
+        // Act
+        var description = ConnectionModes.DescriptionOf(ConnectionModes.Terminal, "Pi");
+
+        // Assert
+        Assert.Null(description);
+    }
+
+    [Fact]
+    public void DescriptionOf_AnUnknownWord_Throws()
+    {
+        // Act
+        var error = Assert.Throws<ArgumentException>(() => ConnectionModes.DescriptionOf("rpc", "Pi"));
+
+        // Assert
+        Assert.Contains("\"rpc\" is not a connection mode", error.Message);
     }
 
     // ---- the Director: what each wrapper declares -----------------------------------------------------------------
@@ -203,6 +238,8 @@ public sealed class ConnectionChoiceTests : IDisposable
 
         // Assert
         Assert.Equal(new[] { "Terminal", "API mode" }, offered.Single(a => a.Type == "Pi").Connections.Select(c => c.Label));
+        Assert.Equal(new[] { null, ConnectionModes.DescriptionOf(ConnectionModes.Api, "Pi") },
+            offered.Single(a => a.Type == "Pi").Connections.Select(c => c.Description));
         Assert.Equal(new[] { "Terminal" }, offered.Single(a => a.Type == "ClaudeCode").Connections.Select(c => c.Label));
         Assert.Equal(new[] { "Terminal" }, offered.Single(a => a.Type == "Codex").Connections.Select(c => c.Label));
     }
@@ -422,8 +459,8 @@ public sealed class ConnectionChoiceTests : IDisposable
 
     private static List<AgentChoiceDto> ReportedAgents() => new()
     {
-        new AgentChoiceDto { Type = "Pi", DisplayName = "Pi", Connections = ConnectionChoiceDto.For(new[] { "terminal", "api" }) },
-        new AgentChoiceDto { Type = "ClaudeCode", DisplayName = "Claude Code", Connections = ConnectionChoiceDto.For(new[] { "terminal" }) },
+        new AgentChoiceDto { Type = "Pi", DisplayName = "Pi", Connections = ConnectionChoiceDto.For(new[] { "terminal", "api" }, "Pi") },
+        new AgentChoiceDto { Type = "ClaudeCode", DisplayName = "Claude Code", Connections = ConnectionChoiceDto.For(new[] { "terminal" }, "Claude Code") },
         // A Director that predates phase 5 sends no connections.
         new AgentChoiceDto { Type = "Codex", DisplayName = "Codex" },
     };

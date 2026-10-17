@@ -9,6 +9,8 @@ import "./connectionChoiceRow.css";
 // agent while API mode is hidden - the screen is exactly what it was. The choices and their words are the Gateway's,
 // rendered verbatim; the row never names an agent or a mode itself. Terminal stays the default: the selection shown
 // is what the create will send (connectionToSend), so a choice made for another agent never shows as chosen here.
+// Under the buttons, the selected choice's sentence - the Gateway's words, verbatim - says what that choice means;
+// Terminal has none, so nothing is drawn for it.
 
 export interface ConnectionChoiceRowProps {
   /** The agent the session will start with, or null before one is chosen (nothing is drawn). */
@@ -27,6 +29,7 @@ export default function ConnectionChoiceRow({ agent, chosen, onChoose, idPrefix,
   if (agent === null || !offersConnectionChoice(agent)) return null;
   const selected = connectionToSend(agent, chosen);
   const labelId = `${idPrefix}-connection-label`;
+  const description = agent.connections.find((c) => c.mode === selected)?.description ?? null;
   return (
     <div className="conn-choice" data-testid="connection-choice">
       <div className="conn-choice-label" id={labelId}>
@@ -46,6 +49,11 @@ export default function ConnectionChoiceRow({ agent, chosen, onChoose, idPrefix,
           </button>
         ))}
       </div>
+      {description !== null && (
+        <p className="conn-choice-desc" data-testid="connection-choice-description">
+          {description}
+        </p>
+      )}
     </div>
   );
 }

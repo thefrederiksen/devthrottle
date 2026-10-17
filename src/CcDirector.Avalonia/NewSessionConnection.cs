@@ -28,6 +28,18 @@ public static class NewSessionConnection
     public static bool ShowsChoice(AgentKind kind, bool apiModeOffered) => OfferedFor(kind, apiModeOffered).Count > 1;
 
     /// <summary>
+    /// The sentence shown under the Connection row: what the connection the session would start with means, in the
+    /// words every surface shows (<see cref="ConnectionModes.DescriptionOf"/>), or null when that is the terminal or the
+    /// row is not shown.
+    /// </summary>
+    public static string? DescriptionFor(AgentKind kind, string agentName, bool apiChosen, bool apiModeOffered)
+    {
+        if (!ShowsChoice(kind, apiModeOffered)) return null;
+        var mode = ModeToStart(kind, apiChosen, apiModeOffered) == SessionConnectionMode.Api ? ConnectionModes.Api : ConnectionModes.Terminal;
+        return ConnectionModes.DescriptionOf(mode, agentName);
+    }
+
+    /// <summary>
     /// The connection a session starts with: API mode only when the person chose it AND it is offered for this agent;
     /// otherwise the terminal, the default. A choice made for one agent never carries to another that lacks it.
     /// </summary>

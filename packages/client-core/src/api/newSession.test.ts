@@ -161,7 +161,7 @@ describe("new session client", () => {
     expect(bodies[1].connectionMode).toBe("api");
   });
 
-  it("reads each agent's offered connections as the Gateway sends them, and terminal alone from an older Gateway", async () => {
+  it("reads each agent's offered connections and their sentences as the Gateway sends them, and terminal alone from an older Gateway", async () => {
     globalThis.fetch = (async () =>
       jsonResponse([
         {
@@ -170,8 +170,8 @@ describe("new session client", () => {
           defaultModel: "",
           modelLabel: "",
           connections: [
-            { mode: "terminal", label: "Terminal" },
-            { mode: "api", label: "API mode" },
+            { mode: "terminal", label: "Terminal", description: null },
+            { mode: "api", label: "API mode", description: "Prompts are handed to Pi as messages." },
           ],
         },
         { type: "Codex", displayName: "Codex", defaultModel: "", modelLabel: "" },
@@ -180,8 +180,8 @@ describe("new session client", () => {
     const agents = await getAgents("director-one");
 
     expect(agents[0].connections).toEqual([
-      { mode: "terminal", label: "Terminal" },
-      { mode: "api", label: "API mode" },
+      { mode: "terminal", label: "Terminal", description: null },
+      { mode: "api", label: "API mode", description: "Prompts are handed to Pi as messages." },
     ]);
     expect(agents[1].connections).toEqual([{ mode: "terminal", label: "Terminal" }]);
   });

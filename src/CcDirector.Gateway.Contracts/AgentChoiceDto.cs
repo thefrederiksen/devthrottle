@@ -41,7 +41,7 @@ public sealed class AgentChoiceDto
     public List<ConnectionChoiceDto> Connections { get; set; } = new();
 }
 
-/// <summary>One way to connect an agent: the mode word sent back as <see cref="NewSessionRequest.ConnectionMode"/>, and its label.</summary>
+/// <summary>One way to connect an agent: the mode word sent back as <see cref="NewSessionRequest.ConnectionMode"/>, its label, and what it means.</summary>
 public sealed class ConnectionChoiceDto
 {
     /// <summary>One of <see cref="ConnectionModes"/>: <c>terminal</c> or <c>api</c>.</summary>
@@ -50,7 +50,21 @@ public sealed class ConnectionChoiceDto
     /// <summary>The words shown for it: "Terminal" or "API mode".</summary>
     public string Label { get; set; } = "";
 
-    /// <summary>The choices for <paramref name="modes"/>, each labelled with <see cref="ConnectionModes.LabelOf"/>.</summary>
-    public static List<ConnectionChoiceDto> For(IEnumerable<string> modes) =>
-        modes.Select(m => new ConnectionChoiceDto { Mode = m, Label = ConnectionModes.LabelOf(m) }).ToList();
+    /// <summary>
+    /// The sentence a client shows under the Connection row while this choice is selected, verbatim
+    /// (<see cref="ConnectionModes.DescriptionOf"/>): null for Terminal, which needs no explaining.
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// The choices for <paramref name="modes"/>, each labelled with <see cref="ConnectionModes.LabelOf"/> and described
+    /// with <see cref="ConnectionModes.DescriptionOf"/> for the agent named <paramref name="agentName"/>.
+    /// </summary>
+    public static List<ConnectionChoiceDto> For(IEnumerable<string> modes, string agentName) =>
+        modes.Select(m => new ConnectionChoiceDto
+        {
+            Mode = m,
+            Label = ConnectionModes.LabelOf(m),
+            Description = ConnectionModes.DescriptionOf(m, agentName),
+        }).ToList();
 }

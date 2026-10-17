@@ -74,6 +74,21 @@ public class NewSessionConnectionTests
         Assert.Equal(expected, mode);
     }
 
+    [Theory]
+    [InlineData(AgentKind.Pi, true, true, true)]
+    [InlineData(AgentKind.Pi, false, true, false)]
+    [InlineData(AgentKind.Pi, true, false, false)]
+    [InlineData(AgentKind.ClaudeCode, true, true, false)]
+    public void DescriptionFor_ChoiceAgentAndSwitch_IsTheSentenceOnlyWhileApiModeIsChosenAndOffered(
+        AgentKind kind, bool apiChosen, bool apiModeOffered, bool described)
+    {
+        // Act
+        var description = NewSessionConnection.DescriptionFor(kind, "Pi", apiChosen, apiModeOffered);
+
+        // Assert
+        Assert.Equal(described ? ConnectionModes.DescriptionOf(ConnectionModes.Api, "Pi") : null, description);
+    }
+
     // ---- the real window ------------------------------------------------------------------------------------------
 
     /// <summary>A temporary Director root whose configured agents are Pi and Claude Code, both enabled, Pi first.</summary>
@@ -156,10 +171,20 @@ public class NewSessionConnectionTests
             Assert.Equal("API mode", dialog.GetControl<RadioButton>("ConnectionApiRadio").Content);
             Assert.True(dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked);
             Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
+            Assert.False(dialog.GetControl<TextBlock>("ConnectionDescriptionText").IsVisible);
 
             dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked = true;
+            Dispatcher.UIThread.RunJobs();
 
             Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
+            var description = dialog.GetControl<TextBlock>("ConnectionDescriptionText");
+            Assert.True(description.IsVisible);
+            Assert.Equal(ConnectionModes.DescriptionOf(ConnectionModes.Api, "Pi"), description.Text);
+
+            dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked = true;
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.False(description.IsVisible);
         }
         finally
         {
@@ -180,6 +205,7 @@ public class NewSessionConnectionTests
             ChooseAgent(dialog, "Claude Code");
 
             Assert.False(dialog.GetControl<StackPanel>("ConnectionPanel").IsVisible);
+            Assert.False(dialog.GetControl<TextBlock>("ConnectionDescriptionText").IsVisible);
             Assert.True(dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked);
             Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
         }

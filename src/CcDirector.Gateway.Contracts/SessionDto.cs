@@ -1321,6 +1321,20 @@ public static class ConnectionModes
     };
 
     /// <summary>
+    /// The sentence shown under the New Session Connection row while <paramref name="mode"/> is the selected choice,
+    /// naming the agent as the person sees it: null for terminal (the default needs no explaining), and for API mode
+    /// what the mode does. It promises only what the API mode mission delivers (issue #4070): a receipt or a reason for
+    /// every prompt, the live Chat, and taking the wheel. An unknown word throws.
+    /// </summary>
+    public static string? DescriptionOf(string mode, string agentName) => mode switch
+    {
+        Terminal => null,
+        Api => $"Prompts are handed to {agentName} as messages, and each one is confirmed or refused with a reason. " +
+               $"The Chat shows the conversation live. You can take the wheel to use {agentName}'s own terminal, then hand it back.",
+        _ => throw new ArgumentException($"\"{mode}\" is not a connection mode: it is \"{Terminal}\" or \"{Api}\".", nameof(mode)),
+    };
+
+    /// <summary>
     /// The roster tag for a session's <see cref="SessionDto.ConnectionMode"/>: <see cref="ApiLabel"/> for API mode, null
     /// for terminal (no tag). Read case-insensitively, as the Gateway reads the pushed word everywhere else.
     /// </summary>

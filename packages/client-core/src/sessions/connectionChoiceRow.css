@@ -40,6 +40,13 @@
   color: var(--accent);
 }
 
+.conn-choice-desc {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  margin: 6px 0 0;
+}
+
 .screen .conn-choice-label {
   font-size: 13px;
   margin: 0 0 6px;
@@ -48,4 +55,8 @@
 .screen .conn-choice-btn {
   min-height: 44px;
   font-size: 15px;
+}
+
+.screen .conn-choice-desc {
+  font-size: 13px;
 }

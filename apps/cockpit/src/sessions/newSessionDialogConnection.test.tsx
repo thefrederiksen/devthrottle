@@ -33,8 +33,8 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
         defaultModel: "",
         modelLabel: "GLM",
         connections: [
-          { mode: "terminal", label: "Terminal" },
-          { mode: "api", label: "API mode" },
+          { mode: "terminal", label: "Terminal", description: null },
+          { mode: "api", label: "API mode", description: "Prompts are handed to Pi as messages, and each one is confirmed." },
         ],
       },
       {
@@ -79,6 +79,7 @@ describe("the Cockpit New Session dialog's Connection row", () => {
     expect(screen.getByRole("group", { name: "Connection" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Terminal" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("Pi . GLM . skips permission prompts")).toBeTruthy();
+    expect(screen.queryByTestId("connection-choice-description")).toBeNull();
   });
 
   it("starts a terminal session when nothing is changed", async () => {
@@ -95,6 +96,9 @@ describe("the Cockpit New Session dialog's Connection row", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "API mode" }));
     expect(screen.getByText("Pi . GLM . skips permission prompts . API mode")).toBeTruthy();
+    expect(screen.getByTestId("connection-choice-description").textContent).toBe(
+      "Prompts are handed to Pi as messages, and each one is confirmed.",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Create session" }));
 
     await waitFor(() => expect(createSessionMock).toHaveBeenCalledTimes(1));
