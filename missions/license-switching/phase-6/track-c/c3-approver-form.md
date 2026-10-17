@@ -177,6 +177,22 @@ pixels. It is the existing table, not this form.
   and both Licenses test classes: 225 passed, 0 failed. The six failures below were the old base's; main's #4107 fixed
   them.
 
+**The Delivery Lead's ruling (17 October): skip the unfiltered `-Parked`; run the default gate and
+`-Parked -Filter FullyQualifiedName~License`, both with TEMP and TMP on `D:\cc-gate-temp`.**
+
+- **Default gate** on `b85b36bcc`, TEMP on D:: 10 of 11 suites Completed and passed (Core.UnitTests 2127, Avalonia 1063,
+  Engine 85, HostedAgent 85, Launcher 214, Terminal.Avalonia 71, DeliveryQualification 17, setup 39, setup-engine 884,
+  setup-cli 74). `CcDirector.Reclaim.Tests`: 304 of 305 passed; the one failure is
+  `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused`, which needs Windows short (8.3)
+  folder names and refused itself with "Windows returned ... as the short form of ..., which is not a short name of the
+  same folder. A test built on it would be proving nothing." D: does not make short names; the test's folder was on D:
+  only because of the ruling. Run alone with TEMP on C: (the machine's normal folder) it passed, 1 of 1, and the same
+  suite passed 305 of 305 on this branch's earlier run with TEMP on C:. This change does not touch Reclaim.
+- **`-Parked -Filter FullyQualifiedName~License`**: refused (exit 6) by a held release-gate lock, then waited for in the
+  foreground for 150 minutes without the lock coming free (it passed between other sessions' runs). The Tech Lead ran
+  the same License-filtered `-Parked` on `b85b36bcc` merged with main: green, with the Cockpit type check clean, Cockpit
+  1274 and client-core 2158 tests passing.
+
 The rest of this section is the run before the review, on the old base `08dec1140`.
 
 **Cockpit** (`npm test` in `apps/cockpit`): 116 files, 1270 tests, all passed after one fix - the error-display scan
