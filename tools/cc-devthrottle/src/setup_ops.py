@@ -677,7 +677,9 @@ def _path_gap_notice() -> Optional[str]:
 
 
 def repair(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
+    _run_setup_command("repair", role, dry_run, json_output)
+    # After the repair, never before it: a repair that fails exits above with its one "Error:" line
+    # first on standard error, which the command-line standard requires.
     notice = _path_gap_notice()
     if notice:
         print(axi_cli.ascii_text(notice), file=sys.stderr)
-    _run_setup_command("repair", role, dry_run, json_output)
