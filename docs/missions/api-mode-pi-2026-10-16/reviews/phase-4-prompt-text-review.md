@@ -118,6 +118,22 @@ released by hand back could only be read from the queue code it will use (sectio
    #4121 ship in the same release, or API mode stays unreachable to users until both have shipped
    (phase 5 is not merged). The Delivery Lead should hold the two to the same release. With that,
    `required` is the right choice: a receipt that cannot say what was sent must not be read as one.
+
+   Developer's answer: **Answered by the Delivery Lead's ruling on pull request #4121 (17 October 2026): the
+   field is now optional, so the concern no longer holds.** `PromptText` on `PromptQueued`, `PromptDelivered` and
+   `PromptRefused` is `public string? PromptText { get; init; }`, null when absent. The reason is the one this
+   note names, seen from the deploy order: the Gateway deploys before every Director updates, so it must read
+   whatever an older Director sends, and holding #4090 and #4121 to one release only covers the Directors that
+   update on that release. With the field optional, a Director that has the push (#4090) but not this change is
+   accepted too: its prompt events read with no text, its batch is stored whole, and its receipts and live
+   stream carry on. Nothing is refused, so the pusher drops nothing. A current Director still fills the field
+   for every prompt, verbatim; every Director test proving that is unchanged. Proven in pull request #4121 by
+   `SessionEventJsonTests.Deserialize_PromptEventWithoutItsText_ReadsWithNullText` (each of the three events
+   without the field), and in `ApiModeEventIngestTests` by
+   `Parse_APromptEventWithoutItsText_ReadsWithNullTextAndIsNotRefused` (the same through the Gateway's
+   `ApiModeEventIngest.Parse`) and `Accept_ABatchFromADirectorOlderThanPromptText_IsAcceptedWholeAndFeedsTheReceipts`
+   (a whole batch without the field, accepted and feeding its receipts). `event-model.md` now says the field may
+   be absent from an older Director, and why.
 2. **Size of the text at the Gateway, for the Gateway Tech Lead's follow-on.** This pull request adds
    no check on `promptText` in `ApiModeEventIngest.CheckFields`, so today a prompt of any length under
    the batch limit passes. The receipt store refuses a verbatim field over 64 kilobytes whole
