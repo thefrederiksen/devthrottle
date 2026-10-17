@@ -34,12 +34,25 @@ internal static class Program
         // (every instance, default included). Skipped for the hidden --apply-update
         // relauncher, which must run outside any instance context.
         var isApplyUpdate = args.Length >= 1 && args[0] == "--apply-update";
-        if (!isApplyUpdate)
-            ResolveInstance(args);
+        var refusal = isApplyUpdate ? null : ResolveInstance(args);
 
         // Start logging first so the pre-startup update steps below (which run
         // before App initializes its own logging) are actually recorded.
         FileLog.Start();
+
+        // An --instance name that is not registered stops here, before anything reads or writes an instance's
+        // data (issue devthrottle_internal#2488). No instance home was chosen, so this logs to the machine root.
+        if (refusal is not null)
+        {
+            Console.Error.WriteLine(refusal);
+            var notice = ShownError.Report("start-up", "choose the instance", refusal, null, fatal: true);
+            ShowStartupNotice(notice, "Director - Unknown instance", MB_ICONERROR);
+            // The log writer is a background thread and the notice can return at once (no zenity on Linux), so
+            // flush before returning or the FATAL line is lost - the same reason the apply-update path stops it.
+            // exits-without-flush: ErrorReporter was never started on this path - no instance was chosen, so there is nothing to report as
+            FileLog.Stop();
+            return 2;
+        }
 
         // The setup engine runs inside the Director too - the first-start tools install, the autostart
         // registration - and its lines were thrown away because nothing set its sink (issue #3311, B3).
@@ -284,47 +297,84 @@ internal static class Program
     /// <c>CC_DIRECTOR_ROOT</c> override. Runs before FileLog/CcStorage.
     ///
     /// EVERY instance - default included - gets its own isolated home. There is no migration
-    /// and no shared-root fallback: we never carry old flat data forward. Never throws; on any
-    /// failure it still isolates the default home rather than dropping to the shared root.
+    /// and no shared-root fallback: we never carry old flat data forward.
+    ///
+    /// Returns why the process must not start, or null. A NAMED instance that is not registered, or that
+    /// cannot be checked because the registry is unreadable, is refused and no home is chosen: it used to
+    /// fall back to the default instance and so ran on the owner's real data (issue
+    /// devthrottle_internal#2488, see <see cref="InstanceSelection"/>). So is a named instance whose home
+    /// cannot be created. For the default instance any failure is best effort, as it always was.
+    ///
+    /// A RELAUNCH CAN NOW BE REFUSED, ON PURPOSE. The update and rollback relaunches remove
+    /// CC_DIRECTOR_ROOT (see UpdateInstaller.BuildRelaunchStartInfo), so the new build reads the machine
+    /// root's list. A Director running under an overridden root, as a named instance registered only there,
+    /// is refused after an update instead of coming back as the machine's default instance - which is the
+    /// 2488 hazard. Only test rigs run that way.
     /// </summary>
-    private static void ResolveInstance(string[] args)
+    private static string? ResolveInstance(string[] args)
     {
+        var requested = ParseInstanceArg(args);
+        InstanceSelection selection;
         try
         {
-            var slug = ParseInstanceArg(args);
-            var wasExplicit = slug is not null;
-            InstanceContext.Initialize(slug, wasExplicit);
+            InstanceContext.Initialize(requested, requested is not null);
 
             // Guarantee the default entry exists (seeded from the hostname) so the picker and
             // launcher always have at least one instance to show.
             NamedInstanceRegistry.EnsureDefault(Environment.MachineName);
 
-            // Resolve this process's instance; an unknown slug falls back to the default entry.
-            var inst = NamedInstanceRegistry.Get(InstanceContext.Slug);
-            if (inst is null)
-            {
-                wasExplicit = false;
-                inst = NamedInstanceRegistry.Get(InstanceContext.DefaultSlug);
-            }
-            if (inst is not null)
-                InstanceContext.Initialize(inst.Name, wasExplicit, inst.DisplayName);
-
-            // Isolate this instance's home and redirect all storage into it - default too.
-            Directory.CreateDirectory(InstanceContext.InstanceHome);
-            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", InstanceContext.InstanceHome);
+            selection = InstanceSelection.Choose(requested, NamedInstanceRegistry.List());
+        }
+        catch (Exception ex) when (IsNamedInstance(requested))
+        {
+            return WithRegistrySource(InstanceSelection.Unreadable(requested!, ex.Message).Refusal!);
         }
         catch
         {
-            // Instance resolution must never stop the app from starting - but still isolate the
-            // default home; never fall back to the shared root.
-            InstanceContext.Initialize(null, wasExplicit: false);
-            try
-            {
-                Directory.CreateDirectory(InstanceContext.InstanceHome);
-                Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", InstanceContext.InstanceHome);
-            }
-            catch { /* best effort */ }
+            // The default instance was asked for, or nothing was: never stop the app for it, but still
+            // isolate the default home; never fall back to the shared root.
+            selection = new InstanceSelection(InstanceContext.DefaultSlug, requested is not null, null, null);
         }
+
+        if (!selection.MayStart)
+            return WithRegistrySource(selection.Refusal!);
+
+        try
+        {
+            InstanceContext.Initialize(selection.Slug, selection.WasExplicit, selection.DisplayName);
+            Directory.CreateDirectory(InstanceContext.InstanceHome);
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", InstanceContext.InstanceHome);
+        }
+        catch (Exception ex) when (IsNamedInstance(selection.Slug))
+        {
+            // A named instance with no home of its own would write its sessions and settings flat at the machine
+            // root. Nobody can give it its home, so it does not start - the same reasoning as an unreadable list.
+            return $"The Director could not create the home of the instance '{selection.Slug}' at "
+                   + $"{InstanceContext.InstanceHome}: {ex.Message.TrimEnd('.')}. It did not start, so it cannot write its data "
+                   + "anywhere else.";
+        }
+        catch
+        {
+            // The default instance: isolating its home must never stop the app from starting (best effort).
+        }
+        return null;
+    }
+
+    /// <summary>True when <paramref name="slug"/> names an instance other than the default.</summary>
+    private static bool IsNamedInstance(string? slug)
+        => slug is not null
+           && !string.Equals(InstanceContext.Normalize(slug), InstanceContext.DefaultSlug, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A refusal plus WHERE the instance list was read. A wrong root reads exactly like a typo otherwise: a
+    /// shell inside a running Director inherits CC_DIRECTOR_ROOT set to that Director's own home, so a start
+    /// from it consults a different list than the one at the machine root.
+    /// </summary>
+    private static string WithRegistrySource(string refusal)
+    {
+        var fromOverride = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT"));
+        return $"{refusal} (Instance list read from {NamedInstanceRegistry.FilePath}"
+               + (fromOverride ? ", under the root set by CC_DIRECTOR_ROOT.)" : ".)");
     }
 
     /// <summary>Extract the value of <c>--instance &lt;slug&gt;</c> or <c>--instance=&lt;slug&gt;</c>; null if absent.</summary>
