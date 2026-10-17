@@ -25,6 +25,16 @@
         <TextBlock x:Name="SlugPreview" Foreground="#888888" FontSize="11"
                    Margin="0,3,0,10" Text="slug: (from the name) · port: auto-assigned" />
 
+        <TextBlock Text="Copy settings from" Foreground="#CCCCCC" FontSize="13" Margin="0,0,0,4" />
+        <ComboBox x:Name="CopyFromInput"
+                  Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C"
+                  HorizontalAlignment="Stretch" FontSize="14"
+                  PlaceholderText="Loading instances..."
+                  SelectionChanged="CopyFromInput_SelectionChanged" />
+        <TextBlock x:Name="CopyFromNote" Foreground="#888888" FontSize="11" TextWrapping="Wrap"
+                   Margin="0,3,0,10"
+                   Text="A new Director with its own data folder. Nothing is copied." />
+        <StackPanel x:Name="GatewayInputs">
         <TextBlock Text="Gateway URL" Foreground="#CCCCCC" FontSize="13" Margin="0,0,0,4" />
         <TextBox x:Name="GatewayUrlInput"
                  Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
@@ -39,6 +49,7 @@
                  Watermark="only if the gateway requires one"
                  PasswordChar="•"
                  Margin="0,0,0,10" />
+        </StackPanel>
 
         <CheckBox x:Name="LaunchAfterCheck" Content="Launch this instance now"
                   Foreground="#CCCCCC" IsChecked="True" Margin="0,0,0,4" />
