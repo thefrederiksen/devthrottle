@@ -30,6 +30,10 @@ public interface ILicenseReportSink
 ///
 /// A holding whose last renewal failed carries that failure (contract 8.1), recorded with <see cref="RecordRenewal"/>.
 ///
+/// A hand sign-in the key store healed (contract 2.6) makes a "changed" report at once, carrying
+/// <see cref="LicenseUsageReport.SwitchedByHand"/>; it is carried until a report holding it has been sent, then cleared,
+/// so the Gateway hears it once.
+///
 /// A failed read of a holding keeps its PREVIOUS numbers and their old read time, and sets the error, so the Gateway
 /// sees how old the numbers are and never a zero standing in for "unknown".
 ///
@@ -63,6 +67,9 @@ public sealed class LicenseUsageReporter
     private volatile ILicenseReportSink? _sink;
     private BackgroundJob? _job;
     private volatile string? _switchInProgressId;
+
+    /// <summary>The last hand sign-in the key store healed that no sent report has carried yet (contract 2.6).</summary>
+    private LicenseHandSwitch? _pendingHandSwitch;
 
     public LicenseUsageReporter(ILicenseCommandLine tool, LicenseKeyHolderLock holder, Func<DateTime> utcNow, string machineName, string osUser)
     {
@@ -188,7 +195,10 @@ public sealed class LicenseUsageReporter
                 else
                 {
                     listing = await RunToolAsync(() => _tool.ListAsync(cancellationToken));
-                    if (listing is null || ShapeOf(listing.Select(h => (h.AccountEmail, h.IsActive, ErrorOf(h.AccountEmail)))) == _lastSentShape)
+                    TakeHandSwitches();
+                    if (listing is null) return null;
+                    if (ShapeOf(listing.Select(h => (h.AccountEmail, h.IsActive, ErrorOf(h.AccountEmail)))) == _lastSentShape
+                        && PendingHandSwitch() is null)
                         return null;
                     trigger = LicenseReportTriggers.Changed;
                 }
@@ -214,6 +224,12 @@ public sealed class LicenseUsageReporter
             }
             _lastSentUtc = report.SentAtUtc;
             _lastSentShape = ShapeOf(report.Holdings.Select(h => (h.AccountEmail, h.IsActive, h.ReadError)));
+            if (report.SwitchedByHand is not null)
+            {
+                lock (_gate)
+                    if (ReferenceEquals(_pendingHandSwitch, report.SwitchedByHand)) _pendingHandSwitch = null;
+                FileLog.Write($"[LicenseUsageReporter] sent: the report says the machine was switched by hand to {report.SwitchedByHand.AccountEmail}");
+            }
             FileLog.Write($"[LicenseUsageReporter] sent: trigger={trigger}, holdings={report.Holdings.Count}, active={report.Holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail ?? "-"}, switch={report.SwitchInProgressId ?? "-"}");
             return report;
         }
@@ -221,6 +237,21 @@ public sealed class LicenseUsageReporter
         {
             _oneAtATime.Release();
         }
+    }
+
+    /// <summary>Takes the hand sign-ins the tool's last runs healed and keeps the newest for the next report.</summary>
+    private void TakeHandSwitches()
+    {
+        var healed = _tool.TakeHandSwitches();
+        if (healed.Count == 0) return;
+        lock (_gate) _pendingHandSwitch = healed[^1];
+        foreach (var h in healed)
+            FileLog.Write($"[LicenseUsageReporter] the key store healed a hand sign-in: account={h.AccountEmail}, at={h.HealedAtUtc:O}; the next report says the machine was switched by hand");
+    }
+
+    private LicenseHandSwitch? PendingHandSwitch()
+    {
+        lock (_gate) return _pendingHandSwitch;
     }
 
     private void Requeue(string trigger)
@@ -250,6 +281,7 @@ public sealed class LicenseUsageReporter
         var readSpares = _lastSpareReadUtc is null || now - _lastSpareReadUtc.Value >= LicenseContract.SpareReadInterval;
 
         var read = await RunToolAsync(() => _tool.ReadUsageAsync(activeOnly: !readSpares, cancellationToken));
+        TakeHandSwitches();
         if (read is null) return null;
         if (readSpares)
         {
@@ -306,7 +338,24 @@ public sealed class LicenseUsageReporter
             Trigger = trigger,
             SwitchInProgressId = _switchInProgressId,
             Holdings = holdings,
+            SwitchedByHand = HandSwitchFor(holdings),
         };
+    }
+
+    /// <summary>The pending hand switch, when its account is this report's active holding. One whose account is no
+    /// longer active (a switch ran since) is dropped: the machine has moved on, and a report naming an account that is
+    /// not its active holding is malformed at the Gateway (contract 2.6).</summary>
+    private LicenseHandSwitch? HandSwitchFor(IReadOnlyList<LicenseHolding> holdings)
+    {
+        lock (_gate)
+        {
+            if (_pendingHandSwitch is null) return null;
+            var active = holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail;
+            if (string.Equals(active, _pendingHandSwitch.AccountEmail, StringComparison.Ordinal)) return _pendingHandSwitch;
+            FileLog.Write($"[LicenseUsageReporter] the hand switch to {_pendingHandSwitch.AccountEmail} is not reported: the active account is now {active ?? "none"}");
+            _pendingHandSwitch = null;
+            return null;
+        }
     }
 
     /// <summary>Keeps the newest good numbers. A failed read keeps the previous numbers and their read time, and

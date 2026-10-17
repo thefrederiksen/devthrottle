@@ -25,19 +25,28 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /factory-definitions/{factory}/diff               what changes (?from=N, default the published version;
 ///                                                          ?to=M, default the newest)
 ///   PUT  /factory-definitions/{factory}/draft              save a draft, stating the version last read
-///   POST /factory-definitions/{factory}/publish            publish one version - A PERSON ONLY
-///   POST /factory-definitions/{factory}/restore            publish a copy of an older version as the newest - A PERSON ONLY
+///   POST /factory-definitions/{factory}/publish            publish one version - never a factory's own session
+///   POST /factory-definitions/{factory}/restore            publish a copy of an older version as the newest - never a
+///                                                          factory's own session
 ///   GET  /factory-definitions/{factory}/export             the definition as a folder of files (phase 3, ?version=N);
 ///                                                          for a factory with NO definition, written from what is live
 ///   POST /factory-definitions/import                       a folder's files, for the factory its factory.yaml names,
 ///                                                          checked as a save is, stored as the next draft - NEVER
 ///                                                          published (phase 3)
+///   POST /factory-definitions/create                       a NEW factory's first draft, from a folder's files: refused
+///                                                          when the id is taken, then the import above (phase 6c,
+///                                                          <see cref="MapCreate"/>)
 ///   GET  /factory-definition-schemas                       the JSON Schemas the check enforces (phase 3)
 ///
-/// WHO IS ASKING is read exactly as it is for a seat's brief and a factory's schedules and triggers
-/// (<see cref="FactoryNaming.TryAct"/>): a person, or a session of that factory. A session of another factory, or of
-/// none, is refused in that gate's own words. A caller that is neither - the account's shared machine token, or a
-/// Director - may read and may not write, because every version records who wrote it.
+/// WHO IS ASKING (the owner's ruling of 16 October 2026, phase 6c - it replaced "only a person publishes"): "Factories
+/// are created by agents as long as they have user approval." The owner creates a factory by telling a session what to
+/// make, and his word in that session is the approval; the Gateway asks for nothing more. So a PERSON, and a SESSION IN
+/// NO FACTORY, may read and write any factory's definition: save, import, create, publish and restore. A FACTORY'S OWN
+/// SESSION may read and save drafts of its own factory only, and is refused publish, restore and creating a factory in
+/// words (the teams-and-agents design, R7: "Factory agents can be written by large language models, but it's the user
+/// driving it"); a session of another factory is refused in <see cref="FactoryNaming"/>'s own words. A caller that is
+/// neither - the account's shared machine token, or a Director - may read and may not write, because every version
+/// records who wrote it, and every publish who published it (<see cref="FactoryPublisher"/>).
 ///
 /// THE WHOLE-DEFINITION CHECK RUNS BEFORE EVERY WRITE (<see cref="FactoryDefinitionCheck.Check"/>), with the account's
 /// fleet skill ids and the machines its Directors report now. Any error refuses with 422 and every finding, file and
@@ -45,12 +54,11 @@ namespace CcDirector.Gateway.Api;
 /// again even though the version was checked when it was saved, because the account's skills and machines may have
 /// changed since.
 ///
-/// ONLY A PERSON PUBLISHES OR RESTORES. The two routes are reachable by a session key on purpose and refused by the
-/// store in its own words, as a brief's are: an agent told "save a draft; the owner publishes it" knows what to do
-/// next. A session's publish goes straight to the store, so it is told that rather than what the check thinks of a
-/// version it may not publish anyway.
+/// A FACTORY'S OWN SESSION NEVER PUBLISHES OR RESTORES. The two routes are reachable by every session key on purpose,
+/// and a factory's own session is refused here in words before the check runs: an agent told "save a draft; the owner
+/// publishes it" knows what to do next, rather than what the check thinks of a version it may not publish anyway.
 ///
-/// A PUBLISH AND A RESTORE DRIVE THE FACTORY (phase 4): a person's publish or restore goes through
+/// A PUBLISH AND A RESTORE DRIVE THE FACTORY (phase 4): a publish or restore goes through
 /// <see cref="FactoryPublishApply"/>, which writes the publish mark, the registry row, the schedules and the triggers in
 /// one transaction. A caller may state the published version it saw (<c>replaces</c>) and is refused when another
 /// publish got there first. The answer carries what changes against the version it really replaced, and
@@ -59,8 +67,8 @@ namespace CcDirector.Gateway.Api;
 ///
 /// THE STATE A FACTORY'S CHECKS KEEP (phase 5b, design 1.4): <c>/check-state</c> lists every checked start of the
 /// published definition, by seat and start number, with the newest state its check left; <c>/check-state/reset</c>
-/// appends an empty state for one start - the way out of a stuck state. ONLY A PERSON RESETS, for the reason only a
-/// person publishes; a session's reset reaches the route and is refused in words.
+/// appends an empty state for one start - the way out of a stuck state. ONLY A PERSON RESETS; a session's reset reaches
+/// the route and is refused in words.
 /// </summary>
 internal static class FactoryDefinitionEndpoints
 {
@@ -247,7 +255,7 @@ internal static class FactoryDefinitionEndpoints
                     : $"{folded} has no published definition yet: its newest version, {standing.Newest.Version}, is a draft",
                 detail = standing.Newest is null
                     ? "Save its first draft expecting version 0."
-                    : "A person publishes a draft to make it the factory's definition.",
+                    : "Publish a draft to make it the factory's definition.",
                 newestVersion = standing.Newest?.Version ?? 0,
             }, statusCode: StatusCodes.Status404NotFound);
         return Results.Json(ToDto(store.Find(tenant, folded, standing.Published.Version)!, standing));
@@ -325,6 +333,9 @@ internal static class FactoryDefinitionEndpoints
                 WrittenAtUtc = v.WrittenAtUtc,
                 PublishedAtUtc = v.PublishedAtUtc,
                 PublishedBy = v.PublishedBy,
+                PublishedByKind = v.PublishedByKind,
+                PublishedByName = v.PublishedByName,
+                PublishedByText = v.PublishedByText,
                 ContentBytes = v.ContentBytes,
                 FileCount = v.FileCount,
             }).ToList(),
@@ -426,14 +437,16 @@ internal static class FactoryDefinitionEndpoints
         };
     }
 
-    /// <summary>PUT a draft: a person, or a session of the factory, saves the next version - once the check finds no error.</summary>
+    /// <summary>PUT a draft: a person, a session in no factory, or a session of the factory saves the next version - once
+    /// the check finds no error.</summary>
     internal static IResult SaveDraft(HttpContext ctx, string factory, SaveFactoryDefinitionDraftRequest? body,
         FactoryDefinitionStore store, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
     {
         if (resolveTenant(ctx) is not { } tenant) return NoAccount();
         var route = $"PUT {Prefix}/{factory}/draft";
-        if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
+        if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error,
+                isNew: folded => store.Standing(tenant, folded).Newest is null)) return error!;
         if (!TryWriter(caller, route, out error)) return error!;
         if (body is null) return NoBody();
         if (!TryFold(factory, out var folded, out error)) return error!;
@@ -591,7 +604,8 @@ internal static class FactoryDefinitionEndpoints
         }
 
         var route = $"POST {ImportRoute} ({factory})";
-        if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error)) return error!;
+        if (!TryCaller(ctx, sessionFactoryOf, factory, route, out var caller, out var error,
+                isNew: folded => store.Standing(tenant, folded).Newest is null)) return error!;
         if (!TryWriter(caller, route, out error)) return error!;
         if (!TryFold(factory, out var folded, out error)) return error!;
 
@@ -601,6 +615,78 @@ internal static class FactoryDefinitionEndpoints
         FileLog.Write($"[FactoryDefinitionEndpoints] {folded}: import of {content.Count} files after version {after} by {caller.Kind}");
         return SaveChecked(store, tenant, folded, content, after, caller, body.Note ?? "imported from a folder", account, nowUtc,
             "The folder was not imported", created: after == 0, saved: saved);
+    }
+
+    /// <summary>Where a new factory is created from a folder (phase 6c). Not under <c>{factory}</c>, as for an import.</summary>
+    internal const string CreateRoute = Prefix + "/create";
+
+    /// <summary>The outcome word of a create whose factory id is already taken.</summary>
+    internal const string FactoryExistsOutcome = "FactoryExists";
+
+    /// <summary>
+    /// Maps <c>POST /factory-definitions/create</c> (phase 6c): what an agent runs when the owner tells it to make a new
+    /// factory. Mapped apart from <see cref="Map"/> because it needs to know which ids are taken, which the Factories
+    /// screen's sources answer (<paramref name="whyNotNew"/>, <see cref="FactoryDefinitionTabEndpoints.CreateRefusal"/>).
+    /// </summary>
+    public static void MapCreate(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FactoryDefinitionStore store,
+        Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc,
+        Func<TenantId, IReadOnlyDictionary<string, string>, string?> whyNotNew)
+    {
+        ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(sessionFactoryOf);
+        ArgumentNullException.ThrowIfNull(account);
+        ArgumentNullException.ThrowIfNull(nowUtc);
+        ArgumentNullException.ThrowIfNull(whyNotNew);
+        app.MapPost(CreateRoute, (HttpContext ctx, ImportFactoryDefinitionRequest? body) =>
+            Create(ctx, body, store, resolveTenant, sessionFactoryOf, account, nowUtc, whyNotNew));
+        FileLog.Write($"[FactoryDefinitionEndpoints] mapped {CreateRoute}");
+    }
+
+    /// <summary>
+    /// POST a NEW factory's first draft from a folder's files (phase 6c). The same as New factory on the Factories screen
+    /// (phase 6b), for a session: a factory's own session is refused (it does not create factories), an id that is
+    /// already a factory or already has a draft is refused in words, and otherwise the folder goes through the SAME
+    /// checked import as <see cref="Import"/> - never a copy of it - and is stored as version 1, a draft. It never
+    /// publishes; <c>publish</c> does that next.
+    /// </summary>
+    internal static IResult Create(HttpContext ctx, ImportFactoryDefinitionRequest? body, FactoryDefinitionStore store,
+        Func<HttpContext, TenantId?> resolveTenant, Func<string, SessionFactoryLookup> sessionFactoryOf, Account account,
+        Func<DateTime> nowUtc, Func<TenantId, IReadOnlyDictionary<string, string>, string?> whyNotNew)
+    {
+        if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+        var route = $"POST {CreateRoute}";
+        if (!TryWriter(new Caller(KindOf(ctx), null), route, out var notAWriter)) return notAWriter!;
+        if (body is null) return NoBody();
+        var content = body.Content ?? new Dictionary<string, string>();
+        if (NoText(content) is { } noText) return noText;
+        var named = FactoryNamedIn(content);
+
+        // A FACTORY'S OWN SESSION never creates a factory, whatever the folder names - its own id included, which is
+        // a factory already.
+        if (KindOf(ctx) == FactoryMemoryAuthorKinds.Session)
+        {
+            var session = AuthMiddleware.CallingSession(ctx)!.SessionId.ToString();
+            var lookup = sessionFactoryOf(session);
+            if (!lookup.IsKnown)
+                return Results.Json(new { error = SpawnFactory.NotYetKnown, detail = SpawnFactory.NotYetKnownDetail },
+                    statusCode: StatusCodes.Status409Conflict);
+            if (lookup.IsInAFactory)
+                return FactorySessionRefused(route, FactoryDefinitionStore.FactorySessionMayNotCreate(lookup.Factory!.Trim(),
+                    named is not null && FactoryNames.TryFactory(named, out var namedFolded, out _) ? namedFolded : "the folder's factory"));
+        }
+
+        if (whyNotNew(tenant, content) is { } taken)
+        {
+            FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED (409, {FactoryExistsOutcome}) - {taken}");
+            return Results.Json(new { error = taken, outcome = FactoryExistsOutcome }, statusCode: StatusCodes.Status409Conflict);
+        }
+
+        FileLog.Write($"[FactoryDefinitionEndpoints] {route}: {named ?? "(no factory named)"}, files={content.Count}");
+        // A folder that names no factory, or a spelling that cannot be one, is refused by the import itself, with the
+        // check's findings - the same answer the Factories screen and an import give.
+        return Import(ctx, new ImportFactoryDefinitionRequest { Content = content, Note = body.Note ?? "created from a folder" },
+            store, resolveTenant, sessionFactoryOf, account, nowUtc);
     }
 
     /// <summary>The factory id factory.yaml names, read with the definition's own parser, or null when it names none.</summary>
@@ -646,7 +732,8 @@ internal static class FactoryDefinitionEndpoints
         });
     }
 
-    /// <summary>POST a publish: a person makes one version the factory's definition - once the check finds no error in it.</summary>
+    /// <summary>POST a publish: a person, or a session in no factory, makes one version the factory's definition - once
+    /// the check finds no error in it. A factory's own session is refused in words.</summary>
     internal static async Task<IResult> Publish(HttpContext ctx, string factory, PublishFactoryDefinitionRequest? body,
         FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
@@ -658,28 +745,30 @@ internal static class FactoryDefinitionEndpoints
         if (body is null) return NoBody();
         if (!TryFold(factory, out var folded, out error)) return error!;
 
-        // A SESSION'S PUBLISH REACHES THE STORE, which refuses it with the sentence that says what to do instead.
-        if (caller.Kind != FactoryMemoryAuthorKinds.Person)
-            return Answer(store.Publish(tenant, folded, body.Version, caller.Kind, caller.Id, nowUtc()), store, tenant, folded, null);
+        // A FACTORY'S OWN SESSION is told what to do instead, before the check says anything about a version it may not
+        // publish anyway.
+        if (caller.Factory is { } own)
+            return FactorySessionRefused(route, FactoryDefinitionStore.FactorySessionMayNotPublish(own));
 
-        return await PublishAsPerson(tenant, folded, body.Version, body.Replaces, caller.Id, store, apply, account, nowUtc(),
+        return await PublishAs(tenant, folded, body.Version, body.Replaces, caller.Publisher, store, apply, account, nowUtc(),
             ct: ctx.RequestAborted);
     }
 
     /// <summary>
-    /// A PERSON'S PUBLISH of one definition version, which drives the factory. The one path for it, shared with a
-    /// defined factory's brief publish (<see cref="FactoryBriefEndpoints"/>, design section 9), which publishes the whole
-    /// definition the same way. <paramref name="published"/> composes the answer to a publish that went through; every
-    /// refusal is answered here, the same for both routes. Null answers as this route does.
+    /// THE PUBLISH of one definition version, which drives the factory, by <paramref name="by"/>: a person, or a session
+    /// in no factory. The one path for it, shared with a defined factory's brief publish (<see cref="FactoryBriefEndpoints"/>,
+    /// design section 9), which publishes the whole definition the same way. <paramref name="published"/> composes the
+    /// answer to a publish that went through; every refusal is answered here, the same for both routes. Null answers as
+    /// this route does.
     /// </summary>
-    internal static async Task<IResult> PublishAsPerson(TenantId tenant, string folded, int version, int? replaces, string? personId,
+    internal static async Task<IResult> PublishAs(TenantId tenant, string folded, int version, int? replaces, FactoryPublisher by,
         FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
         Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null, CancellationToken ct = default)
     {
         // THE STORE'S OWN RULINGS COME FIRST (review of 4004, finding 3): no such version, already published, older
         // than the published one. They say which version is live, and the check's "was not published" must never be
-        // said of the version that IS published. They are asked WITHOUT writing (review of 4006, finding 1): a person's
-        // publish writes only through the transaction below, which rules again on what it reads.
+        // said of the version that IS published. They are asked WITHOUT writing (review of 4006, finding 1): a publish
+        // writes only through the transaction below, which rules again on what it reads.
         if (store.RuleOnPublish(tenant, folded, version, out var wanted) is { } refused)
             return Answer(refused, store, tenant, folded, null);
 
@@ -689,7 +778,7 @@ internal static class FactoryDefinitionEndpoints
 
         // THE PUBLISH DRIVES THE FACTORY, in one transaction; what changes is worked out inside it, against the
         // version it really replaces.
-        var result = apply.Publish(tenant, folded, version, check.Definition!, wanted.Files, replaces, personId, nowUtc);
+        var result = apply.Publish(tenant, folded, version, check.Definition!, wanted.Files, replaces, by, nowUtc);
         return result.Write.Ok && published is not null ? published(result, check) : Answer(result, store, tenant, folded, check);
     }
 
@@ -698,8 +787,8 @@ internal static class FactoryDefinitionEndpoints
     private static DefinitionFinding? FirstFormatError(IReadOnlyDictionary<string, string> content)
         => FactoryPublishApply.FirstFormatError(content);
 
-    /// <summary>POST a restore: a person publishes a copy of an older version as the newest version - once the check
-    /// finds no error in it.</summary>
+    /// <summary>POST a restore: a person, or a session in no factory, publishes a copy of an older version as the newest
+    /// version - once the check finds no error in it. A factory's own session is refused in words.</summary>
     internal static async Task<IResult> Restore(HttpContext ctx, string factory, RestoreFactoryDefinitionRequest? body,
         FactoryDefinitionStore store, FactoryPublishApply apply, Func<HttpContext, TenantId?> resolveTenant,
         Func<string, SessionFactoryLookup> sessionFactoryOf, Account account, Func<DateTime> nowUtc)
@@ -711,20 +800,20 @@ internal static class FactoryDefinitionEndpoints
         if (body is null) return NoBody();
         if (!TryFold(factory, out var folded, out error)) return error!;
 
-        if (caller.Kind != FactoryMemoryAuthorKinds.Person)
-            return Answer(store.Restore(tenant, folded, body.Version, caller.Kind, caller.Id, null, nowUtc(), body.ExpectedVersion),
-                store, tenant, folded, null);
+        if (caller.Factory is { } own)
+            return FactorySessionRefused(route, FactoryDefinitionStore.FactorySessionMayNotRestore(own));
 
-        return await RestoreAsPerson(tenant, folded, body.Version, body.ExpectedVersion, body.Replaces, caller.Id, store, apply,
+        return await RestoreAs(tenant, folded, body.Version, body.ExpectedVersion, body.Replaces, caller.Publisher, store, apply,
             account, nowUtc(), ct: ctx.RequestAborted);
     }
 
     /// <summary>
-    /// A PERSON'S RESTORE of one older definition version, which drives the factory. Shared with a defined factory's
-    /// brief restore exactly as <see cref="PublishAsPerson"/> is shared with its publish.
+    /// THE RESTORE of one older definition version, which drives the factory, by <paramref name="by"/>: a person, or a
+    /// session in no factory. Shared with a defined factory's brief restore exactly as <see cref="PublishAs"/> is shared
+    /// with its publish.
     /// </summary>
-    internal static async Task<IResult> RestoreAsPerson(TenantId tenant, string folded, int version, int expectedVersion, int? replaces,
-        string? personId, FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
+    internal static async Task<IResult> RestoreAs(TenantId tenant, string folded, int version, int expectedVersion, int? replaces,
+        FactoryPublisher by, FactoryDefinitionStore store, FactoryPublishApply apply, Account account, DateTime nowUtc,
         Func<FactoryPublishResult, FactoryDefinitionCheckResult, IResult>? published = null, CancellationToken ct = default)
     {
         // The store's own rulings first, as for a publish and asked without writing: no such version, already the
@@ -738,7 +827,7 @@ internal static class FactoryDefinitionEndpoints
 
         // The copy records the version it came from (restoredFrom), so it carries no change note of its own.
         var result = apply.Restore(tenant, folded, version, check.Definition!, wanted.Files, replaces,
-            expectedVersion, personId, nowUtc);
+            expectedVersion, by, nowUtc);
         return result.Write.Ok && published is not null ? published(result, check) : Answer(result, store, tenant, folded, check);
     }
 
@@ -800,27 +889,78 @@ internal static class FactoryDefinitionEndpoints
     /// NOT one of <see cref="FactoryMemoryAuthorKinds"/>: such a caller may read and can never be the author of a version.</summary>
     private const string NeitherPersonNorSession = "machine";
 
-    /// <summary>Who is asking: a person, a session, or neither, with the identifier a version records.</summary>
-    internal readonly record struct Caller(string Kind, string? Id);
+    /// <summary>Who is asking: a person, a session, or neither, with the identifier a version records. A session also
+    /// carries its name, and <paramref name="Factory"/> - the factory it is a session OF, or null when it is in none.</summary>
+    internal readonly record struct Caller(string Kind, string? Id, string? Name = null, string? Factory = null)
+    {
+        /// <summary>Who a publish by this caller records.</summary>
+        public FactoryPublisher Publisher => new(Kind, Id, Name);
+    }
 
     /// <summary>
-    /// MAY THIS CALLER TOUCH THIS FACTORY'S DEFINITION, AND WHO IS IT. The gate is <see cref="FactoryNaming.TryAct"/>,
-    /// the one a seat's brief and a factory's schedules and triggers already pass, so there is one reading of who is
-    /// asking rather than two that could drift.
+    /// MAY THIS CALLER TOUCH THIS FACTORY'S DEFINITION, AND WHO IS IT (phase 6c). A person, a session in no factory, and
+    /// the account's own machine token pass for every factory - the last only ever to read (<see cref="TryWriter"/>). A
+    /// factory's own session passes for its own factory only. Any other session is refused: when the factory it names
+    /// has no definition yet (<paramref name="isNew"/>, asked only by a write), in the sentence that a factory's session
+    /// does not create factories; otherwise in <see cref="FactoryNaming"/>'s own words, the ones a factory's briefs,
+    /// schedules and triggers answer with.
     /// </summary>
     private static bool TryCaller(HttpContext ctx, Func<string, SessionFactoryLookup> factoryOf, string factory,
-        string route, out Caller caller, out IResult? error)
+        string route, out Caller caller, out IResult? error, Func<string, bool>? isNew = null)
     {
         caller = default;
-        if (!FactoryNaming.TryAct(ctx, factoryOf, factory, What, route, out error)) return false;
-
-        caller = KindOf(ctx) switch
+        error = null;
+        switch (KindOf(ctx))
         {
-            FactoryMemoryAuthorKinds.Person => new Caller(FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor),
-            FactoryMemoryAuthorKinds.Session => new Caller(FactoryMemoryAuthorKinds.Session, AuthMiddleware.CallingSession(ctx)!.SessionId.ToString()),
-            var other => new Caller(other, null),
-        };
-        return true;
+            case FactoryMemoryAuthorKinds.Person:
+                caller = new Caller(FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor);
+                return true;
+            case FactoryMemoryAuthorKinds.Session:
+                var session = AuthMiddleware.CallingSession(ctx)!.SessionId.ToString();
+                var lookup = factoryOf(session);
+                if (!lookup.IsKnown)
+                {
+                    FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - the calling session {session} is not yet known to the Gateway");
+                    error = Results.Json(new { error = SpawnFactory.NotYetKnown, detail = SpawnFactory.NotYetKnownDetail },
+                        statusCode: StatusCodes.Status409Conflict);
+                    return false;
+                }
+                if (!lookup.IsInAFactory)
+                {
+                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, lookup.Name);
+                    return true;
+                }
+                var own = lookup.Factory!.Trim();
+                var asked = factory.Trim();
+                if (string.Equals(own, asked, StringComparison.OrdinalIgnoreCase))
+                {
+                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, lookup.Name, own);
+                    return true;
+                }
+                if (isNew is not null && FactoryNames.TryFactory(asked, out var folded, out _) && isNew(folded))
+                {
+                    FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - session {session} of factory {own} would create '{folded}'");
+                    error = FactorySessionRefused(route, FactoryDefinitionStore.FactorySessionMayNotCreate(own, folded));
+                    return false;
+                }
+                // Another factory's definition: the gate's own refusal, which names whose it is.
+                return FactoryNaming.TryAct(ctx, factoryOf, factory, What, route, out error);
+            default:
+                caller = new Caller(NeitherPersonNorSession, null);
+                return true;
+        }
+    }
+
+    /// <summary>A factory's own session refused a publish, a restore, or creating a factory: 403, the sentence, and the
+    /// outcome word every client reads.</summary>
+    private static IResult FactorySessionRefused(string route, string sentence)
+    {
+        FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED (403, {FactoryDefinitionOutcome.FactorySessionMayNotPublish}) - {sentence}");
+        return Results.Json(new
+        {
+            error = sentence,
+            outcome = FactoryDefinitionOutcome.FactorySessionMayNotPublish.ToString(),
+        }, statusCode: StatusCodes.Status403Forbidden);
     }
 
     /// <summary>What kind of caller this is - a person's device, a session's key, or neither - without asking which
@@ -841,7 +981,7 @@ internal static class FactoryDefinitionEndpoints
         FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - neither a person's device nor a session's key");
         error = Results.Json(new
         {
-            error = "a factory's definition is written by a person, or by a session of that factory",
+            error = "a factory's definition is written by a person, or by a session of that factory or of none",
             detail = "Every version records who wrote it. This request carried neither a session's key nor a person's device key.",
         }, statusCode: StatusCodes.Status403Forbidden);
         return false;
@@ -909,7 +1049,7 @@ internal static class FactoryDefinitionEndpoints
     /// (<see cref="FactoryBriefEndpoints"/>), so the same refusal never carries two statuses.</summary>
     internal static int StatusOf(FactoryDefinitionOutcome outcome) => outcome switch
     {
-        FactoryDefinitionOutcome.OnlyAPersonPublishes => StatusCodes.Status403Forbidden,
+        FactoryDefinitionOutcome.FactorySessionMayNotPublish => StatusCodes.Status403Forbidden,
         FactoryDefinitionOutcome.NoSuchVersion => StatusCodes.Status404NotFound,
         FactoryDefinitionOutcome.BadFactory or FactoryDefinitionOutcome.Empty or FactoryDefinitionOutcome.TooManyFiles
             or FactoryDefinitionOutcome.BadPath or FactoryDefinitionOutcome.NotText or FactoryDefinitionOutcome.FileTooLarge
@@ -949,6 +1089,9 @@ internal static class FactoryDefinitionEndpoints
         WrittenAtUtc = v.WrittenAtUtc,
         PublishedAtUtc = v.PublishedAtUtc,
         PublishedBy = v.PublishedBy,
+        PublishedByKind = v.PublishedByKind,
+        PublishedByName = v.PublishedByName,
+        PublishedByText = v.PublishedByText,
         ContentBytes = v.ContentBytes,
         FileCount = v.FileCount,
         NewestVersion = standing.Newest?.Version ?? v.Version,

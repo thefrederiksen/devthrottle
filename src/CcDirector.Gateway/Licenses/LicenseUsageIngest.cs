@@ -222,6 +222,10 @@ public sealed class LicenseUsageIngest
         if (report.Holdings.Count(h => h.IsActive) > 1) return "more than one active holding";
         if (!string.IsNullOrWhiteSpace(report.SwitchInProgressId) && !LicenseContract.SwitchIdShape.IsMatch(report.SwitchInProgressId.Trim()))
             return "a switch in progress id of the wrong shape";
+        if (report.SwitchedByHand is { } hand
+            && (LicenseStore.NormalizeEmail(hand.AccountEmail).Length == 0
+                || LicenseStore.NormalizeEmail(hand.AccountEmail) != LicenseStore.NormalizeEmail(report.Holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail)))
+            return "a switch by hand to an account that is not the active holding";
         return report.Holdings.Select(h => UnreadableReading(h, report.SentAtUtc)).FirstOrDefault(why => why is not null);
     }
 

@@ -88,6 +88,10 @@ function row(id: string, title: string, statusRank: number, extra: Partial<Facto
     bossName: null,
     leftOpenText: null,
     leftOpenHref: null,
+    seatCountText: "1 seat",
+    nextStartText: null,
+    lastRunText: null,
+    lastRunTone: null,
     ...extra,
   };
 }
@@ -239,6 +243,22 @@ describe("Factories as cards - the groups", () => {
 });
 
 describe("Factories as cards - one card", () => {
+  it("shows the seats, the next start and the last run in the Gateway's words, leaving out what it did not send", async () => {
+    renderList();
+    await screen.findByTestId("fa-factories-cards");
+    const warm = within(screen.getByTestId("fa-card-warmforward"));
+    expect(warm.getByTestId("fa-card-facts").textContent).toBe("4 seats (fixture) - Next start tomorrow 06:15 (Boss) (fixture)");
+    const last = warm.getByTestId("fa-card-lastrun");
+    expect(last.textContent).toBe("Last run: Boss, today 06:15 - needs you (fixture)");
+    expect(last.className).toContain("fa-tone-amber");
+
+    // Nothing due: the seat count alone. Never run: no last run line.
+    const web = within(screen.getByTestId("fa-card-mindzie-web"));
+    expect(web.getByTestId("fa-card-facts").textContent).toBe("2 seats (fixture)");
+    expect(web.queryByTestId("fa-card-next")).toBeNull();
+    expect(within(screen.getByTestId("fa-card-devthrottle")).queryByTestId("fa-card-lastrun")).toBeNull();
+  });
+
   it("shows the purpose when the registry has one and nothing where it has none", async () => {
     renderList();
     await screen.findByTestId("fa-factories-cards");

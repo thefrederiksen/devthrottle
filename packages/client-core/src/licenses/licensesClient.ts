@@ -80,12 +80,28 @@ export interface LicenseApprover {
   /** What to call the machine. */
   label: string;
   canApproveNow: boolean;
-  /** ready | not-connected | never-reported. */
+  /** ready | cannot-approve | not-connected | never-reported. */
   status: string;
   statusText: string;
   statusTone: LicenseTone;
   /** The whole of it in one or two sentences. A page shows this. */
   text: string;
+  /** The profile's display name as its last check saw it; null until a check has named it. */
+  browserProfileName: string | null;
+  /** Who made the record: owner | registered. */
+  source: string;
+  /** Who made the record, in words: "Set by you." or "Registered by machine-a's Director.". Drawn as given. */
+  sourceText: string;
+  /** Why no sign-in can reach the approving machine now; null when its Director is connected. Drawn as given. */
+  reachText: string | null;
+  /** Its health now: can-approve | signed-out | needs-fresh-sign-in | wrong-account | check-failed | not-checked. */
+  state: string;
+  /** When it was last checked; null when it never was. */
+  checkedAtUtc: string | null;
+  /** The finished sentence of its health, naming the account, the machine and the profile. */
+  healthText: string;
+  /** The one thing the owner must do so it can approve; null when it can. */
+  whatToDo: string | null;
 }
 
 export interface LicenseAccount {
@@ -197,6 +213,20 @@ export interface LicenseMachine extends LicenseMachineRef {
   addSpareText: string;
   /** The sign-ins on this machine that have not ended. */
   signInsInProgress: LicenseSignInInProgress[];
+  /** The Director that sent the machine's last report: the one asked for its browser profiles. */
+  directorId: string;
+  /** That Director is connected, so its browser profiles can be listed now. */
+  canListBrowserProfiles: boolean;
+  /** What listing them does, or the sentence saying why they cannot be listed. Drawn as given. */
+  browserProfilesText: string;
+  /** "ready", "not-ready" or "no-room": whether it is ready for the account it would switch to next; null when it is on
+   * no account. Never branched on here: the sentence beside it says what it means. */
+  readiness: string | null;
+  /** The account it would switch to next; null when no other account has room. */
+  readinessTargetAccountEmail: string | null;
+  /** The Gateway's sentence, "Ready for ..." or "Not ready: ..." with what is being done about it. Drawn as given. */
+  readinessText: string | null;
+  readinessTone: LicenseTone | null;
 }
 
 /** GET /gateway/licenses. */
@@ -363,6 +393,14 @@ export interface LicenseSetApprover {
   browserProfile: string;
 }
 
+/** One browser profile of a Director, as GET /directors/{id}/browsers lists it: only what the approver form reads. */
+export interface LicenseBrowserProfile {
+  /** The stable identifier. It is what an approver is set to, so renaming the profile does not break the approver. */
+  id: string;
+  /** What the owner calls it. */
+  name: string;
+}
+
 /** The answer of DELETE /gateway/licenses/approvers: whether one was set, and the sentence saying which. */
 export interface LicenseApproverRemoved {
   accountEmail: string;
@@ -403,6 +441,34 @@ async function readJson<T>(path: string, what: string, list: string, signal?: Ab
 /** GET /gateway/licenses - the accounts and the machines. */
 export function getLicenseOverview(signal?: AbortSignal): Promise<LicenseOverview> {
   return readJson<LicenseOverview>("/gateway/licenses", "read the licenses", "accounts", signal);
+}
+
+/** One open license alarm (License Switching phase 6). `text` is the banner's whole line for it, as the Gateway wrote it. */
+export interface LicenseAlarm {
+  alarmId: string;
+  /** The short stable word of the check that raised it, for example `not-ready-at-80`. */
+  kind: string;
+  machineName: string | null;
+  accountEmail: string | null;
+  text: string;
+  openedAtUtc: string;
+}
+
+/**
+ * The license alarms open now, with the red banner's finished words. A shell shows `summary` when it is not null, then
+ * every alarm's `text` in order, then `linkText` as the link to the Licenses page - and nothing at all when `count` is 0.
+ */
+export interface LicenseAlarms {
+  asOfUtc: string;
+  count: number;
+  summary: string | null;
+  linkText: string | null;
+  alarms: LicenseAlarm[];
+}
+
+/** GET /gateway/licenses/alarms - the license alarms open now, for the red banner on every page. */
+export function getLicenseAlarms(signal?: AbortSignal): Promise<LicenseAlarms> {
+  return readJson<LicenseAlarms>("/gateway/licenses/alarms", "read the license alarms", "alarms", signal);
 }
 
 /** GET /gateway/licenses/forecast - when each account is expected to reach its limit, and the next switch. */
@@ -503,6 +569,21 @@ export async function setLicenseApprover(approver: LicenseSetApprover, signal?: 
     throw new GatewayError(res.status, "The Gateway answered the approver without its 'text' sentence.");
   }
   return body;
+}
+
+/**
+ * GET /directors/{directorId}/browsers - the browser profiles of one Director, for choosing an approver's profile.
+ * `directorId` is a machine's directorId in the overview. A Director that cannot be reached throws GatewayError
+ * carrying the Gateway's own sentence.
+ */
+export async function listLicenseBrowserProfiles(directorId: string, signal?: AbortSignal): Promise<LicenseBrowserProfile[]> {
+  const body = await readJson<{ browsers: LicenseBrowserProfile[] }>(
+    `/directors/${encodeURIComponent(directorId)}/browsers`,
+    "list the browser profiles",
+    "browsers",
+    signal,
+  );
+  return body.browsers.map(({ id, name }) => ({ id, name }));
 }
 
 /**

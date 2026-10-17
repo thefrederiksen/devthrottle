@@ -115,7 +115,7 @@ export const OVERVIEW: LicenseOverview = {
         {
           "accountEmail": "account-c@example.com",
           "canChoose": false,
-          "unavailableText": "the-mac holds no usable spare for account-c@example.com.",
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
           "isAutomaticChoice": false
         }
       ],
@@ -324,7 +324,14 @@ export const OVERVIEW: LicenseOverview = {
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-mac",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -402,7 +409,14 @@ export const OVERVIEW: LicenseOverview = {
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-windows",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     }
   ]
 };
@@ -805,7 +819,15 @@ export const APPROVERS: LicenseApprovers = {
       "status": "ready",
       "statusText": "Ready",
       "statusTone": "good",
-      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work.",
+      "browserProfileName": null,
+      "source": "registered",
+      "sourceText": "Registered by the-mac's Director.",
+      "reachText": null,
+      "state": "can-approve",
+      "checkedAtUtc": "2026-10-11T00:12:00Z",
+      "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
+      "whatToDo": null
     },
     {
       "accountEmail": "account-b@example.com",
@@ -818,7 +840,15 @@ export const APPROVERS: LicenseApprovers = {
       "status": "never-reported",
       "statusText": "Not reporting yet",
       "statusTone": "warning",
-      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+      "browserProfileName": null,
+      "source": "owner",
+      "sourceText": "Set by you.",
+      "reachText": "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+      "state": "not-checked",
+      "checkedAtUtc": null,
+      "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
+      "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
     }
   ]
 };
@@ -831,11 +861,19 @@ export const APPROVER_SET: LicenseApprover = {
   "browserProfile": "work",
   "machineId": "527062dd720c4d28a144183033cf93c1",
   "label": "the-mac",
-  "canApproveNow": true,
-  "status": "ready",
-  "statusText": "Ready",
-  "statusTone": "good",
-  "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+  "canApproveNow": false,
+  "status": "cannot-approve",
+  "statusText": "Not checked",
+  "statusTone": "warning",
+  "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
+  "browserProfileName": null,
+  "source": "owner",
+  "sourceText": "Set by you.",
+  "reachText": null,
+  "state": "not-checked",
+  "checkedAtUtc": null,
+  "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
+  "whatToDo": "Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day."
 };
 
 /** PUT /gateway/licenses/approvers, refused 400: the browser profile is not a name. */
@@ -1039,7 +1077,15 @@ export const OVERVIEW_SIGN_IN_FIELDS: LicenseOverviewSignInFields = {
         "status": "not-connected",
         "statusText": "Not connected",
         "statusTone": "warning",
-        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
+        "browserProfileName": null,
+        "source": "registered",
+        "sourceText": "Registered by the-mac's Director.",
+        "reachText": "The Director on the-mac is not connected, so no sign-in can be approved there now.",
+        "state": "can-approve",
+        "checkedAtUtc": "2026-10-11T00:12:00Z",
+        "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
+        "whatToDo": null
       },
       "approverText": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
       "approverTone": "warning"
@@ -1057,7 +1103,15 @@ export const OVERVIEW_SIGN_IN_FIELDS: LicenseOverviewSignInFields = {
         "status": "never-reported",
         "statusText": "Not reporting yet",
         "statusTone": "warning",
-        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+        "browserProfileName": null,
+        "source": "owner",
+        "sourceText": "Set by you.",
+        "reachText": "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+        "state": "not-checked",
+        "checkedAtUtc": null,
+        "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
+        "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
       },
       "approverText": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
       "approverTone": "warning"

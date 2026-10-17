@@ -91,7 +91,130 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal(new[] { FactoryTone.Red, FactoryTone.Amber, FactoryTone.Paused, FactoryTone.Ok, FactoryTone.Ok }, view.Rows.Select(r => r.StatusTone));
         // The Cockpit sorts by the rank when the owner picks "Status (worst first)"; it must match the word.
         Assert.Equal(new[] { 0, 1, 2, 3, 3 }, view.Rows.Select(r => r.StatusRank));
-        Assert.Equal(new[] { "Factories", "Activity", "Reports" }, view.Tabs.Select(t => t.Label));
+        Assert.Equal(new[] { "Factories", "Activity", "Reports", "Factory Manager" }, view.Tabs.Select(t => t.Label));
+    }
+
+    // ---------- seats, next start and last run on the list (Factories screen cleanup, 17 Oct 2026) ----------
+
+    [Fact]
+    public void List_Row_CountsTheSeats()
+    {
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: Running())).Rows[0];
+        Assert.Equal("4 seats", row.SeatCountText);
+    }
+
+    [Fact]
+    public void List_NextStart_IsTheSoonestSwitchedOnSchedule_WithItsSeat()
+    {
+        var jobs = new[]
+        {
+            Job("cj_ceo", "15 6 * * *"),
+            Job("cj_save", "0 12 * * *"),
+            Job("cj_rel", "0 11 * * *", enabled: false),
+        };
+        jobs[0].NextRunUtc = new DateTime(2026, 10, 7, 6, 15, 0, DateTimeKind.Utc);
+        jobs[1].NextRunUtc = new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc);
+        jobs[2].NextRunUtc = new DateTime(2026, 10, 6, 11, 0, 0, DateTimeKind.Utc);
+
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0];
+
+        // The switched-off 11:00 schedule is not a start.
+        Assert.Equal("Next start today 12:00 (Savings Engineer)", row.NextStartText);
+    }
+
+    [Fact]
+    public void List_NextStart_Tomorrow_SaysTomorrow()
+    {
+        var jobs = Running();
+        jobs[0].NextRunUtc = new DateTime(2026, 10, 7, 6, 15, 0, DateTimeKind.Utc);
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0];
+        Assert.Equal("Next start tomorrow 06:15 (Boss)", row.NextStartText);
+    }
+
+    [Fact]
+    public void List_NextStart_AStoredDueTimeAlreadyPast_IsNotANextStart()
+    {
+        // The store holds the due time; one the engine has not moved on yet is behind us, and is no next start.
+        var jobs = new[] { Job("cj_ceo", "15 6 * * *"), Job("cj_save", "0 12 * * *") };
+        jobs[0].NextRunUtc = Now.AddHours(-4);
+        jobs[1].NextRunUtc = new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc);
+
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0];
+
+        Assert.Equal("Next start today 12:00 (Savings Engineer)", row.NextStartText);
+    }
+
+    [Fact]
+    public void List_NextStart_OnlyPastDueTimes_LeavesItOut()
+    {
+        var jobs = Running();
+        jobs[0].NextRunUtc = Now.AddDays(-1);
+        Assert.Null(FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0].NextStartText);
+    }
+
+    [Fact]
+    public void List_NextStart_WhilePauseEverythingIsOn_IsLeftOut()
+    {
+        var jobs = Running();
+        jobs[0].NextRunUtc = new DateTime(2026, 10, 6, 12, 0, 0, DateTimeKind.Utc);
+        var input = Inputs(new[] { WarmForward() }, jobs: jobs) with { SchedulerPaused = true };
+
+        Assert.Null(FactoriesScreenFold.List(input).Rows[0].NextStartText);
+    }
+
+    [Fact]
+    public void List_LastRun_ARunOlderThanTheWindow_FromTheOlderRows_SaysHowItEnded()
+    {
+        // A weekly seat: its run three days ago is not in the list's 24-hour window, but its rows are handed in whatever
+        // their age, and the card says how it ended - not "- started" from its schedule's firing.
+        var at = Now.AddDays(-3);
+        var older = new[]
+        {
+            Row("warmforward", "value-hunter", FactoryActivityOutcome.Started, "Started.", at, session: "s9"),
+            Row("warmforward", "value-hunter", FactoryActivityOutcome.Done, "Done.", at.AddMinutes(30), session: "s9"),
+        };
+        var jobs = new[] { Job("cj_value", "0 10 * * 6", lastFired: at) };
+        var input = Inputs(new[] { WarmForward() }, jobs: jobs) with { LastRunRows = older };
+
+        var row = FactoriesScreenFold.List(input).Rows[0];
+
+        Assert.Equal("Last run: Value Hunter, 3 Oct 10:00 - succeeded", row.LastRunText);
+        Assert.Equal(FactoryTone.Ok, row.LastRunTone);
+    }
+
+    [Fact]
+    public void List_NothingDueAndNothingRun_LeavesNextStartAndLastRunOut()
+    {
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() })).Rows[0];
+        Assert.Null(row.NextStartText);
+        Assert.Null(row.LastRunText);
+        Assert.Null(row.LastRunTone);
+    }
+
+    [Fact]
+    public void List_LastRun_IsTheNewestSeatRun_AndHowItWent()
+    {
+        var rows = new[]
+        {
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Started, "Started.", Now.AddHours(-5), session: "s1"),
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Done, "Done.", Now.AddHours(-4), session: "s1"),
+            Row("warmforward", "value-hunter", FactoryActivityOutcome.Started, "Started.", Now.AddHours(-2), session: "s2"),
+            Row("warmforward", "value-hunter", FactoryActivityOutcome.Failed, "Broke.", Now.AddHours(-1), session: "s2"),
+        };
+
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, rows, Running())).Rows[0];
+
+        Assert.Equal("Last run: Value Hunter, today 08:00 - failed", row.LastRunText);
+        Assert.Equal(FactoryTone.Red, row.LastRunTone);
+    }
+
+    [Fact]
+    public void List_LastRun_AFiringThatDidNotStart_IsTheLastRun()
+    {
+        var jobs = new[] { Job("cj_ceo", "15 6 * * *", lastFired: Now.AddHours(-1), lastStatus: FactoriesScreenFold.ScheduleNotStarted) };
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0];
+        Assert.Equal("Last run: Boss, today 09:00 - did not start", row.LastRunText);
+        Assert.Equal(FactoryTone.Red, row.LastRunTone);
     }
 
     [Fact]

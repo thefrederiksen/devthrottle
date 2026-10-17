@@ -66,6 +66,9 @@ public sealed record UpdateStatusFacts(
 /// <param name="CheckNowLabel">What to call that action. Null when it is not offered.</param>
 /// <param name="CanInstallNow">Whether to offer installing a staged build immediately.</param>
 /// <param name="InstallNowLabel">What to call that action. Null when it is not offered.</param>
+/// <param name="CanSmartRestartToInstall">Whether to offer Smart Restart, which hands every running session
+/// over and restarts the Director - and a Director applies a staged build when it starts.</param>
+/// <param name="SmartRestartToInstallLabel">What to call that action. Null when it is not offered.</param>
 public sealed record UpdateStatusView(
     string State,
     string Headline,
@@ -80,7 +83,9 @@ public sealed record UpdateStatusView(
     bool CanCheckNow,
     string? CheckNowLabel,
     bool CanInstallNow,
-    string? InstallNowLabel);
+    string? InstallNowLabel,
+    bool CanSmartRestartToInstall = false,
+    string? SmartRestartToInstallLabel = null);
 
 /// <summary>
 /// THE one place that decides what an update state means (issue #1030).
@@ -120,6 +125,7 @@ public static class UpdateStatusFold
 
     private const string CheckNow = "Check for updates now";
     private const string InstallNow = "Install it now and restart";
+    private const string SmartRestartToInstall = "Smart Restart to install it";
 
     /// <summary>
     /// Fold the facts into the finished status. Total: every combination of inputs produces a status,
@@ -193,15 +199,20 @@ public static class UpdateStatusFold
                 return new UpdateStatusView(
                     State: "StagedWaitingForSessions",
                     Headline: "UPDATE WAITING",
-                    Detail: $"v{staged} installs when your {sessions} finish",
-                    Tooltip: $"v{staged} is downloaded and verified. It installs automatically once this Director has no "
-                             + $"sessions running - you have {sessions} open. No session is ever interrupted to update, "
-                             + "so there is nothing to do but finish or close them.",
+                    Detail: $"v{staged} is ready - Smart Restart installs it with your {sessions} handed over",
+                    Tooltip: $"v{staged} is downloaded and verified. You have {sessions} open, so it is not installed "
+                             + "behind your back. Smart Restart installs it now: every session writes a handover, the "
+                             + "Director restarts on the new version, and the sessions are offered back. Otherwise it "
+                             + "installs by itself once this Director has no sessions running.",
                     Accent: ReadyAccent, Background: ReadyBackground, Border: ReadyBorder,
                     Icon: "check", Busy: false, PercentComplete: null,
-                    // Deliberately NOT offered: taking it would end the very sessions the hold exists to protect.
+                    // The plain install is NOT offered: it would end the very sessions the hold protects. Smart
+                    // Restart is, because it hands every session over first. Without it a Director that always
+                    // has a session running - which is every Director the owner uses - never installed an update
+                    // at all: SOREN_NORTH sat on 2.20.1 through two releases in October 2026.
                     CanCheckNow: false, CheckNowLabel: null,
-                    CanInstallNow: false, InstallNowLabel: null);
+                    CanInstallNow: false, InstallNowLabel: null,
+                    CanSmartRestartToInstall: true, SmartRestartToInstallLabel: SmartRestartToInstall);
             }
 
             // The machine cannot draw, so it cannot start a Director. Said plainly, because the version

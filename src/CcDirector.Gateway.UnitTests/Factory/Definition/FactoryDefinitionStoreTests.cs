@@ -458,22 +458,37 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_SESSIONS_PUBLISH_IS_REFUSED_WITH_THE_SENTENCE_AND_NOTHING_CHANGES()
+    public void A_SESSIONS_PUBLISH_IS_RECORDED_WITH_ITS_ID_AND_ITS_NAME()
+    {
+        // Phase 6c, the owner's ruling of 16 October 2026: a session in no factory publishes when the owner tells it
+        // to. Which factory a session is in is the route's to rule on; the store records who published.
+        var store = NewStore();
+        SaveBySession(store, Definition(), expect: 0);
+
+        var published = store.Publish(A, TheFactory, 1, FactoryMemoryAuthorKinds.Session, FactorySession, Now,
+            authorName: "Factory Definition - Developer - create Eric's factory");
+
+        Assert.True(published.Ok, published.Refusal);
+        var summary = store.Standing(A, TheFactory).Published!;
+        Assert.Equal(1, summary.Version);
+        Assert.Equal(FactoryMemoryAuthorKinds.Session, summary.PublishedByKind);
+        Assert.Equal(FactorySession, summary.PublishedBy);
+        Assert.Equal("Factory Definition - Developer - create Eric's factory", summary.PublishedByName);
+        Assert.Equal($"session {FactorySession} (Factory Definition - Developer - create Eric's factory)", summary.PublishedByText);
+    }
+
+    [Fact]
+    public void A_PERSONS_PUBLISH_IS_RECORDED_AS_A_PERSON_WITH_NO_NAME()
     {
         var store = NewStore();
         SaveBySession(store, Definition(), expect: 0);
 
-        var refused = store.Publish(A, TheFactory, 1, FactoryMemoryAuthorKinds.Session, FactorySession, Now);
+        Assert.True(store.Publish(A, TheFactory, 1, FactoryMemoryAuthorKinds.Person, Owner, Now, authorName: "ignored").Ok);
 
-        Assert.False(refused.Ok);
-        Assert.Equal(FactoryDefinitionOutcome.OnlyAPersonPublishes, refused.Outcome);
-        Assert.Equal(
-            "Only a person publishes a factory's definition. A session of the factory may save a draft; " +
-            "the owner reads it and publishes it.",
-            refused.Refusal);
-        var standing = store.Standing(A, TheFactory);
-        Assert.Null(standing.Published);
-        Assert.Equal(FactoryDefinitionStates.Draft, standing.Newest!.State);
+        var summary = store.Standing(A, TheFactory).Published!;
+        Assert.Equal(FactoryMemoryAuthorKinds.Person, summary.PublishedByKind);
+        Assert.Null(summary.PublishedByName);
+        Assert.Equal($"a person ({Owner})", summary.PublishedByText);
     }
 
     [Fact]
@@ -504,8 +519,8 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         PublishByOwner(store, 1);
 
         using var ctx = _h.Open().CreateContext(A);
-        var second = FactoryDefinitionStore.MarkPublished(ctx, TheFactory, 1, "device:the-second-publisher", Now.AddHours(1));
-        var onADraft = FactoryDefinitionStore.MarkPublished(ctx, TheFactory, 2, "device:the-second-publisher", Now.AddHours(1));
+        var second = FactoryDefinitionStore.MarkPublished(ctx, TheFactory, 1, FactoryPublisher.Person("device:the-second-publisher"), Now.AddHours(1));
+        var onADraft = FactoryDefinitionStore.MarkPublished(ctx, TheFactory, 2, FactoryPublisher.Person("device:the-second-publisher"), Now.AddHours(1));
 
         Assert.Equal(0, second);
         var first = store.Find(A, TheFactory, 1)!.Summary;
@@ -779,7 +794,7 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_SESSIONS_RESTORE_IS_REFUSED_WITH_THE_SENTENCE_because_restoring_publishes()
+    public void A_SESSIONS_RESTORE_IS_RECORDED_AS_THE_SESSIONS_because_restoring_publishes()
     {
         var store = NewStore();
         SaveBySession(store, Definition("v1"), expect: 0);
@@ -787,13 +802,17 @@ public sealed class FactoryDefinitionStoreTests : IDisposable
         SaveBySession(store, Definition("v2"), expect: 1);
         PublishByOwner(store, 2);
 
-        var refused = store.Restore(A, TheFactory, 1, FactoryMemoryAuthorKinds.Session, FactorySession, null, Now);
+        var restored = store.Restore(A, TheFactory, 1, FactoryMemoryAuthorKinds.Session, FactorySession, null, Now,
+            authorName: "Builder");
 
-        Assert.Equal(FactoryDefinitionOutcome.OnlyAPersonPublishes, refused.Outcome);
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonRestores, refused.Refusal);
-        Assert.StartsWith("Only a person publishes a factory's definition", refused.Refusal);
-        Assert.Equal(2, store.History(A, TheFactory).Total);
-        Assert.Equal(2, store.Standing(A, TheFactory).Published!.Version);
+        Assert.True(restored.Ok, restored.Refusal);
+        var copy = store.Standing(A, TheFactory).Published!;
+        Assert.Equal(3, copy.Version);
+        Assert.Equal(1, copy.RestoredFrom);
+        Assert.Equal(FactoryMemoryAuthorKinds.Session, copy.AuthorKind);
+        Assert.Equal(FactoryMemoryAuthorKinds.Session, copy.PublishedByKind);
+        Assert.Equal("Builder", copy.PublishedByName);
+        Assert.Equal($"session {FactorySession} (Builder)", copy.PublishedByText);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Licenses;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
@@ -13,7 +14,9 @@ namespace CcDirector.Gateway.Tests.Licenses;
 /// WHO APPROVES EACH ACCOUNT'S SIGN-INS (License Switching, contract section 8.3), over the real per-tenant settings on
 /// a throwaway SQLite file. What these hold down: one approver per account, kept per DevThrottle account; setting again
 /// replaces; removing removes; a value that is not what it claims to be is refused and nothing is stored; one account
-/// never sees another's; and what is stored is exactly the four fields of the contract.
+/// never sees another's; what is stored is exactly the fields of the contract; a record stored before sources existed
+/// reads as owner-set and never checked; and the owner's removal of a registered record is kept until the owner sets
+/// that account again.
 /// </summary>
 // It captures the process-wide log, so no other test class runs beside it.
 [Collection(FileLogCaptureCollection.Name)]
@@ -191,13 +194,153 @@ public sealed class LicenseApproverStoreTests : IDisposable
     }
 
     [Fact]
-    public void WhatIsStored_IsExactlyTheFourFieldsOfTheContract()
+    public void WhatIsStored_IsExactlyTheFieldsOfTheContract_WhoMadeTheRecordAndItsLastCheck()
     {
         _store.Set(One, A, "the-mac", "owner", "work", T0);
 
         var raw = _settings.Get(One, TenantSettingKeys.LicenseApprovers)!;
         var stored = Assert.Single(JsonDocument.Parse(raw).RootElement.EnumerateArray().ToList());
-        Assert.Equal(new[] { "accountEmail", "machineName", "osUser", "browserProfile" }, stored.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(new[] { "accountEmail", "machineName", "osUser", "browserProfile", "source", "state", "checkedAtUtc", "shownAccount", "detail", "browserProfileName" },
+            stored.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(LicenseApproverSources.Owner, stored.GetProperty("source").GetString());
+    }
+
+    [Fact]
+    public void ARecordStoredBeforeSourcesExisted_ReadsAsOwnerSet_AndNeverChecked()
+    {
+        _settings.Set(One, TenantSettingKeys.LicenseApprovers,
+            """[{"accountEmail":"account-a@example.com","machineName":"the-mac","osUser":"owner","browserProfile":"work"}]""", T0);
+
+        var read = _store.Find(One, A)!;
+
+        Assert.Equal(new LicenseApprover(A, "the-mac", "owner", "work", LicenseApproverSources.Owner), read);
+        Assert.Equal(LicenseApproverStates.NotChecked, LicenseApproverHealth.StateOf(read, T0));
+    }
+
+    [Fact]
+    public void ARecordWhoseSourceIsNotASourceWord_IsAnError()
+    {
+        _settings.Set(One, TenantSettingKeys.LicenseApprovers,
+            """[{"accountEmail":"account-a@example.com","machineName":"the-mac","osUser":"owner","browserProfile":"work","source":"someone"}]""", T0);
+
+        Assert.Throws<InvalidOperationException>(() => _store.List(One));
+    }
+
+    [Theory]
+    [InlineData("anything")]
+    [InlineData("not-checked")]
+    public void ARecordWhoseStateIsNotAWordADirectorMayReport_IsAnError(string state)
+    {
+        _settings.Set(One, TenantSettingKeys.LicenseApprovers,
+            "[{\"accountEmail\":\"account-a@example.com\",\"machineName\":\"the-mac\",\"osUser\":\"owner\",\"browserProfile\":\"work\","
+            + $"\"source\":\"registered\",\"state\":\"{state}\",\"checkedAtUtc\":\"2026-10-11T03:00:00Z\"}}]", T0);
+
+        Assert.Throws<InvalidOperationException>(() => _store.List(One));
+        Assert.Throws<InvalidOperationException>(() => _store.Find(One, A));
+    }
+
+    // A registered record, as LicenseApproverRegistration writes one.
+    private void Registered(string account, string machine, string profile, DateTime checkedAt)
+        => _store.Change(One, records =>
+        {
+            var next = records.Approvers.Where(a => a.AccountEmail != account).ToList();
+            next.Add(new LicenseApprover(account, machine, "owner", profile, LicenseApproverSources.Registered, LicenseApproverStates.CanApprove,
+                checkedAt, account, null));
+            return ((IReadOnlyList<LicenseApprover>?)next, 0);
+        }, checkedAt);
+
+    [Fact]
+    public void Remove_OfARegisteredRecord_LeavesARemovalRecordForThatAccountMachineUserAndProfile()
+    {
+        Registered(A, "the-mac", "work", T0);
+
+        Assert.True(_store.Remove(One, A, T0.AddMinutes(1)));
+
+        Assert.Null(_store.Find(One, A));
+        Assert.Equal(new[] { new LicenseApproverRemoval(A, "the-mac", "owner", "work", T0.AddMinutes(1)) }, _store.ListRemovals(One));
+    }
+
+    [Fact]
+    public void Remove_OfAnOwnerSetRecord_LeavesNoRemovalRecord()
+    {
+        _store.Set(One, A, "the-mac", "owner", "work", T0);
+
+        Assert.True(_store.Remove(One, A, T0));
+
+        Assert.Empty(_store.ListRemovals(One));
+        Assert.Null(_settings.Get(One, TenantSettingKeys.LicenseApproverRemovals));
+    }
+
+    [Fact]
+    public void Set_ClearsTheRemovalRecordsOfThatAccount_AndOnlyThatAccount()
+    {
+        Registered(A, "the-mac", "work", T0);
+        Registered(B, "the-mac", "work", T0);
+        _store.Remove(One, A, T0);
+        _store.Remove(One, B, T0);
+
+        _store.Set(One, A, "the-windows-machine", "owner", "personal", T0);
+
+        Assert.Equal(B, Assert.Single(_store.ListRemovals(One)).AccountEmail);
+    }
+
+    [Fact]
+    public void Removals_KeepTheNewestUpToTheMost()
+    {
+        for (var i = 0; i <= LicenseApproverStore.MaxRemovals; i++)
+        {
+            var account = $"other-{i}@example.com";
+            Registered(account, "the-mac", "work", T0.AddMinutes(i));
+            _store.Remove(One, account, T0.AddMinutes(i));
+        }
+
+        var kept = _store.ListRemovals(One);
+
+        Assert.Equal(LicenseApproverStore.MaxRemovals, kept.Count);
+        Assert.Equal("other-1@example.com", kept[0].AccountEmail);
+    }
+
+    [Fact]
+    public void Set_TheVeryProfileThatWasChecked_KeepsItsLastCheck_AndMakesItOwnerSet()
+    {
+        Registered(A, "the-mac", "work", T0);
+
+        _store.Set(One, A, "THE-MAC", "owner", "work", T0.AddMinutes(1));
+
+        var read = _store.Find(One, A)!;
+        Assert.Equal((LicenseApproverSources.Owner, LicenseApproverStates.CanApprove, (DateTime?)T0), (read.Source, read.State, read.CheckedAtUtc));
+    }
+
+    [Fact]
+    public void Set_AnotherProfile_StartsNeverChecked()
+    {
+        Registered(A, "the-mac", "work", T0);
+
+        _store.Set(One, A, "the-mac", "owner", "personal", T0);
+
+        Assert.Equal(LicenseApproverStates.NotChecked, LicenseApproverHealth.StateOf(_store.Find(One, A)!, T0));
+    }
+
+    [Fact]
+    public void StateOf_ARecordCheckedExactly26HoursAgo_IsItsState_AndOneSecondLaterIsNotChecked()
+    {
+        var approver = new LicenseApprover(A, "the-mac", "owner", "work", LicenseApproverSources.Registered, LicenseApproverStates.NeedsFreshSignIn, T0);
+
+        Assert.Equal(LicenseApproverStates.NeedsFreshSignIn, LicenseApproverHealth.StateOf(approver, T0 + LicenseApproverContract.NotCheckedAfter));
+        Assert.Equal(LicenseApproverStates.NotChecked,
+            LicenseApproverHealth.StateOf(approver, T0 + LicenseApproverContract.NotCheckedAfter + TimeSpan.FromSeconds(1)));
+        Assert.Equal(TimeSpan.FromHours(26), LicenseApproverContract.NotCheckedAfter);
+    }
+
+    [Fact]
+    public void Change_ThatLeavesMoreThanTheMostApprovers_IsAnError_AndWritesNothing()
+    {
+        var tooMany = Enumerable.Range(0, LicenseApproverStore.MaxApprovers + 1)
+            .Select(i => new LicenseApprover($"other-{i}@example.com", "the-mac", "owner", "work")).ToList();
+
+        Assert.Throws<InvalidOperationException>(() => _store.Change(One, _ => ((IReadOnlyList<LicenseApprover>?)tooMany, 0), T0));
+
+        Assert.Null(_settings.Get(One, TenantSettingKeys.LicenseApprovers));
     }
 
     [Fact]

@@ -18,9 +18,9 @@ public interface ILicenseCommandLine
     Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken cancellationToken);
 
     /// <summary>Reads usage from the provider (<c>license usage</c>) for the active holding only, or for every
-    /// holding. A read of every holding first renews each spare whose key is due (<c>--refresh</c>): nothing else uses
-    /// an unused spare's key, so without it the key expires and the spare stops being a switch target. The active
-    /// key is never renewed here - the sessions using it keep it fresh.
+    /// holding, first renewing each key that is due (<c>--refresh</c>): nothing else uses an unused spare's key, so
+    /// without it the key expires and the spare stops being a switch target. The active key is renewed only when the
+    /// tool finds that no Claude Code session can be using it (phase 6) - otherwise the sessions keep it fresh.
     /// A failed read of one holding is that row's <see cref="LicenseHolding.ReadError"/>, not an exception.
     /// Throws <see cref="LicenseCommandLineException"/> when the tool did not give a readable answer.</summary>
     Task<IReadOnlyList<LicenseHolding>> ReadUsageAsync(bool activeOnly, CancellationToken cancellationToken);
@@ -59,6 +59,13 @@ public interface ILicenseCommandLine
     /// <summary>Approves another machine's sign-in in a browser profile here (<c>license approve</c>). The tool
     /// refuses, before any browser opens, a URL that names another account than <paramref name="accountEmail"/>.</summary>
     Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The hand sign-ins the key store healed (contract section 2.6) in the <c>list</c> and <c>usage</c> runs since the
+    /// last call, oldest first, and forgets them. The store heals whenever it is opened, so they arrive in whichever of
+    /// those answers ran first; the reporter takes them after each tool call to say so in its next report.
+    /// </summary>
+    IReadOnlyList<LicenseHandSwitch> TakeHandSwitches();
 }
 
 /// <summary>What <c>license switch --json</c> answered. Its words are the contract's (section 3.3).</summary>
@@ -138,6 +145,8 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
 
     private readonly LicenseCommandLineOptions _options;
     private readonly Func<string?> _resolveTool;
+    private readonly object _healedGate = new();
+    private readonly List<LicenseHandSwitch> _healed = new();
 
     public CcDevthrottleLicenseCommandLine(LicenseCommandLineOptions options)
         : this(options, ResolveOwnCopy)
@@ -176,15 +185,37 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
     public async Task<IReadOnlyList<LicenseHolding>> ListAsync(CancellationToken cancellationToken)
     {
         var output = await RunForJsonAsync(new[] { "license", "list" }, cancellationToken);
-        return ReadListedAccounts(output);
+        var rows = ReadListedAccounts(output);
+        KeepHandSwitches(output, "list");
+        return rows;
     }
 
     public async Task<IReadOnlyList<LicenseHolding>> ReadUsageAsync(bool activeOnly, CancellationToken cancellationToken)
     {
         var args = new List<string> { "license", "usage" };
-        args.Add(activeOnly ? "--active" : "--refresh");
+        if (activeOnly) args.Add("--active");
+        args.Add("--refresh");
         var output = await RunForJsonAsync(args, cancellationToken);
-        return ReadUsageRows(output);
+        var rows = ReadUsageRows(output);
+        KeepHandSwitches(output, "usage");
+        return rows;
+    }
+
+    public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches()
+    {
+        lock (_healedGate)
+        {
+            var taken = _healed.ToList();
+            _healed.Clear();
+            return taken;
+        }
+    }
+
+    private void KeepHandSwitches(string output, string subcommand)
+    {
+        var healed = ReadHandSwitches(output, subcommand);
+        if (healed.Count == 0) return;
+        lock (_healedGate) _healed.AddRange(healed);
     }
 
     public async Task<LicenseExchangeAnswer> SwitchAsync(string targetAccountEmail, string expectedActiveAccountEmail, CancellationToken cancellationToken)
@@ -303,6 +334,39 @@ public sealed partial class CcDevthrottleLicenseCommandLine : ILicenseCommandLin
             holdings.Add(new LicenseHolding { AccountEmail = Normalize(email, "list"), IsActive = role == "active" });
         }
         return holdings;
+    }
+
+    /// <summary>
+    /// The <c>healed</c> rows of a <c>list</c> or <c>usage</c> answer whose accounts were already read: the hand sign-ins
+    /// that run healed (contract section 2.6). Each is logged here - which account, where the stale spare was moved from
+    /// and to - because this is the one place the Director sees the folders; only the email and the time travel on.
+    /// An answer with no <c>healed</c> field (an older tool) healed nothing. A row that is not the tool's shape throws.
+    /// </summary>
+    internal static IReadOnlyList<LicenseHandSwitch> ReadHandSwitches(string output, string subcommand)
+    {
+        using var document = JsonDocument.Parse(output);
+        if (!document.RootElement.TryGetProperty("healed", out var healed) || healed.ValueKind == JsonValueKind.Null)
+            return Array.Empty<LicenseHandSwitch>();
+        if (healed.ValueKind != JsonValueKind.Array)
+            throw new LicenseCommandLineException($"{ToolName} license {subcommand} answered a healed field that is not a list.");
+        var found = new List<LicenseHandSwitch>();
+        foreach (var row in healed.EnumerateArray())
+        {
+            string? Text(string name) => row.ValueKind == JsonValueKind.Object && row.TryGetProperty(name, out var v)
+                && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            var at = Text("healedAtUtc");
+            if (at is null || !DateTime.TryParse(at, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var healedAt))
+                throw new LicenseCommandLineException($"{ToolName} license {subcommand} answered a healed row with no readable time.");
+            var email = Normalize(Text("accountEmail"), subcommand);
+            var (from, to) = (Text("movedFrom"), Text("movedTo"));
+            if (from is null || to is null)
+                throw new LicenseCommandLineException($"{ToolName} license {subcommand} answered a healed row that does not say where the spare was moved.");
+            FileLog.Write($"[CcDevthrottleLicenseCommandLine] hand sign-in healed: account={email} was signed in by hand while also held as a spare; "
+                          + $"the stale spare was moved from {from} to {to} at {healedAt:O}");
+            found.Add(new LicenseHandSwitch { AccountEmail = email, HealedAtUtc = DateTime.SpecifyKind(healedAt, DateTimeKind.Utc) });
+        }
+        return found;
     }
 
     private static JsonDocument ParseAccounts(string? output, string subcommand, out JsonElement rows)

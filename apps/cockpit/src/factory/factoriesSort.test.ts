@@ -36,6 +36,10 @@ function row(id: string, title: string, statusRank: number, waitingCount = 0): F
     bossName: null,
     leftOpenText: null,
     leftOpenHref: null,
+    seatCountText: "1 seat",
+    nextStartText: null,
+    lastRunText: null,
+    lastRunTone: null,
   };
 }
 

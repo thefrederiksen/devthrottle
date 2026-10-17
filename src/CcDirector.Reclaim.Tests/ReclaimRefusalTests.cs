@@ -313,7 +313,11 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
     [Fact]
     public void Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused()
     {
-        using var tree = new FixtureTree(nameof(Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused));
+        // On the system volume: by default Windows keeps 8.3 short names there and nowhere else, and this proof is
+        // built on a short name. Under TEMP, which the release gate moves to another volume when the system volume
+        // is short of space, the fixture would refuse to build the proof and the test would fail for the volume,
+        // not for the code (the v2.23.0 release gate, 17 October 2026).
+        using var tree = new FixtureTree(nameof(Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused), onSystemVolume: true);
         var temp = tree.Folder("temp");
         var longNamed = Path.Combine(temp, "canonicalization-proof-folder");
         Directory.CreateDirectory(longNamed);

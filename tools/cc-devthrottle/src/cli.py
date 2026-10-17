@@ -1289,6 +1289,16 @@ _ACTIONS = [
         "args": [{"name": "factory", "required": True}],
     },
     {
+        "id": "factory-definition-create",
+        "description": "Create a NEW factory from a folder or a zip: its first draft, checked by the Gateway, which refuses an id that is taken and prints every finding with file and line. Never publishes. A factory's own session is refused.",
+        "command": "cc-devthrottle factory definition create <folder-or-zip>",
+        "mutatesState": True,
+        "args": [
+            {"name": "folder-or-zip", "required": True},
+            {"name": "note", "required": False},
+        ],
+    },
+    {
         "id": "factory-definition-save",
         "description": "Save every file under a folder as a new draft of a factory's definition; the Gateway checks it first and refuses it with every finding, file and line.",
         "command": "cc-devthrottle factory definition save <factory> --dir <folder> --expected-version <n>",
@@ -1302,14 +1312,14 @@ _ACTIONS = [
     },
     {
         "id": "factory-definition-publish",
-        "description": "Publish one version of a factory's definition and see what changes. Only a person publishes: a session is refused and told to save a draft.",
+        "description": "Publish one version of a factory's definition and see what changes. A person, or a session in no factory, publishes; a factory's own session is refused and told to save a draft.",
         "command": "cc-devthrottle factory definition publish <factory> --version <n>",
         "mutatesState": True,
         "args": [{"name": "factory", "required": True}, {"name": "version", "required": True}],
     },
     {
         "id": "factory-definition-restore",
-        "description": "Publish a copy of an older version of a factory's definition as the newest. Only a person does this: a session is refused.",
+        "description": "Publish a copy of an older version of a factory's definition as the newest. A person, or a session in no factory, restores; a factory's own session is refused.",
         "command": "cc-devthrottle factory definition restore <factory> --version <n>",
         "mutatesState": True,
         "args": [
@@ -2035,7 +2045,8 @@ def license_usage(
     ),
     active: bool = typer.Option(False, "--active", help="Read only the active account. Applies to --json too."),
     refresh: bool = typer.Option(
-        False, "--refresh", help="First renew each spare whose key has under an hour left (as license refresh)."
+        False, "--refresh", help="First renew each key with under an hour left: a spare as license refresh does, the "
+        "active one only when no Claude Code session is using it (or its token has already ended)."
     ),
     default_config_dir: Optional[str] = typer.Option(None, "--default-config-dir", help=_LICENSE_DEFAULT_DIR_HELP),
     store_dir: Optional[str] = typer.Option(None, "--store-dir", help=_LICENSE_STORE_DIR_HELP),
@@ -2100,6 +2111,21 @@ def license_approve(
 ) -> None:
     """Approve another machine's sign-in in a browser profile here; prints the code."""
     license_signin_ops.approve(url, email, browser, json_output)
+
+
+@license_app.command("check-approver")
+def license_check_approver(
+    browser: str = typer.Option(..., "--browser", help="The browser profile on this machine to check."),
+    email: Optional[str] = typer.Option(
+        None, "--email", help="The account it should approve. Default: the account it is signed in to claude.ai as."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j",
+        help="Output JSON: {browserProfile, browserProfileName, accountEmail, shownAccount, state, detail}.",
+    ),
+) -> None:
+    """Check whether a browser profile can approve sign-ins, pressing nothing."""
+    license_signin_ops.check_approver(browser, email, json_output)
 
 
 @license_app.command("renew")
@@ -2200,11 +2226,14 @@ def session_list(
         None,
         "--fields",
         help="Fields to show, comma separated. Default: id,name,state,repo. "
-        "Valid: id, name, state, repo, machine, number, model, agent, mission, path.",
+        "Valid: id, name, state, repo, machine, number, model, agent, mission, path, connection.",
+    ),
+    connection: str = typer.Option(
+        None, "--connection", help="Only sessions connected this way: terminal or api (API mode)."
     ),
 ) -> None:
     """List every session in the fleet: id, name, state and repository."""
-    list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields)
+    list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields, connection=connection)
 
 
 @errors_app.command("list")
@@ -3310,6 +3339,13 @@ def spawn(
         "validates the run and the session's preamble tells the agent to fetch the run's conduct at "
         "its PINNED version. Unknown run ids are rejected.",
     ),
+    connection: Optional[str] = typer.Option(
+        None,
+        "--connection",
+        help="How the Director drives the agent: terminal (the default: typing into its terminal) or api "
+        "(API mode: the agent's own protocol). API mode is refused, with the reason, for an agent whose "
+        "wrapper has none, and while the Gateway does not offer it yet.",
+    ),
 ) -> None:
     """Open a new session here, on another machine, or on one named Director.
 
@@ -3317,7 +3353,7 @@ def spawn(
     """
     spawn_session(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
-        machine, mission, workflow_run, director,
+        machine, mission, workflow_run, director, connection,
     )
 
 
@@ -4660,6 +4696,22 @@ def factory_definition_history(
     factory_definition_ops.history(factory, json_output, count, before)
 
 
+@factory_definition_app.command("create")
+def factory_definition_create(
+    source: str = typer.Argument(..., help="The folder, or a zip of it, holding the whole definition: factory.yaml, seats/ and the rest."),
+    note: Optional[str] = typer.Option(None, "--note", help="A change note, at most 500 characters."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the stored draft as JSON."),
+) -> None:
+    """Create a new factory from a folder or a zip, as a draft. Never publishes.
+
+    The factory is the one factory.yaml names. The Gateway refuses an id that is already a factory or already has a
+    draft, then checks the folder exactly as an import: any error refuses it and every finding is printed with its
+    file and line. Then read what publishing would do with diff, and publish. A person, or a session in no factory,
+    creates and publishes; a factory's own session is refused.
+    """
+    factory_definition_ops.create(source, note, json_output)
+
+
 @factory_definition_app.command("save")
 def factory_definition_save(
     factory: str = typer.Argument(..., help=_DEFINITION_FACTORY_HELP),
@@ -4692,8 +4744,9 @@ def factory_definition_publish(
 ) -> None:
     """Publish one version, printing what changes and what it applied to the factory.
 
-    Only a person publishes. The publish drives the factory - its registry row, schedules and triggers - in one transaction, and prints
-    each step it took. A session that runs this is refused by the Gateway with the sentence that says so, and exits
+    A person, or a session in no factory, publishes - the owner tells the session to, and that is the approval. The
+    publish drives the factory - its registry row, schedules and triggers - in one transaction, and prints each step it
+    took. A factory's own session that runs this is refused by the Gateway with the sentence that says so, and exits
     non-zero.
     """
     factory_definition_ops.publish(factory, version, json_output, replaces)
@@ -4715,7 +4768,8 @@ def factory_definition_restore(
 ) -> None:
     """Publish a copy of an older version as the newest, and drive the factory to it.
 
-    Only a person restores. The versions in between stay in the history. A session that runs this is refused by the Gateway.
+    A person, or a session in no factory, restores. The versions in between stay in the history. A factory's own session
+    that runs this is refused by the Gateway.
     """
     factory_definition_ops.restore(factory, version, expected_version, json_output, replaces)
 

@@ -27,10 +27,11 @@ namespace CcDirector.ControlApi;
 ///     Windows alternate data stream;
 ///   - it, or what it really is after every symbolic link and junction is followed, is on the secrets list
 ///     (<see cref="SessionFileSecrets.IsSecret"/>);
-///   - it lies OUTSIDE the working folder and its real location is a hidden file or folder directly under the
-///     user's home folder, or anything inside one (<see cref="SessionFileSecrets.IsHiddenUnderHome"/>). A list
+///   - its real location is a hidden file or folder directly under a home folder of the user (HOME and the
+///     real home both), or anything inside one (<see cref="SessionFileSecrets.IsHiddenUnderHome"/>). A list
 ///     of names will always miss some tool's credentials; this catches every tool that keeps them in
-///     ~/.something. Inside the working folder the July rules stand, so a repository's own .github still opens;
+///     ~/.something. The one exception is a working folder that is itself inside such a hidden folder: its
+///     own files still open. A working folder that IS the home folder gets the rule (issue #4087);
 ///   - it is a file with more than one name (a hard link), which no path test can place.
 ///
 /// A file is served by its REAL path, so a link swapped after this decision cannot redirect the read.
@@ -92,8 +93,11 @@ internal static class SessionFileAccess
         var isFolder = Directory.Exists(real);
         var insideWorkingFolder = IsInsideWorkingFolder(workingDirectory, full);
 
-        // Outside the working folder, every hidden file or folder directly under the home folder is a secret.
-        if (!insideWorkingFolder && (secrets.IsHiddenUnderHome(real) || secrets.IsHiddenUnderHome(full)))
+        // Every hidden file or folder directly under a home folder is a secret, unless the path is inside a
+        // working folder that is itself inside that hidden folder. A session working IN the home folder gets
+        // the rule too (issue #4087).
+        var exemptFolder = insideWorkingFolder ? workingDirectory : null;
+        if (secrets.IsHiddenUnderHome(real, exemptFolder) || secrets.IsHiddenUnderHome(full, exemptFolder))
             return NotAllowed(SecretSentence);
 
         var namedItself = named.Contains(full);
@@ -114,15 +118,16 @@ internal static class SessionFileAccess
     /// The contents of a folder this session may list: a folder inside the working folder, or a folder the
     /// conversation names by its exact path. Files and folders are both returned; a folder outside the working
     /// folder lists its FILES only, because the folders inside it are not themselves named and would only
-    /// refuse when opened. An entry that opening would refuse is left out. Throws <see cref="UnauthorizedAccessException"/> with
-    /// the Director's sentence when the folder may not be listed, and <see cref="DirectoryNotFoundException"/>
-    /// when it is not a folder.
+    /// refuse when opened. An entry that opening would refuse is left out. Throws <see cref="SessionFileAccessRefusedException"/>
+    /// with the Director's sentence when the rule says the folder may not be listed, and
+    /// <see cref="DirectoryNotFoundException"/> when it is not a folder. Reading a folder the rule admitted can still
+    /// throw the operating system's own <see cref="UnauthorizedAccessException"/>; that one is a fault, not the rule.
     /// </summary>
     public static DirectoryListingDto ListFolder(string? workingDirectory, string? requested, SessionNamedPaths named, SessionFileSecrets secrets)
     {
         var decision = Decide(workingDirectory, requested, named, secrets);
         if (decision.Code == PathStatusCodes.NotAllowed)
-            throw new UnauthorizedAccessException(decision.Sentence);
+            throw new SessionFileAccessRefusedException(decision.Sentence);
         if (decision.Code != PathStatusCodes.Folder || decision.FullPath is null)
             throw new DirectoryNotFoundException($"This is not a folder: {requested}");
 
@@ -222,4 +227,15 @@ internal static class SessionFileAccess
             return null;
         }
     }
+}
+
+/// <summary>
+/// The session file access rule refused a path: the answer to the request, carrying the Director's sentence. It is
+/// an <see cref="UnauthorizedAccessException"/> so a caller that only knows that type still treats it as a refusal,
+/// and its own type so a caller can tell the rule's answer from the operating system denying a read the rule had
+/// already admitted - which is a fault and is reported.
+/// </summary>
+internal sealed class SessionFileAccessRefusedException : UnauthorizedAccessException
+{
+    public SessionFileAccessRefusedException(string message) : base(message) { }
 }

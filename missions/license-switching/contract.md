@@ -96,6 +96,13 @@ public sealed class LicenseUsageReport
     public string Trigger { get; set; } = "";          // LicenseReportTriggers: "interval" | "changed" | "after-switch" | "connected"
     public string? SwitchInProgressId { get; set; }    // the SwitchId being executed right now, else null
     public List<LicenseHolding> Holdings { get; set; } = new();  // EVERY account this machine holds, active first
+    public LicenseHandSwitch? SwitchedByHand { get; set; }     // set on the one report after a hand sign-in was healed (2.6), else null
+}
+
+public sealed class LicenseHandSwitch
+{
+    public string AccountEmail { get; set; } = "";     // the account signed in by hand; it is the report's active holding
+    public DateTime HealedAtUtc { get; set; }          // when the key store moved the stale spare to its backup
 }
 
 public sealed class LicenseHolding
@@ -153,7 +160,9 @@ before the Director first saw it); a null expiry is never read as "fine" or as "
 - **The active holding is read from the provider for every report.** Spare holdings are read at most
   every **10 minutes**; in between, a report carries a spare's last numbers with their own
   `ReadAtUtc`. (A spare is also kept fresh between reads - that is phase 1's work and not part of the
-  wire.)
+  wire. Since phase 6 the active key is too, in place, when no Claude Code session can be using it; a
+  renewal of it that fails is that holding's `refresh-failed`, exactly as for a spare. See
+  `phase-6/track-b/active-renewal.md`.)
 - **On change, at once** (`Trigger = "changed"`): a holding added or removed, the active account
   changed by anything other than a Gateway command (for example `claude auth login` by hand), or a
   holding's `ReadError` appearing or clearing.
@@ -224,6 +233,35 @@ Shown as JSON for reading; on the wire it is MessagePack with these property nam
   ]
 }
 ```
+
+### 2.6 A machine switched by hand (added in phase 6)
+
+Someone can sign a machine in by hand (`claude auth login` straight into the default config) to an
+account the machine ALSO holds as a spare. Claude Code's write replaces the active sign-in, so the
+account the machine was on is gone - nothing on the machine can bring it back - and the new account
+is held twice. The active sign-in is the newer one, so the spare is stale. Before this section, the
+Director then reported the account twice and the Gateway refused every report (`an account held
+twice`).
+
+- **The key store heals it, on the machine, the next time it is opened** (`license_store.py`,
+  `_heal_hand_sign_in`): the spare's folder is moved, whole, into `<store>/hand-sign-in-backups/` as
+  `<account>-<UTC time>` (with `-2`, `-3` ... when that name is taken). It is never deleted, it is
+  never listed, renewed or switched to again, and two heals of one account keep two backups. It runs
+  under the store's lock like every other store write, so it never runs inside a switch, a renewal or
+  a sign-in's write; a read that finds the lock taken fails whole and the next round heals.
+- **Why the store and not the Director:** the command line and the Director then agree - any
+  `license` command that opens the store heals first, so a switch never meets a held-twice account
+  either - and the store already owns the journal that finishes an operation a crash interrupted.
+- **The report says it once.** `license list --json` and `license usage --json` carry `healed`, the
+  heals that run made. The key holder sets `SwitchedByHand` on the next report it sends (with
+  `Trigger = "changed"`) and clears it once that report has gone. A Director that stops between the
+  heal and the report loses only the sentence: the report still shows the new active account.
+- **The Gateway writes ONE log entry** of kind `switched-by-hand` for a report that carries it, for
+  example "machine-a was switched to alice@example.com by hand; the old spare for alice@example.com
+  was moved to a backup on the machine." When the machine's previous accepted report had another
+  account active and this report no longer holds that account, the entry adds that its sign-in was
+  overwritten and is no longer held on the machine. A report whose `SwitchedByHand` names an account
+  that is not its active holding is malformed.
 
 ## 3. The switch command (Gateway to Director)
 
@@ -463,9 +501,11 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 
 ### 5.7 A spare whose sign-in is about to expire
 
-- **The Gateway never chooses a target whose spare's `SignInExpiresAtUtc` is at or before the
-  command's `NotAfterUtc`.** A sign-in that could die before the switch is allowed to start is not a
-  spare. A null `SignInExpiresAtUtc` does not exclude a target on its own; the Director still refuses
+- **The Gateway never sends a machine to an account whose sign-in on that machine expires at or before
+  the command's `NotAfterUtc`.** A sign-in that could die before the switch is allowed to start does not
+  make the machine ready for that account. It is judged per machine: it never stops another machine that
+  is ready from moving, and it never makes the account count as having no room (MISSION.md section 5).
+  A null `SignInExpiresAtUtc` does not make a machine unready on its own; the Director still refuses
   an expired sign-in at 3.3 step 9.
 - **The Cockpit shows an expiry verdict for every holding**: `expired` (at or before now), `expires
   soon` (within `LicenseContract.SignInExpiryWarning`, 3 days, of now), `fine` (later than that), or
@@ -591,7 +631,8 @@ public string? RenewalErrorDetail { get; set; }    // one plain sentence the Dir
 ```
 
 `LicenseRenewalErrors`: `"login-failed"`, `"approval-failed"`, `"wrong-account"` (the approving browser profile is
-signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"no-approver"` (no browser profile is set for
+signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"needs-fresh-sign-in"` (the approving browser
+profile is signed in, but the approval page asks for a recent sign-in first - added in phase 6), `"no-approver"` (no browser profile is set for
 the account, here or on another machine), `"approver-offline"`, `"expired"` (no approval came back by `NotAfterUtc`,
 8.3), `"store-refused"`. They are the reasons `license renew --json` already writes, without the `failed-` prefix,
 plus the two only the relay can produce: `approver-offline` and `expired`.
@@ -838,7 +879,7 @@ public sealed class LicenseSignInRequest
 {
     public string SignInId { get; set; } = "";        // 32 lower-case hex, Gateway-minted
     public string AccountEmail { get; set; } = "";
-    public string Reason { get; set; } = "";          // "manual" | "renewal"
+    public string Reason { get; set; } = "";          // "manual" | "renewal" | "auto-spare" | "auto-renewal"
     public DateTime NotAfterUtc { get; set; }         // the Director refuses to START after this
 }
 
@@ -913,3 +954,232 @@ end of the text, so an identifier followed by a line break is refused.
 | The Director's renewer wakes (a run happens once a day) | every 10 minutes |
 | A stored `LicenseSignInResult` is kept | 24 hours |
 | The seal's purpose word (`LicenseContract.ApprovalSealPurpose`) | `license-approval` |
+
+## 9. Phase 6 - the license alarm (one mechanism for every track)
+
+A problem with licenses is LOUD and STAYS until it is fixed. There is exactly one mechanism for that, on the Gateway:
+`Licenses.LicenseAlarmService`. Tracks A, B and C raise their alarms through it and never build another.
+
+### 9.1 What an alarm is
+
+An alarm names a **kind** (a short stable word the raising check chooses: `not-ready-at-80`), the **machine** (absent
+for an alarm about no one machine), the **account** (absent for an alarm about no one account), **what is wrong** in one
+plain-English sentence and **the one thing to do** in one plain-English sentence. It has an opened time and, once
+closed, a closed time. Its identity is tenant + kind + machine + account. Rows live in `license_alarms`, one row for
+each time a problem was open.
+
+### 9.2 How to raise one, and how it clears
+
+Declare the kind once, as a constant beside the check:
+
+```csharp
+static readonly LicenseAlarmKind NotReady = new("not-ready-at-80", "Not ready to switch");
+```
+
+The title is what a phone's locked screen shows: a few plain words, no full stop, never an email address (the
+constructor refuses one).
+
+On every run of the check, pass EVERY alarm of that kind that is true now - an empty list when none is:
+
+```csharp
+await alarms.RaiseAsync(tenant, NotReady, new[]
+{
+    new LicenseAlarmCondition(machine.MachineId, machine.MachineName, "alice@example.com",
+        "machine-a holds no spare that could take it off alice@example.com.",
+        "Sign machine-a in to a second account."),
+}, ct);
+```
+
+- **Not open yet:** it opens. One row in `license_alarms`, one `alarm-opened` row in the Licenses log, one push to the
+  owner's phones and one owner email.
+- **Already open:** it stays open and nothing is sent. Its two sentences are brought up to date.
+- **Open, but not in the list:** it closes by itself and writes an `alarm-closed` row in the Licenses log.
+- **Raised again after it closed:** a NEW alarm, with its own push and its own email.
+- A check speaks only for its own kind: it never closes another kind's alarm.
+
+Raising is idempotent, so a check that runs every minute simply raises what it sees every minute. The service is
+`GatewayHost.LicenseAlarms`.
+
+### 9.3 What the words must look like
+
+- Both sentences are plain English, one line each, ending in a full stop, at most 400 characters. A sentence that is
+  not refused with `ArgumentException`.
+- **What is wrong** names the machine and the account where they matter: "machine-a holds no spare that could take it
+  off alice@example.com." It may contain the account email: the banner and the email are read over the owner's own
+  signed-in connection or in the owner's own mailbox.
+- **The one thing to do** is one action the owner can take: "Sign machine-a in to a second account."
+- The banner's line is the two joined with a space, so write each as a whole sentence. When several alarms are open the
+  banner adds "N license problems need you." above them.
+- The push carries only "<machine>: <kind title>. Open Licenses to see what to do." - never the sentences, because a
+  push shows on a locked screen.
+
+### 9.4 The email and the push
+
+- **Email:** through `LicenseOwnerMailer`, the same channel as the "no account has room" email. Every alarm whose email
+  is due in one check of one tenant goes in ONE email. Recorded as emailed only when the mail service confirmed it; a
+  failed send is tried again on the Gateway's once-a-minute license check (one minute, two, four, up to an hour, or
+  longer when the mail service asks) for as long as the alarm is open. No email when it closes.
+- **Push:** through the Web Push subscriptions of the tenant (`Push.LicenseAlarmPushNotifier`), once when the alarm
+  opens, never retried. A tap opens the Cockpit's Licenses page (`/licenses`), because the phone has no Licenses screen
+  of its own.
+
+### 9.5 Where it shows
+
+`GET /gateway/licenses/alarms` (cockpit-api.md section 8) answers the open alarms with the banner's finished words. The
+Cockpit's frame and the phone's shell render them as a red banner on every page, verbatim, and draw nothing when no
+alarm is open. **There is no route that raises or clears an alarm** - only Gateway code calls `RaiseAsync`.
+
+### 9.6 The readiness alarm, `not-ready-at-80` (Track A)
+
+Raised by the Gateway's readiness check (`Licenses.LicenseReadinessService`, once a minute, after the switch check and
+the settling of sign-ins with no answer). See section 11.
+
+## 10. Phase 6 additions - standing approvers (Track C)
+
+The types are in `src/CcDirector.Gateway.Contracts/LicenseApproverMessages.cs`. A Director whose machine offers its
+browser profiles as approvers checks each profile daily by reading a real approval page (it never presses Authorize,
+never signs in and never types anything), and reports what it found over its own hub connection. The owner-only routes
+stay owner-only; no session key gains anything.
+
+### 10.1 Hub methods (Director to Gateway)
+
+| Method | Payload | Answer |
+|---|---|---|
+| `GetLicenseApproverAssignments()` | none | `{ rows: [{ accountEmail, browserProfile, source }] }` - the records that name the caller's machine and operating system user |
+| `ReportLicenseApproverChecks(report)` | `{ offersApprovers, rows: [{ browserProfile, browserProfileName, accountEmail, shownAccount, state, checkedAtUtc, detail }] }` | `{ rows: [{ browserProfile, accountEmail, outcome, reason }] }`, one per row, in order |
+
+Both are refused before Hello and are listed in the Hello answer only by a Gateway that keeps registrations. The
+tenant and the Director are the connection's binding. The machine and operating system user are the Licenses read
+model's record of which machine that Director last reported for - never anything in the payload. A Director that
+reports for no machine of the tenant gets no assignments and every row of its report is refused
+`not-the-reporting-director`.
+
+`browserProfile` is everywhere the profile's IDENTIFIER on the Director (for example `work-chrome`), never its display
+name: in the approver record, the Cockpit's `PUT`, the assignment and check rows, and the `license-approve` request. It
+is stable across a rename and compared exactly, with no "either spelling" matching. A record set by display name
+before this rule never matches a check, so it reads `not-checked` and says so, and the owner sets it again. A check
+row also carries `browserProfileName`, the display name (at most 64 characters, the shape of a profile name, or null);
+the Gateway keeps it on the record as the last name seen and says it in its sentences.
+
+### 10.2 Words
+
+- State (`LicenseApproverStates`): `can-approve`, `signed-out`, `needs-fresh-sign-in`, `wrong-account`,
+  `check-failed`, and the Gateway's own `not-checked` (never reported by a Director).
+- Source (`LicenseApproverSources`): `owner`, `registered`. A record stored before sources existed reads `owner`.
+- Outcome (`LicenseApproverCheckOutcomes`): `registered`, `health-updated`, `nothing-to-store`, `refused`.
+- Refusal (`LicenseApproverRefusals`): `not-the-reporting-director`, `invalid-row`, `account-not-held`,
+  `not-offered`, `owner-set`, `owner-removed`, `healthy-incumbent`, `record-names-another-approver`,
+  `too-many-approvers`.
+
+### 10.3 The rule
+
+A report that is missing, has no list of rows, or has more than 32 rows fails the call and nothing of it is kept.
+An empty list is taken and answered with an empty list: a machine with no profiles to report may send one. Each row is
+then decided under the approver store's lock, against the records as the earlier rows of the same report left them:
+
+1. A row with a field missing, too long or of the wrong shape is `invalid-row`: the profile must be a profile name;
+   the display name, when given, a profile name of at most 64 characters; the accounts emails; the state a reportable word; the check no more than 5 minutes ahead of the Gateway's clock and
+   no older than 26 hours; the detail at most 200 characters with no control character; and a `can-approve` row must
+   name its account and show no other.
+2. A row with no account stores nothing.
+3. A row for an account whose record names exactly the caller's machine, user and that profile updates that record's
+   health, whoever made the record.
+4. Any other row that is not `can-approve` stores nothing when the account has no record, and is refused
+   `record-names-another-approver` when it has one.
+5. A `can-approve` row registers the profile as the account's approver, marked `registered`, unless: the report said
+   the machine does not offer (`not-offered`); no machine of the tenant holds the account (`account-not-held`); the
+   owner set the account's approver (`owner-set`); the owner removed this same registration (`owner-removed`, until the
+   owner sets an approver for that account again); a registered incumbent can approve and was checked within 26 hours
+   (`healthy-incumbent`); or the tenant already keeps 64 approvers (`too-many-approvers`).
+
+There is no separate tenant guard: a Director reports licenses only with license switching switched on for it, so
+rule "the reporting Director" and rule "an account the tenant holds" already bind a registration to a machine where
+the owner switched automation on, and the machine's offer setting is off by default.
+
+### 10.4 The not-checked rule
+
+A record whose last check is older than 26 hours (`LicenseApproverContract.NotCheckedAfter`), or that was never
+checked, reads `not-checked`. An absence is never read as healthy.
+
+### 10.5 The owner's removal
+
+The owner removing a registered record (`DELETE /gateway/licenses/approvers`) keeps a removal record of its account,
+machine, user and profile (the tenant setting `license_approver_removals`, at most 64, oldest dropped first). The owner
+setting an approver for that account clears that account's removal records.
+
+### 10.6 The approver alarm
+
+An approver that cannot approve is a license alarm (section 9) of kind `approver-cannot-approve`, titled "Approver
+cannot approve sign-ins", one for each such approver, about its account alone (the alarm's machine is always "no one
+machine"; the sentences name the machine, and there is one approver per account, so the alarm never changes identity
+when that machine first reports). What is wrong and the one thing to do are the approvers row's `healthText` and `whatToDo`. It is raised
+every time approver health is evaluated: after each check report a Director sends (on a task of its own, so the hub
+call never waits for a push or an email), and on the Gateway's once-a-minute license check, so an approver nobody
+checks alarms once its 26 hours pass. Each raise passes every approver of the tenant that cannot approve now, so one
+that recovers or is removed closes by itself. An account with no approver at all raises nothing here; whether an
+account is ready is Track A's readiness, which asks `LicenseApproverReadiness.WhyNotReady`. Raises for one tenant run
+one at a time, each reading the records after the previous one wrote. An approver whose sentence is longer than an alarm
+takes (400 characters) costs only its own alarm, logged with its account. A raise with nothing to say writes no log
+line.
+
+## 11. Phase 6 - readiness on every minute, and the automatic sign-in (Track A, piece A3)
+
+**What is judged.** For every machine on an account: the account it would switch to next
+(`LicenseDecisionEngine.NextTarget`), and whether the machine is ready for it (`LicenseDecisionEngine.Readiness`, the
+one definition of ready). "No other account has room" is its own state (`no-room`), never a readiness gap. The pure fold
+is `Licenses.LicenseReadinessFold`; the Licenses page and the minute check call the same `Judge` on the same facts.
+
+**What is done about a machine that is not ready**, in this order:
+
+1. A sign-in for that machine and account is open (`pending` or `unknown`), however old - the same read `Start`
+   refuses a second one by: wait.
+2. The account's approver cannot approve - `LicenseApproverReadiness.WhyNotReady` (section 10, Track C's one check)
+   says so: start nothing. The reason shown is that sentence.
+3. The machine's Director is not connected: start nothing. It is judged again every minute, so the sign-in starts on
+   the first minute the Director is back. No row is written while it is offline.
+4. The last sign-in for that machine and account ended `added` or `renewed` less than 10 minutes ago: wait for the
+   machine's next report, rather than sign it in twice.
+5. The last sign-ins failed: wait 2, 5, 15 or 30 minutes after the last failed one, by how many failed in a row, then
+   hourly. The count is read from the sign-in rows of the Licenses log (the last day of them), newest first, up to the
+   first that did not fail - so it survives a Gateway restart and needs no store of its own.
+6. Sign-ins for that machine and account ended `added` or `renewed` twice or more within an hour of the latest of
+   them, and the machine's reports still do not show one: wait an hour after the latest (a ceiling, so a Director that
+   does not report what it holds does not cost a real approval every ten minutes).
+7. Otherwise: start a sign-in now through `LicenseSignInService.Start` (section 8.4), with the reason `auto-spare` when
+   the machine holds no sign-in for the account, or `auto-renewal` when the sign-in it holds was refused or expires
+   too soon. Each is refused exactly as "Add a spare" or "Renew now" is; in particular a second one while one is
+   running for that machine and account is refused `sign_in_running`, and the check relies on that.
+
+**The two new reason words** travel in `LicenseSignInRequest.Reason` and are kept on the sign-in row. A Director only
+logs the word. The Licenses log shows them as "Automatic: a new spare" and "Automatic: a renewal"; the row's first
+sentence begins "Started automatically:".
+
+**The alarm.** On each check the readiness check raises kind `not-ready-at-80` (title "Not ready to switch") with one
+condition per machine that is not ready while the account it is on stands at or above 80% of either window (a window
+whose reset time has passed does not count). The condition's machine is the machine, its account is the account in
+use. **It opens only on a fresh reading (section 5.2). An open one stays open while the reading is stale** - a banner
+that vanished because the number is no longer known would read as fixed - and **closes only on a fresh reading under
+80%, on the machine becoming ready, or on the machine leaving the account** (the Tech Lead's ruling, 17 October). Its
+words:
+
+- what is wrong: "machine-a is not ready to switch off account-a@example.com, which is at 85% of its weekly limit:
+  account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com."
+  While the reading is stale: "... account-a@example.com, which was at or above 80% at its last fresh reading: ...".
+- the one thing to do, true to what the last attempt did:
+  - the approver cannot approve: the approver's sentence;
+  - the Director is not connected: "Start the Director on machine-a.";
+  - the last sign-in failed: "The last sign-in failed at 10:42 UTC (the Director's reason); DevThrottle tries again at
+    10:47 UTC. If this stays, sign machine-a in to account-b@example.com from the Licenses page.";
+  - a sign-in ended well and is not reported yet: "It was signed in at 10:42 UTC and its next report should show it; if
+    this stays, sign machine-a in to account-b@example.com from the Licenses page.";
+  - the ceiling of step 6: "It was signed in to account-b@example.com 2 times within an hour and its reports still do
+    not show it; DevThrottle tries again at 11:22 UTC. Check that the Director on machine-a reports the sign-ins it
+    holds.";
+  - a sign-in is running or being started: "Nothing to do yet: DevThrottle is signing it in; if this stays, sign
+    machine-a in to account-b@example.com from the Licenses page."
+
+An open alarm's words are brought up to date on every check, with no second email or push (section 9.2).
+
+**Only where automation is switched on.** A tenant none of whose machines has reported is left alone: nothing read,
+nothing started, no alarm raised. A Director reports licenses only with license switching switched on for it (the
+13 October ruling keeps that to the owner's own tenant), the same rule as section 10.3.
