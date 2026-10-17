@@ -147,6 +147,78 @@ describe("LicensesView: each row shows its own forecast", () => {
     expect(screen.getAllByTestId("lic-machine-held")).toHaveLength(1);
   });
 
+  // READINESS (phase 6): each machine's line shows the Gateway's readiness sentence as given, in the Gateway's tone,
+  // and the two rows carry DIFFERENT sentences, so a page that drew the first row's sentence on every row, or wrote
+  // a sentence of its own from the state word, would show here. A machine on no account draws no readiness line.
+  it("shows each machine's readiness sentence verbatim, in its own tone, on its own row", async () => {
+    const notReady = "Not ready: holds no sign-in for account-b@example.com; the last sign-in failed at 10:42 UTC "
+      + "(The approval in the browser did not complete); trying again at 10:47 UTC.";
+    const answers = distinctAnswers();
+    const windows = answers.overview.machines.find((m) => m.machineId === answers.windowsId);
+    const mac = answers.overview.machines.find((m) => m.machineId !== answers.windowsId);
+    if (windows === undefined || mac === undefined) throw new Error("the example overview has not got its two machines");
+    windows.readiness = "not-ready";
+    windows.readinessText = notReady;
+    windows.readinessTone = "warning";
+    mac.readiness = "ready";
+    mac.readinessText = "Ready for account-b@example.com.";
+    mac.readinessTone = "good";
+    serve(answers);
+    render(<LicensesView />);
+
+    const rows = within(await screen.findByTestId("lic-schedule")).getAllByTestId("lic-schedule-row");
+    const macRow = rows.find((row) => row.textContent?.includes("the-mac")) as HTMLElement;
+    const windowsRow = rows.find((row) => row.textContent?.includes(WINDOWS_LABEL)) as HTMLElement;
+    const windowsLine = within(windowsRow).getByTestId("lic-machine-readiness");
+    const macLine = within(macRow).getByTestId("lic-machine-readiness");
+    expect(windowsLine.textContent).toBe(notReady);
+    expect(windowsLine.className).toContain("lic-tone-warning");
+    expect(macLine.textContent).toBe("Ready for account-b@example.com.");
+    expect(macLine.className).toContain("lic-tone-good");
+  });
+
+  it("draws no readiness line for a machine the Gateway gives none", async () => {
+    const answers = distinctAnswers();
+    for (const machine of answers.overview.machines) {
+      machine.readiness = null;
+      machine.readinessTargetAccountEmail = null;
+      machine.readinessText = null;
+      machine.readinessTone = null;
+    }
+    serve(answers);
+    render(<LicensesView />);
+
+    await screen.findByTestId("lic-schedule");
+    expect(screen.queryAllByTestId("lic-machine-readiness")).toHaveLength(0);
+  });
+
+  it("draws a refused machine's status and its sentence exactly as the Gateway gave them, with no last report time", async () => {
+    // The Gateway decides that a machine's reports are refused and says why; the page only lays it out. A machine
+    // whose reports were never accepted has no last report time, and the page must not need one.
+    const refused = "Its report was refused: it holds account-a@example.com twice (once in use and once as a spare). It is "
+      + "not switched until a report is accepted. Its Director is still sending reports: 412 reports refused since "
+      + "2026-10-16 01:02 UTC, the latest 1 minute ago.";
+    const answers = distinctAnswers();
+    const windows = answers.overview.machines.find((m) => m.machineId === answers.windowsId);
+    if (windows === undefined) throw new Error("the example overview has no the-windows-machine");
+    windows.status = "report-refused";
+    windows.statusText = "Report refused";
+    windows.statusTone = "bad";
+    windows.statusDetail = refused;
+    windows.lastReportAtUtc = null;
+    windows.lastReportText = "No report from it has been accepted yet";
+    serve(answers);
+    render(<LicensesView />);
+
+    const rows = within(await screen.findByTestId("lic-schedule")).getAllByTestId("lic-schedule-row");
+    const mac = rows.find((row) => row.textContent?.includes("the-mac")) as HTMLElement;
+    const windowsRow = rows.find((row) => row.textContent?.includes(WINDOWS_LABEL)) as HTMLElement;
+    expect(within(windowsRow).getByTestId("lic-machine-status-detail").textContent).toBe(refused);
+    expect(windowsRow.textContent).toContain("Report refused");
+    expect(windowsRow.textContent).toContain("No report from it has been accepted yet");
+    expect(within(mac).queryByTestId("lic-machine-status-detail")).toBeNull();
+  });
+
   it("draws nothing for a hold on a machine the Gateway does not call held, whatever time it carries", async () => {
     const answers = distinctAnswers();
     for (const machine of answers.overview.machines) {

@@ -25,6 +25,15 @@
         <TextBlock x:Name="SlugPreview" Foreground="#888888" FontSize="11"
                    Margin="0,3,0,10" Text="slug: (from the name) · port: auto-assigned" />
 
+        <TextBlock Text="Copy settings from" Foreground="#CCCCCC" FontSize="13" Margin="0,0,0,4" />
+        <ComboBox x:Name="CopyFromInput"
+                  Background="#1E1E1E" Foreground="#CCCCCC" BorderBrush="#3C3C3C"
+                  HorizontalAlignment="Stretch" FontSize="14"
+                  SelectionChanged="CopyFromInput_SelectionChanged" />
+        <TextBlock x:Name="CopyFromNote" Foreground="#888888" FontSize="11" TextWrapping="Wrap"
+                   FontStyle="Italic" Margin="0,3,0,10"
+                   Text="Loading instances..." />
+        <StackPanel x:Name="GatewayInputs">
         <TextBlock Text="Gateway URL" Foreground="#CCCCCC" FontSize="13" Margin="0,0,0,4" />
         <TextBox x:Name="GatewayUrlInput"
                  Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
@@ -39,6 +48,7 @@
                  Watermark="only if the gateway requires one"
                  PasswordChar="•"
                  Margin="0,0,0,10" />
+        </StackPanel>
 
         <CheckBox x:Name="LaunchAfterCheck" Content="Launch this instance now"
                   Foreground="#CCCCCC" IsChecked="True" Margin="0,0,0,4" />
@@ -47,7 +57,7 @@
                    TextWrapping="Wrap" IsVisible="False" Margin="0,4,0,0" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-            <Button Content="Create" Width="90" Height="28"
+            <Button x:Name="CreateButton" Content="Create" Width="90" Height="28" IsEnabled="False"
                     Click="BtnCreate_Click"
                     Background="#007ACC" Foreground="White"
                     BorderThickness="0" Margin="0,0,8,0" Cursor="Hand" />

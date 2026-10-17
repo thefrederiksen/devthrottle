@@ -9,19 +9,22 @@ workflow creates the release page, attaches every asset, and only then publishes
 
 The steps live in the `release-manager` skill (`.claude/skills/release-manager/SKILL.md`). In short:
 
-1. **Freeze the candidate.** Write `docs/public/release-notes/v<version>.md` in a worktree cut from
-   origin/main and run `scripts/new-release.ps1`. It merges the version bump (in
-   `Directory.Build.props`, the single version source) and the notes in ONE pull request and
-   prints its merge commit: the candidate. The notes are never edited after that; work merged later
-   waits for the next release. Never merge the notes and the bump separately.
-2. **Gate the candidate once**, in a worktree detached at it:
-   `scripts\test-local.ps1 -Parked -Configuration Release`. A red candidate is not run again - fix
-   the cause on main and cut a new candidate.
-3. **Tag it:** `scripts/new-release.ps1 -Tag <candidate>`. It tags only a candidate that
-   `scripts/assert-gated.ps1` accepts.
+A release is a tag on the **last good commit**: the newest commit on main that the full test run
+(`.github/workflows/ci.yml`, every two hours when main has moved) passed. Nothing is tested at release
+time.
+
+1. **Claim it:** `scripts/new-release.ps1 -Claim -Version <version>`. One release seat at a time.
+2. **Write the notes** at `docs/public/release-notes/v<version>.md` in a worktree, covering the last tag
+   up to the last good commit (`scripts/new-release.ps1 -Release -Version <version>`, answered N, prints
+   it), and get the owner's sign-off.
+3. **Release:** `scripts/new-release.ps1 -Release -Version <version> -Yes`. It adds one commit on the
+   last good commit holding only the version (in `Directory.Build.props`, the single version source)
+   and the notes, tags it, pushes the tag, and merges it back to main with a merge commit.
 
 The workflow then:
 
+- refuses the tag unless its commit is a tested commit, or a tested commit plus only the version and
+  the notes;
 - verifies the tag matches `Directory.Build.props`, and that the written notes exist and say
   something;
 - builds every component for Windows and macOS and checks the asset list is complete;

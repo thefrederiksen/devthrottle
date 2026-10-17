@@ -603,6 +603,19 @@ a.banner-btn {
   border-radius: 2px;
 }
 
+/* How the agent is connected, when it is not its terminal (API mode mission #4070): the Gateway's "API mode",
+   verbatim, beside the agent it describes. A small ring as its glyph. */
+.row-chip-connection {
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  color: var(--pin-mark-text);
+}
+
+.row-chip-connection::before {
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
 .row-chip-repo {
   background: var(--surface-2);
   border: 1px solid var(--border);

@@ -69,31 +69,6 @@ internal static partial class GatewayEndpoints
                 statusCode: StatusCodes.Status403Forbidden));
         var spawnRoute = $"POST /directors/{id}/sessions";
 
-        // WHO IS ASKING, and WHO WILL OWN THE RESULT (issue #2838). This door previously forwarded the
-        // body VERBATIM - no origin stamping of any kind - while the machine door stamped a person's
-        // device. It is also the door an unqualified `cc-devthrottle session spawn` uses, so the
-        // untrusted path was the common one.
-        if (!SpawnOrigin.TryEstablish(req, ctx, spawnRoute, out var originError))
-            return DirectorSpawnOutcome.Refused(originError!);
-
-        // WHICH FACTORY the new session belongs to (Factory Memory mission, phase 1), settled from the same
-        // credential, in the same one place, for the same reason: this door is the one an unqualified
-        // `cc-devthrottle session spawn` uses, so it is the door a session would join a factory through.
-        if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, door.SessionFactoryOf, out var factoryError,
-                door.SeatRulesFor?.Invoke(spawnTenant.Value)))
-            return DirectorSpawnOutcome.Refused(factoryError!);
-
-        // AND THE DIRECTOR MUST BE ABLE TO CARRY IT. A Director older than the factory field drops it silently, so the
-        // session would start in no factory and never know - refused here, loudly, before anything is started.
-        if (SpawnFactory.DirectorCannotCarry(req, d) is { } tooOld)
-            return DirectorSpawnOutcome.Refused(Results.Json(new { error = tooOld }, statusCode: StatusCodes.Status409Conflict));
-
-        // AND A SEAT START GOES ONLY TO A DIRECTOR THAT BUILDS THE KIT (Factory Definition mission, phase 5). This is the
-        // door the talk takes, so it is where a talk with a seat is refused on an older Director - before anything starts.
-        if (SpawnFactory.DirectorCannotBuildKit(req, d,
-                door.KitCapabilities?.BuildsFactoryKit(spawnTenant.Value, d.DirectorId) ?? false) is { } noKit)
-            return DirectorSpawnOutcome.Refused(Results.Json(new { error = noKit }, statusCode: StatusCodes.Status409Conflict));
-
         // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
         // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
         // credential may carry one - a claim from anyone else could mark a seat restored as a session of the
@@ -119,6 +94,37 @@ internal static partial class GatewayEndpoints
                 return DirectorSpawnOutcome.Refused(Results.Json(new { error = "this Gateway has no workspace store, so a restore's create cannot be recorded and is not sent" },
                     statusCode: StatusCodes.Status503ServiceUnavailable));
         }
+
+        // HOW IT IS CONNECTED (API mode mission, issue #4070, phase 5): API mode only while it is offered, an unknown word never.
+        // A restore brings a session back as it ran, so it is exempt - and by this line its claim has been checked above,
+        // so the exemption reaches a real restore and nothing else (the phase 5 review, finding 1).
+        if (ConnectionChoiceFold.RefusalOf(req, ConnectionModes.ApiModeOffered, validatedRestore: restoreClaim is not null) is { } connectionRefused)
+            return DirectorSpawnOutcome.Refused(Results.BadRequest(new { error = connectionRefused }));
+
+        // WHO IS ASKING, and WHO WILL OWN THE RESULT (issue #2838). This door previously forwarded the
+        // body VERBATIM - no origin stamping of any kind - while the machine door stamped a person's
+        // device. It is also the door an unqualified `cc-devthrottle session spawn` uses, so the
+        // untrusted path was the common one.
+        if (!SpawnOrigin.TryEstablish(req, ctx, spawnRoute, out var originError))
+            return DirectorSpawnOutcome.Refused(originError!);
+
+        // WHICH FACTORY the new session belongs to (Factory Memory mission, phase 1), settled from the same
+        // credential, in the same one place, for the same reason: this door is the one an unqualified
+        // `cc-devthrottle session spawn` uses, so it is the door a session would join a factory through.
+        if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, door.SessionFactoryOf, out var factoryError,
+                door.SeatRulesFor?.Invoke(spawnTenant.Value)))
+            return DirectorSpawnOutcome.Refused(factoryError!);
+
+        // AND THE DIRECTOR MUST BE ABLE TO CARRY IT. A Director older than the factory field drops it silently, so the
+        // session would start in no factory and never know - refused here, loudly, before anything is started.
+        if (SpawnFactory.DirectorCannotCarry(req, d) is { } tooOld)
+            return DirectorSpawnOutcome.Refused(Results.Json(new { error = tooOld }, statusCode: StatusCodes.Status409Conflict));
+
+        // AND A SEAT START GOES ONLY TO A DIRECTOR THAT BUILDS THE KIT (Factory Definition mission, phase 5). This is the
+        // door the talk takes, so it is where a talk with a seat is refused on an older Director - before anything starts.
+        if (SpawnFactory.DirectorCannotBuildKit(req, d,
+                door.KitCapabilities?.BuildsFactoryKit(spawnTenant.Value, d.DirectorId) ?? false) is { } noKit)
+            return DirectorSpawnOutcome.Refused(Results.Json(new { error = noKit }, statusCode: StatusCodes.Status409Conflict));
 
         if (!SpawnMissionAndSeat.TryResolve(req, spawnTenant.Value, door.Missions, door.WorkflowRuns, spawnRoute,
                 out var seatRun, out var resolveError))

@@ -16,13 +16,19 @@ namespace CcDirector.Gateway.Factory;
 /// <param name="ScheduleRuns">The newest runs of the seats' schedules, by schedule id, each with its ending stamped
 /// (<see cref="CronRunRecordReader.RecentRunsOf"/>). A schedule that never ran is absent. What each seat's
 /// "closes itself" marker is folded from.</param>
+/// <param name="LastRunRows">The list's extra rows for each seat's newest run, read whatever their age: its newest
+/// "started" row and that session's later rows, for a seat whose newest start is older than <see cref="Activity"/>'s
+/// window. Without them a weekly seat would read "- started" or "never ran" on the list. Empty on a factory's page.</param>
+/// <param name="SchedulerPaused">Whether Pause everything is on: then nothing is due, and no next start is shown.</param>
 public sealed record FactoriesScreenInputs(
     IReadOnlyList<RegisteredFactoryDto> Registry,
     FactoryFoldInputs Activity,
     IReadOnlyList<CronJobDto> Schedules,
     IReadOnlyDictionary<string, GoalNumberDto> LatestGoalNumbers,
     IReadOnlyList<FactoryActivityDto> Talks,
-    IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> ScheduleRuns);
+    IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> ScheduleRuns,
+    IReadOnlyList<FactoryActivityDto>? LastRunRows = null,
+    bool SchedulerPaused = false);
 
 /// <summary>
 /// THE FACTORIES SCREEN, FOLDED ONCE (Factories screen mission, phase B; critical rule 7). The list of factories, one
@@ -107,6 +113,7 @@ public static class FactoriesScreenFold
                 var talk = BossTalk(f);
                 var waiting = open.Where(r => SameId(r.Factory, f.Factory)).ToList();
                 var leftOpen = LeftOpenText(f, input);
+                var lastRun = FactoryLastRun(f, input);
                 return (Rank: status.Rank, Row: new FactoryListRowDto
                 {
                     Id = f.Factory,
@@ -127,6 +134,10 @@ public static class FactoriesScreenFold
                     BossName = Boss(f) is { } boss ? BossRole(boss) : null,
                     LeftOpenText = leftOpen,
                     LeftOpenHref = leftOpen is null ? null : SeatsHref(f.Factory),
+                    SeatCountText = Count(f.Seats.Count, "seat"),
+                    NextStartText = NextStartText(f, input),
+                    LastRunText = lastRun?.Text,
+                    LastRunTone = lastRun?.Tone,
                 });
             })
             .OrderBy(x => x.Rank)
@@ -210,6 +221,8 @@ public static class FactoriesScreenFold
         new() { Key = "factories", Label = "Factories" },
         new() { Key = "activity", Label = "Activity" },
         new() { Key = "reports", Label = "Reports" },
+        // The one seat over every factory, on its own tab so the Factories tab leads with the factories (owner, 17 Oct 2026).
+        new() { Key = "manager", Label = "Factory Manager" },
     };
 
     // ---------------------------------------------------------------------------------------------------------
@@ -551,6 +564,70 @@ public static class FactoriesScreenFold
         if (rows.Any(r => r.Outcome == FactoryActivityOutcome.NothingToDo)) return ("nothing to do", FactoryTone.Grey);
         if (rows.Count > 0) return ("ran", FactoryTone.Neutral);
         return ("started", FactoryTone.Blue);
+    }
+
+    /// <summary>
+    /// "Next start today 07:00 (Scout)": the soonest due run among the factory's seats' switched-on schedules, told in
+    /// that schedule's seat's clock. A stored due time already past is not a next start (the engine has not moved it on
+    /// yet). Null when nothing is due, and while Pause everything is on - a TALK ONLY or PAUSED factory says so in its
+    /// status, and the paused banner says why nothing starts.
+    /// </summary>
+    internal static string? NextStartText(RegisteredFactoryDto f, FactoriesScreenInputs input)
+    {
+        if (input.SchedulerPaused) return null;
+        var a = input.Activity;
+        var next = f.Seats
+            .SelectMany(seat => SchedulesOf(seat, input.Schedules)
+                .Where(j => j.Enabled && j.NextRunUtc is { } due && due >= a.NowUtc)
+                .Select(j => (Seat: seat, Job: j)))
+            .OrderBy(x => x.Job.NextRunUtc!.Value)
+            .ThenBy(x => x.Seat.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (next.Job is null) return null;
+        var when = SeatClock(SchedulesOf(next.Seat, input.Schedules), a.Zone).When(next.Job.NextRunUtc!.Value, a.NowUtc, capital: false);
+        return $"Next start {when} ({SeatWord(next.Seat)})";
+    }
+
+    /// <summary>
+    /// "Last run: Scout, today 06:20 - succeeded": the newest run of any of the factory's seats, told as its Seats tab
+    /// tells it (<see cref="LastRun"/>), with that seat's role word - read from the window's rows and
+    /// <see cref="FactoriesScreenInputs.LastRunRows"/>, so a run older than the window still says how it ended. Null when
+    /// no seat has run.
+    /// </summary>
+    internal static (string Text, string Tone)? FactoryLastRun(RegisteredFactoryDto f, FactoriesScreenInputs input)
+    {
+        var withOlder = WithLastRunRows(input);
+        var a = withOlder.Activity;
+        var newest = f.Seats
+            .Select(seat => (Seat: seat, At: SeatLastActivity(f, seat, withOlder)))
+            .Where(x => x.At is not null)
+            .OrderByDescending(x => x.At!.Value)
+            .ThenBy(x => x.Seat.Id, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (newest.Seat is null) return null;
+        var schedules = SchedulesOf(newest.Seat, input.Schedules);
+        var (text, tone) = LastRun(f, newest.Seat, schedules, a, SeatClock(schedules, a.Zone));
+        return ($"Last run: {SeatWord(newest.Seat)}, {char.ToLowerInvariant(text[0])}{text[1..]}", tone);
+    }
+
+    // The inputs with the older runs' rows added to the window's, each row once.
+    private static FactoriesScreenInputs WithLastRunRows(FactoriesScreenInputs input)
+    {
+        if (input.LastRunRows is not { Count: > 0 } older) return input;
+        var seen = input.Activity.WindowRows.Select(r => r.Id).ToHashSet();
+        var rows = input.Activity.WindowRows.Concat(older.Where(r => seen.Add(r.Id))).ToList();
+        return input with { Activity = input.Activity with { WindowRows = rows } };
+    }
+
+    // When a seat last ran: the later of its newest "started" row and its schedules' newest firing - what LastRun reads.
+    private static DateTime? SeatLastActivity(RegisteredFactoryDto f, RegisteredFactorySeatDto seat, FactoriesScreenInputs input)
+    {
+        var started = input.Activity.WindowRows
+            .Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, seat.Id) && r.Outcome == FactoryActivityOutcome.Started)
+            .Select(r => (DateTime?)r.OccurredUtc)
+            .Max();
+        var fired = SchedulesOf(seat, input.Schedules).Select(j => j.LastFiredUtc).Max();
+        return started is null ? fired : fired is null ? started : (started > fired ? started : fired);
     }
 
     // ---------------------------------------------------------------------------------------------------------
@@ -944,6 +1021,8 @@ public static class FactoriesScreenFold
         string text;
         if (t.Date == today) text = $"today {clock}";
         else if (t.Date == today.AddDays(-1)) text = $"yesterday {clock}";
+        // A due time, never a past one, can be tomorrow (the Factories list's next start).
+        else if (t.Date == today.AddDays(1)) text = $"tomorrow {clock}";
         else return t.ToString("d MMM HH:mm", CultureInfo.InvariantCulture);
         return capital ? Capitalize(text) : text;
     }

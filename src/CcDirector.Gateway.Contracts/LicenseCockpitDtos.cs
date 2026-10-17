@@ -104,6 +104,10 @@ public static class LicenseExtraUsageStates
 /// <summary>How a machine is doing.</summary>
 public static class LicenseMachineStatuses
 {
+    /// <summary>Its Director is reporting, and the Gateway refuses what the report says: it breaks the contract's
+    /// shape. Outranks every other status, because it is also WHY the machine's facts are old.</summary>
+    public const string ReportRefused = "report-refused";
+
     /// <summary>Its last report is too old.</summary>
     public const string NotReporting = "not-reporting";
 
@@ -339,19 +343,27 @@ public sealed class LicenseMachineDto
     /// <summary>One of <see cref="LicenseMachineStatuses"/>.</summary>
     public string Status { get; set; } = "";
 
-    /// <summary>The label: "Reporting", "Not reporting", "Switching", "Signed out".</summary>
+    /// <summary>The label: "Reporting", "Report refused", "Not reporting since 2026-10-16 09:12 UTC", "Switching",
+    /// "Signed out".</summary>
     public string StatusText { get; set; } = "";
 
     /// <summary>One of <see cref="LicenseTones"/>.</summary>
     public string StatusTone { get; set; } = "";
 
-    /// <summary>The machine's last report is too old; it is not sent a switch until it reports again.</summary>
+    /// <summary>The sentence saying what the status means and why, drawn as given; null when the status needs none.
+    /// Set for <see cref="LicenseMachineStatuses.ReportRefused"/> (the refusal, in words) and
+    /// <see cref="LicenseMachineStatuses.NotReporting"/>.</summary>
+    public string? StatusDetail { get; set; }
+
+    /// <summary>The machine's last report is too old, or its reports are refused; it is not sent a switch until a
+    /// report is accepted.</summary>
     public bool IsStale { get; set; }
 
-    /// <summary>When the Gateway accepted its last report.</summary>
-    public DateTime LastReportAtUtc { get; set; }
+    /// <summary>When the Gateway accepted its last report; null for a machine whose reports have only ever been
+    /// refused.</summary>
+    public DateTime? LastReportAtUtc { get; set; }
 
-    /// <summary>"Last report 1 minute ago".</summary>
+    /// <summary>"Last report 1 minute ago", or "No report from it has been accepted yet".</summary>
     public string LastReportText { get; set; } = "";
 
     /// <summary>The machine's active sign-in; null when it is signed in to none.</summary>
@@ -379,6 +391,47 @@ public sealed class LicenseMachineDto
 
     /// <summary>The sign-ins started from the Cockpit that this machine has not finished, oldest first.</summary>
     public List<LicenseSignInInProgressDto> SignInsInProgress { get; set; } = new();
+
+    /// <summary>The Director that sent this machine's last accepted report: the one that is asked for the machine's
+    /// browser profiles (<c>GET /directors/{id}/browsers</c>) when an approver is being chosen.</summary>
+    public string DirectorId { get; set; } = "";
+
+    /// <summary>That Director is connected, so its browser profiles can be listed now.</summary>
+    public bool CanListBrowserProfiles { get; set; }
+
+    /// <summary>What listing the browser profiles does, or the sentence saying why they cannot be listed.</summary>
+    public string BrowserProfilesText { get; set; } = "";
+
+    /// <summary>
+    /// Whether this machine is ready to move to the account it would switch to next (License Switching phase 6): one of
+    /// <see cref="LicenseReadinessStates"/>; null when the machine is signed in to no account, so there is nothing to
+    /// switch it off.
+    /// </summary>
+    public string? Readiness { get; set; }
+
+    /// <summary>The account it would switch to next; null when no other account has room, or when
+    /// <see cref="Readiness"/> is null.</summary>
+    public string? ReadinessTargetAccountEmail { get; set; }
+
+    /// <summary>The finished sentence: "Ready for account-b@example.com.", or "Not ready: " with the reason and what the
+    /// Gateway is doing about it. Null exactly when <see cref="Readiness"/> is.</summary>
+    public string? ReadinessText { get; set; }
+
+    /// <summary>One of <see cref="LicenseTones"/>; null exactly when <see cref="Readiness"/> is.</summary>
+    public string? ReadinessTone { get; set; }
+}
+
+/// <summary>Whether a machine is ready to move to the account it would switch to next.</summary>
+public static class LicenseReadinessStates
+{
+    /// <summary>It holds a usable sign-in for that account.</summary>
+    public const string Ready = "ready";
+
+    /// <summary>It does not; the sentence says why and what the Gateway is doing about it.</summary>
+    public const string NotReady = "not-ready";
+
+    /// <summary>No other account has room, so there is nothing to be ready for. Not a readiness gap.</summary>
+    public const string NoRoom = "no-room";
 }
 
 /// <summary>One sign-in a machine holds, active or spare.</summary>

@@ -983,26 +983,78 @@ public sealed class SessionFileAccessTests : IDisposable
         // The design says every refusal runs on the real path, and the real path of a short name is its long
         // form. This reads REAL short names off the disk; a volume with short names turned off cannot prove it,
         // so the test fails loudly there rather than passing on long names that were never shortened.
-        var ssh = Write(Path.Combine(_home, ".ssh", "config"), "Host *");
-        var token = Write(Path.Combine(_home, ".sometool-longname", "token.txt"), "secret");
-        var key = Write(Path.Combine(_outside, "deployment-private.pem"), "PRIVATE KEY");
+        //
+        // ON THE SYSTEM VOLUME, NOT UNDER TEMP. By default Windows keeps 8.3 short names on the system volume only;
+        // on every other volume the short form of a path is the path itself. The release gate moves TEMP to another
+        // volume when the system volume is short of space, and did so on 17 October 2026, when this test failed the
+        // v2.23.0 release gate for the volume and not for the code. So this test builds a tree of its own under the
+        // local application data folder, which is on the system volume, instead of using the class's tree under
+        // TEMP, and removes it when it is done.
+        var systemVolumeBase = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
+            "Temp",
+            "ccd-4078-" + Guid.NewGuid().ToString("N"));
+        var work = Path.Combine(systemVolumeBase, "repo");
+        var outside = Path.Combine(systemVolumeBase, "briefs");
+        var protectedStore = Path.Combine(systemVolumeBase, "protected-store");
+        var home = Path.Combine(systemVolumeBase, "home");
+        Directory.CreateDirectory(work);
+        Directory.CreateDirectory(outside);
+        Directory.CreateDirectory(protectedStore);
+        Directory.CreateDirectory(home);
+        var secrets = new SessionFileSecrets(() => new[] { protectedStore }, home);
+        try
+        {
+            var ssh = Write(Path.Combine(home, ".ssh", "config"), "Host *");
+            var token = Write(Path.Combine(home, ".sometool-longname", "token.txt"), "secret");
+            var key = Write(Path.Combine(outside, "deployment-private.pem"), "PRIVATE KEY");
 
-        var shortToken = ShortNameOf(token);
-        var shortKey = ShortNameOf(key);
-        Assert.True(
-            !string.Equals(shortToken, token, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(shortKey, key, StringComparison.OrdinalIgnoreCase),
-            $"This volume made no 8.3 short names ({shortToken}); turn them on (fsutil 8dot3name) to run this test. It fails rather than passes because it would prove nothing.");
-        Assert.DoesNotContain(".sometool-longname", shortToken, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("deployment-private.pem", shortKey, StringComparison.OrdinalIgnoreCase);
+            var shortToken = ShortNameOf(token);
+            var shortKey = ShortNameOf(key);
+            Assert.True(
+                !string.Equals(shortToken, token, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(shortKey, key, StringComparison.OrdinalIgnoreCase),
+                $"This volume made no 8.3 short names ({shortToken}); turn them on (fsutil 8dot3name) to run this test. It fails rather than passes because it would prove nothing.");
+            Assert.DoesNotContain(".sometool-longname", shortToken, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("deployment-private.pem", shortKey, StringComparison.OrdinalIgnoreCase);
 
-        Assert.Equal(SessionFileAccess.SecretSentence, Decide(shortToken, Named(shortToken)).Sentence);
-        Assert.Equal(SessionFileAccess.SecretSentence, Decide(shortKey, Named(shortKey)).Sentence);
-        Assert.Equal(SessionFileAccess.SecretSentence, Decide(ShortNameOf(ssh), Named(ShortNameOf(ssh))).Sentence);
-        // The home folder itself spelled short guards the same files, however the file is spelled.
-        var shortHomeSecrets = new SessionFileSecrets(() => new[] { _protected }, ShortNameOf(_home));
-        Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(_work, shortToken, Named(shortToken), shortHomeSecrets).Sentence);
-        Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(_work, token, Named(token), shortHomeSecrets).Sentence);
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, shortToken, Named(shortToken), secrets).Sentence);
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, shortKey, Named(shortKey), secrets).Sentence);
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, ShortNameOf(ssh), Named(ShortNameOf(ssh)), secrets).Sentence);
+            // The home folder itself spelled short guards the same files, however the file is spelled.
+            var shortHomeSecrets = new SessionFileSecrets(() => new[] { protectedStore }, ShortNameOf(home));
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, shortToken, Named(shortToken), shortHomeSecrets).Sentence);
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, token, Named(token), shortHomeSecrets).Sentence);
+        }
+        finally
+        {
+            Directory.Delete(systemVolumeBase, recursive: true);
+        }
+    }
+
+    // ------------------------------------------- issue #4085: plain POSIX paths named in prose ----
+
+    [UnixOnlyFact("a path that starts \"/\" is absolute only on Linux and macOS")]
+    public void Decide_plainPosixPathNamedInProse_isAllowed_andItsNeighbourIsNot()
+    {
+        // The Chat now links /home/x/report.pdf written without quotes; the Director must name it too, or the
+        // click would be refused. Its neighbour, never written, stays refused.
+        var brief = Write(Path.Combine(_outside, "report.pdf"));
+        var neighbour = Write(Path.Combine(_outside, "other.pdf"));
+        var named = SessionNamedPaths.FromTexts(new[] { $"I saved it to {brief}." });
+
+        Assert.Equal(PathStatusCodes.File, Decide(brief, named).Code);
+        Assert.Equal(SessionFileAccess.NotAllowedSentence, Decide(neighbour, named).Sentence);
+    }
+
+    [UnixOnlyFact("a path that starts \"/\" is absolute only on Linux and macOS")]
+    public void Decide_plainPosixPathToASecret_isStillRefused()
+    {
+        // Naming more is safe only because the refusals do not depend on naming.
+        var key = Write(Path.Combine(_outside, "deploy.pem"), "PRIVATE KEY");
+        var named = SessionNamedPaths.FromTexts(new[] { $"the key is {key} now" });
+
+        Assert.Equal(SessionFileAccess.SecretSentence, Decide(key, named).Sentence);
     }
 
     private static void CreateDirectoryLink(string link, string target)

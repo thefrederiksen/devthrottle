@@ -38,12 +38,18 @@ public sealed class LicenseApproverRegistration
     private readonly LicenseApproverStore _approvers;
     private readonly LicenseReadModel _reads;
     private readonly Func<DateTime> _nowUtc;
+    private readonly Action<TenantId>? _afterReport;
 
-    public LicenseApproverRegistration(LicenseApproverStore approvers, LicenseReadModel reads, Func<DateTime> nowUtc)
+    /// <param name="afterReport">Called with the tenant after every report that was decided, once its records are written:
+    /// approver health has just been evaluated, so the approver alarm is raised (<see cref="LicenseApproverAlarm.RaiseSoon"/>).
+    /// It must return at once. Null: nothing is called.</param>
+    public LicenseApproverRegistration(LicenseApproverStore approvers, LicenseReadModel reads, Func<DateTime> nowUtc,
+        Action<TenantId>? afterReport = null)
     {
         _approvers = approvers ?? throw new ArgumentNullException(nameof(approvers));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
+        _afterReport = afterReport;
     }
 
     /// <summary>The approver records that name the calling Director's machine and operating system user, which that
@@ -113,6 +119,7 @@ public sealed class LicenseApproverRegistration
         foreach (var answer in answers)
             FileLog.Write($"[LicenseApproverRegistration] Report: director={directorId}, machine={machine.MachineName}, account={answer.AccountEmail ?? "-"}, "
                           + $"outcome={answer.Outcome}, reason={answer.Reason ?? "-"}");
+        _afterReport?.Invoke(tenant);
         return new LicenseApproverCheckAnswer { Rows = answers };
     }
 
@@ -215,6 +222,9 @@ public sealed class LicenseApproverRegistration
         }
         // A profile proven able to approve an account names that account, and the page cannot have shown anyone else.
         if (row.State == LicenseApproverStates.CanApprove && (account is null || (shown is not null && shown != account)))
+            return null;
+        // And the mirror: a profile signed in as the wrong account cannot have shown the right one.
+        if (row.State == LicenseApproverStates.WrongAccount && shown is not null && shown == account)
             return null;
         return new LicenseApproverCheckRow
         {

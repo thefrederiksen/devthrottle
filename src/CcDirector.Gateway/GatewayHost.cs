@@ -528,6 +528,18 @@ public sealed class GatewayHost : IAsyncDisposable
     /// against the owner's records (<c>DirectorHub.ReportLicenseApproverChecks</c>).</summary>
     internal Licenses.LicenseApproverRegistration LicenseApproverRegistrations { get; }
 
+    /// <summary>License Switching phase 6 (Track C): whether each account's approver can approve, as the finished sentence
+    /// of why not. Track A's readiness calls <see cref="Licenses.LicenseApproverReadiness.WhyNotReady"/>.</summary>
+    public Licenses.LicenseApproverReadiness LicenseApproverReadiness { get; }
+
+    /// <summary>License Switching phase 6 (Track C): one license alarm for each approver that cannot approve, raised after
+    /// every check report and on the once-a-minute license check.</summary>
+    internal Licenses.LicenseApproverAlarm LicenseApproverAlarm { get; }
+
+    /// <summary>License Switching phase 6: readiness on every minute - each machine against the account it would switch
+    /// to next, the automatic sign-in that fixes a gap, and the 80% alarm. The Licenses page reads its judgement.</summary>
+    internal Licenses.LicenseReadinessService LicenseReadiness { get; }
+
     /// <summary>The sign-in rows of the Licenses log.</summary>
     internal Licenses.LicenseSignInLog LicenseSignInLog { get; }
 
@@ -2488,7 +2500,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
         // SendCommandAsync resolves a Director's connection for that tenant alone.
         LicenseApprovers = new Licenses.LicenseApproverStore(_tenantSettings);
-        LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow);
+        LicenseApproverReadiness = new Licenses.LicenseApproverReadiness(LicenseApprovers, LicenseReads, LicenseNow.UtcNow);
         LicenseSignInLog = new Licenses.LicenseSignInLog(_gatewayDb);
         var licenseCommands = Licenses.LicenseCommandSenders.Over(SendCommandAsync);
         LicenseApprovals = new Licenses.LicenseApprovalRelay(LicenseApprovers, LicenseReads, IsDirectorConnected,
@@ -2936,6 +2948,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // The license alarm itself: the same owner email channel as the "no account has room" email, and this push.
         LicenseAlarms = new Licenses.LicenseAlarmService(_gatewayDb, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
             _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow);
+        // Built after the alarm service they raise through: an approver that cannot approve is one license alarm.
+        LicenseApproverAlarm = new Licenses.LicenseApproverAlarm(LicenseApprovers, LicenseReads, LicenseAlarms,
+            tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
+        LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow,
+            LicenseApproverAlarm.RaiseSoon);
+
+        // Readiness on every minute (phase 6): the account each machine would switch to next, a sign-in started at once
+        // for each machine not ready for it, and the license alarm when one is still not ready at 80%.
+        LicenseReadiness = new Licenses.LicenseReadinessService(LicenseStore, LicenseSnapshots, LicenseSignInLog, LicenseSignIns,
+            LicenseApproverReadiness.WhyNotReady, IsDirectorConnected, LicenseAlarms, LicenseNow.UtcNow);
 
         // Gateway device registration (issue #857): on sign-in (and as a first-launch/retry safety net on
         // the heartbeat) register THIS Gateway as a device with the cloud account and store the issued
@@ -4487,6 +4509,8 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(LicenseApprovals);
         // And DirectorHub.GetLicenseApproverAssignments / ReportLicenseApproverChecks to the approver registrations.
         builder.Services.AddSingleton(LicenseApproverRegistrations);
+        // Track A's license readiness asks whether an account's approver can approve.
+        builder.Services.AddSingleton(LicenseApproverReadiness);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -5426,7 +5450,9 @@ public sealed class GatewayHost : IAsyncDisposable
             (tenant, factory) => FactoryEmailReports!.List(tenant, factory, kind: null, Factory.FactoryEmailsFold.Shown, allStates: false),
             // The factories New factory made that are not published yet (Factory Definition, phase 6b), each read from
             // its newest draft.
-            Api.FactoriesScreenEndpoints.UnpublishedFrom(FactoryDefinitions));
+            Api.FactoriesScreenEndpoints.UnpublishedFrom(FactoryDefinitions),
+            // Pause everything (issue #3910): while it is on, the list shows no next start.
+            SchedulerPaused: _cronPause.IsPaused);
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
@@ -5827,7 +5853,8 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantInScope: () => _tenantPass.Current,
             approvers: LicenseApprovers,
             signIns: LicenseSignInLog,
-            isConnected: IsDirectorConnected);
+            isConnected: IsDirectorConnected,
+            readiness: LicenseReadiness);
 
         // The sign-in routes of the Licenses page (contract section 8): who approves each account's sign-ins, and
         // "Add a spare" and "Renew now". Only the read of the approvers is in SessionKeyGuard's allow list.
@@ -7030,6 +7057,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // A sign-in started from the Cockpit whose answer never came back is settled once no Director could
             // still be running it: by asking its Director again, else from a later report (contract section 8.4).
             await LicenseSignIns.SettleEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+            // Readiness (phase 6): judged after the switches and the settling, so it reads the rows they just ended.
+            await LicenseReadiness.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {
@@ -7050,6 +7079,8 @@ public sealed class GatewayHost : IAsyncDisposable
             await LicenseRenewalEmails.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
             // An open license alarm whose owner email has not gone out is tried again here, beside the renewal emails.
             await LicenseAlarms.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+            // An approver that cannot approve, or that nobody has checked in 26 hours, alarms even when no Director reports.
+            await LicenseApproverAlarm.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {

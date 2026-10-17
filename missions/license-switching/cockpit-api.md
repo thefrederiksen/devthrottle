@@ -44,8 +44,8 @@ reports of two machines ("the-windows-machine" and "the-mac") and three accounts
 
    The decision engine's own sentences follow the same rule: `switchTargets[].unavailableText`, the reason a machine
    is left out inside `switchNowText` and inside a forecast machine's `text`, a refusal of Switch now, and the owner
-   email all name a machine by its label ("the-windows-machine (second) holds no usable spare for
-   account-c@example.com.").
+   email all name a machine by its label ("account-c@example.com has room;
+   the-windows-machine (second) holds no sign-in for it.").
 
 **Decided here (the Tech Lead's rulings on the review of this pull request):**
 
@@ -96,8 +96,8 @@ person only: the owner's own phone or browser, and nobody else (section 6).
 | `signInExpiry` | The sign-in for this account that expires FIRST, across every machine holding it: `expiresAtUtc`, `machine` (the machine it is on, rule 9), `verdict` (the expiry verdict below), `text` ("Sign-in on the-windows-machine expires in 2 days 5 hours", "Sign-in on the-mac expired 3 hours ago") and `tone`. When no machine holding the account gave an expiry: `expiresAtUtc` and `machine` are null, `verdict` is `not known` and `text` is "Sign-in expiry not known". When no machine holds the account: the same, with "Not signed in on any machine". This is the sign-in expiry, not the subscription's renewal date (section 1). |
 | `activeOnMachines`, `spareOnMachines` | The machines working on it, and the machines holding it as a spare - each one the four fields of rule 9. |
 | `canSwitchNow` | The Switch now control is offered for this account. |
-| `switchNowText` | What Switch now would do ("Moves the-mac and the-windows-machine to account-b@example.com."), or the sentence saying why it is not offered. Always a sentence. |
-| `switchNowTargetAccountEmail` | The target Switch now takes when none is named; null when it would take none. |
+| `switchNowText` | What Switch now with no target would do - the automatic moves, each machine to the best account with room it is ready for, which can be two accounts ("Moves the-mac and the-windows-machine to account-b@example.com.", "Moves machine-a to account-b@example.com; machine-b and machine-c to account-c@example.com, the best account with room they are ready for.") - or the sentence saying why it is not offered. Always a sentence. |
+| `switchNowTargetAccountEmail` | The Gateway's choice, the best account with room, when a Switch now with no target would be accepted; null when it would not. The page pre-selects it and, when it is the one picked, sends NO target (section 6), so the moves are the ones `switchNowText` describes. |
 | `switchTargets` | Every other account as a target: `accountEmail`, `canChoose`, `unavailableText` (the sentence when it cannot be chosen), `isAutomaticChoice`. Empty when no machine on this account can be switched. |
 
 **The status of an account.** Exactly one, the first that applies. What the owner must act on outranks what the
@@ -134,13 +134,30 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `machineId` | Stable for this machine and operating system user; use it as the list item's identity. |
 | `machineName`, `osUser`, `label` | The machine, the operating system user whose Claude sign-ins these are, and what to call it (rule 9). |
 | `activeAccountEmail` | The account it is on; null when it is signed in to none. |
-| `status`, `statusText`, `statusTone` | `not-reporting` (Not reporting, warning), `switching` (Switching, neutral), `signed-out` (Signed out, warning), `reporting` (Reporting, good) - the first that applies. |
-| `isStale` | Its last report is older than 6 minutes. It is not sent a switch until it reports again. |
-| `lastReportAtUtc`, `lastReportText` | When the Gateway took its last report, and "Last report 1 minute ago". |
+| `status`, `statusText`, `statusTone` | `report-refused` (Report refused, bad), `not-reporting` ("Not reporting since 2026-10-16 09:12 UTC", warning), `switching` (Switching, neutral), `signed-out` (Signed out, warning), `reporting` (Reporting, good) - the first that applies. |
+| `statusDetail` | The Gateway's sentence saying what the status means, drawn under it as given; null for `switching`, `signed-out` and `reporting`. For `report-refused` it is the refusal in words and what shows the Director is alive: "Its report was refused: it holds alice@example.com twice (once in use and once as a spare). It is not switched until a report is accepted. Its Director is still sending reports: 412 reports refused since 2026-10-16 01:02 UTC, the latest 1 minute ago." For `not-reporting`: "No report has come from it for 2 hours 5 minutes. It is not switched until it reports again." |
+| `isStale` | Its last report is older than 6 minutes, or its reports are refused. It is not sent a switch until a report is accepted. |
+| `lastReportAtUtc`, `lastReportText` | When the Gateway took its last report, and "Last report 1 minute ago". **`lastReportAtUtc` is null** for a machine none of whose reports has been accepted - one the page knows only from its refused reports; then `lastReportText` is "No report from it has been accepted yet", it holds nothing (`active` null, `spares` empty) and `canAddSpare` is false. |
 | `active` | Its active sign-in (the shape below); null when signed in to none. |
 | `spares` | The spares it holds, in account email order. |
 | `switchInProgress` | Null, or `switchId`, `fromAccountEmail`, `toAccountEmail`, `text` - the switch it is in the middle of and one sentence saying where it stands. The two emails are "" when only the machine's own report says a switch is running. |
 | `heldUntilUtc`, `heldText` | **Both null unless the machine is held out of the automatic switch** because its switch keeps failing the same way (contract section 5.8). Then: the time it is held until, and the Gateway's sentence saying so, why and until when. The page draws `heldText` in the schedule, under the machine's status, exactly as given; never compare `heldUntilUtc` with now. Switch now is still offered for its account, and still sends the machine a switch at once. |
+| `readiness`, `readinessTargetAccountEmail`, `readinessText`, `readinessTone` | **Phase 6: whether it is ready for the account it would switch to next.** `readiness` is `ready`, `not-ready` or `no-room` (no other account has room - not a readiness gap); the account is null for `no-room`. All four are null when the machine is on no account. The page draws `readinessText` on the machine's line in the schedule, in `readinessTone`, exactly as given, and never decides anything from the state word. |
+
+**Readiness** (`readiness`, `readinessText`, phase 6; contract section 11). The sentences, word for word:
+"Ready for account-b@example.com." (good); "No other account has room for it to switch to." (neutral); and for a
+machine that is not ready (warning), "Not ready: {why}" and what the Gateway is doing about it, where {why} is the one
+definition of ready's own clause ("holds no sign-in for account-b@example.com", "holds a sign-in for
+account-b@example.com that was refused", or "... that expires at 2026-10-16 03:05 UTC, before a switch could finish"):
+- "Not ready: {why}; DevThrottle is starting a sign-in to account-b@example.com now."
+- "Not ready: {why}; a sign-in to account-b@example.com is running, started at 10:42 UTC."
+- "Not ready: {why}; the last sign-in failed at 10:42 UTC ({the Director's reason}); trying again at 10:47 UTC."
+- "Not ready: {why}; it was signed in at 10:42 UTC, and its next report should show it."
+- "Not ready: {why}; it was signed in 2 times within an hour and its reports still do not show it; trying again at
+  11:22 UTC."
+- "Not ready: {why}, and the Director on machine-a is not connected, so it cannot be signed in yet."
+- "Not ready: {why}. {the approver's sentence}", for example "... No machine is set to approve sign-ins for
+  account-b@example.com. Set an approver for account-b@example.com on the Licenses page."
 
 **A machine that is held** (`heldUntilUtc`, `heldText`). The sentence is "Held out of the automatic switch for
 {how long}, until {yyyy-MM-dd HH:mm UTC}: its switch from {account} to {account} has failed more than once in a row
@@ -252,7 +269,7 @@ show nothing. Section 6 has the sentences and the tone rule.
         {
           "accountEmail": "account-c@example.com",
           "canChoose": false,
-          "unavailableText": "the-mac holds no usable spare for account-c@example.com.",
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
           "isAutomaticChoice": false
         }
       ],
@@ -413,6 +430,7 @@ show nothing. Section 6 has the sentences and the tone rule.
       "status": "reporting",
       "statusText": "Reporting",
       "statusTone": "good",
+      "statusDetail": null,
       "isStale": false,
       "lastReportAtUtc": "2026-10-11T03:11:00Z",
       "lastReportText": "Last report 1 minute ago",
@@ -461,7 +479,14 @@ show nothing. Section 6 has the sentences and the tone rule.
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-mac",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     },
     {
       "machineId": "f26a799d85a244129a27ba10b8cb3427",
@@ -472,6 +497,7 @@ show nothing. Section 6 has the sentences and the tone rule.
       "status": "reporting",
       "statusText": "Reporting",
       "statusTone": "good",
+      "statusDetail": null,
       "isStale": false,
       "lastReportAtUtc": "2026-10-11T03:12:00Z",
       "lastReportText": "Last report less than a minute ago",
@@ -539,7 +565,14 @@ show nothing. Section 6 has the sentences and the tone rule.
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
-      "signInsInProgress": []
+      "signInsInProgress": [],
+      "directorId": "dir-windows",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "ready",
+      "readinessTargetAccountEmail": "account-b@example.com",
+      "readinessText": "Ready for account-b@example.com.",
+      "readinessTone": "good"
     }
   ]
 }
@@ -563,8 +596,8 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 
 | Field | Meaning |
 |---|---|
-| `nextSwitch` | Null when no switch is expected. Otherwise the soonest one: `fromAccountEmail`, `expectedAtUtc`, `window` (`five-hour` or `seven-day`), `windowText` ("5-hour window" or "weekly limit"), `targetAccountEmail` (null when nothing would be switched), `machines` (the machines that would be switched, each the four fields of rule 9). |
-| `nextSwitchText` | The sentence for it, or "No switch is expected.". When there is no target it gives the reason: no account has room, or no machine on the account can be sent a switch. When every machine that could be switched is held because its switch keeps failing (contract section 5.8), the sentence ends "The automatic switch keeps failing and is held: it is tried again in {how long}, at {yyyy-MM-dd HH:mm UTC}. Switch now still sends it at once." - and so does that account's own `nextSwitchText`. |
+| `nextSwitch` | Null when no switch is expected. Otherwise the soonest one: `fromAccountEmail`, `expectedAtUtc`, `window` (`five-hour` or `seven-day`), `windowText` ("5-hour window" or "weekly limit"), `targetAccountEmail` (the account the Gateway would switch to next - named whenever an account has room, even while no machine is ready for it; null only when no account has room), `machines` (the machines that would actually move - a machine not ready for any account with room is not listed - each the four fields of rule 9). |
+| `nextSwitchText` | The sentence for it, or "No switch is expected.". When nothing would be switched it gives the real reason: no account has room (with each account's reason), an account has room and no machine is ready for it ("account-b@example.com has room; machine-a holds no sign-in for it."), or no machine on the account can be sent a switch. When some machines would move and one would not, the sentence names the ones that move and ends with each one that would not and why ("machine-d would not move: it holds no sign-in for account-b@example.com."). When every machine that could be switched is held because its switch keeps failing (contract section 5.8), the sentence ends "The automatic switch keeps failing and is held: it is tried again in {how long}, at {yyyy-MM-dd HH:mm UTC}. Switch now still sends it at once." - and so does that account's own `nextSwitchText`. |
 | `accounts[]` | Per account: `isInUse`, `isStale`, the two windows, `expectedAtLimitUtc` and `expectedText` (when it is expected to reach 97% on either window), `nextSwitchTargetAccountEmail` and `nextSwitchText` (where its machines go at its next switch). |
 | `accounts[].fiveHour`, `.sevenDay` | The window in the overview's own words - `utilization`, `utilizationText`, `level`, `resetsAtUtc`, `resetsText`, exactly as section 2 gives them for the same window - and then the forecast: `percentPerHour` (null when there is no rate), `rateText` ("28.5% an hour", "Not rising", "No rate yet"), `expectedAtLimitUtc`, `expectedText`. The schedule colours a window by `level` and shows `resetsText`; it never compares `utilization` with 97 or `resetsAtUtc` with now, and it does not need the overview to do either. |
 | `machines[]` | Per machine: `machineId`, `machineName`, `osUser`, `label` (rule 9), `activeAccountEmail`, `nextAccountEmail` (the account it moves to next; null when there is none), `expectedSwitchAtUtc` (null when no switch is expected yet), and `text`, which says it all: "Next: account-b@example.com, in about 2 minutes.", "Next: account-b@example.com, when account-a@example.com reaches its limit. No switch is expected yet.", "Would not be switched now: its last report is too old.", "Signed in to no account, so there is nothing to switch." **For a machine that is held** `text` is "Next: {account}, not before {yyyy-MM-dd HH:mm UTC}: the automatic switch is held for this machine.", and `expectedSwitchAtUtc` is never earlier than the time it is held until. Why and for how long is the machine's own `heldText` of section 2, which the page draws in the same row; the two sentences do not repeat each other. |
@@ -738,16 +771,16 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `report-refused` (Report refused), `report-accepted` (Reports accepted), `machine-silent` (Not reporting), `reporting-again` (Reporting again). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
-| `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A machine that is no longer listed in the overview still has its identifier and its label here. |
+| `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A `report-refused` row of a machine none of whose reports was ever accepted also has `machineId` null; it names the machine as its report did, or "" when the report named none. A machine that is no longer listed in the overview still has its identifier and its label here. |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. |
 | `why`, `whyText` | Why a switch was asked for: `threshold` (Threshold reached) or `manual` (By hand). Null and "" on other rows. |
 | `state`, `stateText`, `stateTone`, `isOpen` | Where the row stands, in the table below. `isOpen` is true while it has not reached its end. |
 | `reasonCode`, `reasonText` | When a switch is waiting or failed: the reason word and its sentence. On a `no-room` or `renewal-failed` row: what became of the owner email - `owner-emailed` ("The owner was emailed."), `owner-email-failed` ("The owner has not been emailed yet; it is tried again."), `no-owner-account` ("This Gateway has no DevThrottle account to email.") - and null before the first try. Null otherwise. |
 | `message` | The sentence the machine or the Gateway wrote on the row; may be null. |
 | `summary` | The row in one sentence. Always set. |
-| `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. |
+| `sendCount`, `lastSentAtUtc` | How many times the command was sent, and when last. On a `report-refused` row `sendCount` is how many reports were refused while it was open, and `lastSentAtUtc` is null: no command was sent. |
 | `startedOnMachineAtUtc`, `finishedOnMachineAtUtc`, `exchangeMilliseconds`, `finishedAtUtc` | The timings: the machine's own start and finish, the exchange step alone, and when the row reached its end by the Gateway's clock. Null when not known. |
 | `heldUntilUtc` | On a failed switch row that held its machine out of the automatic switch (contract section 5.8): the time it was held until. Null on every other row. It is a record of the moment, not a state: it stays on the row after the hold has passed. The row's `summary` says it; the page needs nothing else. |
 | `timingText` | "Took 2.0 seconds on the machine (the exchange itself 41 milliseconds)"; null when there is nothing to say. |
@@ -764,6 +797,10 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | `recorded` | Recorded | neutral | no |
 | `open` on a `renewal-failed` row | Failing | bad | yes |
 | `ended` on a `renewal-failed` row | Over | neutral | no |
+| `open` on a `report-refused` row | Refused | bad | yes |
+| `open` on a `machine-silent` row | Silent | warning | yes |
+| `ended` on a `report-refused` or `machine-silent` row | Over | neutral | no |
+| `recorded` on a `report-accepted` or `reporting-again` row | Recorded | good | no |
 | any other word | the word itself | neutral | no |
 
 The `summary` of a switch row says "is switching" only while it is `pending` or `unknown`. A switch row in a state
@@ -781,6 +818,22 @@ and is kept, the label must be true of both.
 A failed switch row whose machine was held by it says so at the end of its `summary`: "It was not the first time in
 a row that this switch failed this way, so the automatic switch left {the machine} out until {yyyy-MM-dd HH:mm
 UTC}." The first failure of a run holds nothing and has no such sentence.
+
+A `report-refused` row is one run of the SAME refusal of one machine's reports: the Gateway threw a report from the
+machine's Director away for what it says (an account held twice, two sign-ins in use at once, a number that is not
+a reading - every reason has its own sentence). It is written by the first refused report and counted, not written
+again, by every one after it - a machine refused every two minutes for a day writes ONE row. A report refused for
+another reason ends it and writes the next; a report that is accepted ends it and writes one `report-accepted` row,
+"Its reports are accepted again, after 412 reports refused since 2026-10-16 01:02 UTC." Its `message` and `summary`
+are the refusal: "Its report was refused: it holds alice@example.com twice (once in use and once as a spare). It is
+not switched until a report is accepted." A report dropped because it came from a connection the Director has since
+replaced, or with a sequence already sent, is bookkeeping and writes nothing.
+
+A `machine-silent` row is written once by the minute check when a machine that has reported sends nothing for more
+than 10 minutes (five report intervals): "No report has come from it since 2026-10-16 09:12 UTC, for more than 10
+minutes: its Director may have stopped. It is not switched until it reports again." The minute check after a report
+from it is accepted ends it and writes one `reporting-again` row. A machine whose reports are refused is not silent,
+and gets no such row.
 
 A `renewal-failed` row is one FAILURE STREAK of one sign-in on one machine (contract section 8.1): written when a
 machine's renewal of a sign-in is failing and that sign-in ends within three days, and open until the machine
@@ -1057,8 +1110,11 @@ sign-in left:
 
 Everything the page needs to DRAW the control is in section 2 (`canSwitchNow`, `switchNowText`,
 `switchNowTargetAccountEmail`, `switchTargets`). This route performs it. It is by ACCOUNT, because usage is counted
-per account: every machine on the account that can be sent a switch moves. The target is optional - null, blank or
-absent lets the Gateway choose, exactly as an automatic switch would:
+per account: every machine on the account that can be sent a switch AND is ready for the target moves (MISSION.md section 5:
+it holds a sign-in for the target that was not refused and does not expire before the switch could finish). A machine
+that is not ready stays where it is and is listed in `skipped` with its reason. The target is optional - null, blank or
+absent lets the Gateway choose, exactly as an automatic switch would, each machine to the best account with room it is
+ready for:
 
 ```json
 { "accountEmail": "account-a@example.com", "targetAccountEmail": null }
@@ -1079,8 +1135,8 @@ connected, is still an accepted call, and each machine's own state says how it s
 
 | Field | What it is |
 |---|---|
-| `targetAccountEmail` | The account the machines were sent to: the one named, or the one chosen. |
-| `text` | The whole outcome in one sentence, ready to show: "the-windows-machine is now on account-b@example.com.", "The switch of the-mac to account-b@example.com has not finished; the switch log shows how it ends.", "The switch of the-mac to account-b@example.com failed; the switch log says why." - one part for each kind that happened, then each machine left out with its reason. |
+| `targetAccountEmail` | The account the machines were sent to: the one named, or the one chosen. Null when a call with no target sent the machines to more than one account; each machine's `summary` names its own. |
+| `text` | The whole outcome in one sentence, ready to show: "the-windows-machine is now on account-b@example.com.", "The switch of the-mac to account-b@example.com has not finished; the switch log shows how it ends.", "The switch of the-mac to account-b@example.com failed; the switch log says why." - one part for each kind that happened, for each account the machines were sent to ("the-windows-machine is now on account-b@example.com. the-mac is now on account-c@example.com."), then each machine left out with its reason. |
 | `switches[]` | One per machine sent a switch, as its row of the switch log stood when the Gateway answered: `switchId` (the switch itself), `entryId` (that row's `entryId` in section 4, so the page can find it in the log), `machineName`, `osUser`, `label` (rule 9), and `state`, `stateText`, `stateTone` and `summary` - the same four a log row carries (section 4). |
 | `skipped[]` | The machines on the account that were NOT sent a switch: `machineName`, `osUser`, `label`, and `why`, a finished sentence ("the-linux-machine is not switched: its last report is too old."). |
 
@@ -1099,11 +1155,11 @@ Nothing was written and nothing was sent:
 |---|---|---|
 | 409 | `no-machine-to-switch` | No machine is on the account (also the answer for an account of another DevThrottle account, or one that exists nowhere), or every machine on it is stale or has a switch that has not finished. |
 | 409 | `target-is-source` | The target named is the account the machines are already on. |
-| 409 | `target-not-held` | A machine to be switched holds no usable spare for the target. |
-| 409 | `target-sign-in-expiring` | A machine's sign-in for the target expires before a switch could finish. |
+| 409 | `target-not-held` | The target has room and no machine to be switched is ready for it; at least one holds no usable sign-in for it. The sentence names every machine and its reason: "account-b@example.com has room; machine-a holds no sign-in for it." Also the answer with no target named, when an account has room and no machine is ready for any account with room. |
+| 409 | `target-sign-in-expiring` | The same, when every machine's sign-in for the target expires before a switch could finish. |
 | 409 | `target-stale` | The latest reading of the target is too old to show it has room. |
 | 409 | `target-full` | The target has no room. |
-| 409 | `no-target` | No target was named and no other account has room for the machines. |
+| 409 | `no-target` | No target was named and no other account has room, judged on each account alone. The sentence gives each account's reason: "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit." |
 | 400 | `invalid_body` | The body was not sent as `application/json`, or is not a JSON object of this shape. |
 | 400 | `account_required` | `accountEmail` is missing or blank. |
 | 400 | `invalid_account` | `accountEmail` or `targetAccountEmail` is longer than 320 characters, or holds a control character, a line or paragraph separator, or a format character. |
@@ -1126,6 +1182,11 @@ it. The page should still disable the control while a call is out.
 can be NAMED - a barred account, most often. A call with no `targetAccountEmail` would be refused `409` `no-target`.
 So the page's default action exists only when `switchNowTargetAccountEmail` is not null; otherwise the owner picks
 one of the `switchTargets` whose `canChoose` is true, and the page sends that one.
+
+**When `switchNowTargetAccountEmail` is the one picked, the page sends no target.** Naming it would move only the
+machines ready for it and leave the rest on an account at its limit, while the automatic switch would send them to
+the next best account they are ready for. Sending none makes exactly the automatic moves, which `switchNowText` and
+the schedule both describe. A target picked by hand is sent as named.
 
 ### Who may call the writes
 
@@ -1246,7 +1307,8 @@ on it that is signed in to claude.ai as that account. With none set:
 }
 ```
 
-With two set - one whose Director is connected, one on a machine that has never reported to this account:
+With two set - one whose Director is connected and whose last check found it can approve, one on a machine that
+has never reported to this account:
 
 ```json
 {
@@ -1265,7 +1327,15 @@ With two set - one whose Director is connected, one on a machine that has never 
       "status": "ready",
       "statusText": "Ready",
       "statusTone": "good",
-      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+      "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work.",
+      "browserProfileName": null,
+      "source": "registered",
+      "sourceText": "Registered by the-mac's Director.",
+      "reachText": null,
+      "state": "can-approve",
+      "checkedAtUtc": "2026-10-11T00:12:00Z",
+      "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
+      "whatToDo": null
     },
     {
       "accountEmail": "account-b@example.com",
@@ -1278,7 +1348,15 @@ With two set - one whose Director is connected, one on a machine that has never 
       "status": "never-reported",
       "statusText": "Not reporting yet",
       "statusTone": "warning",
-      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+      "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+      "browserProfileName": null,
+      "source": "owner",
+      "sourceText": "Set by you.",
+      "reachText": "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+      "state": "not-checked",
+      "checkedAtUtc": null,
+      "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
+      "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
     }
   ]
 }
@@ -1290,20 +1368,41 @@ An approver (`LicenseApproverDto`):
 |---|---|
 | `accountEmail` | The Claude account whose sign-ins it approves. |
 | `machineName`, `osUser` | The approving machine, as the owner set it, or as the machine itself spells it once it has reported. |
-| `browserProfile` | The browser profile on that machine. |
+| `browserProfile` | The browser profile on that machine: its IDENTIFIER on the Director, for example `work-chrome`, never its display name. |
+| `browserProfileName` | The profile's display name as its last check saw it, for example "Work Chrome"; `null` until a check has named it. The sentences say this name, else the identifier. |
 | `machineId` | The machine's row in the overview; `null` while no such machine has reported to this account. |
 | `label` | What to call the machine (section 1 rule 9). |
-| `canApproveNow` | A sign-in for this account can be approved there now. |
-| `status`, `statusText`, `statusTone` | `ready` "Ready" / `not-connected` "Not connected" / `never-reported` "Not reporting yet". |
-| `text` | The whole of it in one or two sentences. Show this. |
+| `canApproveNow` | A sign-in for this account can be approved there now: its Director is connected AND its health is `can-approve`. |
+| `status`, `statusText`, `statusTone` | `ready` "Ready" / `not-connected` "Not connected" / `never-reported` "Not reporting yet" / `cannot-approve` "Cannot approve" or "Not checked". A machine that cannot be reached is said first; then the profile's health. |
+| `text` | The whole of it in one or two sentences. Show this. For `cannot-approve` it is `healthText` and `whatToDo` together. |
+| `source` | `owner` (set on this page) or `registered` (registered by the Director of the machine it names, from a check that proved the profile can approve; contract section 10). |
+| `sourceText` | `source` in words: "Set by you." or "Registered by the-mac's Director." (the machine's label). Show as given. |
+| `reachText` | Why no sign-in can reach the approving machine now - "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet." or "The Director on the-mac is not connected, so no sign-in can be approved there now." - or `null` when its Director is connected. It is the part of `text` that is not the profile's health, so a row that shows `reachText`, `healthText` and `whatToDo` says everything `text` does, once. |
+| `state` | The record's health now: `can-approve`, `signed-out`, `needs-fresh-sign-in`, `wrong-account`, `check-failed`, or `not-checked` when it was never checked or its last check is more than 26 hours old. |
+| `checkedAtUtc` | When it was last checked; `null` when it never was. |
+| `healthText` | The finished sentence of its health, naming the account, the machine and the profile. Show as given. |
+| `whatToDo` | The one thing to do so it can approve; `null` when it can. |
 
 A machine that only approves needs no sign-in of its own: it is listed in the overview as "Signed out" as soon as
-its Director reports, and `status` is `ready` while that Director is connected.
+its Director reports, and `status` is `ready` while that Director is connected and its approver profile's last
+check, within 26 hours, found it can approve. An approver the owner has just set has never been checked, so it is
+`cannot-approve` "Not checked" until that machine's Director checks it.
+
+The `healthText` and `whatToDo` sentences, for account `alice@example.com`, profile `work`, machine `machine-a`:
+
+| `state` | `healthText` | `whatToDo` |
+|---|---|---|
+| `can-approve` | The approver for alice@example.com (browser profile "work" on machine-a) can approve sign-ins; it was last checked 2026-10-11 01:12 UTC. | `null` |
+| `signed-out` | The approver for alice@example.com (browser profile "work" on machine-a) is not signed in to claude.ai. | Open that browser on machine-a and sign in to claude.ai as alice@example.com once. |
+| `needs-fresh-sign-in` | The approver for alice@example.com (browser profile "work" on machine-a) needs a fresh claude.ai sign-in on the approval page. | Open that browser on machine-a and sign in to claude.ai once. |
+| `wrong-account` | The approver for alice@example.com (browser profile "work" on machine-a) is signed in to claude.ai as bob@example.com, not as alice@example.com. | Open that browser on machine-a, sign out of claude.ai and sign in as alice@example.com once. |
+| `check-failed` | The approver for alice@example.com (browser profile "work" on machine-a) could not be checked: (the Director's detail). | Make sure the browser profile "work" opens on machine-a; the check runs again within a day. |
+| `not-checked` | The approver for alice@example.com (browser profile "work" on machine-a) has never been checked. / ... was last checked 2026-10-10 01:11 UTC, more than 26 hours ago. | Make sure the Director on machine-a is running with license switching on; it checks its approvers once a day. |
 
 ### 7.2 `PUT /gateway/licenses/approvers` - set the approver of one account
 
 Body (`LicenseSetApproverRequest`): `{ "accountEmail": "...", "machineName": "...", "osUser": "...",
-"browserProfile": "..." }`. Setting an account that has an approver replaces it. The machine does not have to have
+"browserProfile": "..." }`. `browserProfile` is the browser profile's identifier (the Director's slug, for example "work-chrome", as `GET /directors/{id}/browsers` lists it in `id`), never its display name. Setting an account that has an approver replaces it. The machine does not have to have
 reported yet. Answered `200` with the approver as stored:
 
 ```json
@@ -1314,13 +1413,24 @@ reported yet. Answered `200` with the approver as stored:
   "browserProfile": "work",
   "machineId": "527062dd720c4d28a144183033cf93c1",
   "label": "the-mac",
-  "canApproveNow": true,
-  "status": "ready",
-  "statusText": "Ready",
-  "statusTone": "good",
-  "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work."
+  "canApproveNow": false,
+  "status": "cannot-approve",
+  "statusText": "Not checked",
+  "statusTone": "warning",
+  "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
+  "browserProfileName": null,
+  "source": "owner",
+  "sourceText": "Set by you.",
+  "reachText": null,
+  "state": "not-checked",
+  "checkedAtUtc": null,
+  "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
+  "whatToDo": "Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day."
 }
 ```
+
+Setting the very machine, user and profile that a check already covered keeps that check, so it stays `ready`; any
+other choice starts `not-checked`. Setting an account clears the record of any registration the owner removed for it.
 
 Refused `400` with `invalid_account`, `invalid_machine`, `invalid_browser_profile` or `bad_request_body`, and `409`
 with `too_many_approvers` (64 for one DevThrottle account). `machineName` and `osUser` are names of at most 128
@@ -1337,7 +1447,9 @@ separator, or a format character - a name with a line break in it is `invalid_ma
 ### 7.3 `DELETE /gateway/licenses/approvers?accountEmail=...` - remove it
 
 Answered `200` whether or not there was one; `removed` and `text` say which
-(`LicenseApproverRemovedResponse`). Refused `400` `invalid_account` when the query names no account.
+(`LicenseApproverRemovedResponse`). Refused `400` `invalid_account` when the query names no account. Removing a
+`registered` approver keeps a record of the removal, so that machine's Director does not register the same profile
+for the account again; it lasts until the owner sets an approver for that account (contract section 10.5).
 
 ```json
 {
@@ -1455,7 +1567,7 @@ The names are those of every other row. What differs:
 |---|---|
 | `kindText` | "Sign-in". |
 | `toAccountEmail` | The account signed in to. `fromAccountEmail` is empty. |
-| `why`, `whyText` | `manual` "Add a spare", or `renewal` "Renew now". |
+| `why`, `whyText` | `manual` "Add a spare", `renewal` "Renew now", or one the Gateway started on its own (phase 6, contract section 11): `auto-spare` "Automatic: a new spare", `auto-renewal` "Automatic: a renewal". |
 | `state`, `stateText`, `stateTone` | `pending` "Signing in" (neutral), `unknown` "Sent, no answer yet" (warning), `added` "Signed in" (good), `renewed` "Renewed" (good), `failed` "Failed" (bad). |
 | `isOpen` | True for `pending` and `unknown`: the sign-in has not ended. |
 | `reasonCode`, `reasonText` | When failed: the word and its sentence (`no-approver`, `approver-offline`, `approval-failed`, `wrong-account`, `browser-not-signed-in`, `login-failed`, `expired`, `store-refused`, `not-key-holder`, `director-offline`, `director-error`). |
@@ -1624,6 +1736,9 @@ On a machine (`LicenseMachineDto`):
 | `canAddSpare` | Add a spare is offered for this machine. |
 | `addSpareText` | What it does, or the sentence saying why it is not offered - the same sentence the route refuses with. |
 | `signInsInProgress` | The sign-ins on this machine that have not ended: `signInId`, `accountEmail`, `text`. |
+| `directorId` | The Director that sent the machine's last accepted report. The approver form asks it for the machine's browser profiles (`GET /directors/{id}/browsers`). |
+| `canListBrowserProfiles` | That Director is connected, so its browser profiles can be listed now. |
+| `browserProfilesText` | What listing them does, or the sentence saying why they cannot be listed ("the-mac's Director is not connected, so its browser profiles cannot be listed."). |
 
 On each sign-in a machine holds (`LicenseMachineHoldingDto`, in `active` and `spares`):
 
@@ -1652,7 +1767,15 @@ renewal of 7.4 was running and the Director on "the-mac" was not connected:
         "status": "not-connected",
         "statusText": "Not connected",
         "statusTone": "warning",
-        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now."
+        "text": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
+        "browserProfileName": null,
+        "source": "registered",
+        "sourceText": "Registered by the-mac's Director.",
+        "reachText": "The Director on the-mac is not connected, so no sign-in can be approved there now.",
+        "state": "can-approve",
+        "checkedAtUtc": "2026-10-11T00:12:00Z",
+        "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) can approve sign-ins; it was last checked 2026-10-11 00:12 UTC.",
+        "whatToDo": null
       },
       "approverText": "Sign-ins for account-a@example.com are approved on the-mac, in the browser profile work. The Director on the-mac is not connected, so no sign-in can be approved there now.",
       "approverTone": "warning"
@@ -1670,7 +1793,15 @@ renewal of 7.4 was running and the Director on "the-mac" was not connected:
         "status": "never-reported",
         "statusText": "Not reporting yet",
         "statusTone": "warning",
-        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet."
+        "text": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+        "browserProfileName": null,
+        "source": "owner",
+        "sourceText": "Set by you.",
+        "reachText": "No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
+        "state": "not-checked",
+        "checkedAtUtc": null,
+        "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
+        "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
       },
       "approverText": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
       "approverTone": "warning"

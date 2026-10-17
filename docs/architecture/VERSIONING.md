@@ -61,71 +61,56 @@ release and its exact commit.
 
 ## How to cut a release
 
-**Three steps: freeze the candidate, gate it once, tag it.** The full run-book is the
-`release-manager` skill.
+**A release is a tag on the last good commit** - the newest commit on main that the full test run
+passed. The full run-book is the `release-manager` skill.
 
-1. **Write `docs/public/release-notes/vX.Y.Z.md`** in a worktree cut from
-   origin/main. This file *is* the release page - the workflow publishes it
-   verbatim and **fails if it is missing or under 200 non-whitespace
-   characters**. It will not generate a substitute, because a page of internal
-   pull request titles looks like release notes and therefore ships unread.
-   Leave it uncommitted; the script commits it.
+1. **Claim the release:** `scripts/new-release.ps1 -Claim -Version X.Y.Z`. Only one session can be
+   releasing at a time: the claim is the branch `release-claim`, naming the version and the holder.
 
-2. **Run `scripts/new-release.ps1` from that worktree.** It offers the next patch
-   version - press Enter to take it. It commits the bump WITH the notes, opens a
-   pull request, merges it, and prints the merge commit: **the candidate**. It
-   does not tag.
+2. **Write `docs/public/release-notes/vX.Y.Z.md`** in a worktree. This file *is* the release page - the
+   workflow publishes it verbatim and **fails if it is missing or under 200 non-whitespace
+   characters**. It will not generate a substitute, because a page of internal pull request titles
+   looks like release notes and therefore ships unread. Leave it uncommitted; the script commits it.
 
-```
-Current version: 1.9.2
-New version [1.9.3]:          <- Enter
-```
-
-3. **Gate the candidate once, then tag it.** In a worktree detached at the
-   candidate, run `scripts\test-local.ps1 -Parked -Configuration Release`. When it
-   is green, the person releasing runs `scripts/new-release.ps1 -Tag <candidate>`.
+3. **Release:** `scripts/new-release.ps1 -Release -Version X.Y.Z -Yes`.
 
 ### What the script does, and why in this order
 
-**The candidate is frozen.** The notes and the bump merge in one pull request,
-so the commit the gate runs on is the commit that is tagged, and the notes are
-never edited after it. When the notes and the bump merged separately, every notes
-edit was a new commit that voided any gate run already under way - v2.18.0's notes
-were rewritten four times. The script stops BEFORE merging if main moved since the
-worktree was cut, and after merging it checks the candidate's parent is that same
-base, so the candidate is exactly what the notes describe.
+**The version is stamped on the last good commit, never on main's tip.** The script finds the newest
+commit on main with a successful full test run, and adds ONE commit on top of it that changes only
+`<Version>` in `Directory.Build.props` and adds the notes. That commit cannot change what any test
+sees, so it needs no test run of its own. The old flow merged the bump into main, which made a new
+commit that had to be tested from scratch; v2.23.0 took fifteen hours that way.
 
-**main is protected by a ruleset requiring a pull request**, so the version bump
-cannot be pushed straight to it. An earlier version of this script ran
-`git push origin main` then `git push origin <tag>`: the branch push is rejected
-by the ruleset and the tag push succeeds, so the tag ends up pointing at a commit
-that is not on `main`. It happened on **v1.9.2** and was repaired by hand.
+**It proves that before anything is pushed**, then pushes branch `release/vX.Y.Z`, tags its commit,
+pushes the tag, and merges the branch back to main with a **merge commit** - never a squash - so the
+tagged commit stays on main's history and main carries the version and the notes.
 
-**A tag can never be un-pushed, so it is created last, and only for a gated
-candidate.** The `-Tag` step refuses unless the candidate is on origin/main, its
-notes are in it, and `scripts/assert-gated.ps1` accepts it - a commit with no green
-`-Parked` run recorded against it is refused. The release workflow runs no tests,
-so this is the only thing between an ungated commit and the users.
+**main is protected by a ruleset requiring a pull request**, which is why the version reaches main
+through that merge rather than a push.
 
-Step 1 also refuses to start if: the notes are missing or too short, the tag
-already exists locally or on the remote, a `.csproj` declares its own
-`<Version>`, the tree has unrelated changes, or the checkout is not exactly
-origin/main.
+**The release workflow checks it again where it cannot be skipped:** its first job refuses to build a
+tag whose commit is neither tested nor a tested commit plus only those two files.
+
+The script also refuses: a version that is not higher than the last release, a release when nothing new
+has passed a full run since the last tag, missing or placeholder notes, an existing tag, and a session
+that does not hold the claim.
 
 ### What happens after the tag
 
-3. `release.yml` builds everything from the tagged commit. Every .NET binary is
+1. `release.yml` refuses the tag unless its commit is tested (or tested plus only the version
+   and the notes), then builds everything from the tagged commit. Every .NET binary is
    stamped `X.Y.Z` automatically, and a guard fails the release if the tag and
    `Directory.Build.props` disagree.
-4. The release is created as a **draft**, and published only once
+2. The release is created as a **draft**, and published only once
    `release-manifest.json` is provably attached - so a release is never "latest"
    while incomplete.
-5. The public downloads are **mirrored to a stable address** (see
+3. The public downloads are **mirrored to a stable address** (see
    devthrottle_internal #1186), then the installer is fetched back from that
    address and its SHA-256 compared to the manifest. **A mismatch fails the
    release**, so the public URL is never quietly serving the wrong build.
-6. The manifest lists every asset with its version and SHA-256.
-7. Installed machines see `X.Y.Z > installed` and update every asset in their
+4. The manifest lists every asset with its version and SHA-256.
+5. Installed machines see `X.Y.Z > installed` and update every asset in their
    role: Director self-update on launch, Gateway self-update with health-check
    rollback, tools via ToolUpdater.
 

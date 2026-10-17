@@ -318,7 +318,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
             sentences.Add(Overview(T0).Machines.Single().Spares.Single().RenewalFailedText!);
         }
 
-        Assert.Equal(8, sentences.Count);                                // a word added to the contract shows up here
+        Assert.Equal(9, sentences.Count);                                // a word added to the contract shows up here
         Assert.All(sentences, s => Assert.StartsWith("Renewing this sign-in failed 5 minutes ago: ", s));
         Assert.All(sentences, s => Assert.EndsWith(".", s));
         Assert.Equal(sentences.Count, sentences.Distinct().Count());
@@ -672,7 +672,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         else
         {
             Assert.Null(account.SwitchNowTargetAccountEmail);
-            Assert.Equal($"No other account has room for the machines on {A}.", account.SwitchNowText);
+            Assert.Equal($"No other account has room for the machines on {A}: for {B}, it is at 97% of its 5-hour window.", account.SwitchNowText);
             Assert.Equal($"{B} has no room: it is at 97% of its 5-hour window.", target.UnavailableText);
         }
     }
@@ -715,7 +715,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         Assert.True(account.CanSwitchNow);
         Assert.Null(account.SwitchNowTargetAccountEmail);
         Assert.Equal((true, false), (account.SwitchTargets.Single().CanChoose, account.SwitchTargets.Single().IsAutomaticChoice));
-        Assert.Equal($"No other account has room for the machines on {A}. A target can still be chosen by hand.", account.SwitchNowText);
+        Assert.Equal($"No other account has room for the machines on {A}: for {B}, it triggered a switch and is barred until its 5-hour window "
+                     + "resets at 2026-10-11 04:12 UTC. A target can still be chosen by hand.", account.SwitchNowText);
     }
 
     [Fact]
@@ -735,7 +736,7 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
     [Theory]
     [InlineData(6 * 60, LicenseMachineStatuses.Reporting, "Reporting", false)]
-    [InlineData(6 * 60 + 1, LicenseMachineStatuses.NotReporting, "Not reporting", true)]
+    [InlineData(6 * 60 + 1, LicenseMachineStatuses.NotReporting, "Not reporting since 2026-10-11 03:12 UTC", true)]
     public void Machine_IsNotReporting_OneSecondPastSixMinutesWithoutAReport(int seconds, string status, string text, bool stale)
     {
         Apply(Report("m1", Holding(A, true), Holding(B, false)));
@@ -999,12 +1000,13 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         var forecast = Forecast(T0, new LicenseUsageHistory());
         var a = forecast.Accounts.Single(x => x.AccountEmail == A);
 
+        var noRoom = $"No other account has room for the machines on {A}: for {B}, it is at 99% of its 5-hour window.";
         Assert.Null(forecast.NextSwitch!.TargetAccountEmail);
-        Assert.Equal($"{A} has reached 97% of its 5-hour window. No other account has room for the machines on {A}. Nothing would be switched.", forecast.NextSwitchText);
+        Assert.Equal($"{A} has reached 97% of its 5-hour window. {noRoom} Nothing would be switched.", forecast.NextSwitchText);
         Assert.Equal("Has reached 97% of its 5-hour window.", a.ExpectedText);
-        Assert.Equal($"No other account has room for the machines on {A}. It is at its limit now.", a.NextSwitchText);
+        Assert.Equal($"{noRoom} It is at its limit now.", a.NextSwitchText);
         Assert.Equal("Has reached 97%.", a.FiveHour.ExpectedText);
-        Assert.Equal($"No other account has room for the machines on {A}.", forecast.Machines.Single().Text);
+        Assert.Equal(noRoom, forecast.Machines.Single().Text);
         Assert.Null(forecast.Machines.Single().NextAccountEmail);
     }
 
@@ -1016,7 +1018,8 @@ public sealed class LicenseDisplayFoldTests : IDisposable
 
         var forecast = Forecast(T0, new LicenseUsageHistory());
 
-        Assert.Null(forecast.NextSwitch!.TargetAccountEmail);
+        // B has room, so the next switch names it; the sentence gives the real reason nothing would move now.
+        Assert.Equal(B, forecast.NextSwitch!.TargetAccountEmail);
         Assert.Empty(forecast.NextSwitch.Machines);
         Assert.Equal($"{A} has reached 97% of its 5-hour window. No machine on {A} can be switched now: every machine on it is stale or already mid-switch. Nothing would be switched.",
             forecast.NextSwitchText);
@@ -1052,6 +1055,83 @@ public sealed class LicenseDisplayFoldTests : IDisposable
         Assert.Equal("Would not be switched now: a switch sent to it has not finished.", machines[0].Text);
         Assert.Equal(B, machines[1].NextAccountEmail);
         Assert.Equal("Signed in to no account, so there is nothing to switch.", machines[2].Text);
+    }
+
+    // ---- the per-machine switch: the page names the real reason (16 October 2026) ----
+
+    // The account in use at 97% of its week, the other at 0%; three machines hold a sign-in for it and one does not.
+    private void SixteenOctober()
+    {
+        Apply(Report("machine-a", Holding(A, true, 20, 97), Holding(B, false, 0, 0)), seq: 1);
+        Apply(Report("machine-b", Holding(A, true, 20, 97), Holding(B, false, 0, 0)), seq: 2);
+        Apply(Report("machine-c", Holding(A, true, 20, 97), Holding(B, false, 0, 0)), seq: 3);
+        Apply(Report("machine-d", Holding(A, true, 20, 97)), seq: 4);
+    }
+
+    [Fact]
+    public void SwitchNow_SixteenOctober_MovesTheReadyMachines_AndTheCardSaysWhichOneStaysAndWhy()
+    {
+        SixteenOctober();
+
+        var card = Account(A, T0);
+
+        Assert.True(card.CanSwitchNow);
+        Assert.Equal(B, card.SwitchNowTargetAccountEmail);
+        Assert.Equal($"Moves machine-a, machine-b and machine-c to {B}. machine-d is not switched: it holds no sign-in for {B}.", card.SwitchNowText);
+        Assert.True(card.SwitchTargets.Single().IsAutomaticChoice);
+    }
+
+    [Fact]
+    public void Forecast_SixteenOctober_NamesTheTarget_TheMachinesThatMove_AndTheOneThatStays()
+    {
+        SixteenOctober();
+
+        var forecast = Forecast(T0, new LicenseUsageHistory());
+
+        Assert.Equal(B, forecast.NextSwitch!.TargetAccountEmail);
+        Assert.Equal(new[] { "machine-a", "machine-b", "machine-c" }, forecast.NextSwitch.Machines.Select(m => m.Label));
+        Assert.Equal($"{A} has reached 97% of its weekly limit; machine-a, machine-b and machine-c then move to {B}, the account the Gateway "
+                     + $"would choose today. machine-d would not move: it holds no sign-in for {B}.", forecast.NextSwitchText);
+        Assert.Equal((B, $"Next: {B}, now."), (forecast.Accounts.Single(a => a.AccountEmail == A).NextSwitchTargetAccountEmail,
+            forecast.Accounts.Single(a => a.AccountEmail == A).NextSwitchText));
+        Assert.Equal($"Would not be switched now: it holds no sign-in for {B}.", forecast.Machines.Single(m => m.Label == "machine-d").Text);
+    }
+
+    [Fact]
+    public void SwitchNow_TheTieCase_TheCardDescribesTheAutomaticMoves_ToBothAccounts_AsTheScheduleDoes()
+    {
+        // The best account (B) is held by machine-a only, the second best (C) by all three. The page sends no target for
+        // the Gateway's choice, so the card must say what the automatic switch does: machine-a to B, the other two to C -
+        // never that two ready machines stay on an account at its limit.
+        Apply(Report("machine-a", Holding(A, true, 97, 50), Holding(B, false, 5, 5), Holding(C, false, 10, 20)), seq: 1);
+        Apply(Report("machine-b", Holding(A, true, 97, 50), Holding(C, false, 10, 20)), seq: 2);
+        Apply(Report("machine-c", Holding(A, true, 97, 50), Holding(C, false, 10, 20)), seq: 3);
+
+        var card = Account(A, T0);
+        var forecast = Forecast(T0, new LicenseUsageHistory());
+
+        Assert.True(card.CanSwitchNow);
+        Assert.Equal(B, card.SwitchNowTargetAccountEmail);
+        Assert.Equal($"Moves machine-a to {B}; machine-b and machine-c to {C}, the best account with room they are ready for.", card.SwitchNowText);
+        Assert.Equal($"{A} has reached 97% of its 5-hour window; machine-a then moves to {B}, the account the Gateway would choose today; "
+                     + $"machine-b and machine-c then move to {C}, the best account with room they are ready for.", forecast.NextSwitchText);
+    }
+
+    [Fact]
+    public void SwitchNowAndForecast_AnAccountHasRoomAndNoMachineIsReady_SayTheAccountHasRoom_NeverThatNoneHas()
+    {
+        Apply(Report("machine-a", Holding(A, true, 20, 97)), seq: 1);
+        Apply(Report("machine-b", Holding(A, false, 20, 97), Holding(B, true, 0, 0)), seq: 2);
+
+        var card = Account(A, T0);
+        var forecast = Forecast(T0, new LicenseUsageHistory());
+
+        var reason = $"{B} has room; machine-a holds no sign-in for it.";
+        Assert.False(card.CanSwitchNow);
+        Assert.Equal(reason, card.SwitchNowText);
+        Assert.Equal(B, forecast.NextSwitch!.TargetAccountEmail);
+        Assert.Equal($"{A} has reached 97% of its weekly limit. {reason} Nothing would be switched.", forecast.NextSwitchText);
+        Assert.DoesNotContain("No other account has room", forecast.NextSwitchText);
     }
 
     // ---- a log row ----

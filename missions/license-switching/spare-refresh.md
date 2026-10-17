@@ -53,6 +53,12 @@ All measured on account C:
 3. **Never renew the ACTIVE key.** Running sessions renew it themselves. A renewal from outside would
    kill their access token mid-turn and spend the refresh token they hold. `license refresh` refuses the
    active account.
+   **Amended in phase 6** (`phase-6/track-b/active-renewal.md`): with no session running, nothing
+   renewed it, and a machine whose Director had died let its active sign-in expire. The active key is
+   now renewed in place by `license usage --refresh` only when its token has under an hour left AND no
+   Claude Code session is registered in the default folder - or once its token has already ended, when
+   no session can be using it - holding Claude Code's own refresh lock. The reason above still stands
+   for a session that is running with time left: that one is never renewed from outside.
 4. **A renewal holds the key store's lock from start to finish** - reading the refresh token, asking the
    provider, writing the renewed key. The provider spends the old refresh token the moment it answers, so
    a switch, or a second renewal, that touched the key in between would lose the renewed one. While the

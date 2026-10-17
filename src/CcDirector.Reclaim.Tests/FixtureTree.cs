@@ -25,12 +25,30 @@ public sealed class FixtureTree : IDisposable
     private readonly List<string> _deniedFolders = [];
     private readonly List<string> _links = [];
 
-    /// <summary>Build an empty tree in a folder of its own.</summary>
+    /// <summary>Build an empty tree in a folder of its own, under the temporary folder.</summary>
     /// <param name="name">A short name for the test, used in the folder name so a stray tree can be traced.</param>
-    public FixtureTree(string name)
+    public FixtureTree(string name) : this(name, onSystemVolume: false) { }
+
+    /// <summary>
+    /// Build an empty tree in a folder of its own. With <paramref name="onSystemVolume"/> the tree is built under
+    /// the user's local application data folder, which is on the system volume, instead of under the temporary
+    /// folder, which follows the TEMP variable and may be on any volume.
+    ///
+    /// WHY A TEST WOULD ASK FOR THE SYSTEM VOLUME. By default Windows keeps 8.3 short names on the system volume
+    /// only; on every other volume the short form of a path is the path itself. A test whose proof is built on a
+    /// short name therefore proves nothing when TEMP points at another volume - and the release gate does exactly
+    /// that when the system volume is short of space. On 17 October 2026 the v2.23.0 release gate ran with TEMP on
+    /// D: and <see cref="WindowsShortPath"/> refused, correctly, to build a proof on a short name that was not short.
+    /// </summary>
+    /// <param name="name">A short name for the test, used in the folder name so a stray tree can be traced.</param>
+    /// <param name="onSystemVolume">Build under the local application data folder rather than under TEMP.</param>
+    public FixtureTree(string name, bool onSystemVolume)
     {
+        var home = onSystemVolume
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create), "Temp")
+            : Path.GetTempPath();
         Root = Path.Combine(
-            Path.GetTempPath(),
+            home,
             "cc-reclaim-tests",
             $"{name}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(Root);

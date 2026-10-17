@@ -130,6 +130,11 @@ public sealed class LicenseApproverStore
         return all;
     }
 
+    /// <summary>Every approver of this account, in account email order, with NO log line: for the once-a-minute approver
+    /// alarm, which must leave no trace when there is nothing to say (the ruling on the review of pull request 3936,
+    /// finding 9, that every minute check follows). A read that fails still throws.</summary>
+    internal IReadOnlyList<LicenseApprover> ListQuietly(TenantId tenant) => Read(tenant);
+
     /// <summary>The approver of one account; null when none is set.</summary>
     public LicenseApprover? Find(TenantId tenant, string? accountEmail)
     {

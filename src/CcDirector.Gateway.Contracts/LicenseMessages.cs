@@ -41,6 +41,25 @@ public sealed class LicenseUsageReport
 
     /// <summary>EVERY account this machine holds, active first.</summary>
     public List<LicenseHolding> Holdings { get; set; } = new();
+
+    /// <summary>Set on the one report sent after the machine was found switched BY HAND (contract section 2.6): an
+    /// account signed in straight into the default config while it was also held as a spare. Null on every other
+    /// report.</summary>
+    public LicenseHandSwitch? SwitchedByHand { get; set; }
+}
+
+/// <summary>
+/// The machine was switched by hand (contract section 2.6): someone signed <see cref="AccountEmail"/> in straight into
+/// the default config while the machine also held it as a spare. The stale spare was moved to a backup on the machine,
+/// so the report holds the account once, as the active one. Only an email and a time - never a folder or a key.
+/// </summary>
+public sealed class LicenseHandSwitch
+{
+    /// <summary>The account now active; lower-cased. It is the report's active holding.</summary>
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>When the Director's key store moved the stale spare to its backup, by the machine's clock.</summary>
+    public DateTime HealedAtUtc { get; set; }
 }
 
 /// <summary>One sign-in this machine has, active or spare - its account and its last usage numbers. Never the key.</summary>
@@ -296,6 +315,9 @@ public static class LicenseRenewalErrors
     /// <summary>The approving browser profile is not signed in to claude.ai.</summary>
     public const string BrowserNotSignedIn = "browser-not-signed-in";
 
+    /// <summary>The approving browser profile is signed in to claude.ai, but the approval page asks for a fresh sign-in first.</summary>
+    public const string NeedsFreshSignIn = "needs-fresh-sign-in";
+
     /// <summary>No browser profile is set for the account, here or on another machine.</summary>
     public const string NoApprover = "no-approver";
 
@@ -311,7 +333,7 @@ public static class LicenseRenewalErrors
     /// <summary>Every word above. A value outside it is never carried: it could be anything a tool printed.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
-        LoginFailed, ApprovalFailed, WrongAccount, BrowserNotSignedIn, NoApprover, ApproverOffline, Expired, StoreRefused,
+        LoginFailed, ApprovalFailed, WrongAccount, BrowserNotSignedIn, NeedsFreshSignIn, NoApprover, ApproverOffline, Expired, StoreRefused,
     };
 }
 
@@ -333,8 +355,28 @@ public static class LicenseSignInOutcomes
 /// <summary>Why the Gateway asked for a sign-in (contract section 8.4).</summary>
 public static class LicenseSignInReasons
 {
+    /// <summary>"Add a spare", asked for by a person on the Licenses page.</summary>
     public const string Manual = "manual";
+
+    /// <summary>"Renew now", asked for by a person on the Licenses page.</summary>
     public const string Renewal = "renewal";
+
+    /// <summary>A new spare the Gateway started on its own, because a machine was not ready for the account it would
+    /// switch to next (License Switching phase 6, readiness).</summary>
+    public const string AutomaticSpare = "auto-spare";
+
+    /// <summary>A renewal the Gateway started on its own, because the sign-in a machine holds for the account it would
+    /// switch to next was refused or expires too soon (License Switching phase 6, readiness).</summary>
+    public const string AutomaticRenewal = "auto-renewal";
+
+    /// <summary>True for a word of this list.</summary>
+    public static bool IsKnown(string? reason) => reason is Manual or Renewal or AutomaticSpare or AutomaticRenewal;
+
+    /// <summary>True when the sign-in renews one the machine already holds; false when it adds a new spare.</summary>
+    public static bool IsRenewal(string? reason) => reason is Renewal or AutomaticRenewal;
+
+    /// <summary>True when the Gateway started the sign-in on its own, with no person asking.</summary>
+    public static bool IsAutomatic(string? reason) => reason is AutomaticSpare or AutomaticRenewal;
 }
 
 /// <summary>Why a <see cref="LicenseUsageReport"/> was sent (contract section 2.3).</summary>
