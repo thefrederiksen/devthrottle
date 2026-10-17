@@ -64,4 +64,5 @@ host's link from the report to the alarm taken out.
 
 ## Gate for this pull request
 
-TEMP on D:. `.\scripts\test-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: see the result recorded below.
+TEMP on D:. `.\scripts\test-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN at commit `b261d5aae` (clean tree, `origin/main` merged in): Gateway.UnitTests 997, Gateway.Tests 23 (every
+`LicenseSignInHostedTests` case), Core.UnitTests 188, Avalonia 32.
