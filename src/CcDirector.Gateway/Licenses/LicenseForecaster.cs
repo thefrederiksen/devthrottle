@@ -60,8 +60,8 @@ public sealed record LicenseForecast(IReadOnlyList<LicenseAccountForecast> Accou
 /// rate. A rate of zero or less means the window is not expected to reach the threshold. A window expected to
 /// reset before it reaches the threshold is not expected to reach it.
 ///
-/// The next switch's target is the engine's own choice (<see cref="LicenseDecisionEngine.ChooseTarget"/>) on
-/// TODAY'S numbers - the forecast does not project the other accounts forward, so the page labels it as the
+/// The next switch's target is the engine's own choice (<see cref="LicenseDecisionEngine.NextTarget"/>), chosen on
+/// the account's merits and named whenever an account has room, on TODAY'S numbers - the forecast does not project the other accounts forward, so the page labels it as the
 /// target if the switch happened now.
 /// </summary>
 public static class LicenseForecaster
@@ -95,7 +95,7 @@ public static class LicenseForecaster
         if (soonest is { ExpectedTiredAtUtc: { } at, ExpectedTiredWindow: { } window })
         {
             var source = Normalize(soonest.AccountEmail);
-            var target = LicenseDecisionEngine.ChooseTarget(snapshot, source, LicenseDecisionEngine.SwitchableMachines(snapshot, source));
+            var target = LicenseDecisionEngine.NextTarget(snapshot, source);
             next = new LicenseNextSwitch(source, at, window, target);
         }
 

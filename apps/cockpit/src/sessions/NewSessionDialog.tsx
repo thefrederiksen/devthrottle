@@ -16,6 +16,12 @@ import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting
 import { useDismissOnBackdrop } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { reposFilterFirst } from "@devthrottle/client-core/sessions/filter";
+import ConnectionChoiceRow from "@devthrottle/client-core/sessions/ConnectionChoiceRow";
+import {
+  connectionSummary,
+  connectionToSend,
+  TERMINAL_CONNECTION,
+} from "@devthrottle/client-core/sessions/connectionChoice";
 
 const SURFACE = "cockpit-new-session";
 
@@ -339,13 +345,15 @@ export function addOutcome(result: RepoAddResult, listedNow: boolean): string {
 
 // The one-line summary of what will launch, e.g. "Claude Code . Opus 4.8 . skips permission prompts".
 // Mirrors the desktop dialog telling you the agent and the model it will use (issue #1497). A factory, when one is
-// named, is said too, so the owner sees before starting it that the session will be in that factory.
-export function launchSummary(agent: AgentChoice | null, bypass: boolean, factory = ""): string {
+// named, is said too, so the owner sees before starting it that the session will be in that factory. So is a connection
+// other than the terminal (API mode mission #4070), in the Gateway's words; terminal is the default and says nothing.
+export function launchSummary(agent: AgentChoice | null, bypass: boolean, factory = "", connection: string | null = null): string {
   if (agent === null) return "Pick an agent above.";
   const model = agent.modelLabel.trim() || "its default model";
   const permission = bypass ? "skips permission prompts" : "asks for permissions";
   const inFactory = factory.trim().length > 0 ? ` . in factory ${factory.trim()}` : "";
-  return `${agent.displayName} . ${model} . ${permission}${inFactory}`;
+  const connected = connection !== null ? ` . ${connection}` : "";
+  return `${agent.displayName} . ${model} . ${permission}${connected}${inFactory}`;
 }
 
 export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filterRepos }: NewSessionDialogProps) {
@@ -366,6 +374,9 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filter
   const [agents, setAgents] = useState<AgentChoice[] | null>(null);
   const [agentsStatus, setAgentsStatus] = useState<string | null>(null);
   const [selectedAgentType, setSelectedAgentType] = useState<string | null>(null);
+  // How the session is connected (API mode mission #4070). Terminal every time the dialog opens - the owner's ruling
+  // is that terminal stays the default - and not remembered, so API mode is always a deliberate click.
+  const [connection, setConnection] = useState<string>(TERMINAL_CONNECTION);
 
   // The path box is the one place a repository path lives, exactly as the desktop tab's PathInput is:
   // selecting a row writes that row's path here, and a row reads as selected while it matches. One
@@ -550,6 +561,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filter
           agent: agentType,
           bypassPermissions: permission.bypass,
           factory,
+          connectionMode: connectionToSend(selectedAgent, connection),
           signal: undefined,
         });
         const sid = session.sessionId;
@@ -562,7 +574,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filter
         setCreating(false);
       }
     },
-    [creating, selectedId, agents, selectedAgentType, permission.bypass, permissionKey, factory, onCreated],
+    [creating, selectedId, agents, selectedAgentType, selectedAgent, connection, permission.bypass, permissionKey, factory, onCreated],
   );
 
   // Register the path in the box on the selected machine, then RE-READ the one list and say what
@@ -849,6 +861,15 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filter
               </div>
             )}
 
+            {/* Connection: Terminal | API mode - only for an agent the Gateway offers both (API mode mission #4070). */}
+            <ConnectionChoiceRow
+              agent={selectedAgent}
+              chosen={connection}
+              onChoose={setConnection}
+              idPrefix="newsess"
+              disabled={creating}
+            />
+
             <div className="newsess-opt-label" id="newsess-permission-label">
               Permission mode
             </div>
@@ -890,7 +911,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId, filter
 
             <div className="newsess-opt-label">This session will start as</div>
             <div className="newsess-args mono" aria-live="polite">
-              {launchSummary(selectedAgent, permission.bypass, factory)}
+              {launchSummary(selectedAgent, permission.bypass, factory, connectionSummary(selectedAgent, connection))}
             </div>
           </div>
 

@@ -54,7 +54,7 @@ public sealed class DefinitionTriggerSeatStartTests : IDisposable
         var check = FactoryDefinitionCheck.Check(content, Factory, DefinitionFixture.FleetSkills, DefinitionFixture.Machines,
             DefinitionCheckPurpose.Publish, DefinitionFixture.NotConnected(content));
         var published = new FactoryPublishApply(db).Publish(Tenant, Factory, draft.Version!.Version, check.Definition!, content,
-            replaces: null, "the owner", Now.AddMinutes(-4));
+            replaces: null, FactoryPublisher.Person("the owner"), Now.AddMinutes(-4));
         Assert.True(published.Write.Ok, published.Write.Refusal);
     }
 

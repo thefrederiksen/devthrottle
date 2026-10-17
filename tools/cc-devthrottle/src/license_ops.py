@@ -66,6 +66,15 @@ def _open(default_config_dir: Optional[str], store_dir: Optional[str]) -> Licens
 def _report_recovery(store: LicenseStore) -> None:
     if store.last_recovery:
         axi_cli.warn(store.last_recovery)
+    for heal in store.last_heals:
+        axi_cli.warn(f"{heal.account} was signed in by hand into the default folder while it was also held as a "
+                     f"spare; the stale spare was moved from {heal.moved_from} to {heal.moved_to}")
+
+
+def healed_json(store: LicenseStore) -> list:
+    """The `healed` field of a `--json` answer: every hand sign-in this run healed (see
+    `LicenseStore._heal_hand_sign_in`). The Director reads it to tell the Gateway the machine was switched by hand."""
+    return [heal.to_json() for heal in store.last_heals]
 
 
 def _run(store: LicenseStore, action):
@@ -94,6 +103,7 @@ def list_accounts(default_config_dir: Optional[str], store_dir: Optional[str], f
             "defaultConfigDir": store.default_config_dir,
             "storeDir": store.store_dir,
             "recovered": store.last_recovery,
+            "healed": healed_json(store),
             "accounts": [a.to_json() for a in accounts],
         }, indent=2))
         return

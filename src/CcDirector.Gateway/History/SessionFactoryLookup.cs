@@ -31,6 +31,10 @@ public readonly record struct SessionFactoryLookup
     /// <summary>The published definition version the session's kit was built from; null when it is no seat.</summary>
     public int? DefinitionVersion { get; }
 
+    /// <summary>The session's name as its history row holds it now, or null when it has none (Factory Definition
+    /// mission, phase 6c): what a publish by a session records beside its id, so the history says which session it was.</summary>
+    public string? Name { get; init; }
+
     /// <summary>True when the session is in a factory AND carries a seat and its version: what a child inherits.</summary>
     public bool HasASeat => IsInAFactory && !string.IsNullOrWhiteSpace(Seat) && DefinitionVersion is not null;
 

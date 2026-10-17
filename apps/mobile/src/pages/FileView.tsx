@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { classifyFile, formatFileSize } from "@devthrottle/client-core/history/fileTypes";
 import type { FileViewerType } from "@devthrottle/client-core/history/fileTypes";
 import {
@@ -13,6 +13,7 @@ import {
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { isFolder, refusalSentence, usePathStatus } from "@devthrottle/client-core/history/usePathStatus";
 import { reportShownError } from "@devthrottle/client-core/errors/reportClientError";
+import { FolderListing } from "@devthrottle/client-core/history/FolderListing";
 
 const SURFACE = "mobile-file-view";
 const IMAGE_FAILED = "Could not load image. The file may be missing (404) or the session's machine offline.";
@@ -35,7 +36,12 @@ const IMAGE_FAILED = "Could not load image. The file may be missing (404) or the
 // usePathStatus, the same question the Cockpit viewer asks). A path that is not on disk, not allowed for this
 // session, or a folder shows the Director's own sentence and nothing else - never "Could not load file: 400",
 // and never the Gateway's error JSON drawn inside a PDF frame. Every other failure also shows the Director's
-// sentence when the Gateway carried one. (Opening a folder as a listing on the phone is follow-up work.)
+// sentence when the Gateway carried one.
+//
+// Issue #4084: a FOLDER opens as a listing - the shared client-core FolderListing the Cockpit viewer uses, over
+// the same GET /sessions/{sid}/folder and the same Director decision, so each entry is already filtered to what
+// opening it would admit. Choosing an entry opens it as its OWN page (every view on the phone is a route), with
+// this folder's page as its ?from=, so Back returns to the folder and Back again to where the folder was opened.
 //
 // The absolute file path rides as a ?path= query param so a hard reload / deep link resolves it too
 // (route state would be lost on refresh). The shell shows immediately; the text-fetching modes show
@@ -114,25 +120,35 @@ export function FileView() {
 // The page once there is a session and a path: ask the Director what the path is, then render accordingly.
 function FileViewFor({ sessionId, path, goBack }: { sessionId: string; path: string; goBack: () => void }) {
   const state = usePathStatus(sessionId, path, SURFACE);
+  const navigate = useNavigate();
+  const location = useLocation();
   const type = classifyFile(path);
   const url = sessionFileUrl(sessionId, path);
   const name = baseName(path);
   const refusal = refusalSentence(state);
   const folder = isFolder(state);
-  const shown = refusal ?? (folder && state.kind === "known" ? state.status.sentence : null);
+  const shown = refusal;
+
+  // An entry of the listing opens as its own page; this folder's page is where its Back returns.
+  const openFromFolder = (entryPath: string) => {
+    const here = `${location.pathname}${location.search}`;
+    navigate(`/session/${sessionId}/file?path=${encodeURIComponent(entryPath)}&from=${encodeURIComponent(here)}`);
+  };
 
   return (
     <div className="terminal-screen">
       <header className="app-bar">
         <button type="button" className="file-view-back" onClick={goBack}>Back</button>
         <h1 className="term-title" title={path}>{name}</h1>
-        {state.kind !== "loading" && shown === null && <DownloadButton url={url} name={name} sessionId={sessionId} />}
+        {state.kind !== "loading" && shown === null && !folder && <DownloadButton url={url} name={name} sessionId={sessionId} />}
       </header>
       <div className="file-view-body">
         {state.kind === "loading" ? (
           <div className="file-view-loading">Loading...</div>
         ) : shown !== null ? (
           <div className="file-view-error">{shown}</div>
+        ) : folder ? (
+          <FolderListing sessionId={sessionId} path={path} onOpen={openFromFolder} surface={SURFACE} />
         ) : (
           <FileViewContent type={type} url={url} name={name} sessionId={sessionId} path={path} />
         )}

@@ -846,7 +846,8 @@ OPTIONS:
   --repo         Only this repository: its folder name or full path.
   --machine      Only sessions on this machine.
   --fields       Fields to show, comma separated. Default: id,name,state,repo.
-                 Valid: id, name, state, repo, machine, number, model, agent, mission, path.
+                 Valid: id, name, state, repo, machine, number, model, agent, mission, path, connection.
+  --connection   Only sessions connected this way: terminal or api (API mode).
 ```
 
 The output follows the command-line output standard (`docs/axi-standard.md`): a `count:` line, then
@@ -861,7 +862,7 @@ sessions[2]{id,name,state,repo}:
 help[5]:
   cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
   cc-devthrottle message send <session-id> "<message>"
-  cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path
+  cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path,connection
   cc-devthrottle session list --json
   cc-devthrottle session whoami
 ```
@@ -879,12 +880,13 @@ help[5]:
   crashed, otherwise `needs-you`, `snoozed`, or - for an active session - `working` while the agent
   is working and `ready` when it is not. An unknown triage verdict, or a session with no id, exits 1
   rather than being guessed at.
-- **Filters** (`--state`, `--repo`, `--machine`) can be combined, and every one of them applies to
+- **Filters** (`--state`, `--repo`, `--machine`, `--connection`) can be combined, and every one of them applies to
   `--json` as well: the output is the same bare array, narrowed. `--repo` matches the repository
   folder name, ignoring case but not spaces, or the full path - a Windows path ignoring case and
   slash direction, any other path exactly (as `repo list` and `worktree list` do); `--machine`
   ignores case. An
-  unknown state exits 2 and lists the valid states.
+  unknown state exits 2 and lists the valid states, and an unknown `--connection` value exits 2 and lists
+  `terminal, api`.
 - **An empty answer says so**: `count: 0` for an empty fleet, and `count: 0 of N total` when a
   filter matched nothing. With `--json` it is `[]`.
 - **`--json`** without a filter prints exactly what the Gateway returned. Any caution that the list
@@ -896,6 +898,11 @@ says which kind of absence it is rather than being blank: `no model yet` for a s
 recorded yet (it is read at each turn-end), `model not reported` for an agent that cannot report one
 at all (Gemini, Cursor - it is never coming), and `(unknown)` when the Gateway sent no verdict for
 that row.
+
+The `connection` field is how the Director drives that session's agent: `terminal` (typing into its
+terminal, the default) or `api` (API mode: the agent's own protocol - Pi today; API mode mission #4070). A
+row from a Gateway or Director older than API mode carries no connection and reads `terminal`, which is
+what every such session is.
 
 ### Session Whoami
 
@@ -1253,7 +1260,15 @@ OPTIONS:
   --command-args TEXT   For --agent RawCli: arguments for the command
   --controlled-by TEXT  WHO OWNS IT: 'self' or 'none'. Required from a session
   --standalone          The USER owns it: no controller (same as --controlled-by none)
+  --connection TEXT     How the agent is driven: terminal (default) or api (API mode)
 ```
+
+**`--connection api` starts the agent in API mode** (API mode mission #4070): the Director speaks the
+agent's own protocol instead of typing into its terminal - Pi today. Without the flag nothing is sent and
+the session starts in its terminal, as always. An unknown value exits 2 before anything is sent. API mode
+is refused, with the reason printed and exit 1, while the Gateway does not offer it yet ("API mode is not
+offered yet ...", until taking the wheel is built) and for an agent whose wrapper has no API mode ("Claude
+Code cannot be started in API mode: its wrapper speaks only through the terminal.").
 
 Prints the new session's short id and full GUID, then `help[]` lines that name the new session by
 its full id; the session then appears in `cc-devthrottle session list`. A non-existent repository
@@ -2006,7 +2021,7 @@ Which version a run or a talk was given is kept:
 A factory's whole definition held on the Gateway (Factory Definition mission, phase 1): `factory.yaml`, one
 file per seat under `seats/`, `grants.yaml`, rule sets under `rules/`, files under `files/`, checks under
 `checks/` and the factory's own skills under `skills/`. The Gateway keeps every version. A draft needs no
-registration. From phase 4 a person's `publish` and `restore` DRIVE the factory: its registry row, its schedules
+registration. From phase 4 a `publish` and a `restore` DRIVE the factory: its registry row, its schedules
 and its triggers are written from the definition in one transaction. A factory with no published definition runs
 exactly as before.
 
@@ -2014,6 +2029,8 @@ exactly as before.
 USAGE: cc-devthrottle factory definition COMMAND FACTORY [OPTIONS]
 
 COMMANDS:
+  create FOLDER-OR-ZIP [--note TEXT]                  a NEW factory from a folder or a zip of it: its first draft,
+                                                      checked; never published. Refused for an id that is taken
   get FACTORY [--draft | --version N] [--file PATH]   the published version: a summary and the file list;
                                                       --draft for the newest, --version for one by its number;
                                                       --file prints that one file's text
@@ -2021,10 +2038,10 @@ COMMANDS:
   save FACTORY --dir FOLDER --expected-version N [--note TEXT]
                                                       save every file under FOLDER as a new draft
   publish FACTORY --version N [--replaces N]          publish one version, drive the factory to it, and print what
-                                                      changes and what it applied - a person only
+                                                      changes and what it applied - never a factory's own session
   restore FACTORY --version N [--expected-version N] [--replaces N]
                                                       publish a copy of an older version as the newest, and drive
-                                                      the factory to it - a person only
+                                                      the factory to it - never a factory's own session
   diff FACTORY [--from N] [--to M]                    what changes: by default from the published version to the
                                                       newest; also the published version and what a publish would do
   schemas [--out FOLDER]                              the JSON Schemas the check enforces, one per file type
@@ -2034,9 +2051,21 @@ COMMANDS:
 `get --json` prints only that file (`factory`, `version`, `path`, `text`) - the filter applies to `--json`
 too. Plain output prints anything that is not printable ASCII as an escape; `--json` gives the exact text.
 
-**Who may use them.** A person, or a session of that factory. A session of another factory, or of none, is
-refused in the same words a factory's schedules and briefs use. The account's shared machine token and a
-Director may read and may not write, because every version records who wrote it.
+**Who may use them (the owner's ruling of 16 October 2026, phase 6c).** "Factories are created by agents as long as
+they have user approval." The owner creates a factory by telling a session what to make; his word in that session
+is the approval, and the Gateway asks for nothing more. So a person, and a session in no factory, may use every
+command for any factory: `create`, `save`, `publish`, `restore`. A factory's own session may read and `save` drafts
+of its own factory only; its `publish`, `restore` and `create` are refused with a sentence saying so (outcome
+`FactorySessionMayNotPublish`), because "Factory agents can be written by large language models, but it's the user
+driving it." A session of another factory is refused in the same words a factory's schedules and briefs use. The
+account's shared machine token and a Director may read and may not write, because every version records who wrote
+it, and every publish who published it: the person, or the session's id and name (`get` prints "Published by ...",
+`history` prints it under `publishedBy`).
+
+**Making a factory from a folder, end to end:** `create <folder>` stores version 1 as a draft (refused, with the
+command to run instead, when the id is already a factory or already has a draft); `diff <factory> --to 1` prints
+what publishing it would do; `publish <factory> --version 1 --replaces 0` publishes it and registers the factory,
+with its schedules.
 
 **Every write is checked first.** `save`, `publish` and `restore` run the whole-definition check on the
 Gateway, with the account's fleet skills and the machines its Directors report now. Any error refuses the
@@ -2048,15 +2077,15 @@ even though the version was checked when it was saved, because the account's ski
 **Draft, then published.** `save` adds a draft version. A person publishes one version, and the published
 definition is the highest version that is published. Publishing does not go backwards: `restore` publishes a
 copy of an older version as the newest, recording which version it copied, and the versions in between stay
-in the history. With a session's key, `publish` and `restore` are refused by the Gateway with "Only a person
-publishes a factory's definition..." and exit 1; a session saves a draft and the owner publishes it. A
-session is refused another draft while 20 wait above the published version.
+in the history. With a factory's own session's key, `publish` and `restore` are refused by the Gateway with "A
+session of factory '...' may not publish a factory's definition..." and exit 1; that session saves a draft and the
+owner publishes it. A session is refused another draft while 20 wait above the published version.
 
 **What changes.** `publish` and `restore` print what changes against the version that was published before,
 and `diff` prints it between any two versions. Every sentence, detail and line difference is composed on the
 Gateway and printed as it is; the command decides nothing.
 
-**A publish drives the factory (phase 4).** A person's `publish` or `restore` writes the publish mark, the
+**A publish drives the factory (phase 4).** A `publish` or `restore` writes the publish mark, the
 factory's registry row, its schedules and its triggers in ONE database transaction. The registry row takes the
 title, boss, goal and purpose from `factory.yaml`, the computer from `defaults.machine`, one seat per seat file
 (each seat's brief file is now `seats/<seat>.yaml`), and keeps its folder. Each `cron` start of a seat becomes a

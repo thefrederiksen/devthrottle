@@ -267,4 +267,91 @@ public sealed class LicenseUsageReporterTests : IDisposable
         var report = await _reporter.TickAsync(CancellationToken.None);
         Assert.Equal(LicenseReportTriggers.Connected, report!.Trigger);
     }
+
+    [Fact]
+    public async Task TickAsync_TheActiveKeysRenewalFailed_TheReportSaysTheAccountNeedsANewSignIn()
+    {
+        // Phase 6: the tool renews the active key in place when no session uses it. A renewal that fails comes back as
+        // the active row's refresh-failed, and the report says so in the Director's own words - never silently.
+        _tool.ReadErrors["account-a@example.com"] = LicenseReadErrors.RefreshFailed;
+
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        var active = report!.Holdings.Single(h => h.IsActive);
+        Assert.Equal(LicenseReadErrors.RefreshFailed, active.ReadError);
+        Assert.Equal("The stored sign-in could not be renewed; the account needs a new sign-in.", active.ReadErrorDetail);
+    }
+
+    // ---- a hand sign-in the key store healed (contract 2.6) ----
+
+    private static LicenseHandSwitch Healed(string email) => new() { AccountEmail = email, HealedAtUtc = new DateTime(2026, 10, 11, 3, 1, 0, DateTimeKind.Utc) };
+
+    private void SignedInByHand(string email)
+    {
+        // What the key store leaves after it healed: the account active and held once, and the heal in the answer.
+        _tool.Held.Clear();
+        _tool.Hold(email, active: true);
+        _tool.Healed.Add(Healed(email));
+    }
+
+    [Fact]
+    public async Task TickAsync_TheStoreHealedAHandSignIn_TheNextReportSaysSoOnceAndHoldsTheAccountOnce()
+    {
+        // The report after the heal is sent at once ("changed"), holds the account once, as active, and says the
+        // machine was switched by hand; the report after it no longer says so.
+        await _reporter.TickAsync(CancellationToken.None);
+        SignedInByHand("account-b@example.com");
+        _clock.Advance(TimeSpan.FromSeconds(30));
+
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseReportTriggers.Changed, report!.Trigger);
+        Assert.Equal(new[] { ("account-b@example.com", true) }, report.Holdings.Select(h => (h.AccountEmail, h.IsActive)));
+        Assert.Equal("account-b@example.com", report.SwitchedByHand!.AccountEmail);
+
+        _clock.Advance(LicenseContract.ReportInterval);
+        var next = await _reporter.TickAsync(CancellationToken.None);
+        Assert.Null(next!.SwitchedByHand);
+        Assert.Single(_sink.Sent, r => r.SwitchedByHand is not null);
+    }
+
+    [Fact]
+    public async Task TickAsync_ASendThatFails_KeepsTheHandSwitchForTheNextReport()
+    {
+        await _reporter.TickAsync(CancellationToken.None);
+        SignedInByHand("account-b@example.com");
+        var failing = new ThrowingSink();
+        _reporter.AttachSink(failing);
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        await Assert.ThrowsAsync<IOException>(() => _reporter.TickAsync(CancellationToken.None));
+
+        _reporter.AttachSink(_sink);
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.Equal("account-b@example.com", report!.SwitchedByHand!.AccountEmail);
+    }
+
+    [Fact]
+    public async Task TickAsync_TheMachineMovedOnBeforeTheReport_TheHandSwitchIsDroppedNotSentAsAMalformedReport()
+    {
+        // A switch made another account active before the report went: naming the hand-signed account would make the
+        // whole report malformed at the Gateway, so the sentence is dropped and the report goes without it.
+        await _reporter.TickAsync(CancellationToken.None);
+        _tool.Healed.Add(Healed("account-b@example.com"));   // healed, but account-a is active again by the time it is read
+        _clock.Advance(TimeSpan.FromSeconds(30));
+
+        var report = await _reporter.TickAsync(CancellationToken.None);
+
+        Assert.Equal(LicenseReportTriggers.Changed, report!.Trigger);
+        Assert.Null(report.SwitchedByHand);
+        Assert.Equal("account-a@example.com", report.Holdings.Single(h => h.IsActive).AccountEmail);
+    }
+
+    private sealed class ThrowingSink : ILicenseReportSink
+    {
+        public bool CanSend => true;
+
+        public Task SendAsync(LicenseUsageReport report, CancellationToken cancellationToken) => throw new IOException("the tunnel dropped");
+    }
 }

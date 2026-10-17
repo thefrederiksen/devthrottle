@@ -94,6 +94,12 @@ if ($PSBoundParameters.ContainsKey('Files')) {
 } else {
     $changed = @(& git -C $repoRoot diff --name-only "$Base...HEAD" 2>$null)
     if ($LASTEXITCODE -ne 0) { $changed = @() }
+    else {
+        # The gate runs on a dirty tree too, and records it as dirty - so what it has NOT committed yet is part
+        # of the change it is judging. Edits in the working tree and the index, and new untracked files.
+        $changed = @($changed + @(& git -C $repoRoot diff --name-only HEAD) +
+                     @(& git -C $repoRoot ls-files --others --exclude-standard) | Where-Object { $_ } | Select-Object -Unique)
+    }
 }
 if ($changed.Count -eq 0) {
     # No diff, or the base is unknown. Both mean "cannot reason about this change" -> run everything.

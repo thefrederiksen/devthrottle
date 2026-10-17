@@ -300,7 +300,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
 
         Assert.Equal(403, Status(other));
         Assert.Equal(403, Status(machine));
-        Assert.Equal("a factory's definition is written by a person, or by a session of that factory", Field(machine, "error"));
+        Assert.Equal("a factory's definition is written by a person, or by a session of that factory or of none", Field(machine, "error"));
         Assert.Null(_store.Standing(A, TheFactory).Newest);
     }
 
@@ -328,7 +328,7 @@ public sealed class FactoryDefinitionExportImportEndpointsTests : IDisposable
         {
             var refused = Import(Machine(), content);
             Assert.Equal(403, Status(refused));
-            Assert.Equal("a factory's definition is written by a person, or by a session of that factory", Field(refused, "error"));
+            Assert.Equal("a factory's definition is written by a person, or by a session of that factory or of none", Field(refused, "error"));
         }
     }
 

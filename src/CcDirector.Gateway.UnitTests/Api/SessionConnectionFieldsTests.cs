@@ -4,9 +4,9 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
-using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Tenancy;
+using CcDirector.Gateway.Tests.Data;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.SignalR;
@@ -35,6 +35,7 @@ public sealed class SessionConnectionFieldsTests : IDisposable
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-connection-fields-" + Guid.NewGuid().ToString("N"));
+    private readonly GatewayDbTestHarness _harness = new();
     private readonly DirectorRegistry _registry;
     private readonly PushedSessionStore _pushed = new();
     private WebApplication? _app;
@@ -55,6 +56,7 @@ public sealed class SessionConnectionFieldsTests : IDisposable
             _app.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         _registry.Dispose();
+        _harness.Dispose();
         try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
     }
 
@@ -156,6 +158,28 @@ public sealed class SessionConnectionFieldsTests : IDisposable
         Assert.Equal(("terminal", "none"), roster["s-old"]);
     }
 
+    [Fact]
+    public async Task GetSessions_ApiModeAndTerminalSessions_StampsTheApiModeTagOnlyOnTheApiModeRow()
+    {
+        // Arrange (API mode mission, phase 5): the roster's tag is the Gateway's words, so no client reads the mode word.
+        await StartAsync();
+        Push(
+            new SessionDto { SessionId = "s-api", Agent = "Pi", ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol },
+            new SessionDto { SessionId = "s-terminal", Agent = "Pi", ConnectionMode = ConnectionModes.Terminal });
+
+        // Act
+        using var response = await _http!.GetAsync("/sessions");
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var tags = doc.RootElement.EnumerateArray().ToDictionary(
+            row => row.GetProperty("sessionId").GetString()!,
+            row => row.TryGetProperty("connectionTag", out var tag) && tag.ValueKind == JsonValueKind.String ? tag.GetString() : null);
+        Assert.Equal("API mode", tags["s-api"]);
+        Assert.Null(tags["s-terminal"]);
+    }
+
     // ---- helpers ------------------------------------------------------------------------------------------------
 
     /// <summary>A session as a Director that predates the connection fields sends it: the same member names as
@@ -221,7 +245,7 @@ public sealed class SessionConnectionFieldsTests : IDisposable
         var app = builder.Build();
         app.UseRouting();
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
-            tenantBoundary: new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(), hosted: false),
+            tenantBoundary: new HostedTenantBoundary(new SingleTenantContext(), _harness.OpenDevices(), hosted: false),
             aiGate: TenantAiGate.SelfHost, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
             pushedSessions: _pushed);
         await app.StartAsync();

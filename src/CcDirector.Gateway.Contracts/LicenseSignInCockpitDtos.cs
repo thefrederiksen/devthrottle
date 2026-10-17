@@ -29,8 +29,12 @@ public static class LicenseSignInRoutes
 /// <summary>Whether the machine set to approve an account can approve a sign-in now.</summary>
 public static class LicenseApproverStatuses
 {
-    /// <summary>Its Director is connected.</summary>
+    /// <summary>Its Director is connected, and its last check, within the not-checked window, found it can approve.</summary>
     public const string Ready = "ready";
+
+    /// <summary>Its Director is connected, but its health says it cannot approve now: its last check found a problem,
+    /// or it has not been checked in the not-checked window. <see cref="LicenseApproverDto.HealthText"/> says which.</summary>
+    public const string CannotApprove = "cannot-approve";
 
     /// <summary>The machine has reported to this account, and its Director is not connected now.</summary>
     public const string NotConnected = "not-connected";
@@ -64,7 +68,8 @@ public sealed class LicenseApproverDto
     public string MachineName { get; set; } = "";
     public string OsUser { get; set; } = "";
 
-    /// <summary>The browser profile on that machine that is signed in to claude.ai as the account.</summary>
+    /// <summary>The IDENTIFIER of the browser profile on that machine that is signed in to claude.ai as the account
+    /// (the Director's identifier, for example "work-chrome", never its display name).</summary>
     public string BrowserProfile { get; set; } = "";
 
     /// <summary>The identifier of the machine's row in the overview's machines; null when no such machine has reported.</summary>
@@ -73,13 +78,14 @@ public sealed class LicenseApproverDto
     /// <summary>What to call the machine: see <see cref="LicenseMachineRefDto.Label"/>.</summary>
     public string Label { get; set; } = "";
 
-    /// <summary>The machine's Director is connected, so a sign-in can be approved there now.</summary>
+    /// <summary>The machine's Director is connected and the approver's health says it can approve, so a sign-in can be
+    /// approved there now.</summary>
     public bool CanApproveNow { get; set; }
 
     /// <summary>One of <see cref="LicenseApproverStatuses"/>.</summary>
     public string Status { get; set; } = "";
 
-    /// <summary>The label: "Ready", "Not connected" or "Not reporting yet".</summary>
+    /// <summary>The label: "Ready", "Not connected", "Not reporting yet", "Cannot approve" or "Not checked".</summary>
     public string StatusText { get; set; } = "";
 
     /// <summary>One of <see cref="LicenseTones"/>.</summary>
@@ -87,6 +93,32 @@ public sealed class LicenseApproverDto
 
     /// <summary>One or two sentences saying who approves the account and whether that can happen now.</summary>
     public string Text { get; set; } = "";
+
+    /// <summary>The profile's display name as its last check saw it; null until a check has named it. The sentences say
+    /// it in place of <see cref="BrowserProfile"/>, which is the profile's identifier.</summary>
+    public string? BrowserProfileName { get; set; }
+
+    /// <summary>Who made the record: one of <see cref="LicenseApproverSources"/>.</summary>
+    public string Source { get; set; } = "";
+
+    /// <summary>Who made the record, in words: "Set by you." or "Registered by machine-a's Director.".</summary>
+    public string SourceText { get; set; } = "";
+
+    /// <summary>Why no sign-in can reach the approving machine now - it has never reported, or its Director is not
+    /// connected; null when its Director is connected. The profile's own health is <see cref="HealthText"/>.</summary>
+    public string? ReachText { get; set; }
+
+    /// <summary>The record's health now: one of <see cref="LicenseApproverStates"/>, aged by the not-checked rule.</summary>
+    public string State { get; set; } = "";
+
+    /// <summary>When the record was last checked; null when it never was.</summary>
+    public DateTime? CheckedAtUtc { get; set; }
+
+    /// <summary>The finished sentence of the record's health, naming the account, the machine and the profile.</summary>
+    public string HealthText { get; set; } = "";
+
+    /// <summary>The one thing the owner must do so it can approve; null when it can.</summary>
+    public string? WhatToDo { get; set; }
 }
 
 // ---- PUT /gateway/licenses/approvers ----

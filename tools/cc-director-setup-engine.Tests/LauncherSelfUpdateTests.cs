@@ -43,7 +43,8 @@ public class LauncherSelfUpdateTests : IDisposable
             stopLauncher: () => { stops++; return true; },
             startLauncher: () => { starts++; return true; },
             isHealthy: _ => Task.FromResult(true),
-            healthTimeout: TimeSpan.FromSeconds(2));
+            healthTimeout: TimeSpan.FromSeconds(2),
+            isLauncherRunning: () => false);
 
         Assert.Equal(SelfUpdateOutcome.Updated, result.Outcome);
         Assert.Equal("launcher-NEW", File.ReadAllText(_target));            // swapped in
@@ -65,7 +66,8 @@ public class LauncherSelfUpdateTests : IDisposable
             stopLauncher: () => true,
             startLauncher: () => true,
             isHealthy: _ => Task.FromResult(false),    // new build never comes up
-            healthTimeout: TimeSpan.FromMilliseconds(200));
+            healthTimeout: TimeSpan.FromMilliseconds(200),
+            isLauncherRunning: () => false);
 
         Assert.Equal(SelfUpdateOutcome.RolledBack, result.Outcome);
         Assert.Equal("launcher-OLD", File.ReadAllText(_target));   // restored from .old
@@ -116,10 +118,71 @@ public class LauncherSelfUpdateTests : IDisposable
             stopLauncher: () => false,                       // the stop did not clear the machine
             startLauncher: () => { starts++; return true; },
             isHealthy: _ => Task.FromResult(true),
-            healthTimeout: TimeSpan.FromMilliseconds(200));
+            healthTimeout: TimeSpan.FromMilliseconds(200),
+            isLauncherRunning: () => true);                  // and the old Launcher is still running
 
         Assert.Equal(SelfUpdateOutcome.Failed, result.Outcome);
         Assert.Equal(0, starts);
+    }
+
+    [Fact]
+    public async Task ALockedFileWithNoLauncherRunning_StartsTheOldBuildAgain_SoTheMachineIsNeverLeftWithout()
+    {
+        // 16 October 2026 (issue #4101): the Launcher obeyed the stop and exited, the file stayed locked
+        // anyway, and the swap gave up starting nothing - no Launcher, and so no updates, for the day.
+        var starts = 0;
+        var su = new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromMilliseconds(200));
+        using var hold = File.Open(_target, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var result = await su.ApplyAsync(
+            _target, _staged, "0.4.0",
+            order: LauncherSwapOrder.StopThenPlaceThenStart,
+            stopLauncher: () => false,
+            startLauncher: () => { starts++; return true; },
+            isHealthy: _ => Task.FromResult(true),
+            healthTimeout: TimeSpan.FromMilliseconds(200),
+            isLauncherRunning: () => false);                 // the Launcher is gone
+
+        hold.Dispose();
+        Assert.Equal(SelfUpdateOutcome.Failed, result.Outcome);
+        Assert.Equal(1, starts);
+        Assert.Equal("launcher-OLD", File.ReadAllText(_target));   // nothing was replaced
+        Assert.Contains("started the old build again", string.Join("\n", result.Steps));
+    }
+
+    [Fact]
+    public async Task ALauncherSlowToLeave_IsWaitedFor_AndTheSwapGoesAhead()
+    {
+        // The first wait for the file runs out while the Launcher is still exiting. Once it has gone and
+        // the file is free, the update is applied rather than abandoned.
+        var su = new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromMilliseconds(200));
+        var hold = File.Open(_target, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var result = await su.ApplyAsync(
+            _target, _staged, "0.4.0",
+            order: LauncherSwapOrder.StopThenPlaceThenStart,
+            stopLauncher: () => true,
+            startLauncher: () => true,
+            isHealthy: _ => Task.FromResult(true),
+            healthTimeout: TimeSpan.FromSeconds(2),
+            isLauncherRunning: () => { hold.Dispose(); return false; });   // it exits, releasing the file
+
+        Assert.Equal(SelfUpdateOutcome.Updated, result.Outcome);
+        Assert.Equal("launcher-NEW", File.ReadAllText(_target));
+    }
+
+    [Fact]
+    public async Task TheWindowsOrder_WithNoWayToTellWhetherALauncherIsRunning_IsRefused()
+    {
+        var su = new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromMilliseconds(200));
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => su.ApplyAsync(
+            _target, _staged, "0.4.0",
+            order: LauncherSwapOrder.StopThenPlaceThenStart,
+            stopLauncher: () => true,
+            startLauncher: () => true,
+            isHealthy: _ => Task.FromResult(true),
+            healthTimeout: TimeSpan.FromSeconds(1)));
     }
 
     [Fact]

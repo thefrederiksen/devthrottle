@@ -158,6 +158,19 @@ describe("Factories - pause everything (issue #3910)", () => {
     expect(cronClient.setCronJobEnabled).not.toHaveBeenCalled();
   });
 
+  it("reads the list again when everything is paused or resumed, since the Gateway then sends no next start", async () => {
+    cronClient.setCronPause.mockImplementation(async (paused: boolean) => (paused ? SCHEDULER_PAUSED : SCHEDULER_RUNNING));
+    renderAt("/factories");
+    await screen.findByTestId("fa-factories-list");
+    const before = screenClient.getFactoriesList.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole("button", { name: "Pause everything" }));
+    await waitFor(() => expect(screenClient.getFactoriesList.mock.calls.length).toBe(before + 1));
+
+    fireEvent.click(within(await screen.findByTestId("schedules-paused-banner")).getByRole("button", { name: "Resume everything" }));
+    await waitFor(() => expect(screenClient.getFactoriesList.mock.calls.length).toBe(before + 2));
+  });
+
   it("opens with the banner when the Gateway says everything is paused", async () => {
     cronClient.getCronPause.mockResolvedValue(SCHEDULER_PAUSED);
     renderAt("/factories");
@@ -198,12 +211,34 @@ describe("Factories - the list (mockup 1)", () => {
     expect(screen.queryByText("Worst first: failing, then needs you, then paused, then running.")).toBeNull();
   });
 
-  it("has the Factories, Activity and Reports tabs, and no All factory agents tab", async () => {
+  it("has the Factories, Activity, Reports and Factory Manager tabs, and no All factory agents tab", async () => {
     renderAt("/factories");
 
     await screen.findByTestId("fa-factories-list");
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Factories", "Activity", "Reports"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Factories", "Activity", "Reports", "Factory Manager"]);
     expect(screen.queryByText(/All factory agents/)).toBeNull();
+  });
+
+  it("keeps the Factory Manager off the Factories tab, and opens it on its own tab at its own address", async () => {
+    renderAt("/factories");
+
+    await screen.findByTestId("fa-factories-list");
+    expect(screenClient.getFactoryManagerCard).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Factory Manager" }));
+    await waitFor(() => expect(screenClient.getFactoryManagerCard).toHaveBeenCalled());
+    expect(where()).toBe("/factories?tab=manager");
+    expect(screen.queryByTestId("fa-factories-list")).toBeNull();
+  });
+
+  it("puts the archived factories and the schedules outside any factory under the factories", async () => {
+    renderAt("/factories");
+
+    const list = await screen.findByTestId("fa-factories-list");
+    const secondary = screen.getByTestId("fa-secondary");
+    expect(list.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(secondary).getByTestId("fa-show-archived")).toBeTruthy();
+    expect(within(secondary).getByTestId("fa-outside")).toBeTruthy();
   });
 
   it("opens a factory's page when its row is clicked", async () => {

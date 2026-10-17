@@ -18,7 +18,8 @@ namespace CcDirector.Gateway.Licenses;
 /// <param name="Accepted">True when at least one switch was written and sent.</param>
 /// <param name="RefusalCode">A <see cref="LicenseManualRefusals"/> word when refused, else null.</param>
 /// <param name="RefusalMessage">One plain sentence when refused, else null.</param>
-/// <param name="TargetAccountEmail">The account the machines were sent to, lower-cased; null when refused.</param>
+/// <param name="TargetAccountEmail">The account the machines were sent to, lower-cased; null when refused, and null when a
+/// Switch now with no target sent them to more than one account (each switch names its own).</param>
 /// <param name="Switches">One per machine sent a switch; empty when refused.</param>
 /// <param name="Skipped">Machines on the source account that were not sent a switch, and why.</param>
 public sealed record LicenseSwitchNowResult(
@@ -271,7 +272,6 @@ public sealed class LicenseSwitchService
             // wrote and sent, and the ones already waiting that it left exactly as they were.
             var answered = new List<string>();
             var alreadyWaiting = 0;
-            string? target = null;
             var gate = GateFor(tenant);
             await gate.WaitAsync(ct).ConfigureAwait(false);
             try
@@ -293,8 +293,7 @@ public sealed class LicenseSwitchService
                 var machines = MachinesByName(overview);
                 foreach (var decision in verdict.Switches)
                 {
-                    target = decision.TargetAccountEmail;
-                    var machine = machines[MachineKey(decision.MachineName, decision.OsUser)];
+                    var machine =machines[MachineKey(decision.MachineName, decision.OsUser)];
                     // A new Switch now is a new decision, so it gets a new switch identifier (contract section 3.6):
                     // a switch still waiting for an offline Director is ended first, never sent beside the new one.
                     if (open.NeverSent.TryGetValue(machine.MachineId, out var waiting))
@@ -341,13 +340,17 @@ public sealed class LicenseSwitchService
 
             await Task.WhenAll(sends.Select(send => SendAsync(tenant, send, ct))).ConfigureAwait(false);
 
+            var targets = new HashSet<string>(StringComparer.Ordinal);
             var switches = answered.Select(switchId =>
             {
                 var row = _store.FindSwitch(tenant, switchId)
                     ?? throw new InvalidOperationException($"Switch {switchId} is in this answer, and its row is gone.");
+                targets.Add(row.ToAccountEmail);
                 return new LicenseSwitchNowMachine(switchId, row.MachineName, row.OsUser, row.State, row.ReasonCode, row.Message);
             }).ToList();
-            FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: switches={switches.Count}, alreadyWaiting={alreadyWaiting}, skipped={skipped.Count}");
+            // One account is named only when every switch in the answer went to it; split moves name none.
+            var target = targets.Count == 1 ? targets.Single() : null;
+            FileLog.Write($"[LicenseSwitchService] SwitchNowAsync: switches={switches.Count}, targets={targets.Count}, alreadyWaiting={alreadyWaiting}, skipped={skipped.Count}");
             return new LicenseSwitchNowResult(true, null, null, target, switches, skipped);
         }
         catch (Exception ex)
@@ -427,7 +430,7 @@ public sealed class LicenseSwitchService
         var machinesById = overview.Machines.ToDictionary(m => m.MachineId);
         var open = Classify(tenant, picture.OpenSwitches);
         var sends = new List<PlannedSend>();
-        var written = 0;
+        var written = WatchSilence(tenant, picture, now);
 
         // 1. Rows whose outcome is not known: ask again with the same identifier, or settle from the machine's report.
         foreach (var row in open.OutcomeUnknown)
@@ -552,6 +555,34 @@ public sealed class LicenseSwitchService
         }
 
         return new TickPlan(sends, emails, written);
+    }
+
+    /// <summary>
+    /// A MACHINE THAT HAS GONE SILENT IS SAID ONCE. A machine that has reported and then sent nothing for longer than
+    /// <see cref="LicenseStore.SilentAfter"/> gets one row of the Licenses log; once a report from it has been
+    /// accepted, that row ends and one more says it is reporting again. Nothing is written for a machine whose reports
+    /// are being refused: it is not silent, and its refusal is already in the log. Returns how many rows it wrote.
+    /// </summary>
+    private int WatchSilence(TenantId tenant, LicensePicture picture, DateTime now)
+    {
+        var written = 0;
+        foreach (var machine in picture.Overview.Machines)
+        {
+            var silence = picture.MachineHealth.FirstOrDefault(r => r.Kind == LicenseLogKinds.MachineSilent && r.MachineId == machine.MachineId);
+            if (silence is not null)
+            {
+                // A report accepted after the row was written: the row was written on a picture older than that report.
+                if (machine.LastReportAtUtc > silence.CreatedAtUtc && _store.CloseSilence(tenant, silence.Id, machine, now))
+                    written++;
+                continue;
+            }
+            if (now - machine.LastReportAtUtc <= LicenseStore.SilentAfter || picture.RefusalOf(machine) is not null)
+                continue;
+            // The license alarm, once it exists, is raised here when a row was written.
+            if (_store.OpenSilence(tenant, machine, now) is not null)
+                written++;
+        }
+        return written;
     }
 
     private PlannedSend? PlanNewSwitch(TenantId tenant, LicenseMachineView machine, LicenseSwitchDecision decision, DateTime now)

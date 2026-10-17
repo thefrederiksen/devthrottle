@@ -26,7 +26,7 @@
      whichever bar it did not account for. The screens that are pinned out of the document flow
      (.terminal-screen) cannot be pushed down by anything rendered above them, so they
      read this directly; the screens in normal flow are pushed by body's padding-top below. */
-  --topbars-h: calc(var(--connbanner-h, 0px) + var(--voicemode-h, 0px) + var(--recbanner-h, 0px));
+  --topbars-h: calc(var(--connbanner-h, 0px) + var(--voicemode-h, 0px) + var(--recbanner-h, 0px) + var(--licensealarm-h, 0px));
 }
 
 * {
@@ -601,6 +601,19 @@ a.banner-btn {
 .row-chip-machine::before {
   background: currentColor;
   border-radius: 2px;
+}
+
+/* How the agent is connected, when it is not its terminal (API mode mission #4070): the Gateway's "API mode",
+   verbatim, beside the agent it describes. A small ring as its glyph. */
+.row-chip-connection {
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  color: var(--pin-mark-text);
+}
+
+.row-chip-connection::before {
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
 }
 
 .row-chip-repo {
@@ -2405,6 +2418,61 @@ a.banner-btn {
   font-size: 13px;
   line-height: 1.5;
 }
+/* Issue #4084: a folder opened on the phone - the shared client-core FolderListing (the Cockpit styles the
+   same classes for its viewer). Rows are full-width touch targets of at least 44px. */
+.folder-listing-scroll {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+.folder-listing-loading,
+.folder-listing-error {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+}
+.folder-listing-loading {
+  color: var(--text-dim);
+}
+.folder-listing-error {
+  color: var(--attention);
+  line-height: 1.5;
+}
+.folder-listing-note {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 12px 16px 4px;
+}
+.folder-listing {
+  list-style: none;
+  margin: 0;
+  padding: 4px 8px 16px;
+}
+.folder-listing-entry {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 8px;
+  color: var(--accent);
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+.folder-listing-entry:active {
+  background: var(--surface-2);
+}
+.folder-listing-entry.folder {
+  color: var(--text);
+}
 .file-view-download-note {
   color: var(--text-dim);
   font-size: 13px;
@@ -2592,6 +2660,59 @@ a.banner-btn {
   text-align: left;
   cursor: pointer;
   touch-action: manipulation;
+}
+
+/* The license alarm (License Switching phase 6): on every screen while a license alarm is open, parked below the
+   other three bars and publishing --licensealarm-h into --topbars-h. Nothing is drawn while no alarm is open. Red as
+   the recording banner is red. */
+.licensealarm-bar {
+  position: sticky;
+  top: calc(var(--connbanner-h, 0px) + var(--voicemode-h, 0px) + var(--recbanner-h, 0px));
+  z-index: 6;
+  width: 100%;
+}
+
+.licensealarm-bar .license-alarm-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #7f2d33;
+  background: #331116;
+  color: #fadfe1;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.licensealarm-bar .license-alarm-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.licensealarm-bar .license-alarm-banner-summary {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.licensealarm-bar .license-alarm-banner-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.licensealarm-bar .license-alarm-banner-lines li + li {
+  margin-top: 4px;
+}
+
+.licensealarm-bar .license-alarm-banner-link {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #7f2d33;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .recbanner-dot {
@@ -4669,7 +4790,8 @@ a.banner-btn {
 
   /* The in-flow bars keep their measured height; a flex column would otherwise squeeze them. */
   #root > .voicemode-banner,
-  #root > .recbanner {
+  #root > .recbanner,
+  #root > .licensealarm-bar {
     flex: 0 0 auto;
   }
 

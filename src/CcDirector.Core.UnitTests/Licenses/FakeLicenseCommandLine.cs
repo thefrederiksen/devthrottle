@@ -166,6 +166,16 @@ internal sealed class FakeLicenseCommandLine : ILicenseCommandLine
         return Task.FromResult(ApproveAnswer);
     }
 
+    /// <summary>Hand sign-ins the next tool call "healed"; handed out once by <see cref="TakeHandSwitches"/>.</summary>
+    public List<LicenseHandSwitch> Healed { get; } = new();
+
+    public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches()
+    {
+        var taken = Healed.ToList();
+        Healed.Clear();
+        return taken;
+    }
+
     private void ThrowIfFailing()
     {
         if (FailWith is not null) throw new LicenseCommandLineException(FailWith);

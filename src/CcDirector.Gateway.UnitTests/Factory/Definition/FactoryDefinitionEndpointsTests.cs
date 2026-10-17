@@ -16,8 +16,9 @@ namespace CcDirector.Gateway.Tests.Factory.Definition;
 /// <summary>
 /// A FACTORY'S DEFINITION, THROUGH ITS ROUTES (Factory Definition mission, phase 1), driven through the route
 /// handlers over the real store, the real whole-definition check and a real database. These pin what only the route
-/// knows: WHO IS ASKING (a person and a session of the factory may save a draft; only a person publishes; a session of
-/// another factory reaches nothing), and that THE CHECK RUNS BEFORE EVERY WRITE with the account's own skills and
+/// knows: WHO IS ASKING (a person and a session of the factory may save a draft; a person and a session in no factory
+/// create, publish and restore - phase 6c, the owner's ruling of 16 October 2026; a factory's own session never
+/// publishes; a session of another factory reaches nothing), and that THE CHECK RUNS BEFORE EVERY WRITE with the account's own skills and
 /// machines, refusing with every finding, file and line, and storing nothing.
 ///
 /// A refusal is proven by the answer that carries it - its status, its sentence and its findings - never by the
@@ -32,6 +33,8 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     private const string OtherFactorySession = "74000000-0000-4000-8000-000000000003";
     private const string NoFactorySession = "74000000-0000-4000-8000-000000000004";
     private const string UnknownSession = "74000000-0000-4000-8000-000000000005";
+    private const string NamedNoFactorySession = "74000000-0000-4000-8000-000000000006";
+    private const string NamedNoFactorySessionName = "Factory Definition - Developer - make Eric's factory";
     private static readonly DateTime Now = new(2026, 10, 14, 12, 0, 0, DateTimeKind.Utc);
     private static readonly TenantId A = new("acct-a");
     private static readonly TenantId B = new("acct-b");
@@ -86,6 +89,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         FactorySession or SecondFactorySession => SessionFactoryLookup.In(TheFactory),
         OtherFactorySession => SessionFactoryLookup.In("invoice-factory"),
         NoFactorySession => SessionFactoryLookup.InNoFactory,
+        NamedNoFactorySession => SessionFactoryLookup.InNoFactory with { Name = NamedNoFactorySessionName },
         _ => SessionFactoryLookup.NotKnown,
     };
 
@@ -331,23 +335,27 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         Assert.Equal("a version to compare to is a whole number from 1, not 'newest'", ErrorOf(notANumber));
     }
 
-    // ---------- only a person publishes ----------
+    // ---------- a factory's own session never publishes (phase 6c) ----------
 
     [Fact]
-    public void A_SESSIONS_PUBLISH_IS_REFUSED_BY_THE_STORE_WITH_ITS_SENTENCE()
+    public void A_FACTORYS_OWN_SESSIONS_PUBLISH_IS_REFUSED_WITH_ITS_SENTENCE()
     {
         Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: 0);
 
         var refused = Publish(Session(FactorySession), 1);
 
         Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonPublishes, ErrorOf(refused));
-        Assert.Equal("OnlyAPersonPublishes", Field(refused, "outcome"));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory), ErrorOf(refused));
+        Assert.Equal(
+            $"A session of factory '{TheFactory}' may not publish a factory's definition. A factory's own sessions save " +
+            "drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.",
+            ErrorOf(refused));
+        Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
         Assert.Equal(404, Status(Published(Person())));
     }
 
     [Fact]
-    public void A_SESSIONS_PUBLISH_OF_A_VERSION_THE_CHECK_WOULD_REFUSE_is_still_told_only_a_person_publishes()
+    public void A_FACTORYS_OWN_SESSIONS_PUBLISH_OF_A_VERSION_THE_CHECK_WOULD_REFUSE_is_still_told_it_may_not_publish()
     {
         Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         _fleetSkills.Remove("browsers");
@@ -356,11 +364,11 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
 
         // What the check thinks of a version a session may not publish anyway is not the answer it needs.
         Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonPublishes, ErrorOf(refused));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory), ErrorOf(refused));
     }
 
     [Fact]
-    public void A_SESSIONS_RESTORE_IS_REFUSED_too_because_it_publishes()
+    public void A_FACTORYS_OWN_SESSIONS_RESTORE_IS_REFUSED_too_because_it_publishes()
     {
         Save(Person(), DefinitionFixture.Publishable(), expect: 0);
         Publish(Person(), 1);
@@ -370,9 +378,83 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         var refused = Restore(Session(FactorySession), 1, expect: 2);
 
         Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonRestores, ErrorOf(refused));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotRestore(TheFactory), ErrorOf(refused));
+        Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
         Assert.Equal(2, VersionsKept());
         Assert.Equal(2, Version(Published(Person())).Version);
+    }
+
+    [Fact]
+    public void A_FACTORYS_OWN_SESSION_STILL_SAVES_A_DRAFT_OF_ITS_OWN_FACTORY()
+    {
+        var saved = Version(Save(Session(FactorySession), DefinitionFixture.Publishable(), expect: 0));
+
+        Assert.Equal(1, saved.Version);
+        Assert.Equal("session", saved.AuthorKind);
+        Assert.Equal(FactorySession, saved.AuthorId);
+    }
+
+    [Fact]
+    public void A_FACTORYS_OWN_SESSION_MAY_NOT_CREATE_ANOTHER_FACTORY()
+    {
+        var refused = FactoryDefinitionEndpoints.SaveDraft(Session(FactorySession), "brand-new",
+            new SaveFactoryDefinitionDraftRequest { ExpectedVersion = 0, Content = new Dictionary<string, string>(DefinitionFixture.Publishable()) },
+            _store, InA, FactoryOf, _account, () => Now);
+
+        Assert.Equal(403, Status(refused));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotCreate(TheFactory, "brand-new"), ErrorOf(refused));
+        Assert.Equal("FactorySessionMayNotPublish", Field(refused, "outcome"));
+        Assert.Null(_store.Standing(A, "brand-new").Newest);
+    }
+
+    // ---------- a session in no factory makes factories (phase 6c, the owner's ruling) ----------
+
+    [Fact]
+    public void A_SESSION_IN_NO_FACTORY_SAVES_PUBLISHES_AND_RESTORES_and_every_publish_records_its_id_and_name()
+    {
+        var builder = NamedNoFactorySession;
+
+        var draft = Version(Save(Session(builder), DefinitionFixture.Publishable(), expect: 0));
+        Assert.Equal("session", draft.AuthorKind);
+        Assert.Equal(builder, draft.AuthorId);
+
+        var published = Publish(Session(builder), 1);
+        Assert.Equal(200, Status(published));
+        var first = Version(published);
+        Assert.Equal(1, first.PublishedVersion);
+        Assert.Equal("session", first.PublishedByKind);
+        Assert.Equal(builder, first.PublishedBy);
+        Assert.Equal(NamedNoFactorySessionName, first.PublishedByName);
+        Assert.Equal($"session {builder} ({NamedNoFactorySessionName})", first.PublishedByText);
+        // The publish drove the factory, exactly as a person's does.
+        Assert.NotNull(first.Applied);
+        Assert.NotEmpty(first.Applied!);
+
+        Version(Save(Session(builder), DefinitionFixture.PublishableEdit("seats/writer.yaml", "Write the posts.", "v2"), expect: 1));
+        Assert.Equal(200, Status(Publish(Session(builder), 2)));
+
+        var restored = Restore(Session(builder), 1, expect: 2);
+        Assert.Equal(200, Status(restored));
+        var copy = Version(restored);
+        Assert.Equal(3, copy.Version);
+        Assert.Equal(1, copy.RestoredFrom);
+        Assert.Equal($"session {builder} ({NamedNoFactorySessionName})", copy.PublishedByText);
+
+        var page = Page(History(Person()));
+        Assert.Equal(new[] { "session", "session", "session" }, page.Versions.Select(v => v.PublishedByKind).ToArray());
+    }
+
+    [Fact]
+    public void A_PERSONS_PUBLISH_STILL_WORKS_and_is_recorded_as_a_person()
+    {
+        Save(Person(), DefinitionFixture.Publishable(), expect: 0);
+
+        var published = Version(Publish(Person(), 1));
+
+        Assert.Equal(1, published.PublishedVersion);
+        Assert.Equal("person", published.PublishedByKind);
+        Assert.Null(published.PublishedByName);
+        Assert.StartsWith("a person", published.PublishedByText);
     }
 
     // ---------- a session outside the factory reaches nothing ----------
@@ -399,13 +481,15 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void A_session_in_no_factory_is_refused_the_same_way()
+    public void A_session_in_no_factory_may_read_and_write_any_factorys_definition()
     {
-        var refused = Save(Session(NoFactorySession), DefinitionFixture.Publishable(), expect: 0);
+        // Phase 6c reversed this: it was refused the same way as a session of another factory.
+        var saved = Save(Session(NoFactorySession), DefinitionFixture.Publishable(), expect: 0);
 
-        Assert.Equal(403, Status(refused));
-        Assert.Equal(FactoryNaming.ActRefusal("definition", TheFactory), ErrorOf(refused));
-        Assert.Equal(0, VersionsKept());
+        Assert.Equal(200, Status(saved));
+        Assert.Equal(1, VersionsKept());
+        Assert.Equal(200, Status(Newest(Session(NoFactorySession))));
+        Assert.Equal(200, Status(History(Session(NoFactorySession))));
     }
 
     [Fact]
@@ -429,7 +513,7 @@ public sealed class FactoryDefinitionEndpointsTests : IDisposable
         foreach (var refused in new[] { Save(Machine(), DefinitionFixture.Publishable(), expect: 1), Publish(Machine(), 1), Restore(Machine(), 1) })
         {
             Assert.Equal(403, Status(refused));
-            Assert.Equal("a factory's definition is written by a person, or by a session of that factory", ErrorOf(refused));
+            Assert.Equal("a factory's definition is written by a person, or by a session of that factory or of none", ErrorOf(refused));
         }
         Assert.Equal(1, VersionsKept());
     }

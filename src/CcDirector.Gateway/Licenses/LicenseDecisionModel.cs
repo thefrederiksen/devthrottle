@@ -67,6 +67,8 @@ public sealed record LicenseHold(DateTime HeldUntilUtc, string FromAccountEmail,
 /// <param name="ActiveSignInExpiresAtUtc">When the active holding's sign-in expires; null when not known.</param>
 /// <param name="Hold">The hold its latest switch row carries, when that row was a repeated failure; else null. Whether
 /// it is in force is <see cref="LicenseDecisionEngine.IsHeld"/>.</param>
+/// <param name="ReportsRefused">Its Director is sending reports and the Gateway refuses them for what they say, so what
+/// the machine holds now is not known. It is never sent a switch, exactly as a stale machine is not.</param>
 public sealed record LicenseMachineState(
     string MachineName,
     string OsUser,
@@ -76,7 +78,44 @@ public sealed record LicenseMachineState(
     bool HasOpenSwitch,
     string? SwitchInProgressId,
     DateTime? ActiveSignInExpiresAtUtc = null,
-    LicenseHold? Hold = null);
+    LicenseHold? Hold = null,
+    bool ReportsRefused = false);
+
+/// <summary>Why a machine is not ready to move to an account (<see cref="LicenseReadiness"/>).</summary>
+public static class LicenseNotReadyReasons
+{
+    /// <summary>The machine's latest report shows no sign-in for the account at all.</summary>
+    public const string NoSignIn = "no-sign-in";
+
+    /// <summary>The machine holds a sign-in for the account, and its last read was refused (unauthorized, or the
+    /// refresh failed), so it cannot be made active.</summary>
+    public const string SignInRefused = "sign-in-refused";
+
+    /// <summary>The machine's sign-in for the account expires at or before the switch command's not-after time.</summary>
+    public const string SignInExpiresTooSoon = "sign-in-expires-too-soon";
+}
+
+/// <summary>
+/// Whether one machine is READY to move to one account: it holds a usable sign-in for it whose expiry does not come
+/// at or before the switch command's not-after time. The one definition of ready is
+/// <see cref="LicenseDecisionEngine.Readiness"/>; this is its answer.
+/// </summary>
+/// <param name="MachineName">The machine.</param>
+/// <param name="OsUser">The machine's user.</param>
+/// <param name="TargetAccountEmail">The account it would move to, lower-cased.</param>
+/// <param name="NotReadyReason">Null when ready; otherwise one of <see cref="LicenseNotReadyReasons"/>.</param>
+/// <param name="SignInExpiresAtUtc">When the machine's sign-in for the account expires, when it holds one and the
+/// expiry is known; for <see cref="LicenseNotReadyReasons.SignInExpiresTooSoon"/> it is the time that is too soon.</param>
+public sealed record LicenseReadiness(
+    string MachineName,
+    string OsUser,
+    string TargetAccountEmail,
+    string? NotReadyReason,
+    DateTime? SignInExpiresAtUtc)
+{
+    /// <summary>True when the machine can be switched to the account now.</summary>
+    public bool IsReady => NotReadyReason is null;
+}
 
 /// <summary>
 /// An account that triggered a switch is not chosen as a target again until the window that triggered it
@@ -180,16 +219,18 @@ public sealed record LicenseManualSwitchVerdict(
 /// <summary>Refusal codes for Switch now.</summary>
 public static class LicenseManualRefusals
 {
-    /// <summary>No machine is on the account, or every machine on it is stale or mid-switch.</summary>
+    /// <summary>No machine is on the account, or every machine on it is stale, refused or mid-switch.</summary>
     public const string NoMachineToSwitch = "no-machine-to-switch";
 
     /// <summary>The named target is the account the machines are already on.</summary>
     public const string TargetIsSource = "target-is-source";
 
-    /// <summary>Not every machine to be switched holds a usable spare for the target.</summary>
+    /// <summary>The target has room, and no machine to be switched is ready for it; at least one holds no usable
+    /// sign-in for it at all.</summary>
     public const string TargetNotHeld = "target-not-held";
 
-    /// <summary>A machine's spare for the target has a sign-in that expires before the switch command would.</summary>
+    /// <summary>The target has room, and no machine to be switched is ready for it, because each one's sign-in for
+    /// it expires before the switch command would.</summary>
     public const string TargetSignInExpiring = "target-sign-in-expiring";
 
     /// <summary>The target's freshest reading is stale, so it cannot be shown to have room.</summary>

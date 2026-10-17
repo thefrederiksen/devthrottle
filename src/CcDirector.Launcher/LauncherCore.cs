@@ -427,6 +427,14 @@ public sealed class LauncherCore : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Start the installed Director again when it crashes, for as long as this launcher runs. Only the installed
+    /// launcher (--managed) does this, the same as the update loop: a development launcher has no business starting
+    /// the installed Director. See <see cref="DirectorCrashWatch"/> for how a crash is told from a quit.
+    /// </summary>
+    public static Task RunDirectorCrashWatchAsync(CancellationToken ct)
+        => new DirectorCrashWatch(new DirectorSupervisor()).RunAsync(ct);
+
     /// <summary>The launcher's informational version from the executing assembly.</summary>
     public static string ReadVersion()
     {

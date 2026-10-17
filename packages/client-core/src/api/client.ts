@@ -15,6 +15,7 @@ import { listAccounts, removeAccount } from "../auth/accountStore";
 import { publishDictationStatus } from "../dictation/status";
 import { reportGatewayReachable, reportGatewayUnreachable } from "../connection/health";
 import { noteRemotePlanRequired } from "../plan/remotePlan";
+import { TERMINAL_CONNECTION } from "../sessions/connectionChoice";
 
 export type SessionDto = components["schemas"]["SessionDto"] & {
   /** Epic #1159 step A: whether the machine owning this session is reachable right now - its tunnel is up.
@@ -51,6 +52,10 @@ export type SessionDto = components["schemas"]["SessionDto"] & {
    *  session, in the Gateway's words. Null on every other session, from an older Gateway, and while the Gateway's
    *  Factory Agents switch is off. */
   factoryAgent?: SessionFactoryAgentChip | null;
+  /** API mode mission (#4070), phase 5: the roster's connection tag in the Gateway's words - "API mode" on a session
+   *  driven in API mode, null on every terminal session and from an older Gateway. Rendered verbatim; a client never
+   *  reads `connectionMode` to decide whether to draw it. */
+  connectionTag?: string | null;
 };
 
 /** The "factory agent" chip on a session (see the C# SessionFactoryAgentDto). Rendered verbatim. */
@@ -205,6 +210,21 @@ export interface AgentChoice {
   /** A friendly label for the default model (e.g. "Opus 4.8"), or empty - shown so the user sees which
    *  model the agent will use. The desktop shape: pick the agent, the model comes from its default. */
   modelLabel: string;
+  /** How this agent can be connected, in order, as the Gateway OFFERS it (API mode mission #4070, phase 5): Terminal
+   *  always, and API mode for an agent whose wrapper has it while the Gateway offers it. The New Session Connection
+   *  row is drawn only when there is more than one; the client never decides which agents have API mode. */
+  connections: ConnectionChoice[];
+}
+
+/** One way to connect an agent: the word sent back as the create's `connectionMode`, and the words shown for it. */
+export interface ConnectionChoice {
+  /** "terminal" or "api". */
+  mode: string;
+  /** "Terminal" or "API mode". */
+  label: string;
+  /** The Gateway's sentence shown under the Connection row while this choice is selected, verbatim; null (or absent,
+   *  from an older Gateway) when there is nothing to say - Terminal never has one. */
+  description?: string | null;
 }
 
 // The app's credential is the per-device key it obtained at enrollment (issue #908/#1088), read from
@@ -2109,8 +2129,22 @@ export async function getAgents(directorId: string, signal?: AbortSignal): Promi
       displayName: String(a.displayName ?? ""),
       defaultModel: String(a.defaultModel ?? ""),
       modelLabel: String(a.modelLabel ?? ""),
+      connections: readConnections(a.connections),
     }))
     .filter((a) => a.type.length > 0);
+}
+
+// The Gateway's offered connections for one agent. An older Gateway sends none, which is terminal alone - the one
+// connection every agent has - so the Connection row is simply not drawn; a malformed entry is dropped, never guessed.
+function readConnections(raw: unknown): ConnectionChoice[] {
+  if (!Array.isArray(raw)) return [{ mode: TERMINAL_CONNECTION, label: "Terminal" }];
+  return raw
+    .map((c) => {
+      const entry = (c ?? {}) as Record<string, unknown>;
+      const description = typeof entry.description === "string" && entry.description.length > 0 ? entry.description : null;
+      return { mode: String(entry.mode ?? ""), label: String(entry.label ?? ""), description };
+    })
+    .filter((c) => c.mode.length > 0 && c.label.length > 0);
 }
 
 // Options for createSession, mirroring the desktop New Session dialog's launch controls (issue #1497):
@@ -2131,6 +2165,11 @@ export interface CreateSessionOptions {
    * credential - so this is how the owner starts a session into a factory by hand. Blank means none.
    */
   factory?: string;
+  /**
+   * How the Director drives the agent (API mode mission #4070): one of the chosen agent's offered `connections`
+   * modes. Omitted, or "terminal", sends nothing - terminal is the default and a plain create's body is unchanged.
+   */
+  connectionMode?: string;
   signal?: AbortSignal;
 }
 
@@ -2149,10 +2188,16 @@ export async function createSession(
   const agent = options?.agent?.trim() || "ClaudeCode";
   // `factory` is on the Gateway's NewSessionRequest (phase 1 of the Factory Memory mission) but not yet in the
   // generated schema.ts, which is regenerated from a running Gateway; the intersection names it until then.
-  const body: NewSessionRequest & { factory?: string } = { repoPath: repoPath.trim(), agent, wingmanEnabled: false };
+  const body: NewSessionRequest & { factory?: string; connectionMode?: string } = {
+    repoPath: repoPath.trim(),
+    agent,
+    wingmanEnabled: false,
+  };
   if (options?.bypassPermissions !== undefined) body.bypassPermissions = options.bypassPermissions;
   const factory = options?.factory?.trim() ?? "";
   if (factory.length > 0) body.factory = factory;
+  const connectionMode = options?.connectionMode ?? TERMINAL_CONNECTION;
+  if (connectionMode !== TERMINAL_CONNECTION) body.connectionMode = connectionMode;
   const res = await gatewayFetch(`/directors/${id}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },

@@ -27,6 +27,11 @@ THE RULES THIS MODULE EXISTS TO KEEP:
   crash can leave a duplicate for recovery to remove but never lose a sign-in.
 - No key value is ever printed, logged, put in an exception message, or written anywhere but its own store.
   ``HeldKey`` hides its value from ``repr`` and ``str``; the operations log carries emails and folders only.
+- A sign-in made BY HAND into the default folder (``claude auth login`` outside this store) for an account the store
+  also holds as a spare leaves that account in two places, and the spare is the stale one (the active sign-in is
+  newer). The store heals it the next time it is opened: the spare's folder is moved, whole, into
+  ``<store>/hand-sign-in-backups/`` - never deleted - and the heal is reported (``last_heals``), so the Director can
+  tell the Gateway the machine was switched by hand. See ``_heal_hand_sign_in``.
 - The machine's real default folder is refused unless ``allow_real_default`` is passed. The command line passes
   it only when ``CC_LICENSE_ALLOW_REAL_DEFAULT`` is "1", which a Director sets for its own runs of the tool when its
   license switching setting is on; a command typed by hand, a test or a proof still cannot touch the real login.
@@ -72,6 +77,9 @@ JOURNAL_FILE = "journal.json"
 LOG_FILE = "license-store.log"
 LOCK_FILE = "store.lock"
 SPARES_DIR = "spares"
+#: Where a spare goes when a sign-in made by hand into the default folder made it stale (see `_heal_hand_sign_in`).
+#: Outside `spares/`, so nothing in it is ever listed, read, renewed or switched to.
+HAND_SIGN_IN_BACKUPS_DIR = "hand-sign-in-backups"
 #: When each held account's sign-in was made, by email. Written by `finish_sign_in`; see `signed_in_at`.
 SIGN_INS_FILE = "sign-ins.json"
 #: A sign-in's end date is fixed when it is made and a refresh does not move it (spare-refresh.md), but each
@@ -609,6 +617,8 @@ class LicenseStore:
         self._lock = _StoreLock(Path(self.store_dir) / LOCK_FILE)
         #: What the last recovery did, in one sentence, or None when there was nothing to recover.
         self.last_recovery: Optional[str] = None
+        #: Every heal of a hand sign-in this store object made, oldest first (see `_heal_hand_sign_in`).
+        self.last_heals: list[HandSignInHeal] = []
 
     # ----- paths -----
 
@@ -618,6 +628,10 @@ class LicenseStore:
 
     def spare_folder(self, email: str) -> str:
         return os.path.join(self.spares_dir, spare_slug(email))
+
+    @property
+    def backups_dir(self) -> str:
+        return os.path.join(self.store_dir, HAND_SIGN_IN_BACKUPS_DIR)
 
     @property
     def _sign_ins_path(self) -> Path:
@@ -651,7 +665,7 @@ class LicenseStore:
         """Every account held: the active one first (when the default folder holds a key), then the spares by
         email. A spare folder with no key in it holds nothing and is not listed."""
         with self._lock:
-            self.recover()
+            self._settle()
             return self._held_accounts()
 
     def _held_accounts(self) -> list[HeldAccount]:
@@ -761,6 +775,36 @@ class LicenseStore:
         self._checkpoint("drop-account")
         _clear_oauth_account(folder)
 
+    def _step_rename(self, source: str, target: str) -> None:
+        """Move the folder ``source`` to ``target`` in one rename. Done already counts as done."""
+        if os.path.isdir(target) and not os.path.exists(source):
+            return
+        if not os.path.isdir(source) or os.path.exists(target):
+            raise _StepFailed(f"cannot move {source} to {target}: the source is missing or the target exists")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        self._checkpoint("rename-folder")
+        os.replace(source, target)
+
+    def _step_move_key(self, source: str, target: str, fingerprint: str) -> None:
+        """Make the key whose ``fingerprint`` the journal recorded live at ``target`` instead of ``source``. The
+        credentials file moved with its folder, so there is nothing to do; a Keychain item is named by its folder's
+        path, so it is written under the new name and then deleted under the old one - deleted only once the new one
+        is proven to hold the same key. Done already counts as done."""
+        here, there = self.backend.read(source), self.backend.read(target)
+        if here is not None and not hmac.compare_digest(here.fingerprint(), fingerprint):
+            raise _StepFailed(f"{source} now holds a different sign-in from the one this heal set out to move")
+        if there is not None and not hmac.compare_digest(there.fingerprint(), fingerprint):
+            raise _StepFailed(f"{target} holds a sign-in this heal did not put there")
+        if here is None:
+            if there is None:
+                raise _StepFailed(f"the sign-in this heal set out to move is in neither {source} nor {target}")
+            return
+        if there is None:
+            self._checkpoint("move-key-write")
+            self.backend.write(target, here)
+        self._checkpoint("move-key-delete")
+        self.backend.delete(source)
+
     def _do_step(self, step: dict) -> None:
         if step["op"] == "copy":
             self._step_copy(step["from"], step["to"], step.get("replaces"))
@@ -768,6 +812,10 @@ class LicenseStore:
             self._step_drop(step["folder"], step["keptIn"])
         elif step["op"] == "erase":
             self._step_erase(step["folder"], step["fingerprint"], step["account"])
+        elif step["op"] == "rename":
+            self._step_rename(step["from"], step["to"])
+        elif step["op"] == "move-key":
+            self._step_move_key(step["from"], step["to"], step["fingerprint"])
         else:
             raise _StepFailed(f"the journal names an unknown step {step['op']!r}")
 
@@ -794,7 +842,8 @@ class LicenseStore:
         """Undo the steps already done, newest first. A step's undo is its own ``undo`` when the journal names
         one (bringing a spare into the default folder is undone by copying the old active sign-in back from
         where the first step put it), otherwise dropping the copy where its source still holds the same key.
-        Progress is recorded, so a crash during the roll back resumes it. When an undo cannot be proven safe,
+        A heal's steps all name their undo (rename the folder back, move the Keychain item back). Progress is
+        recorded, so a crash during the roll back resumes it. When an undo cannot be proven safe,
         stop with everything left in place and the journal kept."""
         if not journal.get("rollingBack"):
             journal["rollingBack"] = True
@@ -803,7 +852,7 @@ class LicenseStore:
             self._write_journal(journal)
         done_steps = journal["steps"][: journal["done"]]
         for step in list(reversed(done_steps))[journal["undone"]:]:
-            if step["op"] != "copy":
+            if step["op"] != "copy" and "undo" not in step:
                 self._log("rollback-impossible", operation=journal["operation"], account=journal["account"],
                           reason=reason)
                 raise LicenseStoreError(
@@ -867,10 +916,93 @@ class LicenseStore:
                 self.last_recovery = f"an unfinished {journal.get('operation')} was found: {exc}"
                 raise
             self._log("recovery-finished", operation=journal.get("operation"), account=journal.get("account"))
+            if journal.get("operation") == "heal":
+                # A heal a crash interrupted is still a heal the Director must hear about.
+                self.last_heals.append(HandSignInHeal.from_journal(journal))
             self.last_recovery = (
                 f"an unfinished {journal.get('operation')} of {journal.get('account')} was found and finished"
             )
             return self.last_recovery
+
+    def _settle(self) -> None:
+        """What every public method that reads or changes the holdings does first, holding the lock: finish or roll
+        back an interrupted operation, then heal a hand sign-in.
+
+        An operating system error part way - on Windows a folder cannot be renamed while another process (a virus
+        scanner, a backup agent) holds a file in it open - leaves the journal where it stopped, and the next run
+        finishes it. The caller is told so as a store error, `switch-in-progress`, never as a crash: nothing it asked
+        for was done, and trying again on the next round is the whole fix."""
+        try:
+            self.recover()
+            self._heal_hand_sign_in()
+        except OSError as exc:
+            self._log("settle-interrupted", error=type(exc).__name__)
+            raise LicenseStoreError(
+                f"an unfinished store operation could not be finished yet ({type(exc).__name__}: a file in the store "
+                f"is in use); nothing was changed by this command, and the journal at {self._journal_path} is "
+                "finished by the next run",
+                ["Wait a moment, then run the command again", f"Read {self._log_path}"],
+                reason_code=REASON_SWITCH_IN_PROGRESS,
+            ) from None
+
+    def _heal_hand_sign_in(self) -> Optional["HandSignInHeal"]:
+        """When the account in the default folder is ALSO held as a spare, move the spare's folder into
+        ``<store>/hand-sign-in-backups/`` and return what was done; else None. The caller holds the store lock, so a
+        heal can never run inside a switch, a renewal or a sign-in's write: whichever comes second finds the lock
+        taken, and a list or usage read that finds it taken fails whole, so the heal is simply made on the next round.
+
+        How it arises: someone ran ``claude auth login`` straight into the default folder for an account this store
+        holds a spare of. Claude Code's write replaced the active key, so the account the machine was on before is
+        gone (nothing can bring it back), and the account it is on now is held twice. The active sign-in is the newer
+        one, so the spare is stale by definition. Left alone, the machine reports the account twice (the Gateway
+        refuses such a report) and no switch can put the active key away (its spare folder is taken).
+
+        The spare is never deleted: its folder is renamed, whole, to ``<slug>-<UTC time>`` (``-2``, ``-3`` ... when
+        that is taken), outside ``spares/``, so it is never listed, renewed or switched to again, and two heals of one
+        account never collide. Journaled like every other change. A Keychain item is named by its folder's path, so on
+        macOS the key is moved to the backup's name too. In the one case where the spare holds the very same key as
+        the default folder (a duplicate, which no operation of this store leaves behind), the backup's copy of the key
+        is then removed under the same rule as every other removal - only once the default folder is proven to hold
+        it - so a key never ends up in two places."""
+        if not self.backend.exists(self.default_config_dir):
+            return None
+        email = _email_of(read_oauth_account(self.default_config_dir))
+        if email is None:
+            return None
+        spare = self.spare_folder(email)
+        if not self.backend.exists(spare) or (_email_of(read_oauth_account(spare)) or "").lower() != email.lower():
+            return None
+        spare_key = self.backend.read(spare)
+        active_key = self.backend.read(self.default_config_dir)
+        if spare_key is None or active_key is None:
+            return None
+        healed_at = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+        backup = self._free_backup_folder(spare_slug(email), healed_at)
+        # Each step names its own undo, so a heal that cannot finish puts the spare back where it was.
+        steps: list[dict] = [{"op": "rename", "from": spare, "to": backup,
+                              "undo": {"op": "rename", "from": backup, "to": spare}}]
+        if self.backend.name == "keychain":
+            fingerprint = spare_key.fingerprint()
+            steps.append({"op": "move-key", "from": spare, "to": backup, "fingerprint": fingerprint,
+                          "undo": {"op": "move-key", "from": backup, "to": spare, "fingerprint": fingerprint}})
+        duplicate = spare_key.same_as(active_key)
+        if duplicate:
+            steps.append({"op": "drop", "folder": backup, "keptIn": self.default_config_dir})
+        self._start("heal", email.lower(), steps)
+        heal = HandSignInHeal(email.lower(), spare, backup, healed_at, duplicate)
+        self.last_heals.append(heal)
+        self._log("hand-sign-in-healed", account=heal.account, moved_from=spare, moved_to=backup,
+                  duplicate_key_removed=duplicate)
+        return heal
+
+    def _free_backup_folder(self, slug: str, at: _dt.datetime) -> str:
+        base = os.path.join(self.backups_dir, f"{slug}-{at.strftime('%Y%m%dT%H%M%SZ')}")
+        candidate, n = base, 1
+        # A Keychain item can outlive its folder, so a name counts as taken while either exists.
+        while os.path.exists(candidate) or self.backend.exists(candidate):
+            n += 1
+            candidate = f"{base}-{n}"
+        return candidate
 
     def _start(self, operation: str, account: str, steps: list[dict]) -> None:
         journal = {
@@ -891,7 +1023,7 @@ class LicenseStore:
         key and account block MOVE: the source folder no longer holds them afterwards."""
         source = canonical_folder(source_folder, "the folder to add")
         with self._lock:
-            self.recover()
+            self._settle()
             if is_real_default(source) or _same_folder(source, self.default_config_dir):
                 raise LicenseStoreError(
                     f"{source} is the default config folder; a spare is added from a folder of its own",
@@ -976,7 +1108,7 @@ class LicenseStore:
         with self._lock:
             previous: Optional[str] = None
             try:
-                self.recover()
+                self._settle()
                 previous = self.active_account_email()
                 return self._switch(email, expect_active, previous, started)
             except LicenseStoreError as exc:
@@ -1223,6 +1355,38 @@ class LicenseStore:
             self._checkpoint("refresh-key")
             self.backend.write(account.config_dir, HeldKey(credentials_json, keychain_account=old.keychain_account))
             self._log("key-refreshed", account=account.email)
+
+
+@dataclass(frozen=True)
+class HandSignInHeal:
+    """One heal of a hand sign-in: ``account`` was signed in by hand into the default folder while held as a spare,
+    and the spare's folder was moved from ``moved_from`` to ``moved_to``. ``duplicate_key_removed`` is True only in
+    the case where the spare held the very same key as the default folder, and that duplicate was removed."""
+
+    account: str
+    moved_from: str
+    moved_to: str
+    healed_at: _dt.datetime
+    duplicate_key_removed: bool
+
+    @staticmethod
+    def from_journal(journal: dict) -> "HandSignInHeal":
+        """The heal a journal describes, for a heal finished by recovery."""
+        rename = journal["steps"][0]
+        # `_start` writes startedAt as an ISO time with seconds and a UTC offset.
+        started = _dt.datetime.fromisoformat(str(journal["startedAt"])).astimezone(_dt.timezone.utc)
+        return HandSignInHeal(str(journal["account"]), rename["from"], rename["to"], started,
+                              any(step["op"] == "drop" for step in journal["steps"]))
+
+    def to_json(self) -> dict:
+        """For ``--json``: an email, two folders and a time. No key."""
+        return {
+            "accountEmail": self.account,
+            "movedFrom": self.moved_from,
+            "movedTo": self.moved_to,
+            "healedAtUtc": _iso(self.healed_at),
+            "duplicateKeyRemoved": self.duplicate_key_removed,
+        }
 
 
 @dataclass(frozen=True)

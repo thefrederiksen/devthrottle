@@ -33,8 +33,19 @@ public sealed class FactoryDefinitionDto
     /// <summary>When this version was published (UTC), or null while it is a draft.</summary>
     public DateTime? PublishedAtUtc { get; set; }
 
-    /// <summary>The identifier of the person who published it, when it is known.</summary>
+    /// <summary>The identifier of whoever published it, when it is known: a person's identifier or a session's id.</summary>
     public string? PublishedBy { get; set; }
+
+    /// <summary>Who published it: <c>person</c> or <c>session</c> (phase 6c). Null while it is a draft, and on a version
+    /// published before this was recorded, every one of which a person published.</summary>
+    public string? PublishedByKind { get; set; }
+
+    /// <summary>The publishing session's name as it was when it published, or null.</summary>
+    public string? PublishedByName { get; set; }
+
+    /// <summary>Who published it, in words, composed by the Gateway: "a person (id)" or "session id (name)". Null while
+    /// it is a draft.</summary>
+    public string? PublishedByText { get; set; }
 
     /// <summary>How many bytes the version's files take together, as UTF-8.</summary>
     public int ContentBytes { get; set; }
@@ -151,6 +162,15 @@ public sealed class FactoryDefinitionVersionSummaryDto
     public DateTime? PublishedAtUtc { get; set; }
 
     public string? PublishedBy { get; set; }
+
+    /// <summary>Who published it: <c>person</c> or <c>session</c> (phase 6c); null while it is a draft.</summary>
+    public string? PublishedByKind { get; set; }
+
+    /// <summary>The publishing session's name, or null.</summary>
+    public string? PublishedByName { get; set; }
+
+    /// <summary>Who published it, in words, composed by the Gateway; null while it is a draft.</summary>
+    public string? PublishedByText { get; set; }
 
     public int ContentBytes { get; set; }
 

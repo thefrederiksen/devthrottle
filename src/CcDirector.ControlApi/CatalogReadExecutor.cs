@@ -180,16 +180,34 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
         {
             if (!entry.Enabled) continue;
             if (!seenKinds.Add(entry.Type)) continue; // one row per kind: create launches the first enabled of a kind
+            var displayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Type.ToString() : entry.DisplayName;
             choices.Add(new AgentChoiceDto
             {
                 Type = entry.Type.ToString(),
-                DisplayName = string.IsNullOrWhiteSpace(entry.DisplayName) ? entry.Type.ToString() : entry.DisplayName,
+                DisplayName = displayName,
                 DefaultModel = entry.DefaultModel ?? "",
                 ModelLabel = ResolveModelLabel(entry.Type, entry.DefaultModel),
+                // What the wrapper DECLARES, not what is offered: the Gateway folds this to the offered choices
+                // (ConnectionModes.Offered), so whether API mode is offered is ruled in one place (issue #4070).
+                Connections = ConnectionChoiceDto.For(DeclaredConnectionModes(entry.Type), displayName),
             });
         }
         FileLog.Write($"[CatalogReadExecutor] agents-list: {choices.Count} enabled agent kind(s)");
         return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(choices));
+    }
+
+    /// <summary>
+    /// The connection modes the agent's wrapper declares, as the contract's words (API mode mission, issue #4070, phase 5):
+    /// <c>terminal</c> for every agent, and <c>api</c> as well for a wrapper with an API dialect (Pi today). Read from the
+    /// same driver <see cref="Core.Sessions.SessionManager"/> refuses an API-mode create by, so the list never offers what
+    /// the create would refuse.
+    /// </summary>
+    internal static IReadOnlyList<string> DeclaredConnectionModes(AgentKind kind)
+    {
+        var driver = AgentPluginRegistry.Contains(kind)
+            ? AgentPluginRegistry.Get(kind).Driver
+            : Core.Drivers.AgentDrivers.For(kind);
+        return driver.ConnectionModes.Select(Core.ApiMode.SessionConnectionModeWords.ToWord).ToList();
     }
 
     /// <summary>
@@ -488,18 +506,36 @@ internal sealed class CatalogReadExecutor : ISessionCommandArea
         var session = sessionManager.GetSession(guid);
         if (session is null)
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+        return SessionFolderListResult(
+            () => SessionFileAccess.ListFolder(session.WorkingDirectory, path, namedPaths(session), secrets));
+    }
+
+    /// <summary>
+    /// What a session folder listing answers, from the listing or the exception it threw. The access rule's own
+    /// refusal and a path that is not a folder are answers to the request. The operating system denying a read of a
+    /// folder the rule admitted is a fault: it is logged as FAILED so it is reported, and the caller gets the same
+    /// <see cref="DirectorCommandStatus.BadRequest"/> with the message as before.
+    /// </summary>
+    internal static DirectorCommandResult SessionFolderListResult(Func<DirectoryListingDto> list)
+    {
         try
         {
-            var listing = SessionFileAccess.ListFolder(session.WorkingDirectory, path, namedPaths(session), secrets);
-            return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(listing));
+            return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(list()));
+        }
+        catch (SessionFileAccessRefusedException ex)
+        {
+            // not-an-error: the access rule refused a folder this session may not list, and the caller is told why
+            FileLog.Write($"[CatalogReadExecutor] fs-list (session) REFUSED: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
         }
         catch (UnauthorizedAccessException ex)
         {
-            FileLog.Write($"[CatalogReadExecutor] fs-list (session) REFUSED: {ex.Message}");
+            FileLog.Write($"[CatalogReadExecutor] fs-list (session) FAILED: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, ex.Message);
         }
         catch (DirectoryNotFoundException ex)
         {
+            // not-an-error: the path asked for is not a folder on this machine, and the caller is told it was not found
             FileLog.Write($"[CatalogReadExecutor] fs-list (session) not a folder: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, ex.Message);
         }

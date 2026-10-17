@@ -27,6 +27,7 @@
     "./sessions/WingmanErrorLine": "./src/sessions/WingmanErrorLine.tsx",
     "./sessions/NotDeliveredIndicator": "./src/sessions/NotDeliveredIndicator.tsx",
     "./sessions/TerminalWheelButton": "./src/sessions/TerminalWheelButton.tsx",
+    "./sessions/ConnectionChoiceRow": "./src/sessions/ConnectionChoiceRow.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
     "./teams/CurrentTeam": "./src/teams/CurrentTeam.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
@@ -34,6 +35,8 @@
     "./devreports/DevReportViewer": "./src/devreports/DevReportViewer.tsx",
     "./devreports/DevReportLanding": "./src/devreports/DevReportLanding.tsx",
     "./devreports/DevReportConversation": "./src/devreports/DevReportConversation.tsx",
+    "./licenses/LicenseAlarmBanner": "./src/licenses/LicenseAlarmBanner.tsx",
+    "./history/FolderListing": "./src/history/FolderListing.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {

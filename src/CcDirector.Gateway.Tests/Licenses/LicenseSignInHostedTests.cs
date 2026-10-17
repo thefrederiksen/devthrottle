@@ -50,6 +50,7 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     }
 
     private readonly TestClock _clock = new();
+    private readonly List<(TenantId Tenant, LicenseOwnerEmail Email)> _ownerEmails = new();
 
     private GatewayHost _gateway = null!;
     private HostedTestDevice _alice;
@@ -76,6 +77,12 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
             streamMode: true,
             options: new GatewayHostOptions { Hosted = true });
         _gateway.LicenseClock = _clock;
+        // Every owner email of this host is taken here: no test of this class reaches the account service.
+        _gateway.LicenseOwnerMail = (tenant, email, _) =>
+        {
+            lock (_ownerEmails) _ownerEmails.Add((tenant, email));
+            return Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null));
+        };
         await _gateway.StartAsync();
 
         // The Gateway database is shared by every host this test process starts, so the accounts and the Directors
@@ -198,8 +205,19 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
     {
         using var set = await SetApprover(_aliceOwner, A, ApprovingMachine);
         Assert.Equal(HttpStatusCode.OK, set.StatusCode);
-        Assert.Equal("ready", (await Json(set)).GetProperty("status").GetString());
+        // Just set, it has never been checked, and an absence is never read as healthy.
+        Assert.Equal("cannot-approve", (await Json(set)).GetProperty("status").GetString());
+        // The approving machine's Director checks the profile and reports it over its own hub connection.
+        var answer = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(answer.Rows).Outcome);
+        Assert.Equal("ready", (await Get(_aliceOwner, LicenseSignInRoutes.Approvers)).GetProperty("approvers")[0].GetProperty("status").GetString());
     }
+
+    private static LicenseApproverCheckReport CanApprove(string account, string profile = "work") => new()
+    {
+        OffersApprovers = true,
+        Rows = [new LicenseApproverCheckRow { BrowserProfile = profile, AccountEmail = account, ShownAccount = account, State = LicenseApproverStates.CanApprove, CheckedAtUtc = Now }],
+    };
 
     // ---- the relay ----
 
@@ -388,6 +406,76 @@ public sealed class LicenseSignInHostedTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, raise.StatusCode);
         Assert.True(_gateway.RaisedSessions.IsRaised(_alice.Tenant, sessionId));
         return Client(key);
+    }
+
+    [Fact]
+    public async Task ARegisteredApprover_ComesInOverTheDirectorsHub_ASessionKeyStillCannotRemoveIt_AndTheOwnersRemovalSticks()
+    {
+        // The approving machine's Director registers its profile for account A, which Alice's machines hold.
+        var registered = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverCheckOutcomes.Registered, Assert.Single(registered.Rows).Outcome);
+        var row = (await Get(_aliceOwner, LicenseSignInRoutes.Approvers)).GetProperty("approvers")[0];
+        Assert.Equal((ApprovingMachine, "registered", "ready"),
+            (row.GetProperty("machineName").GetString(), row.GetProperty("source").GetString(), row.GetProperty("status").GetString()));
+        var assigned = Assert.Single((await _approver.GetLicenseApproverAssignmentsAsync()).Rows);
+        Assert.Equal((A, "work"), (assigned.AccountEmail, assigned.BrowserProfile));
+
+        // Neither a session key nor a raised one may remove it or replace it: the guard is unchanged.
+        using var raised = await ARaisedSessionOfAlice();
+        using var remove = await _aliceSession.DeleteAsync($"gateway/licenses/approvers?accountEmail={Uri.EscapeDataString(A)}");
+        using var raisedRemove = await raised.DeleteAsync($"gateway/licenses/approvers?accountEmail={Uri.EscapeDataString(A)}");
+        using var put = await SetApprover(_aliceSession, A, TargetMachine);
+        using var raisedPut = await SetApprover(raised, A, TargetMachine);
+        foreach (var response in new[] { remove, raisedRemove, put, raisedPut })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal("session_key_out_of_scope", (await Json(response)).GetProperty("code").GetString());
+        }
+        Assert.Equal(LicenseApproverSources.Registered, _gateway.LicenseApprovers.Find(_alice.Tenant, A)!.Source);
+        Assert.Empty(_gateway.LicenseApprovers.ListRemovals(_alice.Tenant));
+
+        // The owner removes it, and the next check does not bring it back.
+        using var removed = await _aliceOwner.DeleteAsync($"gateway/licenses/approvers?accountEmail={Uri.EscapeDataString(A)}");
+        Assert.Equal(HttpStatusCode.OK, removed.StatusCode);
+        var again = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverRefusals.OwnerRemoved, Assert.Single(again.Rows).Reason);
+        Assert.True((await Get(_aliceOwner, LicenseSignInRoutes.Approvers)).GetProperty("isEmpty").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ASignedOutCheck_OverTheDirectorsHub_OpensTheApproverAlarm_AndACanApproveCheckClosesIt()
+    {
+        // Bob has a healthy approver for the SAME account, so a raise that read or wrote across accounts would show.
+        using var bobSet = await SetApprover(_bobOwner, A, BobMachine);
+        Assert.Equal(HttpStatusCode.OK, bobSet.StatusCode);
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single((await _bobDirector.ReportLicenseApproverChecksAsync(CanApprove(A))).Rows).Outcome);
+        await _gateway.LicenseApproverAlarm.WhenIdleAsync();
+        using var set = await SetApprover(_aliceOwner, A, ApprovingMachine);
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+
+        // The approving machine's Director finds the profile signed out and says so over its own hub connection. The
+        // raise runs on the host's own task, inside the tenant's scope the host enters for it.
+        var signedOut = await _approver.ReportLicenseApproverChecksAsync(new LicenseApproverCheckReport
+        {
+            OffersApprovers = true,
+            Rows = [new LicenseApproverCheckRow { BrowserProfile = "work", AccountEmail = A, State = LicenseApproverStates.SignedOut, CheckedAtUtc = Now }],
+        });
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(signedOut.Rows).Outcome);
+        await _gateway.LicenseApproverAlarm.WhenIdleAsync();
+
+        var open = Assert.Single(_gateway.LicenseAlarms.ListOpen(_alice.Tenant));
+        Assert.Equal((LicenseApproverAlarm.Kind.Key, A), (open.Kind, open.AccountEmail));
+        Assert.Equal($"The approver for {A} (browser profile \"work\" on {ApprovingMachine}) is not signed in to claude.ai.", open.Problem);
+        Assert.Empty(_gateway.LicenseAlarms.ListOpen(_bob.Tenant));
+        Assert.Equal("ready", (await Get(_bobOwner, LicenseSignInRoutes.Approvers)).GetProperty("approvers")[0].GetProperty("status").GetString());
+        lock (_ownerEmails) Assert.Equal(_alice.Tenant, Assert.Single(_ownerEmails).Tenant);
+
+        // It signs back in, the next check says so, and the alarm closes by itself.
+        var healthy = await _approver.ReportLicenseApproverChecksAsync(CanApprove(A));
+        Assert.Equal(LicenseApproverCheckOutcomes.HealthUpdated, Assert.Single(healthy.Rows).Outcome);
+        await _gateway.LicenseApproverAlarm.WhenIdleAsync();
+
+        Assert.Empty(_gateway.LicenseAlarms.ListOpen(_alice.Tenant));
     }
 
     [Fact]

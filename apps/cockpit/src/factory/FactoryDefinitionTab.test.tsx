@@ -68,7 +68,7 @@ const UNDEFINED = {
     leavesOut: ["factory.yaml: The goal is held in a file."],
   },
   import: IMPORT,
-  footnoteText: "Only a person publishes or restores.",
+  footnoteText: "You publish here, or a session that is in no factory publishes when you tell it to.",
 };
 
 const PUBLISH = {

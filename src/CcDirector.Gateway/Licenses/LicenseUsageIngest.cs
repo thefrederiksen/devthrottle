@@ -16,16 +16,57 @@ public enum LicenseIngestOutcome
     /// <summary>The sequence is not higher than the last one accepted from this Director's connection.</summary>
     StaleSequence,
 
-    /// <summary>The report breaks the contract's shape (no machine, two active holdings, an account twice, no email).</summary>
+    /// <summary>The report breaks the contract's shape (no machine, two active holdings, an account twice, no email).
+    /// Unlike the two refusals above, this one is about the MACHINE, so it is recorded where the Licenses page shows
+    /// it (<see cref="LicenseStore.RecordRefusal"/>).</summary>
     Malformed,
+}
+
+/// <summary>Why a report was refused for what it says: a fixed word, and the reason as a clause in plain English
+/// ("it holds alice@example.com twice (once in use and once as a spare)") for the Licenses page.</summary>
+public sealed record LicenseReportRefusal(string Code, string Reason);
+
+/// <summary>The words a refused report's reason is recorded by. At most 32 characters each (the switch log's
+/// reason column).</summary>
+public static class LicenseReportRefusalCodes
+{
+    public const string NoReport = "no-report";
+    public const string NoMachineName = "no-machine-name";
+    public const string NoOsUser = "no-os-user";
+    public const string NameTooLong = "name-too-long";
+    public const string NoHoldingsList = "no-holdings-list";
+    public const string TooManyHoldings = "too-many-holdings";
+    public const string EmptyHolding = "empty-holding";
+    public const string NoAccountEmail = "no-account-email";
+    public const string AccountHeldTwice = "account-held-twice";
+    public const string MoreThanOneInUse = "more-than-one-in-use";
+    public const string SwitchIdShape = "switch-id-shape";
+    public const string SwitchedByHandNotActive = "switched-by-hand-not-active";
+    public const string UsageNumber = "usage-number";
+    public const string ReadTimeAhead = "read-time-ahead";
+    public const string ReadTimeTooOld = "read-time-too-old";
+
+    /// <summary>Every word, for the tests that hold each one to its own sentence.</summary>
+    public static readonly IReadOnlyList<string> All = new[]
+    {
+        NoReport, NoMachineName, NoOsUser, NameTooLong, NoHoldingsList, TooManyHoldings, EmptyHolding, NoAccountEmail,
+        AccountHeldTwice, MoreThanOneInUse, SwitchIdShape, SwitchedByHandNotActive, UsageNumber, ReadTimeAhead, ReadTimeTooOld,
+    };
 }
 
 /// <summary>
 /// THE USAGE REPORT INGEST (License Switching, contract section 2.1): decides whether one report from a bound Director
 /// is taken, and when it is, hands it to <see cref="LicenseStore.ApplyReport"/>. The same gate
 /// <c>PushedRepositoryStore.ApplySnapshot</c> applies: only the Director's ACTIVE connection, only a sequence higher
-/// than the last one accepted from that connection. A refused report is logged and dropped; it is never an error to
-/// the Director.
+/// than the last one accepted from that connection. A refused report is never an error to the Director.
+///
+/// TWO KINDS OF REFUSAL. A report from a connection that is not the Director's owner, or with a sequence it has
+/// already sent, is BOOKKEEPING: a reconnect, a resend. It is logged and dropped, and says nothing about the machine.
+/// A report from the owner that breaks the contract's shape (<see cref="Malformed"/>) is about the MACHINE: its
+/// Director is alive and every report it sends is thrown away. That one is RECORDED (<see cref="LicenseStore.RecordRefusal"/>),
+/// one row of the Licenses log for each change of reason, and the page shows the machine as refused, with the reason.
+/// The shape is judged only once the report is known to come from the owner, so a superseded connection cannot mark
+/// a machine refused.
 ///
 /// WHO OWNS A DIRECTOR. This class keeps which connection owns each Director (registered from Hello, with the epoch rule
 /// of <c>PushedRepositoryStore</c>, so a superseded connection saying Hello again never reclaims it). Director
@@ -139,11 +180,6 @@ public sealed class LicenseUsageIngest
     public LicenseIngestOutcome Ingest(TenantId tenant, string directorId, string connectionId, long sequence,
         LicenseUsageReport? report, DateTime receivedAtUtc)
     {
-        if (Malformed(report) is { } why)
-        {
-            FileLog.Write($"[LicenseUsageIngest] report DROPPED (malformed: {why}): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
-            return LicenseIngestOutcome.Malformed;
-        }
         if (!OwnersFor(tenant).TryGetValue(directorId, out var owner))
         {
             FileLog.Write($"[LicenseUsageIngest] report DROPPED (no connection registered): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
@@ -169,9 +205,18 @@ public sealed class LicenseUsageIngest
                 generation = owner.CurrentEpoch;
             }
 
+            if (Malformed(report) is { } refusal)
+            {
+                FileLog.Write($"[LicenseUsageIngest] report REFUSED ({refusal.Code}: {refusal.Reason}): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
+                // The license alarm, once it exists, is raised here when the change is not Same.
+                _store.RecordRefusal(tenant, directorId, report, refusal, receivedAtUtc);
+                return LicenseIngestOutcome.Malformed;
+            }
+
             var shift = ReadAtShift(tenant, report!, receivedAtUtc);
             _insideWrite?.Invoke(connectionId);
             var applied = _store.ApplyReport(tenant, directorId, sequence, report!, receivedAtUtc, shift);
+            _store.RecordAccepted(tenant, directorId, applied, report!, receivedAtUtc);
             // Only a report the store took adds to the history: a refused or failed one never reaches this line.
             _history.Record(tenant, report!, shift, receivedAtUtc);
             lock (owner)
@@ -208,21 +253,51 @@ public sealed class LicenseUsageIngest
     }
 
     /// <summary>Why the report breaks the contract's shape, or null when it does not.</summary>
-    internal static string? Malformed(LicenseUsageReport? report)
+    internal static LicenseReportRefusal? Malformed(LicenseUsageReport? report)
     {
-        if (report is null) return "no report";
-        if (string.IsNullOrWhiteSpace(report.MachineName)) return "no machine name";
-        if (report.MachineName.Trim().Length > 128 || report.OsUser.Trim().Length > 128) return "machine or user name too long";
-        if (report.Holdings is null) return "no holdings list";
-        if (report.Holdings.Count > MaxHoldings) return $"more than {MaxHoldings} holdings";
-        if (report.Holdings.Any(h => h is null)) return "a null holding";
+        static LicenseReportRefusal Refused(string code, string reason) => new(code, reason);
+        if (report is null) return Refused(LicenseReportRefusalCodes.NoReport, "it sent no report");
+        if (string.IsNullOrWhiteSpace(report.MachineName)) return Refused(LicenseReportRefusalCodes.NoMachineName, "it does not name its machine");
+        // The user is required to be there, never to be non-empty: an empty user is one the store keys by.
+        if (report.OsUser is null) return Refused(LicenseReportRefusalCodes.NoOsUser, "it does not name its operating system user");
+        if (report.MachineName.Trim().Length > 128 || report.OsUser.Trim().Length > 128)
+            return Refused(LicenseReportRefusalCodes.NameTooLong, "its machine name or user name is longer than 128 characters");
+        if (report.Holdings is null) return Refused(LicenseReportRefusalCodes.NoHoldingsList, "it carries no list of sign-ins");
+        if (report.Holdings.Count > MaxHoldings)
+            return Refused(LicenseReportRefusalCodes.TooManyHoldings, $"it lists {report.Holdings.Count} sign-ins, and at most {MaxHoldings} are taken");
+        if (report.Holdings.Any(h => h is null)) return Refused(LicenseReportRefusalCodes.EmptyHolding, "it lists a sign-in that is empty");
         var emails = report.Holdings.Select(h => LicenseStore.NormalizeEmail(h.AccountEmail)).ToList();
-        if (emails.Any(e => e.Length == 0 || e.Length > 320)) return "a holding with no account email, or one too long";
-        if (emails.Distinct(StringComparer.Ordinal).Count() != emails.Count) return "an account held twice";
-        if (report.Holdings.Count(h => h.IsActive) > 1) return "more than one active holding";
+        if (emails.Any(e => e.Length == 0 || e.Length > 320))
+            return Refused(LicenseReportRefusalCodes.NoAccountEmail, "it lists a sign-in with no account email, or with one longer than 320 characters");
+        if (emails.GroupBy(e => e, StringComparer.Ordinal).FirstOrDefault(g => g.Count() > 1) is { } twice)
+            return Refused(LicenseReportRefusalCodes.AccountHeldTwice, $"it holds {twice.Key} {HeldTwice(report.Holdings.Where(h => LicenseStore.NormalizeEmail(h.AccountEmail) == twice.Key).ToList())}");
+        var inUse = report.Holdings.Where(h => h.IsActive).Select(h => LicenseStore.NormalizeEmail(h.AccountEmail)).ToList();
+        if (inUse.Count > 1)
+            return Refused(LicenseReportRefusalCodes.MoreThanOneInUse,
+                $"it says {inUse.Count} sign-ins are in use at once ({string.Join(", ", inUse.Take(inUse.Count - 1))} and {inUse[^1]}), and a machine is on one account at a time");
         if (!string.IsNullOrWhiteSpace(report.SwitchInProgressId) && !LicenseContract.SwitchIdShape.IsMatch(report.SwitchInProgressId.Trim()))
-            return "a switch in progress id of the wrong shape";
+            return Refused(LicenseReportRefusalCodes.SwitchIdShape, "it reports a switch in progress whose identifier is not one the Gateway could have sent");
+        if (report.SwitchedByHand is { } hand
+            && (LicenseStore.NormalizeEmail(hand.AccountEmail).Length == 0
+                || LicenseStore.NormalizeEmail(hand.AccountEmail) != LicenseStore.NormalizeEmail(report.Holdings.FirstOrDefault(h => h.IsActive)?.AccountEmail)))
+            return Refused(LicenseReportRefusalCodes.SwitchedByHandNotActive, LicenseStore.NormalizeEmail(hand.AccountEmail) is { Length: > 0 } to
+                ? $"it says it was switched by hand to {to}, which is not the sign-in it has in use"
+                : "it says it was switched by hand, and names no account it was switched to");
         return report.Holdings.Select(h => UnreadableReading(h, report.SentAtUtc)).FirstOrDefault(why => why is not null);
+    }
+
+    // How an account is held more than once, said the way a person reads the machine's card.
+    private static string HeldTwice(IReadOnlyList<LicenseHolding> holdings)
+    {
+        var active = holdings.Count(h => h.IsActive);
+        var times = holdings.Count == 2 ? "twice" : $"{holdings.Count} times";
+        return (holdings.Count, active) switch
+        {
+            (2, 1) => $"{times} (once in use and once as a spare)",
+            (_, 0) => $"{times} (each time as a spare)",
+            (_, var n) when n == holdings.Count => $"{times} (each time in use)",
+            _ => $"{times} ({active} in use and {holdings.Count - active} as spares)",
+        };
     }
 
     /// <summary>The most a usage number may be. The provider reports 0 to 100 and can pass 100 a little; nothing real
@@ -248,17 +323,20 @@ public sealed class LicenseUsageIngest
     /// unable to be switched. A step of up to two minutes is an ordinary correction - the same amount of skew the
     /// ingest ignores between the machine's clock and the Gateway's. Further ahead than that is not a reading.
     /// </summary>
-    internal static string? UnreadableReading(LicenseHolding holding, DateTime sentAtUtc)
+    internal static LicenseReportRefusal? UnreadableReading(LicenseHolding holding, DateTime sentAtUtc)
     {
         static bool Bad(double? value) => value is { } v && (!double.IsFinite(v) || v < 0 || v > MaxUtilization);
+        var email = LicenseStore.NormalizeEmail(holding.AccountEmail);
         if (Bad(holding.FiveHour?.Utilization) || Bad(holding.SevenDay?.Utilization) || Bad(holding.ExtraUsage?.Utilization))
-            return "a usage number that is not between 0 and " + MaxUtilization;
+            return new(LicenseReportRefusalCodes.UsageNumber, $"it gives a usage number for {email} that is not between 0 and {MaxUtilization}");
         if (holding.ReadAtUtc is not { } readAt)
             return null;
         var read = Utc(readAt);
         var sent = Utc(sentAtUtc);
-        if (read - sent > LicenseContract.ClockSkewLoggedAbove) return "a read time more than two minutes later than the report's sent time";
-        if (sent - read > MaxReadingAge) return "a read time more than ten years before the report's sent time";
+        if (read - sent > LicenseContract.ClockSkewLoggedAbove)
+            return new(LicenseReportRefusalCodes.ReadTimeAhead, $"it gives a read time for {email} more than two minutes later than the time the report was sent");
+        if (sent - read > MaxReadingAge)
+            return new(LicenseReportRefusalCodes.ReadTimeTooOld, $"it gives a read time for {email} more than ten years before the time the report was sent");
         return null;
     }
 
