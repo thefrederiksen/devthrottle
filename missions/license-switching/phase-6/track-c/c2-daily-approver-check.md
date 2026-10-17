@@ -96,4 +96,13 @@ Not tested here: the three-line hub calls and the channel class, which only pass
 
 ## Gate output
 
-See the end of this file.
+- `.\scripts	est-local.ps1` at commit 77a6bb521, tree clean: RESULT GREEN, every suite Completed with all tests
+  executed (`CcDirector.Core.UnitTests` 2,169, `CcDirector.Avalonia.Tests` 1,063, `CcDirector.Reclaim.Tests` 305
+  among them).
+- `.\scripts	est-local.ps1 -Parked` at the same commit, with TEMP and TMP on D: as the Delivery Lead asked (C: is
+  short of room): every suite Completed with all tests executed, the parked ones green - `CcDirector.Gateway.UnitTests`
+  13,935, `CcDirector.Gateway.Tests` 1,764 in four shards, `CcDirector.Core.Tests` 4,538. One test failed, the same
+  one as in pull request 4116's parked run and for the same reason:
+  `ReclaimRefusalTests.Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused` needs Windows short (8.3) names,
+  which drive D: does not make. It passed in this commit's default run above, where TEMP is on C:. It is not this
+  change's and is left for its own test-only pull request.
