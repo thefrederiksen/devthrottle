@@ -15,8 +15,15 @@ export interface HistoryLink {
 // drive letter that is really part of a longer word from being mis-claimed (e.g. the "e" of "file:"
 // in "file:///D:/..."), matching the C# AbsoluteWindowsPathRegex (issue #252).
 const AbsoluteWindowsPathRegex = /(?<![A-Za-z])[A-Za-z]:[/\\][^\s"'`<>|*?()[\]]+/g;
-// Unix-style absolute paths (e.g. /c/path/to/file for Git Bash / WSL).
-const AbsoluteUnixPathRegex = /\/[a-z]\/[^\s"'`<>|*?()[\]]+/gi;
+// Git Bash / MSYS drive paths (e.g. /c/path/to/file). The left guard stops the pattern starting in the
+// MIDDLE of a longer path ("/mnt/c/Users/x", "src/a/b.cs"), matching the C# AbsoluteUnixPathRegex.
+const AbsoluteUnixPathRegex = /(?<![\w.~/\\:-])\/[a-z]\/[^\s"'`<>|*?()[\]]+/gi;
+// Absolute POSIX paths (e.g. /home/soren/report.pdf, /tmp/x), matching the C# AbsolutePosixPathRegex
+// (issue #4085). At least two segments, so a slash command ("/help") or a lone "/x" in prose is never
+// a path; the left guard keeps it from starting inside a longer word or path ("and/or", "src/a/b",
+// "~/x/y"). The Director counts these as named on Linux and macOS, where they are absolute; on a
+// Windows Director it does not, and the click shows the Director's own "not allowed" sentence.
+const AbsolutePosixPathRegex = /(?<![\w.~/\\:@-])\/[^\s"'`<>|*?()[\]/]+\/[^\s"'`<>|*?()[\]]+/g;
 // URLs (http/https or git@).
 const UrlRegex = /https?:\/\/[^\s"'`<>()[\]]+|git@[^\s"'`<>()[\]]+/gi;
 // file:// URLs (RFC 8089), e.g. file:///D:/path/file.html. These name a LOCAL file, so they surface
@@ -63,9 +70,9 @@ export function extractLinks(body: string | null | undefined): HistoryLink[] {
   return result;
 }
 
-// Port of FindAllLinkMatches with repoPath = null, pathExistsCheck = null. The C# claimedRanges /
-// Overlaps priority ordering is preserved: quoted absolute paths, then URLs, then absolute Windows
-// paths, then absolute Unix paths. Relative paths require a repo root + existence check, so they
+// Port of FindAllLinkMatches with repoPath = null, pathExistsCheck = null, as it runs on Linux and
+// macOS. The C# claimedRanges / Overlaps priority ordering is preserved: quoted absolute paths, then
+// URLs, then absolute Windows paths, then Git Bash drive paths, then absolute POSIX paths. Relative paths require a repo root + existence check, so they
 // are skipped (as the C# does with those nulls).
 function findAllLinkMatches(lineText: string): LinkMatch[] {
   const matches: LinkMatch[] = [];
@@ -130,6 +137,16 @@ function findAllLinkMatches(lineText: string): LinkMatch[] {
     claimed.push({ start, end });
   }
 
+  // 5. Absolute POSIX paths (after the Git Bash ones, as the C# orders them).
+  for (const m of lineText.matchAll(AbsolutePosixPathRegex)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (overlaps(claimed, start, end)) continue;
+    const path = stripTrailingPunctuation(stripLineNumber(m[0]));
+    matches.push({ text: path, isUrl: false });
+    claimed.push({ start, end });
+  }
+
   return matches;
 }
 
@@ -146,12 +163,20 @@ export function stripLineNumber(path: string): string {
   return path;
 }
 
-/** Strip trailing sentence punctuation (comma, semicolon, period) that is not part of the path/URL. */
+/**
+ * Strip trailing sentence punctuation that is not part of the path/URL: the same set the Director's
+ * LinkDetector.StripTrailingPunctuation treats as always-punctuation (, ; ! ? : * and the period). The
+ * two must agree, or the Chat links "/tmp/report.pdf!" while the Director names "/tmp/report.pdf" and
+ * refuses the click (#4085 review). The C#'s unpaired-quote and unpaired-bracket rules are NOT ported
+ * yet. The five regexes never let a quote or bracket into a match, but a QUOTED span can: `/tmp/a)` links
+ * /tmp/a) here while the Director names /tmp/a. That fails safe (the click is refused, never widened)
+ * and is tracked in #4124.
+ */
 export function stripTrailingPunctuation(text: string): string {
   if (!text) return text;
   while (text.length > 0) {
     const last = text[text.length - 1];
-    if (last === "," || last === ";" || last === ".") {
+    if (last === "," || last === ";" || last === "!" || last === "?" || last === ":" || last === "*" || last === ".") {
       text = text.slice(0, -1);
       continue;
     }
@@ -210,19 +235,24 @@ export function tryConvertFileUrlToLocalPath(fileUrl: string): string | null {
 
   // A UNC path (file://server/share) keeps the host as the leading \\server; otherwise the pathname
   // is /D:/... where the leading slash precedes the drive letter and must be dropped.
+  // Anything that is neither is a POSIX path (file:///etc/hosts -> /etc/hosts), kept as it is: that is
+  // what the C# Uri.LocalPath gives on Linux and macOS, so both detectors name the same path (#4085).
   let local: string;
   if (url.host) {
     local = `\\\\${url.host}${decoded}`;
+  } else if (/^\/[A-Za-z]:/.test(decoded)) {
+    local = decoded.slice(1);
   } else {
-    local = decoded.startsWith("/") ? decoded.slice(1) : decoded;
+    return decoded.length <= 1 ? null : decoded;
   }
   local = local.replace(/\//g, "\\");
   return local.length === 0 ? null : local;
 }
 
+// A path starting "/" is absolute, as the C# IsRelativePath answers on Linux and macOS (issue #4085).
 function isRelativePath(path: string): boolean {
   if (path.length >= 2 && path[1] === ":") return false;
-  if (path.startsWith("/") && path.length >= 3 && path[2] === "/") return false;
+  if (path.startsWith("/")) return false;
   return true;
 }
 
