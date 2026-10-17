@@ -23,7 +23,7 @@ public sealed class ApiModeSessionFoldTests
     private static readonly ApiModeEventReplay NothingHeld = new(null, Array.Empty<ApiModeHeldEvent>(), Complete: false);
 
     private static ApiModeEventReplay HeldWhole(params SessionEvent[] events)
-        => new("gen-a", events.Select(e => new ApiModeHeldEvent("gen-a", e)).ToList(), Complete: true);
+        => new("gen-a", events.Select(e => new ApiModeHeldEvent("gen-a", GenAStarted, e)).ToList(), Complete: true);
 
     private static ApiModeVerdictReceipt Delivered(string prompt, string? turn = null, string? outcome = null, string? reason = null)
         => new(prompt, ApiModeReceiptState.Delivered, null, turn, outcome, reason);
@@ -166,7 +166,7 @@ public sealed class ApiModeSessionFoldTests
     {
         // Arrange: the buffer still holds the session's later events but trimmed its oldest, the ConnectionReady among
         // them. The Gateway did not restart, so the words must not say it did (review finding 2).
-        var trimmed = new ApiModeEventReplay("gen-a", new[] { new ApiModeHeldEvent("gen-a", Queued(40, "p9")) }, Complete: false);
+        var trimmed = new ApiModeEventReplay("gen-a", new[] { new ApiModeHeldEvent("gen-a", GenAStarted, Queued(40, "p9")) }, Complete: false);
 
         // Act
         var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, new[] { QueuedFor("p9", "turnRunning") }, trimmed)!;

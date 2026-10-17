@@ -194,16 +194,162 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     }
 
     [Fact]
-    public void RecordDelivered_AfterRefused_IsRefusedAndTheFirstEndingStands()
+    public void RecordDelivered_Twice_TheFirstDeliveryStands()
     {
+        // Arrange
         var store = Store();
-        store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", At(1), T0);
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
 
-        Assert.False(store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(2), T0));
+        // Act: a delivered prompt is never sent again, so a second delivery is a Director defect.
+        var changed = store.RecordDelivered(Director, Sid, "p1", "queuedByAgent", "a different acknowledgement", At(2), T0.AddSeconds(1));
 
+        // Assert
+        Assert.False(changed);
+        var r = Only(store);
+        Assert.Equal("started", r.Disposition);
+        Assert.Equal(StartedAck, r.Acknowledgement);
+        Assert.Equal(T0, r.DeliveredAtUtc);
+    }
+
+    // ----- a retry of a delivery that was not delivered reuses its Gateway id: the later receipt stands -----
+    // (event model section 2, "What a promptId is"; phase 2 phase review, finding 1)
+
+    private const string PiNotRunning = "Pi is not running: the process exited";
+
+    [Fact]
+    public void RecordDelivered_AfterRefused_TheRetrysDeliveryStandsWithItsAcknowledgement()
+    {
+        // Arrange: the first press was refused by the Director while it restarted Pi.
+        var store = Store();
+        store.RecordQueued(Director, Sid, "gw-1", "agentStarting", At(1), T0);
+        store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(2), T0.AddSeconds(1));
+
+        // Act: the Gateway's re-press, under the same id, is acknowledged.
+        var changed = store.RecordDelivered(Director, Sid, "gw-1", "started", StartedAck, At(5), T0.AddSeconds(4));
+
+        // Assert: the receipt reads as the retry alone - nothing of the refused attempt is left on it.
+        Assert.True(changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Delivered, r.State);
+        Assert.Equal("started", r.Disposition);
+        Assert.Equal(StartedAck, r.Acknowledgement);
+        Assert.Equal(T0.AddSeconds(4), r.DeliveredAtUtc);
+        Assert.Null(r.RefusalReason);
+        Assert.Null(r.RefusedBy);
+        Assert.Null(r.RefusedAtUtc);
+        Assert.Null(r.QueueReason);
+        Assert.Null(r.QueuedAtUtc);
+    }
+
+    [Fact]
+    public void RecordTurnStarted_ForARetryDeliveredAfterARefusal_LinksItAndTheTurnEndsOnIt()
+    {
+        // Arrange
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(1), T0);
+        store.RecordDelivered(Director, Sid, "gw-1", "started", StartedAck, At(5), T0);
+
+        // Act
+        var linked = store.RecordTurnStarted(Director, Sid, "t1", new[] { "gw-1" }, At(6));
+        var ended = store.RecordTurnEnded(Director, Sid, "t1", "failed", "Pi exited during the turn (exit code 137)", At(9), T0);
+
+        // Assert
+        Assert.Equal(1, linked);
+        Assert.Equal(1, ended);
+        var r = Only(store);
+        Assert.Equal("t1", r.TurnId);
+        Assert.Equal("failed", r.TurnOutcome);
+    }
+
+    [Fact]
+    public void RecordRefused_AfterRefused_TheLaterReasonStands()
+    {
+        // Arrange
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(1), T0);
+
+        // Act: the retry is refused too, by the agent this time.
+        var changed = store.RecordRefused(Director, Sid, "gw-1", BusyRefusal, "agent", At(4), T0.AddSeconds(3));
+
+        // Assert
+        Assert.True(changed);
         var r = Only(store);
         Assert.Equal(ApiModeReceiptState.Refused, r.State);
-        Assert.Null(r.Acknowledgement);
+        Assert.Equal(BusyRefusal, r.RefusalReason);
+        Assert.Equal("agent", r.RefusedBy);
+        Assert.Equal(T0.AddSeconds(3), r.RefusedAtUtc);
+    }
+
+    [Fact]
+    public void RecordQueued_AfterRefused_TheRetryIsQueuedWithItsOwnReason()
+    {
+        // Arrange
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(1), T0);
+
+        // Act
+        var changed = store.RecordQueued(Director, Sid, "gw-1", "turnRunning", At(3), T0.AddSeconds(2));
+
+        // Assert
+        Assert.True(changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Queued, r.State);
+        Assert.Equal("turnRunning", r.QueueReason);
+        Assert.Equal(T0.AddSeconds(2), r.QueuedAtUtc);
+        Assert.Null(r.RefusalReason);
+    }
+
+    [Fact]
+    public void RecordRefused_AnOlderRefusalReplayedAfterTheRetrysDelivery_DoesNotOverwrite()
+    {
+        // Arrange: refused at 1, delivered on retry at 5.
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(1), T0);
+        store.RecordDelivered(Director, Sid, "gw-1", "started", StartedAck, At(5), T0);
+
+        // Act: the first refusal re-sent, and a refusal with a lower sequence than the delivery.
+        var replayed = store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(1), T0);
+        var older = store.RecordRefused(Director, Sid, "gw-1", "an earlier attempt", "director", At(3), T0);
+
+        // Assert
+        Assert.False(replayed);
+        Assert.False(older);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Delivered, r.State);
+        Assert.Equal(StartedAck, r.Acknowledgement);
+        Assert.Null(r.RefusalReason);
+    }
+
+    [Fact]
+    public void RecordRefused_FromAnOlderGenerationAfterTheRetrysDelivery_DoesNotOverwrite()
+    {
+        // Arrange: the retry was delivered in the generation after a Director restart.
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(1), T0);
+        store.RecordDelivered(Director, Sid, "gw-1", "started", StartedAck, AfterRestart(2), T0);
+
+        // Act: a late refusal from before the restart, with a higher sequence of its own.
+        var changed = store.RecordRefused(Director, Sid, "gw-1", BusyRefusal, "agent", At(500), T0);
+
+        // Assert
+        Assert.False(changed);
+        Assert.Equal(ApiModeReceiptState.Delivered, Only(store).State);
+    }
+
+    [Fact]
+    public void Read_ARetryDeliveredAfterAnotherPrompt_IsReadAfterIt()
+    {
+        // Arrange: gw-1 refused, then p2 delivered, then gw-1's retry delivered. Turns are numbered in the order receipts
+        // are read, so the retry must read as the later prompt.
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", PiNotRunning, "director", At(1), T0);
+        store.RecordDelivered(Director, Sid, "p2", "started", StartedAck, At(2), T0);
+
+        // Act
+        store.RecordDelivered(Director, Sid, "gw-1", "started", StartedAck, At(5), T0);
+
+        // Assert
+        Assert.Equal(new[] { "p2", "gw-1" }, store.Read(Sid).Select(r => r.PromptId));
     }
 
     [Fact]
@@ -313,6 +459,24 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         store.RecordQueued(Director, "another-session", "p9", "turnRunning", At(3), T0);
 
         Assert.Equal(new[] { "zz-first", "aa-second" }, store.Read(Sid).Select(r => r.PromptId));
+    }
+
+    [Fact]
+    public void ReadWithPositions_EachReceipt_CarriesThePositionOfTheLastEventTheStoreApplied()
+    {
+        var store = Store();
+        store.RecordRefused(Director, Sid, "gw-1", "Pi is not running: the process exited", "director", At(1), T0);
+        store.RecordDelivered(Director, Sid, "p2", "started", StartedAck, At(2), T0);
+        store.RecordQueued(Director, Sid, "gw-1", "turnRunning", At(3), T0);
+        store.RecordRefused(Director, Sid, "gw-1", BusyRefusal, "agent", At(4), T0);
+        // A second ending the store refuses: it applies nothing, so the position does not move.
+        store.RecordRefused(Director, Sid, "p2", "too late", "director", At(5), T0);
+
+        var positioned = store.ReadWithPositions(Sid);
+
+        Assert.Equal(store.Read(Sid).Select(r => (r.PromptId, r.State, r.RefusalReason)), positioned.Select(r => (r.Receipt.PromptId, r.Receipt.State, r.Receipt.RefusalReason)));
+        Assert.Equal(At(2), positioned.Single(r => r.Receipt.PromptId == "p2").LastPosition);
+        Assert.Equal(At(4), positioned.Single(r => r.Receipt.PromptId == "gw-1").LastPosition);
     }
 
     [Fact]
