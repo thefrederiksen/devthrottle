@@ -79,7 +79,11 @@ public sealed class GateRunsTheParkedTestsAChangeReachesTests
         Assert.Contains("$old = Invoke-GitQuiet @(\"show\", \"${mergeBase}:$Path\")", script);
         Assert.Contains("$ErrorActionPreference = \"Continue\"", script);
         // Only files holding tests name classes, so a filter can never consist of helpers alone.
-        Assert.Contains("Where-Object { $byPath[$_] -match '\\[(Fact|Theory)\\b' }", script);
+        // ...including a custom attribute such as [WindowsOnlyFact], which some files use alone.
+        Assert.Contains("Where-Object { $byPath[$_] -match '\\[[A-Za-z]*(Fact|Theory)\\b' }", script);
+        // A typeless changed file selects the whole suite on EITHER side - an assembly attribute in a test
+        // project reaches every test in it.
+        Assert.Contains("if ($types.Count -eq $before) {", script);
     }
 
     [Fact]

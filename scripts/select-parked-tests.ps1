@@ -154,7 +154,7 @@ foreach ($suite in $selectable) {
                 foreach ($t in (Get-FileVersions $f)) {
                     foreach ($m in $declaration.Matches($t)) { [void]$types.Add($m.Groups[1].Value) }
                 }
-                if ($types.Count -eq $before -and -not $byPath.ContainsKey($f)) {
+                if ($types.Count -eq $before) {
                     # Top-level statements, global usings, assembly attributes: a change no type name leads from.
                     $whole = $true
                     $reasons.Add("$f changed and declares no type a test could name, so nothing can be ruled out")
@@ -193,7 +193,7 @@ foreach ($suite in $selectable) {
     if (-not $whole) {
         # Only files that HOLD tests name classes to run: a helper, rig or fake has none, and a filter naming only
         # those would collect nothing and end the gate as a suite that never ran.
-        $classes = @($hit.Keys | Where-Object { $byPath[$_] -match '\[(Fact|Theory)\b' } | ForEach-Object {
+        $classes = @($hit.Keys | Where-Object { $byPath[$_] -match '\[[A-Za-z]*(Fact|Theory)\b' } | ForEach-Object {
             [regex]::Matches($byPath[$_], '\bclass\s+([A-Z][A-Za-z0-9_]*)') | ForEach-Object { $_.Groups[1].Value }
         } | Sort-Object -Unique)
         if ($classes.Count -gt $MaxClasses) {
