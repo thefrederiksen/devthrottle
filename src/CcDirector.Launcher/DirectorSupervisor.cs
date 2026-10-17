@@ -419,6 +419,7 @@ public sealed class DirectorSupervisor
                           + "will NOT be force-killed. Ending a process this launcher cannot confirm is its own is "
                           + "worse than leaving it running: the same registration could name something that merely "
                           + "inherited the process id. Resolve the claim on this instance by hand.");
+            StopLedger.Forget(director.DirectorId, director.Pid);
             return;
         }
 
@@ -431,7 +432,8 @@ public sealed class DirectorSupervisor
               + "does not listen for its own shutdown signal is a build older than this launcher, or one whose "
               + "startup failed before it began listening.");
 
-        KillProcess(director.Pid);
+        if (!KillProcess(director.Pid))
+            StopLedger.Forget(director.DirectorId, director.Pid);
     }
 
     /// <summary>
@@ -696,7 +698,8 @@ public sealed class DirectorSupervisor
         }
     }
 
-    private static void KillProcess(int pid)
+    /// <summary>Kill a process. True when it is gone afterwards - killed, or already exited.</summary>
+    private static bool KillProcess(int pid)
     {
         try
         {
@@ -706,14 +709,17 @@ public sealed class DirectorSupervisor
                 process.Kill(entireProcessTree: false);
                 FileLog.Write($"[DirectorSupervisor] killed pid={pid}");
             }
+            return true;
         }
         catch (ArgumentException)
         {
             // It exited between the wait and the kill. Nothing to do.
+            return true;
         }
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorSupervisor] kill of pid={pid} FAILED: {ex.Message}");
+            return false;
         }
     }
 }

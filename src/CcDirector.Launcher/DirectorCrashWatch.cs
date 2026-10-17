@@ -41,6 +41,17 @@ public sealed class DirectorStopLedger
         FileLog.Write($"[DirectorStopLedger] Record: directorId={directorId}, pid={pid} is being stopped on purpose");
     }
 
+    /// <summary>Take back a record for a stop that did NOT end the process - the kill was refused or failed - so the
+    /// Director, still running, is not excused for a real crash later (review of #4118, observation 5).</summary>
+    public void Forget(string directorId, int pid)
+    {
+        bool removed;
+        lock (_gate)
+            removed = _stopped.Remove((directorId, pid));
+        if (removed)
+            FileLog.Write($"[DirectorStopLedger] Forget: directorId={directorId}, pid={pid} was not stopped after all; a later crash counts");
+    }
+
     /// <summary>True, once, when this launcher stopped that Director on purpose. The entry is removed, so the
     /// same answer cannot excuse a later crash of a process that reused the id.</summary>
     public bool Consume(string directorId, int pid)

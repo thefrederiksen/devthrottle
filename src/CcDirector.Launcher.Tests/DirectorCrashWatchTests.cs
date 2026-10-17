@@ -321,4 +321,22 @@ public sealed class DirectorCrashWatchTests : IDisposable
         Assert.True(_ledger.Consume("director-a", int.MaxValue));
         Assert.False(_ledger.Consume("director-a", int.MaxValue));
     }
+
+    [Fact]
+    public async Task Forget_AStopThatDidNotEndTheProcess_DoesNotExcuseALaterCrash()
+    {
+        // A stop whose kill was refused or failed is taken back out of the ledger, so when that Director later
+        // really crashes the watch starts it again instead of reading the crash as the launcher's own stop.
+        var watch = NewWatch();
+        var a = Director("director-a", 101);
+        IsRunning(a);
+        await watch.CheckOnceAsync();
+
+        _ledger.Record(a.DirectorId, a.Pid);
+        _ledger.Forget(a.DirectorId, a.Pid);
+        Crashes(a);
+
+        Assert.Equal(DirectorCrashWatchOutcome.Restarted, await watch.CheckOnceAsync());
+        Assert.Equal(1, _starts);
+    }
 }

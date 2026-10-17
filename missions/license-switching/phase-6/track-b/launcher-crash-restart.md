@@ -35,6 +35,16 @@ already does (`DirectorInstanceLocator`). It acts as follows:
 record, so a stop the launcher made itself is never read as a crash. This matters because a stop can end in a
 kill, and a kill leaves the crash journal behind, exactly like a crash.
 
+A stop that does NOT end the process takes its record back (`Forget`): either the kill is refused, because the
+process is not certified as the installed image, or the kill fails. Otherwise a Director still running would carry
+an excuse for an hour, and a real crash in that hour would be read as the launcher's own stop. That was review
+observation 5.
+
+**The Director it starts has the search path the agents need.** On macOS the supervisor starts the Director with
+`/usr/bin/open` on the application, which runs the bundle's real entry point (`Contents/MacOS/launch`). That entry
+point puts the folders the agents are installed in on the search path. The owner's launch agent in the first
+version of #4117 pointed past it, and the review of #4117 found that defect.
+
 **Started by the installed launcher only.** `LauncherCore.RunDirectorCrashWatchAsync` is started beside the
 update loop, in the tray and in headless mode, only when the launcher runs with `--managed`. That is the
 installed launcher, the same rule the update loop uses.
@@ -54,8 +64,10 @@ through that shutdown:
 
 - a person quitting it;
 - its shutdown signal;
-- the launcher stopping it cleanly for an update or Smart Restart;
-- the instance picker's hand-over.
+- the launcher stopping it cleanly for an update or Smart Restart.
+
+(The instance picker's hand-over does not go through that shutdown, but it happens before the journal exists, so
+there is nothing for it to leave.)
 
 So **a Director whose process is gone while its journal is still on disk did not end on purpose.** The journal
 is read only after the process has left, because the shutdown deletes it before the process exits.
@@ -67,13 +79,24 @@ is read only after the process has left, because the shutdown deletes it before 
 | Stopped by the launcher with a kill after the timeout | left | recorded | nothing |
 | Handed over to another Director (update, rollback) | deleted | - | watches the new one |
 | Crashed, killed by Task Manager, killed for memory | left | - | starts it again, within the limit |
+| Crashed before its journal was written (the first moments after it registers, or a journal that could not be created) | none | - | nothing: read as a deliberate end |
 
-**What it does not see.** A Director that dies before it has registered was never seen running, so it is not
-restarted. That is the safe direction: nothing is started that was not known to be running.
+**What it does not see.** Two kinds of crash are not restarted:
+
+- **A Director that dies before it has registered** was never seen running.
+- **A Director that dies before its crash journal exists** looks like a deliberate end. That is the moment
+  between registering and creating the journal, or a journal whose creation failed.
+
+Both are the safe direction: nothing is started that was not known to have crashed.
+
+**The one way a quit could be read as a crash.** The clean shutdown deletes the journal, and if that delete fails
+(`DirectorCrashJournal.MarkClean` logs the failure and carries on), a Director the person quit would be started
+again. I know of no case where the delete fails on a healthy machine. Changing `MarkClean` is outside this pull
+request, so it is a known limit, written down here.
 
 ## Tests
 
-`src/CcDirector.Launcher.Tests/DirectorCrashWatchTests.cs`, 14 tests (13 facts and a two-case theory). Each one
+`src/CcDirector.Launcher.Tests/DirectorCrashWatchTests.cs`, 15 tests (14 facts and a two-case theory). Each one
 in a sentence:
 
 - **A crash:** a Director that dies with its journal on disk is started again, once.
@@ -93,6 +116,10 @@ in a sentence:
 - **A start that throws:** it is tried again, and each try counts toward the limit.
 - **A Director already running again when the start runs:** reported as such, not as a restart.
 - **The ledger:** the supervisor records its stop before stopping, and the record answers only once.
+- **A stop taken back:** a record the supervisor takes back with `Forget` (refused or failed kill) no longer excuses
+  a later crash: that crash is restarted. With `Forget` made to do nothing, this test fails.
+  The two supervisor call sites of `Forget` were read, not tested: reaching them needs a live process that ignores
+  its shutdown signal, which on Linux and macOS means a real 20-second wait.
 
 None of them starts a real Director, waits on a real timer or depends on anything else on this machine. The
 machine reading and the start are scripted, the clock is injected, and the crash journal is a real file in a
@@ -107,19 +134,24 @@ throwaway folder. The swap-lock test holds a test-only lock name. The supervisor
 | Every disappearance is read as a crash | `CheckOnceAsync_DirectorQuitOnPurpose_IsNotStartedAgain`, `CheckOnceAsync_RegistrationGoneButProcessStillExiting_DecidesNothingUntilItHasLeft` |
 | No restart limit | `CheckOnceAsync_CrashLoop_GivesUpAfterTheLimitUntilADirectorRunsAgain`, `CheckOnceAsync_StartThrows_IsTriedAgainAndCountsTowardTheLimit` |
 
-Restored, all 14 pass.
+Restored, all 14 passed. With the `Forget` test added after review, all 15 pass.
 
 **Not proven here.** The watch was not run against a real installed Director on a real machine; the brief
 forbids changing a live machine's state. It is proven by the tests above and by the code paths they drive.
 
 ## What this changes for the owner's setup in pull request #4117
 
-- **Windows and macOS:** once this merges, the owner's own setup is not needed and should not be added. The
-  launcher does the same job and survives every handover.
-- **If the owner had already added one:** both would start a Director after a crash. The second copy finds the
-  first through the single-instance guard, shows its window and exits with 0. The result is one Director, never
-  two, but the owner's setup should be removed.
-- **Linux:** the systemd unit stays, because no launcher is installed there.
+- **Windows and macOS:** with this change, no owner setup is needed, and none should be added. The launcher does
+  the same job and survives every handover. #4117 has been cut down to Linux for that reason.
+- **An owner setup added anyway would fight it, worse on macOS than on Windows.** After a crash, both would start a
+  Director, and the second copy is stopped by the single-instance guard. What that copy does next depends on the
+  platform:
+  - **Windows:** it brings the first copy's window forward and exits with 0, so an owner's watcher stands down.
+  - **Everywhere else:** it cannot bring the window forward, because `TryRaiseExistingWindow` is Windows-only. It
+    shows "Director is already running" and exits with 1. An owner's launch agent with `KeepAlive` then starts it
+    again every 30 seconds for ever, with a dialog each time.
 
-I will trim the Windows and macOS sections of `director-restart.md` when I answer the review of #4117, so the
-document under review does not move now.
+  That is why removing an owner setup on macOS is not optional. This sentence was wrong in the first version of
+  this proof (review finding 2).
+- **Linux:** the systemd unit in #4117 stays, because no launcher is installed there. Its start condition skips any
+  start while a Director is running, so it cannot loop in this way.
