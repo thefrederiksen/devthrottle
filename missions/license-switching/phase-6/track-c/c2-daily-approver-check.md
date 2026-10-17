@@ -146,9 +146,9 @@ and this pull request's `CheckApproverAsync`, and every test from both sides. Th
 `LicenseHandSwitchTests` now answers `CheckApproverAsync` by refusing, as it refuses every verb it does not use.
 Both gates were run with TEMP and TMP on `D:\cc-gate-temp`:
 
-- `.\scripts	est-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Core.UnitTests 253, Avalonia.Tests 32,
+- `.\scripts\test-local.ps1 -Parked -Filter "FullyQualifiedName~License"`: GREEN. Core.UnitTests 253, Avalonia.Tests 32,
   Gateway.Tests 23, Gateway.UnitTests 1067, every suite outcome=Completed.
-- `.\scripts	est-local.ps1` (default): every suite green except one test in Core.UnitTests,
+- `.\scripts\test-local.ps1` (default): every suite green except one test in Core.UnitTests,
   `BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne`
   ("tools/cc-director-setup-engine/LauncherSelfUpdate.cs has 3 site(s) in code, the register says 2"). Neither that
   file nor `docs/BackgroundWork.md` is touched here; the third site came to main with #4162 without its row, so it is
