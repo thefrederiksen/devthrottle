@@ -38,6 +38,12 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
 {
     private const string TheFactory = DefinitionFixture.FactoryId;
     private const string FactorySession = "75000000-0000-4000-8000-000000000001";
+    /// <summary>A session in no factory, with a name: the session the owner tells to make a factory (phase 6c).</summary>
+    private const string BuilderSession = "75000000-0000-4000-8000-000000000002";
+    private const string BuilderName = "Factory Definition - Developer - make Eric's factory";
+
+    /// <summary>What the create route is told about the id the folder names: null when it is free (phase 6c).</summary>
+    private string? _taken;
     private static readonly DateTime Now = new(2026, 10, 14, 12, 0, 0, DateTimeKind.Utc);
     private static readonly TenantId A = new("acct-a");
     private static readonly TenantId B = new("acct-b");
@@ -67,7 +73,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
         FactoryDefinitionEndpoints.Map(routes,
             resolveTenant: ctx => ctx.Items.TryGetValue(AccountItem, out var account) ? (TenantId)account! : A,
             store: new FactoryDefinitionStore(_db),
-            sessionFactoryOf: _ => SessionFactoryLookup.In(TheFactory),
+            sessionFactoryOf: FactoryOf,
             fleetSkillsOf: _ => DefinitionFixture.FleetSkills,
             connectedMachinesOf: _ => DefinitionFixture.Machines,
             liveOf: (_, _) => null,
@@ -76,8 +82,20 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
             askMachines: askMachines ?? DefinitionFixture.AskNobody,
             checkStates: new FactoryDefinitionEndpoints.CheckStateParts(_triggers.CheckStates, _triggers.List,
                 _ => Array.Empty<CronJobDto>()));
+        FactoryDefinitionEndpoints.MapCreate(routes,
+            resolveTenant: ctx => ctx.Items.TryGetValue(AccountItem, out var account) ? (TenantId)account! : A,
+            store: new FactoryDefinitionStore(_db),
+            sessionFactoryOf: FactoryOf,
+            account: new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => DefinitionFixture.Machines,
+                DefinitionFixture.AskNobody),
+            nowUtc: () => Now,
+            whyNotNew: (_, _) => _taken);
         return routes;
     }
+
+    private static SessionFactoryLookup FactoryOf(string session) => session == BuilderSession
+        ? SessionFactoryLookup.InNoFactory with { Name = BuilderName }
+        : SessionFactoryLookup.In(TheFactory);
 
     public void Dispose()
     {
@@ -103,6 +121,9 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
 
     private static void AsASessionOfTheFactory(HttpContext ctx) =>
         ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.Parse(FactorySession), A, "dir-a");
+
+    private static void AsASessionInNoFactory(HttpContext ctx) =>
+        ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] = new SessionCredentialIdentity(Guid.Parse(BuilderSession), A, "dir-a");
 
     /// <summary>The mapped endpoint whose verb and template match this request, with the route values it matched.</summary>
     private (RouteEndpoint Endpoint, RouteValueDictionary Values)? Match(string method, string path)
@@ -256,18 +277,83 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task A_SESSIONS_PUBLISH_AND_RESTORE_COME_BACK_AS_403_WITH_THE_SENTENCE_AND_THE_OUTCOME_BY_NAME()
+    public async Task A_FACTORYS_OWN_SESSIONS_PUBLISH_AND_RESTORE_COME_BACK_AS_403_WITH_THE_SENTENCE_AND_THE_OUTCOME_BY_NAME()
     {
         await Send("PUT", FactoryPath + "/draft", AsASessionOfTheFactory, SaveBody(DefinitionFixture.Publishable(), 0));
 
         var refused = await Send("POST", FactoryPath + "/publish", AsASessionOfTheFactory, """{"version":1}""");
         Assert.Equal(403, refused.Status);
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonPublishes, refused.Body.GetProperty("error").GetString());
-        Assert.Equal("OnlyAPersonPublishes", refused.Body.GetProperty("outcome").GetString());
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory), refused.Body.GetProperty("error").GetString());
+        Assert.Equal("FactorySessionMayNotPublish", refused.Body.GetProperty("outcome").GetString());
 
         var restore = await Send("POST", FactoryPath + "/restore", AsASessionOfTheFactory, """{"version":1,"expectedVersion":1}""");
         Assert.Equal(403, restore.Status);
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonRestores, restore.Body.GetProperty("error").GetString());
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotRestore(TheFactory), restore.Body.GetProperty("error").GetString());
+    }
+
+    // ---------- a session in no factory creates and publishes (phase 6c, the owner's ruling of 16 October 2026) ----------
+
+    private static string CreateBody(IReadOnlyDictionary<string, string> content) =>
+        JsonSerializer.Serialize(new Dictionary<string, object?> { ["content"] = content });
+
+    [Fact]
+    public async Task A_SESSION_IN_NO_FACTORY_CREATES_A_FACTORY_FROM_A_FOLDER_AND_PUBLISHES_IT_and_the_publish_names_it()
+    {
+        var created = await Send("POST", "/factory-definitions/create", AsASessionInNoFactory, CreateBody(DefinitionFixture.Publishable()));
+
+        Assert.Equal(200, created.Status);
+        Assert.Equal(1, created.Body.GetProperty("version").GetInt32());
+        Assert.Equal("draft", created.Body.GetProperty("state").GetString());
+        Assert.True(created.Body.GetProperty("created").GetBoolean());
+        Assert.Equal("session", created.Body.GetProperty("authorKind").GetString());
+
+        var published = await Send("POST", FactoryPath + "/publish", AsASessionInNoFactory, """{"version":1,"replaces":0}""");
+
+        Assert.Equal(200, published.Status);
+        Assert.Equal(1, published.Body.GetProperty("publishedVersion").GetInt32());
+        Assert.Equal("session", published.Body.GetProperty("publishedByKind").GetString());
+        Assert.Equal(BuilderSession, published.Body.GetProperty("publishedBy").GetString());
+        Assert.Equal(BuilderName, published.Body.GetProperty("publishedByName").GetString());
+        Assert.Equal($"session {BuilderSession} ({BuilderName})", published.Body.GetProperty("publishedByText").GetString());
+        Assert.True(published.Body.GetProperty("applied").GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task A_FACTORYS_OWN_SESSION_MAY_NOT_CREATE_A_FACTORY_and_nothing_is_stored()
+    {
+        var refused = await Send("POST", "/factory-definitions/create", AsASessionOfTheFactory, CreateBody(DefinitionFixture.Publishable()));
+
+        Assert.Equal(403, refused.Status);
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotCreate(TheFactory, TheFactory), refused.Body.GetProperty("error").GetString());
+        Assert.Equal("FactorySessionMayNotPublish", refused.Body.GetProperty("outcome").GetString());
+        Assert.Null(new FactoryDefinitionStore(_db).Standing(A, TheFactory).Newest);
+    }
+
+    [Fact]
+    public async Task A_CREATE_FOR_AN_ID_THAT_IS_TAKEN_IS_REFUSED_IN_THE_GATEWAYS_WORDS_and_nothing_is_stored()
+    {
+        _taken = "The folder's factory.yaml names 'devthrottle', and that factory already exists.";
+
+        var refused = await Send("POST", "/factory-definitions/create", AsASessionInNoFactory, CreateBody(DefinitionFixture.Publishable()));
+
+        Assert.Equal(409, refused.Status);
+        Assert.Equal(_taken, refused.Body.GetProperty("error").GetString());
+        Assert.Equal("FactoryExists", refused.Body.GetProperty("outcome").GetString());
+        Assert.Null(new FactoryDefinitionStore(_db).Standing(A, TheFactory).Newest);
+    }
+
+    [Fact]
+    public async Task A_CREATE_WITH_AN_ERROR_IS_REFUSED_BY_THE_CHECK_WITH_EVERY_FINDING_BY_FILE_AND_LINE()
+    {
+        var broken = DefinitionFixture.PublishableWith("seats/writer.yaml", DefinitionFixture.Writer + "\ncolour: red");
+
+        var refused = await Send("POST", "/factory-definitions/create", AsASessionInNoFactory, CreateBody(broken));
+
+        Assert.Equal(422, refused.Status);
+        Assert.Equal("CheckFailed", refused.Body.GetProperty("outcome").GetString());
+        var error = refused.Body.GetProperty("findings").EnumerateArray().First(f => f.GetProperty("severity").GetString() == "error");
+        Assert.Equal("seats/writer.yaml", error.GetProperty("file").GetString());
+        Assert.Equal(5, error.GetProperty("line").GetInt32());
     }
 
     [Fact]
@@ -857,6 +943,7 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [InlineData("POST", "/factory-definitions/devthrottle/restore")]
     [InlineData("GET", "/factory-definitions/devthrottle/export")]
     [InlineData("POST", "/factory-definitions/import")]
+    [InlineData("POST", "/factory-definitions/create")]
     [InlineData("GET", "/factory-definition-schemas")]
     public void EACH_ROUTE_IS_MAPPED_and_the_session_key_guard_lets_a_session_reach_it(string method, string path)
     {
@@ -879,6 +966,8 @@ public sealed class FactoryDefinitionRoutesThroughThePipelineTests : IDisposable
     [InlineData("POST", "/factory-definitions/devthrottle/diff")]
     [InlineData("POST", "/factory-definitions/devthrottle/export")]
     [InlineData("PUT", "/factory-definitions/import")]
+    [InlineData("PUT", "/factory-definitions/create")]
+    [InlineData("POST", "/factory-definitions/devthrottle/create")]
     [InlineData("POST", "/factory-definitions/devthrottle/import")]
     [InlineData("POST", "/factory-definition-schemas")]
     [InlineData("GET", "/factory-definition-schemas/seat")]

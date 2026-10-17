@@ -1435,6 +1435,9 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorId).HasMaxLength(200);
             b.Property(e => e.ChangeNote).HasMaxLength(500);
             b.Property(e => e.PublishedBy).HasMaxLength(200);
+            b.Property(e => e.PublishedByKind).HasMaxLength(20);
+            // As long as a session's name may be (session_history.SessionName), so a name is never cut short.
+            b.Property(e => e.PublishedByName).HasMaxLength(320);
         });
 
         modelBuilder.Entity<FactoryCheckStateEntity>(b =>

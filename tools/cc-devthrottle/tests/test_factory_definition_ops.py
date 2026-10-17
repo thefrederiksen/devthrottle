@@ -27,8 +27,9 @@ from src.cli import app  # noqa: E402
 runner = CliRunner()
 
 FACTORY = "warmforward"
-ONLY_A_PERSON = ("Only a person publishes a factory's definition. A session of the factory may save a draft; "
-                 "the owner reads it and publishes it.")
+FACTORY_SESSION_REFUSED = ("A session of factory 'warmforward' may not publish a factory's definition. A factory's own "
+                           "sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that "
+                           "is in no factory to publish.")
 
 FILES = {
     "factory.yaml": "factory: warmforward\ntitle: WarmForward\ndefaults:\n  machine: SOREN_NORTH\n  agent: ClaudeCode\n",
@@ -409,20 +410,37 @@ def test_save_AFileThatIsNotText_IsNamed_AndNothingIsSent(gateway, folder):
 
 
 # ---------------------------------------------------------------------------------------------------
-# publish and restore: a person's acts
+# publish and restore: a person's, or a session's in no factory; never a factory's own session's
 # ---------------------------------------------------------------------------------------------------
 
-def test_publish_FromASession_IsRefusedWithTheGatewaysSentence_AndExitsNonZero(gateway):
-    gw = gateway((403, {"error": ONLY_A_PERSON, "outcome": "OnlyAPersonPublishes", "current": None}))
+def test_publish_FromAFactorysOwnSession_IsRefusedWithTheGatewaysSentence_AndIsToldToSaveADraft(gateway):
+    gw = gateway((403, {"error": FACTORY_SESSION_REFUSED, "outcome": "FactorySessionMayNotPublish"}))
 
     result = run("publish", FACTORY, "--version", "4")
 
     assert result.exit_code == 1
     assert (gw.calls[0]["method"], gw.calls[0]["path"], gw.calls[0]["body"]) == (
         "POST", "/factory-definitions/warmforward/publish", {"version": 4})
-    assert ONLY_A_PERSON in result.stderr
+    assert FACTORY_SESSION_REFUSED in result.stderr
     assert "factory definition save warmforward --dir <folder>" in result.stderr
     assert "Published" not in result.stdout
+
+
+def test_publish_BySessionInNoFactory_PrintsWhoPublishedIt_InTheGatewaysWords(gateway):
+    published = version(1, state="published", published=1, files=FILES)
+    published["publishedByKind"] = "session"
+    published["publishedBy"] = "74000000-0000-4000-8000-000000000006"
+    published["publishedByName"] = "Builder"
+    published["publishedByText"] = "session 74000000-0000-4000-8000-000000000006 (Builder)"
+    gateway((200, published), (200, published))
+
+    result = run("publish", FACTORY, "--version", "1")
+    assert result.exit_code == 0, result.output
+    assert "Published: version 1 of the definition of warmforward." in result.stdout
+
+    shown = run("get", FACTORY)
+    assert shown.exit_code == 0, shown.output
+    assert "Published by session 74000000-0000-4000-8000-000000000006 (Builder)" in shown.stdout
 
 
 def test_publish_PrintsWhatChanges_AsTheGatewayComposedIt(gateway):
@@ -464,10 +482,11 @@ def test_restore_SendsTheVersionAndTheVersionTheCallerRead(gateway):
     assert "Restored: version 1 of the definition of warmforward. Version 6 is now the published definition." in result.stdout
 
 
-def test_restore_FromASession_IsRefusedWithTheGatewaysSentence(gateway):
-    sentence = ("Only a person publishes a factory's definition, and restoring an older version publishes a copy of it. "
-                "A session of the factory may save the content it wants as a new draft; the owner publishes it.")
-    gateway((403, {"error": sentence, "outcome": "OnlyAPersonPublishes", "current": None}))
+def test_restore_FromAFactorysOwnSession_IsRefusedWithTheGatewaysSentence(gateway):
+    sentence = ("A session of factory 'warmforward' may not restore a version of a factory's definition, because a "
+                "restore publishes a copy of it. Save the content you want as a new draft. A factory's own sessions save "
+                "drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.")
+    gateway((403, {"error": sentence, "outcome": "FactorySessionMayNotPublish", "current": None}))
 
     result = run("restore", FACTORY, "--version", "1")
 
@@ -699,4 +718,102 @@ def test_anUnknownFlag_Fails_AndCallsNothing(gateway, folder, verb, required):
     assert result.exit_code == 2
     assert "No such option" in result.output
     assert "--no-such-flag" in result.output
+    assert gw.calls == []
+
+
+# ---------------------------------------------------------------------------------------------------
+# create: a NEW factory from a folder or a zip (phase 6c)
+# ---------------------------------------------------------------------------------------------------
+
+def _write_folder(root):
+    for path, text in FILES.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(text.encode("utf-8"))
+    return root
+
+
+def test_create_FromAFolder_SendsEveryFileToTheCreateRoute_AndSaysWhatToRunNext(gateway, tmp_path):
+    folder = _write_folder(tmp_path / "eric-factory")
+    created = version(1)
+    created["created"] = True
+    gw = gateway((200, created))
+
+    result = run("create", str(folder), "--note", "Eric's factory")
+
+    assert result.exit_code == 0, result.output
+    call = gw.calls[0]
+    assert (call["method"], call["path"]) == ("POST", "/factory-definitions/create")
+    assert call["body"] == {"content": FILES, "note": "Eric's factory"}
+    assert "Created: version 1 of the definition of warmforward is a draft (2 files, 150 bytes)." in result.stdout
+    assert "Nothing was published" in result.stdout
+    assert "factory definition diff warmforward --to 1" in result.stdout
+    assert "factory definition publish warmforward --version 1 --replaces 0" in result.stdout
+
+
+def test_create_FromAZipOfTheFolder_SendsTheSameFiles_WithTheTopFolderTakenOff(gateway, tmp_path):
+    import zipfile
+    zipped = tmp_path / "eric-factory.zip"
+    with zipfile.ZipFile(zipped, "w") as archive:
+        archive.writestr("eric-factory/", "")
+        for path, text in FILES.items():
+            archive.writestr(f"eric-factory/{path}", text)
+    created = version(1)
+    created["created"] = True
+    gw = gateway((200, created))
+
+    result = run("create", str(zipped))
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"content": FILES}
+
+
+def test_create_ForAnIdThatIsTaken_PrintsTheGatewaysSentence_AndExitsNonZero(gateway, tmp_path):
+    folder = _write_folder(tmp_path / "f")
+    sentence = ("The folder's factory.yaml names 'warmforward', and that factory already exists: WarmForward. "
+                "Nothing was created.")
+    gateway((409, {"error": sentence, "outcome": "FactoryExists"}))
+
+    result = run("create", str(folder))
+
+    assert result.exit_code == 1
+    assert sentence in result.stderr
+    assert "cc-devthrottle factory import" in result.stderr
+    assert "Created" not in result.stdout
+
+
+def test_create_FromAFactorysOwnSession_PrintsTheGatewaysRefusal(gateway, tmp_path):
+    folder = _write_folder(tmp_path / "f")
+    sentence = ("A session of factory 'devthrottle' may not create a new factory, and 'warmforward' has no definition "
+                "yet. The owner creates factories, in the Cockpit with New factory or by telling a session that is in "
+                "no factory to create one.")
+    gateway((403, {"error": sentence, "outcome": "FactorySessionMayNotPublish"}))
+
+    result = run("create", str(folder))
+
+    assert result.exit_code == 1
+    assert sentence in result.stderr
+
+
+def test_create_RefusedByTheCheck_PrintsEveryFindingAsFileLineMessage(gateway, tmp_path):
+    folder = _write_folder(tmp_path / "f")
+    gateway((422, {"error": "The folder was not imported: the check found 1 error in the definition of warmforward. "
+                            "Fix each one where it is and try again.",
+                   "outcome": "CheckFailed",
+                   "findings": [{"severity": "error", "file": "seats/boss.yaml", "line": 4,
+                                 "message": "'colour' is not a key a seat file takes."}]}))
+
+    result = run("create", str(folder))
+
+    assert result.exit_code == 1
+    assert "  seats/boss.yaml:4: 'colour' is not a key a seat file takes." in result.stderr
+
+
+def test_create_OfAFolderThatDoesNotExist_SaysSo_AndCallsNothing(gateway, tmp_path):
+    gw = gateway()
+
+    result = run("create", str(tmp_path / "missing"))
+
+    assert result.exit_code == 1
+    assert "there is no folder at" in result.stderr
     assert gw.calls == []

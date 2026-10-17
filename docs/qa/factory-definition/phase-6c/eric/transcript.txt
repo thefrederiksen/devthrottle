@@ -1,0 +1,775 @@
+# the folder (private; its files' sizes and hashes only)
+  factory.yaml  189 bytes  sha256 4132cc0fbbba0494121b19d877e3bfde87310ab2936085d05cc1cf6d83551d1f
+  files/instructions.md  686 bytes  sha256 5a4bc5196119484aa37591229eefd2619dca4ecff4c2322cd46a055a02a92701
+  seats/mail-desk.yaml  1416 bytes  sha256 f92ed39a4034abf20b20c9fb7419ee678fa42a8a78dbf7fdbbe45e6533bf856f
+
+# Gateway: http://127.0.0.1:7989, built from this tree, storage root <rig>\gateway-root made empty for this run. No Director.
+
+# before: the Factories list
+  GET /gateway/factories
+  {
+    "title": "Factories",
+    "subtitle": "Each factory runs one business or one job on its own, toward the goal you set for it.",
+    "tabs": [
+      {
+        "key": "factories",
+        "label": "Factories",
+        "notYetText": null
+      },
+      {
+        "key": "activity",
+        "label": "Activity",
+        "notYetText": null
+      },
+      {
+        "key": "reports",
+        "label": "Reports",
+        "notYetText": null
+      }
+    ],
+    "columns": [
+      "Factory",
+      "Waiting on you",
+      "Status"
+    ],
+    "rows": [],
+    "footerText": null,
+    "emptyText": "No factory is registered yet. New factory imports a definition folder as a draft; publishing it puts the factory here.",
+    "truncatedText": null,
+    "showArchivedLabel": "Show archived (0)",
+    "hideArchivedLabel": "Hide archived",
+    "archivedRows": [],
+    "archivedEmptyText": "No factory is archived.",
+    "outsideTitle": "Schedules outside any factory",
+    "outsideText": "These run on a schedule but are no seat of any factory. A plain job can stay here; factory work must be a seat of its factory - register the seat, then link the schedule to it with cc-devthrottle schedule link <id> --factory <factory> --seat <seat>.",
+    "outsideRows": [],
+    "outsideEmptyText": "Every active schedule is a seat of a factory.",
+    "newFactory": {
+      "label": "New factory",
+      "busyLabel": "Importing...",
+      "href": "/gateway/factories/new",
+      "noteText": "New factory takes a zip of a definition folder. It becomes version 1, a draft, of the factory its factory.yaml names, checked exactly as a save is. Nothing runs until you publish it on its Definition tab."
+    },
+    "draftTitle": "Not published yet",
+    "draftRows": []
+  }
+
+# STEP 1 - a session of another factory may not create a factory.
+
+$ cc-devthrottle factory definition create <eric folder>      (as session 40b6a08b-0702-4be9-91da-de9c911ec98a, of factory qa-other)
+Error: Not created: A session of factory 'qa-other' may not create a new factory, and 'eric' has no definition yet. The owner creates factories, in the Cockpit with New factory or by telling a session that is in no factory to create one.
+help[1]:
+  cc-devthrottle factory definition save <your factory> --dir <folder> --expected-version <newest version>
+[exit 1]
+
+# PASS a session of another factory is refused create in words
+  seen: Error: Not created: A session of factory 'qa-other' may not create a new factory, and 'eric' has no definition yet. The owner creates factories, in the Cockpit with New factory or by telling a session that is in no factory to create one.
+
+# STEP 2 - the builder, a session in no factory, creates Eric's factory from the folder.
+
+$ cc-devthrottle factory definition create <eric folder> --note "Eric's factory, made by a session" --json      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+{
+  "factory": "eric",
+  "version": 1,
+  "state": "draft",
+  "authorKind": "session",
+  "authorId": "95c8f9b0-7a40-4f2d-a17d-0335999eabfa",
+  "changeNote": "Eric's factory, made by a session",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-16T22:27:09.7588231Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "publishedByKind": null,
+  "publishedByName": null,
+  "publishedByText": null,
+  "contentBytes": 2291,
+  "fileCount": 3,
+  "newestVersion": 1,
+  "publishedVersion": null,
+  "files": null,
+  "created": true,
+  "findings": [
+    {
+      "severity": "notice",
+      "file": "factory.yaml",
+      "line": 5,
+      "message": "No Director on <machine> is connected now, so it could not be confirmed."
+    }
+  ],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+# PASS version 1 stored as a draft, the factory's first
+  seen: {'version': 1, 'state': 'draft', 'created': True}
+
+# STEP 3 - what publishing it would do.
+
+$ cc-devthrottle factory definition diff eric --to 1      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+eric: from nothing published to version 1.
+published version: none
+what changes: First publish: 5 factory settings set, 1 seat added, 1 start created, 1 file added.
+  factory eric
+  title Eric
+  purpose Checks a mailbox every morning at 08:00 and, when the email is there, runs the owner's instructions.
+  defaults.machine <machine>
+  defaults.agent ClaudeCode
+  Seat Mail Desk (mail-desk) added.
+    role Mail Desk
+    machine <machine> (the factory's default)
+    agent ClaudeCode (the factory's default)
+    file files/instructions.md added
+    brief: 17 lines
+      + You are the Mail Desk of Eric's factory. You start every morning at 08:00, Toronto time.
+      + 
+      + Everything you need is in the folder named by CC_FACTORY_KIT_DIR. The owner's instructions are in
+      + files/instructions.md there. They say which mailbox to check and how you read it, which email to look for, and
+      + what to do when it is there. Nothing in this brief adds to them.
+      + 
+      + Each morning:
+      + 1. Read files/instructions.md. If it still has a line beginning "TO FILL:", the owner has not finished it: do
+      +    not open any mailbox, write the journal line in step 4 saying "Not set up yet: files/instructions.md still has
+      +    TO FILL:", and stop.
+      + 2. Check the mailbox the way the instructions say, for the email they describe.
+      + 3. If the email is there, follow the instructions for it.
+      + 4. Write ONE line in the seat's journal saying what you found and what you did, and stop. When the email is not
+      +    there, that one line is all you do:
+      +      echo "<the line>" | cc-devthrottle factory journal add --factory eric --seat mail-desk --file -
+      + 
+      + You have no repository. Work only in the work/ folder inside the folder named by CC_FACTORY_KIT_DIR.
+  Mail Desk: start created, Daily 08:00 America/Toronto.
+    prompt "Good morning. It is time for the 08:00 mail check. Do what your brief says."
+  File files/instructions.md added: 18 lines.
+      + # The Mail Desk's instructions
+      + 
+      + The owner writes these. Each morning the seat follows them, and does nothing else.
+      + 
+      + ## The mailbox
+      + 
+      + TO FILL: which mailbox the seat checks (its address), and how the seat reads it - the tool or command it uses, and
+      + the name of the cc-secrets entry that holds what it signs in with. Never write a password or a key here.
+      + 
+      + ## The email to act on
+      + 
+      + TO FILL: which email counts - for example who it comes from and what its subject says - and how far back the seat
+      + looks each morning.
+      + 
+      + ## What to do when it is there
+      + 
+      + TO FILL: what the seat does with that email, as plain steps - what it reads in it, what it does, what it writes and
+      + where, and whom it tells.
+What publishing version 1 would do to the live factory now:
+  Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
+  A new schedule (Eric - Mail Desk) for seat mail-desk: Daily 08:00 America/Toronto.
+help[2]:
+  cc-devthrottle factory definition publish eric --version 1 --replaces 0
+  cc-devthrottle factory definition history eric
+[exit 0]
+
+# STEP 4 - a session of eric may save a draft of its own factory but not publish it.
+
+$ cc-devthrottle factory definition publish eric --version 1 --replaces 0      (as session 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, of factory eric)
+Error: A session of factory 'eric' may not publish a factory's definition. A factory's own sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.
+help[2]:
+  cc-devthrottle factory definition save eric --dir <folder> --expected-version <newest version>
+  cc-devthrottle factory definition history eric
+[exit 1]
+
+# STEP 5 - the builder publishes it.
+
+$ cc-devthrottle factory definition publish eric --version 1 --replaces 0 --json      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+{
+  "factory": "eric",
+  "version": 1,
+  "state": "published",
+  "authorKind": "session",
+  "authorId": "95c8f9b0-7a40-4f2d-a17d-0335999eabfa",
+  "changeNote": "Eric's factory, made by a session",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-16T22:27:09.7588231Z",
+  "publishedAtUtc": "2026-10-16T22:27:11.8699023Z",
+  "publishedBy": "95c8f9b0-7a40-4f2d-a17d-0335999eabfa",
+  "publishedByKind": "session",
+  "publishedByName": "QA - builder, in no factory",
+  "publishedByText": "session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory)",
+  "contentBytes": 2291,
+  "fileCount": 3,
+  "newestVersion": 1,
+  "publishedVersion": 1,
+  "files": null,
+  "created": null,
+  "findings": [
+    {
+      "severity": "notice",
+      "file": "factory.yaml",
+      "line": 5,
+      "message": "No Director on <machine> is connected now, so it could not be confirmed."
+    }
+  ],
+  "changes": {
+    "summary": "First publish: 5 factory settings set, 1 seat added, 1 start created, 1 file added.",
+    "nothingChanges": false,
+    "firstPublish": true,
+    "factory": [
+      {
+        "field": "factory",
+        "sentence": "factory eric",
+        "diff": null
+      },
+      {
+        "field": "title",
+        "sentence": "title Eric",
+        "diff": null
+      },
+      {
+        "field": "purpose",
+        "sentence": "purpose Checks a mailbox every morning at 08:00 and, when the email is there, runs the owner's instructions.",
+        "diff": null
+      },
+      {
+        "field": "defaults.machine",
+        "sentence": "defaults.machine <machine>",
+        "diff": null
+      },
+      {
+        "field": "defaults.agent",
+        "sentence": "defaults.agent ClaudeCode",
+        "diff": null
+      }
+    ],
+    "seats": [
+      {
+        "seat": "mail-desk",
+        "change": "added",
+        "sentence": "Seat Mail Desk (mail-desk) added.",
+        "details": [
+          "role Mail Desk",
+          "machine <machine> (the factory's default)",
+          "agent ClaudeCode (the factory's default)",
+          "file files/instructions.md added",
+          "brief: 17 lines"
+        ],
+        "briefDiff": {
+          "added": 17,
+          "removed": 0,
+          "lines": [
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "You are the Mail Desk of Eric's factory. You start every morning at 08:00, Toronto time.",
+              "oldLine": null,
+              "newLine": 1
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 2
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "Everything you need is in the folder named by CC_FACTORY_KIT_DIR. The owner's instructions are in",
+              "oldLine": null,
+              "newLine": 3
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "files/instructions.md there. They say which mailbox to check and how you read it, which email to look for, and",
+              "oldLine": null,
+              "newLine": 4
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "what to do when it is there. Nothing in this brief adds to them.",
+              "oldLine": null,
+              "newLine": 5
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 6
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "Each morning:",
+              "oldLine": null,
+              "newLine": 7
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "1. Read files/instructions.md. If it still has a line beginning \"TO FILL:\", the owner has not finished it: do",
+              "oldLine": null,
+              "newLine": 8
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "   not open any mailbox, write the journal line in step 4 saying \"Not set up yet: files/instructions.md still has",
+              "oldLine": null,
+              "newLine": 9
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "   TO FILL:\", and stop.",
+              "oldLine": null,
+              "newLine": 10
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "2. Check the mailbox the way the instructions say, for the email they describe.",
+              "oldLine": null,
+              "newLine": 11
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "3. If the email is there, follow the instructions for it.",
+              "oldLine": null,
+              "newLine": 12
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "4. Write ONE line in the seat's journal saying what you found and what you did, and stop. When the email is not",
+              "oldLine": null,
+              "newLine": 13
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "   there, that one line is all you do:",
+              "oldLine": null,
+              "newLine": 14
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "     echo \"<the line>\" | cc-devthrottle factory journal add --factory eric --seat mail-desk --file -",
+              "oldLine": null,
+              "newLine": 15
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 16
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "You have no repository. Work only in the work/ folder inside the folder named by CC_FACTORY_KIT_DIR.",
+              "oldLine": null,
+              "newLine": 17
+            }
+          ],
+          "linesNotShown": 0,
+          "note": null
+        }
+      }
+    ],
+    "starts": [
+      {
+        "seat": "mail-desk",
+        "change": "created",
+        "sentence": "Mail Desk: start created, Daily 08:00 America/Toronto.",
+        "details": [
+          "prompt \"Good morning. It is time for the 08:00 mail check. Do what your brief says.\""
+        ]
+      }
+    ],
+    "rules": [],
+    "grants": [],
+    "files": [
+      {
+        "path": "files/instructions.md",
+        "kind": "file",
+        "change": "added",
+        "sentence": "File files/instructions.md added: 18 lines.",
+        "diff": {
+          "added": 18,
+          "removed": 0,
+          "lines": [
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "# The Mail Desk's instructions",
+              "oldLine": null,
+              "newLine": 1
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 2
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "The owner writes these. Each morning the seat follows them, and does nothing else.",
+              "oldLine": null,
+              "newLine": 3
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 4
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "## The mailbox",
+              "oldLine": null,
+              "newLine": 5
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 6
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "TO FILL: which mailbox the seat checks (its address), and how the seat reads it - the tool or command it uses, and",
+              "oldLine": null,
+              "newLine": 7
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "the name of the cc-secrets entry that holds what it signs in with. Never write a password or a key here.",
+              "oldLine": null,
+              "newLine": 8
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 9
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "## The email to act on",
+              "oldLine": null,
+              "newLine": 10
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 11
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "TO FILL: which email counts - for example who it comes from and what its subject says - and how far back the seat",
+              "oldLine": null,
+              "newLine": 12
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "looks each morning.",
+              "oldLine": null,
+              "newLine": 13
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 14
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "## What to do when it is there",
+              "oldLine": null,
+              "newLine": 15
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "",
+              "oldLine": null,
+              "newLine": 16
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "TO FILL: what the seat does with that email, as plain steps - what it reads in it, what it does, what it writes and",
+              "oldLine": null,
+              "newLine": 17
+            },
+            {
+              "kind": "added",
+              "marker": "+",
+              "text": "where, and whom it tells.",
+              "oldLine": null,
+              "newLine": 18
+            }
+          ],
+          "linesNotShown": 0,
+          "note": null
+        }
+      }
+    ]
+  },
+  "applied": [
+    "Definition: version 1 published.",
+    "Registry: eric registered from its definition, in no folder: each seat runs where the definition says.",
+    "Schedule cj_f2f1ae (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto."
+  ]
+}
+[exit 0]
+
+# PASS version 1 published, recorded as the builder's by its id and name
+  seen: {'publishedVersion': 1, 'publishedByKind': 'session', 'publishedBy': '95c8f9b0-7a40-4f2d-a17d-0335999eabfa', 'publishedByName': 'QA - builder, in no factory', 'publishedByText': 'session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory)'}
+
+# what the publish applied, as the Gateway wrote it
+  Definition: version 1 published.
+  Registry: eric registered from its definition, in no folder: each seat runs where the definition says.
+  Schedule cj_f2f1ae (Eric - Mail Desk) created for seat mail-desk: Daily 08:00 America/Toronto.
+
+# STEP 6 - the history and the published version say who published it.
+
+$ cc-devthrottle factory definition history eric      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+count: 1 of 1. Version 1 is the published definition.
+versions[1]{version,state,written,by,files,bytes,note,publishedBy}:
+  v1,PUBLISHED NOW,2026-10-16T22:27:09.7588231Z,session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa,3,2291,"Eric's factory, made by a session","session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory)"
+help[2]:
+  cc-devthrottle factory definition get eric --version <version>
+  cc-devthrottle factory definition diff eric --to <version>
+[exit 0]
+
+$ cc-devthrottle factory definition get eric      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+eric  version 1  published  written by session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa  2026-10-16T22:27:09.7588231Z  3 files  2291 bytes
+Published by session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa (QA - builder, in no factory) 2026-10-16T22:27:11.8699023Z.
+note: Eric's factory, made by a session
+files[3]{path,bytes}:
+  factory.yaml,189
+  files/instructions.md,686
+  seats/mail-desk.yaml,1416
+help[3]:
+  cc-devthrottle factory definition get eric --version 1 --file <path>
+  cc-devthrottle factory definition save eric --dir <folder> --expected-version 1
+  cc-devthrottle factory definition history eric
+[exit 0]
+
+# STEP 7 - a second create of the same id is refused with what to run instead.
+
+$ cc-devthrottle factory definition create <eric folder>      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+Error: Not created: The folder's factory.yaml names 'eric', and that factory already exists: Eric. Nothing was created. To make the folder its next draft, run: cc-devthrottle factory import <folder>
+help[2]:
+  cc-devthrottle factory import <eric folder>
+  cc-devthrottle factory list
+[exit 1]
+
+# PASS a create of an id that is taken is refused in words
+  seen: Error: Not created: The folder's factory.yaml names 'eric', and that factory already exists: Eric. Nothing was created. To make the folder its next draft, run: cc-devthrottle factory import <folder>
+
+# STEP 8 - a session of eric still saves a draft of its own factory, and still may not publish it.
+
+$ cc-devthrottle factory definition save eric --dir <eric folder> --expected-version 1 --note "a draft from eric's own session"      (as session 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, of factory eric)
+Saved: version 2 of the definition of eric is a draft (3 files, 2291 bytes).
+Version 1 stays the published definition until a person publishes this draft.
+notices[1]:
+  factory.yaml:5: No Director on <machine> is connected now, so it could not be confirmed.
+help[2]:
+  cc-devthrottle factory definition diff eric --to 2
+  cc-devthrottle factory definition publish eric --version 2
+[exit 0]
+
+$ cc-devthrottle factory definition publish eric --version 2      (as session 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, of factory eric)
+Error: A session of factory 'eric' may not publish a factory's definition. A factory's own sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.
+help[2]:
+  cc-devthrottle factory definition save eric --dir <folder> --expected-version <newest version>
+  cc-devthrottle factory definition history eric
+[exit 1]
+
+# PASS a factory's own session is refused publish in words
+  seen: Error: A session of factory 'eric' may not publish a factory's definition. A factory's own sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that is in no factory to publish.
+
+# STEP 9 - the factory on the list, with its schedule, read by the builder from the command line.
+
+$ cc-devthrottle factory list      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+count: 1
+factories[1]{id,title,boss,seats}:
+  eric,Eric,,1
+help[2]:
+  cc-devthrottle factory goal-number show --factory <id>
+  cc-devthrottle factory register --manifest <file>
+[exit 0]
+
+$ cc-devthrottle schedule list      (as the builder: session 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, in no factory)
+count: 1 (enabled 1)
+schedules[1]{id,name,enabled,kind,next-run}:
+  cj_f2f1ae,Eric - Mail Desk,yes,recurring,2026-10-17T12:00:00Z
+help[5]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --fields id,name,enabled,next-run,machine,kind,cron,run-at,time-zone,work-list,path,last-fired,last-status,notify,created
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+[exit 0]
+
+# after: the Factories list, as the person's screen reads it
+  GET /gateway/factories
+  {
+    "title": "Factories",
+    "subtitle": "Each factory runs one business or one job on its own, toward the goal you set for it.",
+    "tabs": [
+      {
+        "key": "factories",
+        "label": "Factories",
+        "notYetText": null
+      },
+      {
+        "key": "activity",
+        "label": "Activity",
+        "notYetText": null
+      },
+      {
+        "key": "reports",
+        "label": "Reports",
+        "notYetText": null
+      }
+    ],
+    "columns": [
+      "Factory",
+      "Waiting on you",
+      "Status"
+    ],
+    "rows": [
+      {
+        "id": "eric",
+        "title": "Eric",
+        "statusWord": "RUNNING",
+        "statusTone": "ok",
+        "statusRank": 3,
+        "statusReason": "Nothing failed and nothing is waiting on you.",
+        "statusLine": null,
+        "statusHref": null,
+        "waitingText": "-",
+        "waitingCount": 0,
+        "waitingHref": null,
+        "href": "/factories/eric",
+        "talk": null,
+        "noBossText": "No boss named",
+        "purpose": "Checks a mailbox every morning at 08:00 and, when the email is there, runs the owner's instructions.",
+        "bossName": null,
+        "leftOpenText": null,
+        "leftOpenHref": null
+      }
+    ],
+    "footerText": "Worst first: failing, then needs you, then paused, then running, then talk only.",
+    "emptyText": null,
+    "truncatedText": null,
+    "showArchivedLabel": "Show archived (0)",
+    "hideArchivedLabel": "Hide archived",
+    "archivedRows": [],
+    "archivedEmptyText": "No factory is archived.",
+    "outsideTitle": "Schedules outside any factory",
+    "outsideText": "These run on a schedule but are no seat of any factory. A plain job can stay here; factory work must be a seat of its factory - register the seat, then link the schedule to it with cc-devthrottle schedule link <id> --factory <factory> --seat <seat>.",
+    "outsideRows": [],
+    "outsideEmptyText": "Every active schedule is a seat of a factory.",
+    "newFactory": {
+      "label": "New factory",
+      "busyLabel": "Importing...",
+      "href": "/gateway/factories/new",
+      "noteText": "New factory takes a zip of a definition folder. It becomes version 1, a draft, of the factory its factory.yaml names, checked exactly as a save is. Nothing runs until you publish it on its Definition tab."
+    },
+    "draftTitle": "Not published yet",
+    "draftRows": []
+  }
+
+# after: the schedules
+  GET /cron/jobs
+  {
+    "jobs": [
+      {
+        "id": "cj_f2f1ae",
+        "name": "Eric - Mail Desk",
+        "enabled": true,
+        "scheduleKind": "recurring",
+        "cronExpression": "0 8 * * *",
+        "runAt": null,
+        "timeZoneId": "America/Toronto",
+        "factory": "eric",
+        "seat": "mail-desk",
+        "target": {
+          "machine": "<machine>"
+        },
+        "action": {
+          "repoPath": "",
+          "seed": "Good morning. It is time for the 08:00 mail check. Do what your brief says.\n",
+          "workListName": null,
+          "autoDismiss": true
+        },
+        "preventOverlap": true,
+        "notifyOn": "none",
+        "notifyWebhookUrl": null,
+        "createdUtc": "2026-10-16T22:27:11.8699023Z",
+        "lastFiredUtc": null,
+        "nextRunUtc": "2026-10-17T12:00:00Z",
+        "lastStatus": null,
+        "scheduleText": null,
+        "remainingToday": null,
+        "lifecycle": "active",
+        "stateLabel": "Active",
+        "toggleLabel": "Pause",
+        "runRecord": {
+          "verdict": "none",
+          "text": "no runs yet",
+          "runs": 0
+        },
+        "factoryTitle": "Eric",
+        "factoryHref": "/factories/eric/seats",
+        "shortName": "Mail Desk",
+        "loadWarning": null,
+        "shifts": [
+          "morning"
+        ],
+        "shiftText": "Morning shift",
+        "shiftWarning": null,
+        "shiftRule": null,
+        "definedByDefinition": true,
+        "pathText": "built from the factory's definition",
+        "checkPath": null,
+        "checkSecrets": null,
+        "definitionVersion": null
+      }
+    ]
+  }
+
+# PASS eric is on the Factories list, running
+  seen: [('eric', 'Eric', 'RUNNING')]
+
+# PASS eric has one schedule, daily at 08:00
+  seen: [{'name': 'Eric - Mail Desk', 'cronExpression': '0 8 * * *', 'cron': None, 'timeZone': None, 'enabled': True}]
+
+# the definition's versions, as stored (who wrote and who published each)
+#   read from the rig's gateway.db: SELECT Version, State, AuthorKind, AuthorId, PublishedByKind, PublishedBy, PublishedByName FROM factory_definition_versions WHERE Factory = 'eric' ORDER BY Version []
+  Version, State, AuthorKind, AuthorId, PublishedByKind, PublishedBy, PublishedByName
+  1, published, session, 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, session, 95c8f9b0-7a40-4f2d-a17d-0335999eabfa, QA - builder, in no factory
+  2, draft, session, 1d8a47a6-c12c-4482-9e95-9b4f7af01aac, None, None, None
+  (2 rows)

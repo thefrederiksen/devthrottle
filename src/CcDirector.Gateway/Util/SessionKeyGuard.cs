@@ -1268,12 +1268,14 @@ public static class SessionKeyGuard
 
     /// <summary>
     /// A FACTORY'S DEFINITION, HELD ON THE GATEWAY (Factory Definition mission, phase 1). Allowed to every session key,
-    /// and safe to be, for the reason a brief is: the route itself lets through only a session of the factory named in
-    /// the path (<c>FactoryNaming.TryAct</c>), so a session key cannot reach another factory's definition here.
+    /// because the route itself decides who may act (phase 6c, the owner's ruling of 16 October 2026: "Factories are
+    /// created by agents as long as they have user approval"): a session in no factory may read, save, import, create,
+    /// publish and restore any factory's definition; a factory's own session may read and save drafts of its own
+    /// factory only, and nothing of another's.
     ///
-    /// PUBLISH and RESTORE are allowed THROUGH THIS GUARD and refused BY THE STORE, deliberately: the guard can only
-    /// say "not for a session key", and the store says "only a person publishes; save a draft and the owner publishes
-    /// it", which tells an agent what to do next.
+    /// PUBLISH, RESTORE and CREATE are allowed THROUGH THIS GUARD and refused BY THE ROUTE for a factory's own session,
+    /// deliberately: the guard can only say "not for a session key", and the route says "a factory's own sessions save
+    /// drafts; the owner publishes them", which tells an agent what to do next.
     /// </summary>
     private static bool IsFactoryDefinitionRoute(string verb, string[] s)
     {
@@ -1284,6 +1286,10 @@ public static class SessionKeyGuard
 
         // /factory-definitions/import - a folder stored as the next draft (phase 3). Checked first, never published.
         if (s.Length == 2 && s[1] == "import") return verb == "POST";
+
+        // /factory-definitions/create - a NEW factory's first draft from a folder (phase 6c). Never published; refused by
+        // the route for a factory's own session.
+        if (s.Length == 2 && s[1] == "create") return verb == "POST";
 
         // /factory-definitions/{factory} - the published definition.
         if (s.Length == 2) return verb is "GET" or "HEAD";
@@ -1298,7 +1304,7 @@ public static class SessionKeyGuard
             if (s[2] == "export") return verb is "GET" or "HEAD";
             // /check-state - the state each checked start's check keeps (phase 5b); a read.
             if (s[2] == "check-state") return verb is "GET" or "HEAD";
-            // /publish and /restore - refused by the store for a session, in words.
+            // /publish and /restore - refused by the route for a factory's own session, in words.
             if (s[2] is "publish" or "restore") return verb == "POST";
         }
 
