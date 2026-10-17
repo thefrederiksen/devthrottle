@@ -2499,8 +2499,8 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseApproverReadiness = new Licenses.LicenseApproverReadiness(LicenseApprovers, LicenseReads, LicenseNow.UtcNow);
         LicenseSignInLog = new Licenses.LicenseSignInLog(_gatewayDb);
         var licenseCommands = Licenses.LicenseCommandSenders.Over(SendCommandAsync);
-        LicenseApprovals = new Licenses.LicenseApprovalRelay(LicenseApprovers, LicenseReads, IsDirectorConnected,
-            licenseCommands, tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
+        LicenseApprovals = new Licenses.LicenseApprovalRelay(LicenseApprovers, LicenseReads, new Licenses.LicenseApprovalLog(_gatewayDb),
+            IsDirectorConnected, licenseCommands, tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
         LicenseSignIns = new Licenses.LicenseSignInService(LicenseSignInLog, LicenseReads, IsDirectorConnected,
             licenseCommands, tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text

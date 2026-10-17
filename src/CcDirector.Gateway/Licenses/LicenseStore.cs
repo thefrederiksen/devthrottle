@@ -30,6 +30,10 @@ public static class LicenseLogKinds
     /// <summary>A license alarm closed by itself, because the check that raised it no longer finds it true. Final when
     /// written.</summary>
     public const string AlarmClosed = "alarm-closed";
+
+    /// <summary>An approval the relay passed between machines (<see cref="LicenseApprovalLog"/>): who asked, for which
+    /// account, who was set to approve it, and whether it was approved. Final when written.</summary>
+    public const string Approval = "approval";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>

@@ -39,6 +39,7 @@ public sealed class LicenseApprovalRelayTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseStore _store;
     private readonly LicenseApproverStore _approvers;
+    private readonly LicenseApprovalLog _approvalLog;
     private readonly TenantSettingsStore _settings;
     private readonly FakeLicenseDirectors _directors = new();
     private readonly LicenseApprovalRelay _relay;
@@ -51,7 +52,8 @@ public sealed class LicenseApprovalRelayTests : IDisposable
         _store = new LicenseStore(db);
         _settings = new TenantSettingsStore(db);
         _approvers = new LicenseApproverStore(_settings);
-        _relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_store), _directors.IsConnected, _directors.SendAsync,
+        _approvalLog = new LicenseApprovalLog(db);
+        _relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_store), _approvalLog, _directors.IsConnected, _directors.SendAsync,
             _directors.EnterScope, () => _now, CancellationToken.None);
     }
 
@@ -671,7 +673,7 @@ public sealed class LicenseApprovalRelayTests : IDisposable
     [Fact]
     public async Task Relay_AScopeThatCannotBeEntered_IsLoggedByItsTypeOnly_AndLeavesNothingInFlight()
     {
-        var relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_store),
+        var relay = new LicenseApprovalRelay(_approvers, new LicenseReadModel(_store), _approvalLog,
             _directors.IsConnected, _directors.SendAsync, _ => throw new InvalidOperationException($"no scope for {Address}"),
             () => _now, CancellationToken.None);
         using var capture = new CapturedLog();
@@ -748,6 +750,104 @@ public sealed class LicenseApprovalRelayTests : IDisposable
 
         AssertRefused(LicenseRenewalErrors.Expired);
         Assert.Empty(_directors.Of(LicenseContract.ApproveVerb));
+    }
+
+    // ----- the Licenses log records every answered relay -----
+
+    private IReadOnlyList<CcDirector.Gateway.Data.Entities.LicenseSwitchLogEntity> ApprovalRows(TenantId tenant)
+        => _store.ListLog(tenant, _now.AddDays(-1)).Where(r => r.Kind == LicenseApprovalLog.Kind).ToList();
+
+    [Fact]
+    public async Task Relay_Approved_RecordsOneFinalApprovalRow_AgainstTheMachineThatAsked()
+    {
+        OneIsSetUp();
+        TheApproverApproves();
+
+        await Ask();
+
+        var row = Assert.Single(ApprovalRows(One));
+        Assert.Equal((SignIn1, Target, TargetDirector, A, LicenseApprovalOutcomes.Approved),
+            (row.SwitchId, row.MachineName, row.DirectorId, row.ToAccountEmail, row.State));
+        Assert.Null(row.ReasonCode);
+        Assert.Equal($"{ApprovingMachine} approved the sign-in for {A} on {Target}.", row.Message);
+        Assert.Equal(_now, row.FinishedAtUtc);
+        Assert.Empty(ApprovalRows(Two));
+    }
+
+    [Fact]
+    public async Task Relay_RefusedByTheApprover_RecordsTheReasonWord_InTheGatewaysOwnSentence_NeverTheDirectorsWords()
+    {
+        OneIsSetUp();
+        TheApproverAnswers(approve => FakeLicenseDirectors.Ok(new LicenseApprovalResult
+        {
+            SignInId = approve.SignInId,
+            Outcome = LicenseApprovalOutcomes.Refused,
+            ReasonCode = LicenseRenewalErrors.NeedsFreshSignIn,
+            // A Director that wrongly echoes the address into its sentence: the row must not keep it.
+            Message = "Refused at " + Address,
+        }));
+
+        await Ask();
+
+        var row = Assert.Single(ApprovalRows(One));
+        Assert.Equal((LicenseApprovalOutcomes.Refused, LicenseRenewalErrors.NeedsFreshSignIn), (row.State, row.ReasonCode));
+        Assert.Equal($"The sign-in for {A} on {Target} was not approved by {ApprovingMachine}: "
+                     + "the approving browser needs a fresh claude.ai sign-in on the approval page.", row.Message);
+        Assert.DoesNotContain("claude.example", row.Message);
+    }
+
+    [Fact]
+    public async Task Relay_WithNoApproverSet_RecordsTheRefusal_NamingNoApprovingMachine()
+    {
+        Reports(One, Target, TargetDirector);
+
+        await Ask();
+
+        var row = Assert.Single(ApprovalRows(One));
+        Assert.Equal((LicenseApprovalOutcomes.Refused, LicenseRenewalErrors.NoApprover), (row.State, row.ReasonCode));
+        Assert.Equal($"The sign-in for {A} on {Target} was not approved: no browser is set to approve this account.", row.Message);
+    }
+
+    [Fact]
+    public async Task Relay_FromADirectorThatNeverReported_IsStillAnswered_AndWritesNoRow()
+    {
+        OneIsSetUp();
+        TheApproverApproves();
+
+        await Ask(One, Request(), PublicHalf, director: "dir-never-reported");
+
+        Assert.Equal("dir-never-reported", Assert.Single(_directors.Of(LicenseContract.ApprovalResultVerb)).DirectorId);
+        Assert.Empty(ApprovalRows(One));
+    }
+
+    [Theory]
+    [InlineData("the-mac", "the-mac approved its own sign-in for a@example.com.")]
+    [InlineData("THE-MAC", "the-mac approved its own sign-in for a@example.com.")]
+    [InlineData("the-pc", "the-pc approved the sign-in for a@example.com on the-mac.")]
+    public void Sentence_Approved_SaysWhichMachineApproved_AndWhenItWasTheMachineItself(string approver, string expected)
+        => Assert.Equal(expected, LicenseApprovalLog.Sentence("the-mac", "a@example.com", approver, LicenseApprovalOutcomes.Approved, null));
+
+    [Fact]
+    public void Sentence_RefusedForAWordThisGatewayDoesNotKnow_SaysOnlyTheFact()
+        => Assert.Equal("The sign-in for a@example.com on the-mac was not approved by itself.",
+            LicenseApprovalLog.Sentence("the-mac", "a@example.com", "the-mac", LicenseApprovalOutcomes.Refused, "a-new-word"));
+
+    [Theory]
+    [InlineData(LicenseApprovalOutcomes.Approved, "Approved", LicenseTones.Good)]
+    [InlineData(LicenseApprovalOutcomes.Refused, "Refused", LicenseTones.Bad)]
+    public void LogEntry_ShowsTheApprovalInWords_AndIsNeverOpen(string state, string stateText, string tone)
+    {
+        var row = new CcDirector.Gateway.Data.Entities.LicenseSwitchLogEntity
+        {
+            Kind = LicenseApprovalLog.Kind, SwitchId = SignIn1, MachineName = Target, OsUser = "owner", ToAccountEmail = A,
+            State = state, ReasonCode = state == LicenseApprovalOutcomes.Refused ? LicenseRenewalErrors.Expired : null,
+            Message = "The sentence.", CreatedAtUtc = _now, FinishedAtUtc = _now,
+        };
+
+        var entry = LicenseApprovalLog.LogEntry(row, Target);
+
+        Assert.Equal(("Approval", stateText, tone, false, "The sentence."), (entry.KindText, entry.StateText, entry.StateTone, entry.IsOpen, entry.Summary));
+        Assert.Equal(state == LicenseApprovalOutcomes.Refused ? LicenseSignInFold.ReasonText(LicenseRenewalErrors.Expired) : null, entry.ReasonText);
     }
 
     /// <summary>The answer to one sign-in, once its relay has delivered it.</summary>
