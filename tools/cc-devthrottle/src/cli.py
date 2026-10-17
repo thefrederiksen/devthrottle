@@ -2225,11 +2225,14 @@ def session_list(
         None,
         "--fields",
         help="Fields to show, comma separated. Default: id,name,state,repo. "
-        "Valid: id, name, state, repo, machine, number, model, agent, mission, path.",
+        "Valid: id, name, state, repo, machine, number, model, agent, mission, path, connection.",
+    ),
+    connection: str = typer.Option(
+        None, "--connection", help="Only sessions connected this way: terminal or api (API mode)."
     ),
 ) -> None:
     """List every session in the fleet: id, name, state and repository."""
-    list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields)
+    list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields, connection=connection)
 
 
 @errors_app.command("list")
@@ -3335,6 +3338,13 @@ def spawn(
         "validates the run and the session's preamble tells the agent to fetch the run's conduct at "
         "its PINNED version. Unknown run ids are rejected.",
     ),
+    connection: Optional[str] = typer.Option(
+        None,
+        "--connection",
+        help="How the Director drives the agent: terminal (the default: typing into its terminal) or api "
+        "(API mode: the agent's own protocol). API mode is refused, with the reason, for an agent whose "
+        "wrapper has none, and while the Gateway does not offer it yet.",
+    ),
 ) -> None:
     """Open a new session here, on another machine, or on one named Director.
 
@@ -3342,7 +3352,7 @@ def spawn(
     """
     spawn_session(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
-        machine, mission, workflow_run, director,
+        machine, mission, workflow_run, director, connection,
     )
 
 

@@ -158,6 +158,28 @@ public sealed class SessionConnectionFieldsTests : IDisposable
         Assert.Equal(("terminal", "none"), roster["s-old"]);
     }
 
+    [Fact]
+    public async Task GetSessions_ApiModeAndTerminalSessions_StampsTheApiModeTagOnlyOnTheApiModeRow()
+    {
+        // Arrange (API mode mission, phase 5): the roster's tag is the Gateway's words, so no client reads the mode word.
+        await StartAsync();
+        Push(
+            new SessionDto { SessionId = "s-api", Agent = "Pi", ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol },
+            new SessionDto { SessionId = "s-terminal", Agent = "Pi", ConnectionMode = ConnectionModes.Terminal });
+
+        // Act
+        using var response = await _http!.GetAsync("/sessions");
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var tags = doc.RootElement.EnumerateArray().ToDictionary(
+            row => row.GetProperty("sessionId").GetString()!,
+            row => row.TryGetProperty("connectionTag", out var tag) && tag.ValueKind == JsonValueKind.String ? tag.GetString() : null);
+        Assert.Equal("API mode", tags["s-api"]);
+        Assert.Null(tags["s-terminal"]);
+    }
+
     // ---- helpers ------------------------------------------------------------------------------------------------
 
     /// <summary>A session as a Director that predates the connection fields sends it: the same member names as
