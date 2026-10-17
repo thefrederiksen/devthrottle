@@ -22,7 +22,10 @@ machine says since when. The Licenses log gets one row for each change, never on
   alive: "Its Director is still sending reports: 412 reports refused since 2026-10-16 01:02 UTC, the latest 1 minute
   ago." The code word never appears on the page.
 - **Where it is kept: the Licenses log, with no new table.** A refusal is an open row of a new kind,
-  `report-refused`, keyed by the Director (the one thing a malformed report cannot get wrong). The first refused
+  `report-refused`. It belongs to the machine and its user, whichever of their Directors sent it: the key holder of
+  a machine changes when it stops (contract section 2.4), so a Director key would split one machine's refusal in two
+  (the review of pull request 4113, finding 1, answered in `review-4113-answers.md`). Only a report that names no
+  machine, from a Director with no machine row, is kept under the Director. The first refused
   report writes the row. The same refusal again only increments `SendCount` and `LastSentAtUtc` on that row. A
   different reason ends the row and opens the next one. An accepted report ends it and writes one `report-accepted`
   row: "Its reports are accepted again, after 2 reports refused since ...". All of this is in `LicenseStore`
@@ -41,7 +44,7 @@ machine says since when. The Licenses log gets one row for each change, never on
   `lastReportAtUtc` is null, `lastReportText` is "No report from it has been accepted yet", and Add a spare is not
   offered ("A spare can be added to machine-a once a report from it is accepted."). It is named the way its report
   named it, or "The machine of Director {id}" when the report named no machine that can be stored. Its row identifier
-  is a stable hash of the Director id, so the page keeps one row for it. The overview is not "empty" while such a
+  is a stable hash of its machine and user (else of its Director), so the page keeps one row for it. The overview is not "empty" while such a
   machine exists.
 - **Shape is now judged only after the connection is known to own the Director.** Before this change, a malformed
   report was refused before the ownership check. Moving the check after it means a superseded connection can never
@@ -188,3 +191,6 @@ Director whose report holds one account twice):
 **After the rebase onto origin/main `6c783e3d4`** (pull request 4107 fixed the six prompt-delivery tests on main):
 the license tests, the six prompt-delivery tests and the Fleet Manager test, run together on the rebased head,
 gave "Passed! - Failed: 0, Passed: 914, Total: 914".
+
+**After the review fix (finding 1), rebased on origin/main `6c783e3d4`:** the license tests "Passed! - Failed: 0,
+Passed: 860, Total: 860" (the three new two-Director tests included). The gate lines of this round follow.

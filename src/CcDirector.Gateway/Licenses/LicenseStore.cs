@@ -35,8 +35,8 @@ public static class LicenseLogKinds
     /// <summary>A machine whose reports the Gateway refuses for what they say (<see cref="LicenseReportRefusal"/>). One
     /// row for each run of the same refusal, open while it lasts: written by the first refused report, kept by every
     /// one after it (<c>SendCount</c> and <c>LastSentAtUtc</c>), ended by a report with another refusal - which opens
-    /// the next row - or by a report that is accepted. Keyed by the Director, the one thing a refused report cannot
-    /// get wrong. Written by <see cref="LicenseStore.RecordRefusal"/> only.</summary>
+    /// the next row - or by a report that is accepted. It belongs to the machine and its user, whichever of their
+    /// Directors sent it (<see cref="LicenseStore.IsRefusalOf"/>). Written by <see cref="LicenseStore.RecordRefusal"/> only.</summary>
     public const string ReportRefused = "report-refused";
 
     /// <summary>A report from a machine whose reports were refused was accepted again. Final when written.</summary>
