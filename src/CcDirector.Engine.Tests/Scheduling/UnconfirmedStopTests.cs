@@ -75,49 +75,4 @@ public sealed class UnconfirmedStopTests : IDisposable
             }
         }
     }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task KilledCommandExitsAfterTheConfirmationWindow_TheClaimIsReleasedOnALaterTick_AndTheNextOccurrenceRuns()
-    {
-        var a = Director(1001);
-        var jobId = a.AddJob(new JobRecord
-        {
-            Name = "late-exit", Cron = "0 0 31 2 *", Command = "unused", TimeoutSeconds = 1, NextRun = DateTime.UtcNow.AddSeconds(-1)
-        });
-        var jobs = new LateExitingThenQuickJobs();
-        var executor = new JobExecutor(a, jobs.Create, a.RecordRunChild);
-        // The ticks are driven here: the first starts the job and returns once its execution has reported
-        // (the command is killed but not seen to exit, so the claim stays open); a tick while the command
-        // lives must leave it; a tick after it exits must release it.
-        using var scheduler = new Scheduler(a, executor, checkIntervalSeconds: 1, runRetentionDays: 30);
-
-        try
-        {
-            await scheduler.TickAsync();
-            Assert.NotNull(jobs.LateCommand);
-
-            // While the command lives the claim holds: one execution, the run open, the job unclaimable.
-            await scheduler.TickAsync();
-            Assert.False(jobs.LateCommand.HasExited);
-            Assert.Equal(1, jobs.Executions);
-            var held = a.ListRuns(jobName: "late-exit").Single();
-            Assert.Null(held.EndedAt);
-            Assert.Null(a.TryClaimRun(jobId, DateTime.UtcNow));
-
-            // After it exits, a tick releases the claim and the occurrence runs again.
-            await jobs.LateCommand.WaitForExitAsync();
-            await scheduler.TickAsync();
-
-            Assert.Equal(2, jobs.Executions);
-            var released = a.GetRun(held.Id)!;
-            Assert.NotNull(released.EndedAt);
-            // Decided from the row: the recorded command was proven gone.
-            Assert.Equal(EngineDatabase.InterruptedRunMessage, released.Stderr);
-        }
-        finally
-        {
-            jobs.LateCommand?.Dispose();
-        }
-    }
 }

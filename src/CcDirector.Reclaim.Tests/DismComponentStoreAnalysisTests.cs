@@ -19,36 +19,6 @@ namespace CcDirector.Reclaim.Tests;
 /// </summary>
 public class DismComponentStoreAnalysisTests
 {
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Ask_ThroughAHarmlessCommandTheTestSupplies_ReadsBothSizesOutOfTheReport()
-    {
-        using var tree = new FixtureTree(nameof(Ask_ThroughAHarmlessCommandTheTestSupplies_ReadsBothSizesOutOfTheReport));
-        var report = tree.File("analysis-report.txt", 0);
-        File.WriteAllText(report,
-            "Deployment Image Servicing and Management tool\r\n" +
-            "[==========================100.0%==========================]\r\n" +
-            "\r\n" +
-            "Windows Explorer Reported Size of Component Store: 9.20 GB\r\n" +
-            "\r\n" +
-            "Actual Size of Component Store: 8.00 GB\r\n" +
-            "\r\n" +
-            "Shared with Windows: 6.50 GB\r\n" +
-            "Backups and Disabled Features: 1.50 GB\r\n" +
-            "Cache and Temporary Data: 34.0 MB\r\n");
-
-        var analysis = AnalysisThrough(
-            "cmd.exe",
-            $"/c type \"{report}\"",
-            requiresAdministrator: false);
-
-        var question = analysis.Ask();
-
-        Assert.True(question.Answered);
-        Assert.Equal((long)(8.00 * 1024 * 1024 * 1024), question.ActualSizeBytes);
-        Assert.Equal((long)(1.50 * 1024 * 1024 * 1024), question.BytesItsCommandCanClear);
-        Assert.Null(question.ReasonNotAnswered);
-    }
 
     /// <summary>
     /// The explorer-reported size is NOT the store's size, and must not be taken for it: it is the
@@ -93,31 +63,6 @@ public class DismComponentStoreAnalysisTests
         Assert.Null(DismComponentStoreAnalysis.ParseReport(
             "Actual Size of Component Store: unknown\r\n" +
             "Backups and Disabled Features: unknown\r\n"));
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Ask_ACommandThatPrintsNoReport_IsNotAnsweredWithTheReason()
-    {
-        var analysis = AnalysisThrough("cmd.exe", "/c echo hello", requiresAdministrator: false);
-
-        var question = analysis.Ask();
-
-        Assert.False(question.Answered);
-        Assert.NotNull(question.ReasonNotAnswered);
-        Assert.Contains("not known", question.ReasonNotAnswered!, StringComparison.Ordinal);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Ask_ACommandThatFails_IsNotAnsweredWithItsExitCode()
-    {
-        var analysis = AnalysisThrough("cmd.exe", "/c exit 3", requiresAdministrator: false);
-
-        var question = analysis.Ask();
-
-        Assert.False(question.Answered);
-        Assert.Contains("exit code 3", question.ReasonNotAnswered!, StringComparison.Ordinal);
     }
 
     /// <summary>

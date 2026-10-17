@@ -25,40 +25,6 @@ public class SessionVerificationTests : IDisposable
         _manager = new SessionManager(options);
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void VerifyClaudeSession_NoClaudeSessionId_NotVerified()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        // New sessions get a preassigned ClaudeSessionId; clear it to test this scenario
-        session.ClaudeSessionId = null;
-
-        session.VerifyClaudeSession();
-
-        Assert.Equal(SessionVerificationStatus.NotLinked, session.VerificationStatus);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void VerifyClaudeSession_NonexistentSessionId_StaysNotLinked()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        session.ClaudeSessionId = "nonexistent-session-id-that-wont-exist";
-
-        session.VerifyClaudeSession();
-
-        // No .jsonl file means no content to verify, so stays NotLinked
-        Assert.Equal(SessionVerificationStatus.NotLinked, session.VerificationStatus);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void VerificationStatus_DefaultIsNotVerified()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        Assert.Equal(SessionVerificationStatus.NotLinked, session.VerificationStatus);
-    }
-
     [Fact]
     public void SessionVerificationStatus_HasExpectedValues()
     {

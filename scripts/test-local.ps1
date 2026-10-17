@@ -106,7 +106,8 @@
     the machine (real git, real processes, the clock) on its way out: out of the gate the same day, so the
     gate's red keeps meaning a code defect. It is a waiting room, not a home - under the owner's ruling of
     13 October 2026 a quarantined test is deleted. What it covered, if that matters, is new work: a test
-    against a fake that cannot depend on the machine.
+    against a fake that cannot depend on the machine. On 17 October 2026 the waiting room was emptied: all
+    103 quarantined tests were deleted, so -Quarantine runs nothing until a test is quarantined again.
 
 .PARAMETER Quarantine
     Run ONLY the quarantined tests (trait Gate=Quarantine), in every suite including the parked Core.Tests

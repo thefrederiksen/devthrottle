@@ -287,37 +287,6 @@ public sealed class DirectorTriggerRunnerTests
         TimeoutSeconds = timeoutSeconds,
     };
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task RunCheckAsync_ACommandThatPrintsACount_ReportsExitZeroAndTheOutput()
-    {
-        var report = await DirectorTriggerRunner.RunCheckAsync(Real(Echo("{\"count\": 2}")), CancellationToken.None);
-
-        Assert.Equal(0, report.ExitCode);
-        Assert.False(report.TimedOut);
-        Assert.Null(report.StartError);
-        Assert.Contains("\"count\": 2", report.Output);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task RunCheckAsync_ACommandThatExitsOne_ReportsExitOne()
-    {
-        var report = await DirectorTriggerRunner.RunCheckAsync(Real("exit 1"), CancellationToken.None);
-        Assert.Equal(1, report.ExitCode);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task RunCheckAsync_ACommandPastItsTimeout_IsKilledAndReportedAsATimeout()
-    {
-        var slow = OperatingSystem.IsWindows() ? "ping -n 20 127.0.0.1 >nul" : "sleep 20";
-        var report = await DirectorTriggerRunner.RunCheckAsync(Real(slow, timeoutSeconds: 1), CancellationToken.None);
-
-        Assert.True(report.TimedOut);
-        Assert.Null(report.ExitCode);
-    }
-
     [Fact]
     public async Task RunCheckAsync_AFolderThatDoesNotExist_IsReportedAsACheckThatCouldNotStart()
     {
