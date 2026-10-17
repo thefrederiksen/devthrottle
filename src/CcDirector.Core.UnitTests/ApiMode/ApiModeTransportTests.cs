@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using CcDirector.Core.ApiMode;
+using CcDirector.TestInfrastructure;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -488,17 +489,14 @@ public sealed class ApiModeTransportTests
     public async Task Ended_ProcessExitsButSomethingHoldsItsOutputOpen_EndsAfterTheDrainGrace()
     {
         // Arrange: a grandchild that inherited the pipes keeps standard output open after the agent exits.
-        var time = new FakeTimeProvider();
-        var (transport, process) = Started(new FakeApiModeProcess { ExitEndsStreams = false }, time);
+        var clock = new VirtualClock(DateTimeOffset.UnixEpoch);
+        var (transport, process) = Started(new FakeApiModeProcess { ExitEndsStreams = false }, clock);
         process.EmitOutput("{\"type\":\"agent_start\"}\n");
 
-        // Act: advance the fake clock until the watcher's grace timer has been armed and has fired.
+        // Act: once the watcher has armed its grace timer, move the clock past it.
+        var graceArmed = clock.NextWaitStarted;
         process.Exit(0);
-        for (var turn = 0; turn < 100_000 && !transport.Ended.IsCompleted; turn++)
-        {
-            time.Advance(TimeSpan.FromSeconds(1));
-            await Task.Yield();
-        }
+        await ApiModeTransportEndingTests.RunPastTheDrainGraceAsync(clock, graceArmed);
         var events = await ReadAllAsync(transport);
 
         // Assert

@@ -75,6 +75,7 @@ public sealed class LicenseSignInCommandLineTests
     [Theory]
     [InlineData("{\"result\": \"failed\", \"reason\": \"no-approver\"}", LicenseRenewalErrors.NoApprover)]
     [InlineData("{\"result\": \"failed\", \"reason\": \"store-refused\"}", LicenseRenewalErrors.StoreRefused)]
+    [InlineData("{\"result\": \"failed\", \"reason\": \"needs-fresh-sign-in\"}", LicenseRenewalErrors.NeedsFreshSignIn)]
     [InlineData("{\"result\": \"failed\", \"reason\": \"TOOL-TEXT-MARKER-5e2a\"}", LicenseRenewalErrors.LoginFailed)]
     [InlineData("{\"result\": \"failed\"}", LicenseRenewalErrors.LoginFailed)]
     [InlineData("{\"result\": \"something-new\"}", LicenseRenewalErrors.LoginFailed)]
@@ -93,6 +94,7 @@ public sealed class LicenseSignInCommandLineTests
     [InlineData("{\"result\": \"approved\", \"code\": \"\"}", false, LicenseRenewalErrors.ApprovalFailed)]
     [InlineData("{\"result\": \"approved\"}", false, LicenseRenewalErrors.ApprovalFailed)]
     [InlineData("{\"result\": \"refused\", \"reason\": \"wrong-account\"}", false, LicenseRenewalErrors.WrongAccount)]
+    [InlineData("{\"result\": \"refused\", \"reason\": \"needs-fresh-sign-in\"}", false, LicenseRenewalErrors.NeedsFreshSignIn)]
     [InlineData("{\"result\": \"refused\", \"reason\": \"TOOL-TEXT-MARKER-5e2a\"}", false, LicenseRenewalErrors.ApprovalFailed)]
     [InlineData("abc#state", false, LicenseRenewalErrors.ApprovalFailed)]
     public void ReadApproveAnswer_OnlyAnApprovedAnswerWithItsApproval_IsApproved(string output, bool approved, string? reason)

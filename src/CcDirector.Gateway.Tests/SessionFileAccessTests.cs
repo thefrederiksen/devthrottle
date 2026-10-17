@@ -154,7 +154,7 @@ public sealed class SessionFileAccessTests : IDisposable
         var decision = Decide(_outside, Named(named));
 
         Assert.Equal(PathStatusCodes.NotAllowed, decision.Code);
-        Assert.Throws<UnauthorizedAccessException>(() => SessionFileAccess.ListFolder(_work, _outside, Named(named), _secrets));
+        Assert.Throws<SessionFileAccessRefusedException>(() => SessionFileAccess.ListFolder(_work, _outside, Named(named), _secrets));
     }
 
     [Fact]
@@ -450,7 +450,7 @@ public sealed class SessionFileAccessTests : IDisposable
         Write(Path.Combine(ssh, "id_rsa"));
 
         Assert.Equal(SessionFileAccess.SecretSentence, Decide(ssh, Named(ssh)).Sentence);
-        Assert.Throws<UnauthorizedAccessException>(() => SessionFileAccess.ListFolder(_work, ssh, Named(ssh), _secrets));
+        Assert.Throws<SessionFileAccessRefusedException>(() => SessionFileAccess.ListFolder(_work, ssh, Named(ssh), _secrets));
     }
 
     [Fact]
@@ -655,6 +655,38 @@ public sealed class SessionFileAccessTests : IDisposable
         }
     }
 
+    [Fact]
+    public void SessionFolderListResult_theRulesRefusal_isAnsweredAndNotReported()
+    {
+        using var capture = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+
+        var result = CatalogReadExecutor.SessionFolderListResult(
+            () => throw new SessionFileAccessRefusedException(SessionFileAccess.FolderNotListableSentence));
+        var lines = capture.DrainAndReadLines();
+
+        Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        Assert.Equal(SessionFileAccess.FolderNotListableSentence, result.Error);
+        var line = Assert.Single(lines, l => l.Contains("[CatalogReadExecutor] fs-list (session)"));
+        Assert.Contains("REFUSED", line);
+        Assert.False(CcDirector.Core.ErrorReports.ErrorLine.IsError(line), line);
+    }
+
+    [Fact]
+    public void SessionFolderListResult_theOperatingSystemDenyingAnAdmittedFolder_isReportedAsAFault()
+    {
+        const string denied = "Access to the path '/work/locked' is denied.";
+        using var capture = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+
+        var result = CatalogReadExecutor.SessionFolderListResult(() => throw new UnauthorizedAccessException(denied));
+        var lines = capture.DrainAndReadLines();
+
+        Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        Assert.Equal(denied, result.Error);
+        var line = Assert.Single(lines, l => l.Contains("[CatalogReadExecutor] fs-list (session)"));
+        Assert.Contains("FAILED", line);
+        Assert.True(CcDirector.Core.ErrorReports.ErrorLine.IsError(line), line);
+    }
+
     private static T DirectorCommandRouterBody<T>(DirectorCommandResult result) where T : class =>
         SessionCommandExecutor.Deserialize<T>(result.BodyJson) ?? throw new InvalidOperationException("the result carried no body");
 
@@ -815,6 +847,214 @@ public sealed class SessionFileAccessTests : IDisposable
         Assert.True(secrets.IsHiddenUnderHome(Path.Combine(home, ".config", "gh", "hosts.yml")));
         Assert.True(secrets.IsHiddenUnderHome(Path.Combine(home, ".bash_history")));
         Assert.False(secrets.IsHiddenUnderHome(Path.Combine(home, "Documents", "report.pdf")));
+    }
+
+    // ---------------------------------------------------- issue #4087: hardening the home rule ----
+
+    [Fact]
+    public void Decide_homeVariableIsNotTheRealHome_aDotfolderInTheRealHomeIsStillRefused()
+    {
+        // The reviewer's proof on #4081: HOME pointed at an existing folder that was not the real home, so the
+        // home rule guarded the wrong folder and a token in an unknown tool's dotfolder in the real home was served.
+        var realHome = Path.Combine(_base, "real-home");
+        var token = Write(Path.Combine(realHome, ".sometool", "token.txt"), "secret");
+        var secrets = new SessionFileSecrets(
+            () => new[] { _protected },
+            SessionFileSecrets.HomeFolders(_home, _home, null, realHome));
+
+        var decision = SessionFileAccess.Decide(_work, token, Named(token), secrets);
+
+        Assert.Equal(PathStatusCodes.NotAllowed, decision.Code);
+        Assert.Equal(SessionFileAccess.SecretSentence, decision.Sentence);
+    }
+
+    [Fact]
+    public void MachineHomeFolders_variablesPointElsewhere_stillIncludesTheRealHome()
+    {
+        // The real home comes from the password file (Linux, macOS) or the account's profile record (Windows),
+        // never from a variable, so pointing every variable somewhere else cannot take it off the list.
+        var realHome = OperatingSystem.IsWindows() ? SessionFileSecrets.WindowsProfileFolder() : SessionFileSecrets.PasswordFileHome();
+        Assert.False(string.IsNullOrWhiteSpace(realHome), "this machine's real home folder could not be read, so the test proves nothing");
+        Assert.NotEqual(Path.GetFullPath(_home), Path.GetFullPath(realHome!));
+
+        var homes = SessionFileSecrets.MachineHomeFolders(_home, _home, _home);
+        var secrets = new SessionFileSecrets(() => Array.Empty<string>(), homes);
+
+        Assert.Contains(ControlEndpoints.NormalizeDirectoryPath(Path.GetFullPath(realHome!)), homes);
+        Assert.True(secrets.IsHiddenUnderHome(Path.Combine(realHome!, ".sometool-4087", "token.txt")));
+        Assert.True(secrets.IsHiddenUnderHome(Path.Combine(_home, ".sometool-4087", "token.txt")));
+    }
+
+    [LinuxOnlyFact("the password file /etc/passwd and /proc/self/status are Linux's")]
+    public void PasswordFileHome_onLinux_isTheHomeInThePasswordFileForThisUser()
+    {
+        var uid = File.ReadLines("/proc/self/status").First(l => l.StartsWith("Uid:", StringComparison.Ordinal))
+            .Split('\t', StringSplitOptions.RemoveEmptyEntries)[1];
+        var row = File.ReadLines("/etc/passwd").Select(l => l.Split(':')).FirstOrDefault(f => f.Length >= 7 && f[2] == uid);
+        Assert.True(row is not null, $"uid {uid} is not in /etc/passwd on this host (a directory service?), so the expected home cannot be read independently");
+
+        Assert.Equal(row![5], SessionFileSecrets.PasswordFileHome());
+    }
+
+    [Fact]
+    public void HomeFolders_dropsBlankAndRelativeEntriesAndDuplicates()
+    {
+        var homes = SessionFileSecrets.HomeFolders(_home, null, "", "relative/home", _home + Path.DirectorySeparatorChar, _outside);
+
+        Assert.Equal(new[] { _home, _outside }.Select(h => ControlEndpoints.NormalizeDirectoryPath(Path.GetFullPath(h))), homes);
+    }
+
+    [Fact]
+    public void Decide_workingFolderIsTheHomeFolder_hiddenFilesUnderHomeAreRefused()
+    {
+        // Before #4087 a session started IN the home folder had the whole home inside its working folder, so the
+        // hidden-files rule never applied and ~/.sometool/token.txt opened.
+        var token = Write(Path.Combine(_home, ".sometool", "token.txt"), "secret");
+        var history = Write(Path.Combine(_home, ".sometoolrc"), "secret");
+        var notes = Write(Path.Combine(_home, "notes.txt"));
+
+        Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(_home, token, SessionNamedPaths.Empty, _secrets).Sentence);
+        Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(_home, history, SessionNamedPaths.Empty, _secrets).Sentence);
+        Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(_home, ".sometoolrc", SessionNamedPaths.Empty, _secrets).Sentence);
+        Assert.Equal(PathStatusCodes.File, SessionFileAccess.Decide(_home, notes, SessionNamedPaths.Empty, _secrets).Code);
+    }
+
+    [Fact]
+    public void Decide_workingFolderHoldsTheHomeFolder_hiddenFilesUnderHomeAreRefused()
+    {
+        // A working folder ABOVE the home folder (here the test's base, standing in for /home or a drive root).
+        var token = Write(Path.Combine(_home, ".sometool", "token.txt"), "secret");
+
+        Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(_base, token, SessionNamedPaths.Empty, _secrets).Sentence);
+    }
+
+    [Fact]
+    public void ListFolder_workingFolderIsTheHomeFolder_listsNoHiddenEntries()
+    {
+        Write(Path.Combine(_home, "notes.txt"));
+        Write(Path.Combine(_home, ".sometoolrc"));
+        Write(Path.Combine(_home, ".sometool", "token.txt"));
+        Write(Path.Combine(_home, "repo", "readme.md"));
+
+        var listing = SessionFileAccess.ListFolder(_home, _home, SessionNamedPaths.Empty, _secrets);
+
+        Assert.Equal(new[] { "repo", "notes.txt" }, listing.Entries.Select(e => e.Name).ToArray());
+    }
+
+    [Fact]
+    public void Decide_workingFolderInsideAHiddenHomeFolder_opensItsOwnFilesButNotItsNeighbours()
+    {
+        // The one exception the home rule keeps: a session that works IN ~/.something reads its own files.
+        var workIn = Path.Combine(_home, ".sometool", "project");
+        var own = Write(Path.Combine(workIn, "src", "main.cs"));
+        var neighbour = Write(Path.Combine(_home, ".sometool", "token.txt"), "secret");
+
+        Assert.Equal(PathStatusCodes.File, SessionFileAccess.Decide(workIn, own, SessionNamedPaths.Empty, _secrets).Code);
+        Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(workIn, neighbour, Named(neighbour), _secrets).Sentence);
+    }
+
+    [Theory]
+    [InlineData("Library/Keychains/login.keychain-db")]
+    [InlineData("Library/Keychains/0A1B2C3D-UUID/keychain-2.db")]
+    public void Decide_macOSKeychains_isRefusedEvenWhenNamed(string relative)
+    {
+        var keychain = Write(Path.Combine(new[] { _home }.Concat(relative.Split('/')).ToArray()), "secret");
+
+        var decision = Decide(keychain, Named(keychain));
+
+        Assert.Equal(SessionFileAccess.SecretSentence, decision.Sentence);
+        Assert.True(_secrets.IsSecret("/Library/Keychains/System.keychain"));
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetShortPathNameW(string longPath, System.Text.StringBuilder shortPath, uint size);
+
+    private static string ShortNameOf(string longPath)
+    {
+        var buffer = new System.Text.StringBuilder(1024);
+        var length = GetShortPathNameW(longPath, buffer, (uint)buffer.Capacity);
+        Assert.True(length > 0 && length < buffer.Capacity, $"test setup: GetShortPathName failed with Windows error {Marshal.GetLastWin32Error()}");
+        return buffer.ToString();
+    }
+
+    [WindowsOnlyFact("8.3 short names (SOMETO~1) exist only on Windows file systems")]
+    public void Decide_windowsShortNameOfASecretOrAHiddenHomeFolder_isRefused()
+    {
+        // The design says every refusal runs on the real path, and the real path of a short name is its long
+        // form. This reads REAL short names off the disk; a volume with short names turned off cannot prove it,
+        // so the test fails loudly there rather than passing on long names that were never shortened.
+        //
+        // ON THE SYSTEM VOLUME, NOT UNDER TEMP. By default Windows keeps 8.3 short names on the system volume only;
+        // on every other volume the short form of a path is the path itself. The release gate moves TEMP to another
+        // volume when the system volume is short of space, and did so on 17 October 2026, when this test failed the
+        // v2.23.0 release gate for the volume and not for the code. So this test builds a tree of its own under the
+        // local application data folder, which is on the system volume, instead of using the class's tree under
+        // TEMP, and removes it when it is done.
+        var systemVolumeBase = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create),
+            "Temp",
+            "ccd-4078-" + Guid.NewGuid().ToString("N"));
+        var work = Path.Combine(systemVolumeBase, "repo");
+        var outside = Path.Combine(systemVolumeBase, "briefs");
+        var protectedStore = Path.Combine(systemVolumeBase, "protected-store");
+        var home = Path.Combine(systemVolumeBase, "home");
+        Directory.CreateDirectory(work);
+        Directory.CreateDirectory(outside);
+        Directory.CreateDirectory(protectedStore);
+        Directory.CreateDirectory(home);
+        var secrets = new SessionFileSecrets(() => new[] { protectedStore }, home);
+        try
+        {
+            var ssh = Write(Path.Combine(home, ".ssh", "config"), "Host *");
+            var token = Write(Path.Combine(home, ".sometool-longname", "token.txt"), "secret");
+            var key = Write(Path.Combine(outside, "deployment-private.pem"), "PRIVATE KEY");
+
+            var shortToken = ShortNameOf(token);
+            var shortKey = ShortNameOf(key);
+            Assert.True(
+                !string.Equals(shortToken, token, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(shortKey, key, StringComparison.OrdinalIgnoreCase),
+                $"This volume made no 8.3 short names ({shortToken}); turn them on (fsutil 8dot3name) to run this test. It fails rather than passes because it would prove nothing.");
+            Assert.DoesNotContain(".sometool-longname", shortToken, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("deployment-private.pem", shortKey, StringComparison.OrdinalIgnoreCase);
+
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, shortToken, Named(shortToken), secrets).Sentence);
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, shortKey, Named(shortKey), secrets).Sentence);
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, ShortNameOf(ssh), Named(ShortNameOf(ssh)), secrets).Sentence);
+            // The home folder itself spelled short guards the same files, however the file is spelled.
+            var shortHomeSecrets = new SessionFileSecrets(() => new[] { protectedStore }, ShortNameOf(home));
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, shortToken, Named(shortToken), shortHomeSecrets).Sentence);
+            Assert.Equal(SessionFileAccess.SecretSentence, SessionFileAccess.Decide(work, token, Named(token), shortHomeSecrets).Sentence);
+        }
+        finally
+        {
+            Directory.Delete(systemVolumeBase, recursive: true);
+        }
+    }
+
+    // ------------------------------------------- issue #4085: plain POSIX paths named in prose ----
+
+    [UnixOnlyFact("a path that starts \"/\" is absolute only on Linux and macOS")]
+    public void Decide_plainPosixPathNamedInProse_isAllowed_andItsNeighbourIsNot()
+    {
+        // The Chat now links /home/x/report.pdf written without quotes; the Director must name it too, or the
+        // click would be refused. Its neighbour, never written, stays refused.
+        var brief = Write(Path.Combine(_outside, "report.pdf"));
+        var neighbour = Write(Path.Combine(_outside, "other.pdf"));
+        var named = SessionNamedPaths.FromTexts(new[] { $"I saved it to {brief}." });
+
+        Assert.Equal(PathStatusCodes.File, Decide(brief, named).Code);
+        Assert.Equal(SessionFileAccess.NotAllowedSentence, Decide(neighbour, named).Sentence);
+    }
+
+    [UnixOnlyFact("a path that starts \"/\" is absolute only on Linux and macOS")]
+    public void Decide_plainPosixPathToASecret_isStillRefused()
+    {
+        // Naming more is safe only because the refusals do not depend on naming.
+        var key = Write(Path.Combine(_outside, "deploy.pem"), "PRIVATE KEY");
+        var named = SessionNamedPaths.FromTexts(new[] { $"the key is {key} now" });
+
+        Assert.Equal(SessionFileAccess.SecretSentence, Decide(key, named).Sentence);
     }
 
     private static void CreateDirectoryLink(string link, string target)

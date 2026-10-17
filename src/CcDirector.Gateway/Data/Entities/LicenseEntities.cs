@@ -264,3 +264,46 @@ public sealed class LicenseBarEntity : GatewayMintedKeyEntity
     /// <summary>The window's <c>resets_at</c>: the account may be chosen again from this time.</summary>
     public DateTime UntilUtc { get; set; }
 }
+
+/// <summary>
+/// ONE LICENSE ALARM, in <c>license_alarms</c> (License Switching phase 6): a problem with licenses that the owner must
+/// fix, open from the moment a check on the Gateway first finds it true until a later run of the same check no longer
+/// does. Its identity is the tenant, <see cref="Kind"/>, <see cref="MachineId"/> and <see cref="AccountEmail"/>: at most
+/// one row with that identity is open at a time, and one that opens again after it closed is a NEW row. Written and read
+/// by <c>Licenses.LicenseAlarmService</c> only.
+/// </summary>
+public sealed class LicenseAlarmEntity : GatewayMintedKeyEntity
+{
+    /// <summary>The short stable key of the check that raised it, for example <c>not-ready-at-80</c>.</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>The <see cref="LicenseMachineEntity"/> row it is about; <see cref="Guid.Empty"/> for an alarm about no
+    /// one machine.</summary>
+    public Guid MachineId { get; set; }
+
+    /// <summary>The machine's name as it was spelled when the alarm opened; "" for an alarm about no one machine.</summary>
+    public string MachineName { get; set; } = "";
+
+    /// <summary>The account it is about, trimmed and lower-cased; "" for an alarm about no one account.</summary>
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>What is wrong, one plain-English sentence, as the check last said it.</summary>
+    public string Problem { get; set; } = "";
+
+    /// <summary>The one thing to do, one plain-English sentence, as the check last said it.</summary>
+    public string Action { get; set; } = "";
+
+    /// <summary>When the alarm opened, by the Gateway's clock.</summary>
+    public DateTime OpenedAtUtc { get; set; }
+
+    /// <summary>When it closed; null while it is open.</summary>
+    public DateTime? ClosedAtUtc { get; set; }
+
+    /// <summary>What became of its one owner email: null while not tried yet, then <c>owner-emailed</c>,
+    /// <c>owner-email-failed</c> or <c>no-owner-account</c> (<c>Licenses.LicenseGatewayReasonCodes</c>). A row recorded
+    /// as emailed is never changed back.</summary>
+    public string? EmailState { get; set; }
+
+    /// <summary>When the mail service confirmed the owner email; null until it did.</summary>
+    public DateTime? EmailSentAtUtc { get; set; }
+}

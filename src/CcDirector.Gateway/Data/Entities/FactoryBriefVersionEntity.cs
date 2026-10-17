@@ -56,8 +56,19 @@ public sealed class FactoryBriefVersionEntity : TenantScopedEntity
     /// <summary>When this version was published (UTC), or null while it is a draft.</summary>
     public DateTime? PublishedAtUtc { get; set; }
 
-    /// <summary>The identifier of the person who published it, when it is known. Only a person publishes.</summary>
+    /// <summary>The identifier of the person who published it, when it is known. Only a person publishes a brief of a
+    /// factory with no definition; for a defined factory's brief this is the definition version's publisher.</summary>
     public string? PublishedBy { get; set; }
+
+    /// <summary>NOT STORED. For a defined factory's brief, read from its definition version (phase 6c): who published
+    /// that version - <c>person</c> or <c>session</c>. Null on a stored brief, whose publisher is always a person.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? PublishedByKind { get; set; }
+
+    /// <summary>NOT STORED. The publishing session's name, read from the definition version as
+    /// <see cref="PublishedByKind"/> is.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public string? PublishedByName { get; set; }
 }
 
 /// <summary>The two states a version of a brief can be in.</summary>

@@ -380,6 +380,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-manager-show", "factory-manager-clear", "factory-name-check",
     # The Schedule page work (the owner, 2026-10-09): each machine's scheduled load over the next 24 hours.
     "schedule-load",
+    # Factory Definition phase 6c (the owner, 2026-10-16): a session in no factory creates a factory from a folder.
+    "factory-definition-create",
 }
 
 

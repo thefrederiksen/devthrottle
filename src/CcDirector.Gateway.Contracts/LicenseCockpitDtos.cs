@@ -30,6 +30,10 @@ public static class LicenseRoutes
     /// <summary>POST: Switch now - move every machine on one account to another (<see cref="LicenseSwitchNowRequest"/>,
     /// <see cref="LicenseSwitchNowResponse"/>). Refused to every session key.</summary>
     public const string SwitchNow = "/gateway/licenses/switch-now";
+
+    /// <summary>GET: the license alarms open now, with the banner's finished words (<see cref="LicenseAlarmsResponse"/>).
+    /// Read by the shell of every Cockpit page and of the phone app. There is no route that raises or clears one.</summary>
+    public const string Alarms = "/gateway/licenses/alarms";
 }
 
 /// <summary>The one status an account is shown with. <see cref="LicenseAccountDto.StatusText"/> is the label.</summary>
@@ -784,4 +788,50 @@ public sealed class LicenseSwitchNowSkippedDto
 
     /// <summary>Why it was not sent a switch, as a finished sentence.</summary>
     public string Why { get; set; } = "";
+}
+
+// ---- GET /gateway/licenses/alarms ----
+
+/// <summary>
+/// The license alarms open now (License Switching phase 6), as the red banner on every Cockpit page and on the phone
+/// shows them. Every word is the Gateway's: the shell renders <see cref="Summary"/> when it is not null, then the
+/// <see cref="LicenseAlarmDto.Text"/> of every alarm in order, then <see cref="LinkText"/> as the link to the Licenses
+/// page - and shows nothing at all when <see cref="Count"/> is 0.
+/// </summary>
+public sealed class LicenseAlarmsResponse
+{
+    public DateTime AsOfUtc { get; set; }
+
+    /// <summary>How many alarms are open. 0: no banner.</summary>
+    public int Count { get; set; }
+
+    /// <summary>The line above the alarms when more than one is open; null otherwise.</summary>
+    public string? Summary { get; set; }
+
+    /// <summary>The words of the banner's link to the Licenses page; null when no alarm is open.</summary>
+    public string? LinkText { get; set; }
+
+    /// <summary>The open alarms, oldest first.</summary>
+    public List<LicenseAlarmDto> Alarms { get; set; } = new();
+}
+
+/// <summary>One open license alarm.</summary>
+public sealed class LicenseAlarmDto
+{
+    /// <summary>The alarm's own identifier (32 lower-case hexadecimal characters). A new one each time it opens.</summary>
+    public string AlarmId { get; set; } = "";
+
+    /// <summary>The short stable word of the check that raised it, for example <c>not-ready-at-80</c>.</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>The machine it is about; null for an alarm about no one machine.</summary>
+    public string? MachineName { get; set; }
+
+    /// <summary>The account it is about; null for an alarm about no one account.</summary>
+    public string? AccountEmail { get; set; }
+
+    /// <summary>The banner's line for it: what is wrong, then the one thing to do.</summary>
+    public string Text { get; set; } = "";
+
+    public DateTime OpenedAtUtc { get; set; }
 }

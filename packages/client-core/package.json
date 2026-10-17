@@ -33,6 +33,8 @@
     "./devreports/DevReportViewer": "./src/devreports/DevReportViewer.tsx",
     "./devreports/DevReportLanding": "./src/devreports/DevReportLanding.tsx",
     "./devreports/DevReportConversation": "./src/devreports/DevReportConversation.tsx",
+    "./licenses/LicenseAlarmBanner": "./src/licenses/LicenseAlarmBanner.tsx",
+    "./history/FolderListing": "./src/history/FolderListing.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {

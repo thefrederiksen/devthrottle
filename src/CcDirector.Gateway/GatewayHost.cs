@@ -510,6 +510,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// while the sign-in is about to end. Run by the same once-a-minute check as <see cref="LicenseSwitches"/>.</summary>
     internal Licenses.LicenseRenewalEmailService LicenseRenewalEmails { get; }
 
+    /// <summary>License Switching phase 6: the ONE license alarm - raised by the Gateway's own checks, shown as the red
+    /// banner on every Cockpit page and on the phone, pushed and emailed once when it opens.</summary>
+    internal Licenses.LicenseAlarmService LicenseAlarms { get; }
+
     /// <summary>How the license checks email an account's owner: <see cref="Licenses.LicenseOwnerMailer.SendAsync"/>.
     /// A test puts a sender of its own here, so that a check run by the real host never reaches the account service.</summary>
     internal Licenses.LicenseOwnerEmailSender LicenseOwnerMail { get; set; }
@@ -519,6 +523,14 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>Has a sign-in approved on the machine set for its account, and passes the answer back (contract section 8.3).</summary>
     internal Licenses.LicenseApprovalRelay LicenseApprovals { get; }
+
+    /// <summary>License Switching phase 6 (Track C): the approver records each Director registers or checks, decided
+    /// against the owner's records (<c>DirectorHub.ReportLicenseApproverChecks</c>).</summary>
+    internal Licenses.LicenseApproverRegistration LicenseApproverRegistrations { get; }
+
+    /// <summary>License Switching phase 6 (Track C): whether each account's approver can approve, as the finished sentence
+    /// of why not. Track A's readiness calls <see cref="Licenses.LicenseApproverReadiness.WhyNotReady"/>.</summary>
+    public Licenses.LicenseApproverReadiness LicenseApproverReadiness { get; }
 
     /// <summary>The sign-in rows of the Licenses log.</summary>
     internal Licenses.LicenseSignInLog LicenseSignInLog { get; }
@@ -1732,6 +1744,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Push.PushSubscriptionStore _pushSubscriptions;
     private Push.WebPushNeedsYouNotifier? _pushNotifier;
     private readonly Push.SecretTransferPushNotifier _secretTransferPush;
+    private readonly Push.LicenseAlarmPushNotifier _licenseAlarmPush;
+    private readonly Push.VapidWebPushSender _licenseAlarmPushSender;
     // The per-tenant driver for the app-icon dot, and the timer that fires it. The notifier holds no timer of
     // its own: a bare timer has no tenant, which is exactly why hosted push had to be switched off before.
     private Push.PushNeedsYouTenantSweep? _pushNeedsYouSweep;
@@ -2478,6 +2492,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
         // SendCommandAsync resolves a Director's connection for that tenant alone.
         LicenseApprovers = new Licenses.LicenseApproverStore(_tenantSettings);
+        LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow);
+        LicenseApproverReadiness = new Licenses.LicenseApproverReadiness(LicenseApprovers, LicenseReads, LicenseNow.UtcNow);
         LicenseSignInLog = new Licenses.LicenseSignInLog(_gatewayDb);
         var licenseCommands = Licenses.LicenseCommandSenders.Over(SendCommandAsync);
         LicenseApprovals = new Licenses.LicenseApprovalRelay(LicenseApprovers, LicenseReads, IsDirectorConnected,
@@ -2917,6 +2933,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // its own VAPID sender so its lifetime does not hang on the needs-you sweep starting.
         _secretTransferPush = new Push.SecretTransferPushNotifier(_pushSubscriptions,
             new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com"));
+        // The license alarm push (License Switching phase 6): an alarm that opens is pushed to the same phones, each
+        // tenant's to its own, over its own sender for the same reason as the secret handoff push.
+        _licenseAlarmPushSender = new Push.VapidWebPushSender(_vapidStore.PublicKey, _vapidStore.PrivateKey, "mailto:support@devthrottle.com");
+        _licenseAlarmPush = new Push.LicenseAlarmPushNotifier(_pushSubscriptions, _licenseAlarmPushSender,
+            tenant => _tenantBoundary.EnterScope(tenant));
+        // The license alarm itself: the same owner email channel as the "no account has room" email, and this push.
+        LicenseAlarms = new Licenses.LicenseAlarmService(_gatewayDb, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
+            _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow);
 
         // Gateway device registration (issue #857): on sign-in (and as a first-launch/retry safety net on
         // the heartbeat) register THIS Gateway as a device with the cloud account and store the issued
@@ -4466,6 +4490,10 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(LicenseNow);
         // And DirectorHub.RequestLicenseApproval hands each request to the relay.
         builder.Services.AddSingleton(LicenseApprovals);
+        // And DirectorHub.GetLicenseApproverAssignments / ReportLicenseApproverChecks to the approver registrations.
+        builder.Services.AddSingleton(LicenseApproverRegistrations);
+        // Track A's license readiness asks whether an account's approver can approve.
+        builder.Services.AddSingleton(LicenseApproverReadiness);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -5810,6 +5838,13 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // The sign-in routes of the Licenses page (contract section 8): who approves each account's sign-ins, and
         // "Add a spare" and "Renew now". Only the read of the approvers is in SessionKeyGuard's allow list.
+        // The license alarms open now (phase 6): the red banner of every Cockpit page and of the phone shell reads this.
+        // A read only, in SessionKeyGuard's allow list; no route raises or clears an alarm.
+        Api.LicenseEndpoints.MapAlarms(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            alarms: LicenseAlarms,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
+
         Api.LicenseSignInEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             approvers: LicenseApprovers,
@@ -6071,6 +6106,15 @@ public sealed class GatewayHost : IAsyncDisposable
             // Phase 5b: the state each definition check keeps, listed per checked start and reset by a person.
             checkStates: new Api.FactoryDefinitionEndpoints.CheckStateParts(Triggers.Store.CheckStates, Triggers.Store.List,
                 _cronJobs.ListAll));
+        // A NEW factory from a folder (phase 6c): what an agent runs when the owner tells it to make one. Refused when the
+        // id is taken - read from the Factories screen's sources, as its New factory is - then the same checked import.
+        Api.FactoryDefinitionEndpoints.MapCreate(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: FactoryDefinitions,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            account: new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+            nowUtc: () => DateTime.UtcNow,
+            whyNotNew: (tenant, content) => Api.FactoryDefinitionTabEndpoints.CreateRefusal(factoriesScreenSources, tenant, content));
 
         // A factory's RECORDS (Factory Definition mission, phase 2): its journals, working documents and attachments,
         // held here beside its memory so that no factory depends on one machine's disk (the owner's decision F2).
@@ -7011,6 +7055,8 @@ public sealed class GatewayHost : IAsyncDisposable
         try
         {
             await LicenseRenewalEmails.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+            // An open license alarm whose owner email has not gone out is tried again here, beside the renewal emails.
+            await LicenseAlarms.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {
@@ -7543,6 +7589,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _pushNotifierTimer = null;
         try { _pushNotifier?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] push notifier dispose error: {ex.Message}"); }
         try { _secretTransferPush.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] secret transfer push dispose error: {ex.Message}"); }
+        try { _licenseAlarmPushSender.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] license alarm push dispose error: {ex.Message}"); }
         try { _netDiagMonitor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] netdiag monitor dispose error: {ex.Message}"); }
         try { _hostedAiSpendSweep?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] hosted-ai spend sweep dispose error: {ex.Message}"); }
         _pushNotifier = null;

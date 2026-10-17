@@ -127,6 +127,44 @@ describe("phone push handler", () => {
     expect(w.opened).toEqual(["/mobile/secret-transfers"]);
   });
 
+  // The license alarm push (License Switching phase 6): the Gateway's words, its own notification, and a tap that
+  // opens the Cockpit's Licenses page - the phone has no Licenses screen of its own.
+  const ALARM_PUSH = {
+    kind: "license-alarm",
+    title: "License problem",
+    body: "machine-a: Not ready to switch. Open Licenses to see what to do.",
+    tag: "devthrottle-license-alarm-0123456789abcdef0123456789abcdef",
+    url: "/licenses",
+  };
+
+  it("a license alarm push draws its own audible notification in the Gateway's words", async () => {
+    const w = loadWorker();
+    await w.dispatch("push", { data: { json: () => ALARM_PUSH } });
+    expect(w.shown).toHaveLength(1);
+    expect(w.shown[0].title).toBe("License problem");
+    expect(w.shown[0].options.body).toBe(ALARM_PUSH.body);
+    expect(w.shown[0].options.tag).toBe(ALARM_PUSH.tag);
+    expect(w.shown[0].options.silent).toBe(false);
+  });
+
+  it("a license alarm push leaves the needs-you dot alone", async () => {
+    const w = loadWorker();
+    await w.dispatch("push", { data: { json: () => ({ count: 2 }) } });
+    await w.dispatch("push", { data: { json: () => ALARM_PUSH } });
+    expect(w.shown[0].options.tag).toBe("devthrottle-needs-you");
+    expect(w.shown[0].closed).toBe(false);
+    expect(w.shown).toHaveLength(2);
+  });
+
+  it("tapping a license alarm steers the open app to the Licenses page", async () => {
+    const app = appWindow("https://gw.example/mobile/");
+    const w = loadWorker([app]);
+    await w.dispatch("push", { data: { json: () => ALARM_PUSH } });
+    await w.dispatch("notificationclick", { notification: { close: () => undefined, data: w.shown[0].options.data } });
+    expect(app.navigatedTo).toBe("/licenses");
+    expect(app.focused).toBe(true);
+  });
+
   it("tapping the needs-you dot only brings the app forward", async () => {
     const app = appWindow("https://gw.example/mobile/session/abc");
     const w = loadWorker([app]);

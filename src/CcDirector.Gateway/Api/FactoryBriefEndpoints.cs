@@ -422,7 +422,8 @@ internal static class FactoryBriefEndpoints
     /// A PUBLISH OR A RESTORE OF A DEFINED FACTORY'S BRIEF publishes DEFINITION version <paramref name="version"/>
     /// (design section 9): it is the whole definition that is published, through the phase 4 transaction that drives
     /// the factory, by the same function the definition's own publish and restore call - so every ruling, the check and
-    /// every refusal are theirs. A person only, as today: a session is refused with the definition's own sentence. The
+    /// every refusal are theirs. A session that reaches this route is the factory's own, so it is refused with the
+    /// definition's own sentence (phase 6c: a factory's own session never publishes). The
     /// version must hold this seat's brief, or the seat's route would publish a definition that has none for it. The
     /// answer is the seat's brief in the version now published, with the line saying the whole definition was
     /// published, what changes and what the transaction applied.
@@ -435,12 +436,14 @@ internal static class FactoryBriefEndpoints
             return Results.BadRequest(new { error = seatRefusal, outcome = FactoryBriefOutcome.BadSeat.ToString() });
         var standing = defined.Briefs.Definitions.Standing(tenant, factory);
         var factoryId = standing.Newest!.Factory;
+        // A session that reaches a brief route is a session OF this factory (the brief gate lets no other session in),
+        // and a factory's own session never publishes its definition (phase 6c).
         if (caller.Kind != FactoryMemoryAuthorKinds.Person)
         {
-            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, a {act} by a session REFUSED");
+            FileLog.Write($"[FactoryBriefEndpoints] {factoryId}/{folded}: defined factory, a {act} by a session of the factory REFUSED");
             return Results.Json(new
             {
-                error = restore ? FactoryDefinitionStore.OnlyAPersonRestores : FactoryDefinitionStore.OnlyAPersonPublishes,
+                error = restore ? FactoryDefinitionStore.FactorySessionMayNotRestore(factoryId) : FactoryDefinitionStore.FactorySessionMayNotPublish(factoryId),
                 outcome = FactoryBriefOutcome.OnlyAPersonPublishes.ToString(),
                 definition = FactoryBriefPanelFold.DefinitionLine(factoryId),
             }, statusCode: StatusCodes.Status403Forbidden);
@@ -471,9 +474,9 @@ internal static class FactoryBriefEndpoints
             return Results.Json(dto);
         }
         return restore
-            ? await FactoryDefinitionEndpoints.RestoreAsPerson(tenant, factoryId, version, expectedVersion ?? 0, replaces, caller.Id,
+            ? await FactoryDefinitionEndpoints.RestoreAs(tenant, factoryId, version, expectedVersion ?? 0, replaces, FactoryPublisher.Person(caller.Id),
                 defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published, ct)
-            : await FactoryDefinitionEndpoints.PublishAsPerson(tenant, factoryId, version, replaces, caller.Id,
+            : await FactoryDefinitionEndpoints.PublishAs(tenant, factoryId, version, replaces, FactoryPublisher.Person(caller.Id),
                 defined.Briefs.Definitions, defined.Apply, defined.Account, nowUtc, Published, ct);
     }
 

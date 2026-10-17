@@ -54,7 +54,9 @@ did not build it):
 - **Outward email**: the only email this mission sends is to the owner himself, when no account has
   room. Nothing else leaves the fleet.
 - Architect's calls, overridable by the owner, recorded here: (a) a switch moves EVERY machine on the
-  tired account, because usage is counted per account, not per machine; (b) the threshold is 97% of
+  tired account, because usage is counted per account, not per machine - every machine that is READY,
+  at once, with any machine left behind following the moment it is ready (the owner's ruling of
+  16 October 2026, section 5); (b) the threshold is 97% of
   either the 5-hour window or the week, whichever comes first; (c) an account that triggered a switch
   is not chosen again until the window that triggered it has reset.
 
@@ -114,12 +116,35 @@ did not build it):
 **Gateway - decides and remembers, never holds a key**
 - Stores accounts, the latest readings, which machine is on which account and which spares each
   machine holds, the switch log, and the forecast.
-- The decision, every minute: for each account in use, if either window is at or above 97%, pick the
-  target: an account the affected machines all hold a spare for, both windows under 97%, not barred by
-  decision (c); best = lowest weekly use, then lowest 5-hour use. Send `switch` to every machine on the
-  tired account. No target -> one email to the owner per exhaustion event, nothing switched.
+- The decision, every minute: for each account in use, if either window is at or above 97%, switch
+  every machine on it that is ready, at once (the owner's ruling of 16 October 2026: "Switch every ready
+  machine at once; the one left behind keeps trying and switches the moment it is ready"). In plain words:
+  - **An account has room** when it is not the account in use, its latest reading is fresh, both its
+    windows are under 97%, and it is not barred by decision (c). That is judged on the account alone.
+    Which sign-ins the machines hold never decides whether an account has room. The best account with
+    room is the one with the lowest weekly use, then the lowest 5-hour use, then its email in
+    alphabetical order. That is "the account it would switch to next".
+  - **A machine is ready** for an account when it holds a sign-in for it that was not refused and that
+    does not expire before the switch could finish (contract 5.7). There is one definition of ready, in
+    the Gateway's decision code, and everything that asks - the automatic switch, Switch now, the
+    Licenses page - uses it.
+  - **Each machine goes to the best account with room that it is ready for.** So when the best account
+    is held by only some machines and the second best by all, the ones that hold the best go there and
+    the rest go to the second best, all at once. Nobody waits for anybody.
+  - **A machine ready for no account with room is left behind.** It is not switched and it holds back no
+    other machine. It is switched on a later minute, by this same rule, the moment it becomes ready
+    while the account is still at its limit. The switch log row of the machines that did move names it
+    and the reason ("machine-d holds no sign-in for it and switches as soon as it does").
+  - **Only when no account has room** is it the no-room event: nothing is switched and the owner gets
+    one email for the event. When an account has room and some machine is not ready for it, the owner
+    is never told "no account has room"; the license alarm (phase 6, track A) covers that case.
 - Forecast: for each account, its reset times and, from recent readings, the expected time to 97% at
-  the current rate; from that, the expected next switch and its target.
+  the current rate; from that, the expected next switch and its target. The target is named whenever an
+  account has room, and the sentence names any machine that would not move and why.
+- Switch now with a target chosen moves the machines that are ready for it, and says which machines it
+  leaves and why; with no target named it does exactly what the automatic switch would do. The Licenses
+  page's own Switch now, the Gateway's choice, is sent with no target, so the button moves every ready
+  machine just as the automatic switch would, and its sentence says where each one goes.
 
 **Cockpit - the Licenses page**
 - Accounts table, machines, schedule/forecast, switch log, Switch now. Follows

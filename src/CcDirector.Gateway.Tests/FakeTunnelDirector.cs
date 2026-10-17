@@ -196,6 +196,14 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     public Task RequestLicenseApprovalAsync(LicenseApprovalRequest request) =>
         _conn.InvokeAsync(LicenseContract.RequestApprovalHubMethod, request);
 
+    /// <summary>Ask which approver records name this Director's machine (License Switching phase 6, Track C).</summary>
+    public Task<LicenseApproverAssignments> GetLicenseApproverAssignmentsAsync() =>
+        _conn.InvokeAsync<LicenseApproverAssignments>(LicenseApproverContract.GetAssignmentsHubMethod);
+
+    /// <summary>Report what this Director's approver checks found (License Switching phase 6, Track C).</summary>
+    public Task<LicenseApproverCheckAnswer> ReportLicenseApproverChecksAsync(LicenseApproverCheckReport report) =>
+        _conn.InvokeAsync<LicenseApproverCheckAnswer>(LicenseApproverContract.ReportChecksHubMethod, report);
+
     /// <summary>Close this Director's tunnel, as a machine that lost its connection does. A command it has not
     /// answered yet ends on the Gateway as a dropped tunnel.</summary>
     public Task StopTunnelAsync() => _conn.StopAsync();

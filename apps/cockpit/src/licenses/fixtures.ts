@@ -115,7 +115,7 @@ export const OVERVIEW: LicenseOverview = {
         {
           "accountEmail": "account-c@example.com",
           "canChoose": false,
-          "unavailableText": "the-mac holds no usable spare for account-c@example.com.",
+          "unavailableText": "account-c@example.com has no room: it is at 99% of its 5-hour window.",
           "isAutomaticChoice": false
         }
       ],

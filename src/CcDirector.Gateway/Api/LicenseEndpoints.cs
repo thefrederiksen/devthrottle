@@ -111,11 +111,12 @@ public static class LicenseEndpoints
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
             // The page does not judge the open "no account has room" events, so none are passed.
-            var picture = snapshots.ReadPicture(tenant, nowUtc(), NoExhaustions);
+            var now = nowUtc();
+            var picture = snapshots.ReadPicture(tenant, now, NoExhaustions);
             var response = LicenseDisplayFold.Overview(picture);
             // Who approves each account's sign-ins, and where a sign-in can be started now (contract section 8).
             LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
-                directorId => isConnected(tenant, directorId));
+                directorId => isConnected(tenant, directorId), now);
             FileLog.Write($"[LicenseEndpoints] GET overview: tenant={tenant.ToLogString()}, accounts={response.Accounts.Count}, machines={response.Machines.Count}");
             return Results.Json(response);
         }
@@ -143,6 +144,40 @@ public static class LicenseEndpoints
         catch (Exception ex)
         {
             FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses/forecast FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Map <c>GET /gateway/licenses/alarms</c>: the license alarms open now, with the banner's finished words, for the
+    /// caller's own account. Read by the shell of every Cockpit page and of the phone app. A read only: no route raises,
+    /// clears or changes an alarm - only the Gateway's own checks do (<see cref="LicenseAlarmService.RaiseAsync"/>).
+    /// </summary>
+    public static void MapAlarms(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, LicenseAlarmService alarms,
+        Func<DateTime> nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(alarms);
+        ArgumentNullException.ThrowIfNull(nowUtc);
+        app.MapGet(LicenseRoutes.Alarms, (HttpContext ctx) => Alarms(ctx, resolveTenant, alarms, nowUtc));
+        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Alarms}");
+    }
+
+    internal static IResult Alarms(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, LicenseAlarmService alarms,
+        Func<DateTime> nowUtc)
+    {
+        FileLog.Write("[LicenseEndpoints] GET alarms");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant)
+                return NoAccount();
+            var response = LicenseAlarmFold.Banner(alarms.ListOpen(tenant), nowUtc());
+            FileLog.Write($"[LicenseEndpoints] GET alarms: tenant={tenant.ToLogString()}, open={response.Count}");
+            return Results.Json(response);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses/alarms FAILED: {ex.Message}");
             throw;
         }
     }
