@@ -132,13 +132,14 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     private static void OwnerTypes(Session session, string keys) => ScriptedTerminal.OwnerTypes(session, keys);
 
     /// <summary>
-    /// Text in the composer that the Director does not know is there: put straight into the scripted composer, as an
-    /// agent's own history recall or a mis-tracked edit could. The owner-draft check cannot see it, so a guarded send
-    /// goes ahead - and its rollback must still leave that text exactly as it was.
+    /// Text in the composer that the Director's keystroke tracking does not know is there: put straight into the
+    /// scripted composer and drawn on the screen, as an agent's own history recall or a mis-tracked edit could. The
+    /// owner-draft check cannot see it. The send's own look at the screen can (the Prompt Delivery mission, 16 October
+    /// 2026): a guarded send refuses before it types, and leaves that text exactly as it was.
     /// </summary>
     private static void TextTheDirectorDoesNotKnowAbout(Session session, ScriptedTerminal terminal, string text)
     {
-        terminal.Composer.Append(text);
+        terminal.ShowInComposer(text);
         Assert.False(session.HasUnsentOwnerDraft);
     }
 
@@ -210,14 +211,13 @@ public sealed class PromptOnlyWhenWaitingForInputTests
 
     /// <summary>
     /// A send that cannot finish inside its bound (here the composer never echoes) is abandoned: the text it typed is
-    /// removed, so the composer is as the owner had it - their draft, plus what they typed while it was held - and the
-    /// send is reported refused. Nothing was submitted and no Escape was pressed over the owner's draft.
+    /// removed, so the composer holds only what the owner typed while it was held, and the send is reported refused.
+    /// Nothing was submitted and no Escape was pressed over the owner's keys.
     /// </summary>
     [Fact]
     public async Task SendPromptAsync_AbandonedAtItsBound_LeavesTheComposerAsTheOwnerHadIt()
     {
         var (session, terminal) = NewTerminalSession();
-        TextTheDirectorDoesNotKnowAbout(session, terminal, "my draft ");
         terminal.Echo = false;
         session.GuardedSendLimitForTests = TimeSpan.FromMilliseconds(300);
         terminal.OnWrite = written =>
@@ -230,14 +230,14 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         Assert.False(response.Accepted);
         Assert.True(response.RefusedBusy);
         Assert.Contains("removed from the composer", response.Error);
-        Assert.Equal("my draft x", terminal.Composer.ToString());
+        Assert.Equal("x", terminal.Composer.ToString());
         Assert.Empty(terminal.Submitted);
         Assert.DoesNotContain(terminal.Writes, w => w.Contains('\x1b'));
         Assert.Equal(0, session.InputStats.Snapshot().AgentDrivenTurns);
 
         // The owner's input flows normally once the send is over.
         OwnerTypes(session, "y\r");
-        Assert.Equal(new[] { "my draft xy" }, terminal.Submitted);
+        Assert.Equal(new[] { "xy" }, terminal.Submitted);
     }
 
     /// <summary>
@@ -249,7 +249,6 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     public async Task SendPromptAsync_ComposerDoesNotEcho_NoEscape_ItsOwnTextIsRemoved()
     {
         var (session, terminal) = NewTerminalSession();
-        TextTheDirectorDoesNotKnowAbout(session, terminal, "my draft ");
         terminal.Echo = false;
         session.GuardedSendLimitForTests = TimeSpan.FromSeconds(30);
 
@@ -258,9 +257,32 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         Assert.False(response.Accepted);
         Assert.True(response.RefusedBusy);
         Assert.Contains("removed from the composer", response.Error);
-        Assert.Equal("my draft ", terminal.Composer.ToString());
+        Assert.Equal("", terminal.Composer.ToString());
         Assert.Empty(terminal.Submitted);
         Assert.DoesNotContain(terminal.Writes, w => w.Contains('\x1b'));
+    }
+
+    /// <summary>
+    /// LOOK BEFORE TYPING (the Prompt Delivery mission, 16 October 2026): text in the composer on the screen that the
+    /// Director's keystroke tracking never saw is still text, and typing after it would send both as one prompt. The
+    /// send reads the composer before it types, refuses saying how much it found there, writes nothing, and leaves
+    /// the text as it was.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TextOnTheScreenTheDirectorNeverTracked_RefusedBeforeTyping_AndLeft()
+    {
+        var (session, terminal) = NewTerminalSession();
+        TextTheDirectorDoesNotKnowAbout(session, terminal, "my draft ");
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.False(response.Accepted);
+        Assert.True(response.RefusedBusy);
+        Assert.Contains("never sent", response.Error);
+        Assert.Empty(terminal.Writes);
+        Assert.Equal("my draft ", terminal.Composer.ToString());
+        Assert.Empty(terminal.Submitted);
+        Assert.Equal(0, session.InputStats.Snapshot().AgentDrivenTurns);
     }
 
     // ===== The owner's unsent draft (inspection round 2, finding 1) =====
@@ -340,7 +362,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         ScriptedTerminal.OwnerTypes(session, "\x1b[<64;10;5M");
         ScriptedTerminal.OwnerTypes(session, "\x1b[M`!!");
         session.SendInput(Encoding.UTF8.GetBytes("2"), null, SubmissionProvenance.FrameworkText());
-        terminal.Composer.Clear();
+        terminal.ClearComposer();
         Assert.False(session.HasUnsentOwnerDraft);
 
         var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
@@ -356,7 +378,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         var (session, terminal) = NewTerminalSession();
         foreach (var key in new[] { "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D", "\x1bOA", "\x1b[1;5D" })
             OwnerTypes(session, key);
-        terminal.Composer.Clear();
+        terminal.ClearComposer();
         Assert.False(session.HasUnsentOwnerDraft);
 
         var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
@@ -407,7 +429,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         OwnerTypes(session, "\x1b[200~draft\n\x1b[201~");
         OwnerTypes(session, "\r");
         session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-        terminal.Composer.Clear();
+        terminal.ClearComposer();
         terminal.Submitted.Clear();
 
         Assert.False(session.HasUnsentOwnerDraft);
