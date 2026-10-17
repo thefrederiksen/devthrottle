@@ -368,6 +368,9 @@ public sealed class LauncherUpdateOwner
             stopLauncher: StopInstalledLauncher,
             startLauncher: () => StartLauncher(_layout) > 0,
             restartLauncher: RestartLauncher,
+            // Asked when the file stays locked after the stop: an installed Launcher process still running
+            // means the old build is serving the machine; none means it must be started again (issue #4101).
+            isLauncherRunning: () => ListLauncherProcesses().Count > 0,
             // THE WITNESS, and the whole reason this is not the Director's update owner with the nouns
             // changed: the new build is proved by a launcher that is running AND can be commanded,
             // reporting the version just installed. A launcher that starts and opens nothing fails this.

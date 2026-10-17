@@ -371,7 +371,12 @@ public static class Program
                     && CcDirector.Core.Configuration.LauncherDiscovery.IsRunning(fact);
                 return Task.FromResult(healthy);
             },
-            healthTimeout: TimeSpan.FromSeconds(30)),
+            healthTimeout: TimeSpan.FromSeconds(30),
+            // Whether ANY Launcher is still running, by the registration it writes: the process it names is
+            // alive. Asked when the file stays locked after the stop, so a Launcher that did exit is started
+            // again instead of the machine being left with none (issue #4101).
+            isLauncherRunning: () => CcDirector.Core.Configuration.LauncherDiscovery.IsRunning(
+                CcDirector.Core.Configuration.LauncherDiscovery.Read())),
             whenBusy: why => new SelfUpdateResult(SelfUpdateOutcome.Failed,
                 $"The launcher self-update did not run: {why}", Array.Empty<string>()),
             who: "launcher-self-update",
