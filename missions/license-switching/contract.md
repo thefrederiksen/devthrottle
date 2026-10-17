@@ -1060,3 +1060,14 @@ checked, reads `not-checked`. An absence is never read as healthy.
 The owner removing a registered record (`DELETE /gateway/licenses/approvers`) keeps a removal record of its account,
 machine, user and profile (the tenant setting `license_approver_removals`, at most 64, oldest dropped first). The owner
 setting an approver for that account clears that account's removal records.
+
+### 10.6 The approver alarm
+
+An approver that cannot approve is a license alarm (section 9) of kind `approver-cannot-approve`, titled "Approver
+cannot approve sign-ins", one for each such approver, about its machine (when that machine has reported) and its
+account. What is wrong and the one thing to do are the approvers row's `healthText` and `whatToDo`. It is raised
+every time approver health is evaluated: after each check report a Director sends (on a task of its own, so the hub
+call never waits for a push or an email), and on the Gateway's once-a-minute license check, so an approver nobody
+checks alarms once its 26 hours pass. Each raise passes every approver of the tenant that cannot approve now, so one
+that recovers or is removed closes by itself. An account with no approver at all raises nothing here; whether an
+account is ready is Track A's readiness, which asks `LicenseApproverReadiness.WhyNotReady`.
