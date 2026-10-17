@@ -578,7 +578,7 @@ public sealed class LicenseSwitchService
             }
             if (now - machine.LastReportAtUtc <= LicenseStore.SilentAfter || picture.RefusalOf(machine) is not null)
                 continue;
-            // The license alarm, once it exists, is raised here when a row was written.
+            // The row is the alarm's state: LicenseMachineHealthAlarm raises it from the open rows after this check.
             if (_store.OpenSilence(tenant, machine, now) is not null)
                 written++;
         }
