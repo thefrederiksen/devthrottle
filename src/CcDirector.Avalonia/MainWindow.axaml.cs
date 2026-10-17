@@ -6439,6 +6439,7 @@ public partial class MainWindow : Window
             UpdateIndicatorSub.Text = status.Detail;
 
             var action = status.CanInstallNow ? status.InstallNowLabel
+                       : status.CanSmartRestartToInstall ? status.SmartRestartToInstallLabel
                        : status.CanCheckNow ? status.CheckNowLabel
                        : null;
             UpdateIndicatorAction.Text = action ?? "";
@@ -6538,6 +6539,15 @@ public partial class MainWindow : Window
                         RefreshUpdateStatus();
                     });
                 });
+                return;
+            }
+
+            if (status.CanSmartRestartToInstall)
+            {
+                // The same dialog as File, Smart Restart: every session is handed over before the Director
+                // restarts, and a Director applies the staged build when it starts.
+                FileLog.Write("[MainWindow] update panel clicked - opening Smart Restart to install the update");
+                _ = SmartShutdown.OpenFromFileMenuAsync();
                 return;
             }
 
