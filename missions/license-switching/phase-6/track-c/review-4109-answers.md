@@ -17,7 +17,7 @@ Without the check both cases return the record and the test is red.
 
 ## 2. Contract section 9.3 says "no rows" where the code means "no list of rows" - ACCEPTED, fixed
 
-Section 9.3 now reads "has no list of rows", and adds that an empty list is taken and answered with an empty list, so
+Section 10.3 (9.3 when reviewed; main has since added the license alarm as section 9) now reads "has no list of rows", and adds that an empty list is taken and answered with an empty list, so
 the Director side has no reason to hold back an empty report.
 
 ## Run

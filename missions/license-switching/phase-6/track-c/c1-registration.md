@@ -25,7 +25,7 @@ Pull request 2 (the plain-English readiness sentence, the approvers route's new 
   record keeps a removal record (account, machine, user, profile) in its own tenant setting
   (`license_approver_removals`, at most 64, oldest dropped first); the owner setting that account's approver again clears
   it. `LicenseApproverHealth.StateOf` is the not-checked rule in one place.
-- **`missions/license-switching/contract.md` section 9** documents all of it.
+- **`missions/license-switching/contract.md` section 10** documents all of it (numbered 9 until main added the license alarm as section 9).
 
 ## Which string a browser profile is
 
@@ -123,7 +123,7 @@ With the `owner-set` and `healthy-incumbent` checks disabled in the source, four
 
 ## Gate
 
-`.\scripts\test-local.ps1 -Parked` at commit `068c566b8` (the tree held only the uncommitted section 9 of
+`.\scripts\test-local.ps1 -Parked` at commit `068c566b8` (the tree held only the uncommitted standing-approvers section of
 `contract.md`, a document):
 
 ```
