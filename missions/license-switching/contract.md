@@ -463,9 +463,11 @@ Director never acts on the Gateway's out-of-date picture (3.3 step 7).
 
 ### 5.7 A spare whose sign-in is about to expire
 
-- **The Gateway never chooses a target whose spare's `SignInExpiresAtUtc` is at or before the
-  command's `NotAfterUtc`.** A sign-in that could die before the switch is allowed to start is not a
-  spare. A null `SignInExpiresAtUtc` does not exclude a target on its own; the Director still refuses
+- **The Gateway never sends a machine to an account whose sign-in on that machine expires at or before
+  the command's `NotAfterUtc`.** A sign-in that could die before the switch is allowed to start does not
+  make the machine ready for that account. It is judged per machine: it never stops another machine that
+  is ready from moving, and it never makes the account count as having no room (MISSION.md section 5).
+  A null `SignInExpiresAtUtc` does not make a machine unready on its own; the Director still refuses
   an expired sign-in at 3.3 step 9.
 - **The Cockpit shows an expiry verdict for every holding**: `expired` (at or before now), `expires
   soon` (within `LicenseContract.SignInExpiryWarning`, 3 days, of now), `fine` (later than that), or
@@ -591,7 +593,8 @@ public string? RenewalErrorDetail { get; set; }    // one plain sentence the Dir
 ```
 
 `LicenseRenewalErrors`: `"login-failed"`, `"approval-failed"`, `"wrong-account"` (the approving browser profile is
-signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"no-approver"` (no browser profile is set for
+signed in to claude.ai as someone else), `"browser-not-signed-in"`, `"needs-fresh-sign-in"` (the approving browser
+profile is signed in, but the approval page asks for a recent sign-in first - added in phase 6), `"no-approver"` (no browser profile is set for
 the account, here or on another machine), `"approver-offline"`, `"expired"` (no approval came back by `NotAfterUtc`,
 8.3), `"store-refused"`. They are the reasons `license renew --json` already writes, without the `failed-` prefix,
 plus the two only the relay can produce: `approver-offline` and `expired`.

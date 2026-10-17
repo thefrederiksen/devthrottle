@@ -322,7 +322,7 @@ describe("LicensesView: Switch now", () => {
     const barred = within(dialog).getByRole("radio", { name: /account-c@example\.com/ }) as HTMLInputElement;
     expect(choosable.checked).toBe(true);
     expect(barred.disabled).toBe(true);
-    expect(within(dialog).getByText("the-mac holds no usable spare for account-c@example.com.")).toBeTruthy();
+    expect(within(dialog).getByText("account-c@example.com has no room: it is at 99% of its 5-hour window.")).toBeTruthy();
     expect(switchLicenseNow).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
@@ -330,7 +330,7 @@ describe("LicensesView: Switch now", () => {
     expect(switchLicenseNow).not.toHaveBeenCalled();
   });
 
-  it("on confirmation sends the account and the picked target, shows the Gateway's answer, and reads again", async () => {
+  it("on confirmation of the Gateway's own choice sends no target, shows the Gateway's answer, and reads again", async () => {
     switchLicenseNow.mockResolvedValue({
       targetAccountEmail: ACCOUNT_B,
       text: "the-mac is now on account-b@example.com. the-windows-machine is not switched: its last report is too old.",
@@ -347,7 +347,8 @@ describe("LicensesView: Switch now", () => {
 
     const answer = await screen.findByTestId("lic-switch-answer");
     expect(switchLicenseNow).toHaveBeenCalledTimes(1);
-    expect(switchLicenseNow).toHaveBeenCalledWith(ACCOUNT_A, ACCOUNT_B);
+    // The automatic moves the card describes, which can be to two accounts - never only the ones ready for account B.
+    expect(switchLicenseNow).toHaveBeenCalledWith(ACCOUNT_A, null);
     expect(answer.textContent).toContain("the-mac switched from account-a@example.com to account-b@example.com.");
     expect(answer.textContent).toContain("the-mac is now on account-b@example.com.");
     expect(within(answer).getByTestId("lic-switch-answer-skipped").textContent).toBe("the-windows-machine is not switched: its last report is too old.");

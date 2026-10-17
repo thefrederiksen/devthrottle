@@ -276,6 +276,7 @@ public static class LicenseSignInFold
         LicenseRenewalErrors.ApprovalFailed => "The approval in the browser did not complete.",
         LicenseRenewalErrors.WrongAccount => "The approving browser profile is signed in to claude.ai as another account.",
         LicenseRenewalErrors.BrowserNotSignedIn => "The approving browser profile is not signed in to claude.ai.",
+        LicenseRenewalErrors.NeedsFreshSignIn => "The approving browser profile needs a fresh claude.ai sign-in: the approval page asked for one.",
         LicenseRenewalErrors.NoApprover => "No browser profile is set to approve this account, on the machine or on another.",
         LicenseRenewalErrors.ApproverOffline => "The machine set to approve this account had no Director connected.",
         LicenseRenewalErrors.Expired => "The sign-in ran out of time: it reached the machine too late, or no approval came back before its deadline.",
