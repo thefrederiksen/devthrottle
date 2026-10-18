@@ -683,8 +683,8 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         }
         catch (ApiModeConnectionEndedException ex)
         {
-            // not-an-error: Pi ended first; the caller settles what it wrote, and the end of the process, which follows,
-            // settles everything else waiting
+            // The caller settles what it wrote, and the end of the process, which follows, settles everything else waiting.
+            // not-an-error: Pi ended first, so this command was never written
             FileLog.Write($"[ApiModeSessionHost] WriteCommand: session={_sessionId}, {command.Type} {command.Id} not written: {ex.Message}");
             return ex.Ended;
         }
