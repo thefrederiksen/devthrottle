@@ -245,3 +245,90 @@ recorded in each.
 - reading `skillOverrides` from merged settings (theoretical);
 - the fallback-auto branch (the preset passes the flag);
 - a version guard. The scenario is the guard: it now fails loudly, as a setup failure, when Claude Code stops asking.
+
+## Round 2
+
+Reviewed at commit `9cf67126b` (the fix is `cd0a3d38d`; the answers and the re-recorded evidence are `9cf67126b`) on
+17 October 2026, on a Reviewer seat of a different agent family from the writer. Read only: nothing built, nothing fixed.
+
+**Verdict: both findings are fixed. No new finding.** The "Not now" window is right as well. Three observations
+follow, none of which asks for a change before merge.
+
+### Scope: what I read, what I ran, what I could not reach
+
+**Read.**
+
+- The diff of `cd0a3d38d` in full: `ClaudeAutoModeSetupOffer`, its tests, the rig's scratch configuration
+  (`ScratchClaudeConfig.ForAutoModeQuestion`) and the `auto-mode-question` scenario.
+- The evidence folder at `9cf67126b`: the README, every row of `ledger-rows.jsonl` (16 rows), the three rates files, and
+  how the rig stamps a row's product commit (`StampBuildCommit` in the rig's project file).
+- Claude Code 2.1.302's own decision again, in the installed binary on devlinux, to check the fix against the rule rather
+  than against my round 1 reading of it. The gate is `envOnboarding===!0` on the fetched-or-built-in configuration, and
+  the eligibility function returns false when `dismissed` is set, or when `dismissedAt` is set and
+  `Date.now()-dismissedAt<604800000`. Both are quoted from the binary.
+
+**Ran.** In a detached worktree at `9cf67126b`, one suite at a time:
+
+| Suite | Result |
+|---|---|
+| `Core.UnitTests`, filtered to the auto mode offer, the start-up questions and the bypass consent | 30 passed, 0 failed (27 in round 1, plus the three new) |
+| `DeliveryQualification.Tests`, whole suite | 22 passed, 0 failed |
+
+**Not reached.** I ran no real Claude Code session and did not run the delivery rig, as in round 1. The rig's product
+stamp marks a row `+local-changes` only when `CcDirector.Core` or `CcDirector.ControlApi` is dirty at build time, not
+when the rig's own project is; so the rows prove the detector they exercised is the committed one, and say nothing
+either way about the scenario code that drove them. The refusal sentence in the rows is the committed detector's,
+character for character, and the settled rows carry the new scenario's detail text, so I have no reason to doubt them.
+
+### Finding 1: fixed
+
+`WhatSettlesIt` now switches on the cached value. A null (the key absent, `tengu_auto_mode_config` absent,
+`cachedGrowthBookFeatures` absent) settles it with "the server setting is absent"; a value that is not exactly `true`
+settles it with "does not offer it"; only `true` falls through to the owner's records. A missing configuration file
+settles it before that, with its own reason. This is the binary's rule: `S_()` returns the built-in configuration when
+nothing was fetched, and the built-in has no `envOnboarding` key.
+
+The tests the answer names exist and pass: the key absent among other keys, the whole cache absent, and no file at all.
+The three cases of round 1's harm (telemetry off, a third-party endpoint, a rollout flag withdrawn) all land in one of
+them.
+
+### Finding 2: fixed
+
+Two gates, both of which turn the attempt into a setup failure (before the first send, so it is left out of every rate
+and reported as `SETUP-FAILED`, never as a pass):
+
+- `ForAutoModeQuestion` reads the owner's own configuration, before `CLAUDE_CONFIG_DIR` is pointed at the scratch
+  copy, and throws unless the cached `envOnboarding` is exactly `true`. This runs for the control too, which is right:
+  on such a machine the control would go ahead for a reason the scenario does not mean to measure.
+- When the seat was not refused, the unsettled scenario waits up to 15 seconds for the question on screen after the
+  first turn and throws if it never appears. The settled control keeps its 3-second look and records the answer in the
+  detail text.
+
+The evidence is re-recorded on the committed tree: rows 13 to 16 carry product `cd0a3d38d132` with no local-changes
+mark, two attempts of each scenario, `auto-mode-question` refused in words twice and the control arrived twice. The two
+main rows (product `c7ec59930ba4`) both record "question on screen before the send: True", so they meet the new rule and
+the pull request's claim that the scenario fails on main stands for devlinux on 17 October 2026.
+
+### "Not now" within the last seven days: settled, correctly
+
+Claude Code: `if(C?.dismissedAt&&Date.now()-C.dismissedAt<I_t)return!1` with `I_t=604800000`. The detector:
+`dismissedAt > 0 && now - dismissedAt < TimeSpan.FromDays(7)` on the injected clock. `WhyItWouldStop_NotNowThreeDaysAgo_GoesAhead`
+proves the inside of the window and `WhyItWouldStop_NotNowEightDaysAgo_RefusesBecauseItIsAskedAgain` the outside; both
+pass.
+
+### Observations (no change asked)
+
+- **The version guard is weaker than the answer says.** The answer to the "version guard" observation is that the
+  scenario fails loudly when Claude Code stops asking. That holds only when the product lets the seat start, which is to
+  say on main or on a machine where some record settles it. On the fixed product, with `envOnboarding` still cached
+  `true` and nothing settled, the detector refuses at start and the scenario passes `REFUSED-IN-WORDS` without the
+  machine ever having been shown to ask; so if a later Claude Code raises a threshold or drops the question while the
+  cache keeps the key, the needless refusal is certified, not caught. The cached key is a proxy for the offer, not proof
+  of it. A calibration attempt with the detector set aside would prove it, if that ever matters; today, on 2.1.302, the
+  main rows are that proof.
+- **A non-boolean `envOnboarding` falls through.** The switch handles null and a `JsonValue`. An object or an array in
+  that position matches neither case and is treated as "will be asked", where Claude Code's `===!0` says not offered.
+  The server has no reason to send one; theoretical.
+- **The control is now unrunnable on a machine that is not offered the question.** Deliberate and, I think, right (see
+  Finding 2), but the rates file for such a machine will show both scenarios as setup failures, and a reader may take the
+  control's failure for a rig fault. The thrown message names the cause, which is enough.
