@@ -3,14 +3,19 @@
 The Gateway stores a failed check's reason as "exit code 1: " plus the first 200 characters of ALL of standard error,
 flattened onto one line (TriggerCheckContract.Read and OneLine on origin/main), and the Director's process is uv, whose
 own line can come first. That reason is what phase 1's signed-in label, the Open problems card and the 08:00 email show.
-So for every kind of failure, with one channel and with two, in observe and in live mode, the check's whole first
-sentence must be inside that window after a stand-in uv line, and the memory must be left exactly as it was.
+So for every kind of failure of the whole run, the check's whole first sentence must be inside that window after a
+stand-in uv line, and the memory must be left exactly as it was.
+
+Changed in phase 3 by the Delivery Lead's ruling of 18 October 2026 (docs/qa/mail-desk/phase-3/CONTRACT.md 6.1): a
+failure that belongs to one channel no longer fails the run. Its sentence reaches the Gateway in that channel's section
+of the context, not through the window, and the Gateway quotes it in the mailbox's problem; it is still held to the same
+165 characters, so it reads whole wherever it is shown.
 """
 
 import pytest
 import requests
 
-from conftest import MAILBOX, SECOND, UV_LINE, channel, gateway_reason, msg
+from conftest import MAILBOX, SECOND, UV_LINE, channel, channel_failed, gateway_reason, msg
 
 CLIENT = "f575e3f4-8f62-4bfb-8f30-f776e55b51bd"
 CURSOR = {"newest": "2026-10-18T07:00:00Z", "idsAtNewest": []}
@@ -95,11 +100,10 @@ def memory_too_big(world, failing):
     return "over the Director's 65536, so nothing was written: give this factory fewer channels"
 
 
-# Every channel signs in before any channel files or reads, so only these fail after the healthy channel's move.
-AFTER_SIGN_IN = {graph_error, graph_unreachable, unparseable_page, not_json, unusable_message, memory_too_big}
-
-KINDS = [missing, not_in_cc_outlook, more_than_one, expired, sign_in_service_unreachable, graph_error,
-         graph_unreachable, unparseable_page, not_json, unusable_message, unknown_provider, memory_too_big]
+# Since phase 3, every kind but the memory's size fails its own channel only; the memory's size fails the whole run.
+CHANNEL_KINDS = [missing, not_in_cc_outlook, more_than_one, expired, sign_in_service_unreachable, graph_error,
+                 graph_unreachable, unparseable_page, not_json, unusable_message, unknown_provider]
+WHOLE_RUN_KINDS = [memory_too_big]
 
 
 def build(world, kind, channels, mode):
@@ -130,7 +134,7 @@ def build(world, kind, channels, mode):
 
 @pytest.mark.parametrize("mode", ["observe", "live"])
 @pytest.mark.parametrize("channels", [1, 2])
-@pytest.mark.parametrize("kind", KINDS, ids=[k.__name__ for k in KINDS])
+@pytest.mark.parametrize("kind", WHOLE_RUN_KINDS, ids=[k.__name__ for k in WHOLE_RUN_KINDS])
 def test_Failure_TheReasonTheGatewayKeeps_HoldsTheWholeSentenceAfterUvsLine(world, monkeypatch, kind, channels, mode):
     monkeypatch.setattr(world.screen.socket, "gethostname", lambda: HOSTNAME)
     expected = build(world, kind, channels, mode)
@@ -146,8 +150,25 @@ def test_Failure_TheReasonTheGatewayKeeps_HoldsTheWholeSentenceAfterUvsLine(worl
     kept = gateway_reason(err)
     assert kept.startswith(f"exit code 1: {UV_LINE} {sentence}"), kept
     assert "Traceback" not in kept
-    if mode == "live" and channels == 2 and kind in AFTER_SIGN_IN:
-        assert world.graph.box(MAILBOX)["archive"], "the healthy channel's move ran before the failure"
+
+
+@pytest.mark.parametrize("mode", ["observe", "live"])
+@pytest.mark.parametrize("channels", [1, 2])
+@pytest.mark.parametrize("kind", CHANNEL_KINDS, ids=[k.__name__ for k in CHANNEL_KINDS])
+def test_ChannelFailure_TheSectionHoldsTheWholeSentenceWithinTheLimit(world, monkeypatch, kind, channels, mode):
+    """Phase 3: the failing channel's section carries the whole sentence, at most 165 characters with the longest
+    machine name, and the healthy channel beside it is read and, in live mode, filed."""
+    monkeypatch.setattr(world.screen.socket, "gethostname", lambda: HOSTNAME)
+    failing = [MAILBOX, SECOND][channels - 1]
+    expected = build(world, kind, channels, mode)
+
+    sentence = channel_failed(world, failing).splitlines()[0]
+
+    assert expected in sentence
+    assert len(sentence) <= world.screen.SENTENCE_LIMIT
+    assert "Traceback" not in sentence
+    if mode == "live" and channels == 2:
+        assert world.graph.box(MAILBOX)["archive"], "the healthy channel's queued move was carried out"
 
 
 def test_SentenceLimit_LeavesRoomForUvsLineInsideTheGatewaysWindow(world):
@@ -171,9 +192,9 @@ def test_MoveFailing_WithARealLengthGraphId_KeepsTheWholeSentence(world, monkeyp
     world.memory(channel(mode="live", cursor=CURSOR, keys={key: {"id": graph_id, "reportedUtc": "2026-10-18T06:05:00Z"}},
                          filingQueue=[{"messageKey": key, "decision": "junk"}]))
     world.graph.fail_for[MAILBOX] = 503
-    code, _, _, err = world.run()
-    assert code == 1
-    sentence = err.splitlines()[0]
+    failure = channel_failed(world)
+    sentence = failure.splitlines()[0]
     assert sentence == f"Microsoft Graph answered HTTP 503 for {MAILBOX} while moving a message to junkemail"
-    assert gateway_reason(err).startswith(f"exit code 1: {UV_LINE} {sentence}")
-    assert graph_id not in err
+    assert len(sentence) <= world.screen.SENTENCE_LIMIT
+    assert graph_id not in failure
+    assert graph_id not in world.last_err                  # review finding 3: the run's own standard error
