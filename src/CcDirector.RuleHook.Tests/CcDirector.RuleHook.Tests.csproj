@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.RuleHook\CcDirector.RuleHook.csproj" />
+    <!-- For the cross-piece contract test ONLY: the Director's writer of the rules file and its paths, read
+         against the hook's reader. The hook itself references nothing (ruling P11); its tests may. -->
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
