@@ -148,10 +148,10 @@ public sealed class MailDeskSwitchTests : IDisposable
         => Assert.Contains(TenantSettingKeys.MailDeskSwitch, TenantSettingKeys.All);
 
     // The account's own settings routes are each written for one named setting; none is a general key writer. So the
-    // proof that an account cannot switch itself on is that nothing in the Gateway names the key except its
-    // declaration and MailDeskSwitch, which only the administrator route calls Set on.
+    // proof that an account cannot switch itself on is in two parts: nothing in the Gateway names the key except its
+    // declaration and MailDeskSwitch, and nothing calls MailDeskSwitch.Set except the administrator route.
     [Fact]
-    public void MailDeskSwitchKey_IsWrittenOnlyByTheSwitch_NeverByTheAccountsSettingsRoutes()
+    public void MailDeskSwitchKey_IsNamedOnlyByItsDeclarationAndTheSwitch()
     {
         // Arrange
         var named = new List<string>();
@@ -164,17 +164,60 @@ public sealed class MailDeskSwitchTests : IDisposable
                 || text.Contains("\"mail_desk_switch\"", StringComparison.Ordinal))
                 named.Add(RepositorySourceIndex.Relative(file));
         }
-        var setCallers = new List<string>();
-        foreach (var file in RepositorySourceIndex.Under("src/CcDirector.Gateway", ".cs"))
-        {
-            if (File.ReadAllText(file).Contains("mailDeskSwitch.Set(", StringComparison.Ordinal))
-                setCallers.Add(RepositorySourceIndex.Relative(file));
-        }
 
         // Assert: exactly these, so a scan that found nothing cannot pass.
         Assert.Equal(new[] { "src/CcDirector.Gateway/MailDesk/MailDeskSwitch.cs", "src/CcDirector.Gateway/Settings/TenantSettingKeys.cs" },
             named.OrderBy(n => n, StringComparer.Ordinal).ToArray());
-        Assert.Equal(new[] { "src/CcDirector.Gateway/Api/AdminMailDeskEndpoint.cs" }, setCallers.ToArray());
+    }
+
+    // Read from the COMPILED Gateway, not its text, so a caller is found whatever its variable is called: every method
+    // body in the assembly - lambdas and async methods included, as the compiler emits them - is searched for a call to
+    // MailDeskSwitch.Set, and each caller is named by the type it was written in.
+    [Fact]
+    public void MailDeskSwitchSet_IsCalledOnlyByTheAdministratorRoute()
+    {
+        // Arrange
+        var set = typeof(MailDeskSwitch).GetMethod(nameof(MailDeskSwitch.Set))!;
+
+        // Act
+        var callers = CallersOf(set).Select(OuterType).Select(t => t.FullName!).Distinct().OrderBy(n => n, StringComparer.Ordinal).ToArray();
+
+        // Assert: exactly this, so a search that found nothing cannot pass.
+        Assert.Equal(new[] { typeof(AdminMailDeskEndpoint).FullName! }, callers);
+    }
+
+    /// <summary>Every method of the Gateway assembly whose body calls <paramref name="target"/>.</summary>
+    private static IEnumerable<System.Reflection.MethodBase> CallersOf(System.Reflection.MethodInfo target)
+    {
+        const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
+            | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
+        var module = target.Module;
+        foreach (var type in module.Assembly.GetTypes())
+        {
+            var methods = type.GetMethods(all).Cast<System.Reflection.MethodBase>().Concat(type.GetConstructors(all));
+            foreach (var method in methods)
+            {
+                var il = method.GetMethodBody()?.GetILAsByteArray();
+                if (il is null) continue;
+                // call (0x28) and callvirt (0x6F) take a four-byte method token. A byte that only looks like one names
+                // some other method or none, so it can never be counted as a call to the target.
+                for (var i = 0; i + 4 < il.Length; i++)
+                {
+                    if (il[i] != 0x28 && il[i] != 0x6F) continue;
+                    var token = BitConverter.ToInt32(il, i + 1);
+                    if (token != target.MetadataToken) continue;
+                    if (module.ResolveMethod(token) == target) { yield return method; break; }
+                }
+            }
+        }
+    }
+
+    /// <summary>The type a method was written in: compiler-made closure and state machine types are nested inside it.</summary>
+    private static Type OuterType(System.Reflection.MethodBase method)
+    {
+        var type = method.DeclaringType!;
+        while (type.DeclaringType is not null) type = type.DeclaringType;
+        return type;
     }
 
     // ---- the route group ------------------------------------------------------------------------------------
@@ -346,6 +389,18 @@ public sealed class MailDeskSwitchTests : IDisposable
     [Fact]
     public void MailDeskStart_Is_ACommandTrigger_IsNotAMatch()
         => Assert.False(MailDeskStart.Is(DefinitionTrigger(MailDeskTemplate.Factory, checkPath: null)));
+
+    [Theory]
+    [InlineData("mail-desk", "checks/screen.py", true)]
+    [InlineData("Mail-Desk", "checks/screen.py", true)]
+    [InlineData("website-factory", "checks/screen.py", false)]
+    [InlineData("mail-desk", "checks/new_mail.py", false)]
+    public void MailDeskStart_Is_ATimedStart_MatchesOnTheSameRuleAsATrigger(string factory, string checkPath, bool expected)
+        => Assert.Equal(expected, MailDeskStart.Is(new CronJobDto { Factory = factory, CheckPath = checkPath }));
+
+    [Fact]
+    public void MailDeskStart_Is_ATimedStartWithNoCheck_IsNotAMatch()
+        => Assert.False(MailDeskStart.Is(new CronJobDto { Factory = MailDeskTemplate.Factory, CheckPath = null }));
 
     // ---- the check report ----------------------------------------------------------------------------------
 

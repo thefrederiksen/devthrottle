@@ -24,12 +24,18 @@ DOTNET_USE_POLLING_FILE_WATCHER=1 dotnet test src/CcDirector.Gateway.UnitTests -
 `CheckReport_MailDeskOff_IsRefusedAndRecordsNothing` and `CheckReportRoute_MailDeskOff_Answers409MailDeskOff` were
 checked by switching the refusal off in the code: both failed, and the other 32 passed.
 
+After review: the timed-start refusal tests are in `Factory/Triggers/DueCheckServiceTests.cs`, and
+`MailDeskSwitchSet_IsCalledOnlyByTheAdministratorRoute` reads the compiled Gateway for every caller of
+`MailDeskSwitch.Set`. Both were checked the same way: with the timed-start refusal switched off and a second caller
+added to `GatewayHost` under another variable name, exactly those two tests failed.
+
 ## The command, run against a Gateway started on this machine
 
 A self-host Gateway built from this branch (`CcDirector.Gateway.dll --port 7996`), with a scratch root and home and a
 test administrator token made for this run - never the hosted Gateway. One account, `email@devthrottle.com`, was
 written into its scratch database, because a self-host Gateway records no email for an account. The token is removed
-from the transcript below; it does not appear in the transcript or in the Gateway's own output.
+from the transcript below; it does not appear in the transcript or in the Gateway's own output. Every `-TokenSupplied` line ran with `ADMIN_SERVICE_TOKEN` set to that test token, except the two that say
+otherwise on the line. Each `-Reason` of more than one word is quoted, as it must be when run.
 
 ```
 
@@ -41,11 +47,11 @@ $ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account em
 [mail-desk-switch] say exactly one of -On or -Off
 (exit 2)
 
-$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason phase 1 local proof -DryRun
+$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason "phase 1 local proof" -DryRun
 [mail-desk-switch] the cc-secrets setting gateway-admin-url could not be read (exit 2); add it, or pass -Gateway
 (exit 2)
 
-$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason phase 1 local proof -Gateway http://127.0.0.1:7996 -DryRun
+$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason "phase 1 local proof" -Gateway http://127.0.0.1:7996 -DryRun
 [mail-desk-switch] DRY RUN - nothing is sent. Every request carries 'Authorization: Bearer <admin-service-token>'.
 [mail-desk-switch] 1. GET  http://127.0.0.1:7996/gateway/admin/accounts?email=email%40devthrottle.com
 [mail-desk-switch] 2. POST http://127.0.0.1:7996/gateway/admin/mail-desk
@@ -56,7 +62,7 @@ $ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account em
 $ curl GET /gateway/admin/mail-desk?account=<id>   (before: nothing recorded)
 {"account":"b869a25d-d09a-401d-9b76-50c380188f4e","enabled":false,"decision":null}
 
-$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason phase 1 local proof: on -Gateway http://127.0.0.1:7996 -TokenSupplied
+$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason "phase 1 local proof: on" -Gateway http://127.0.0.1:7996 -TokenSupplied
 [mail-desk-switch] GET http://127.0.0.1:7996/gateway/admin/accounts?email=email%40devthrottle.com -> HTTP 200
 [mail-desk-switch] account email@devthrottle.com is b869a25d-d09a-401d-9b76-50c380188f4e
 [mail-desk-switch] POST http://127.0.0.1:7996/gateway/admin/mail-desk -> HTTP 200
@@ -65,7 +71,7 @@ $ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account em
 [mail-desk-switch] Mail Desk is ON for email@devthrottle.com (b869a25d-d09a-401d-9b76-50c380188f4e), recorded by soren on devlinux at 10/18/2026 15:39:35: phase 1 local proof: on
 (exit 0)
 
-$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -Off -Reason phase 1 local proof: off again -Gateway http://127.0.0.1:7996 -TokenSupplied
+$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -Off -Reason "phase 1 local proof: off again" -Gateway http://127.0.0.1:7996 -TokenSupplied
 [mail-desk-switch] GET http://127.0.0.1:7996/gateway/admin/accounts?email=email%40devthrottle.com -> HTTP 200
 [mail-desk-switch] account email@devthrottle.com is b869a25d-d09a-401d-9b76-50c380188f4e
 [mail-desk-switch] POST http://127.0.0.1:7996/gateway/admin/mail-desk -> HTTP 200
@@ -74,17 +80,17 @@ $ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account em
 [mail-desk-switch] Mail Desk is OFF for email@devthrottle.com (b869a25d-d09a-401d-9b76-50c380188f4e), recorded by soren on devlinux at 10/18/2026 15:39:36: phase 1 local proof: off again
 (exit 0)
 
-$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account nobody@example.com -On -Reason an account the Gateway does not have -Gateway http://127.0.0.1:7996 -TokenSupplied
+$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account nobody@example.com -On -Reason "an account the Gateway does not have" -Gateway http://127.0.0.1:7996 -TokenSupplied
 [mail-desk-switch] GET http://127.0.0.1:7996/gateway/admin/accounts?email=nobody%40example.com -> HTTP 404
 [mail-desk-switch] the account lookup was refused: HTTP 404 {"found":false,"searched_by":"email","message":"no account on this Gateway matches that. An account appears here once it has run something - a member who has only ever signed in to the website has no account here yet."}
 (exit 1)
 
-$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason a wrong token -Gateway http://127.0.0.1:7996 -TokenSupplied
+$ ADMIN_SERVICE_TOKEN=not-the-token pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason "a wrong token" -Gateway http://127.0.0.1:7996 -TokenSupplied
 [mail-desk-switch] GET http://127.0.0.1:7996/gateway/admin/accounts?email=email%40devthrottle.com -> HTTP 401
 [mail-desk-switch] the account lookup was refused: HTTP 401 {"error":"a valid admin service token is required"}
 (exit 1)
 
-$ pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason no token given -Gateway http://127.0.0.1:7996 -TokenSupplied
+$ env -u ADMIN_SERVICE_TOKEN pwsh -NoProfile -NonInteractive -File scripts/mail-desk-switch.ps1 -Account email@devthrottle.com -On -Reason "no token given" -Gateway http://127.0.0.1:7996 -TokenSupplied
 [mail-desk-switch] -TokenSupplied was given but ADMIN_SERVICE_TOKEN is empty; run without it, so cc-secrets supplies the token
 (exit 2)
 
@@ -115,5 +121,7 @@ ADMIN_SERVICE_TOKEN is supplied to the child
   (above).
 - The 409 on the wire was proven in a unit test through the real route, not against the running Gateway: that needs a
   registered Director and a published `mail-desk` factory, which phase 2 builds.
-- A TIMED start (a schedule) with the check `checks/screen.py` is not covered: `MailDeskStart.Is` reads a trigger, as
-  the contract names it. Mail Desk's start is an interval start.
+- A TIMED start (a schedule with a check) of `checks/screen.py` IS refused the same way, in `DueCheckService.Report`
+  (review finding F1): `DueCheckServiceTests.Report_AMailDeskTimedStart_MailDeskOff_IsRefusedAndRecordsNothing`, which
+  fails with that refusal switched off. Its 409 on the wire goes through the same `MailDeskOff` answer in
+  `TriggerEndpoints` as a trigger's, but no unit test drives a due check through the route.

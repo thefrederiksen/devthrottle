@@ -2802,7 +2802,9 @@ public sealed class GatewayHost : IAsyncDisposable
             resultRecorded: (tenant, run) => _cronRunResults.WriteOwedActivityFor(tenant, run),
             // The clock the engine fires by and the result service reads by, so one row is never on two clocks.
             nowUtc: () => cronClock.UtcNow,
-            startLifetime: _triggerStartLifetime.Token);
+            startLifetime: _triggerStartLifetime.Token,
+            // Mail Desk phase 1: a timed start of the Mail Desk screening check is refused, unrecorded, while it is off.
+            mailDeskOn: MailDeskSwitch.IsOn);
 
         // The activity ledger's 30-day retention, on the same per-tenant worker seam.
         _activityRetentionSweep = new Activity.ActivityRetentionSweep(_tenantBoundary, TenantRegistry, _activityEvents);

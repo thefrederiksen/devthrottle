@@ -72,7 +72,7 @@ public sealed class FactoryCheckEndpointsTests : IDisposable
             nowUtc: () => Now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: _definitions.IsDefined,
             dueChecks: new DueCheckService(_runs, (tenant, id) => _jobs.Get(tenant, id), _triggers.CheckStates, _starter,
                 directorRunsDefinitionChecks: (_, _) => true, resultRecorded: (_, _) => { }, nowUtc: () => Now,
-                startLifetime: CancellationToken.None));
+                startLifetime: CancellationToken.None, mailDeskOn: _ => false));
     }
 
     public void Dispose()
