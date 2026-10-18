@@ -1,0 +1,273 @@
+# Phase 2 follow-on review: a receipt whose queue died gets an explicit ending (pull request #4209)
+
+Mission: API mode for agent wrappers, proven on Pi (issue #4070). Phase 2 follow-on, item 9. Pull request
+#4209, "API mode phase 2 follow-on: a receipt whose queue died gets an explicit ending", branch
+`api-mode-dead-queue`, reviewed at its head commit `d26ef2500`. The branch sits on pull request #4179 (head
+`b72faa0d7`, reviewed separately), so only the two item 9 commits were reviewed: `664fbc86f` (the first proof, a
+later generation that did not re-announce the prompt) and `d26ef2500` (the second proof, the owning Director
+came back as a new process). Reviewer seat, session bc725552, opened by the Tech Lead, running a different
+agent family from the Developer. Written 18 October 2026 on devlinux.
+
+**Verdict: hold.** The rule is sound in its design and the Developer has thought the hard cases through: I
+could not make either proof fire on a prompt that is still queued or in flight through any path the pusher on
+`origin/main` can take, the replacement rules are right in both readers, the new enum value breaks nothing
+that reads it, and the tests do depend on the change (19 of the new tests fail with both proofs switched off).
+The hold is for three things, in order of weight. First, the branch cannot merge as it stands and its first
+proof rests on code the branch does not contain: GitHub reports it CONFLICTING with main, and pull request
+#4190 (the re-announcement every proof-1 argument stands on) merged to main after this branch was cut, so no
+test here runs the proof against the real pusher; the tests hand-write the re-announcement the proof assumes.
+Second, a `TurnStarted` that names the prompt rules that prompt "no record of sending it", which is false on
+its face: the event that proves is itself the record. Third, the first proof costs a store transaction, under
+the store's one global lock, for every tool event of every API-mode turn. Each is small to fix. Two more
+findings of low severity, and five notes.
+
+## 1. Scope: what I read, what I ran, what I could not reach
+
+**Read, in full, on the branch:** the diff of the two item 9 commits (fourteen files: five production, one
+contract, eight test); `ApiModeLostQueuedPrompt.cs` (new) and `ApiModeReceiptStore.cs`, `ApiModeLiveRuling.cs`,
+`ApiModeEventIngest.cs`, `DirectorHub.cs` as they stand after the change; `ApiModeEventPosition.cs`
+(`IsLaterGenerationThan`, `IsAfter`, `StartPrecision`); `SessionLiveEndpoint.cs` (the poll route, the stream
+loop's generation change and `RebuildAsync`, `StartRuling`); `ApiModeSessionFold.cs` (the queued count);
+`ApiModeVerdictReceipts.cs` (the other reader of the stored state); the pull request body; all eight changed
+test files.
+
+**Read on `origin/main`, which the branch lacks:** pull request #4190's `ApiModeEventPusher.cs` (`Publish`,
+`SegmentForLocked`, `AfterHoleLocked`, `NewSegmentLocked`, `TakeBatch`, `Hold`), `QueuedPrompts.cs` (`After`,
+`Reannounce`), and the holes paragraph of `event-model.md`; `GatewayStreamClient.cs` (`_startedAt`, read once
+from the process start time; `ReseedAsync`, which sends the Hello on the first connect, on every reconnect
+and on the ten-second re-push); the receipt table's indexes in `GatewayDbContext.cs`; observation C of
+`phase-2-phase-review.md`.
+
+**Read for the clients:** `liveTypes.ts`, `liveConversation.ts` and `ApiModeLiveChat.tsx` in `client-core`;
+a search of `packages`, `apps` and `tools` for any reader of the receipt state. None exists: the clients
+render the live items' text and tone and the receipt's `words`, as rule 7 asks. `schema.ts` does not carry
+the enum. No C# project outside the Gateway and its contracts reads `ApiModeReceiptDto`, so no older
+desktop or command-line build deserialises the new string value.
+
+**Ran, on devlinux, Debug, `CcDirector.Gateway.UnitTests`, the seven changed test classes in one filter, two
+runs, each after checking no other test host was up, with `DOTNET_USE_POLLING_FILE_WATCHER=1`:**
+
+- Run 1, the branch as it stands: **343 passed, 0 failed, 0 skipped**, 35 seconds. The sum of the Developer's
+  per-class counts is also 343.
+- Run 2, a deliberate break: in `ApiModeLostQueuedPrompt.cs`, `Proves` made to answer false for every event
+  and `AppliesToEndedProcess` made to answer false for every set start time, everything else as on the
+  branch: **19 failed, 324 passed**. The nineteen: the six proving-event cases of
+  `Rule_AProofInALaterGenerationThatDidNotReannounceIt_RulesTheStoredQueuedReceiptUnknown`,
+  `Rule_AProofWithoutItsPositionWhileAStoredReceiptIsQueued_Throws`,
+  `Rule_ARulingThenTheRealDeliveryInTheSameReader_ReplacesIt`,
+  `Rule_ThreeQueuedAndTheLaterGenerationReannouncesTwo_TheFirstIsRuledUnknownAndThePlacesMoveUp`,
+  `Accept_AHoleThatSwallowedTheDelivery_TheLaterGenerationsFirstOtherEventRulesItUnknown`,
+  `Hello_FromANewProcessOfTheDirector_RulesItsEarlierProcesssQueuedReceiptsUnknown`,
+  `Stream_AQueuedPromptTheLaterGenerationDidNotReannounce_IsSentUnknownAsTheReceiptsEndpointSaysIt`,
+  two in `ApiModeReceiptPromptTextTests`, three in `ApiModeReceiptStoreTests` (the new-process ruling, the
+  new process's own generation, and the `sequence: 3` case of the late delivery), and both new tests in
+  `SessionReceiptsEndpointTests`. The file was restored from git afterwards and the tree is clean. (A first
+  attempt at the break did not compile, because an unreachable-code warning is an error in this build; no
+  test host ran for it.) So the hub's `Hello` is proven to call the new path, which the brief asked about.
+
+**Could not reach:** the real pusher (not on the branch, see finding 1); a real Director process, so the
+process start time was not observed on a wire; a real PostgreSQL; Windows.
+
+## 2. Findings
+
+### Finding 1 - medium - the branch is not mergeable, and its first proof rests on code it does not contain
+
+**Where.** The whole branch. `git merge-base --is-ancestor` of pull request #4190's merge commit
+(`3298c4184`) into `d26ef2500` answers no; `origin/main` has it. GitHub reports pull request #4209
+`CONFLICTING`; a `git merge-tree` of `origin/main` and `d26ef2500` conflicts in one file,
+`PushApiModeEventsHubTests.cs`, where both sides edited the `NewHub` helper's signature (main added a
+`fleetDisplayState` parameter; the branch changed the `Hello()` helper on the next line). The production
+files auto-merge.
+
+**The state that reaches it.** Every argument for the first proof - "the first event of a later generation
+that is not a `PromptQueued` comes after every re-announcement that generation will make" - is an argument
+about `ApiModeEventPusher.NewSegmentLocked` on `origin/main`, which inserts the re-announcements at the
+index of the first held event after the hole with sequences 1..N and gives the events after the hole N+1
+onward. I read that code and the argument holds against it, including the cases the brief named: a
+generation with nothing queued re-announces nothing and its first event rules the older prompts, which is
+right because nothing was queued at the hole; a batch split across pushes carries only `PromptQueued` in its
+first part, which proves nothing, so the proof waits for the next part; skipping `MessageText` only delays
+the proof to the next other event, because the re-announcements are contiguous at 1..N and no text can sit
+among them; a second hole replaces the re-announcements not yet sent and re-announces the line as it stands
+at the second hole. But none of that code is on this branch, and none of the tests here exercise it: the
+ingest, store, ruling and endpoint tests all hand-write generation B's `PromptQueued` and then its next event.
+`ApiModeEventPusherQueueTests` on main wires the real stream, pusher, ingest and store together and already
+proves the re-announcement order; it is the one place where a hole that swallows a delivery can be driven
+through the real pusher and the Unknown ruling asserted at the far end.
+
+**The harm.** Two kinds. The mechanical one: the pull request cannot be merged until it is rebased and the
+one test-file conflict resolved. The evidential one: the premise of the first proof is tested nowhere on
+this branch; if #4190's insertion order ever changed, or if the rebase put the branch's `Proves` list out of
+step with a new event kind the pusher sends before the re-announcements, nothing here would fail.
+
+**What closes it.** Rebase onto `origin/main` with `--onto` as the pull request body already plans, resolve
+the `NewHub` conflict (keep both: the `fleetDisplayState` parameter and the `Hello(DateTime)` helper), then
+add one end-to-end test to `ApiModeEventPusherQueueTests`: three prompts queued, the first's delivery and the
+turn's end fall in a hole made by the memory bound, the generation after the hole re-announces the other two,
+and at the first event after them the first prompt's receipt reads the Unknown words while the other two
+read 1st and 2nd. Re-run the seven classes and that one on the rebased tree.
+
+### Finding 2 - medium - a `TurnStarted` that names the prompt rules it "no record of sending it"
+
+**Where.** `ApiModeLostQueuedPrompt.Proves`, which answers true for `TurnStarted` with `ownPromptId` null;
+`ApiModeEventIngest.FeedReceipts`, which calls `RecordQueueLeftProven` before `RecordTurnStarted`; and
+`ApiModeLiveRuling.QueuesLeft`, the same order in the live reader. The pull request body records the case
+under "Also not covered": "A `TurnStarted` that names an Unknown prompt shows that the prompt was delivered,
+but it does not carry the acknowledgement, so it does not link the prompt".
+
+**The state that reaches it.** The memory bound drops the OLDEST held events (`EnforceBoundLocked` removes
+from index 0), so the hole is a prefix of what was held, and its last event can be anything. Take: `p1`
+queued in generation A; the Gateway unreachable for long enough that the bound drops a prefix ending exactly
+at `p1`'s `PromptDelivered`; the next held event is the `TurnStarted` whose `promptIds` is `[p1]`. On main the
+pusher starts generation B at the hole, re-announces the line as it stood just after the hole - which does
+not contain `p1`, since its delivery is in the prefix - and sends the `TurnStarted` as B's first event.
+`Proves` answers true, `Applies` answers true for `p1` (Queued, older generation), and `p1` is ruled Unknown
+with the words "Not known - the Director reconnected without this prompt in its queue or any record of
+sending it". The same event's own `promptIds` are the record of sending it. Before this change the receipt
+read `Queued: a turn is running` while the turn ran on it, which was stale but not false.
+
+**The harm.** The user reads, on the prompt the agent is at that moment working on, that there is no record it
+was sent. The words are the ruled ones for the case where nothing is known; here something is.
+
+**What closes it.** The smallest change: let `Proves` hand back the prompt ids a `TurnStarted` names as prompts
+the proof does not rule (as it already hands back the one prompt a `PromptDelivered` or `PromptRefused` ends),
+so `Applies` leaves them to the turn linkage and they keep reading Queued as today. `ownPromptId` becomes a
+small set rather than one string, in both readers. The better change - ruling such a prompt Delivered with
+no acknowledgement, since the Director said the turn carries it - is a product ruling for the Tech Lead,
+and item 7's review already noted the same gap from the other side (a prompt whose `TurnStarted` fell in the
+hole). Either way, one test: a `TurnStarted` naming the only queued prompt as generation B's first event
+does not rule it Unknown.
+
+### Finding 3 - medium - the first proof reads the store, under its global lock, once per tool event
+
+**Where.** `ApiModeEventIngest.FeedReceipts`: `RecordQueueLeftProven` runs for every event `Proves` accepts,
+which is every event but `PromptQueued` and `MessageText` - so every `ToolCallStarted`, `ToolCallFinished`,
+`PermissionRequested`, `ConnectionReady`, `TurnStarted`, `TurnEnded`. `ApiModeReceiptStore.RecordQueueLeftProven`
+takes `_gate` (one lock for every session of every tenant), opens a context, begins a transaction, reads the
+session's Queued rows (served by the `(TenantId, SessionId, TurnId)` index, so the read itself is cheap) and
+commits. Before this change the store was touched only by receipt events and by the three events
+`ApiModeLostTurnEnd` accepts.
+
+**The state that reaches it.** Any API-mode turn. A turn with a hundred tool calls is two hundred tool events,
+each now a database round trip inside the buffer's callback, which runs under the session's lock, and inside
+the store's global lock, which serialises it against every other session's receipt writes on the Gateway.
+Against the hosted PostgreSQL that is a few milliseconds each; a five-hundred-event batch spends a second or
+more holding the global lock for reads that can find nothing, because after the first proving event of a
+generation no Queued row of an older generation can remain (they were all ruled, and an older generation is
+refused by the buffer thereafter) and no new one can appear (a `PromptQueued` of this generation moves its
+row to this generation).
+
+**The harm.** Ingest latency and lock contention that grow with tool activity, for no information after the
+first proof per generation. Not a correctness fault.
+
+**What closes it.** Remember, per session, the generation the proof has already been made in (a
+`ConcurrentDictionary<string, (string Generation, DateTime Started)>` in the ingest, or in the store), and
+skip the read when the event's generation is that one. A Gateway restart empties it and the next event proves
+once more, which is idempotent. One test: two proving events in one generation make one store read (count
+the rows read with the existing test fixture, or assert on the store's own counter if one is added).
+
+### Finding 4 - low - the second proof's clock caveat names the safe direction and not the unsafe one
+
+**Where.** The class summary of `ApiModeLostQueuedPrompt`, second-proof paragraph: "It could fire falsely only
+if two live processes shared one Director id, or the machine's clock stepped forward between them".
+
+**The state that reaches it.** `_startedAt` is `Process.GetCurrentProcess().StartTime.ToUniversalTime()`, read
+once when `GatewayStreamClient` is built, early in the process; a generation's start is `clock.GetUtcNow()`
+when its `SessionEventStream` is made, and a hole's segment is the previous start plus one millisecond. A
+forward step of the Director machine's clock after the process started makes every later generation later
+still, which is safe. A BACKWARD step after `_startedAt` was read, larger than the process's age at the step,
+stamps a generation made after it EARLIER than the process start; the next new connection's Hello (a Gateway
+deploy, a tunnel drop) then rules every prompt queued in that generation Unknown while the process that holds
+them is alive. On Linux `Process.StartTime` is computed from the boot time and the process's start tick, and
+its error is toward earlier, which is also safe. A later real event replaces the ruling either way.
+
+**The harm.** A wrong sentence in the one document a future reader will trust about when the proof is wrong.
+The exposure itself is small and already bounded by the replacement rule.
+
+**What closes it.** Reword the caveat: a backward step of the Director's clock after the process started, by
+more than the process's age, followed by a reconnect.
+
+### Finding 5 - low - the second proof's read has no index to run on
+
+**Where.** `ApiModeReceiptStore.ProveProcessEndedOnce`: `Where(r => r.DirectorId == directorId && r.State ==
+queued)`. The receipt table's indexes are `(TenantId, SessionId, TurnId)` and `(TenantId, UpdatedAtUtc)`;
+nothing leads with `DirectorId`.
+
+**The state that reaches it.** Every new hub connection of every Director, once (the `Context.Items` guard is
+right: the ten-second re-push reuses the connection, a reconnect is a new one, and a reconnect of the same
+process reads and rules nothing). Each is a scan of the tenant's receipts, under the store's global lock,
+inside the synchronous `Hello`, contained by the try/catch so the Hello never fails for it.
+
+**The harm.** With the ninety-day purge the table stays bounded, so today this is milliseconds. It grows with
+the tenant's receipt count, on the path every Director takes to come back after a deploy, when every Director
+reconnects at once.
+
+**What closes it.** An index on `(TenantId, DirectorId, State)`, or `(TenantId, DirectorId)`, with its
+migration. Not a merge blocker on its own.
+
+## 3. What I checked and found right (so the next seat need not)
+
+- **Either proof on a prompt still queued or in flight.** First proof: see finding 1 for the pusher's order;
+  in addition, the buffer refuses an older generation after a newer one, so a late batch of generation A
+  cannot re-prove against B; a batch of B whose first part (re-announcements) was stored before a Gateway
+  restart is continued by the Director from its first unacknowledged event, and the rows re-announced already
+  carry B. The one gap I found is a batch REFUSED FOR GOOD (the hub answers null for a malformed batch): the
+  pusher drops it without starting a new generation, so if it held re-announcements the events after it would
+  rule those prompts Unknown. A re-announcement is built by the Director from its own events, so a malformed
+  one is a Director defect; recorded, not a finding. Second proof: a reconnect of one process sends the same
+  start time and every generation of that process starts at or after it; a default start time rules nothing;
+  a Director whose session moved gets a new session id (the move mints one), and the old receipts are that
+  dead session's; two live processes under one Director id are refused by the registry's credential binding
+  except for one credential running two processes under one instance home, which is a misconfiguration.
+- **The replacement rules.** A real event replaces Unknown whatever its sequence, in the store (`ReplacesUnknown`
+  then `TouchForward`, the row never moving backwards) and in the ruling (`replacesUnknown` skips both guards
+  and `_receiptSequences` keeps the maximum); an older-generation event is set aside as a replay in both;
+  the same-generation-lower-sequence case is reachable only after a Gateway restart replay and is safe.
+- **Every switch on the state.** `ReceiptWords` and `ReceiptTone` have the new arm; `PlaceInLine` and
+  `WaitingIfMoved` count `Queued` only, so an Unknown receipt has no place and the places behind it move up
+  (tested); `ApiModeSessionFold` counts `State == Queued`, so the roster's queued count drops it;
+  `ApiModeVerdictReceipts` and the store's `Read` parse the stored string with `Enum.Parse`, which accepts
+  `Unknown`; the entity's column is a plain string. The enum is serialised as a string on the wire, and no
+  client or other C# project reads it, so nothing older breaks.
+- **The three surfaces agree for the first proof.** The store rules at the proving event inside the buffer's
+  callback, before the buffer publishes it, so a stream that rebuilds from the store at the generation change
+  opens with Unknown, a stream that rebuilt earlier rules it at the same event, the poll's ruling likewise,
+  and the receipts endpoint words it through the same static function. `Stream_AQueuedPromptTheLaterGenerationDidNotReannounce_IsSentUnknownAsTheReceiptsEndpointSaysIt`
+  compares the two.
+- **The tests.** Names follow `Method_Scenario_Result`; no clock, process, sleep or port; nineteen fail without
+  the change and the rest are guards that nothing happens where nothing should. Logging: every new write logs
+  the decision with session, prompt, positions and the proof, in the file's existing style.
+
+## 4. Notes (not findings)
+
+- **N1. A live stream already open on a dead session never learns the second proof.** The pull request body
+  states this as an accepted limit: the receipts endpoint and the stream's opening read the store; an open
+  stream sees it at its next reset. The brief's ruling asks that "the endpoint, the live stream and the
+  opening agree"; for the second proof they agree only after a reload. If the Delivery Lead wants the open
+  stream to follow, the mechanism exists: the Hello path knows which sessions it changed, and a reset frame
+  (`RebuildAsync`'s path) already makes a stream rebuild from the store. That is new plumbing from the hub to
+  the feed, so a follow-on item, not this pull request.
+- **N2. The event model does not yet state either Gateway ruling.** The holes paragraph of `event-model.md`
+  on main still ends "A delivery or refusal whose own event fell in the hole is not corrected by the
+  Director", which is true of the Director; the Gateway's `lost` turn ending (item 7) and `Unknown` receipt
+  ending (item 9) belong in that paragraph in one sentence each. Neither item touched the document.
+- **N3. The pull request body says the Developer ran `PushApiModeEventsHubTests` (8 passed).** The brief said
+  the hub classes had not been run; my run 1 ran the class (8 of the 343) and run 2 shows its Hello test fails
+  without the change, so the hub really does call the new path.
+- **N4. A re-announcement too large for any batch** is dropped by the pusher on the ground that its own
+  `PromptQueued` was as large and the Gateway never held the receipt. The re-announcement carries one more
+  field (`position`), so a prompt text within a few characters of the four-million limit could fit as a
+  `PromptQueued` and not as a re-announcement, and would then be ruled Unknown while queued. Negligible, and a
+  real event replaces it.
+- **N5. The word "lost" in the pull request title and the entity comment.** The pull request title says
+  "whose queue died"; the words shown to the user claim neither a death nor a hole, as the class summary
+  explains at length. Good: the summary is the clearest statement in the mission of why a Gateway inference
+  must not claim more than both proofs show.
+
+## 5. Verdict
+
+**Hold.** Rebase onto `origin/main` (finding 1), add the one end-to-end test through the real pusher
+(finding 1), keep a `TurnStarted`'s own prompts out of the proof or rule them deliberately (finding 2), and
+prove once per generation (finding 3). Findings 4 and 5 can ride along or follow. With those four done and
+the seven classes plus `ApiModeEventPusherQueueTests` green on the rebased tree, I would approve without a
+second full read: the design, the words, the replacement rules and the client safety are right as they stand.
