@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
@@ -343,16 +344,49 @@ public sealed class ApiModeEventIngestTests : IDisposable
     }
 
     [Fact]
-    public void Accept_TheLaterGenerationOpensWithTheTurnThatCarriesTheQueuedPrompt_ItIsNeverRuledUnknown()
+    public void Accept_TheLaterGenerationOpensWithTheTurnThatCarriesTheQueuedPrompt_ItIsRuledDeliveredAndCarriedByThatTurn()
     {
-        // Arrange: p1 queued in generation A; its delivery fell in the hole (review of pull request #4209, finding 2).
+        // Arrange: p1 queued in generation A; its delivery fell in the hole (check of the review fixes on pull request
+        // #4209: a turn carries only a prompt whose delivery was published).
         Push(A(Ready(1), Queued(2, "p1")));
 
         // Act: generation B opens with the turn that carries p1, then a tool runs in it.
         Push(B(Started(1, "t1", "p1"), Tool(2)));
 
-        // Assert: the TurnStarted is a record of p1, not proof that it vanished.
-        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
+        // Assert
+        var receipt = Receipt("p1");
+        Assert.Equal((ApiModeReceiptState.Delivered, ApiModeLostQueuedPrompt.LostDisposition, (string?)null, "t1"),
+            (receipt.State, receipt.Disposition, receipt.Acknowledgement, receipt.TurnId));
+    }
+
+    [Fact]
+    public void Accept_ACarriedPromptThenAPromptQueuedBehindIt_ThePlacesInLineAreTheDirectorsAndStayAcrossTheNextHole()
+    {
+        // Arrange: the reviewer's sequence. Generation A queues p1; its delivery falls in the hole.
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act: generation B opens with the turn that carries p1, the turn ends, and the user queues p2. Then generation
+        // C re-announces p2 only (the Director's line), and a tool runs.
+        Push(B(Started(1, "t1", "p1"), Ended(2, "t1", TurnOutcome.Done, null, "stop"), Queued(3, "p2")));
+        var afterB = WordsNow();
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Queued(1, "p2"), Tool(2)));
+        var afterC = WordsNow();
+
+        // Assert: p1 is Delivered and out of the line, so p2 is 1st, in both generations; nothing reads Unknown.
+        Assert.Equal("Delivered", afterB["p1"]);
+        Assert.Equal("Queued, 1st in line: a turn is running", afterB["p2"]);
+        Assert.Equal(afterB, afterC);
+    }
+
+    /// <summary>Each receipt's words as the receipts endpoint derives them.</summary>
+    private Dictionary<string, string> WordsNow()
+    {
+        using (_boundary.EnterScope(Alice))
+        {
+            var stored = _receipts.ReadWithPositions(Sid);
+            ApiModeLiveRuling.PlaceInLine(stored);
+            return stored.ToDictionary(r => r.Receipt.PromptId, r => ApiModeLiveRuling.ReceiptWords(r.Receipt));
+        }
     }
 
     [Fact]

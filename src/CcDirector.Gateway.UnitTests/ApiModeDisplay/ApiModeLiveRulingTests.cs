@@ -1117,21 +1117,24 @@ public sealed class ApiModeLiveRulingTests
     }
 
     [Fact]
-    public void Rule_ATurnStartedThatCarriesTheQueuedPrompt_IsARecordOfItAndDoesNotRuleItUnknown()
+    public void Rule_ATurnStartedThatCarriesTheQueuedPrompt_RulesItDeliveredAndItTakesItsTurnsOutcome()
     {
         // Arrange: p1 was queued in generation A; its delivery fell in the hole, and generation B opens with the turn
-        // that carries it (review of pull request #4209, finding 2).
+        // that carries it (check of the review fixes on pull request #4209: a turn carries only a delivered prompt).
         var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
 
-        // Act: the turn's start, then a later proof of the same generation.
-        var items = ruling.Rule(HeldB(Started(1, "t1", "p1"))).Concat(ruling.Rule(HeldB(Ended(2, "t1", TurnOutcome.Done, null, "stop")))).ToList();
+        // Act: the turn's start, then its end.
+        var atTheStart = ruling.Rule(HeldB(Started(1, "t1", "p1")));
+        var atTheEnd = ruling.Rule(HeldB(Ended(2, "t1", TurnOutcome.Failed, "the model refused", "error")));
 
-        // Assert: p1 is never ruled Unknown; it keeps the words it opened with.
-        Assert.DoesNotContain(UnknownWords, ReceiptWordsOf(items, "p1"));
+        // Assert: Delivered as the store rules it, then the turn's outcome by the ordinary rules.
+        var delivered = Assert.Single(atTheStart, i => i.ItemId == "receipt:p1");
+        Assert.Equal(("Delivered", "green", "t1"), (delivered.Text, delivered.Tone, delivered.TurnId));
+        Assert.Equal(new[] { "Delivered - the turn failed: the model refused" }, ReceiptWordsOf(atTheEnd, "p1"));
     }
 
     [Fact]
-    public void Rule_ATurnStartedThatCarriesOneQueuedPrompt_StillRulesTheOtherUnknown()
+    public void Rule_ATurnStartedThatCarriesOneQueuedPrompt_RulesItDeliveredAndTheOtherUnknown()
     {
         // Arrange
         var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 6), StoredQueued("p2", 7) });
@@ -1140,8 +1143,39 @@ public sealed class ApiModeLiveRulingTests
         var items = ruling.Rule(HeldB(Started(1, "t1", "p1")));
 
         // Assert
-        Assert.DoesNotContain(UnknownWords, ReceiptWordsOf(items, "p1"));
+        Assert.Equal(new[] { "Delivered" }, ReceiptWordsOf(items, "p1"));
         Assert.Equal(new[] { UnknownWords }, ReceiptWordsOf(items, "p2"));
+    }
+
+    [Fact]
+    public void Rule_ACarriedPrompt_LeavesTheLineSoAPromptQueuedAfterItIsFirst()
+    {
+        // Arrange: p1 ruled delivered by the turn that carries it; that turn ends.
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+        ruling.Rule(HeldB(Started(1, "t1", "p1")));
+        ruling.Rule(HeldB(Ended(2, "t1", TurnOutcome.Done, null, "stop")));
+
+        // Act: the user queues p2 behind the next turn.
+        var items = ruling.Rule(HeldB(Queued(3, "p2", position: 1)));
+
+        // Assert: the Director's line holds p2 alone, and so does the Gateway's.
+        Assert.Equal(new[] { "Queued, 1st in line: a turn is running" }, ReceiptWordsOf(items, "p2"));
+        Assert.Empty(ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_TheRealDeliveryAfterTheGatewayInferredIt_ReplacesItWithoutASecondEnding()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+        ruling.Rule(HeldB(Started(1, "t1", "p1")));
+
+        // Act: the prompt's own PromptDelivered, should it ever arrive in the ruling's generation.
+        var items = ruling.Rule(HeldB(Delivered(2, "p1", "ok")));
+
+        // Assert: it is not a second ending, and the words stay Delivered, so nothing is sent again.
+        Assert.Equal(0, ruling.SecondEndingsLogged);
+        Assert.Empty(ReceiptWordsOf(items, "p1"));
     }
 
     [Theory]
