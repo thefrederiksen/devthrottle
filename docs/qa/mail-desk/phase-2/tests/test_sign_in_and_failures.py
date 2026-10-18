@@ -326,3 +326,30 @@ def test_CcOutlook_MatchesTheAddressWithCaseAndNamesTheFileAsTyped(world):
     assert "if account_name in profiles.get('profiles', {}):" in source        # resolve_account: exact, with case
     assert "if account_name.lower() in nickname_map:" in source                # nicknames: without case
     assert "profiles['profiles'][email] = {" in source                          # save_profile: the key as typed
+
+
+# ---------------------------------------------------------------------------------------------------- re-review B
+
+
+@pytest.mark.parametrize("held", [True, False], ids=["cache-holds-no-account", "no-sign-in-file"])
+def test_SignIn_AnAccountListThatCannotBeRead_IsSaidAsItIs_NeverAsTheSignInService(world, monkeypatch, held):
+    """cc-outlook's profiles.json is there but cannot be read (a permissions fault). The sentence says so; it is never
+    "could not reach the Microsoft sign-in service", and never a guessed fix."""
+    if held:
+        world.plant()
+        world.sign_in.accounts[MAILBOX] = False
+    listed = world.register({MAILBOX: {"client_id": CLIENT, "nickname": "devthrottle"}})
+    real = type(listed).read_text
+
+    def read_text(self, *args, **kwargs):
+        if self.name == "profiles.json":
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(listed), "read_text", read_text)
+    world.memory(channel(cursor=CURSOR))
+    err = failed(world)
+    assert first_line(err) == (f"{MAILBOX} is not signed in on {MACHINE}, and cc-outlook's account list cannot be "
+                               f"read: PermissionError")
+    assert "profiles.json" in err.splitlines()[1]
+    assert "sign-in service" not in err

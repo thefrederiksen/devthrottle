@@ -63,6 +63,7 @@ and the 08:00 email show.
 | No saved sign-in, or it has expired, or it holds no account for the address | `<address> is not signed in on <machine>: run cc-outlook -a <nickname or address> auth` (section 6) |
 | No cc-outlook account list on the machine holds the address | `<address> is not signed in on <machine>: first run cc-outlook accounts add <address> -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd` (line 2 begins `then run cc-outlook -a <address> auth`; once it is added, the next run's failure names the sign-in) |
 | More than one saved sign-in | `<address> is signed in more than once on <machine>: keep one and sign out of the others with cc-outlook` |
+| A cc-outlook account list exists and cannot be read (for example its permissions) | `<address> is not signed in on <machine>, and cc-outlook's account list cannot be read: <error kind>` (the file and the whole error on line 2) |
 | The sign-in service cannot be reached | `could not reach the Microsoft sign-in service from <machine> for <address>: <error kind>` (for example `ConnectionError`, `ProxyError`, `Timeout`; the whole error on line 2) |
 | The sign-in service answers with an error | `the Microsoft sign-in service failed on <machine> for <address>: <its message, cut to 50 characters>` |
 | Graph answers an HTTP error | `Microsoft Graph answered HTTP <status> for <address> while <step>` |
