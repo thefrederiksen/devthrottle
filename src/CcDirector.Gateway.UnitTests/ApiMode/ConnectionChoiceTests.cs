@@ -318,6 +318,114 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.Equal("\"API\" is not a connection mode: it is \"terminal\" or \"api\".", refusal);
     }
 
+    // ---- a Director too old to carry API mode (the phase 6 review, finding 1) --------------------------------------
+
+    [Theory]
+    [InlineData("2.22.0")]
+    [InlineData("v2.22.3+68fd9d7")]
+    [InlineData("2.23.0-rc1")]
+    public void DirectorCannotCarry_ApiModeToADirectorOlderThan2_23_IsRefusedNamingTheVersionNeeded(string version)
+    {
+        // Arrange
+        var director = new DirectorDto { DirectorId = "d-old", MachineName = "OLD-PC", Version = version };
+
+        // Act
+        var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = ConnectionModes.Api }, director);
+
+        // Assert: "2.23.0-rc1" is release 2.23.0 and goes; the two older ones are refused in words.
+        if (version == "2.23.0-rc1")
+            Assert.Null(refusal);
+        else
+        {
+            Assert.NotNull(refusal);
+            Assert.Contains("OLD-PC", refusal);
+            Assert.Contains("cannot start a session in API mode", refusal);
+            Assert.Contains("2.23.0 or later", refusal);
+        }
+    }
+
+    [Fact]
+    public void DirectorCannotCarry_ADirectorThatDoesNotReportItsVersion_IsRefused()
+    {
+        // Act
+        var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = ConnectionModes.Api },
+            new DirectorDto { DirectorId = "d-unknown", MachineName = "SOME-PC", Version = "" });
+
+        // Assert
+        Assert.NotNull(refusal);
+        Assert.Contains("a version it does not report", refusal);
+    }
+
+    [Theory]
+    [InlineData("2.23.0")]
+    [InlineData("2.24.1")]
+    public void DirectorCannotCarry_ApiModeToADirectorOf2_23OrLater_GoesOn(string version)
+    {
+        // Act
+        var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = ConnectionModes.Api },
+            new DirectorDto { DirectorId = "d-new", MachineName = "NEW-PC", Version = version });
+
+        // Assert
+        Assert.Null(refusal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("terminal")]
+    public void DirectorCannotCarry_TerminalOrNoWordToAnyDirector_GoesOn(string? mode)
+    {
+        // Act: an old Director starts the terminal, which is exactly what a terminal create asks for.
+        var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = mode },
+            new DirectorDto { DirectorId = "d-old", MachineName = "OLD-PC", Version = "2.10.0" });
+
+        // Assert
+        Assert.Null(refusal);
+    }
+
+    [Fact]
+    public void DirectorCannotCarry_ByIdWithNoWayToReadTheDirector_IsRefused()
+    {
+        // Act
+        var refusal = ConnectionChoiceFold.DirectorCannotCarry(new NewSessionRequest { ConnectionMode = ConnectionModes.Api }, "d-x", directorOf: null);
+
+        // Assert
+        Assert.NotNull(refusal);
+        Assert.Contains("cannot read which version Director d-x is", refusal);
+    }
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task PostSessions_ApiModeToADirectorOlderThan2_23_Is409WithTheReasonAndNothingIsSent(string door)
+    {
+        // Arrange: the Director the create resolves to is v2.22.0, which would drop the field and start the terminal.
+        await StartAsync(directorVersion: "2.22.0");
+
+        // Act
+        using var response = await Create(door, ConnectionModes.Api);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("cannot start a session in API mode", await response.Content.ReadAsStringAsync());
+        Assert.Null(SawAt(door));
+    }
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task PostSessions_TerminalToADirectorOlderThan2_23_GoesToTheDirector(string door)
+    {
+        // Arrange
+        await StartAsync(directorVersion: "2.22.0");
+
+        // Act
+        using var response = await Create(door, ConnectionModes.Terminal);
+
+        // Assert: the guard is for API mode only; an older Director still takes a terminal create.
+        Assert.True(response.IsSuccessStatusCode, $"{door} door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.NotNull(SawAt(door));
+    }
+
     // ---- through the routes ---------------------------------------------------------------------------------------
 
     [Fact]
@@ -479,7 +587,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     /// <summary>The real agents leg and both real create doors, with a fake Director behind them, on an in-memory test server.</summary>
-    private async Task StartAsync()
+    private async Task StartAsync(string directorVersion = "2.23.0-test")
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -495,7 +603,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         });
         app.UseRouting();
 
-        _registry.RegisterFromStream(DirectorId, Machine, "tester", "2.20.0-test", 1,
+        _registry.RegisterFromStream(DirectorId, Machine, "tester", directorVersion, 1,
             new DateTime(2026, 10, 16, 9, 0, 0, DateTimeKind.Utc), TenantId.Local, registeredByCredential: "machine-token");
 
         DirectorCommandRouter.SendDirectorCommandAsync send = (directorId, command, ct) =>
