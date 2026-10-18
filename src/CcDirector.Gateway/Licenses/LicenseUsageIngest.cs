@@ -208,7 +208,7 @@ public sealed class LicenseUsageIngest
             if (Malformed(report) is { } refusal)
             {
                 FileLog.Write($"[LicenseUsageIngest] report REFUSED ({refusal.Code}: {refusal.Reason}): tenant={tenant.ToLogString()}, director={directorId}, seq={sequence}");
-                // The license alarm, once it exists, is raised here when the change is not Same.
+                // The open refusal row is the alarm's state: LicenseMachineHealthAlarm raises it on the minute check.
                 _store.RecordRefusal(tenant, directorId, report, refusal, receivedAtUtc);
                 return LicenseIngestOutcome.Malformed;
             }

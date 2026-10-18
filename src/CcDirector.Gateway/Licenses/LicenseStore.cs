@@ -905,7 +905,22 @@ public sealed class LicenseStore
     public static string RefusedMessage(LicenseReportRefusal refusal)
     {
         ArgumentNullException.ThrowIfNull(refusal);
-        return Cap($"Its report was refused: {refusal.Reason}. It is not switched until a report is accepted.", MaxMessageLength);
+        return Cap($"{RefusedMessageStart}{refusal.Reason}{RefusedMessageEnd}", MaxMessageLength);
+    }
+
+    private const string RefusedMessageStart = "Its report was refused: ";
+    private const string RefusedMessageEnd = ". It is not switched until a report is accepted.";
+
+    /// <summary>The reason a refusal row was written for, as the clause <see cref="RefusedMessage"/> was made from
+    /// ("it holds alice@example.com twice (once in use and once as a spare)"); null when the row's sentence was cut at
+    /// <see cref="MaxMessageLength"/> and the whole clause is not on it.</summary>
+    public static string? RefusalReason(LicenseSwitchLogEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var message = row.Message ?? "";
+        return message.StartsWith(RefusedMessageStart, StringComparison.Ordinal) && message.EndsWith(RefusedMessageEnd, StringComparison.Ordinal)
+            ? message[RefusedMessageStart.Length..^RefusedMessageEnd.Length]
+            : null;
     }
 
     /// <summary>
@@ -921,8 +936,8 @@ public sealed class LicenseStore
     /// reported names them. Only a report that names no machine, from a Director none of whose reports was ever
     /// accepted, is kept under the Director alone.
     /// </summary>
-    /// <returns>Whether this refusal is new, a new reason, or the same as the last. The license alarm, once it exists,
-    /// is raised where this returns anything but <see cref="LicenseRefusalChange.Same"/>.</returns>
+    /// <returns>Whether this refusal is new, a new reason, or the same as the last. While the row is open it is a
+    /// license alarm (<see cref="LicenseMachineHealthAlarm"/>).</returns>
     public LicenseRefusalChange RecordRefusal(TenantId tenant, string directorId, LicenseUsageReport? report,
         LicenseReportRefusal refusal, DateTime receivedAtUtc)
     {
@@ -1037,7 +1052,7 @@ public sealed class LicenseStore
     /// The minute check found <paramref name="machine"/> silent for longer than <see cref="SilentAfter"/>: one row of
     /// the log says so. Null when such a row is already open for it - one row for each silence.
     /// </summary>
-    /// <returns>The row written, or null. The license alarm, once it exists, is raised where this returns a row.</returns>
+    /// <returns>The row written, or null. While it is open it is a license alarm (<see cref="LicenseMachineHealthAlarm"/>).</returns>
     public LicenseSwitchLogEntity? OpenSilence(TenantId tenant, LicenseMachineView machine, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(machine);
@@ -1071,6 +1086,37 @@ public sealed class LicenseStore
         catch (Exception ex)
         {
             FileLog.Write($"[LicenseStore] OpenSilence FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// End an open <see cref="LicenseLogKinds.MachineSilent"/> row of a machine whose reports are now being refused: its
+    /// Director is sending again, so it is no longer silent, but no report was accepted, so it is not reporting again
+    /// either and no <see cref="LicenseLogKinds.ReportingAgain"/> row is written. The open refusal row says what is wrong
+    /// now. False when the row is not open.
+    /// </summary>
+    public bool EndSilenceForRefusal(TenantId tenant, Guid rowId, DateTime nowUtc)
+    {
+        var now = Utc(nowUtc);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.LicenseSwitchLog.FirstOrDefault(r => r.Id == rowId && r.Kind == LicenseLogKinds.MachineSilent && r.FinishedAtUtc == null);
+            if (row is null)
+            {
+                FileLog.Write($"[LicenseStore] EndSilenceForRefusal: tenant={tenant.ToLogString()}, row={rowId} is not open");
+                return false;
+            }
+            row.State = LicenseLogStates.Ended;
+            row.FinishedAtUtc = now;
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] EndSilenceForRefusal: tenant={tenant.ToLogString()}, machine={row.MachineId}, its reports are being refused");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] EndSilenceForRefusal FAILED: {ex.Message}");
             throw;
         }
     }

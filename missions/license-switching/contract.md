@@ -1034,6 +1034,35 @@ alarm is open. **There is no route that raises or clears an alarm** - only Gatew
 Raised by the Gateway's readiness check (`Licenses.LicenseReadinessService`, once a minute, after the switch check and
 the settling of sign-ins with no answer). See section 11.
 
+### 9.7 The refused-report and silent-machine alarms, `report-refused` and `machine-silent` (Track B)
+
+Raised by `Licenses.LicenseMachineHealthAlarm` on the Gateway's once-a-minute license check, after the switch check that
+writes the silence rows. Each alarm is true exactly while its row of the Licenses log is open (cockpit-api.md section
+5): the ingest opens and ends a `report-refused` row, the minute check opens and ends a `machine-silent` row. Each
+raise passes every open row of its kind, so an accepted report or a machine that reports again closes its alarm on the
+next minute, with nothing else to clear it.
+
+- `report-refused`, titled "Report refused". What is wrong: "machine-a is sending reports the Gateway refuses: it holds
+  alice@example.com twice (once in use and once as a spare)." - the refusal's own reason. When that sentence would be
+  longer than an alarm takes (400 characters; an account email may be 320), it is "machine-a is sending reports the
+  Gateway refuses; the Licenses page says why." The one thing to do: "Put right what the Licenses page says is wrong
+  in the report from machine-a; the alarm closes by itself when a report from it is accepted."
+- `machine-silent`, titled "Machine stopped reporting". What is wrong: "machine-a has sent no report since
+  2026-10-16 09:12 UTC, so it is not switched: its Director may have stopped." The one thing to do: "Start the
+  Director on machine-a, or check that machine-a is on and connected." Raised only past the dead limit (10 minutes),
+  never at it. When the label is too long for those sentences (two machines of one 128-character name are labelled
+  "name (user)"), what is wrong is "A machine has sent no report since ..., so it is not switched; the Licenses page
+  names it." and the one thing to do is "Start the Director on machine-a."
+- A refused machine is never also alarmed as silent, in either order: a refused machine gets no silent row, and a
+  silent machine whose Director comes back with refused reports has its silent row ended by the next minute check, so
+  its silent alarm closes and only the refused one stays.
+
+One alarm for each machine, about no one account. Its machine is the machine's row in the overview, or for a refused
+machine none of whose reports was ever accepted, the stand-in row the Licenses page lists it under, so the alarm and
+the page name the same machine. A refusal changing its reason keeps the one alarm and brings its sentence up to date.
+Raises for one tenant run one at a time, and each kind is raised on its own: a kind whose raise fails is logged, the
+other kind is still raised, and then the failure is thrown. A raise with nothing open writes no log line.
+
 ## 10. Phase 6 additions - standing approvers (Track C)
 
 The types are in `src/CcDirector.Gateway.Contracts/LicenseApproverMessages.cs`. A Director whose machine offers its

@@ -536,6 +536,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// every check report and on the once-a-minute license check.</summary>
     internal Licenses.LicenseApproverAlarm LicenseApproverAlarm { get; }
 
+    /// <summary>A machine whose reports are refused, or that has gone silent, is a license alarm (phase 6, Track B).</summary>
+    internal Licenses.LicenseMachineHealthAlarm LicenseMachineHealthAlarm { get; }
+
     /// <summary>License Switching phase 6: readiness on every minute - each machine against the account it would switch
     /// to next, the automatic sign-in that fixes a gap, and the 80% alarm. The Licenses page reads its judgement.</summary>
     internal Licenses.LicenseReadinessService LicenseReadiness { get; }
@@ -2949,6 +2952,7 @@ public sealed class GatewayHost : IAsyncDisposable
         LicenseAlarms = new Licenses.LicenseAlarmService(_gatewayDb, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct),
             _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow);
         // Built after the alarm service they raise through: an approver that cannot approve is one license alarm.
+        LicenseMachineHealthAlarm = new Licenses.LicenseMachineHealthAlarm(LicenseStore, LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
         LicenseApproverAlarm = new Licenses.LicenseApproverAlarm(LicenseApprovers, LicenseReads, LicenseAlarms,
             tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
         LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow,
@@ -7059,6 +7063,8 @@ public sealed class GatewayHost : IAsyncDisposable
             await LicenseSignIns.SettleEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
             // Readiness (phase 6): judged after the switches and the settling, so it reads the rows they just ended.
             await LicenseReadiness.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+            // A refused or silent machine (phase 6): raised after the switch check, which writes the silence rows.
+            await LicenseMachineHealthAlarm.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
         {
