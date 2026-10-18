@@ -16,6 +16,7 @@ import { PausedBanner, useSchedulerPause } from "../schedule/SchedulerPause";
 import { useView } from "./FactoryActivityTabs";
 import { ActivityTable, NumberPill, PauseButton, TalkButton, ToneChip } from "./FactoryParts";
 import { FactorySeatBriefPanel } from "./FactorySeatBrief";
+import { FactoryDrawingPanel } from "./FactoryDrawing";
 import "./factory.css";
 
 const SURFACE = "cockpit-factory-seat";
@@ -79,6 +80,8 @@ export function FactorySeatView() {
       {page.truncatedText !== null && <div className="fa-warn">{page.truncatedText}</div>}
 
       <div className="fa-seat-panels">
+        <FactoryDrawingPanel factory={page.factoryId} seat={page.seatId} />
+
         <FactorySeatBriefPanel
           factory={page.factoryId}
           seat={page.seatId}

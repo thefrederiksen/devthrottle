@@ -80,6 +80,7 @@ public sealed class FactoryNewThroughThePipelineTests : IDisposable
             (_, f) => new FactoryEmailsDto { Factory = f },
             FactoriesScreenEndpoints.UnpublishedFrom(_store));
         FactoriesScreenEndpoints.Map(_routes, _ => T, sources, isDefined: _store.IsDefined);
+        FactoriesScreenEndpoints.MapDrawing(_routes, _ => T, sources, _store);
         FactoryDefinitionTabEndpoints.Map(_routes, _ => T, sources, _store, apply, (_, _) => null,
             _ => SessionFactoryLookup.NotKnown, account, () => Now);
     }
@@ -148,6 +149,23 @@ public sealed class FactoryNewThroughThePipelineTests : IDisposable
         var live = await Json("GET", Page);
         Assert.NotEqual("DRAFT", live.Body.GetProperty("statusWord").GetString());
         Assert.All(live.Body.GetProperty("tabs").EnumerateArray(), t => Assert.Equal(JsonValueKind.Null, t.GetProperty("notYetText").ValueKind));
+    }
+
+    [Fact]
+    public async Task THE_DRAWING_of_a_published_factory_draws_a_lane_per_seat_from_its_definition_and_404s_an_unknown_one()
+    {
+        Assert.Equal(200, (await Json("POST", New, Zip(DefinitionFixture.Publishable()))).Status);
+        var published = await Json("POST", "/factory-definitions/devthrottle/publish", Encoding.UTF8.GetBytes("""{"version":1,"replaces":null}"""), "application/json");
+        Assert.True(published.Status == 200, published.Body.ToString());
+
+        var drawing = await Json("GET", Page + "/drawing");
+
+        Assert.True(drawing.Status == 200, drawing.Body.ToString());
+        Assert.Equal("devthrottle", drawing.Body.GetProperty("factoryId").GetString());
+        var lanes = drawing.Body.GetProperty("lanes").EnumerateArray().Select(l => l.GetProperty("seatId").GetString()).ToList();
+        Assert.Equal(DefinitionFixture.Registration().Seats.Count, lanes.Count);
+        Assert.Contains(drawing.Body.GetProperty("nodes").EnumerateArray(), n => n.GetProperty("id").GetString() == "writer/start");
+        Assert.Equal(404, (await Json("GET", "/gateway/factories/nope/drawing")).Status);
     }
 
     [Fact]

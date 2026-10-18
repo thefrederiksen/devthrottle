@@ -11,6 +11,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 // Only the Gateway calls are replaced; the refusal class is the real one.
 
 const screenClient = vi.hoisted(() => ({
+  getFactoryDrawing: vi.fn(() => new Promise(() => {})),
   getFactoryManagerCard: vi.fn(() => new Promise(() => {})),
   startFactoryManagerTalk: vi.fn(),
   getFactoriesList: vi.fn(),

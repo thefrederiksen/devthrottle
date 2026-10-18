@@ -2086,3 +2086,164 @@ a:focus .ff-bay rect {
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
+
+/* ---------- What a factory does, drawn (owner, 18 Oct 2026): on the Overview, the Floor and a seat's page. ---------- */
+.fd-panel {
+  margin-bottom: 16px;
+}
+.fd-status {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.fd-status strong {
+  display: block;
+}
+.fd-status-sub {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.fd-status-dot {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.fd-status.fd-tone-red { border-color: var(--attention); background: rgba(214, 59, 59, 0.08); }
+.fd-status.fd-tone-red .fd-status-dot { background: var(--attention); }
+.fd-status.fd-tone-amber { border-color: var(--warn); background: rgba(217, 154, 0, 0.08); }
+.fd-status.fd-tone-amber .fd-status-dot { background: var(--warn); }
+.fd-status.fd-tone-ok { border-color: var(--ok); background: rgba(31, 157, 85, 0.08); }
+.fd-status.fd-tone-ok .fd-status-dot { background: var(--ok); }
+.fd-status.fd-tone-blue .fd-status-dot { background: var(--accent); }
+.fd-shape {
+  fill: var(--surface);
+  stroke: var(--text-dim);
+  stroke-width: 1.3;
+}
+.fd-decision .fd-shape {
+  fill: rgba(217, 154, 0, 0.1);
+  stroke: var(--warn);
+  stroke-width: 1.8;
+}
+.fd-start-clock .fd-shape,
+.fd-start-every .fd-shape,
+.fd-start-talk .fd-shape {
+  stroke-width: 2.2;
+}
+.fd-end-done .fd-shape,
+.fd-end-stop .fd-shape {
+  stroke: var(--text);
+  stroke-width: 4;
+}
+.fd-tone-ok .fd-shape { stroke: var(--ok); fill: rgba(31, 157, 85, 0.1); }
+.fd-tone-red .fd-shape { stroke: var(--attention); fill: rgba(214, 59, 59, 0.1); }
+.fd-tone-amber .fd-shape { stroke: var(--warn); fill: rgba(217, 154, 0, 0.1); }
+.fd-tone-blue .fd-shape { stroke: var(--accent); fill: rgba(76, 141, 255, 0.1); }
+.fd-tone-grey .fd-shape { stroke: var(--text-dim); fill: var(--surface-2); }
+.fd-dashed .fd-shape { stroke-dasharray: 5 4; }
+.fd-glyph,
+.fd-glyph * {
+  stroke: currentColor;
+  stroke-width: 1.4;
+  color: var(--text-dim);
+}
+.fd-tone-red .fd-glyph, .fd-tone-red .fd-glyph * { color: var(--attention); }
+.fd-tone-ok .fd-glyph, .fd-tone-ok .fd-glyph * { color: var(--ok); }
+.fd-stop {
+  fill: var(--attention);
+  stroke: none;
+}
+.fd-repeat path {
+  stroke: var(--text-dim);
+  stroke-width: 1.3;
+}
+.fd-repeat polygon {
+  fill: var(--text-dim);
+}
+.fd-title {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--text);
+}
+.fd-sub {
+  font-size: 10.5px;
+  fill: var(--text-dim);
+}
+.fd-tone-red .fd-sub-tone { fill: var(--danger-text); }
+.fd-tone-ok .fd-sub-tone { fill: var(--ok-text); }
+.fd-clickable {
+  cursor: pointer;
+}
+.fd-clickable:hover .fd-shape,
+.fd-clickable:focus .fd-shape,
+.fd-open .fd-shape {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+.fd-clickable:focus {
+  outline: none;
+}
+.fd-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.fd-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fd-legend .fd-end-done .fd-shape,
+.fd-legend .fd-end-stop .fd-shape {
+  stroke-width: 2.5;
+}
+.fd-step {
+  margin: 12px 0 6px;
+  padding: 12px 16px;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.fd-step p {
+  margin: 4px 0;
+}
+.fd-step-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fd-runs {
+  display: block;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font: 12px/1.4 var(--font-mono, Consolas, monospace);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.fa-goal-line {
+  margin: 4px 0 2px;
+  font-size: 13.5px;
+  color: var(--text);
+  max-width: 900px;
+}
+.fa-goal-label {
+  font-weight: 600;
+}

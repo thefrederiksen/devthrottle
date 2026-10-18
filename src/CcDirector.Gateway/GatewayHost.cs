@@ -5461,6 +5461,11 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
             isDefined: _factorySeatBriefs.IsDefined);
+        // What a factory does, drawn (owner, 18 October 2026): its seats' starts, steps and ends, from the definition.
+        Api.FactoriesScreenEndpoints.MapDrawing(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            definitions: FactoryDefinitions);
         // One seat's own page (Factory Seats mission): opened from every seat row, with or without a schedule.
         Api.FactoriesScreenEndpoints.MapSeatPage(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
