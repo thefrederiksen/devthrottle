@@ -74,7 +74,7 @@ nothing about any real model; the runs prove only that the machinery works.
 | `results/fake_run_real19/` | 19 real | The same on the real emails, scored against my labels; 7 off-list answers became `unsure` |
 | `results/fake_run_spend_stop/` | 1 of 18 | With a demonstration limit of $0.0003 the run stopped before the call that would have crossed it (`stopped` field) |
 
-Tests (`test_model_sample.py`, 30 passing) cover: the guard refusing POST, PATCH, PUT, DELETE and OPTIONS against
+Tests (`test_model_sample.py`, 31 passing) cover: the guard refusing POST, PATCH, PUT, DELETE and OPTIONS against
 graph.microsoft.com and allowing GET; every Graph call going through the guard; the spend stop; a requested limit
 above $0.50 being capped at $0.50; an answer outside the labels becoming `unsure` with no confidence; the sender
 kinds; the 12-character short key; the 200-character cut; the raw folder being refused inside the repository; the

@@ -54,12 +54,18 @@ def test_short_key_is_twelve_hex_of_sha256():
 
 @pytest.mark.parametrize("address,kind", [
     ("email@devthrottle.com", "ours"),
-    ("Someone@Gmail.com", "personal-domain"),
-    ("alerts@github.com", "github.com"),
+    ("Someone@Example.NET", "personal-domain"),
+    ("alerts@example.com", "example.com"),
     ("", "no-address"),
 ])
-def test_sender_kind(address, kind):
+def test_sender_kind(address, kind, monkeypatch):
+    # example.net stands in for a personal domain such as the ones in PERSONAL_DOMAINS.
+    monkeypatch.setattr(ms, "PERSONAL_DOMAINS", ms.PERSONAL_DOMAINS | {"example.net"})
     assert ms.sender_kind(address) == kind
+
+
+def test_personal_domains_list_holds_the_common_free_mail_domains():
+    assert {"gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com"} <= ms.PERSONAL_DOMAINS
 
 
 @pytest.mark.parametrize("content,expected", [
@@ -89,7 +95,7 @@ def test_call_cost_uses_wingman_fast_prices():
 def test_route_question_has_three_routes_plus_unsure():
     q = ms.load_questions()[1]
     assert q["labels"] == ["devthrottle/mail-desk", "citizenship", "notification", "unsure"]
-    prompt = ms.render(q["template"], {"sender_name": "n", "sender_address": "a@b.c", "subject": "s", "preview": "x" * 500}, **q["extra"])
+    prompt = ms.render(q["template"], {"sender_name": "n", "sender_address": "a@example.org", "subject": "s", "preview": "x" * 500}, **q["extra"])
     assert "D. none of the above" in prompt and "x" * 201 not in prompt
 
 
@@ -100,7 +106,7 @@ def test_check_raw_dir_inside_repository_refused():
 
 def _write_emails(raw_dir, n):
     import json
-    emails = [{"key": f"{i:012x}", "received": "t", "sender_address": f"x@example{i}.com", "sender_name": "n",
+    emails = [{"key": f"{i:012x}", "received": "t", "sender_address": f"x{i}@example.com", "sender_name": "n",
                "subject": "s", "preview": "p"} for i in range(n)]
     (raw_dir / "emails.json").write_text(json.dumps(emails), encoding="utf-8")
 
