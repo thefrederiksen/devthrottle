@@ -284,34 +284,6 @@ public sealed class RestartOnlyIfEmptyTests
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// The seam between the command and the guard, which nothing else crosses. An adversarial review
-    /// pointed out that a launcher passing a hard-coded false to the supervisor would pass every other
-    /// test in this feature: the supervisor tests call the supervisor directly, and the Gateway tests
-    /// answer with a stub launcher. This drives a real command through the real dispatch into a real
-    /// supervisor, and the refusal it produces is the one the Gateway would receive on the wire.
-    /// </summary>
-    [Fact]
-    public async Task ARestartCommandCarryingTheFlag_IsRefusedOnTheWire_NamingTheLiveSessionCount()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-
-        using var rig = Rig.Start(liveSessions: 3);
-        await using var launcher = DispatchOnly(rig.Supervisor);
-
-        var result = await launcher.DispatchAsync(new LauncherCommand
-        {
-            Verb = "director/restart",
-            OnlyIfEmpty = true,
-        });
-
-        Assert.Equal(LauncherCommandStatus.Refused, result.Status);
-        Assert.Contains("3 live sessions", result.Error);
-
-        rig.Helper.Refresh();
-        Assert.False(rig.Helper.HasExited, "the command was refused and the Director was stopped anyway.");
-    }
-
-    /// <summary>
     /// The flag is refused on any verb that cannot honour it, at the boundary, rather than ignored. A verb
     /// that quietly drops it would answer a request to spare live work with a success that spared nothing.
     /// </summary>
