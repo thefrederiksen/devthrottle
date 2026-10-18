@@ -45,7 +45,7 @@ public sealed class DefinitionTriggerSeatStartTests : IDisposable
             findSession: (_, _) => null, findSessionByName: (_, _) => null, timeZone: _ => TimeZoneInfo.Utc,
             nowUtc: () => Now, startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
-            definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(_definitions, tenant, factory));
+            definitionOf: (tenant, factory) => FactorySeatStart.ReadPublished(_definitions, tenant, factory), mailDeskOn: _ => false);
 
         // Saved and published as the owner, into an account where the factory was never registered.
         var content = DefinitionFixture.Valid();

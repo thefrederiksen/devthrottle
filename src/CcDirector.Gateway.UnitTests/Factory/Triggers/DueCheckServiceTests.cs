@@ -3,6 +3,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Factory.Triggers;
+using CcDirector.Gateway.MailDesk;
 using CcDirector.Gateway.Running;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
@@ -43,12 +44,14 @@ public sealed class DueCheckServiceTests : IDisposable
 
     public void Dispose() => _h.Dispose();
 
-    private DueCheckService Service() => new(_runs, (tenant, id) => _jobs.Get(tenant, id), _states, _starter,
+    private DueCheckService Service(bool mailDeskOn = false) => new(_runs, (tenant, id) => _jobs.Get(tenant, id), _states, _starter,
         directorRunsDefinitionChecks: (_, director) => director != Older,
-        resultRecorded: (_, run) => _recorded.Add(run), nowUtc: () => _now, startLifetime: CancellationToken.None);
+        resultRecorded: (_, run) => _recorded.Add(run), nowUtc: () => _now, startLifetime: CancellationToken.None,
+        mailDeskOn: _ => mailDeskOn);
 
     /// <summary>A schedule of the mail factory with a check, and one fire of it: the run waiting on its check.</summary>
-    private async Task<(CronJobDto Job, string RunId)> ADueCheck(string machine = Machine)
+    private async Task<(CronJobDto Job, string RunId)> ADueCheck(string machine = Machine, string factory = "mail",
+        string checkPath = "checks/new_mail.py")
     {
         var created = _jobs.Create(new CronJobDto
         {
@@ -57,7 +60,7 @@ public sealed class DueCheckServiceTests : IDisposable
             ScheduleKind = CronSchedule.KindRecurring,
             CronExpression = "0 * * * *",
             TimeZoneId = "UTC",
-            Factory = "mail",
+            Factory = factory,
             Seat = "desk",
             Target = new CronJobTarget { Machine = machine },
             Action = new CronJobAction { RepoPath = @"D:\factories\mail", Seed = "New mail: {count}. Found: {context}" },
@@ -65,7 +68,7 @@ public sealed class DueCheckServiceTests : IDisposable
         using (var ctx = _db.CreateContext(T))
         {
             var row = ctx.CronJobs.Single(j => j.Id == created.Id);
-            CronJobStore.ApplyCheck(row, new CronJobDto { CheckPath = "checks/new_mail.py", CheckSecrets = new List<string> { "mail-imap" } }, 4);
+            CronJobStore.ApplyCheck(row, new CronJobDto { CheckPath = checkPath, CheckSecrets = new List<string> { "mail-imap" } }, 4);
             ctx.SaveChanges();
         }
         var engine = new CronEngine(_jobs, _runs, _starter, new NoWorkLists(), new NullCronNotifier(), new FixedClock(Now));
@@ -214,6 +217,71 @@ public sealed class DueCheckServiceTests : IDisposable
         Assert.Equal((CronRunResults.Pending, "sid-checked-1", Capable), (finished!.Result, finished.SessionId, finished.TargetDirectorId));
         Assert.Equal((2, "started"), (finished.CheckCount, finished.InfraStatus));
         Assert.Equal("""{"seen":"m-12"}""", _states.StateFor(T, "mail", FactoryCheckStateStore.ScheduleOwner(job.Id)));
+    }
+
+    // ---------- a timed start of the Mail Desk screening check (Mail Desk phase 1, review finding F1) ----------
+
+    [Fact]
+    public async Task Report_AMailDeskTimedStart_MailDeskOff_IsRefusedAndRecordsNothing()
+    {
+        // Arrange: a schedule of the mail-desk factory whose check is the screening check; Mail Desk is off. The check
+        // counted work, so without the refusal the seat would start.
+        var (job, runId) = await ADueCheck(factory: MailDeskTemplate.Factory, checkPath: MailDeskTemplate.CheckPath);
+        var service = Service(mailDeskOn: false);
+        service.AssignmentsFor(T, Capable, Machine);
+
+        // Act
+        var refused = service.Report(T, Capable, Guid.Parse(runId),
+            Report("""{"count": 2, "context": "from a@example.com"}""", state: """{"seen":"m-1"}"""));
+
+        // Assert
+        Assert.Equal(DueCheckRefusal.MailDeskOff, refused.Refusal);
+        Assert.Null(refused.Run);
+        Assert.Null(refused.Starting);
+        Assert.Contains("Mail Desk is not switched on", refused.Error);
+        var run = Run(runId);
+        Assert.Equal(CronRunResults.Checking, run.Result);      // no result recorded
+        Assert.Null(run.CheckedUtc);
+        Assert.Null(run.CheckCount);
+        Assert.Empty(_starter.Started);                           // no session start
+        Assert.Null(_states.Newest(T, MailDeskTemplate.Factory, FactoryCheckStateStore.ScheduleOwner(job.Id)));  // no kept state
+        Assert.Empty(_recorded);                                  // no activity row owed
+    }
+
+    [Fact]
+    public async Task Report_AMailDeskTimedStart_MailDeskOn_StartsAsBefore()
+    {
+        // Arrange
+        var (job, runId) = await ADueCheck(factory: MailDeskTemplate.Factory, checkPath: MailDeskTemplate.CheckPath);
+        var service = Service(mailDeskOn: true);
+        service.AssignmentsFor(T, Capable, Machine);
+
+        // Act
+        var result = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 2}""", state: """{"seen":"m-2"}"""));
+        var finished = await result.Starting!;
+
+        // Assert
+        Assert.Equal(DueCheckRefusal.None, result.Refusal);
+        Assert.Equal(job.Id, Assert.Single(_starter.Started).Job.Id);
+        Assert.Equal(CronRunResults.Pending, finished!.Result);
+    }
+
+    [Fact]
+    public async Task Report_ATimedStartOfAnotherCheckOfMailDesk_MailDeskOff_StartsAsBefore()
+    {
+        // Arrange: the same factory, a different check - not the screening check.
+        var (job, runId) = await ADueCheck(factory: MailDeskTemplate.Factory, checkPath: "checks/new_mail.py");
+        var service = Service(mailDeskOn: false);
+        service.AssignmentsFor(T, Capable, Machine);
+
+        // Act
+        var result = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 1}"""));
+        var finished = await result.Starting!;
+
+        // Assert
+        Assert.Equal(DueCheckRefusal.None, result.Refusal);
+        Assert.Equal(job.Id, Assert.Single(_starter.Started).Job.Id);
+        Assert.Equal(CronRunResults.Pending, finished!.Result);
     }
 
     [Fact]
