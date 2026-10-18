@@ -31,8 +31,8 @@ age-out.
   nothing changed. This matters because the minute check settles an open switch against its machine row and throws
   when that row is gone. A machine none of whose reports was ever accepted is forgotten under the stand-in identifier
   the page lists it under, and its refusal ends.
-- **What closes by itself afterwards.** Once 4172 is merged, the refused and silent alarms close on the next minute,
-  because their rows are ended. The readiness alarm of a machine closes because the machine is no longer read. An
+- **What closes by itself afterwards.** The refused and silent alarms of 4172 (merged as `8994f5e1a`) close on the
+  next minute, because their rows are ended. The readiness alarm of a machine closes because the machine is no longer read. An
   open renewal warning about it is ended by the renewal email check, which finds that the machine no longer holds
   that sign-in. A machine that reports again is a new row, like a machine reporting for the first time.
 - **The Cockpit** shows a "Forget this machine" button under the machine's status in the schedule, and a
@@ -60,6 +60,10 @@ a throwaway SQLite file, and reads the page back through the real overview route
 - `AMachineWhoseReportsWereNeverAccepted_IsForgottenUnderItsStandInRow_AndItsRefusalEnds` and
   `ARefusedMachineWithARow_IsForgotten_AndItsRefusalEnds`: the real ingest refuses the reports, and the machine is
   forgotten.
+- `ForgettingASilentMachine_ClosesItsAlarm_OnTheNextRaise` and
+  `ForgettingARefusedMachineThatNeverReportedWell_ClosesItsAlarm_OnTheNextRaise`: the reason this exists. The real
+  `LicenseMachineHealthAlarm` and alarm service have the alarm open, the machine is forgotten, and the next raise
+  leaves no alarm open.
 - `OneAccount_CannotForgetAnotherAccountsMachine`: `404`, at the route and at the store, and nothing changes.
 - `AMachineIdThatIsNotOne_IsRefusedBeforeAnythingIsRead` (three cases) and
   `ACallerThatIsNotTheOwner_IsRefused_AndNothingChanges`.
@@ -73,25 +77,20 @@ Also changed:
   the Gateway's sentence; one `application/json` POST naming the machine; the answer shown as given; a refusal shown
   with the confirmation still open.
 
-**Revert proof of the store's own guard.** I made the store skip its open switch and sign-in check. The two store
-tests failed, and the other ten passed. With the check restored, all twelve passed.
+**Revert proofs.**
+- I made the store skip its open switch and sign-in check. The two store tests failed, and the other ten passed.
+  With the check restored, all twelve passed.
+- After the rebase onto 4172, I made the store leave the open health rows open. Five tests failed: the two alarm
+  tests and the three that check the rows end. The other nine passed. With the store restored, all fourteen passed.
 
 ## The gate
 
-Run on commit `d8cf2d2f4`, on origin/main `16acc700b`, with TEMP and TMP on D:. The next commit changes only this
-file.
-
-- **Default run: GREEN**, tree clean. Every suite completed, including Core.UnitTests (2316) and the parked
-  Gateway.UnitTests tests this change reaches (972).
-- **`-Parked -Filter License`: GREEN**, tree clean. Gateway.UnitTests: 1091. Gateway.Tests: 26 (shard 3 of 4, with
-  the self-hosted write test). Core.UnitTests: 253. Avalonia.Tests: 32.
-- **Cockpit:** `vitest run src/licenses` passed 113 tests in 6 files, and `npm run typecheck --workspaces` is clean
-  in client-core, cc-assistant, the Cockpit and mobile.
+GATE_LINES_GO_HERE
 
 ## What the live proof should look for (after a deploy; this piece deploys nothing)
 
 - A machine that has been stopped for a while shows "Forget this machine" in the schedule. A reporting machine does
   not.
-- Forgetting it takes it off the page, writes a "Machine forgotten" row in the Licenses log and, once 4172 is
-  deployed, closes its "Machine stopped reporting" banner within a minute.
+- Forgetting it takes it off the page, writes a "Machine forgotten" row in the Licenses log, and closes its "Machine
+  stopped reporting" banner within a minute.
 - Starting its Director again brings the machine back.
