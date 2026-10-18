@@ -108,8 +108,7 @@ def _write_emails(raw_dir, n):
 def test_classify_spend_limit_stops_before_crossing(tmp_path, monkeypatch):
     import argparse, json
     _write_emails(tmp_path, 50)
-    monkeypatch.setattr(ms, "SPEND_LIMIT", 0.0005)
-    ms.cmd_classify(argparse.Namespace(raw_dir=str(tmp_path), endpoint="fake", key_env="UNUSED"))
+    ms.cmd_classify(argparse.Namespace(raw_dir=str(tmp_path), endpoint="fake", key_env="UNUSED", spend_limit=0.0005, out=None))
     out = json.loads((tmp_path / "model_answers.fake.json").read_text())
     assert out["stopped"] and out["emails"] < 50
     assert out["spent_dollars"] <= 0.0005
@@ -118,12 +117,43 @@ def test_classify_spend_limit_stops_before_crossing(tmp_path, monkeypatch):
 def test_classify_fake_answers_every_email_with_both_questions(tmp_path):
     import argparse, json
     _write_emails(tmp_path, 5)
-    ms.cmd_classify(argparse.Namespace(raw_dir=str(tmp_path), endpoint="fake", key_env="UNUSED"))
+    ms.cmd_classify(argparse.Namespace(raw_dir=str(tmp_path), endpoint="fake", key_env="UNUSED", spend_limit=None, out=None))
     out = json.loads((tmp_path / "model_answers.fake.json").read_text())
     assert out["emails"] == 5 and out["stopped"] is None
     for row in out["rows"]:
-        assert row["person_or_spam"]["label"] in ("person", "spam")
-        assert row["route"]["confidence"] is not None
+        assert row["person_or_spam"]["label"] in ("person", "spam", "unsure")
+        for q in ("person_or_spam", "route"):
+            assert (row[q]["confidence"] is None) == (not row[q]["valid_answer"])
+
+
+def test_classify_spend_limit_above_fifty_cents_is_capped(tmp_path):
+    import argparse, json
+    _write_emails(tmp_path, 1)
+    ms.cmd_classify(argparse.Namespace(raw_dir=str(tmp_path), endpoint="fake", key_env="UNUSED", spend_limit=99.0, out=None))
+    out = json.loads((tmp_path / "model_answers.fake.json").read_text())
+    assert out["spend_limit_dollars"] == ms.SPEND_LIMIT
+
+
+def test_classify_answer_outside_labels_becomes_unsure(tmp_path, monkeypatch):
+    import argparse, json
+    _write_emails(tmp_path, 1)
+    monkeypatch.setattr(ms, "fake_completion", lambda prompt, letters: {
+        "choices": [{"message": {"content": "Probably A"}, "logprobs": None}], "usage": {"prompt_tokens": 10, "completion_tokens": 2}})
+    ms.cmd_classify(argparse.Namespace(raw_dir=str(tmp_path), endpoint="fake", key_env="UNUSED", spend_limit=None, out=None))
+    row = json.loads((tmp_path / "model_answers.fake.json").read_text())["rows"][0]
+    assert row["person_or_spam"]["label"] == "unsure" and row["route"]["label"] == "unsure"
+    assert row["route"]["valid_answer"] is False and row["route"]["confidence"] is None
+
+
+def test_synthetic_set_has_expected_labels_and_no_address():
+    import json
+    text = (ms.HERE / "synthetic" / "emails.json").read_text()
+    assert "@" not in text
+    items = json.loads(text)
+    q = ms.load_questions()
+    for it in items:
+        assert it["expected"]["person_or_spam"] in q[0]["labels"] + ["unsure"]
+        assert it["expected"]["route"] in q[1]["labels"]
 
 
 if __name__ == "__main__":

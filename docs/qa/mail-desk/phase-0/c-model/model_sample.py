@@ -237,20 +237,42 @@ def cmd_fetch(args) -> None:
           f"more pages: {more}); raw text kept outside the repository")
 
 
+def cmd_synthetic(args) -> None:
+    """Invented emails with expected labels. Addresses are stored as local part and domain (reserved example
+    domains) and joined only in the raw folder, so the committed file holds no address."""
+    raw_dir = check_raw_dir(Path(args.raw_dir))
+    items = json.loads((HERE / "synthetic" / "emails.json").read_text(encoding="utf-8"))
+    emails = [{
+        "key": short_key("synthetic-" + it["id"]),
+        "received": None,
+        "sender_address": f"{it['sender_local']}@{it['sender_domain']}",
+        "sender_name": it["sender_name"],
+        "subject": it["subject"],
+        "preview": it["preview"][:PREVIEW_CHARS],
+    } for it in items]
+    (raw_dir / "emails.json").write_text(json.dumps(emails, indent=1), encoding="utf-8")
+    labels = {short_key("synthetic-" + it["id"]): it["expected"] for it in items}
+    (raw_dir / "expected_labels.json").write_text(json.dumps(labels, indent=1), encoding="utf-8")
+    print(f"synthetic: {len(emails)} invented emails written to the raw folder")
+
+
 # ---------------------------------------------------------------------------------------------
 # classify
 # ---------------------------------------------------------------------------------------------
 
 def fake_completion(prompt: str, letters: list[str]) -> dict:
-    """Deterministic stand-in: picks a letter from a hash of the prompt, with made-up log probabilities."""
+    """Deterministic stand-in: picks a letter from a hash of the prompt, with made-up log probabilities.
+
+    About one answer in six is a sentence instead of a letter, to exercise the label constraint."""
     h = int(hashlib.sha256(prompt.encode("utf-8")).hexdigest(), 16)
     pick = letters[h % len(letters)]
     p = 0.5 + (h % 50) / 100
     tops = [{"token": pick, "logprob": math.log(p)}] + [
         {"token": l, "logprob": math.log((1 - p) / (len(letters) - 1))} for l in letters if l != pick
     ]
+    content = pick if (h >> 8) % 6 else f"I think the answer is {pick}"
     return {
-        "choices": [{"message": {"content": pick}, "logprobs": {"content": [{"token": pick, "logprob": math.log(p), "top_logprobs": tops}]}}],
+        "choices": [{"message": {"content": content}, "logprobs": {"content": [{"token": pick, "logprob": math.log(p), "top_logprobs": tops}]}}],
         "usage": {"prompt_tokens": len(prompt) // 4, "completion_tokens": 1},
     }
 
@@ -268,6 +290,8 @@ def cmd_classify(args) -> None:
             sys.exit(f"no key in the environment variable {args.key_env}")
     system = (PROMPTS / "system.txt").read_text(encoding="utf-8").strip()
     questions = load_questions()
+    # A lower limit may be passed (to demonstrate the stop); never a higher one.
+    limit = min(args.spend_limit if args.spend_limit is not None else SPEND_LIMIT, SPEND_LIMIT)
 
     spent = 0.0
     rows = []
@@ -279,8 +303,8 @@ def cmd_classify(args) -> None:
                 prompt = render(q["template"], email, **q["extra"])
                 # Hard stop: refuse the call if a generous estimate of it would cross the limit.
                 estimate = (len(system) + len(prompt)) / 2 * PRICE_INPUT + 5 * PRICE_OUTPUT
-                if spent + estimate > SPEND_LIMIT:
-                    stopped = f"spend limit ${SPEND_LIMIT:.2f} reached at ${spent:.6f}"
+                if spent + estimate > limit:
+                    stopped = f"spend limit ${limit:.4f} reached at ${spent:.6f}"
                     break
                 body = {
                     "model": endpoint["model"],
@@ -326,12 +350,14 @@ def cmd_classify(args) -> None:
         "model": endpoint["model"],
         "emails": len(rows),
         "spent_dollars": round(spent, 6),
-        "spend_limit_dollars": SPEND_LIMIT,
+        # The fake model costs nothing; its dollars are what the same token counts would cost, to test the stop.
+        "spent_is_notional": args.endpoint == "fake",
+        "spend_limit_dollars": limit,
         "stopped": stopped,
         "rows": rows,
     }
     # The fake model's answers are test output and stay in the raw folder, never in the committed results.
-    target = raw_dir / "model_answers.fake.json" if args.endpoint == "fake" else RESULTS / "model_answers.json"
+    target = Path(args.out) if args.out else (raw_dir / "model_answers.fake.json" if args.endpoint == "fake" else RESULTS / "model_answers.json")
     target.write_text(json.dumps(out, indent=1), encoding="utf-8")
     print(f"classify: {len(rows)} emails, ${spent:.6f} spent, written to {target}" + (f"; STOPPED: {stopped}" if stopped else ""))
 
@@ -426,6 +452,10 @@ def main() -> None:
     c.add_argument("--raw-dir", required=True)
     c.add_argument("--endpoint", choices=sorted(ENDPOINTS), required=True)
     c.add_argument("--key-env", default="MODEL_API_KEY", help="environment variable holding the key (never printed)")
+    c.add_argument("--spend-limit", type=float, default=None, help=f"dollars; at most {SPEND_LIMIT}")
+    c.add_argument("--out", default=None, help="where to write the answers")
+    y = sub.add_parser("synthetic", help="write the committed synthetic set into the raw folder as emails.json")
+    y.add_argument("--raw-dir", required=True)
     s = sub.add_parser("show")
     s.add_argument("--raw-dir", required=True)
     r = sub.add_parser("report")
@@ -433,7 +463,7 @@ def main() -> None:
     r.add_argument("--my-labels", default=str(RESULTS / "my_labels.json"))
     r.add_argument("--out", default=str(RESULTS))
     args = p.parse_args()
-    {"fetch": cmd_fetch, "classify": cmd_classify, "show": cmd_show, "report": cmd_report}[args.cmd](args)
+    {"fetch": cmd_fetch, "synthetic": cmd_synthetic, "classify": cmd_classify, "show": cmd_show, "report": cmd_report}[args.cmd](args)
 
 
 if __name__ == "__main__":

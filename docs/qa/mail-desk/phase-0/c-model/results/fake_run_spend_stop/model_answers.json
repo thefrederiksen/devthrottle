@@ -1,0 +1,41 @@
+{
+ "endpoint": "fake",
+ "model": "fake",
+ "emails": 1,
+ "spent_dollars": 0.00016,
+ "spent_is_notional": true,
+ "spend_limit_dollars": 0.0003,
+ "stopped": "spend limit $0.0003 reached at $0.000160",
+ "rows": [
+  {
+   "key": "4efca292fa74",
+   "sender_kind": "example.com",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.81,
+    "letter_probabilities": {
+     "spam": 0.81,
+     "person": 0.19
+    },
+    "prompt_tokens": 150,
+    "completion_tokens": 1,
+    "cost_dollars": 5.44e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.65,
+    "letter_probabilities": {
+     "unsure": 0.65,
+     "devthrottle/mail-desk": 0.116667,
+     "citizenship": 0.116667,
+     "notification": 0.116667
+    },
+    "prompt_tokens": 141,
+    "completion_tokens": 1,
+    "cost_dollars": 5.116e-05
+   }
+  }
+ ]
+}

@@ -1,0 +1,74 @@
+{
+ "4efca292fa74": {
+  "person_or_spam": "person",
+  "route": "devthrottle/mail-desk"
+ },
+ "df1c97f99cc6": {
+  "person_or_spam": "person",
+  "route": "devthrottle/mail-desk"
+ },
+ "ba3d2fcd018f": {
+  "person_or_spam": "person",
+  "route": "devthrottle/mail-desk"
+ },
+ "69e245b18cb2": {
+  "person_or_spam": "person",
+  "route": "devthrottle/mail-desk"
+ },
+ "6d0c3dc9a1f9": {
+  "person_or_spam": "person",
+  "route": "citizenship"
+ },
+ "b6f973b53d71": {
+  "person_or_spam": "person",
+  "route": "citizenship"
+ },
+ "7baf31d2cd27": {
+  "person_or_spam": "person",
+  "route": "notification"
+ },
+ "3c96c99101f5": {
+  "person_or_spam": "person",
+  "route": "notification"
+ },
+ "66ded1fcb116": {
+  "person_or_spam": "person",
+  "route": "notification"
+ },
+ "2c47374bbec1": {
+  "person_or_spam": "person",
+  "route": "notification"
+ },
+ "f91fb931b3bd": {
+  "person_or_spam": "spam",
+  "route": "unsure"
+ },
+ "4dc6fe118d65": {
+  "person_or_spam": "spam",
+  "route": "unsure"
+ },
+ "3e4e90a6c126": {
+  "person_or_spam": "spam",
+  "route": "unsure"
+ },
+ "26a676716118": {
+  "person_or_spam": "spam",
+  "route": "unsure"
+ },
+ "f0d59e2ea2c6": {
+  "person_or_spam": "person",
+  "route": "unsure"
+ },
+ "35af4f5e193b": {
+  "person_or_spam": "person",
+  "route": "notification"
+ },
+ "768d066bb940": {
+  "person_or_spam": "person",
+  "route": "devthrottle/mail-desk"
+ },
+ "bf8a93157624": {
+  "person_or_spam": "person",
+  "route": "notification"
+ }
+}
