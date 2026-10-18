@@ -18,7 +18,7 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class AddTriggerBackupMachinesMigrationTests
 {
-    private const string SqliteBefore = "20261018015813_AddApiModeReceiptPromptText";
+    private const string SqliteBefore = "20261018153106_AddMailDesk";
     private const string SqliteUnderTest = "20261018182424_AddTriggerBackupMachines";
 
     [Fact]
