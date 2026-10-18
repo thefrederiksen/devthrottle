@@ -195,6 +195,62 @@ public sealed class DeviceCredentialImportTests : IDisposable
     }
 
     [Fact]
+    public void Import_AnotherImporterFinishesBetweenTheCheckAndTheInsert_IsANoOp_NotAUniqueFailure()
+    {
+        // Main, 18 October 2026: two importers on one database both found no marker, and the second failed on the
+        // marker's unique SourcePath. Put that race in order: the second importer finishes inside the first one's
+        // window between its marker check and its own transaction.
+        using var db = _h.Open();
+        var legacy = _h.LegacyPath("devices.json");
+        File.WriteAllText(legacy, ThreeDeviceJson);
+        DeviceImportResult? winner = null;
+        var loser = new DeviceRegistryImporter(db, legacy)
+        {
+            AfterMarkerCheck = () => winner = new DeviceRegistryImporter(db, legacy).Import(),
+        };
+
+        var result = loser.Import();
+
+        Assert.NotNull(winner);
+        Assert.False(winner.Value.Skipped);
+        Assert.Equal(3, winner.Value.ImportedCount);
+        Assert.True(result.Skipped);
+        Assert.Equal(0, result.ImportedCount);
+        // The file moved exactly once: the winner's rows and one marker, nothing doubled and nothing lost.
+        Assert.Equal(new[] { "dev-alpha", "dev-beta", "dev-gamma" }, AllRows(db).Select(r => r.DeviceId).ToArray());
+        Assert.Single(AllMarkers(db));
+    }
+
+    [Fact]
+    public void Import_AnInsertThatFailsWithNoMarkerWritten_IsThrown_NotTakenForAFinishedImport()
+    {
+        // The race is recognised only by the marker being there afterwards. A failure for any other reason - here a
+        // device row that already exists - leaves no marker, and must surface rather than read as "already done".
+        using var db = _h.Open();
+        var legacy = _h.LegacyPath("devices.json");
+        File.WriteAllText(legacy, ThreeDeviceJson);
+        var importer = new DeviceRegistryImporter(db, legacy)
+        {
+            AfterMarkerCheck = () =>
+            {
+                using var ctx = db.CreateUnscopedContext();
+                ctx.DeviceCredentials.Add(new DeviceCredentialEntity
+                {
+                    DeviceId = "dev-alpha",
+                    MachineName = "SOMEONE-ELSE",
+                    DeviceKeyHash = "ffff0000",
+                    IssuedAtUtc = new DateTime(2026, 10, 18, 9, 0, 0, DateTimeKind.Utc),
+                    Status = "active",
+                });
+                ctx.SaveChanges();
+            },
+        };
+
+        Assert.Throws<DbUpdateException>(() => importer.Import());
+        Assert.Empty(AllMarkers(db));
+    }
+
+    [Fact]
     public void LegacyPlaintextOnlyRecord_IsHashed_Losslessly_AndPlaintextNeverStored()
     {
         // A record from BEFORE issue #1878: only the plaintext key, no hash and no masked identity. The importer
