@@ -69,7 +69,7 @@ public sealed class BackupMachinesClaimTests : IDisposable
             startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, _) => true,
             machineRunsDefinitionChecks: (_, _) => true,
-            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null);
+            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null, mailDeskOn: _ => false);
 
     /// <summary>A definition trigger as a publish writes it, on <see cref="MachineA"/> with the backups given.</summary>
     private Guid AddTrigger(params string[] backups)
