@@ -217,3 +217,40 @@ message`. A failed move's sentence no longer holds the address it called, and th
 ## Observation 6: "roughly 20 a run"
 
 **Noted. No change.** The review agrees with the contract.
+
+## Re-review of d69dd70c8: observations A, B and C
+
+The re-review is the last section of `screen-review.md` beside this file. Its verdict is **accepted**. The answers are
+made in the commit that adds this section. The suite gives **210 passed**.
+
+### A. The sentence limit is a test assertion, not a rule in the code
+
+**Declined, with the reason.** The re-review measured the longest sentence for this mission's two mailboxes at 162
+characters on devlinux, inside the 165. A longer address on a long-named machine goes over only on a run where uv also
+writes, which happens once after the environment is built, and the next run's reason is whole. Enforcing the limit in
+the code could only cut or reword a sentence. Cutting is what the Gateway already does, and rewording to fit is a
+fallback that hides the real text. `CONTRACT.md` 1.1 says what the rule does not cover. If a mailbox with a long
+address joins, the fix is to shorten that sentence, and the window tests will show which one.
+
+### B. An unreadable profiles.json was reported as the sign-in service out of reach
+
+**Accepted, and changed.** The re-review is right. The "holds no account" failure was raised inside the `try` that
+catches `OSError`, and building its fix reads `profiles.json`. Two changes:
+
+- **Moved.** The "holds no account" failure is now raised after that `try`, so nothing but MSAL's own calls can be
+  read as the sign-in service out of reach.
+- **Named.** `outlook_fix` no longer lets an unreadable account list pass unnamed. It fails with `<address> is not
+  signed in on <machine>, and cc-outlook's account list cannot be read: <error kind>`, with the file and the whole
+  error on line 2. Before, the same fault on the no-sign-in path ended up in `main()`'s catch-all. Guessing past the
+  fault would have named the wrong fix (`accounts add`), so the check does not.
+
+`CONTRACT.md` 1.2 lists the new sentence.
+
+**Proof.** `test_sign_in_and_failures.py::test_SignIn_AnAccountListThatCannotBeRead_IsSaidAsItIs_NeverAsTheSignInService`
+covers both paths: a cache that holds no account, and no sign-in file at all. Both cases fail on `d69dd70c8`.
+
+### C. The case-insensitive match is sound
+
+**Noted. No change.** The collision the re-review names (`a.b@c.com` and `a@b.c.com` share a file name) is
+cc-outlook's own file-name rule. Where it bites, MSAL's account check by username still refuses the wrong mailbox's
+cache ("holds no account").

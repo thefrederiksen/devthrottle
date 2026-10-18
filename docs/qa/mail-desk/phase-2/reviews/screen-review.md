@@ -228,3 +228,138 @@ it does, it stalls all screening rather than one item. Low.
   110 passed in 1.58 seconds, on devlinux, Python 3.11.17, MSAL 1.39.0.
 - The reason probes and the offline run are reproducible from the descriptions above with the test rig's `world`
   fixture; nothing of mine is committed.
+
+---
+
+## Re-review of d69dd70c8
+
+Re-reviewed: branch `origin/mail-desk-p2-screen-fix` at commit `d69dd70c8`, against `44a9af182` (the reviewed commit)
+and as the whole change against `origin/mail-desk-phase-2`. The answers are `screen-answers.md` beside this file.
+Date: 18 October 2026.
+
+### Verdict
+
+**Accepted.** The harm in each of the three findings is gone, the tests now judge every failure by what the Gateway
+keeps rather than by the raw stream, and the fixes introduced nothing that breaks a promise. Three small observations
+on the new code are below; none needs a change before this is called done.
+
+### Scope of the re-review
+
+**What I read.** The new `screen.py` in full (769 lines), the whole diff of the contract and of every test file, the two
+new test files, and the answers. On `origin/main`: cc-outlook's `auth.py` for the three premises the new nickname
+lookup rests on (`PROFILES_FILE` is `<config>/outlook/profiles.json`, beside the tokens; `derive_nickname` is the label
+before the top-level domain; `_build_nickname_map` lets the last account win). In MSAL 1.39.0: `get_accounts` compares
+the username in lower case, which the case-insensitive file match relies on and the fake does not exercise.
+
+**What I ran.**
+
+- The suite at `d69dd70c8`: **208 passed in 5.4 seconds**.
+- The same suite against the check as it stood at `200156d4d` (the pre-fix code copied in, then restored): **92 failed,
+  116 passed**, as the answers claim. The new tests bite.
+- My four reason probes from the first review, against the new code. What the Gateway would keep is now, for the two
+  channel case: `exit code 1: second@example.org is not signed in on testmachine: first run cc-outlook accounts add
+  second@example.org -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd then run cc-outlook -a second@example.org auth; looked ...`
+  (the probe registers no cc-outlook account, so the first step is shown; with one registered it names the nickname).
+  The live-mode Graph failure keeps `exit code 1: Microsoft Graph answered HTTP 500 for email@devthrottle.com while
+  reading the Inbox HTTP 500 to GET ...`: the failure sentence is first and whole.
+- The real `screen.py` with the real MSAL and the sign-in service unreachable (the first review's offline run): exit 1,
+  three lines of standard error, the first `could not reach the Microsoft sign-in service from devlinux for
+  email@devthrottle.com: ProxyError`, the whole error on line 2, the run's log on line 3, the memory byte for byte
+  unchanged. No traceback.
+- uv 0.12.23 on a script whose environment is already built: it writes nothing to standard error, as the contract's
+  section 1.1 now says. The first run after a change writes `Installed 10 packages in 95ms`.
+- On devlinux, the fix's new input exists where it looks: one `profiles.json` under `instances/*/config/outlook/`.
+
+**What I could not reach.** As before: no real mailbox or token, no Windows or macOS, no Director run, no phase 1 code.
+The Gateway's `OneLine` is reproduced in Python in the test rig (`gateway_reason`), not run as C#; the reproduction
+matches the C# line for line, and a sample test pins its behaviour.
+
+### Finding 1 (high): answered, harm gone
+
+The run's log is held in memory and written after the failure, so the sentence is line 1. Every sentence the check can
+produce is listed in the contract (1.2), and the test `test_what_the_gateway_keeps.py` builds each of 12 failure kinds
+with one and two channels in observe and live mode (48 cases), applies the Gateway's own rule after a stand-in uv
+line, and asserts the kept reason starts with `exit code 1: <uv line> <the whole sentence>`, that the sentence is at
+most 165 characters, that no traceback is in the window, and that the memory is unchanged. That is the right reader.
+The failed-move sentence names the mailbox and the step, so a 152-character id can no longer push the fix out, and the
+id is on no line (asserted). The machine is named without its domain. The contract's new section 1.1 tells phase 3
+what the Gateway actually keeps, and that it must not assume or strip a prefix.
+
+The one thing the rule does not do is enforce itself: `SENTENCE_LIMIT` is asserted by the tests on the addresses they
+use (21 and 18 characters) and is not applied in the code. See observation A.
+
+### Finding 2 (medium): answered, harm gone
+
+The MSAL constructor, `get_accounts` and `acquire_token_silent` sit in one `try`. `OSError` covers every `requests`
+exception (`RequestException` is an `IOError`), and `ValueError` and `RuntimeError` cover what `tenant_discovery`
+raises on an error answer. `read_memory` now validates `keys`, `sentCache` and the cursor's ids, and a memory that
+cannot be read or is not UTF-8 is a sentence. The catch-all in `main()` turns anything else into a sentence first, the
+place it stopped second, the run's log, and the whole traceback last, and returns 1 before the memory write.
+`test_no_traceback.py` raises the real `requests` classes from both MSAL calls and covers nine memory shapes, a
+non-UTF-8 file, four message fields of the wrong kind, a page that is a list, and an unforeseen `KeyError`. My
+offline run against the real MSAL confirms the realistic case end to end.
+
+**On the catch-all in `main()`.** It is at the entry point, which is where the repository rule allows a catch
+(rule 4), and it hides nothing: exit code 1, the reason named by kind and message, and the full traceback still in the
+Director's record of the run (the Director keeps 16 KB of standard error). It does not catch `KeyboardInterrupt` or
+`SystemExit`, which is right. The memory write and the output print are outside it, so a failure there is still an
+exit 1 with the memory file as it was. I found no path through it that reports success.
+
+### Finding 3 (low): answered, harm gone
+
+`check_request` refuses any address holding a character at or below 0x20 or equal to 0x7F **before** `urlsplit`, so
+the guard, not `http.client`, does the refusing, and `file_queue` turns it into a `refused` result for that one item.
+The test sends seven such characters in a POST and a GET with the fake's log empty, and the per-item test moves the
+good item while refusing the bad one in the same run. `transport()` no longer needs to know about `InvalidURL`.
+
+### Observations 1 to 6 from the first review
+
+- **Observation 1 (address case): accepted and changed.** The sign-in file is matched by its lower-cased name over
+  `*_msal.json` in every instance; two files differing only in case are "more than once"; when the fix must name the
+  address it names it as cc-outlook holds it, so `-a` finds it. The premises are read from cc-outlook's source by a
+  test. MSAL's `get_accounts` matching the username without regard to case, which the fake does not exercise, I
+  confirmed in MSAL 1.39.0's source. See observation B for one edge of the new match.
+- **Observation 2 (one channel's failure stops every channel): declined by the Developer as not theirs to decide,
+  documented.** That is the right answer for a Developer; the two-channel tests now show the failing mailbox is the one
+  named. It remains the Tech Lead's call before phase 6 runs two channels.
+- **Observations 3 and 4: documented in the contract (3.5 and 3.4).** Right.
+- **Observation 5 (a refused reason quoting a Graph id): changed.** The refusal no longer quotes the path, and
+  `shown_url` replaces the id with `{id}` on the detail line; asserted for a 152-character id.
+
+### What the fix changed beyond the findings
+
+The contract now uses phase 1's words: filing items are `{"messageKey", "decision": "archive" | "junk"}`, message
+fields are `messageKey`, `receivedUtc`, `sender`, `senderName`, the channel row's `id` is copied into its section, and
+the `nickname` field is gone from the channel row (the check reads cc-outlook's own account list instead). Each reader
+maps a decision to its folder (`OUTLOOK_FOLDERS`); the guard still allows only `archive` and `junkemail` as Graph
+destinations, and `file_queue` checks the decision before the lookup, so an unknown decision is `refused`, never a
+`KeyError`. Phase 3 is not built yet, so nothing breaks; the renaming is an improvement, since phase 3 will read the
+same names in two places.
+
+### Observations on the new code (no change required)
+
+- **A. The sentence limit is a test assertion, not a rule in the code.** The only sentence whose length depends on the
+  address twice is the "account in no cc-outlook list" one: `<address> is not signed in on <machine>: first run
+  cc-outlook accounts add <address> -c <36-character client id>`. With the longer of the two in-scope addresses (29
+  characters, measured from its token file name on devlinux, not printed here) and the machine name `devlinux`, it is
+  162 characters, inside the 165. With a 15-character machine name it would be 169, which still fits the 187 characters
+  available when uv is silent, which the contract shows is the usual run. So the two mailboxes in this mission are
+  inside the window in every case; an address of about 30 characters or more on a long-named machine is the first that
+  is not, and only on a run where uv also writes. The contract's 1.1 says as much.
+- **B. One misattributed sentence is possible inside the new `try`.** `not_signed_in()` is raised from inside the block
+  that catches `OSError` (the "cache holds no account" path), and it calls `outlook_fix()`, which reads
+  `profiles.json`. `outlook_fix` catches `ValueError`, `AttributeError`, `IndexError` and `TypeError` but not `OSError`,
+  so a `profiles.json` that exists and cannot be read (a permissions fault) would be reported as `could not reach the
+  Microsoft sign-in service ...: PermissionError`. Exit 1 and the untouched memory still hold; only the sentence is
+  wrong, and the whole error is on line 2. It needs a file the same user owns to be unreadable, so I did not weigh it.
+- **C. The case-insensitive match is sound.** It compares lower-cased names only, never opens a file it did not match,
+  and on a case-insensitive file system (Windows, macOS) it changes nothing. The one collision it inherits is
+  cc-outlook's own: the file-name rule maps both `@` and `.` to `_`, so `a.b@c.com` and `a@b.c.com` would share a file
+  in cc-outlook itself. Not new, not this check's to fix.
+
+### For the record
+
+- Test command and result at `d69dd70c8`: `uv run --no-project --with pytest --with "msal>=1.28" python -m pytest
+  docs/qa/mail-desk/phase-2/tests -v`, 208 passed in 5.42 seconds, on devlinux, Python 3.11.17, MSAL 1.39.0.
+- The same suite against the pre-fix check (`200156d4d`): 92 failed, 116 passed. The worktree was restored to
+  `d69dd70c8` afterwards and is clean apart from this appended section.

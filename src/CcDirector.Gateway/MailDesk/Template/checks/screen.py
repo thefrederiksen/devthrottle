@@ -324,7 +324,13 @@ def outlook_fix(address, base):
     names, registered_as = set(), set()
     for path in sorted(Path(base).glob("instances/*/config/outlook/profiles.json")):
         try:
-            profiles = json.loads(path.read_text(encoding="utf-8")).get("profiles") or {}
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            # A list that is there but cannot be read is said as it is, never guessed past (review B).
+            raise CheckFailed(f"{address} is not signed in on {machine()}, and cc-outlook's account list cannot be "
+                              f"read: {type(e).__name__}", f"{path}: {e}") from None
+        try:
+            profiles = json.loads(text).get("profiles") or {}
             registered = [email for email in profiles if email.strip().lower() == address]
             if not registered:
                 continue
@@ -380,15 +386,17 @@ class OutlookReader:
             app = msal.PublicClientApplication(client_id=OUTLOOK_CLIENT_ID, authority=OUTLOOK_AUTHORITY,
                                                token_cache=cache)
             accounts = app.get_accounts(username=self.address)
-            if not accounts:
-                raise self.not_signed_in(base, f"the saved sign-in at {path} holds no account for {self.address}")
-            result = app.acquire_token_silent([OUTLOOK_SCOPE], account=accounts[0])
+            result = app.acquire_token_silent([OUTLOOK_SCOPE], account=accounts[0]) if accounts else None
         except OSError as e:   # MSAL's transport is requests, whose every error is an OSError
             raise CheckFailed(f"could not reach the Microsoft sign-in service from {machine()} for {self.address}: "
                               f"{type(e).__name__}", f"{type(e).__name__}: {e}") from None
         except (ValueError, RuntimeError) as e:
             raise CheckFailed(f"the Microsoft sign-in service failed on {machine()} for {self.address}: "
                               f"{short_error(e)}", f"{type(e).__name__}: {e}") from None
+        # Outside the try above, so reading cc-outlook's account list for the fix is never taken for the sign-in
+        # service being out of reach (review B).
+        if not accounts:
+            raise self.not_signed_in(base, f"the saved sign-in at {path} holds no account for {self.address}")
         if not result or "access_token" not in result:
             error = (result or {}).get("error", "no token came back")
             raise self.not_signed_in(base, f"the saved sign-in at {path} has expired and could not be renewed ({error})")
