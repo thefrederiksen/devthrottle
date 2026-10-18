@@ -12,8 +12,12 @@ user's name and the token are scrubbed.
 |---|---|---|---|
 | `linux-dry-run-20261018-122023` | devlinux, Pi 1.2.0 | Dry run, before phases 3 and 4 (#4186, #4200) were merged. Tree: origin/main at 880a68323 plus the switch (#4208) and this script as committed (the summary names the commit before the home-folder fix, which was in the working tree when it ran). | Every step and every failure case passed, and the user's `~/.local/bin` was unchanged; 0.08 dollars |
 
-The recorded run for the QA report is still to come on Linux, once #4186 and #4200 are on main, and on Windows
-(SOREN_NORTH), which the Delivery Lead arranges. Two earlier dry runs passed every step too; their evidence is
+**This dry run is superseded by the recorded run.** It is kept as a record of the rig working, not as the evidence
+for the QA report: its `Tree:` line names commit `c2b463f5c`, but it ran with the next commit's home-folder fix in the
+working tree, and the script's last teardown check (that `~/.local/bin/cc-devthrottle` points at the user's own
+install) postdates it. The recorded run, from a committed script on a clean tree, is the evidence. It is still to come
+on Linux, once #4200, #4209 and phase 3 part B are on main, and on Windows (SOREN_NORTH), which the Delivery Lead
+arranges. Two earlier dry runs passed every step too; their evidence is
 not kept (one of them is the run that changed the user's tool links, below). All of them are in `spend.md`.
 
 ## Which Gateway
@@ -42,12 +46,20 @@ types through.
 
 ## The failure cases
 
+Pi exiting mid-turn is held to **the Delivery Lead's ruling of 16 October 2026**, recorded in `event-model.md`
+(section 2, after rule 5), which replaced section 7's wording "the prompt is not marked delivered". Pi acknowledges a
+prompt 0.1 to 0.4 seconds after it is written, long before a turn can be cut short, so: Delivered means Pi acknowledged
+the prompt and stays true; the turn ends failed with the reason (the exit code and Pi's error lines); the receipt shows
+that failed turn beside Delivered, so it never reads as a plain success. Only a prompt Pi never acknowledged is
+Refused, by the Director, with the reason "Pi exited before acknowledging". The tests below assert exactly that.
+
 | Case | Where it is proven |
 |---|---|
 | Take the wheel twice: the second is refused | This script (409, `wheel_already_held`) and `ApiModeWheelTests.TakeWheelAsync_Twice_TheSecondIsRefusedAndNothingChanges` |
 | Hand back while the terminal is mid-turn: refused, never two holders | This script (409 with the reason; the holder stays the user; one Pi process) and `ApiModeWheelTests.HandBackWheelAsync_WhileTheTerminalIsMidTurn_IsRefusedWithTheReason`. If Pi finishes before the hand back arrives, the script reports the case as not provoked, a FAIL, never a pass |
 | Pi's executable missing: spawn fails with a stated reason | This script (the Pi entry pointed at a path that does not exist; no model call) and `ApiModeSessionTests.Start_ApiModeBackendWithAMissingExecutable_FailsNamingIt` |
-| Pi exits mid-turn: failed with the reason, the prompt not marked delivered | Unit tests only: `ApiModeSessionCreationTests.CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason`, `ApiModeSessionCreationTests.CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween`, `PiFixtureIngestTests.Accept_TheExitMidTurnRecording_TheReceiptShowsFailedBesideDelivered`, `PiFixtureIngestTests.Accept_TheExitBeforeAcknowledgementRecording_TheReceiptIsRefusedByTheDirector`. A real run would have to kill Pi from outside |
+| Pi exits mid-turn, after acknowledging: the session shows failed with the reason, and the receipt stays Delivered with the failed turn beside it | Unit tests only: `ApiModeSessionCreationTests.CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason`, `ApiModeSessionCreationTests.CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween`, `PiDialectReplayTests.Replay_Exit_TurnFailsWithTheExitCodeAndThePromptStaysDelivered`, `PiFixtureIngestTests.Accept_TheExitMidTurnRecording_TheReceiptShowsFailedBesideDelivered`. A real run would have to kill Pi from outside |
+| Pi exits before acknowledging: the receipt is Refused by the Director, "Pi exited before acknowledging", with no turn | Unit tests only: `PiDialectReplayTests.Replay_ExitBeforeAcknowledgement_RefusesThePromptAsTheDirector`, `PiFixtureIngestTests.Accept_TheExitBeforeAcknowledgementRecording_TheReceiptIsRefusedByTheDirector` |
 | Pi refuses a prompt (`success:false`): the receipt shows the reason | Unit tests only: `PiFixtureIngestTests.Accept_TheRefusalRecording_TheSecondPromptIsRefusedByPiInItsOwnWords`, `ApiModeEventIngestTests.Accept_RefusedByTheAgent_TheReceiptCarriesPisOwnWords`. The Director queues instead of sending while Pi is busy, so a real run cannot make Pi refuse |
 
 ## Found along the way

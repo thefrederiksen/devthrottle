@@ -267,3 +267,64 @@ corrects itself if that run is made from a committed script; until then the fold
   its own so it does not live only in a proof README.
 - `cc-devthrottle session prompt` answers a queued prompt with "Held: ... may already be in", while the receipt already
   says Queued. The README records it. Not this pull request's.
+
+---
+
+## The Developer's answers (18 October 2026)
+
+All three findings accepted. The Delivery Lead ruled on each before the answers were written: finding 1 is a must-fix
+on #4208; finding 2 is settled by the ruling of 16 October 2026 already in `event-model.md`; finding 3 is answered by
+saying the dry run is superseded by the recorded run.
+
+### Finding 1 (#4208): accepted, fixed
+
+A version guard of the same shape as the factory field's, at both create doors:
+`ConnectionChoiceFold.DirectorCannotCarry` refuses an API-mode create to a Director older than
+`FirstDirectorThatCarriesApiMode` (2.23.0, the first release whose Director parses the connection mode and has the
+API-mode code; v2.22.0 has neither, checked on the tags) with a 409 and the sentence "The Director on <machine> is
+version <x>, which cannot start a session in API mode, so no session was started. Update this Director to 2.23.0 or
+later, or start the session in terminal mode." A Director whose version cannot be read is refused too, as the factory
+guard does. A terminal create (or one with no word) to an older Director is unchanged. The Director door calls it after
+the factory guard; the machine door runs it in the spawner's refusal hook, ahead of `RefuseAtMachineDoor`, so the
+refusal is a 409 and never a 502. `SpawnFactory.ReleaseOf` became `internal` so both guards read versions one way.
+
+Tests, in `ConnectionChoiceTests`: refused below 2.23.0 naming the version needed (including a `v`-prefixed build with
+metadata), a pre-release of 2.23.0 accepted, an unreported version refused, 2.23.0 and later accepted, terminal and no
+word accepted on an old Director, the by-id overload refused when the Director cannot be read; and through the routes,
+at both doors, an API-mode create to a v2.22.0 Director is 409 with the reason and nothing is sent, while a terminal
+create to it goes. The fake Director the route tests register now reports 2.23.0 by default. Checked the tests catch
+the defect: with the guard weakened to accept any readable version, the four old-Director tests fail, at both doors.
+
+### Finding 2 (#4210): accepted, fixed
+
+The record no longer claims that a unit test proves "the prompt is not marked delivered". The script's
+`$UnitTestProven` table, its header and the README now cite the Delivery Lead's ruling of 16 October 2026 in
+`event-model.md`, which replaced that sentence of section 7, and split the case as the ruling does:
+
+- Pi exits mid-turn, after acknowledging: the session shows failed with the reason; the receipt stays Delivered with
+  the failed turn beside it. `ApiModeSessionCreationTests.CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason`,
+  `ApiModeSessionCreationTests.CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween`,
+  `PiDialectReplayTests.Replay_Exit_TurnFailsWithTheExitCodeAndThePromptStaysDelivered`,
+  `PiFixtureIngestTests.Accept_TheExitMidTurnRecording_TheReceiptShowsFailedBesideDelivered` (asserts Delivered, the
+  acknowledgement, turn outcome failed, and the exit code in the reason).
+- Pi exits before acknowledging: Refused by the Director, "Pi exited before acknowledging", no turn.
+  `PiDialectReplayTests.Replay_ExitBeforeAcknowledgement_RefusesThePromptAsTheDirector`,
+  `PiFixtureIngestTests.Accept_TheExitBeforeAcknowledgementRecording_TheReceiptIsRefusedByTheDirector` (asserts
+  Refused, by `director`, `PiDialect.ExitedBeforeAcknowledgingReason`, no turn outcome).
+
+### Finding 3 (#4210): accepted, answered and its cause fixed
+
+The README now says the dry run is superseded by the recorded run and why its `Tree:` line is not evidence of
+`c2b463f5c`. The script now writes "clean" or "PLUS UNCOMMITTED CHANGES to N file(s) - not evidence of this commit" on
+the `Tree:` line, so a later run cannot repeat the misattribution. The recorded run will be made from a committed
+script on a clean tree.
+
+### The notes
+
+- Rebase: both branches are rebased onto `origin/main` (with #4211 and #4186), #4210 still stacked on #4208.
+- `Get-ReceiptFor`'s comment ("newest first") versus `Select-Object -Last 1`, and the narrow port check: left as they
+  are; neither can pick wrong or pass wrongly today.
+- The Director relinking the user's `~/.local/bin` from a scratch root is fixed on main by #4211; the script's own HOME
+  isolation and link check stay as a second guard.
+- `session prompt` saying "Held" for a queued API-mode prompt: for the Delivery Lead's follow-up list, with the missing
+  `cc-devthrottle` verbs.
