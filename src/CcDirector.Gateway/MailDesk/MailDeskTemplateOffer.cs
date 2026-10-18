@@ -17,6 +17,11 @@ public enum MailDeskTemplateOfferOutcome
     /// <summary>The account's Mail Desk switch is off: nothing was looked at and nothing was stored.</summary>
     SwitchOff,
 
+    /// <summary>Another writer saved a version of <c>mail-desk</c> between this offer's read and its save, and that
+    /// version is not this template: nothing was stored. Not a defect - a race already resolved; the next offer reads
+    /// the new newest version and decides again.</summary>
+    LostRace,
+
     /// <summary>The definition check or the store refused the draft: nothing was stored. A defect to look at, said in
     /// <see cref="MailDeskTemplateOfferResult.Sentence"/> and the findings.</summary>
     Refused,
@@ -41,9 +46,9 @@ public sealed record MailDeskTemplateOfferResult(
 /// Nothing runs before that publish.
 ///
 ///   - No <c>mail-desk</c> definition yet: the template is its first draft, version 1.
-///   - This template version was offered before (any version the Gateway wrote whose files ARE this template), or the
-///     newest version already holds it: nothing. The owner may have changed the draft since; it is never overwritten
-///     and the same template is never offered twice.
+///   - Any version of <c>mail-desk</c> already holds this template - offered by the Gateway or imported by a person -
+///     nothing. The owner may have changed the draft since; it is never overwritten and the same template is never
+///     offered twice.
 ///   - A newer template than any offered: a NEW draft above the newest version. Versions are only ever appended, so
 ///     whatever the owner wrote stays in the history and stays the published version until he publishes another.
 ///
@@ -53,9 +58,11 @@ public sealed record MailDeskTemplateOfferResult(
 /// (<see cref="FactoryDefinitionStore.GatewayAuthorKind"/>, author "Mail Desk template"), with a note naming the
 /// template version. It NEVER publishes.
 ///
-/// Offering twice is harmless: the second finds the first. Two offers at once are kept apart by the store, which
-/// refuses the second as stale; that answer is <see cref="MailDeskTemplateOfferOutcome.Refused"/>, and the next offer
-/// finds the first.
+/// Offering twice is harmless: the second finds the first. Two offers at once - the switch turned on while the
+/// Gateway's start offers to every switched-on account - are kept apart by the store, which refuses the second as
+/// stale. The loser then reads again: when the winner stored this template the answer is
+/// <see cref="MailDeskTemplateOfferOutcome.AlreadyOffered"/>, otherwise <see cref="MailDeskTemplateOfferOutcome.LostRace"/>.
+/// Neither is a defect, so neither is logged or answered as one.
 /// </summary>
 internal sealed class MailDeskTemplateOffer
 {
@@ -131,6 +138,8 @@ internal sealed class MailDeskTemplateOffer
                     $"{(errors.Count == 1 ? "error" : "errors")} in it.",
                     check.Findings);
             }
+            if (write.Outcome == FactoryDefinitionOutcome.Stale)
+                return AfterALostRace(tenant, shortVersion);
             if (!write.Ok)
             {
                 FileLog.Write($"[MailDeskTemplateOffer] Offer REFUSED by the store: account={tenant.ToLogString()}, template={shortVersion}, outcome={write.Outcome}: {write.Refusal}");
@@ -153,24 +162,40 @@ internal sealed class MailDeskTemplateOffer
     }
 
     /// <summary>
-    /// The version that already holds this template, or null: the newest version when its files are this template,
-    /// otherwise the newest version the Gateway wrote whose files are this template. A version the Gateway wrote is
-    /// only ever an offer, so this is "was this template offered before".
+    /// Another writer took the version this offer meant to store (review note B). Read again: if the winner stored this
+    /// template, it was offered; if not, nothing is stored now and the next offer decides on the new newest version.
+    /// </summary>
+    private MailDeskTemplateOfferResult AfterALostRace(TenantId tenant, string shortVersion)
+    {
+        var standing = _store.Standing(tenant, MailDeskTemplate.Factory);
+        if (VersionHoldingThisTemplate(tenant, standing) is { } held)
+        {
+            FileLog.Write($"[MailDeskTemplateOffer] Offer: account={tenant.ToLogString()} - another writer stored template {shortVersion} first, as version {held}; nothing offered");
+            return new MailDeskTemplateOfferResult(MailDeskTemplateOfferOutcome.AlreadyOffered, held, _templateVersion,
+                $"Version {held} of the {MailDeskTemplate.Factory} factory already holds Mail Desk template {shortVersion}, so it was not offered again.",
+                Array.Empty<DefinitionFinding>());
+        }
+        FileLog.Write($"[MailDeskTemplateOffer] Offer: account={tenant.ToLogString()} - another writer saved version {standing.Newest?.Version} first and it is not template {shortVersion}; nothing stored, the next offer decides again");
+        return new MailDeskTemplateOfferResult(MailDeskTemplateOfferOutcome.LostRace, null, _templateVersion,
+            $"Another version of the {MailDeskTemplate.Factory} factory was saved while the Mail Desk template {shortVersion} was being offered, " +
+            "so nothing was stored; the next offer will decide again.",
+            Array.Empty<DefinitionFinding>());
+    }
+
+    /// <summary>
+    /// The newest version whose files are this template, or null. Every version counts, whoever wrote it (review note
+    /// A): a template the owner imported by hand is as offered as one the Gateway stored.
     /// </summary>
     private int? VersionHoldingThisTemplate(TenantId tenant, FactoryDefinitionStanding standing)
     {
         if (standing.Newest is null) return null;
-        if (IsThisTemplate(tenant, standing.Newest.Version)) return standing.Newest.Version;
 
         int? before = null;
         do
         {
             var page = _store.History(tenant, MailDeskTemplate.Factory, before, HistoryPage);
             foreach (var version in page.Versions)
-            {
-                if (version.AuthorKind != FactoryDefinitionStore.GatewayAuthorKind) continue;
                 if (IsThisTemplate(tenant, version.Version)) return version.Version;
-            }
             before = page.NextBefore;
         } while (before is not null);
         return null;

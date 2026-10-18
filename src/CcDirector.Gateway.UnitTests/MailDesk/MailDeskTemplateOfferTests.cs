@@ -222,6 +222,84 @@ public sealed class MailDeskTemplateOfferTests : IDisposable
         Assert.Equal(2, _store.Standing(A, MailDeskTemplate.Factory).Newest!.Version);
     }
 
+    // ---------- review notes A and B ----------
+
+    [Fact]
+    public void Offer_TemplateImportedByAPersonThenEdited_IsNotOfferedAgain()
+    {
+        // Arrange: the owner imported the exact template himself, then changed it; the Gateway never offered it.
+        Assert.True(_store.SaveDraft(A, MailDeskTemplate.Factory, Template(), 0, FactoryMemoryAuthorKinds.Person, "owner",
+            null, Now).Ok);
+        var edited = Template();
+        edited["factory.yaml"] = edited["factory.yaml"].Replace("machine: devlinux", "machine: SOREN_NORTH");
+        Assert.True(_store.SaveDraft(A, MailDeskTemplate.Factory, edited, 1, FactoryMemoryAuthorKinds.Person, "owner",
+            null, Now).Ok);
+
+        // Act
+        var result = Offer().Offer(A);
+
+        // Assert
+        Assert.Equal(MailDeskTemplateOfferOutcome.AlreadyOffered, result.Outcome);
+        Assert.Equal(1, result.Version);
+        Assert.Equal(2, _store.Standing(A, MailDeskTemplate.Factory).Newest!.Version);
+    }
+
+    [Fact]
+    public void Offer_AnotherOfferStoresTheTemplateFirst_AnswersAlreadyOfferedNotRefused()
+    {
+        // Arrange: the clock is read just before the save, so a second offer run from it lands between this offer's
+        // read and its save - the switch turned on while the Gateway's start offers.
+        var rivalDone = false;
+        var offer = new MailDeskTemplateOffer(_store, _account, _ => true, () =>
+        {
+            if (!rivalDone)
+            {
+                rivalDone = true;
+                Assert.Equal(MailDeskTemplateOfferOutcome.Offered, Offer().Offer(A).Outcome);
+            }
+            return Now;
+        }, Template());
+
+        // Act
+        var result = offer.Offer(A);
+
+        // Assert
+        Assert.True(rivalDone);
+        Assert.Equal(MailDeskTemplateOfferOutcome.AlreadyOffered, result.Outcome);
+        Assert.Equal(1, result.Version);
+        Assert.Equal(1, _store.Standing(A, MailDeskTemplate.Factory).Newest!.Version);
+    }
+
+    [Fact]
+    public void Offer_OwnerSavesDuringTheOffer_LostRaceAndStoresNothing()
+    {
+        // Arrange: the owner saves his own first version between the offer's read and its save.
+        var owners = Template();
+        owners["factory.yaml"] = owners["factory.yaml"].Replace("machine: devlinux", "machine: SOREN_NORTH");
+        var ownerSaved = false;
+        var offer = new MailDeskTemplateOffer(_store, _account, _ => true, () =>
+        {
+            if (!ownerSaved)
+            {
+                ownerSaved = true;
+                Assert.True(_store.SaveDraft(A, MailDeskTemplate.Factory, owners, 0, FactoryMemoryAuthorKinds.Person,
+                    "owner", null, Now).Ok);
+            }
+            return Now;
+        }, Template());
+
+        // Act
+        var result = offer.Offer(A);
+
+        // Assert
+        Assert.True(ownerSaved);
+        Assert.Equal(MailDeskTemplateOfferOutcome.LostRace, result.Outcome);
+        Assert.Null(result.Version);
+        var standing = _store.Standing(A, MailDeskTemplate.Factory);
+        Assert.Equal(1, standing.Newest!.Version);
+        Assert.Equal(owners, _store.Find(A, MailDeskTemplate.Factory, 1)!.Files);
+    }
+
     // ---------- the check is the real one ----------
 
     [Fact]
