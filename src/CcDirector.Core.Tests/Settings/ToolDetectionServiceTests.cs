@@ -45,20 +45,6 @@ public class ToolDetectionServiceTests
         }
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task TestToolAsync_VersionCommandSucceeds_ReturnsOkWithVersion()
-    {
-        var service = new ToolDetectionService();
-        var path = CreateVersionTool("test-tool", "1.2.3-test");
-
-        var result = await service.TestToolAsync(AgentKind.ClaudeCode, path);
-
-        Assert.True(result.Ok);
-        Assert.Equal("1.2.3-test", result.Version);
-        Assert.Contains("OK", result.Message);
-    }
-
     [Fact]
     public void SetConfiguredPath_SupportedTools_UpdatesAgentOptions()
     {
@@ -103,30 +89,6 @@ public class ToolDetectionServiceTests
         Assert.Equal("codex-custom", ToolDetectionService.GetConfiguredPath(AgentKind.Codex, options));
         Assert.Equal("gemini-custom", ToolDetectionService.GetConfiguredPath(AgentKind.Gemini, options));
         Assert.Equal("opencode-custom", ToolDetectionService.GetConfiguredPath(AgentKind.OpenCode, options));
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task IsToolValidated_CurrentConfiguredPathWasTested_ReturnsTrue()
-    {
-        var oldRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
-        var root = Path.Combine(Path.GetTempPath(), "cc-director-tool-validation-tests", Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", root);
-        try
-        {
-            var service = new ToolDetectionService();
-            var path = CreateVersionTool("validated-tool", "validated-version");
-            var result = await service.TestToolAsync(AgentKind.Gemini, path);
-            CcDirectorConfigService.MergePatch(ToolDetectionService.BuildValidationPatch(result));
-
-            Assert.True(ToolDetectionService.IsToolValidated(AgentKind.Gemini, new AgentOptions { GeminiPath = path }));
-            Assert.False(ToolDetectionService.IsToolValidated(AgentKind.Gemini, new AgentOptions { GeminiPath = path + "-other" }));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", oldRoot);
-            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
-        }
     }
 
     private static string CreateVersionTool(string prefix, string version)

@@ -24,8 +24,13 @@ namespace CcDirector.Gateway.Receipts;
 ///    below that sequence, or of an older generation, is a duplicate or a late arrival and changes nothing, so a
 ///    re-sent batch cannot move a receipt backwards; an event of a later generation (a Director restart) is newer
 ///    whatever its sequence.
-///  - ONE ENDING PER PROMPT (rule 1). Delivered and Refused are final; a second ending is a Director defect, logged
-///    and refused, and the first one stands. A late Queued after either changes nothing.
+///  - ONE ENDING PER PROMPT WRITTEN TO THE AGENT (rule 1), AND THE LATER RECEIPT OF A RETRY STANDS (event model,
+///    section 2, "What a promptId is"). A retry of a delivery that was not delivered reuses its Gateway id, so a
+///    <c>Refused</c> receipt is not final: a later Queued, Delivered or Refused under the same prompt id, at a newer
+///    position, is the retry's, and it REPLACES the earlier attempt whole (<see cref="Supersede"/>), logged. Delivered
+///    is final: a delivered id is never sent again, so any ending or Queued after Delivered is a Director defect,
+///    logged and refused, and the delivery stands. The position rule comes first, so an older event replayed after a
+///    newer one never supersedes anything.
 ///  - ONE TURN PER PROMPT. A turn start links the delivered prompts it names to its turn id; a turn end writes its
 ///    outcome onto exactly those receipts, once.
 ///  - VERBATIM. The acknowledgement and the reasons are stored as received, never shortened or reworded; an oversized
@@ -90,9 +95,16 @@ public sealed class ApiModeReceiptStore
                 return "queued";
             }
             if (!IsNewer(position, row)) return null;
+            if (row.State == nameof(ApiModeReceiptState.Refused))
+            {
+                var was = Supersede(nameof(RecordQueued), row, position, ApiModeReceiptState.Queued);
+                row.QueueReason = reason;
+                row.QueuedAtUtc = at;
+                return "queued again, a retry; it replaces " + was;
+            }
             if (row.State != nameof(ApiModeReceiptState.Queued))
             {
-                FileLog.Write($"[ApiModeReceiptStore] RecordQueued session={sessionId} prompt={promptId} at={position}: the receipt is already {row.State}; a prompt that ended cannot be queued again, so nothing changes");
+                FileLog.Write($"[ApiModeReceiptStore] RecordQueued session={sessionId} prompt={promptId} at={position}: the receipt is already {row.State}; a delivered prompt is never sent again, so nothing changes");
                 return null;
             }
             row.QueueReason = reason;
@@ -102,8 +114,9 @@ public sealed class ApiModeReceiptStore
     }
 
     /// <summary>
-    /// The agent acknowledged the prompt (<c>PromptDelivered</c>): the receipt. Refused if the prompt was already refused
-    /// (rule 1). True when the store changed.
+    /// The agent acknowledged the prompt (<c>PromptDelivered</c>): the receipt. After a Refused receipt it is the retry's,
+    /// and it replaces the refusal; after a Delivered one it is a second ending, refused (rule 1). True when the store
+    /// changed.
     /// </summary>
     public bool RecordDelivered(string directorId, string sessionId, string promptId, string disposition, string acknowledgement, ApiModeEventPosition position, DateTime atUtc)
     {
@@ -124,9 +137,15 @@ public sealed class ApiModeReceiptStore
                 return "delivered (" + disposition + ")";
             }
             if (!IsNewer(position, row)) return null;
+            if (row.State == nameof(ApiModeReceiptState.Refused))
+            {
+                var was = Supersede(nameof(RecordDelivered), row, position, ApiModeReceiptState.Delivered);
+                Deliver(row, disposition, acknowledgement, at);
+                return "delivered (" + disposition + "), a retry; it replaces " + was;
+            }
             if (row.State != nameof(ApiModeReceiptState.Queued))
             {
-                FileLog.Write($"[ApiModeReceiptStore] RecordDelivered session={sessionId} prompt={promptId} at={position}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1); the first ending stands");
+                FileLog.Write($"[ApiModeReceiptStore] RecordDelivered session={sessionId} prompt={promptId} at={position}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1; a delivered prompt is never sent again); the delivery stands");
                 return null;
             }
             row.State = nameof(ApiModeReceiptState.Delivered);
@@ -137,8 +156,9 @@ public sealed class ApiModeReceiptStore
     }
 
     /// <summary>
-    /// The prompt did not enter the conversation (<c>PromptRefused</c>). Refused if the prompt was already delivered
-    /// (rule 1). True when the store changed.
+    /// The prompt did not enter the conversation (<c>PromptRefused</c>). After a Refused receipt it is the retry's, and
+    /// its reason replaces the earlier one; after a Delivered one it is a second ending, refused (rule 1). True when the
+    /// store changed.
     /// </summary>
     /// <param name="refusedBy"><c>agent</c> or <c>director</c>, as the event model words it.</param>
     public bool RecordRefused(string directorId, string sessionId, string promptId, string reason, string refusedBy, ApiModeEventPosition position, DateTime atUtc)
@@ -160,9 +180,15 @@ public sealed class ApiModeReceiptStore
                 return "refused by " + refusedBy;
             }
             if (!IsNewer(position, row)) return null;
+            if (row.State == nameof(ApiModeReceiptState.Refused))
+            {
+                var was = Supersede(nameof(RecordRefused), row, position, ApiModeReceiptState.Refused);
+                Refuse(row, reason, refusedBy, at);
+                return "refused by " + refusedBy + ", a retry; it replaces " + was;
+            }
             if (row.State != nameof(ApiModeReceiptState.Queued))
             {
-                FileLog.Write($"[ApiModeReceiptStore] RecordRefused session={sessionId} prompt={promptId} at={position}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1); the first ending stands");
+                FileLog.Write($"[ApiModeReceiptStore] RecordRefused session={sessionId} prompt={promptId} at={position}: REFUSED, the receipt is already {row.State} (one ending per prompt, event model rule 1; a delivered prompt is never sent again); the delivery stands");
                 return null;
             }
             row.State = nameof(ApiModeReceiptState.Refused);
@@ -273,6 +299,12 @@ public sealed class ApiModeReceiptStore
     /// <summary>Every stored receipt of the session in the ambient tenant, oldest prompt first. Empty when there are
     /// none.</summary>
     public IReadOnlyList<ApiModeReceiptDto> Read(string sessionId)
+        => ReadWithPositions(sessionId).Select(r => r.Receipt).ToList();
+
+    /// <summary>What <see cref="Read"/> answers, in the same order, each with the position of the last event applied to
+    /// it: for a live ruling that starts from the store and must tell an event the store already ruled on from a newer
+    /// one.</summary>
+    internal IReadOnlyList<ApiModeStoredReceipt> ReadWithPositions(string sessionId)
     {
         RequireId(sessionId, nameof(sessionId));
         lock (_gate)
@@ -284,7 +316,7 @@ public sealed class ApiModeReceiptStore
                 .ThenBy(r => r.FirstSequence)
                 .ThenBy(r => r.PromptId)
                 .AsEnumerable()
-                .Select(ToDto)
+                .Select(r => new ApiModeStoredReceipt(ToDto(r), new ApiModeEventPosition(r.LastGeneration, r.LastGenerationStartedUtc, r.LastSequence)))
                 .ToList();
         }
     }
@@ -370,6 +402,38 @@ public sealed class ApiModeReceiptStore
         row.LastGenerationStartedUtc = position.GenerationStartedUtc;
         row.LastSequence = position.Sequence;
         row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
+    }
+
+    /// <summary>
+    /// A retry's event replaces a Refused receipt (event model section 2: the later receipt stands). Everything the
+    /// earlier attempt wrote is cleared - its queue reason, its refusal - so the row reads as the retry alone, and the
+    /// row's first position moves to the retry's event: receipts are read, and turns numbered, in the order their
+    /// prompts arrived, and the retry arrived now. Only the caller may decide a row is Refused and the event newer; the
+    /// caller then writes the retry's own fields. Answers what was replaced, for the log line.
+    /// </summary>
+    private string Supersede(string operation, ApiModeReceiptEntity row, ApiModeEventPosition position, ApiModeReceiptState now)
+    {
+        if (row.State != nameof(ApiModeReceiptState.Refused))
+            throw new InvalidOperationException($"{operation}: only a Refused receipt is superseded, and prompt={row.PromptId} is {row.State}");
+        var was = $"the refusal by {row.RefusedBy} at {row.LastGeneration}#{row.LastSequence} (\"{row.RefusalReason}\")";
+        FileLog.Write($"[ApiModeReceiptStore] {operation} session={row.SessionId} prompt={row.PromptId} at={position}: SUPERSEDE, the prompt was refused and this is its retry under the same id; the later receipt ({now}) stands and replaces {was}");
+        row.State = now.ToString();
+        row.QueueReason = null;
+        row.QueuedAtUtc = null;
+        row.RefusalReason = null;
+        row.RefusedBy = null;
+        row.RefusedAtUtc = null;
+        row.Disposition = null;
+        row.Acknowledgement = null;
+        row.DeliveredAtUtc = null;
+        row.TurnId = null;
+        row.TurnOutcome = null;
+        row.TurnOutcomeReason = null;
+        row.TurnEndedAtUtc = null;
+        row.FirstGenerationStartedUtc = position.GenerationStartedUtc;
+        row.FirstSequence = position.Sequence;
+        Touch(row, position);
+        return was;
     }
 
     private static void Deliver(ApiModeReceiptEntity row, string disposition, string acknowledgement, DateTime at)

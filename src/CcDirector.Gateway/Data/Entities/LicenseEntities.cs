@@ -77,6 +77,12 @@ public sealed class LicenseMachineEntity : GatewayMintedKeyEntity
     /// <summary>How far the machine's clock was from the Gateway's on the last report, in seconds (receive time minus
     /// <c>SentAtUtc</c>); 0 when within <c>LicenseContract.ClockSkewLoggedAbove</c>, where it is not corrected.</summary>
     public double ClockSkewSeconds { get; set; }
+
+    /// <summary>Why the machine said, in its last report, that it cannot run a switch (contract section 12.1): a
+    /// <c>LicenseCannotSwitchReasons</c> word, or <c>LicenseStore.CannotSwitchReasonNotKnown</c> for a word this build
+    /// does not know. Null when it said it can - AND when its Director is older than the field and says nothing, which
+    /// is treated exactly as before the field existed.</summary>
+    public string? CannotSwitchReason { get; set; }
 }
 
 /// <summary>
@@ -167,7 +173,8 @@ public sealed class LicenseSwitchLogEntity : GatewayMintedKeyEntity
     /// <summary><c>switch</c>, <c>spare-added</c>, <c>spare-removed</c>, <c>no-room</c> or <c>renewal-failed</c>
     /// (<c>Licenses.LicenseLogKinds</c>), or
     /// <c>sign-in</c> (<c>Licenses.LicenseSignInLog.Kind</c>): a sign-in started from the Cockpit, whose identifier is in
-    /// <see cref="SwitchId"/> and whose account is in <see cref="ToAccountEmail"/>.</summary>
+    /// <see cref="SwitchId"/> and whose account is in <see cref="ToAccountEmail"/>, or <c>approval</c>
+    /// (<c>Licenses.LicenseApprovalLog.Kind</c>): an approval the relay passed between machines, in the same columns.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>For a switch row: the Gateway-minted identifier the command carries (32 lower-case hexadecimal characters). Null on a spare row.</summary>

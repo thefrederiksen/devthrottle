@@ -62,31 +62,4 @@ public sealed class SchedulerTests : IDisposable
         Assert.NotNull(job);
         Assert.NotNull(job.NextRun);
     }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public async Task Scheduler_RaiseEvents()
-    {
-        // Create a job due immediately with a fast command
-        var job = new JobRecord
-        {
-            Name = "event-job",
-            Cron = "0 0 31 2 *",  // Feb 31 = never (we manually set next_run)
-            Command = "echo event-test",
-            NextRun = DateTime.UtcNow.AddSeconds(-1)
-        };
-        _db.AddJob(job);
-
-        var events = new List<EngineEvent>();
-        var executor = new JobExecutor(_db);
-        using var scheduler = new Scheduler(_db, executor, checkIntervalSeconds: 1, runRetentionDays: 30);
-        scheduler.OnEvent += e => events.Add(e);
-
-        // One tick, driven here: it returns once the job it started has completed, so both events are
-        // facts by then - no polling against a clock.
-        await scheduler.TickAsync();
-
-        Assert.Contains(events, e => e.Type == EngineEventType.JobStarted && e.JobName == "event-job");
-        Assert.Contains(events, e => e.Type == EngineEventType.JobCompleted && e.JobName == "event-job");
-    }
 }

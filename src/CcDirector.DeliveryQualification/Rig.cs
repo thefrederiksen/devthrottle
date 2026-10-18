@@ -33,6 +33,15 @@ public static class Rig
         return dir;
     }
 
+    /// <summary>A new linked worktree of <paramref name="repo"/> at <paramref name="dir"/>, on a detached head. Each
+    /// attempt gets its own, as each reviewer seat does; the rig removes none of them.</summary>
+    public static string AddWorktree(string repo, string dir)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
+        Git(repo, $"worktree add -q --detach \"{dir}\"");
+        return dir;
+    }
+
     private static void Git(string dir, string args)
     {
         var psi = new ProcessStartInfo("git", args) { WorkingDirectory = dir, UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };

@@ -1034,6 +1034,35 @@ alarm is open. **There is no route that raises or clears an alarm** - only Gatew
 Raised by the Gateway's readiness check (`Licenses.LicenseReadinessService`, once a minute, after the switch check and
 the settling of sign-ins with no answer). See section 11.
 
+### 9.7 The refused-report and silent-machine alarms, `report-refused` and `machine-silent` (Track B)
+
+Raised by `Licenses.LicenseMachineHealthAlarm` on the Gateway's once-a-minute license check, after the switch check that
+writes the silence rows. Each alarm is true exactly while its row of the Licenses log is open (cockpit-api.md section
+5): the ingest opens and ends a `report-refused` row, the minute check opens and ends a `machine-silent` row. Each
+raise passes every open row of its kind, so an accepted report or a machine that reports again closes its alarm on the
+next minute, with nothing else to clear it.
+
+- `report-refused`, titled "Report refused". What is wrong: "machine-a is sending reports the Gateway refuses: it holds
+  alice@example.com twice (once in use and once as a spare)." - the refusal's own reason. When that sentence would be
+  longer than an alarm takes (400 characters; an account email may be 320), it is "machine-a is sending reports the
+  Gateway refuses; the Licenses page says why." The one thing to do: "Put right what the Licenses page says is wrong
+  in the report from machine-a; the alarm closes by itself when a report from it is accepted."
+- `machine-silent`, titled "Machine stopped reporting". What is wrong: "machine-a has sent no report since
+  2026-10-16 09:12 UTC, so it is not switched: its Director may have stopped." The one thing to do: "Start the
+  Director on machine-a, or check that machine-a is on and connected." Raised only past the dead limit (10 minutes),
+  never at it. When the label is too long for those sentences (two machines of one 128-character name are labelled
+  "name (user)"), what is wrong is "A machine has sent no report since ..., so it is not switched; the Licenses page
+  names it." and the one thing to do is "Start the Director on machine-a."
+- A refused machine is never also alarmed as silent, in either order: a refused machine gets no silent row, and a
+  silent machine whose Director comes back with refused reports has its silent row ended by the next minute check, so
+  its silent alarm closes and only the refused one stays.
+
+One alarm for each machine, about no one account. Its machine is the machine's row in the overview, or for a refused
+machine none of whose reports was ever accepted, the stand-in row the Licenses page lists it under, so the alarm and
+the page name the same machine. A refusal changing its reason keeps the one alarm and brings its sentence up to date.
+Raises for one tenant run one at a time, and each kind is raised on its own: a kind whose raise fails is logged, the
+other kind is still raised, and then the failure is thrown. A raise with nothing open writes no log line.
+
 ## 10. Phase 6 additions - standing approvers (Track C)
 
 The types are in `src/CcDirector.Gateway.Contracts/LicenseApproverMessages.cs`. A Director whose machine offers its
@@ -1183,3 +1212,54 @@ An open alarm's words are brought up to date on every check, with no second emai
 **Only where automation is switched on.** A tenant none of whose machines has reported is left alone: nothing read,
 nothing started, no alarm raised. A Director reports licenses only with license switching switched on for it (the
 13 October ruling keeps that to the owner's own tenant), the same rule as section 10.3.
+
+## 12. Phase 6 - whether a machine can run a switch
+
+### 12.1 The report says whether a switch can run
+
+On 16 October 2026 the Gateway sent a switch to a machine whose license tool was missing from its Python
+tool environment for 47 seconds (a tools update was rebuilding it), and the switch failed. Nothing had told
+the Gateway. The cause is fixed at its source (the update no longer takes the tools away while it builds;
+`missions/license-switching/phase-6/track-b/tool-health.md`), and the report now says whether a switch can
+run, so the Gateway never sends one that cannot.
+
+```csharp
+public sealed class LicenseUsageReport
+{
+    // ...section 2.2, unchanged...
+    public bool? CanSwitch { get; set; }               // true, or false with CannotSwitchReason; NULL from an older Director
+    public string? CannotSwitchReason { get; set; }    // LicenseCannotSwitchReasons when CanSwitch is false, else null
+}
+```
+
+Reason words (`LicenseCannotSwitchReasons`): `"tool-missing"` - `cc-devthrottle` is not in the machine's
+Python tool environment, where the switch looks for it.
+
+**The Director** asks on every report, with the very lookup the switch makes before it starts the tool
+(`ILicenseCommandLine.IsInstalled`) - never a second one. It is a file lookup, so it costs nothing to ask
+every time, and the report flips back the moment the tool is back. A change of the answer is a change
+(`Trigger = "changed"`), sent at the next 30-second check, not at the next interval.
+
+The report is built from the tool's own answers, so while the tool is missing nothing new can be read.
+The report then carries **the holdings of the last report sent**, each with its own old `ReadAtUtc` -
+exactly the rule of section 2.2 for a failed read. A Director that has sent no report yet has no such
+holdings and sends nothing, because an empty `Holdings` would tell the Gateway every holding was removed.
+
+**The Gateway** stores the reason on the machine. A word it does not know - or `CanSwitch` false with no
+word - is stored as `not-known`: the word itself is never kept, but that the machine cannot switch is.
+Then:
+
+- The machine's status is `cannot-switch`, with the text "Cannot switch: the DevThrottle tool is missing
+  from its Python tool environment", folded on the Gateway (CLAUDE.md rule 7).
+- The decision engine skips it the way it skips a stale machine or one mid-switch: it is not sent a
+  switch, it takes no part in choosing the target, and the skip names why. When a later report says it
+  can, it is a machine on a tired account like any other and the next minute check switches it.
+- The Licenses log gets one `cannot-switch` row when a machine starts saying it cannot, and one
+  `can-switch-again` row when it says it can - never a row per report.
+
+**A Director older than this field** sends `CanSwitch` null, which means "this Director does not say":
+not "it cannot", and not a promise that it can. The Gateway treats such a machine exactly as it did
+before the field existed - its status, its switches and its log are unchanged - so nothing that works
+today stops working. When a machine that said it cannot is next reported by a Director that says
+nothing, the machine goes back to that rule, and no `can-switch-again` row is written, because nothing
+said it can.

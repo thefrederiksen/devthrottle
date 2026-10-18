@@ -11,6 +11,7 @@ import { SessionMenu } from "./SessionMenu";
 import { LinkRequestChip } from "./LinkRequests";
 import { SecretTransferChip } from "./SecretTransferChip";
 import { ChatTab } from "./ChatTab";
+import { ApiModeLiveChat } from "@devthrottle/client-core/apimode/ApiModeLiveChat";
 import { VoiceTab } from "./VoiceTab";
 import { SourceControlTab } from "./SourceControlTab";
 import { ReportsTab } from "./ReportsTab";
@@ -272,7 +273,13 @@ export function SessionDetail() {
           </div>
           {mainTab === "chat" && (
             <div className="session-pane">
-              <ChatTab sessionId={sessionId} />
+              {/* An API-mode session's Chat is the live conversation from the Gateway's stream (mission #4070, phase
+                  3); the row carries the Gateway's verdict only in API mode. A terminal-mode session is unchanged. */}
+              {selected?.apiMode ? (
+                <ApiModeLiveChat sessionId={sessionId} display={selected.apiMode} />
+              ) : (
+                <ChatTab sessionId={sessionId} />
+              )}
             </div>
           )}
           {mainTab === "voice" && (
