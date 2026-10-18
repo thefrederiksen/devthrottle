@@ -102,6 +102,71 @@ public static class SessionHookFiles
         return true;
     }
 
+    /// <summary>Session Rules part 2, phase 1: the environment variable naming the session's maintained
+    /// rules file (wire contract W2). The before-a-command hook reads it and decides locally.</summary>
+    public const string RulesFileEnvVar = "CC_SESSION_RULES_FILE";
+
+    /// <summary>Session Rules part 2, phase 1: the environment variable naming the directory the
+    /// before-a-command hook writes one file per decision into (wire contract W3).</summary>
+    public const string DecisionDirEnvVar = "CC_SESSION_DECISION_DIR";
+
+    /// <summary>The name of the folder, inside the pointer drop box, that holds every session's
+    /// decision directory.</summary>
+    public const string DecisionsFolderName = "decisions";
+
+    /// <summary>The maintained rules file for one session (W2), under the real storage root.</summary>
+    public static string RulesPathFor(Guid sessionId) => RulesPathFor(sessionId, directory: null);
+
+    /// <summary>Testable overload: the maintained rules file under an explicit directory.</summary>
+    public static string RulesPathFor(Guid sessionId, string? directory)
+        => Path.Combine(directory ?? CcStorage.SessionRules(), sessionId.ToString() + DropExtension);
+
+    /// <summary>
+    /// The folder holding every session's decision directory: <c>&lt;pointer drop box&gt;/decisions</c>.
+    /// <paramref name="pointerDirectory"/> is the pointer drop box (tests pin it; null is the real one).
+    /// </summary>
+    public static string DecisionsRootFor(string? pointerDirectory)
+        => Path.Combine(pointerDirectory ?? CcStorage.SessionPointers(), DecisionsFolderName);
+
+    /// <summary>
+    /// One session's decision directory (W3): <c>decisions/&lt;id&gt;.&lt;drop token&gt;</c>. The token is the
+    /// session's existing pointer-drop token, so the directory name is the same capability the pointer
+    /// file already is: only a writer HANDED the path can put a decision where the Director will forward
+    /// it. Checked exactly as <see cref="PointerPathFor(Guid, string, string?)"/> checks it.
+    /// </summary>
+    public static string DecisionDirectoryFor(Guid sessionId, string dropToken, string? pointerDirectory)
+    {
+        if (dropToken.Length != DropTokenLength || !dropToken.All(char.IsAsciiHexDigitLower))
+            throw new ArgumentException(
+                $"A decision directory needs the session's {DropTokenLength}-character lowercase-hex " +
+                $"drop token, got: '{dropToken}'.",
+                nameof(dropToken));
+        return Path.Combine(DecisionsRootFor(pointerDirectory), sessionId.ToString() + "." + dropToken);
+    }
+
+    /// <summary>
+    /// Stamp the two rule-hook variables into a Claude Code session's environment and create the two
+    /// folders they name, BEFORE the agent starts: the hook writes into both and must never fail
+    /// because a folder is missing - it swallows every error by construction (ruling P10), so a missing
+    /// folder would cost the session its decisions in silence.
+    ///
+    /// The rules FILE is deliberately not written here. It needs the rules the Gateway answers for this
+    /// session's machine and repo, and the launch path never waits on the network; until the maintainer
+    /// writes it, the hook logs <c>no_rules_file</c>, which is the truth.
+    /// </summary>
+    public static void StampRuleHookEnvironment(
+        IDictionary<string, string> environment, Guid sessionId, string dropToken,
+        string? rulesDirectory, string? pointerDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+        var rulesPath = RulesPathFor(sessionId, rulesDirectory);
+        var decisionDirectory = DecisionDirectoryFor(sessionId, dropToken, pointerDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(rulesPath)!);
+        Directory.CreateDirectory(decisionDirectory);
+        environment[RulesFileEnvVar] = rulesPath;
+        environment[DecisionDirEnvVar] = decisionDirectory;
+    }
+
     /// <summary>
     /// Write <paramref name="content"/> to <paramref name="path"/> so a reader never sees half of it:
     /// into a sibling temporary file first, then a single move over the destination. The temporary
