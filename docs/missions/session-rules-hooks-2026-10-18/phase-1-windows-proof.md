@@ -15,7 +15,7 @@ Claude Code 2.1.302. Git for Windows bash 5.2.37.
 | 2. Tests on Windows | PROVEN |
 | 3. The installed Claude Code on Windows | PROVEN |
 | 4. Timing with the natively built evaluator | BLOCKED on step 1 (script fixed and smoke-tested) |
-| 5. Live check, rows 1 and 2 | BLOCKED on step 1 and on the Gateway piece merging |
+| 5. Live check, rows 1 and 2 | BLOCKED on step 1 (the Gateway piece has merged) |
 
 ## 1. Native build - blocked
 
@@ -41,7 +41,14 @@ with C++" workload (needs elevation).
 | `dotnet test src\CcDirector.Core.UnitTests --filter "FullyQualifiedName~Hook\|FullyQualifiedName~SessionPointerDrop\|FullyQualifiedName~Rules"` | 162 passed, 0 failed, exit 0 |
 | `dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Rules"` | 494 passed, 0 failed, exit 0 |
 
-The Gateway count is the mission branch before the Gateway piece (Developer A) merged; re-run after it lands.
+Those counts are the mission branch before the Gateway piece (Developer A) merged. Re-run on Windows after
+rebasing onto `origin/mission/session-rules-hooks-p1` at `4f21e04a7` (Gateway, Director and hook all merged):
+
+| Command | Result |
+|---|---|
+| `dotnet test src\CcDirector.RuleHook.Tests` | 70 passed, 0 failed, exit 0 |
+| `dotnet test src\CcDirector.Core.UnitTests --filter "FullyQualifiedName~Hook\|FullyQualifiedName~SessionPointerDrop\|FullyQualifiedName~Rules"` | 163 passed, 0 failed, exit 0 |
+| `dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Rules"` | 562 passed, 0 failed, exit 0 |
 
 ## 3. The installed Claude Code on Windows - proven
 
@@ -112,8 +119,9 @@ owner pays per shell command.
 
 ## 5. Live check - not run
 
-Waits on the native build (a Director built without the C++ tools carries no hook and registers no
-PreToolUse hook) and on the Tech Lead's message that the Gateway piece is merged.
+Waits on the native build: a Director built without the C++ tools carries no hook and registers no
+PreToolUse hook. The Gateway piece merged at 17:43 UTC and this branch is rebased onto it. At 18:15 UTC,
+after a 30-minute wait, the build tools were still not installed.
 
 ## NOT PROVEN on Windows
 
@@ -123,5 +131,4 @@ PreToolUse hook) and on the Tech Lead's message that the Gateway piece is merged
   registers it, and that a refused replace of a running hook is retried on the next launch.
 - Rows 1 and 2 of mission section 7 on a real Windows Director session: the `would_deny` firing on the
   Gateway, and both negative controls by `no_match` lines.
-- The Gateway rules tests after the Gateway piece merges.
 - Behaviour on a Windows machine without Git for Windows (Claude Code itself requires it on Windows).
