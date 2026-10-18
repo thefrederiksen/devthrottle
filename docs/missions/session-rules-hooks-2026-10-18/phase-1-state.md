@@ -16,3 +16,7 @@
 - B answers da1557983: 3 findings fixed, notes answered; Tech Lead re-ran 63/63 + 127/127; MERGED. Merged tree: RuleHook 63, Core 211, Gateway Rules 494 all green.
 - W Windows proof: session 6c7d56f3 on SOREN_NORTH, branch mission/session-rules-hooks-p1-win; brief-windows.md. Tell it when A merges.
 - W 6d6dbd83b: Windows tests green, PowerShell tool input = command, Claude Code on Windows runs hooks via Git Bash (~60 ms baseline); BLOCKED on C++ build tools - owner terminal 115 on SOREN_NORTH.
+- A rebased + P17 179a66b6e and B contract test f7d30ace4 MERGED. Merged tree: RuleHook 68, Core 212, Gateway 568 green.
+- W rebased 6a86311d8: Windows RuleHook 70, Core 163, Gateway Rules 562 green; no sub-agent used. Asked to run test-local.ps1 -Configuration Release on Windows.
+- WAITING ON THE OWNER: terminal 162 (devlinux sudo, inotify limit) and terminal 115 (SOREN_NORTH, C++ build tools). D and W poll for these and will message the Tech Lead when unblocked.
+- Remaining after unblock: D proves rig on merged code; Tech Lead runs live rows 1 and 2 on Linux (positive, other repo, other machine), September screen rule; W does Windows native build, timing, live rows; review W's and D's branch changes; write phase-1-proof.md; one pull request to main.
