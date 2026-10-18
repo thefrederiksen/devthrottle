@@ -72,7 +72,8 @@ public sealed class PiFixtureIngestTests : IDisposable
                     try { command = JsonDocument.Parse(line).RootElement; }
                     catch (JsonException) { continue; }
                     var type = command.GetProperty("type").GetString()!;
-                    step = dialect.OnCommandWritten(new PiCommand(command.GetProperty("id").GetString()!, type, line, type == "prompt" ? $"prompt-{++prompts}" : null));
+                    step = dialect.OnCommandWritten(new PiCommand(command.GetProperty("id").GetString()!, type, line,
+                        type == "prompt" ? $"prompt-{++prompts}" : null, type == "prompt" ? command.GetProperty("message").GetString()! : null));
                     break;
                 case "stdout":
                     step = dialect.OnStdoutRecord(JsonDocument.Parse(record.GetProperty("line").GetString()!).RootElement);

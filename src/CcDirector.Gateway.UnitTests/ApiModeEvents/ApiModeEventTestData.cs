@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
 
@@ -35,9 +36,9 @@ internal static class ApiModeEventTestData
     public static readonly TurnUsage NoUsage = new() { Input = 0, Output = 0, CacheRead = 0, CacheWrite = 0 };
 
     public static ConnectionReady Ready(long seq, string sid = Sid) => new() { SessionId = sid, Sequence = seq, At = T0, AgentSessionId = "e173b676-b5d6-4605-bc6c-cdbc82fd42a7", Model = "gpt-5.6-sol" };
-    public static PromptQueued Queued(long seq, string prompt, PromptQueuedReason reason = PromptQueuedReason.TurnRunning, string sid = Sid, int position = 1) => new() { SessionId = sid, Sequence = seq, At = T0, PromptId = prompt, Reason = reason, Position = position };
-    public static PromptDelivered Delivered(long seq, string prompt, string ack, string sid = Sid) => new() { SessionId = sid, Sequence = seq, At = T0, PromptId = prompt, Disposition = PromptDisposition.Started, Acknowledgement = ack };
-    public static PromptRefused Refused(long seq, string prompt, string reason, PromptRefusedBy by, string sid = Sid) => new() { SessionId = sid, Sequence = seq, At = T0, PromptId = prompt, Reason = reason, RefusedBy = by };
+    public static PromptQueued Queued(long seq, string prompt, PromptQueuedReason reason = PromptQueuedReason.TurnRunning, string sid = Sid, int position = 1) => new() { SessionId = sid, Sequence = seq, At = T0, PromptId = prompt, PromptText = $"text of {prompt}", Reason = reason, Position = position };
+    public static PromptDelivered Delivered(long seq, string prompt, string ack, string sid = Sid) => new() { SessionId = sid, Sequence = seq, At = T0, PromptId = prompt, PromptText = $"text of {prompt}", Disposition = PromptDisposition.Started, Acknowledgement = ack };
+    public static PromptRefused Refused(long seq, string prompt, string reason, PromptRefusedBy by, string sid = Sid) => new() { SessionId = sid, Sequence = seq, At = T0, PromptId = prompt, PromptText = $"text of {prompt}", Reason = reason, RefusedBy = by };
     public static TurnStarted Started(long seq, string turn, params string[] prompts) => new() { SessionId = Sid, Sequence = seq, At = T0, TurnId = turn, PromptIds = prompts };
     public static MessageText Text(long seq, string turn, string text, MessageTextKind kind = MessageTextKind.Delta, MessageTextChannel channel = MessageTextChannel.Reply) => new() { SessionId = Sid, Sequence = seq, At = T0, TurnId = turn, MessageId = "m1", Channel = channel, Kind = kind, Text = text };
     public static TurnEnded Ended(long seq, string turn, TurnOutcome outcome, string? reason, string? stop) => new() { SessionId = Sid, Sequence = seq, At = T0, TurnId = turn, Outcome = outcome, Reason = reason, AgentStopReason = stop, Usage = NoUsage };
@@ -52,6 +53,22 @@ internal static class ApiModeEventTestData
         GenerationStartedUtc = started,
         Events = events.Select(Json).ToList(),
     };
+
+    /// <summary>The event as a Director older than <c>promptText</c> writes it: the same JSON with that field taken out.</summary>
+    public static string JsonWithoutPromptText(SessionEvent e)
+    {
+        var node = JsonNode.Parse(Json(e))!.AsObject();
+        node.Remove("promptText");
+        return node.ToJsonString();
+    }
+
+    /// <summary>A generation-A batch as a Director older than <c>promptText</c> sends it: no event carries the field.</summary>
+    public static ApiModeEventBatch AFromAnOlderDirector(params SessionEvent[] events)
+    {
+        var batch = A(events);
+        batch.Events = events.Select(JsonWithoutPromptText).ToList();
+        return batch;
+    }
 
     public static ApiModeEventBatch A(params SessionEvent[] events) => Batch("gen-a", GenAStarted, events);
     public static ApiModeEventBatch B(params SessionEvent[] events) => Batch("gen-b", GenBStarted, events);
