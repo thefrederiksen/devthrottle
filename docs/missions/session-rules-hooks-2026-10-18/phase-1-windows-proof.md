@@ -1,0 +1,127 @@
+# Phase 1 on Windows - what was proven on SOREN_NORTH
+
+Written 2026-10-18 by "Session Rules - Developer - phase 1 Windows proof", branch
+`mission/session-rules-hooks-p1-win`, cut from `mission/session-rules-hooks-p1` at `32ef7e93f`. Self-testimony:
+the Tech Lead re-runs it and a Reviewer on another agent reads the change.
+
+Machine: SOREN_NORTH, Windows 11 Enterprise 10.0.26200, 24 logical processors, 64 GB. .NET SDK 10.0.303.
+Claude Code 2.1.302. Git for Windows bash 5.2.37.
+
+## Status by step of the brief
+
+| Step | Status |
+|---|---|
+| 1. Native build of the Director with the hook embedded | BLOCKED - no C++ build tools on this machine |
+| 2. Tests on Windows | PROVEN |
+| 3. The installed Claude Code on Windows | PROVEN |
+| 4. Timing with the natively built evaluator | BLOCKED on step 1 (script fixed and smoke-tested) |
+| 5. Live check, rows 1 and 2 | BLOCKED on step 1 and on the Gateway piece merging |
+
+## 1. Native build - blocked
+
+SOREN_NORTH has no Visual Studio and no Visual Studio Build Tools (no `VC\Tools\MSVC`, no `link.exe`, no
+`vswhere.exe`; only leftover package caches under `C:\ProgramData\Microsoft\VisualStudio\Packages`). The
+Native AOT publish of the evaluator alone fails:
+
+    dotnet publish src/CcDirector.RuleHook -c Release -r win-x64
+    error : Platform linker not found. Ensure you have all the required prerequisites documented at
+    https://aka.ms/nativeaot-prerequisites, in particular the Desktop Development for C++ workload in Visual Studio.
+    exit 1
+
+Per the brief, no Director was built without the hook and nothing here is claimed for the native binary.
+Raised to the Tech Lead for the owner: install Visual Studio Build Tools 2022 with the "Desktop development
+with C++" workload (needs elevation).
+
+## 2. Tests on Windows - proven
+
+| Command | Result |
+|---|---|
+| `dotnet test src\CcDirector.RuleHook.Tests` (before this branch's change) | 63 passed, 0 failed, exit 0 |
+| `dotnet test src\CcDirector.RuleHook.Tests` (with this branch's two new cases) | 65 passed, 0 failed, exit 0 |
+| `dotnet test src\CcDirector.Core.UnitTests --filter "FullyQualifiedName~Hook\|FullyQualifiedName~SessionPointerDrop\|FullyQualifiedName~Rules"` | 162 passed, 0 failed, exit 0 |
+| `dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Rules"` | 494 passed, 0 failed, exit 0 |
+
+The Gateway count is the mission branch before the Gateway piece (Developer A) merged; re-run after it lands.
+
+## 3. The installed Claude Code on Windows - proven
+
+Method: a scratch git repository, `claude -p` with `--settings` naming a settings file whose PreToolUse hook
+(matcher `^(Bash|PowerShell)$`) ran two commands: a Python script that saved standard input to a file and
+exited 0 printing nothing, and `echo shell0=$0 comspec=%COMSPEC% bash=$BASH_VERSION psv=$PSVersionTable >>
+shellprobe.txt`. The prompt asked for `echo RULE-PROBE` with the Bash tool and `Write-Output RULE-PROBE-PS`
+with the PowerShell tool.
+
+- **This Claude Code has a PowerShell tool and uses it** when asked: `tool_name` `PowerShell`. No setting
+  was needed to turn it on.
+- **The PowerShell tool's input field is `command`**: `"tool_input": {"command": "Write-Output
+  RULE-PROBE-PS", "description": ...}`. The call id is in `tool_use_id`, as for Bash. The event's shape is
+  otherwise identical to the Linux one.
+- **A hook that exits 0 and prints nothing leaves the command alone**: both commands ran - the session
+  transcript holds `"stdout":"RULE-PROBE"` and `"stdout":"RULE-PROBE-PS"`.
+- **Claude Code on Windows runs a hook command string through Git Bash, not cmd.exe**: every probe line
+  reads `shell0=/usr/bin/bash comspec=%COMSPEC% bash=5.2.37(1)-release psv=` - `$0` and `$BASH_VERSION`
+  expanded, `%COMSPEC%` did not. Re-run from PowerShell with `SHELL` removed from the environment (a
+  Director session does not inherit Git Bash's `SHELL`): same line. So the quoted absolute path the
+  installer registers, `"C:\...\cc-rule-hook.exe"`, is read by bash; backslashes before letters are kept
+  inside double quotes, so the path reaches Windows unchanged. That the native evaluator starts from that
+  string is shown only with the non-native build (below), not with the native one.
+
+Fixtures, captured unchanged except for indentation:
+`src/CcDirector.RuleHook.Tests/Fixtures/claude-code-2.1.302-windows-pretooluse-bash.json` and
+`...-windows-pretooluse-powershell.json`. New test `HookRunnerTests.Run_CapturedWindowsEvent_DecidesOnItsCommand`
+feeds each one in as captured and asserts `would_deny`, `tool` `shell`, the real `agentTool`, the command as
+`subject` and the call id at the end of the log line. Watched failing: with the evaluator's tool check
+narrowed to `Bash` only, the PowerShell case failed (1 failed, 1 passed); restored, both pass.
+
+## 4. Timing - blocked on step 1; the script was wrong for Windows and is fixed
+
+**Finding:** `scripts/measure-rule-hook.ps1` ran the hook command through `cmd.exe /d /s /c` on Windows,
+with `rem` as the baseline. Claude Code uses Git Bash (step 3), so it measured a shell Claude Code never
+uses. Changed on this branch:
+- On Windows the command string goes to Git Bash with `-c`, found the way Claude Code finds it:
+  `CLAUDE_CODE_GIT_BASH_PATH` when set, otherwise `<Git>\bin\bash.exe` of the Git for Windows that provides
+  `git` on the PATH (located through `git --exec-path`, because `git.exe` may be on the PATH from `cmd`,
+  `bin` or `mingw64\bin`). Neither present is an error that says what to install.
+- The Windows baseline is `/usr/bin/true`, a real program, like every hook row.
+- On Windows the event is the Windows Bash fixture.
+
+The script needs PowerShell 7 (`#Requires -Version 7`); this machine has only Windows PowerShell 5.1, so
+PowerShell 7.6.7 was installed as a local tool into the session's scratch folder (`dotnet tool install
+PowerShell --tool-path ...`), not system-wide.
+
+**Smoke run, NOT the measurement:** a framework-dependent, just-in-time build of the evaluator (`dotnet
+publish ... -p:PublishAot=false --self-contained false`), 30 runs a row, processor load 60 percent at the
+time. It proves the script runs end to end through Git Bash and that the evaluator, started from the quoted
+path through Git Bash, decides on the real Windows event: 64 decision files written of 64 expected, and each
+evaluation log's last line reads `no_rules_file`, `no_match`, `would_deny`, `would_deny` with the call id.
+
+| Row (non-native build) | Median | 95th percentile |
+|---|---|---|
+| baseline, Git Bash running `/usr/bin/true` | 59.93 ms | 77.86 ms |
+| outside a Director session | 125.34 ms | 176.36 ms |
+| rules file not there | 166.96 ms | 278.30 ms |
+| 0 rules | 328.69 ms | 741.96 ms |
+| 1 rule | 407.83 ms | 751.27 ms |
+| 50 rules | 258.01 ms | 584.87 ms |
+
+The hook rows are the .NET runtime starting and compiling, which Native AOT exists to remove; they say
+nothing about the shipped evaluator. The baseline row does stand on its own: **on Windows, Git Bash alone
+costs about 60 ms per hook call before the evaluator starts**, against 2.3 ms for `/bin/sh` on Linux. That
+cost is Claude Code's way of running any hook on Windows, not ours to remove, but it is part of what the
+owner pays per shell command.
+
+## 5. Live check - not run
+
+Waits on the native build (a Director built without the C++ tools carries no hook and registers no
+PreToolUse hook) and on the Tech Lead's message that the Gateway piece is merged.
+
+## NOT PROVEN on Windows
+
+- The native Windows build of `cc-rule-hook` and of the Director embedding it.
+- The native evaluator's timing (step 4's real numbers).
+- That the installer, inside a real Director on Windows, writes `cc-rule-hook.exe` into `claude-hooks` and
+  registers it, and that a refused replace of a running hook is retried on the next launch.
+- Rows 1 and 2 of mission section 7 on a real Windows Director session: the `would_deny` firing on the
+  Gateway, and both negative controls by `no_match` lines.
+- The Gateway rules tests after the Gateway piece merges.
+- Behaviour on a Windows machine without Git for Windows (Claude Code itself requires it on Windows).

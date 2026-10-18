@@ -308,6 +308,28 @@ public sealed class HookRunnerTests : IDisposable
         Assert.Equal("PowerShell", (string?)d["agentTool"]);
     }
 
+    /// <summary>The events captured from Claude Code 2.1.302 on Windows, fed in UNCHANGED: the PowerShell
+    /// tool carries its command in tool_input.command exactly as Bash does (P12 left that unproven until
+    /// the Windows run), and both decide with the call id in the log.</summary>
+    [Theory]
+    [InlineData("claude-code-2.1.302-windows-pretooluse-bash.json", "Bash", "echo RULE-PROBE", "toolu_01WizwWtYmE55YUkHNxpqfSD")]
+    [InlineData("claude-code-2.1.302-windows-pretooluse-powershell.json", "PowerShell", "Write-Output RULE-PROBE-PS", "toolu_01Ji2BW5JfhnHF8omZBGe9hk")]
+    public void Run_CapturedWindowsEvent_DecidesOnItsCommand(string fixture, string agentTool, string command, string callId)
+    {
+        WriteRules(RuleJson("probe", "repo", "deny", 3, "RULE-PROBE"));
+
+        var exit = Run(Fixture(fixture));
+
+        Assert.Equal(0, exit);
+        var line = Assert.Single(LogLines());
+        Assert.Contains("\twould_deny\t", line);
+        Assert.EndsWith(callId, line);
+        var d = JsonNode.Parse(File.ReadAllText(Assert.Single(Decisions())))!;
+        Assert.Equal("shell", (string?)d["tool"]);
+        Assert.Equal(agentTool, (string?)d["agentTool"]);
+        Assert.Equal(command, (string?)d["subject"]);
+    }
+
     // ---------- P10: whatever goes wrong, exit 0, and the log says what ----------
 
     [Fact]
