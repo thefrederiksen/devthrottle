@@ -146,9 +146,15 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
 
     public Task<int> WaitForExitAsync(CancellationToken cancellationToken) => _exit.Task.WaitAsync(cancellationToken);
 
+    /// <summary>Completes when standard input is closed, so a test can act between the close and the exit.</summary>
+    public Task InputClosedTask => _inputClosedSignal.Task;
+
+    private readonly TaskCompletionSource _inputClosedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public void CloseInput()
     {
         _inputClosed = true;
+        _inputClosedSignal.TrySetResult();
         if (ExitsWhenInputCloses)
             Exit(0);
     }

@@ -45,7 +45,8 @@ public sealed class ApiModeSessionSurvivesACrashTests : IDisposable
         var id = Guid.NewGuid();
         var backend = new ApiModeSessionBackend(id.ToString(), "pi-conversation", resuming: false,
             new SessionEventStream(id.ToString(), new LoggingSessionEventSink(), new FakeTimeProvider(Now)),
-            () => throw new InvalidOperationException("No process is started in these tests."), new FakeTimeProvider(Now));
+            () => throw new InvalidOperationException("No process is started in these tests."),
+            () => throw new InvalidOperationException("No terminal is taken in these tests."), new FakeTimeProvider(Now));
         var session = new Session(id, Path.GetTempPath(), Path.GetTempPath(), null, backend, SessionBackendType.ConPty) { AgentKind = AgentKind.Pi };
         _sessions.Add(session);
         return session;
