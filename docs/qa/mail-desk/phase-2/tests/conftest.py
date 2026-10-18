@@ -267,3 +267,26 @@ def world(tmp_path, monkeypatch, capsys):
 
 def all_messages(context):
     return [m for section in context["channels"] for m in section["messages"]]
+
+
+def entry_text(memory, address):
+    """One channel's entry in the memory, written the way the check writes the memory (compact, UTF-8 as is)."""
+    entry = next(c for c in memory["channels"] if c["address"].strip().lower() == address)
+    return json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
+
+
+def channel_failed(world, address=MAILBOX):
+    """Phase 3 (docs/qa/mail-desk/phase-3/CONTRACT.md 6.1): a failure that belongs to one channel fails that channel
+    only. The run exits 0 with the failure in the channel's section, nothing reported or filed for it, and the
+    channel's entry in the memory written back exactly as it was. Returns the sentence and the detail as two lines -
+    where phase 2 put them on standard error - so the assertions on them read the same."""
+    before = entry_text(world.read_memory(), address)
+    code, output, context, _ = world.run()
+    assert code == 0 and output is not None
+    assert context["version"] == 2
+    section = next(s for s in context["channels"] if s["address"] == address)
+    assert section["messages"] == [] and section["filing"] == [] and section["more"] is False
+    assert "filingNotCarriedOut" not in section
+    assert set(section["failure"]) == {"sentence", "detail"}
+    assert entry_text(world.read_memory(), address) == before
+    return "\n".join([section["failure"]["sentence"], section["failure"]["detail"]])

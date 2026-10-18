@@ -9,7 +9,7 @@ OSError. The rest are memories this check did not write, and anything else the c
 import pytest
 import requests
 
-from conftest import MACHINE, MAILBOX, channel, gateway_reason, msg
+from conftest import MACHINE, MAILBOX, channel, channel_failed, gateway_reason, msg
 
 CURSOR = {"newest": "2026-10-18T07:00:00Z", "idsAtNewest": []}
 
@@ -22,6 +22,13 @@ def failed_with_sentence(world):
     assert not err.startswith("Traceback")
     assert "Traceback" not in gateway_reason(err)
     return err.splitlines()
+
+
+def channel_failed_with_sentence(world):
+    """Phase 3: a failure of one channel is in its section (channel_failed), and is never a traceback either."""
+    text = channel_failed(world)
+    assert "Traceback" not in text
+    return text.splitlines()
 
 
 @pytest.mark.parametrize("where", ["construct", "renew"])
@@ -37,7 +44,7 @@ def test_SignIn_ServiceOutOfReach_IsOneSentenceNamingTheMachineAndTheError(world
     else:
         world.sign_in.renew_raises[MAILBOX] = error
     world.memory(channel(cursor=CURSOR))
-    lines = failed_with_sentence(world)
+    lines = channel_failed_with_sentence(world)
     assert lines[0] == (f"could not reach the Microsoft sign-in service from {MACHINE} for {MAILBOX}: "
                         f"{type(error).__name__}")
     assert str(error) in lines[1]                        # the cause, whole, on the detail line
@@ -50,7 +57,7 @@ def test_SignIn_ServiceAnsweringAnError_IsOneSentence(world):
     world.sign_in.construct_raises = ValueError("OIDC Discovery failed on https://login.microsoftonline.com/common. "
                                                 "HTTP status: 503")
     world.memory(channel(cursor=CURSOR))
-    lines = failed_with_sentence(world)
+    lines = channel_failed_with_sentence(world)
     assert lines[0].startswith(f"the Microsoft sign-in service failed on {MACHINE} for {MAILBOX}: OIDC Discovery")
     assert "HTTP status: 503" in lines[1]
 
@@ -70,7 +77,7 @@ def test_SignIn_ServiceAnsweringAnError_IsOneSentence(world):
 def test_Memory_AFieldThisCheckDidNotWrite_IsOneSentenceAndNoNetwork(world, fields, named):
     world.plant()
     world.memory(channel(**dict({"cursor": CURSOR}, **fields)))
-    lines = failed_with_sentence(world)
+    lines = channel_failed_with_sentence(world)
     table = " table" if named == "'keys'" else ""
     assert lines[0] == f"the channel {MAILBOX} has a {named}{table} this check did not write"
     assert world.graph.log == []
@@ -92,7 +99,7 @@ def test_Graph_AMessageWithAFieldOfTheWrongKind_IsOneSentence(world, raw):
     world.plant()
     world.graph.box(MAILBOX)["inbox"].append(raw)
     world.memory(channel(cursor=CURSOR, sentCache={"refreshedUtc": "2026-10-18T11:00:00Z", "hashes": []}))
-    lines = failed_with_sentence(world)
+    lines = channel_failed_with_sentence(world)
     assert lines[0] == (f"Microsoft Graph answered a message without a usable id or receive time for {MAILBOX} "
                         f"while reading the Inbox")
 
@@ -101,7 +108,7 @@ def test_Graph_APageThatIsAList_IsOneSentence(world, monkeypatch):
     world.plant()
     world.memory(channel(cursor=CURSOR))
     monkeypatch.setattr(world.graph, "answer", lambda *a: (200, [1, 2]))
-    lines = failed_with_sentence(world)
+    lines = channel_failed_with_sentence(world)
     assert lines[0].startswith("Microsoft Graph answered a page without a 'value' list for ")
 
 
