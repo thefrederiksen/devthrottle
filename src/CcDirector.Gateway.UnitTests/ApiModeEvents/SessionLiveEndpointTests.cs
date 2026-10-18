@@ -729,6 +729,30 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Stream_AQueuedPromptALaterTurnCarries_IsSentDeliveredAsTheReceiptsEndpointSaysIt()
+    {
+        // Item 9: p1 queued in generation A; its delivery fell in the hole, generation B opens with the turn that carries
+        // it, and the user queues p2 behind that turn.
+        await StartAsync();
+        PushA(Queued(1, "p1"));
+        PushB(Started(1), Queued(2, "p2"));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:1");
+        var reset = await stream.NextAsync();
+        var receipts = await stream.NextAsync();
+        var (status, body) = await GetAsync(Alice, ApiSession, "/receipts");
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, Reset(reset).Code));
+        Assert.Equal(HttpStatusCode.OK, status);
+        var streamed = Items(receipts!).Where(i => i.PromptId is not null).ToDictionary(i => i.PromptId!, i => (i.Text, i.Tone));
+        var served = JsonSerializer.Deserialize<SessionReceiptsDto>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!
+            .Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone));
+        Assert.Equal(("Delivered", "green"), streamed["p1"]);
+        Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), streamed["p2"]);
+        Assert.Equal(streamed.OrderBy(kv => kv.Key, StringComparer.Ordinal), served.OrderBy(kv => kv.Key, StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task Items_CursorAfterAGatewayRestart_AnswersAResetAndNoCursor()
     {
         await StartAsync();

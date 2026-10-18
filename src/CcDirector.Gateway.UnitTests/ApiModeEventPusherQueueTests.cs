@@ -332,7 +332,7 @@ public sealed class ApiModeEventPusherQueueTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Publish_AHoleSwallowsADeliveryAndTheNextEventIsItsTurnsStart_ThePromptIsNotRuledUnknown()
+    public async Task Publish_AHoleSwallowsADeliveryAndTheNextEventIsItsTurnsStart_ThePromptIsRuledDelivered()
     {
         // Arrange
         var pusher = Pusher();
@@ -348,9 +348,9 @@ public sealed class ApiModeEventPusherQueueTests : IAsyncDisposable
         _stream.Publish([TurnStarts("p1"), Tool()]);
         await pusher.PushSessionAsync(Sid);
 
-        // Assert: the turn's start is a record of p1, so it is not "no record of sending it".
+        // Assert: a turn carries only a prompt whose delivery was published, so the turn's start proves p1 delivered.
         Assert.IsType<TurnStarted>(Assert.Single(Events(_received[^1]), e => e.Sequence == 1));
-        Assert.NotEqual(ApiModeLostQueuedPrompt.Words, Words("p1"));
+        Assert.Equal("Delivered", Words("p1"));
     }
 
     [Fact]

@@ -405,6 +405,59 @@ If the Tech Lead rules instead to keep the Queued state, the two consequences ab
 the generation; Unknown at the next hole) belong in the class summary, and the third pusher test should assert the
 words it does produce, so the choice is on record.
 
+**Developer's answer.** The Tech Lead ruled as recommended: a still-Queued prompt that a `TurnStarted` of a later
+generation carries is ruled **Delivered**. Done, in the same two places, under the same condition
+(`ApiModeLostQueuedPrompt.IsCarriedBy` is unchanged as a condition; only what it leads to changed).
+
+- **The receipt store** (`ProveQueueLeftOnce`): the carried row becomes Delivered, its acknowledgement and delivery time
+  empty, its disposition `lost`, its turn id the `TurnStarted`'s, its position the proof's; it counts as a change.
+  The link is made here, by the same event, because `RecordTurnStarted` runs after the proof and links only a row the
+  event is newer than, and the row has just moved to that position. `RecordTurnStarted` then changes nothing for it,
+  and the turn's `TurnEnded` lands on it by the existing rules.
+- **The live ruling** (`QueuesLeft`): the same fields, and the receipt is sent again ("Delivered", green, with its turn
+  id). It is no longer Queued, so it leaves the place-in-line count, and the places behind it are re-sent by the
+  existing `WaitingIfMoved`. `TurnStart` then finds it Delivered and already linked.
+- **The mark of the inference: the disposition `lost`** (`ApiModeLostQueuedPrompt.LostDisposition`). It is the word the
+  Gateway already gives a turn whose ending it inferred (`ApiModeLostTurnEnd.Outcome`), for the same reason: the event
+  that would have said it fell in a hole. It is not one of the agent's three dispositions, so the row can never be read
+  as the agent's own acknowledgement. The disposition is used rather than left empty because an empty one could not be
+  told from a delivery recorded without one. The acknowledgement stays empty: the agent's words are not known.
+- **The words read neither field.** `ReceiptWords` and `ReceiptTone` for Delivered switch on `TurnOutcome` only, so the
+  receipt reads "Delivered" (green), or its turn's outcome words. Pinned by the tests below.
+- **A real `PromptDelivered` replaces the inference** (`ApiModeLostQueuedPrompt.IsInferredDelivery`): in the store
+  (`RecordDelivered`) and in the live ruling (`ReceiptChange` and the `PromptDelivered` change), it replaces the
+  disposition and acknowledgement and keeps the turn and its outcome, under the same rule that lets a real event
+  replace Unknown (`IsReplacedBy`: any sequence, but not an older generation than the ruling, which is a replay). It is
+  not logged as a second ending. As you say, it cannot arrive except as a replay, so this is the guard on the record,
+  not a path expected in use.
+- **The class summary** of `ApiModeLostQueuedPrompt`, the store's parameter and class notes, the live ruling's notes,
+  and the `Disposition` notes on the row and the receipt contract now say this, including why Queued was wrong (a place
+  in line the Director does not hold).
+
+Tests:
+
+- `ApiModeReceiptStoreTests`: `RecordQueueLeftProven_ATurnStartedThatCarriesTheQueuedPrompt_RulesItDeliveredAndLinksItToTheTurn`
+  (replaces the Queued one; checks every field and the words), `RecordQueueLeftProven_ACarriedPrompt_TakesItsTurnsOutcomeByTheOrdinaryRules`
+  (`RecordTurnStarted` links nothing again; a failed `TurnEnded` lands on it),
+  `RecordDelivered_TheRealDeliveryAfterTheGatewayInferredIt_ReplacesTheDispositionAndAcknowledgementAndKeepsTheTurn`, and
+  `RecordDelivered_ADeliveryOfAnOlderGenerationThanTheInference_IsAReplayAndChangesNothing`.
+- `ApiModeLiveRulingTests`: `Rule_ATurnStartedThatCarriesTheQueuedPrompt_RulesItDeliveredAndItTakesItsTurnsOutcome`,
+  `Rule_ATurnStartedThatCarriesOneQueuedPrompt_RulesItDeliveredAndTheOtherUnknown`,
+  `Rule_ACarriedPrompt_LeavesTheLineSoAPromptQueuedAfterItIsFirst`, and
+  `Rule_TheRealDeliveryAfterTheGatewayInferredIt_ReplacesItWithoutASecondEnding`.
+- `ApiModeEventIngestTests`: the carried-prompt test now asserts Delivered, `lost`, no acknowledgement, turn `t1`; and
+  `Accept_ACarriedPromptThenAPromptQueuedBehindIt_ThePlacesInLineAreTheDirectorsAndStayAcrossTheNextHole` is your run 2
+  made permanent: after B, `p1` reads "Delivered" and `p2` "Queued, 1st in line: a turn is running"; after C, the same.
+- `SessionReceiptsEndpointTests.Read_AQueuedPromptALaterTurnCarries_IsDeliveredAndOutOfTheLineAsTheLiveStreamSaysIt` and
+  `SessionLiveEndpointTests.Stream_AQueuedPromptALaterTurnCarries_IsSentDeliveredAsTheReceiptsEndpointSaysIt`: the
+  endpoint, the live reader and the stream agree ("Delivered", green; `p2` 1st in line).
+- `ApiModeEventPusherQueueTests`: the third test is renamed `..._ThePromptIsRuledDelivered` and asserts the words
+  "Delivered", not merely "not Unknown".
+
+Ran, Debug, `CcDirector.Gateway.UnitTests`, one class at a time, each after checking no other test host was up:
+`ApiModeLiveRulingTests` 120, `ApiModeReceiptStoreTests` 84, `SessionReceiptsEndpointTests` 18, `ApiModeEventIngestTests`
+40, `SessionLiveEndpointTests` 58, `ApiModeEventPusherQueueTests` 10 - **330 passed, 0 failed, 0 skipped**.
+
 ### Finding 3 - fixed
 
 The ingest remembers, per tenant and session, the generation the proof was last made in, written only after the store
