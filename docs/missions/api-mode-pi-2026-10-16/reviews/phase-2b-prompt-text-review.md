@@ -226,3 +226,56 @@ The verbatim path end to end inside the Gateway; the two migrations and the snap
 list projection; the hub's inbound size; the phase 3 type name. What the next seat must still
 settle: finding 1's choice (contract branch or claim), and finding 3's sentence and test in whichever
 of #4142 and #4146 lands second.
+
+## Developer's answer
+
+Written 17 October 2026 on devlinux by the Developer seat, after the Tech Lead's rulings. The branch was
+rebased onto the current head of the contract branch `apimode/p4-prompt-text` (`a8802dd17`), which now
+carries #4121's final contract and has merged main, so #4142 (`Supersede`), #4174 and #4178 are under
+this branch. #4121 is not merged yet, so the rebase onto main itself waits for it.
+
+**Finding 1, settled by #4121.** #4121's commit `1b4df19be` made `PromptText` optional (`string?`, no
+`required`) on all three events, so a batch from a Director older than the field is accepted and its
+events read back with null text. With that contract the "older Director, the receipt stays null"
+sentences on `ApiModeReceiptEntity.PromptText`, `ApiModeReceiptDto.PromptText`, the two test comments
+and the pull request body are true, and are kept. The missing proof is now written end to end:
+`Accept_ABatchFromADirectorOlderThanPromptText_IsAcceptedWholeAndFeedsTheReceipts` (#4121's test,
+which sends the events' JSON with `promptText` removed through the real ingest) now also asserts that
+both stored receipts have null text, never an empty string. Every null path in this branch takes
+`string?`: the ingest passes the event's text as it is, the store and the ruling treat null and empty
+as "no text", and `ToDto`, `Copy` and `ReceiptItem` copy null through.
+
+**Finding 2, accepted.** In `ApiModeLiveRuling.Rule` the three receipt arms now call `KeepPromptText`
+after the finality check (main's `Supersedes` check), not before it. The ruling therefore sets the text
+under exactly the store's condition: a new receipt, a Queued receipt, or a retry over a Refused one; never
+a late event after Delivered, which both set aside. The comment on the ruling's `KeepPromptText` says
+so. Proof: `Rule_ALateEventWithTextAfterDelivered_SetsNoTextAsTheStoreDoesNot`, for a late Queued and a
+late Refused, drives the store and the ruling with the same events and asserts the stored receipt and
+the next receipt item the live reader gets both have no text. With the keeper moved back above the
+check, both cases fail; with the fix they pass. The "words rule" case needs nothing, as the review
+says.
+
+**Finding 3, accepted.** `Supersede` in the store and `Supersedes` in the ruling keep `PromptText` and
+now say why in their comments: a retry under the same id is the same prompt, so it carries the same
+words, and clearing the text would let a retry's event without text blank the row. The rebase also
+showed that the merge of #4142 left the store's three supersede branches without a `KeepPromptText`
+call, so a retry carrying text over a refusal that had none would never have filled it, while the
+ruling would. Each supersede branch now calls `KeepPromptText`, the first-wins rule. Proofs:
+`RecordDelivered_RetryAfterARefusalWithText_KeepsTheText` (the review's case: refused with text at
+sequence 3, the retry delivered at 9), `RecordQueued_RetryWithoutTextAfterARefusalWithText_DoesNotBlankIt`,
+`RecordRefused_RetryWithTextAfterARefusalWithout_SetsTheText`, and the same two cases in the ruling
+(`Rule_RetryAfterARefusal_KeepsTheTextAsTheStoreDoes`, `Rule_RetryWithTextAfterARefusalWithout_SetsTheTextAsTheStoreDoes`).
+
+**Finding 4, accepted as is.** One long prompt is charged on every event that carries it and can empty
+the session's live buffer. A live reader is then reset and rebuilds from the stored receipts and
+history, which keep the text, so nothing is lost. The window of live events behind a prompt of N
+characters is 2,000,000 minus 2N, as the review works out. No change.
+
+**Migrations.** The new base adds no migration and changes no model (only two entity comments), so
+`AddApiModeReceiptPromptText` stays the newest migration on both providers and was not regenerated.
+
+**Run on devlinux, one class at a time:** ApiModeReceiptPromptTextTests 24, ApiModeReceiptStoreTests
+41, ApiModeLiveRulingTests 46, SessionReceiptsEndpointTests 9, SessionLiveEndpointTests 55,
+ApiModeEventIngestTests 28, and the two classes that check the model has no pending changes
+(FleetOutcomeStopIdentityMigrationTests 3, GatewayHostBootSmokeTests 11): 217 passed, none failed. No
+test names the migration by name; those two classes are the migration's checks.

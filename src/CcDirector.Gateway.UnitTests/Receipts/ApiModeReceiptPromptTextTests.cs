@@ -213,11 +213,116 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
         }
     }
 
+    // ----- a retry under the same id keeps the text (Supersede, pull request #4142) -----
+    // A retry reuses its Gateway id exactly, so it is the same prompt and carries the same words: Supersede clears what
+    // the refused attempt wrote and keeps the text, and the retry's text fills it only when the refused attempt had none.
+
+    [Fact]
+    public void RecordDelivered_RetryAfterARefusalWithText_KeepsTheText()
+    {
+        var store = Store();
+        store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", At(3), T0, Spoken);
+
+        var changed = store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(9), T0, Spoken);
+
+        Assert.True(changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Delivered, r.State);
+        Assert.Null(r.RefusalReason);
+        Assert.Equal(Spoken, r.PromptText);
+    }
+
+    [Fact]
+    public void RecordQueued_RetryWithoutTextAfterARefusalWithText_DoesNotBlankIt()
+    {
+        var store = Store();
+        store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", At(3), T0, Spoken);
+
+        store.RecordQueued(Director, Sid, "p1", "agentStarting", At(9), T0);
+
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Queued, r.State);
+        Assert.Equal(Spoken, r.PromptText);
+    }
+
+    [Fact]
+    public void RecordRefused_RetryWithTextAfterARefusalWithout_SetsTheText()
+    {
+        var store = Store();
+        store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", At(3), T0);
+
+        store.RecordRefused(Director, Sid, "p1", BusyRefusal, "director", At(9), T0, Spoken);
+
+        var r = Only(store);
+        Assert.Equal("director", r.RefusedBy);
+        Assert.Equal(Spoken, r.PromptText);
+    }
+
+    [Fact]
+    public void Rule_RetryAfterARefusal_KeepsTheTextAsTheStoreDoes()
+    {
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Refused(3, Spoken));
+
+        var item = Assert.Single(ruling.Rule(Delivered(9, null)));
+
+        Assert.Equal("Delivered", item.Text);
+        Assert.Equal(Spoken, item.PromptText);
+    }
+
+    [Fact]
+    public void Rule_RetryWithTextAfterARefusalWithout_SetsTheTextAsTheStoreDoes()
+    {
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Refused(3, null));
+
+        var item = Assert.Single(ruling.Rule(Delivered(9, Spoken)));
+
+        Assert.Equal(Spoken, item.PromptText);
+    }
+
+    // ----- an event the store sets aside sets no text in the live ruling either -----
+    // After Delivered, a late Queued or Refused is set aside by the store (a delivered prompt is never sent again), text
+    // and all. The ruling keeps the text under the same condition, so a live reader is never shown text the stored
+    // receipt does not have, and the next reset does not take it away.
+
+    private static TurnStarted TurnStart(long seq) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), TurnId = "t1", PromptIds = new[] { "p1" } };
+    private static TurnEnded TurnFailed(long seq) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), TurnId = "t1", Outcome = TurnOutcome.Failed, Reason = "Pi exited during the turn (exit code 137)", AgentStopReason = null, Usage = new TurnUsage { Input = 0, Output = 0, CacheRead = 0, CacheWrite = 0 } };
+
+    public static TheoryData<string> SetAsideAfterDelivered => new() { "queued", "refused" };
+
+    [Theory]
+    [MemberData(nameof(SetAsideAfterDelivered))]
+    public void Rule_ALateEventWithTextAfterDelivered_SetsNoTextAsTheStoreDoesNot(string late)
+    {
+        // Arrange: delivered without text, then a late event with text that both keepers set aside.
+        var store = Store();
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        var ruling = new ApiModeLiveRuling();
+        ruling.Rule(Delivered(1, null));
+        SessionEvent lateEvent = late == "queued" ? Queued(2, Spoken) : Refused(2, Spoken);
+        var storeChanged = late == "queued"
+            ? store.RecordQueued(Director, Sid, "p1", "turnRunning", At(2), T0, Spoken)
+            : store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", At(2), T0, Spoken);
+
+        // Act: the late event, then a turn that changes the receipt's words, so the ruling shows its receipt again.
+        var lateItems = ruling.Rule(lateEvent);
+        ruling.Rule(TurnStart(3));
+        var afterTurn = ruling.Rule(TurnFailed(4));
+
+        // Assert: the store kept no text, and the receipt item the live reader is handed has none either.
+        Assert.False(storeChanged);
+        Assert.Null(Only(store).PromptText);
+        Assert.Empty(lateItems);
+        var receipt = Assert.Single(afterTurn, i => i.Kind == ApiModeLiveItemKinds.Receipt);
+        Assert.Null(receipt.PromptText);
+    }
+
     // ----- the live ruling: the receipt item carries it -----
 
-    private static PromptQueued Queued(long seq, string? text) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), PromptId = "p1", PromptText = text!, Reason = PromptQueuedReason.TurnRunning, Position = 1 };
-    private static PromptDelivered Delivered(long seq, string? text) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), PromptId = "p1", PromptText = text!, Disposition = PromptDisposition.Started, Acknowledgement = StartedAck };
-    private static PromptRefused Refused(long seq, string? text) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), PromptId = "p1", PromptText = text!, Reason = BusyRefusal, RefusedBy = PromptRefusedBy.Agent };
+    private static PromptQueued Queued(long seq, string? text) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), PromptId = "p1", PromptText = text, Reason = PromptQueuedReason.TurnRunning, Position = 1 };
+    private static PromptDelivered Delivered(long seq, string? text) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), PromptId = "p1", PromptText = text, Disposition = PromptDisposition.Started, Acknowledgement = StartedAck };
+    private static PromptRefused Refused(long seq, string? text) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), PromptId = "p1", PromptText = text, Reason = BusyRefusal, RefusedBy = PromptRefusedBy.Agent };
 
     [Fact]
     public void Rule_EachOfTheThreeEvents_TheReceiptItemCarriesThePromptTextVerbatim()
@@ -264,9 +369,9 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
     {
         var store = Store();
         store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0, Spoken);
-        var ruling = new ApiModeLiveRuling(store.Read(Sid));
+        var ruling = new ApiModeLiveRuling(store.ReadWithPositions(Sid));
 
-        var item = Assert.Single(ruling.Rule(Delivered(2, null)));
+        var item = Assert.Single(ruling.Rule(new ApiModeHeldEvent("gen-a", GenAStarted, Delivered(2, null))));
 
         Assert.Equal(Spoken, item.PromptText);
     }

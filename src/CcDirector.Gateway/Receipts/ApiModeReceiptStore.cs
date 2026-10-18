@@ -110,6 +110,7 @@ public sealed class ApiModeReceiptStore
                 var was = Supersede(nameof(RecordQueued), row, position, ApiModeReceiptState.Queued);
                 row.QueueReason = reason;
                 row.QueuedAtUtc = at;
+                KeepPromptText(row, promptText);
                 return "queued again, a retry; it replaces " + was;
             }
             if (row.State != nameof(ApiModeReceiptState.Queued))
@@ -158,6 +159,7 @@ public sealed class ApiModeReceiptStore
             {
                 var was = Supersede(nameof(RecordDelivered), row, position, ApiModeReceiptState.Delivered);
                 Deliver(row, disposition, acknowledgement, at);
+                KeepPromptText(row, promptText);
                 return "delivered (" + disposition + "), a retry; it replaces " + was;
             }
             if (row.State != nameof(ApiModeReceiptState.Queued))
@@ -208,6 +210,7 @@ public sealed class ApiModeReceiptStore
             {
                 var was = Supersede(nameof(RecordRefused), row, position, ApiModeReceiptState.Refused);
                 Refuse(row, reason, refusedBy, at);
+                KeepPromptText(row, promptText);
                 return "refused by " + refusedBy + ", a retry; it replaces " + was;
             }
             if (row.State != nameof(ApiModeReceiptState.Queued))
@@ -435,6 +438,10 @@ public sealed class ApiModeReceiptStore
     /// row's first position moves to the retry's event: receipts are read, and turns numbered, in the order their
     /// prompts arrived, and the retry arrived now. Only the caller may decide a row is Refused and the event newer; the
     /// caller then writes the retry's own fields. Answers what was replaced, for the log line.
+    /// The prompt's text is kept, not cleared: a retry under the same id is the same prompt, so it carries the same
+    /// words (event model, "What a promptId is"). Clearing it would let a retry's event without text blank the row,
+    /// which <see cref="KeepPromptText"/> forbids; the caller hands the retry's text to KeepPromptText, which fills it
+    /// only when the refused attempt carried none.
     /// </summary>
     private string Supersede(string operation, ApiModeReceiptEntity row, ApiModeEventPosition position, ApiModeReceiptState now)
     {
