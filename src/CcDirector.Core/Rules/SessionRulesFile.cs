@@ -61,12 +61,18 @@ public static class SessionRulesFile
         return true;
     }
 
-    /// <summary>Delete a session's rules file. A file that is already gone is not an error.</summary>
+    /// <summary>
+    /// Delete a session's rules file and the hook's evaluation log beside it (W4), so neither outlives
+    /// the session. The log is the proof a negative control was evaluated, so a live check reads it
+    /// before it closes the session. A file that is already gone is not an error.
+    /// </summary>
     public static void DeleteFor(Guid sessionId, string? directory)
     {
-        var path = SessionHookFiles.RulesPathFor(sessionId, directory);
-        if (File.Exists(path))
-            File.Delete(path);
+        foreach (var path in new[] { SessionHookFiles.RulesPathFor(sessionId, directory), SessionHookFiles.EvaluationLogPathFor(sessionId, directory) })
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     /// <summary>Round-trip UTC with seven fractional digits and a Z, e.g. 2026-10-18T12:00:00.0000000Z.</summary>

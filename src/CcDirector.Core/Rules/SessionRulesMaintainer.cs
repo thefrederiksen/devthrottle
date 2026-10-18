@@ -21,8 +21,9 @@ namespace CcDirector.Core.Rules;
 ///     refresh runs for that session alone, so it does not wait a whole interval for its first file.
 ///   - When a session is removed, its file goes.
 ///
-/// A session's repo identity is read once, from its checkout's origin remote
-/// (<see cref="SessionRepoIdentity"/>), and kept: the remote of a running session's folder does not move.
+/// A session's repo identity is read from its checkout's origin remote (<see cref="SessionRepoIdentity"/>).
+/// A real repo is read once and kept; "no repo" is asked again on every refresh, because a folder can
+/// gain an origin while its session runs.
 ///
 /// WHAT IS NEVER WRITTEN: a file the Director cannot vouch for. When git could not be asked, or the
 /// Gateway has never answered for the session's repo, there is NO file - and the hook's evaluation log
@@ -122,8 +123,10 @@ public sealed class SessionRulesMaintainer : IDisposable
         await _refreshGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // 1. Each session's repo, read once and kept. A session git could not answer for is left out
-            //    of this refresh and asked again on the next one.
+            // 1. Each session's repo. A real repo is read once and kept. The EMPTY identity is never kept:
+            //    a folder can gain an origin while the session runs (a clone inside it, "git remote add", a
+            //    repaired worktree), so it is asked again on every refresh. A session git could not answer
+            //    for is left out of this refresh and asked again on the next one.
             var known = new List<(Session Session, string Repo)>();
             foreach (var session in sessions)
             {
@@ -136,7 +139,8 @@ public sealed class SessionRulesMaintainer : IDisposable
                         continue;
                     }
                     repo = resolved.Repo;
-                    _identities[session.Id] = repo;
+                    if (repo.Length > 0)
+                        _identities[session.Id] = repo;
                 }
                 known.Add((session, repo));
             }

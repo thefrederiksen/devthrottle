@@ -122,4 +122,32 @@ public sealed class SessionRuleHookFilesTests : IDisposable
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         Assert.Empty(doc.RootElement.GetProperty("rules").EnumerateArray());
     }
+
+    [Fact]
+    public void StampRuleHookEnvironment_ClaudeSession_RecordsTheIdAndTokenItMinted()
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+        var token = SessionHookFiles.NewDropToken();
+        var pointerDir = Path.Combine(_dir, "session-pointers");
+
+        // Act
+        SessionHookFiles.StampRuleHookEnvironment(new Dictionary<string, string>(), id, token, Path.Combine(_dir, "rules"), pointerDir);
+
+        // Assert: what lets the NEXT Director vouch for this directory after a restart.
+        Assert.True(File.Exists(SessionHookFiles.DecisionRecordFor(id, token, pointerDir)));
+    }
+
+    [Fact]
+    public void EvaluationLogPathFor_Session_IsBesideItsRulesFile()
+    {
+        // Arrange
+        var id = Guid.NewGuid();
+
+        // Act
+        var log = SessionHookFiles.EvaluationLogPathFor(id, _dir);
+
+        // Assert: the hook's own rule, Path.ChangeExtension(rulesFile, ".eval.log").
+        Assert.Equal(Path.ChangeExtension(SessionHookFiles.RulesPathFor(id, _dir), ".eval.log"), log);
+    }
 }

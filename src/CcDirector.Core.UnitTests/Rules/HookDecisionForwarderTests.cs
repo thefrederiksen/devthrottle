@@ -424,4 +424,168 @@ public sealed class HookDecisionForwarderTests : IDisposable
         Assert.Contains(first.Id.ToString(), sessionIds);
         Assert.Contains(second.Id.ToString(), sessionIds);
     }
+
+    [Fact]
+    public async Task SweepAsync_RefusalNamesADecisionThatWasNotSent_KeepsTheUnaccountedOnesForRetry()
+    {
+        // Arrange: two sent; one accepted, and a refusal for an id that was never in the batch.
+        var session = Adopt();
+        var first = Drop(session);
+        var second = Drop(session);
+        _gateway.PostAnswer = _ => HookFiringsPost.Answered(new HookFiringsResponse
+        {
+            Accepted = 1,
+            Refused = new[] { new HookFiringRefusal { DecisionId = "never-sent", Reason = "rule_not_found" } },
+        });
+        var forwarder = Forwarder();
+        forwarder.Start();
+
+        // Act
+        await forwarder.SweepAsync();
+
+        // Assert: the stray refusal cannot make up the count.
+        Assert.True(File.Exists(first));
+        Assert.True(File.Exists(second));
+    }
+
+    [Fact]
+    public async Task SweepAsync_DecisionLargerThanTheCeiling_IsDeletedAndNeverPosted()
+    {
+        // Arrange
+        var session = Adopt();
+        var oversized = DecisionBody("20261018T1200001234567Z-0000ffff", session.Id, new string('x', HookDecisionForwarder.MaxDecisionBytes));
+        var path = Drop(DirectoryFor(session), session.Id, oversized);
+        var forwarder = Forwarder();
+        forwarder.Start();
+
+        // Act
+        await forwarder.SweepAsync();
+
+        // Assert
+        Assert.Empty(_gateway.Posts);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task DrainAsync_AtShutdownDuringAWait_StillTriesOnce()
+    {
+        // Arrange: a failed post put the forwarder into its wait; then the Director stops.
+        var session = Adopt();
+        var path = Drop(session);
+        _gateway.PostAnswer = _ => HookFiringsPost.Failed("HTTP 503");
+        var forwarder = Forwarder();
+        forwarder.Start();
+        await forwarder.SweepAsync();
+        _gateway.PostAnswer = d => HookFiringsPost.Answered(new HookFiringsResponse { Accepted = d.Count, Refused = Array.Empty<HookFiringRefusal>() });
+
+        // Act
+        var forwarded = await forwarder.DrainAsync(CancellationToken.None);
+
+        // Assert: the last chance to send while the Director's credential still works.
+        Assert.Equal(1, forwarded);
+        Assert.False(File.Exists(path));
+    }
+
+    /// <summary>A directory the previous Director made at launch: the record it wrote, the folder, and
+    /// whatever decisions the session dropped - for a session that is not on THIS Director's roster.</summary>
+    private (Guid Id, string Token, string Directory) LeftoverFromAPreviousDirector(bool recorded)
+    {
+        var id = Guid.NewGuid();
+        var token = SessionHookFiles.NewDropToken();
+        if (recorded)
+        {
+            SessionHookFiles.StampRuleHookEnvironment(new Dictionary<string, string>(), id, token, Path.Combine(_pointerDir, "rules"), _pointerDir);
+        }
+        else
+        {
+            Directory.CreateDirectory(SessionHookFiles.DecisionDirectoryFor(id, token, _pointerDir));
+        }
+        return (id, token, SessionHookFiles.DecisionDirectoryFor(id, token, _pointerDir));
+    }
+
+    [Fact]
+    public async Task Start_LeftoverTheRecordVouchesFor_IsForwardedAndThenRemovedWithItsRecord()
+    {
+        // Arrange
+        var (id, token, directory) = LeftoverFromAPreviousDirector(recorded: true);
+        var path = Drop(directory, id);
+        var forwarder = Forwarder();
+
+        // Act
+        forwarder.Start();
+        var forwarded = await forwarder.SweepAsync();
+
+        // Assert
+        Assert.Equal(1, forwarded);
+        Assert.False(File.Exists(path));
+        Assert.False(Directory.Exists(directory));
+        Assert.False(File.Exists(SessionHookFiles.DecisionRecordFor(id, token, _pointerDir)));
+    }
+
+    [Fact]
+    public async Task Start_LeftoverNoRecordVouchesFor_IsLeftAndNeverForwarded()
+    {
+        // Arrange
+        var (id, _, directory) = LeftoverFromAPreviousDirector(recorded: false);
+        var path = Drop(directory, id);
+        var forwarder = Forwarder();
+
+        // Act
+        forwarder.Start();
+        await forwarder.SweepAsync();
+
+        // Assert
+        Assert.Empty(_gateway.Posts);
+        Assert.True(File.Exists(path));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Start_EmptyLeftover_IsDeleted(bool recorded)
+    {
+        // Arrange: an empty directory is not a record.
+        var (id, token, directory) = LeftoverFromAPreviousDirector(recorded);
+        var forwarder = Forwarder();
+
+        // Act
+        forwarder.Start();
+
+        // Assert
+        Assert.False(Directory.Exists(directory));
+        Assert.False(File.Exists(SessionHookFiles.DecisionRecordFor(id, token, _pointerDir)));
+    }
+
+    [Fact]
+    public void Start_SessionOnTheRoster_KeepsItsEmptyDirectory()
+    {
+        // Arrange: a live session that has not run a matched command yet.
+        var session = Adopt();
+        SessionHookFiles.StampRuleHookEnvironment(new Dictionary<string, string>(), session.Id, session.PointerDropToken, Path.Combine(_pointerDir, "rules"), _pointerDir);
+        var forwarder = Forwarder();
+
+        // Act
+        forwarder.Start();
+
+        // Assert: the hook refuses to run without its directory.
+        Assert.True(Directory.Exists(DirectoryFor(session)));
+    }
+
+    [Fact]
+    public async Task SweepAsync_SessionRemovedAndDrained_RemovesItsRecord()
+    {
+        // Arrange
+        var session = Adopt();
+        SessionHookFiles.StampRuleHookEnvironment(new Dictionary<string, string>(), session.Id, session.PointerDropToken, Path.Combine(_pointerDir, "rules"), _pointerDir);
+        var forwarder = Forwarder();
+        forwarder.Start();
+        Drop(session);
+        _sessions.RemoveSession(session.Id);
+
+        // Act
+        await forwarder.SweepAsync();
+
+        // Assert
+        Assert.False(File.Exists(SessionHookFiles.DecisionRecordFor(session.Id, session.PointerDropToken, _pointerDir)));
+    }
 }

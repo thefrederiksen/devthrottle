@@ -84,6 +84,13 @@ public sealed class ControlApiHost : IAsyncDisposable
     private static readonly TimeSpan InjectedTextRefreshInterval = TimeSpan.FromSeconds(60);
 
     /// <summary>
+    /// The longest the shutdown waits to forward the rule hook's last decisions. One second, because the
+    /// desktop app gives this whole host stop two, and the Gateway farewell comes after it. Not a loss
+    /// when it runs out: what is not sent stays on disk and the next Director forwards it.
+    /// </summary>
+    private static readonly TimeSpan DecisionDrainTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// Snooze Length mission (Phase 3): the seam the desktop drives to record/clear a Gateway-owned
     /// snooze THROUGH the Gateway (so a desktop snooze gets the same timer the phone/cockpit get),
     /// instead of setting <c>Session.OnHold</c> in-process. Backed by the live <see cref="GatewayClient"/>
@@ -2092,6 +2099,21 @@ public sealed class ControlApiHost : IAsyncDisposable
         // writing into the registry of a host nobody is using any more.
         try { _repositoryUsage?.Dispose(); }
         catch (Exception ex) { FileLog.Write($"[ControlApiHost] repository-usage recorder dispose ERROR: {ex.Message}"); }
+
+        // Session Rules part 2, phase 1: forward the before-a-command hook's last decisions while the
+        // Gateway client and its credential still work - the sessions were stopped before this host was.
+        // Time-boxed so a Gateway that does not answer cannot hold the Director open; whatever is not sent
+        // stays on disk and the next Director forwards it.
+        if (_decisionForwarder is not null)
+        {
+            try
+            {
+                using var drainCts = new CancellationTokenSource(DecisionDrainTimeout);
+                var drained = await _decisionForwarder.DrainAsync(drainCts.Token);
+                FileLog.Write($"[ControlApiHost] rule decisions forwarded at shutdown: {drained}");
+            }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] rule decision drain at shutdown FAILED (left for the next Director): {ex.Message}"); }
+        }
 
         if (_gatewayClient is not null)
         {

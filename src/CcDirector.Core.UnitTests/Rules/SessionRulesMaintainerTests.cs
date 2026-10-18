@@ -393,4 +393,41 @@ public sealed class SessionRulesMaintainerTests : IDisposable
         // Assert
         Assert.False(File.Exists(RulesPath(session)));
     }
+
+    [Fact]
+    public async Task RefreshAllAsync_CheckoutGainsAnOriginLater_PicksItUpOnTheNextRefresh()
+    {
+        // Arrange: no origin at first, so the empty identity.
+        var session = Adopt();
+        var maintainer = Maintainer();
+        await maintainer.RefreshAllAsync();
+        Assert.Equal("", ReadRulesFile(session).GetProperty("repo").GetString());
+
+        // Act: "git remote add origin ..." inside the session's folder.
+        _git.Origin(Folder("repo"), "https://github.com/thefrederiksen/devthrottle.git");
+        await maintainer.RefreshAllAsync();
+
+        // Assert: an empty identity is never kept for the session's life.
+        Assert.Equal(NormalisedRepo, ReadRulesFile(session).GetProperty("repo").GetString());
+    }
+
+    [Fact]
+    public async Task Start_SessionRemoved_DeletesItsEvaluationLogWithItsRulesFile()
+    {
+        // Arrange: the hook keeps <id>.eval.log beside <id>.json (W4).
+        _git.Origin(Folder("repo"), "https://github.com/thefrederiksen/devthrottle.git");
+        var maintainer = Maintainer();
+        maintainer.Start();
+        var session = Adopt();
+        await maintainer.WhenCreateRefreshDone(session.Id);
+        var log = SessionHookFiles.EvaluationLogPathFor(session.Id, _dir);
+        File.WriteAllText(log, "2026-10-18T12:00:00Z shell 1 0 no_match 120 toolu_01\n");
+
+        // Act
+        _sessions.RemoveSession(session.Id);
+
+        // Assert
+        Assert.False(File.Exists(log));
+        Assert.False(File.Exists(RulesPath(session)));
+    }
 }

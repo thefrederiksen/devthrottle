@@ -122,6 +122,32 @@ public static class SessionHookFiles
         => Path.Combine(directory ?? CcStorage.SessionRules(), sessionId.ToString() + DropExtension);
 
     /// <summary>
+    /// The before-a-command hook's evaluation log for one session (W4): beside its rules file, by the
+    /// hook's own rule (<c>x/&lt;id&gt;.json</c> logs to <c>x/&lt;id&gt;.eval.log</c>). The hook writes it; the
+    /// Director deletes it with the rules file when the session is removed.
+    /// </summary>
+    public static string EvaluationLogPathFor(Guid sessionId, string? directory)
+        => Path.ChangeExtension(RulesPathFor(sessionId, directory), ".eval.log");
+
+    /// <summary>The name of the folder, inside the pointer drop box, where the Director records each
+    /// session id and drop token it minted a decision directory for.</summary>
+    public const string DecisionRecordsFolderName = "decision-records";
+
+    /// <summary>
+    /// The Director's record that it minted one session's decision directory: an empty file named
+    /// id dot token, in <c>&lt;pointer drop box&gt;/decision-records</c>. Tokens live only in memory, so
+    /// after a restart this record is the only thing that lets the next Director vouch for a leftover
+    /// directory and forward the decisions in it. It is written before the directory is created and
+    /// removed when the directory is drained.
+    /// </summary>
+    public static string DecisionRecordFor(Guid sessionId, string dropToken, string? pointerDirectory)
+    {
+        RequireMintedToken(dropToken);
+        return Path.Combine(pointerDirectory ?? CcStorage.SessionPointers(), DecisionRecordsFolderName,
+            sessionId.ToString() + "." + dropToken);
+    }
+
+    /// <summary>
     /// The folder holding every session's decision directory: <c>&lt;pointer drop box&gt;/decisions</c>.
     /// <paramref name="pointerDirectory"/> is the pointer drop box (tests pin it; null is the real one).
     /// </summary>
@@ -136,12 +162,17 @@ public static class SessionHookFiles
     /// </summary>
     public static string DecisionDirectoryFor(Guid sessionId, string dropToken, string? pointerDirectory)
     {
+        RequireMintedToken(dropToken);
+        return Path.Combine(DecisionsRootFor(pointerDirectory), sessionId.ToString() + "." + dropToken);
+    }
+
+    private static void RequireMintedToken(string dropToken)
+    {
         if (dropToken.Length != DropTokenLength || !dropToken.All(char.IsAsciiHexDigitLower))
             throw new ArgumentException(
                 $"A decision directory needs the session's {DropTokenLength}-character lowercase-hex " +
                 $"drop token, got: '{dropToken}'.",
                 nameof(dropToken));
-        return Path.Combine(DecisionsRootFor(pointerDirectory), sessionId.ToString() + "." + dropToken);
     }
 
     /// <summary>
@@ -161,7 +192,12 @@ public static class SessionHookFiles
         ArgumentNullException.ThrowIfNull(environment);
         var rulesPath = RulesPathFor(sessionId, rulesDirectory);
         var decisionDirectory = DecisionDirectoryFor(sessionId, dropToken, pointerDirectory);
+        var record = DecisionRecordFor(sessionId, dropToken, pointerDirectory);
         Directory.CreateDirectory(Path.GetDirectoryName(rulesPath)!);
+        // The record FIRST: a directory that exists without one is, by construction, not this
+        // Director's, so a start-up clean-up can never mistake a session being launched for a leftover.
+        Directory.CreateDirectory(Path.GetDirectoryName(record)!);
+        File.WriteAllText(record, "");
         Directory.CreateDirectory(decisionDirectory);
         environment[RulesFileEnvVar] = rulesPath;
         environment[DecisionDirEnvVar] = decisionDirectory;
