@@ -26,6 +26,8 @@ and the Director did not report it failed (a false alarm makes the owner send it
 | `untrusted-folder` | claude | the first prompt in a folder Claude Code has never trusted |
 | `claude-trusted-folder` | codex | the first prompt in a repository trusted in Claude Code and never opened in Codex |
 | `trusted-worktree` | claude | the first prompt in a new git worktree of a trusted repository (how reviewer and gate seats start) |
+| `auto-mode-question` | claude | a seat (opened by another session) in auto mode on a machine whose owner never answered Claude Code's "Teach auto mode about your environment?", which it shows when the first turn ends; passes when the start is refused in words naming the question (`REFUSED-AT-START` / `REFUSED-IN-WORDS`) or the next prompt arrives |
+| `auto-mode-question-settled` | claude | the control: the same seat where the owner answered it "Don't show again"; passes only when the seat starts and the next prompt arrives |
 
 Truth words: `ARRIVED`, `LOST`, `PARTIAL`, `DOUBLED` (two turns), `WELDED` (one turn holding the prompt and
 other text). Director words: `OK`, `DELIVERING`, `REFUSED`, `FAILED`, `HUNG`, and `SETUP-FAILED` for a
@@ -56,6 +58,14 @@ Director that does not carry a repository's trust over to its worktrees. That is
 outside its scratch folders: one entry per scratch repository in the owner's `~/.claude.json`. Each `trusted-worktree` attempt leaves a git worktree under `<repo-root>/worktrees/`, which the Director records as
 trusted in that same file. Each `untrusted-folder` attempt also leaves a new folder under `<repo-root>/untrusted/`, and, when the question is
 answered, an entry in that file and a project folder under `~/.claude/projects`; the rig removes none of them.
+
+The two `auto-mode-question` scenarios run Claude Code in a configuration folder of their own under
+`<repo-root>/auto-mode-config/` (`CLAUDE_CONFIG_DIR`), built from a copy of the owner's configuration file with the
+question's conditions set, an empty settings file, and a copy of the sign-in, which is deleted when the attempt ends.
+They never change the owner's own files. They refuse to start (a setup failure) when the sign-in expires within half
+an hour, because a copy that refreshed it would rotate the owner's own out. They run on `claude-sonnet-5-5`, whatever
+`--args-claude` says: auto mode offers the question only on a model its classifier serves. Each attempt costs two
+one-word turns on that model.
 
 `--repo-root` must contain `delivery-qa` in its path: the records witness finds the rig's conversations by that
 word in their folder name, and refuses any other root rather than record every attempt as lost.

@@ -1,4 +1,4 @@
-using CcDirector.DeliveryQualification;
+﻿using CcDirector.DeliveryQualification;
 using Xunit;
 
 namespace CcDirector.DeliveryQualification.Tests;
@@ -97,5 +97,35 @@ public sealed class LedgerAndPassRuleTests
     public void MenuOpen_FirstLostButReportedDelivered_Fails()
     {
         Assert.Equal((false, "LOST"), PassRules.MenuOpen("LOST", "OK", firstPass: false, firstArrivedLate: false, "ARRIVED", nextPass: true));
+    }
+
+    [Fact]
+    public void AutoModeQuestion_UnansweredAndRefusedNamingTheQuestion_Passes()
+    {
+        Assert.Equal((true, "REFUSED-IN-WORDS"), PassRules.AutoModeQuestion(settled: false, refusedAtStart: true, refusalNamesTheQuestion: true, "-", sendPass: false));
+    }
+
+    [Fact]
+    public void AutoModeQuestion_UnansweredAndRefusedWithoutSayingWhy_Fails()
+    {
+        Assert.Equal((false, "REFUSED-UNEXPLAINED"), PassRules.AutoModeQuestion(settled: false, refusedAtStart: true, refusalNamesTheQuestion: false, "-", sendPass: false));
+    }
+
+    [Fact]
+    public void AutoModeQuestion_UnansweredAndTheNextPromptLost_Fails()
+    {
+        Assert.Equal((false, "LOST"), PassRules.AutoModeQuestion(settled: false, refusedAtStart: false, refusalNamesTheQuestion: false, "LOST", sendPass: false));
+    }
+
+    [Fact]
+    public void AutoModeQuestion_SettledAndRefused_FailsAsNeedless()
+    {
+        Assert.Equal((false, "REFUSED-NEEDLESSLY"), PassRules.AutoModeQuestion(settled: true, refusedAtStart: true, refusalNamesTheQuestion: true, "-", sendPass: false));
+    }
+
+    [Fact]
+    public void AutoModeQuestion_SettledAndTheNextPromptArrived_Passes()
+    {
+        Assert.Equal((true, "ARRIVED"), PassRules.AutoModeQuestion(settled: true, refusedAtStart: false, refusalNamesTheQuestion: false, "ARRIVED", sendPass: true));
     }
 }

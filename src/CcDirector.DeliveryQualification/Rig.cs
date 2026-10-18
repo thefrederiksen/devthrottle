@@ -133,3 +133,79 @@ internal static class CancellationExtensions
 {
     public static bool IsCancelled(this CancellationTokenSource cts) => cts.IsCancellationRequested;
 }
+
+/// <summary>
+/// A PRIVATE CLAUDE CODE CONFIGURATION FOLDER FOR ONE ATTEMPT, so a scenario can put Claude Code in a state the owner's
+/// own records are not in, without touching those records. It holds a copy of the owner's configuration file with the
+/// scenario's changes, a settings file of its own, and a copy of the sign-in. While it is alive, CLAUDE_CONFIG_DIR names
+/// it, so the agents the rig starts and the Director's own checks both read it; disposing it restores the variable and
+/// deletes the copy of the sign-in.
+///
+/// THE SIGN-IN IS NEVER REFRESHED FROM HERE. A copy that refreshed would rotate the owner's sign-in out from under the
+/// owner's own file, so a token with less than half an hour left is refused before anything starts.
+/// </summary>
+public sealed class ScratchClaudeConfig : IDisposable
+{
+    private readonly string? _previous;
+
+    public string Folder { get; }
+
+    private ScratchClaudeConfig(string folder)
+    {
+        Folder = folder;
+        _previous = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+        Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", folder);
+    }
+
+    /// <summary>
+    /// A folder in which Claude Code, started in auto mode in <paramref name="trustedFolder"/>, offers "Teach auto mode
+    /// about your environment?" after the first turn: started often enough, auto mode has been turned down often
+    /// enough, no environment is described, and the auto mode warning is already seen. With
+    /// <paramref name="ownerChoseDontShowAgain"/> the owner has answered it "Don't show again".
+    /// </summary>
+    public static ScratchClaudeConfig ForAutoModeQuestion(string folder, string trustedFolder, bool ownerChoseDontShowAgain)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var ownerFolder = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR") is { Length: > 0 } dir ? dir : Path.Combine(home, ".claude");
+        var credentials = Path.Combine(ownerFolder, ".credentials.json");
+        if (!File.Exists(credentials))
+            throw new InvalidOperationException($"No Claude Code sign-in file at {credentials} to copy (a machine that keeps it elsewhere cannot run this scenario).");
+        using (var doc = JsonDocument.Parse(File.ReadAllText(credentials)))
+        {
+            var expires = DateTimeOffset.FromUnixTimeMilliseconds(doc.RootElement.GetProperty("claudeAiOauth").GetProperty("expiresAt").GetInt64());
+            if (expires - DateTimeOffset.UtcNow < TimeSpan.FromMinutes(30))
+                throw new InvalidOperationException($"The Claude Code sign-in expires at {expires:u}; a copy could refresh it and rotate the owner's own out. Run again after Claude Code has refreshed it.");
+        }
+
+        var ownerConfig = CcDirector.Core.Claude.ClaudeFolderTrust.ConfigPathForThisUser();
+        var config = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(ownerConfig))!.AsObject();
+        // Claude Code asks only when its server setting says so; the copy keeps the owner's, so a machine that is not
+        // offered the question cannot run the scenario, and says so, instead of passing it (review of pull request 4180, finding 2).
+        if (config["cachedGrowthBookFeatures"]?["tengu_auto_mode_config"]?["envOnboarding"] is not System.Text.Json.Nodes.JsonValue offer
+            || !offer.TryGetValue<bool>(out var offered) || !offered)
+            throw new InvalidOperationException("Claude Code on this machine is not offered the auto mode question (its cached tengu_auto_mode_config.envOnboarding is not true), so the scenario cannot put a seat in front of it.");
+        config["numStartups"] = 10;
+        config["hasSeenAutoModeEntryWarning"] = true;
+        config["autoModeEnvSetup"] = ownerChoseDontShowAgain
+            ? new System.Text.Json.Nodes.JsonObject { ["denials"] = 5, ["dismissed"] = true }
+            : new System.Text.Json.Nodes.JsonObject { ["denials"] = 5 };
+        config["projects"] = new System.Text.Json.Nodes.JsonObject
+        {
+            [CcDirector.Core.Claude.ClaudeFolderTrust.KeyFor(trustedFolder)] = new System.Text.Json.Nodes.JsonObject { ["hasTrustDialogAccepted"] = true },
+        };
+
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, ".claude.json"), config.ToJsonString());
+        File.WriteAllText(Path.Combine(folder, "settings.json"), "{}");
+        File.Copy(credentials, Path.Combine(folder, ".credentials.json"), overwrite: true);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(Path.Combine(folder, ".credentials.json"), UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return new ScratchClaudeConfig(folder);
+    }
+
+    public void Dispose()
+    {
+        Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", _previous);
+        File.Delete(Path.Combine(Folder, ".credentials.json"));
+    }
+}

@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Claude;
@@ -70,54 +69,30 @@ public static class ClaudeBypassConsent
     {
         environment ??= Environment.GetEnvironmentVariable;
         home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var configDir = environment("CLAUDE_CONFIG_DIR");
-        var configFolder = string.IsNullOrWhiteSpace(configDir) ? Path.Combine(home, ".claude") : configDir;
+        var configFolder = ClaudeSettingsFiles.ConfigFolder(environment, home);
 
         var settingsFiles = new[]
         {
             Path.Combine(configFolder, "settings.json"),
             Path.Combine(workingDirectory, ".claude", "settings.local.json"),
-            managedSettings ?? ManagedSettingsPath(),
+            managedSettings ?? ClaudeSettingsFiles.ManagedPath(),
         };
         foreach (var file in settingsFiles)
         {
-            if (IsTrueIn(file, ConsentKey))
+            if (ClaudeSettingsFiles.IsTrueIn(file, ConsentKey))
             {
                 FileLog.Write($"[ClaudeBypassConsent] IsGiven: true ({ConsentKey} in {file})");
                 return true;
             }
         }
         var config = ClaudeFolderTrust.ConfigPathForThisUser(environment, home);
-        if (IsTrueIn(config, "bypassPermissionsModeAccepted"))
+        if (ClaudeSettingsFiles.IsTrueIn(config, "bypassPermissionsModeAccepted"))
         {
             FileLog.Write($"[ClaudeBypassConsent] IsGiven: true (bypassPermissionsModeAccepted in {config})");
             return true;
         }
         FileLog.Write($"[ClaudeBypassConsent] IsGiven: false (looked in {string.Join(", ", settingsFiles)} and {config})");
         return false;
-    }
-
-    private static string ManagedSettingsPath() =>
-        OperatingSystem.IsWindows() ? @"C:\Program Files\ClaudeCode\managed-settings.json"
-        : OperatingSystem.IsMacOS() ? "/Library/Application Support/ClaudeCode/managed-settings.json"
-        : "/etc/claude-code/managed-settings.json";
-
-    // A file that is missing holds no consent. One that cannot be read or parsed holds none either, and the refusal that
-    // follows names the command that writes it properly - the start is refused in words, never started blind.
-    private static bool IsTrueIn(string file, string key)
-    {
-        if (!File.Exists(file)) return false;
-        try
-        {
-            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return JsonNode.Parse(stream) is JsonObject root && root[key] is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
-        {
-            // not-an-error: a settings file Claude Code itself cannot read holds no consent; the refusal names the command that writes it.
-            FileLog.Write($"[ClaudeBypassConsent] IsTrueIn: {file} could not be read ({ex.Message}); it holds no consent");
-            return false;
-        }
     }
 }
 

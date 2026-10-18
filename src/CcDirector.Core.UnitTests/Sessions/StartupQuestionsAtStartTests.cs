@@ -43,7 +43,7 @@ public sealed class StartupQuestionsAtStartTests : IDisposable
         SessionPreambleDirectory = Path.Combine(_scratch, "session-preambles"),
         SessionPointerDirectory = Path.Combine(_scratch, "session-pointers"),
         ClaudeFolderTrust = new ClaudeFolderTrust(Config),
-        ClaudeBypassCheck = bypassCheck,
+        ClaudeQuestionCheck = bypassCheck,
     };
 
     private string AgentExe()
