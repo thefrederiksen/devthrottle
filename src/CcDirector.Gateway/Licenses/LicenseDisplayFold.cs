@@ -444,6 +444,10 @@ public static class LicenseDisplayFold
                 ? (LicenseMachineStatuses.NotReporting, $"Not reporting since {Clock(machine.LastReportAtUtc)}", LicenseTones.Warning,
                     $"No report has come from it for {Span(nowUtc - machine.LastReportAtUtc)}. It is not switched until it reports again.")
             : inProgress is not null ? (LicenseMachineStatuses.Switching, "Switching", LicenseTones.Neutral, (string?)null)
+            // Before "signed out": a machine that cannot run a switch cannot be moved onto any account either.
+            : machine.CannotSwitchReason is { } reason
+                ? (LicenseMachineStatuses.CannotSwitch, $"Cannot switch: {LicenseStore.CannotSwitchSentence(reason)}", LicenseTones.Warning,
+                    (string?)"It is not sent a switch until its Director says it can run one again.")
             : machine.ActiveAccountEmail is null ? (LicenseMachineStatuses.SignedOut, "Signed out", LicenseTones.Warning, null)
             : (LicenseMachineStatuses.Reporting, "Reporting", LicenseTones.Good, null);
         // A read error of a sign-in whose account no machine has ever read must not speak of "the numbers shown":
@@ -914,6 +918,8 @@ public static class LicenseDisplayFold
             LicenseLogKinds.ReportAccepted => "Reports accepted",
             LicenseLogKinds.MachineSilent => "Not reporting",
             LicenseLogKinds.ReportingAgain => "Reporting again",
+            LicenseLogKinds.CannotSwitch => "Cannot switch",
+            LicenseLogKinds.CanSwitchAgain => "Can switch again",
             _ => "Note",
         };
         var message = string.IsNullOrWhiteSpace(row.Message) ? null : row.Message;
@@ -1015,6 +1021,8 @@ public static class LicenseDisplayFold
         LicenseGatewayReasonCodes.OwnerEmailFailed => "The owner has not been emailed yet; it is tried again.",
         LicenseGatewayReasonCodes.NoOwnerAccount => "This Gateway has no DevThrottle account to email.",
         LicenseGatewayReasonCodes.DirectorError => "The machine's Director answered with an error.",
+        LicenseCannotSwitchReasons.ToolMissing => "The DevThrottle tool is missing from the machine's Python tool environment.",
+        LicenseStore.CannotSwitchReasonNotKnown => "The machine's Director says it cannot run a switch, for a reason this Gateway does not know.",
         _ => reasonCode,
     };
 

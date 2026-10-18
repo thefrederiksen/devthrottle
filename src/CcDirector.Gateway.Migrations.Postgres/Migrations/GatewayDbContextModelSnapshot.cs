@@ -2777,6 +2777,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
 
+                    b.Property<string>("CannotSwitchReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<double>("ClockSkewSeconds")
                         .HasColumnType("double precision");
 

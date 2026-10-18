@@ -93,6 +93,7 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
     /// <summary>Account A active, account B spare; a switch exchanges them.</summary>
     private sealed class OneSpareTool : ILicenseCommandLine
     {
+        public bool IsInstalled => true;
         private string _active = "account-a@example.com";
         public List<string> Switches { get; } = new();
 

@@ -214,6 +214,7 @@ public sealed class LicenseSignInExecutorTests : IDisposable
     /// <summary>Stands in for <c>cc-devthrottle license</c>: a browser profile for every account on this machine.</summary>
     private sealed class SignInTool : ILicenseCommandLine
     {
+        public bool IsInstalled => true;
         public List<string> SignIns { get; } = new();
 
         public List<(string Url, string Email, string Profile)> Approvals { get; } = new();

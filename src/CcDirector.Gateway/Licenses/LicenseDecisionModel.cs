@@ -69,6 +69,8 @@ public sealed record LicenseHold(DateTime HeldUntilUtc, string FromAccountEmail,
 /// it is in force is <see cref="LicenseDecisionEngine.IsHeld"/>.</param>
 /// <param name="ReportsRefused">Its Director is sending reports and the Gateway refuses them for what they say, so what
 /// the machine holds now is not known. It is never sent a switch, exactly as a stale machine is not.</param>
+/// <param name="CannotSwitchReason">Why its latest report said it cannot run a switch (contract section 12.1); null when
+/// it said it can, and when its Director is older than that field and says nothing - which is treated as before.</param>
 public sealed record LicenseMachineState(
     string MachineName,
     string OsUser,
@@ -79,7 +81,8 @@ public sealed record LicenseMachineState(
     string? SwitchInProgressId,
     DateTime? ActiveSignInExpiresAtUtc = null,
     LicenseHold? Hold = null,
-    bool ReportsRefused = false);
+    bool ReportsRefused = false,
+    string? CannotSwitchReason = null);
 
 /// <summary>Why a machine is not ready to move to an account (<see cref="LicenseReadiness"/>).</summary>
 public static class LicenseNotReadyReasons
