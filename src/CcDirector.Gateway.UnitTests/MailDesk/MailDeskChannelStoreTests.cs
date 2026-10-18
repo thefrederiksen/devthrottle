@@ -27,6 +27,9 @@ public sealed class MailDeskChannelStoreTests : IDisposable
 
     private MailDeskChannelStore Store() => new(_h.Open());
 
+    /// <summary>How many changes account A has recorded: a refusal must leave it as it was (contract section 4).</summary>
+    private int ChangesRecorded() => new MailDeskRulesStore(_h.Open()).History(A).Total;
+
     private static MailDeskChannelWrite AddMailbox(MailDeskChannelStore store, TenantId? tenant = null, string address = Mailbox, DateTime? at = null)
         => store.Add(tenant ?? A, address, "outlook", Machines, Owner, "the support mailbox", at ?? Now);
 
@@ -190,6 +193,7 @@ public sealed class MailDeskChannelStoreTests : IDisposable
 
         Assert.Equal(MailDeskChannelOutcome.NoSuchChannel, write.Outcome);
         Assert.Contains("is not an active Mail Desk channel", write.Refusal);
+        Assert.Equal(0, ChangesRecorded());
     }
 
     [Fact]
@@ -253,11 +257,14 @@ public sealed class MailDeskChannelStoreTests : IDisposable
         var store = Store();
         AddMailbox(store);
 
+        var before = ChangesRecorded();
+
         var write = store.SetMode(A, Mailbox, "auto", Owner, "why", Now);
 
         Assert.Equal(MailDeskChannelOutcome.BadMode, write.Outcome);
         Assert.Equal("mode 'auto' is not a Mail Desk mode; give 'observe' or 'live'", write.Refusal);
         Assert.Equal(MailDeskWords.Modes.Observe, store.FindActive(A, Mailbox)!.Mode);
+        Assert.Equal(before, ChangesRecorded());
     }
 
     [Fact]
@@ -266,8 +273,10 @@ public sealed class MailDeskChannelStoreTests : IDisposable
         var store = Store();
         AddMailbox(store);
         store.Remove(A, Mailbox, Owner, "why", Now);
+        var before = ChangesRecorded();
 
         Assert.Equal(MailDeskChannelOutcome.NoSuchChannel, store.SetMode(A, Mailbox, "live", Owner, "why", Now).Outcome);
+        Assert.Equal(before, ChangesRecorded());
     }
 
     // ---------- accounts ----------

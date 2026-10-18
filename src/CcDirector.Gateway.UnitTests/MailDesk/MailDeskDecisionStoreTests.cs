@@ -144,6 +144,22 @@ public sealed class MailDeskDecisionStoreTests : IDisposable
     }
 
     [Fact]
+    public void Insert_AMessageKeyLongerThanItsColumn_IsRefusedAndOneAtTheBoundIsKept()
+    {
+        // SQLite keeps any length and PostgreSQL refuses past the column's bound, so the store holds the bound itself
+        // and both databases give the same answer (review of #4222, finding F2).
+        var channel = Channel(A);
+        var store = Store();
+
+        var refused = Assert.Throws<ArgumentException>(() => store.Insert(A, Decision(channel, new string('k', MailDeskDecisionStore.MaxMessageKeyLength + 1))));
+        var kept = store.Insert(A, Decision(channel, new string('k', MailDeskDecisionStore.MaxMessageKeyLength)));
+
+        Assert.Contains($"at most {MailDeskDecisionStore.MaxMessageKeyLength} characters", refused.Message);
+        Assert.True(kept.Inserted);
+        Assert.Equal(1, store.List(A, new MailDeskDecisionFilter()).Total);
+    }
+
+    [Fact]
     public void Insert_OnAnotherAccountsChannel_Throws()
     {
         var bChannel = Channel(B);

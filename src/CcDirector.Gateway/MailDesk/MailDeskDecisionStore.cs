@@ -29,6 +29,10 @@ public sealed class MailDeskDecisionStore
     /// <summary>The longest a reason or an outcome's detail is kept.</summary>
     public const int MaxReasonLength = 1000;
 
+    /// <summary>The longest a message key may be - its column's bound. A longer key is refused rather than cut: a cut
+    /// key could make two messages one, and SQLite would keep what PostgreSQL refuses, so the two would disagree.</summary>
+    public const int MaxMessageKeyLength = 512;
+
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
 
@@ -171,6 +175,8 @@ public sealed class MailDeskDecisionStore
     {
         if (string.IsNullOrWhiteSpace(input.MessageKey))
             throw new ArgumentException("A Mail Desk decision needs the message's key.", nameof(input));
+        if (input.MessageKey.Length > MaxMessageKeyLength)
+            throw new ArgumentException($"A Mail Desk message key takes at most {MaxMessageKeyLength} characters; this one is {input.MessageKey.Length}.", nameof(input));
         if (string.IsNullOrWhiteSpace(input.SenderAddress) || input.SenderAddress.Trim().Length > MailDeskAddresses.MaxLength)
             throw new ArgumentException($"A Mail Desk decision needs the sender's address, at most {MailDeskAddresses.MaxLength} characters.", nameof(input));
         if (!MailDeskWords.IsOneOf(input.Layer, MailDeskWords.Layers.All))

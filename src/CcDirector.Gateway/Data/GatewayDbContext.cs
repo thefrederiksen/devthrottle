@@ -1012,7 +1012,7 @@ public sealed class GatewayDbContext : DbContext
         {
             b.ToTable("mail_desk_decisions");
             b.HasKey(e => e.Id);
-            b.Property(e => e.MessageKey).HasMaxLength(512);
+            b.Property(e => e.MessageKey).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskDecisionStore.MaxMessageKeyLength);
             b.Property(e => e.SenderAddress).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskAddresses.MaxLength);
             b.Property(e => e.Subject).HasMaxLength(1000);
             b.Property(e => e.Layer).HasMaxLength(32);
