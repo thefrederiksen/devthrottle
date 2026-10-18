@@ -75,6 +75,12 @@ public static class LicenseApproverContract
     /// <see cref="LicenseApproverStates.NotChecked"/>. A day plus two hours, so one late daily check is not an alarm.</summary>
     public static readonly TimeSpan NotCheckedAfter = TimeSpan.FromHours(26);
 
+    /// <summary>How soon a connected approving Director checks a record the Gateway marks
+    /// <see cref="LicenseApproverAssignment.CheckDue"/>: it looks at its assignments this often, so a record the owner
+    /// has just set is checked within minutes, never left for the daily run. The Director's look and the Gateway's
+    /// sentences both read it from here.</summary>
+    public static readonly TimeSpan DueCheckWithin = TimeSpan.FromMinutes(10);
+
     /// <summary>The shape of a browser profile's identifier and of its display name, on every side: the Gateway refuses
     /// any other, and the Director does not send a display name of any other.</summary>
     public static readonly Regex BrowserProfileShape = new("^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$", RegexOptions.CultureInvariant);
@@ -98,6 +104,13 @@ public sealed class LicenseApproverAssignment
 
     /// <summary>One of <see cref="LicenseApproverSources"/>.</summary>
     public string Source { get; set; } = "";
+
+    /// <summary>True when the Gateway reads this record as <see cref="LicenseApproverStates.NotChecked"/> now - never
+    /// checked (the owner has just set it, or it was stored before checks existed) or not checked in
+    /// <see cref="LicenseApproverContract.NotCheckedAfter"/>. The Director checks such a record at its next look
+    /// (<see cref="LicenseApproverContract.DueCheckWithin"/>) instead of waiting for its daily run. A Gateway that
+    /// predates this field sends false, and the Director checks daily as before.</summary>
+    public bool CheckDue { get; set; }
 }
 
 /// <summary>The payload of <see cref="LicenseApproverContract.ReportChecksHubMethod"/>: what the Director's checks found.</summary>

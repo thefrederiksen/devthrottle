@@ -104,7 +104,7 @@ public static class LicenseSignInFold
                                                    && string.Equals(m.OsUser, approver.OsUser, StringComparison.OrdinalIgnoreCase));
         var label = Label(machines, machine?.MachineName ?? approver.MachineName, machine?.OsUser ?? approver.OsUser);
         var who = $"Sign-ins for {approver.AccountEmail} are approved on {label}, in the browser profile {LicenseApproverReadiness.ProfileName(approver)}.";
-        var health = LicenseApproverReadiness.Verdict(approver, label, nowUtc);
+        var health = LicenseApproverReadiness.Verdict(approver, label, LicenseApproverReadiness.ReachOf(approver, machines, isConnected, nowUtc), nowUtc);
         var reach = machine is null
             ? $"No Director on {label} has reported to this account, so no sign-in can be approved there yet."
             : !isConnected(machine.DirectorId)

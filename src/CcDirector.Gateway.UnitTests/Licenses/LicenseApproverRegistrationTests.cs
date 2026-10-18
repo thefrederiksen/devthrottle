@@ -492,4 +492,43 @@ public sealed class LicenseApproverRegistrationTests : IDisposable
         Assert.Empty(_registration.Assignments(One, "dir-stranger").Rows);
         Assert.Empty(_registration.Assignments(Two, DirectorA).Rows);
     }
+
+    // A record that reads as not checked is marked due, so the approving Director checks it at its next ten-minute look
+    // instead of at its daily run (the phase 6 review, finding 1).
+
+    [Fact]
+    public void Assignments_ARecordTheOwnerHasJustSet_IsMarkedCheckDue_AndIsNotOnceItsCheckIsStored()
+    {
+        Assert.True(_approvers.Set(One, A, MachineA, "owner", Work, _now).Accepted);
+        Assert.True(Assert.Single(_registration.Assignments(One, DirectorA).Rows).CheckDue);
+
+        AssertRow(Check(DirectorA, Row(account: A, profile: Work)), LicenseApproverCheckOutcomes.HealthUpdated);
+
+        Assert.False(Assert.Single(_registration.Assignments(One, DirectorA).Rows).CheckDue);
+    }
+
+    [Fact]
+    public void Assignments_ARecordStoredBeforeChecksExisted_IsMarkedCheckDue()
+    {
+        // The shape every approver record had before phase 6: no source, no state, no check time.
+        _settings.Set(One, TenantSettingKeys.LicenseApprovers,
+            """[{"accountEmail":"account-a@example.com","machineName":"machine-a","osUser":"owner","browserProfile":"work"}]""", _now);
+
+        var row = Assert.Single(_registration.Assignments(One, DirectorA).Rows);
+
+        Assert.Equal((A, Work, true), (row.AccountEmail, row.BrowserProfile, row.CheckDue));
+    }
+
+    [Fact]
+    public void Assignments_ARecordWhoseCheckIsOlderThan26Hours_IsMarkedCheckDue_AYoungerOneIsNot()
+    {
+        Assert.True(_approvers.Set(One, A, MachineA, "owner", Work, _now).Accepted);
+        AssertRow(Check(DirectorA, Row(account: A, profile: Work)), LicenseApproverCheckOutcomes.HealthUpdated);
+
+        _now += LicenseApproverContract.NotCheckedAfter;
+        Assert.False(Assert.Single(_registration.Assignments(One, DirectorA).Rows).CheckDue);
+
+        _now += TimeSpan.FromSeconds(1);
+        Assert.True(Assert.Single(_registration.Assignments(One, DirectorA).Rows).CheckDue);
+    }
 }

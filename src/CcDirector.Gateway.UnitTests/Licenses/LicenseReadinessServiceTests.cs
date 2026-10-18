@@ -70,7 +70,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         _signIns = new LicenseSignInService(_log, _reads, _directors.IsConnected, _directors.SendAsync, _directors.EnterScope,
             () => _now, CancellationToken.None);
         _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
-        _approverReadiness = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(_db)), _reads, () => _now);
+        _approverReadiness = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(_db)), _reads, _directors.IsConnected, () => _now);
         // By default the Director takes the command and never answers: the sign-in stays open.
         _directors.Answer = _ => _neverAnswers.Task;
     }
@@ -229,6 +229,59 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Empty(tick.Started);
         Assert.Empty(SignInsSent());
         Assert.Empty(SignInRows());
+    }
+
+    // The phase 6 review, finding 1, as the owner lives it. Account A passes 80% and machine-a holds no sign-in for account
+    // B. The 80% alarm asks the owner to set an approver for B, and the owner sets machine-b's "work" profile. machine-b's
+    // Director is running and connected and ran its daily approver check an hour ago, before the record existed. Before
+    // this change the record waited up to a day for that Director's next daily run, and the alarm told the owner to start
+    // a Director that was running. Now: the alarm says the check is coming, the Director's next ten-minute look checks the
+    // record, and the very next readiness tick starts the sign-in.
+    [Fact]
+    public async Task Tick_TheOwnerSetsAnApproverAt80_TheConnectedDirectorChecksItWithinTenMinutes_AndTheNextTickStartsTheSignIn()
+    {
+        var approvers = new LicenseApproverStore(new TenantSettingsStore(_db));
+        var registration = new LicenseApproverRegistration(approvers, _reads, () => _now);
+        using var machineB = new LicenseApproverDirectorKit(registration, One, DirB, () => _now);
+        _approverWhyNot = _approverReadiness.WhyNotReady;
+        _aWeekly = 90;
+        BothReport();
+
+        // machine-b's Director ran its daily check before any approver named it: nothing to check, an empty report.
+        Assert.Empty((await machineB.Check.TickAsync(CancellationToken.None))!.Rows);
+        _now = T0.AddHours(1);
+        BothReport();
+        await Tick();
+        Assert.Equal("No machine is set to approve sign-ins for account-b@example.com. Set an approver for account-b@example.com on the Licenses page.",
+            Assert.Single(_alarms.ListOpen(One)).Action);
+
+        // The owner does the one thing the alarm asked.
+        Assert.True(approvers.Set(One, B, MachineB, "owner", "work", _now).Accepted);
+        var waiting = Of(await Tick(), MachineA);
+        Assert.Equal(LicenseReadinessFixes.ApproverNotReady, waiting.Fix);
+        Assert.Empty(SignInsSent());
+        Assert.Equal("Not ready: holds no sign-in for account-b@example.com. The approver for account-b@example.com (browser profile \"work\" on machine-b) "
+                     + "has never been checked. Nothing to do: the Director on machine-b is connected and checks it within 10 minutes.", waiting.Text);
+        Assert.DoesNotContain("Start the Director", Assert.Single(_alarms.ListOpen(One)).Action);
+
+        // machine-b's next ten-minute look, 23 hours before its daily run is due: the record is checked now.
+        _now += LicenseApproverContract.DueCheckWithin;
+        var report = await machineB.Check.TickAsync(CancellationToken.None);
+        Assert.Equal(("work", (string?)B, LicenseApproverStates.CanApprove), report!.Rows.Select(r => (r.BrowserProfile, r.AccountEmail, r.State)).Single());
+        Assert.Equal(new[] { ("work", (string?)B) }, machineB.Tool.ApproverChecks);
+
+        // The next readiness tick starts the sign-in.
+        _now += TimeSpan.FromMinutes(1);
+        BothReport();
+        var tick = await Tick();
+        Assert.Equal(LicenseReadinessFixes.StartNow, Of(tick, MachineA).Fix);
+        var sent = (LicenseSignInRequest)(await TheSignInSent()).Payload;
+        Assert.Equal(B, sent.AccountEmail);
+
+        // A checked record is no longer due: the following looks open no browser until the daily run.
+        _now += LicenseApproverContract.DueCheckWithin;
+        Assert.Null(await machineB.Check.TickAsync(CancellationToken.None));
+        Assert.Single(machineB.Tool.ApproverChecks);
     }
 
     // A machine whose Director is not connected cannot be signed in: nothing is started, and the sentence says why.

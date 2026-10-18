@@ -1414,7 +1414,7 @@ has never reported to this account:
       "state": "not-checked",
       "checkedAtUtc": null,
       "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
-      "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
+      "whatToDo": "Make sure the Director on the-laptop is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting."
     }
   ]
 }
@@ -1455,7 +1455,7 @@ The `healthText` and `whatToDo` sentences, for account `alice@example.com`, prof
 | `needs-fresh-sign-in` | The approver for alice@example.com (browser profile "work" on machine-a) needs a fresh claude.ai sign-in on the approval page. | Open that browser on machine-a and sign in to claude.ai once. |
 | `wrong-account` | The approver for alice@example.com (browser profile "work" on machine-a) is signed in to claude.ai as bob@example.com, not as alice@example.com. | Open that browser on machine-a, sign out of claude.ai and sign in as alice@example.com once. |
 | `check-failed` | The approver for alice@example.com (browser profile "work" on machine-a) could not be checked: (the Director's detail). | Make sure the browser profile "work" opens on machine-a; the check runs again within a day. |
-| `not-checked` | The approver for alice@example.com (browser profile "work" on machine-a) has never been checked. / ... was last checked 2026-10-10 01:11 UTC, more than 26 hours ago. | Make sure the Director on machine-a is running with license switching on; it checks its approvers once a day. |
+| `not-checked` | The approver for alice@example.com (browser profile "work" on machine-a) has never been checked. / ... was last checked 2026-10-10 01:11 UTC, more than 26 hours ago. | Connected and reporting: "Nothing to do: the Director on machine-a is connected and checks it within 10 minutes." Reported, not connected: "Start the Director on machine-a; it checks this approver within 10 minutes of connecting." Not reporting (never reported, or silent for 10 minutes while connected): "Make sure the Director on machine-a is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting." |
 
 ### 7.2 `PUT /gateway/licenses/approvers` - set the approver of one account
 
@@ -1475,7 +1475,7 @@ reported yet. Answered `200` with the approver as stored:
   "status": "cannot-approve",
   "statusText": "Not checked",
   "statusTone": "warning",
-  "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
+  "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Nothing to do: the Director on the-mac is connected and checks it within 10 minutes.",
   "browserProfileName": null,
   "source": "owner",
   "sourceText": "Set by you.",
@@ -1483,7 +1483,7 @@ reported yet. Answered `200` with the approver as stored:
   "state": "not-checked",
   "checkedAtUtc": null,
   "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
-  "whatToDo": "Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day."
+  "whatToDo": "Nothing to do: the Director on the-mac is connected and checks it within 10 minutes."
 }
 ```
 
@@ -1859,7 +1859,7 @@ renewal of 7.4 was running and the Director on "the-mac" was not connected:
         "state": "not-checked",
         "checkedAtUtc": null,
         "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
-        "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
+        "whatToDo": "Make sure the Director on the-laptop is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting."
       },
       "approverText": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
       "approverTone": "warning"

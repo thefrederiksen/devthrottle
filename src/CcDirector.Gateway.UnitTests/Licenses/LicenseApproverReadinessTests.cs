@@ -26,13 +26,15 @@ public sealed class LicenseApproverReadinessTests : IDisposable
     private readonly LicenseApproverReadiness _readiness;
     private DateTime _now = T0;
     private long _sequence;
+    // The Directors connected now, by identifier; none unless a test connects one.
+    private readonly HashSet<string> _connected = new();
 
     public LicenseApproverReadinessTests()
     {
         var db = _harness.Open();
         _licenses = new LicenseStore(db);
         _approvers = new LicenseApproverStore(new TenantSettingsStore(db));
-        _readiness = new LicenseApproverReadiness(_approvers, new LicenseReadModel(_licenses), () => _now);
+        _readiness = new LicenseApproverReadiness(_approvers, new LicenseReadModel(_licenses), (_, directorId) => _connected.Contains(directorId), () => _now);
     }
 
     public void Dispose() => _harness.Dispose();
@@ -40,7 +42,8 @@ public sealed class LicenseApproverReadinessTests : IDisposable
     private static LicenseApprover Approver(string? state, DateTime? checkedAt, string? shown = null, string? detail = null)
         => new(Alice, "machine-a", "owner", "work", LicenseApproverSources.Registered, state, checkedAt, shown, detail);
 
-    private static string? Sentence(LicenseApprover? approver) => LicenseApproverReadiness.Sentence(approver, Alice, "machine-a", T0);
+    private static string? Sentence(LicenseApprover? approver, LicenseApproverReach reach = LicenseApproverReach.Connected)
+        => LicenseApproverReadiness.Sentence(approver, Alice, "machine-a", reach, T0);
 
     // ----- every sentence, exactly -----
 
@@ -100,26 +103,54 @@ public sealed class LicenseApproverReadinessTests : IDisposable
             Sentence(Approver(LicenseApproverStates.CheckFailed, T0, detail: detail)));
     }
 
+    // A record never checked - the owner has just set it, or it was stored before checks existed - is not ready, and
+    // what it tells the owner depends on the approving machine's Director. Connected, it checks the record within ten
+    // minutes, so the owner is never told to start a Director that is running (the phase 6 review, finding 1).
+
     [Fact]
-    public void Sentence_NeverChecked_SaysSo_AndThatTheMachinesDirectorMustBeRunning()
+    public void Sentence_NeverChecked_DirectorConnected_SaysTheCheckComesWithinTenMinutes_AndThereIsNothingToDo()
     {
         Assert.Equal("The approver for alice@example.com (browser profile \"work\" on machine-a) has never been checked. "
-                     + "Make sure the Director on machine-a is running with license switching on; it checks its approvers once a day.",
-            Sentence(Approver(null, null)));
+                     + "Nothing to do: the Director on machine-a is connected and checks it within 10 minutes.",
+            Sentence(Approver(null, null), LicenseApproverReach.Connected));
     }
 
     [Fact]
-    public void Sentence_LastCheckedOver26HoursAgo_SaysWhen_AndThatTheMachinesDirectorMustBeRunning()
+    public void Sentence_NeverChecked_DirectorNotConnected_SaysToStartIt()
+    {
+        Assert.Equal("The approver for alice@example.com (browser profile \"work\" on machine-a) has never been checked. "
+                     + "Start the Director on machine-a; it checks this approver within 10 minutes of connecting.",
+            Sentence(Approver(null, null), LicenseApproverReach.NotConnected));
+    }
+
+    [Fact]
+    public void Sentence_NeverChecked_MachineNeverReported_SaysToRunItWithLicenseSwitchingOn()
+    {
+        Assert.Equal("The approver for alice@example.com (browser profile \"work\" on machine-a) has never been checked. "
+                     + "Make sure the Director on machine-a is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting.",
+            Sentence(Approver(null, null), LicenseApproverReach.NotReporting));
+    }
+
+    [Fact]
+    public void Sentence_LastCheckedOver26HoursAgo_SaysWhen_AndWhatTheConnectedDirectorDoes()
     {
         Assert.Equal("The approver for alice@example.com (browser profile \"work\" on machine-a) was last checked 2026-10-10 01:11 UTC, "
-                     + "more than 26 hours ago. Make sure the Director on machine-a is running with license switching on; it checks its approvers once a day.",
+                     + "more than 26 hours ago. Nothing to do: the Director on machine-a is connected and checks it within 10 minutes.",
             Sentence(Approver(LicenseApproverStates.CanApprove, T0 - LicenseApproverContract.NotCheckedAfter - TimeSpan.FromMinutes(1), Alice)));
+    }
+
+    [Fact]
+    public void Sentence_NeverChecked_IsNotReady_WhateverTheReach()
+    {
+        // No fallback: a Director that is connected and about to check does not make an unchecked record ready.
+        foreach (var reach in Enum.GetValues<LicenseApproverReach>())
+            Assert.NotNull(Sentence(Approver(null, null), reach));
     }
 
     [Fact]
     public void Verdict_CanApprove_SaysWhenItWasChecked_AndHasNothingToDo()
     {
-        var verdict = LicenseApproverReadiness.Verdict(Approver(LicenseApproverStates.CanApprove, T0.AddHours(-2), Alice), "machine-a", T0);
+        var verdict = LicenseApproverReadiness.Verdict(Approver(LicenseApproverStates.CanApprove, T0.AddHours(-2), Alice), "machine-a", LicenseApproverReach.Connected, T0);
 
         Assert.Equal(new LicenseApproverHealthVerdict(LicenseApproverStates.CanApprove,
             "The approver for alice@example.com (browser profile \"work\" on machine-a) can approve sign-ins; it was last checked 2026-10-11 01:12 UTC.",
@@ -131,7 +162,7 @@ public sealed class LicenseApproverReadinessTests : IDisposable
     {
         var approver = Approver(LicenseApproverStates.NeedsFreshSignIn, T0) with { BrowserProfile = "work-chrome", BrowserProfileName = "Work Chrome" };
 
-        var verdict = LicenseApproverReadiness.Verdict(approver, "machine-a", T0);
+        var verdict = LicenseApproverReadiness.Verdict(approver, "machine-a", LicenseApproverReach.Connected, T0);
 
         Assert.Equal("The approver for alice@example.com (browser profile \"Work Chrome\" on machine-a) needs a fresh claude.ai sign-in on the approval page.",
             verdict.HealthText);
@@ -141,7 +172,7 @@ public sealed class LicenseApproverReadinessTests : IDisposable
     [Fact]
     public void Verdict_AStateThatIsNotAStateWord_IsAnError()
     {
-        Assert.Throws<InvalidOperationException>(() => LicenseApproverReadiness.Verdict(Approver("fine", T0), "machine-a", T0));
+        Assert.Throws<InvalidOperationException>(() => LicenseApproverReadiness.Verdict(Approver("fine", T0), "machine-a", LicenseApproverReach.Connected, T0));
     }
 
     // ----- WhyNotReady, over the stores -----
@@ -157,8 +188,31 @@ public sealed class LicenseApproverReadinessTests : IDisposable
         Assert.True(_approvers.Set(One, Alice, "machine-a", "owner", "work", _now).Accepted);
 
         Assert.Equal("The approver for alice@example.com (browser profile \"work\" on machine-a (owner)) has never been checked. "
-                     + "Make sure the Director on machine-a (owner) is running with license switching on; it checks its approvers once a day.",
+                     + "Start the Director on machine-a (owner); it checks this approver within 10 minutes of connecting.",
             _readiness.WhyNotReady(One, "ALICE@example.com"));
+    }
+
+    [Fact]
+    public void WhyNotReady_NeverChecked_SaysWhatTheApprovingDirectorDoes_ByWhetherItIsConnected()
+    {
+        Assert.True(_approvers.Set(One, Alice, "machine-a", "owner", "work", _now).Accepted);
+
+        // No Director has reported for machine-a: it is off, or license switching is off there.
+        Assert.EndsWith("Make sure the Director on machine-a is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting.",
+            _readiness.WhyNotReady(One, Alice));
+
+        _licenses.ApplyReport(One, "dir-a", ++_sequence, Report("machine-a", _now), _now, TimeSpan.Zero);
+        Assert.EndsWith("Start the Director on machine-a; it checks this approver within 10 minutes of connecting.", _readiness.WhyNotReady(One, Alice));
+
+        _connected.Add("dir-a");
+        Assert.EndsWith("Nothing to do: the Director on machine-a is connected and checks it within 10 minutes.", _readiness.WhyNotReady(One, Alice));
+        Assert.DoesNotContain("Start the Director", _readiness.WhyNotReady(One, Alice));
+
+        // Still connected, and silent past the ten minutes a reporting Director never is: license switching was turned off
+        // there, so no check is coming, and the sentence says what is needed.
+        _now += LicenseStore.SilentAfter + TimeSpan.FromSeconds(1);
+        Assert.EndsWith("Make sure the Director on machine-a is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting.",
+            _readiness.WhyNotReady(One, Alice));
     }
 
     [Fact]

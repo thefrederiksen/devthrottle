@@ -854,7 +854,7 @@ export const APPROVERS: LicenseApprovers = {
       "state": "not-checked",
       "checkedAtUtc": null,
       "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
-      "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
+      "whatToDo": "Make sure the Director on the-laptop is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting."
     }
   ]
 };
@@ -871,7 +871,7 @@ export const APPROVER_SET: LicenseApprover = {
   "status": "cannot-approve",
   "statusText": "Not checked",
   "statusTone": "warning",
-  "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
+  "text": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Nothing to do: the Director on the-mac is connected and checks it within 10 minutes.",
   "browserProfileName": null,
   "source": "owner",
   "sourceText": "Set by you.",
@@ -879,7 +879,7 @@ export const APPROVER_SET: LicenseApprover = {
   "state": "not-checked",
   "checkedAtUtc": null,
   "healthText": "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
-  "whatToDo": "Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day."
+  "whatToDo": "Nothing to do: the Director on the-mac is connected and checks it within 10 minutes."
 };
 
 /** PUT /gateway/licenses/approvers, refused 400: the browser profile is not a name. */
@@ -1117,7 +1117,7 @@ export const OVERVIEW_SIGN_IN_FIELDS: LicenseOverviewSignInFields = {
         "state": "not-checked",
         "checkedAtUtc": null,
         "healthText": "The approver for account-b@example.com (browser profile \"personal\" on the-laptop) has never been checked.",
-        "whatToDo": "Make sure the Director on the-laptop is running with license switching on; it checks its approvers once a day."
+        "whatToDo": "Make sure the Director on the-laptop is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting."
       },
       "approverText": "Sign-ins for account-b@example.com are approved on the-laptop, in the browser profile personal. No Director on the-laptop has reported to this account, so no sign-in can be approved there yet.",
       "approverTone": "warning"
