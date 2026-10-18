@@ -1249,6 +1249,9 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly ApiModeEvents.ApiModeEventBuffer _apiModeEventBuffer = new();
     /// <summary>What DirectorHub.PushApiModeEvents hands each batch to: receipts, then the buffer.</summary>
     private readonly ApiModeEvents.ApiModeEventIngest _apiModeEventIngest;
+    /// <summary>Where every API-mode verdict's facts are read: the roster route and the display push share this one, so
+    /// the wheel button the desktop is pushed is the one every browser reads.</summary>
+    private readonly ApiModeDisplay.ApiModeDisplayFacts _apiModeDisplayFacts;
 
     /// <summary>The ONE read side of the API-mode events: the display fold and the live relay build on this.</summary>
     internal ApiModeEvents.IApiModeEventFeed ApiModeEventFeed => _apiModeEventBuffer;
@@ -2187,6 +2190,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         _apiModeReceipts = new Receipts.ApiModeReceiptStore(_gatewayDb, () => DateTime.UtcNow);
         _apiModeEventIngest = new ApiModeEvents.ApiModeEventIngest(_apiModeEventBuffer, _apiModeReceipts, _tenantBoundary);
+        _apiModeDisplayFacts = new ApiModeDisplay.ApiModeDisplayFacts(_apiModeEventBuffer, new ApiModeDisplay.ApiModeVerdictReceipts(_gatewayDb));
         // The dev report store is built here, before the team gate, because the gate's ownership answer reads a report's
         // author (devthrottle_internal#2309): a report a person published in a team is theirs.
         _devReports = new DevReports.DevReportStore(_gatewayDb);
@@ -2432,7 +2436,10 @@ public sealed class GatewayHost : IAsyncDisposable
             enterScope: tenant => _tenantBoundary.EnterScope(tenant),
             // Message Load mission, slice 4: the row line, from the same inbox the roster reads. The store is built
             // further down this constructor, so it is read at fold time.
-            inboxLines: () => _fleetMessages);
+            inboxLines: () => _fleetMessages,
+            // API mode (mission #4070, phase 2 follow-on): the same facts the roster route stamps from, so the pushed
+            // wheel button is the roster's.
+            apiModeFacts: () => _apiModeDisplayFacts);
         FleetDisplayState = new Fleet.FleetDisplayStateObserver(
             AmbientSnapshotConnected,
             sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
@@ -4952,7 +4959,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 : Factory.FactorySessionStarts.None,
             // API mode (mission #4070, phase 2): the receipts and the held events each API-mode row's verdict is
             // folded from - the same store the ingest writes and the same feed the live stream reads.
-            apiModeFacts: new ApiModeDisplay.ApiModeDisplayFacts(_apiModeEventBuffer, new ApiModeDisplay.ApiModeVerdictReceipts(_gatewayDb)),
+            apiModeFacts: _apiModeDisplayFacts,
             // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
             dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
             deliveryClock: DeliveryClock,
@@ -6886,7 +6893,10 @@ public sealed class GatewayHost : IAsyncDisposable
         Messaging.IFleetInboxLineSource? inboxLines = null,
         // See StampFleetRolesAndFold. The two clocks above are chosen by the caller; only Fleet.DisplayFold calls this in
         // production, and it chooses them once for both of its callers.
-        bool writes = true)
+        bool writes = true,
+        // API mode (mission #4070, phase 2 follow-on): the same facts the roster route stamps each API-mode row's verdict
+        // from, so the wheel button pushed to the desktop is the one every browser reads. Null stamps no verdict.
+        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null)
     {
         foreach (var s in sessions)
         {
@@ -6911,7 +6921,7 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
             handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,
-            inboxLines: inboxLines, writes: writes);
+            inboxLines: inboxLines, writes: writes, apiModeFacts: apiModeFacts);
     }
 
     /// <summary>

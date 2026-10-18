@@ -715,14 +715,38 @@ public sealed class DirectorHub : Hub
             case TeamTurnPushRefusal.NotItsOnlyHolder:
                 return new ApiModeEventWatermark { SessionId = batch.SessionId, Generation = "", Sequence = -1 };
         }
+        ApiModeEventWatermark? mark;
         try
         {
-            return _apiModeEvents.Accept(RequireBoundTenant(), directorId, batch);
+            mark = _apiModeEvents.Accept(RequireBoundTenant(), directorId, batch);
         }
         catch (ArgumentException ex)
         {
             FileLog.Write($"[DirectorHub] PushApiModeEvents REFUSED a malformed batch: director={directorId} session={batch.SessionId} generation={batch.Generation}: {ex.Message}");
             return null;
+        }
+        // THE DESKTOP'S WHEEL BUTTON MOVES WITH THE EVENTS (mission #4070, phase 2 follow-on). A turn starting or ending, a
+        // prompt queued, the agent connecting: each changes the API-mode verdict, and none arrives on a row push, so without
+        // this the desktop would wait for the next periodic sweep. Only THIS session is pushed, not the whole fleet; the
+        // change gate sends nothing when its verdict did not move. Still inside the account's scope, because the push reads
+        // its gate and its fold synchronously before its first await.
+        if (mark is { Generation.Length: > 0 } && _fleetDisplayState is not null)
+            _ = PushApiModeSessionDisplayAsync(_fleetDisplayState, directorId, batch.SessionId);
+        return mark;
+    }
+
+    /// <summary>Push one API-mode session's display state down after its events landed. A boundary: it runs
+    /// fire-and-forget off the hub's event intake, so a failure is written down and never reaches the Director's
+    /// call.</summary>
+    private static async Task PushApiModeSessionDisplayAsync(Fleet.FleetDisplayStateObserver observer, string directorId, string sessionId)
+    {
+        try
+        {
+            await observer.PushSessionAsync(sessionId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorHub] PushApiModeEvents display push FAILED: director={directorId}, sid={sessionId}: {ex.GetType().FullName}: {ex.Message}");
         }
     }
 
