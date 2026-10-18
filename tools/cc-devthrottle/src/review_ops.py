@@ -20,6 +20,9 @@ So this opens the first seat and watches it in two steps.
    - the seat seen WORKING at least once and no blocker by the end means it is reviewing;
    - neither by the end means the seat stopped without starting. It is replaced, the same as a blocker.
 
+A seat whose agent EXITED, in either step, is replaced at once: the Gateway already says so, and waiting out the
+watch for a process that is gone would only delay the review.
+
 WHETHER A SEAT IS WORKING IS THE GATEWAY'S RULING, NOT THE SCREEN'S. The session's activityState is read from
 GET /sessions/{id}, the same fold every surface shows. The screen text cannot answer it: the buffer route keeps every
 byte the session printed, so the footer an agent drew while working - "esc to interrupt" - is still in its last lines
@@ -31,10 +34,12 @@ which is the failure this command exists to end.
 
 WHERE A BLOCKER MAY BE, which is what keeps a healthy reviewer from being stopped. The buffer route answers every
 byte the session printed since it started, and a reviewer reading a file that quotes a limit notice - this one, for
-a start - prints the notice too. So a blocker counts only in the last TAIL_LINES lines, the part of the screen where
-an agent leaves a notice when it stops, and only while those lines show no working marker: an agent that hit a
-limit has stopped working. That is the shape the Gateway's TerminatingFaultClassifier uses (the last content lines
-of a stopped turn), and its texts are the ones matched here, including the full stop that keeps Codex's notice
+a start - prints the notice too. So a blocker counts only in the last TAIL_LINES lines that hold text, the part of
+the screen where an agent leaves a notice when it stops, and only while the seat is not working: an agent that hit a
+limit has stopped. Blank rows are skipped before counting, as the Gateway's TerminatingFaultClassifier skips them
+when it reads the last content lines of a stopped turn, so a footer padded with blank rows cannot push a notice out
+of the window; RAW_TAIL_LINES raw lines are read to leave room for them. The classifier's texts are the ones matched
+here, including the full stop that keeps Codex's notice
 apart from prose quoting it. Claude Code's limit menu is matched as UsageLimitDialog matches it: its numbered first
 option above the cancel hint.
 
@@ -79,8 +84,10 @@ SEATS = {
 #: The order the owner ruled. `--seats` changes it for one call.
 DEFAULT_SEATS = "codex,fable,opus"
 
-#: The Gateway's activityState for a seat whose agent is running a turn.
+#: The Gateway's activityState for a seat whose agent is running a turn, and for one whose agent process is gone.
 WORKING_STATE = "Working"
+EXITED_STATE = "Exited"
+EXITED_REASON = "exited before it could review"
 
 #: What a seat that cannot work prints, and the words this command says about it. Only BLOCKS: a warning such as
 #: "you've used 94% of your weekly limit" is printed by seats that are still working and must never be here.
@@ -103,8 +110,11 @@ LIMIT_MENU_OPTION = "1. stop and wait for limit to reset"
 LIMIT_MENU_HINT = "esc to cancel"
 LIMIT_MENU_REASON = "is showing its usage or spend limit menu"
 
-#: How much of the bottom of the screen a blocker or the working marker is read from.
+#: How many lines holding text, at the bottom of the screen, a blocker is read from.
 TAIL_LINES = 12
+
+#: How many raw lines are read to find them: blank rows between a notice and the footer are not counted.
+RAW_TAIL_LINES = 40
 
 #: How long a seat may take to receive its first prompt. The Director waits up to ten minutes for an agent to show
 #: it reads input before typing it (FirstPromptGate.MinimumWait), so less would stop seats the Director still serves.
@@ -130,9 +140,16 @@ def _outside_prompt(text: str, needle: str, prompt: str) -> bool:
     start = text.find(needle)
     while start >= 0:
         end = start + len(needle)
-        before = text[max(0, start - CONTEXT_CHARACTERS):end]
-        after = text[start:end + CONTEXT_CHARACTERS]
-        if not prompt or not (before in prompt or after in prompt):
+        # Only a FULL context on a side can prove an echo: at the edge of the text a short one collapses to little
+        # more than the needle, which a prompt quoting the notice also holds, and a real notice would be discarded.
+        contexts = []
+        if start >= CONTEXT_CHARACTERS:
+            contexts.append(text[start - CONTEXT_CHARACTERS:end])
+        if end + CONTEXT_CHARACTERS <= len(text):
+            contexts.append(text[start:end + CONTEXT_CHARACTERS])
+        if not contexts:
+            contexts.append(text)
+        if not prompt or not any(c in prompt for c in contexts):
             return True
         start = text.find(needle, start + 1)
     return False
@@ -197,8 +214,8 @@ def _read(seat: Seat, sid: str, query: str) -> dict:
     return {"text": text, "cursor": cursor if isinstance(cursor, int) else None}
 
 
-def _working(seat: Seat, sid: str) -> bool:
-    """Whether the Gateway says this seat is running a turn now."""
+def _state(seat: Seat, sid: str) -> str:
+    """The Gateway's activityState for this seat now."""
     next_steps = ["cc-devthrottle session list", f'cc-devthrottle session stop {sid} --reason "<why>"']
     try:
         resp = gateway.get_json(f"sessions/{gateway.path_segment(sid)}")
@@ -215,14 +232,22 @@ def _working(seat: Seat, sid: str) -> bool:
             "it is working is unknown. It is still open and no other seat was started.",
             next_steps,
         )
-    return state == WORKING_STATE
+    return state
+
+
+def _content_tail(text: str) -> str:
+    """The last TAIL_LINES lines of `text` that hold anything but whitespace."""
+    return "\n".join([line for line in text.splitlines() if line.strip()][-TAIL_LINES:])
 
 
 def _blocker_now(seat: Seat, sid: str, prompt: str) -> Tuple[bool, Optional[str]]:
-    """(working, blocker): the Gateway's state, and the blocker on screen when the seat is not working."""
-    if _working(seat, sid):
+    """(working, blocker): whether the Gateway says the seat works, and what stops it when it does not."""
+    state = _state(seat, sid)
+    if state == WORKING_STATE:
         return True, None
-    return False, find_blocker(_read(seat, sid, f"lines={TAIL_LINES}")["text"], prompt)
+    if state == EXITED_STATE:
+        return False, EXITED_REASON
+    return False, find_blocker(_content_tail(_read(seat, sid, f"lines={RAW_TAIL_LINES}")["text"]), prompt)
 
 
 def watch_seat(

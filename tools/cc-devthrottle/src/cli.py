@@ -541,13 +541,17 @@ _ACTIONS = [
             "--seats order), reads each seat's screen for the first minute, and moves to the next by itself when "
             "a seat is blocked by a limit, a refused model or a sign-in, or never starts working."
         ),
-        "command": "cc-devthrottle session review <worktree> --prompt <what to review> [--name <name>] [--seats codex,fable,opus]",
+        "command": (
+            "cc-devthrottle session review <worktree> --prompt <what to review> [--name <name>] "
+            "[--seats codex,fable,opus] [--watch-seconds N]"
+        ),
         "mutatesState": True,
         "args": [
             {"name": "repo", "required": True},
             {"name": "prompt", "required": True},
             {"name": "name", "required": False},
             {"name": "seats", "required": False},
+            {"name": "watch_seconds", "required": False},
         ],
     },
     {

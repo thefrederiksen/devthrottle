@@ -337,6 +337,56 @@ def test_a_stop_answer_that_says_nothing_opens_no_second_reviewer(fake, monkeypa
     assert "says nothing about whether it stopped, so no other seat was started" in _said(result)
 
 
+def test_a_seat_whose_agent_exits_before_its_prompt_is_replaced_at_once(fake):
+    gw = fake([[(BOOTING, "Exited")], [WORKING]])
+
+    result = _review()
+
+    assert result.exit_code == 0, result.output
+    assert "exited before it could review" in gw.stopped[0][1]
+    assert gw.tail_reads["seat-0"] == 1
+
+
+def test_a_seat_whose_agent_exits_during_the_watch_is_replaced_at_once(fake):
+    gw = fake([[WORKING, (WORKING, "Exited")], [WORKING]])
+
+    result = _review()
+
+    assert result.exit_code == 0, result.output
+    assert "exited before it could review" in gw.stopped[0][1]
+    assert gw.tail_reads["seat-0"] == 2
+
+
+def test_a_prompt_echo_split_across_two_reads_still_counts_as_delivered(fake):
+    # The first read ends partway through the echo; the rest arrives in the next. Neither alone holds it.
+    # The seat then sits idle, so the reason it is replaced says which step it reached: had the split echo been
+    # missed, it would read as a prompt that never arrived.
+    half = BANNER + ECHO[:20]
+    gw = fake([[half, BANNER + ECHO + "\n? for shortcuts"], [WORKING]])
+
+    result = _review()
+
+    assert result.exit_code == 0, result.output
+    assert "showed no sign of working in 60 seconds after its prompt" in gw.stopped[0][1]
+
+
+def test_a_notice_above_a_blank_padded_footer_is_still_read(fake):
+    padded = BANNER + ECHO + "You've hit your usage limit. Upgrade to Pro." + "\n" * 20 + IDLE_FOOTER
+    gw = fake([[WORKING, padded], [WORKING]])
+
+    result = _review()
+
+    assert result.exit_code == 0, result.output
+    assert "hit its usage limit" in gw.stopped[0][1]
+
+
+def test_a_real_notice_at_the_very_top_of_the_tail_counts_although_the_prompt_quotes_it():
+    prompt = "Check that \"You've hit your usage limit.\" is matched"
+
+    assert review_ops.find_blocker("You've hit your usage limit. Upgrade to Pro." + IDLE_FOOTER, prompt) \
+        == "hit its usage limit"
+
+
 def test_seats_sets_the_order(fake):
     gw = fake([[WORKING]])
 

@@ -1381,14 +1381,16 @@ OPTIONS:
 
 Starts a reviewer session that YOU own (`--controlled-by self`), so it must run inside a session. The seats
 are Codex, Claude Code on Fable and Claude Code on Opus, tried in the `--seats` order. Each seat is opened with
-the prompt and its screen is read for `--watch-seconds`:
+the prompt, and once the prompt has arrived (the Director types it after the agent is ready, which can take
+minutes) the seat is watched for `--watch-seconds`:
 
-- A usage or spend limit, a refused model, a signed-out agent or an empty credit balance on the screen stops
-  that seat, with the reason, and opens the next one with the same prompt.
-- A seat that shows the agent's working marker ("esc to interrupt") and no blocker by the end of the watch is
-  the reviewer.
-- A seat that shows neither never started (a swallowed first prompt, a question nobody answers) and is
-  stopped and replaced the same way.
+- A usage or spend limit, a refused model, a signed-out agent, an empty credit balance or Codex's update menu at
+  the bottom of the screen, while the seat is not working, stops that seat with the reason and opens the next
+  one with the same prompt. So does a seat whose agent exited.
+- A seat the Gateway reports as Working at least once, with no blocker by the end of the watch, is the
+  reviewer. The screen is not asked: its last lines keep the "esc to interrupt" footer long after a turn ends.
+- A seat that never works, or never receives its prompt within ten minutes, is stopped and replaced the same
+  way.
 
 It ends with one line saying which seat is reviewing and why any seat before it was skipped, for example
 `the codex seat hit its usage limit, so the fable seat is reviewing, in session <id>.` Exit 1 when no seat
