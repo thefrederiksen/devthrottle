@@ -73,12 +73,16 @@ internal static class FactoryCheckEndpoints
             return Refuse(StatusCodes.Status404NotFound, "version_unreadable",
                 $"version {version} of the definition of {folded} cannot be read, so no seat in it can be placed on a machine");
 
+        // A seat's checks run on the seat's machine, and - Mail Desk, phase 5 - on every backup machine a start of it
+        // names, which is where its check runs while the seat's machine is away.
         var seatsHere = definition.Seats
-            .Where(s => string.Equals(s.MachineOrDefault(definition.Defaults), machine, StringComparison.OrdinalIgnoreCase))
+            .Where(s => string.Equals(s.MachineOrDefault(definition.Defaults), machine, StringComparison.OrdinalIgnoreCase)
+                        || s.Starts.Any(st => st.Check is not null
+                                              && st.BackupMachines.Any(b => string.Equals(b, machine, StringComparison.OrdinalIgnoreCase))))
             .Select(s => s.Seat).ToList();
         if (seatsHere.Count == 0)
         {
-            FileLog.Write($"[FactoryCheckEndpoints] REFUSED: factory={folded}, version={version} has no seat on {machine} (director={directorId})");
+            FileLog.Write($"[FactoryCheckEndpoints] REFUSED: factory={folded}, version={version} has no seat and no backup on {machine} (director={directorId})");
             return Refuse(StatusCodes.Status404NotFound, "no_seat_on_machine",
                 $"version {version} of the definition of {folded} has no seat on {machine}, so Director '{directorId}' " +
                 "is not given its checks");

@@ -78,6 +78,15 @@ public sealed class TriggerDto
     public string Factory { get; set; } = "";
     public string FactoryAgent { get; set; } = "";
     public string Machine { get; set; } = "";
+
+    /// <summary>The machines that run the check while <see cref="Machine"/> is away, in order; empty when none
+    /// (Mail Desk, phase 5).</summary>
+    public List<string> BackupMachines { get; set; } = new();
+
+    /// <summary>Where the check runs, in words, ready to print: "machine-a", or "machine-a, then machine-b if
+    /// machine-a is away".</summary>
+    public string MachinesText { get; set; } = "";
+
     public string RepoPath { get; set; } = "";
     public string CheckCommand { get; set; } = "";
     public int IntervalSeconds { get; set; }
