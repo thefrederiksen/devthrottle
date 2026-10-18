@@ -234,19 +234,29 @@ the Director's next tools check.
 
 ## The gate
 
-**On the commit that merges**, c3f3ab13c. That is the branch squashed and rebased onto origin/main 9a5032dc2, after
-the round-two review. The rebase resolved ten conflicts with eleven license changes on main, so the gate was run
-again on the result. It ran with TEMP on drive D, as the Delivery Lead's gate rule asks.
+**On the commit that merges**, 13e7f2b07 (proof commit 52cf082ce on top). That is the branch rebased a third time,
+onto origin/main 8994f5e1a, after the rebase review (`review-4115-rebase.md`). The rebase brought two conflicts back
+and needed one fake changed in a file the branch did not touch, so the gate was run again on the result, with TEMP on
+drive D, as the Delivery Lead's gate rule asks. This run builds `Gateway.Tests`, which would not compile without that
+fake's change.
 
 ```
-.\scripts	est-local.ps1 -Parked -Filter License   commit c3f3ab13c   RESULT: GREEN
-  CcDirector.Core.UnitTests                outcome=Completed    total=205
+.\scripts\test-local.ps1 -Parked -Filter License   commit 52cf082ce   RESULT: GREEN
+  CcDirector.Core.UnitTests                outcome=Completed    total=259
   CcDirector.Avalonia.Tests                outcome=Completed    total=32
-  CcDirector.Gateway.Tests.shard3of4       outcome=Completed    total=23
-  CcDirector.Gateway.UnitTests             outcome=Completed    total=1076
+  CcDirector.Gateway.Tests.shard3of4       outcome=Completed    total=26
+  CcDirector.Gateway.UnitTests             outcome=Completed    total=1096
   every other suite                        outcome=Completed    total=0 (no license tests in it)
+```
 
-.\scripts	est-local.ps1                    commit c3f3ab13c   RESULT: FAILED in 1 project, on a test this change does not reach
+**The second rebase, at c3f3ab13c on base 9a5032dc2,** was gated the same way, and the default gate was run too:
+
+```
+.\scripts\test-local.ps1 -Parked -Filter License   commit c3f3ab13c   RESULT: GREEN
+  CcDirector.Core.UnitTests 205, CcDirector.Avalonia.Tests 32, CcDirector.Gateway.Tests.shard3of4 23,
+  CcDirector.Gateway.UnitTests 1076, every suite outcome=Completed
+
+.\scripts\test-local.ps1                    commit c3f3ab13c   RESULT: FAILED in 1 project, on a test this change does not reach
   CcDirector.Core.UnitTests                Failed: 1, Passed: 2224 (Total 2225)
     BackgroundWorkRegisterTests.EveryTimerWatcherAndWaitingLoop_HasARowInTheRegister_AndEveryRowStillPointsAtOne:
     "COUNT DIFFERS: tools/cc-director-setup-engine/LauncherSelfUpdate.cs has 3 site(s) in code, the register says 2"

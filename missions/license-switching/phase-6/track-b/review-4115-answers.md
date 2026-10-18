@@ -120,3 +120,27 @@ conflict was resolved once. Each was resolved by keeping both sides:
   `tool-health.md` now says 12.1. The review files keep the numbers they were written with.
 
 Because this rebase changed code, the gate was run again on the result; see `tool-health.md`, "The gate".
+
+## The rebase review
+
+The review of the second rebase is `review-4115-rebase.md`. It found the ten conflicts resolved correctly, with nothing
+of this branch's behaviour lost and nothing of main's broken. Its two findings:
+
+1. **A sentence of the API document was lost in the merge.** **Fixed.** The `fromAccountEmail`, `toAccountEmail` row
+   of the Licenses log table in `cockpit-api.md` again ends: "On `cannot-switch` and `can-switch-again` neither is
+   set: they are about the machine."
+2. **The head did not merge onto main, and the next rebase had a compile break waiting.** **Done.** The branch was
+   rebased a third time, onto origin/main 8994f5e1a, which by then also had Track A's alarm for a refused report and a
+   silent machine (#4172).
+   - **The two conflicts the review predicted came back, and each kept both sides.** In `LicenseStore.cs`, main's
+     `Approval` log kind (#4153) is followed by this branch's `CannotSwitch` and `CanSwitchAgain`. In
+     `cockpit-api.md`, the `kind` row lists `approval` and then the two new kinds. The fold needed no change: main
+     shows an approval row before the kind list is reached.
+   - **The new fake.** `FakeTool` in `LicenseRenewalThroughApproverHostedTests.cs` (#4123) gained
+     `IsInstalled => true`. Every implementer of `ILicenseCommandLine` on the new head now has `IsInstalled`.
+   - **The gate.** `-Parked -Filter License` is green on the new head 52cf082ce. That run builds `Gateway.Tests` and
+     ran 26 of its tests, so the compile break is proven gone, not only fixed by reading. The counts are in
+     `tool-health.md`, "The gate".
+
+One more fix, found while updating that section: three command lines in it showed a tab where the text should read
+`scripts\test-local.ps1`. They now read correctly.
