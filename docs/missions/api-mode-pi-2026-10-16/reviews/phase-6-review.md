@@ -328,3 +328,147 @@ script on a clean tree.
   isolation and link check stay as a second guard.
 - `session prompt` saying "Held" for a queued API-mode prompt: for the Delivery Lead's follow-up list, with the missing
   `cc-devthrottle` verbs.
+
+---
+
+## Round 2: the version guard (commit `26c04e1d8` on #4208)
+
+Reviewer seat, opened by the Delivery Lead (session 130), 18 October 2026. Read against commit `26c04e1d8` of
+`api-mode-switch-on` (the head of #4208) and commit `2cea72dab` of `api-mode-pi-proof-script` (the head of #4210, whose
+`src/` is byte-for-byte that of `26c04e1d8`), both from `origin`, with `origin/main` at `20491d6ef`. The reviewer runs a
+different agent from the one that wrote the work. Scope: ONLY the new guard, `ConnectionChoiceFold.DirectorCannotCarry`,
+against the five questions in the brief. Nothing else in either pull request was re-judged.
+
+### Verdict
+
+**One finding.** The guard does what it says at the two doors it was put on, the version floor is right, and the
+Director-driven restores are refused correctly. But there is a third place the Gateway sends a create that carries the
+connection mode to a Director of the caller's choosing - the crash-journal restore route - and the guard is not on it.
+An API-mode seat restored through that route to a Director older than 2.23.0 starts a terminal session with a success
+answer: round 1's finding 1, on the restore path the brief asked about.
+
+### The five questions
+
+1. **An API-mode create to a Director older than 2.23.0 is refused at both doors with a 409 naming the version
+   needed.** Yes, by reading and by the tests. Director door: `GatewayEndpoints.DirectorSpawn.cs` line 125, after the
+   factory guard and before the relay, `Results.Json(..., 409)`. Machine door: `MachineEndpoints.cs` lines 503 to 508,
+   inside the spawner's refusal hook, ahead of `RefuseAtMachineDoor`; `MachineSessionSpawner.SpawnOnMachineWithOutcomeAsync`
+   resolves ONE target Director, calls the hook and returns `Failed(refusal, outcomeUnknown: false)` before any create is
+   sent, which the door answers as 409 (the test `PostSessions_ApiModeToADirectorOlderThan2_23_Is409WithTheReasonAndNothingIsSent`
+   asserts `Conflict` and that the fake Director saw nothing, at both doors). The sentence names the machine, the version
+   it reported, and "2.23.0 or later". The same shape as `SpawnFactory.DirectorCannotCarry`, line for line, and both now
+   read the version through the one `ReleaseOf`.
+2. **An unreadable version is refused.** Yes. `ReleaseOf` returns null for an empty string or anything `Version.TryParse`
+   cannot read, and null is refused ("a version it does not report" when blank; "version <text>" otherwise). The by-id
+   overload refuses when there is no resolver or the id is not the account's. In production the machine door's resolver
+   is the registry (`GatewayHost.cs` line 6267 passes `Registry`), so the no-resolver branch is the test's, not the
+   fleet's.
+3. **Terminal creates are unchanged.** Yes. The guard returns null unless `ConnectionMode` is exactly `api`, and the
+   machine door's hook is not even installed for a plain terminal create (`asksApiMode` false, no factory, no seat
+   fields). A casing variant such as `API` never reaches the guard: `RefusalOf` already answered 400 for an unknown word at
+   both doors. `PostSessions_TerminalToADirectorOlderThan2_23_GoesToTheDirector` proves a 2.22.0 Director still takes a
+   terminal create at both doors.
+4. **Restores of an API-mode seat to an old Director.** Three paths, two right and one not; see the finding below.
+5. **Is 2.23.0 truly the first Director that parses the connection mode?** Yes, checked on the tags:
+   - `ConnectionMode` entered the contract in `eebcc5e03` (16 October 2026, 15:48 UTC). `git tag --contains eebcc5e03`
+     gives `v2.23.0` first; `git grep ConnectionMode v2.22.0 -- src/CcDirector.ControlApi src/CcDirector.Core/Sessions`
+     finds nothing, and the same grep at `v2.23.0` finds the create verb's `FromWord` parse, `RequireApiModeSupported`, the
+     `ApiModeSessionBackend` branch in `SessionManager.CreateSession`, and `ConnectionMode` on the state the Director
+     reports.
+   - `<Version>` became `2.23.0` in `08dec1140` (17 October, 07:47 UTC), AFTER the field landed. So every build that
+     reports 2.23.0, released or local, carries the field. A build from main between 15:48 on the 16th and 07:47 on the
+     17th reports `2.22.0+<sha>` yet carries the field; the guard refuses it, in words - a false refusal on the safe side.
+   - `2.23.0-rc1` is read as 2.23.0 and accepted; no such build exists on the tags.
+
+   One thing the number cannot say, for the record and not as a finding: the released v2.23.0 Director carries phases
+   0 to 2 only. It parses the mode, starts Pi in API mode and delivers a Gateway prompt through the protocol
+   (`Session.SendTextAsync` branches on `_apiMode` at that tag), but it has no push of API-mode events to the Gateway
+   (`11fe166dc`, 18 October), no wheel on the Director side (`cd0ba3c45`), and no connection mode in its crash journal
+   (`91f1b38ca`) - all merged after the tag, and `Directory.Build.props` on main still says 2.23.0, so no version check can
+   tell the released v2.23.0 from today's main. The floor is the lowest honest one: the create is honoured as asked. What
+   the Gateway's Chat and receipts show for such a session on the released v2.23.0 was not traced here. The installed,
+   auto-updating Director is v2.23.0 today. Once the version is bumped for the next release, the floor can be raised to
+   it; until then this is a gap to write down, not a defect in the guard.
+
+### Finding R2-1: the crash-journal restore route sends an API-mode continuation to any Director with no version check
+
+**The chain, all on `26c04e1d8`:**
+
+1. `POST /interrupted/{deadDirectorId}/{deadPid}/restore` (`GatewayEndpoints.cs` from line 2005). The target is
+   `req.ToDirectorId` when given, else the reporting Director (`req.Via`), both resolved in the caller's tenant.
+2. The create body is `ContinuationRequest(row, context)` (lines 6236 to 6268), which sets
+   `ConnectionMode = row.ConnectionMode`. The journal row of an API-mode session carries `api` since `91f1b38ca`;
+   `ApiModeSessionSurvivesACrashTests.ContinuationRequest_AnApiModeSessionThroughTheJournal_ContinuesInApiMode` asserts the
+   request's `ConnectionMode` is `api` (run here, passed).
+3. The body goes straight to the tunnel: `DirectorCommandRouter.TrySendAsync(sendCommand, target.DirectorId, "create", ...)`
+   (line 2056). Between building the request and sending it the only check is `SpawnFactory.DirectorCannotBuildKit`
+   (line 2052). Neither `ConnectionChoiceFold.DirectorCannotCarry` nor `ConnectionChoiceFold.RefusalOf` runs on this route,
+   and for what it is worth neither does the factory field's own `SpawnFactory.DirectorCannotCarry`.
+4. A target older than 2.23.0 deserialises the create without `UnmappedMemberHandling` (round 1, finding 1, step 3), reads
+   no mode, and starts the terminal. The route answers success with the new session.
+
+**Why it is a harm.** It is exactly the outcome the guard was written to prevent: a session started as something
+nobody asked for, with no word to the caller - and here the caller is restoring a seat that was API mode, so the
+mismatch is certain, not possible. The commit message says the create is refused "at both create doors"; the Gateway has
+three places that send a create carrying a connection mode to a Director the caller or the journal chose, and the guard
+sits on two.
+
+**Reach, stated honestly.** The route is in the public schema (`toDirectorId` is in client-core's `schema.ts`), and
+client-core's `fleetClient.restoreInterrupted` posts it with `via` only, so its target is the reporting Director. No
+Cockpit or phone screen mounting that function was found on the branch, and `cc-devthrottle` has no verb for the route;
+a device-credential caller of the REST route can reach it today. The default target, the reporting Director, is
+whichever live Director on the dead one's machine served the journal; on a machine running several slot builds it is
+not necessarily as new as the one that died.
+
+**Not for the reviewer to decide**, but the shapes are: the same guard, called with `target` beside the kit guard before
+the send (one line, same 409, same sentence), or the gap written into the mission record with the reason.
+
+### Judged and found right
+
+- **The two Director-driven restores are refused correctly.** Both the drain restore (`DirectorRestore.BuildRequest`,
+  `ConnectionMode = seat.ConnectionMode`, line 765) and the Smart Restart way up (`DirectorWayUp`, line 1044) send their
+  create through `POST /directors/{id}/sessions` on the Director's own credential, naming THIS Director as the target. The
+  director door runs the guard on a restore's create too - the restore-claim checks at lines 76 to 98 only refuse or fall
+  through, never skip to the relay - so an API-mode seat sent to a Director older than 2.23.0 is a 409. `DirectorRestore`
+  reads a 4xx as `GatewaySpawnFailedException.NothingStarted`, marks the seat `Failed` with "the Gateway did not start
+  it: <the guard's sentence>", clears nothing it should keep, and starts no fallback; `DirectorWayUp` returns `Refused`
+  with the message. Because a restore targets the Director that is restoring, this bites only after a downgrade, and
+  refusing in words beats reopening a Pi conversation in a mode it did not run in. Right.
+- **Schedules cannot reach the guard's gap.** `DirectorCronSessionStarter` builds its request with no connection mode
+  (no `ConnectionMode` anywhere under `Running/`), so a schedule's create is terminal and the old-Director behaviour is
+  what was asked for.
+- **The order at the director door is right.** Unknown word (400) first, then origin and factory, then the factory
+  version guard, then this guard, then the kit guard, then the mission and seat resolve, then the relay. A refused create
+  has taken nothing.
+- **The tests catch the defect they are for.** Both route tests register the fake Director at 2.22.0 and assert the
+  Director saw nothing; the fold tests cover the boundary (2.22.0 refused, 2.23.0 and 2.24.1 accepted, a `v`-prefixed
+  build with metadata refused, blank refused). Moving the default fake Director from `2.20.0-test` to `2.23.0-test` is
+  necessary, since every other route test now sends `api` and would otherwise be refused by this guard.
+
+### Scope: what was read
+
+The whole diff of `26c04e1d8` (five files) and the full `ConnectionChoiceFold.cs`; `SpawnFactory.ReleaseOf` and
+`SpawnFactory.DirectorCannotCarry` (both overloads); `GatewayEndpoints.DirectorSpawn.cs` lines 60 to 140;
+`MachineEndpoints.cs` lines 495 to 512; `MachineSessionSpawner.SpawnOnMachineWithOutcomeAsync` (the hook); the
+`directors` wiring in `GatewayHost.cs`; `DirectorCronSessionStarter.cs` (grep for a connection mode); the interrupted
+restore route and `ContinuationRequest` in `GatewayEndpoints.cs`; `DirectorRestore.cs` (interface header, lines 395 to
+460) and `DirectorWayUp.cs` (request build, refusal paths); `GatewayClient.GatewaySpawnFailedException.NothingStarted`;
+commit `91f1b38ca` and `ApiModeSessionSurvivesACrashTests`; `fleetClient.restoreInterrupted`; on the tags, v2.23.0's
+`SessionCommandExecutor.cs`, `SessionManager.cs` and `Session.cs`, and `Directory.Build.props` history on `origin/main`.
+
+### Scope: what was run
+
+- `dotnet build src/CcDirector.Gateway.UnitTests` at `2cea72dab` in a worktree cut from `origin` (0 warnings, 0 errors).
+- `dotnet test --filter FullyQualifiedName~ConnectionChoiceTests`: **59 passed, 0 failed, 0 skipped**, including the
+  eleven new guard tests at the fold and the four through the routes.
+- `dotnet test --filter FullyQualifiedName~ApiModeSessionSurvivesACrashTests`: 4 passed, 0 failed (the finding's step 2).
+- Both runs with `DOTNET_USE_POLLING_FILE_WATCHER=1` and `EnableWindowsTargeting`, on .NET 10.0.301, while two other
+  sessions were running Gateway unit tests on the same machine and the inotify count stood at 127 of 128; neither run
+  showed an inotify error.
+
+### Scope: what was not done
+
+No Director was built or started, old or new; no create was sent to a real v2.22.0 Director - step 4 of the finding
+rests on round 1's reading of the deserialiser, not on a run. The proof script was not run. The full Gateway unit suite
+was not run; the brief asked for the connection-choice tests. What the released v2.23.0 Director shows in the Gateway's
+Chat for an API-mode session was not traced.
