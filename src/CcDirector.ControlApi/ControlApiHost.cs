@@ -363,6 +363,8 @@ public sealed class ControlApiHost : IAsyncDisposable
     // transcripts.
     private Core.Sessions.SessionPreambleMaintainer? _preambleMaintainer;
     private Core.Sessions.SessionPointerWatcher? _pointerWatcher;
+    private Core.Rules.SessionRulesMaintainer? _rulesMaintainer;
+    private Core.Rules.HookDecisionForwarder? _decisionForwarder;
     private Core.Storage.ConversationIngestor? _conversationIngestor;
     private Core.Storage.SessionLogManager? _sessionLogManager;
     private readonly string? _instancesDirectory;
@@ -515,6 +517,18 @@ public sealed class ControlApiHost : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[ControlApiHost] session preamble rewrite FAILED (will retry next cycle): {ex.Message}");
+        }
+        // Session Rules part 2, phase 1: the same refresh keeps each live session's rules file current, so a
+        // rule created while sessions run reaches their next shell command within one cycle. Its own try,
+        // like the others: a failure here must not cost anything above, and the next cycle tries again.
+        try
+        {
+            if (_rulesMaintainer is { } rulesMaintainer)
+                await rulesMaintainer.RefreshAllAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ControlApiHost] session rules refresh FAILED (will retry next cycle): {ex.Message}");
         }
     }
 
@@ -961,6 +975,16 @@ public sealed class ControlApiHost : IAsyncDisposable
         // A removed session's drop file goes with it, so nothing is left that a later sweep could
         // re-apply to an id that has been reused.
         _sessionManager.OnSessionRemoved += s => _pointerWatcher?.Forget(s.Id);
+
+        // Session Rules part 2, phase 1: each live Claude Code session's rules file, kept current like the
+        // preamble (rewritten at the end of every store refresh below, and on create), and the forwarder
+        // that carries the before-a-command hook's decisions to the Gateway as firings. Both read the
+        // Gateway client FIELD on every use, so a settings change that replaces it is picked up; both do
+        // nothing while no Gateway is configured.
+        _rulesMaintainer = new Core.Rules.SessionRulesMaintainer(_sessionManager, () => _gatewayClient);
+        _rulesMaintainer.Start();
+        _decisionForwarder = new Core.Rules.HookDecisionForwarder(_sessionManager, () => _gatewayClient);
+        _decisionForwarder.Start();
 
         // Phase 3: the SessionStatusWingman is the sole writer of each Session's
         // StatusColor. Must start BEFORE TurnSummaryCache so brand-new sessions are
@@ -2138,6 +2162,10 @@ public sealed class ControlApiHost : IAsyncDisposable
         _pointerWatcher = null;
         _preambleMaintainer?.Dispose();
         _preambleMaintainer = null;
+        _decisionForwarder?.Dispose();
+        _decisionForwarder = null;
+        _rulesMaintainer?.Dispose();
+        _rulesMaintainer = null;
 
         _registration?.Unregister();
     }

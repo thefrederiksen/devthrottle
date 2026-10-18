@@ -115,7 +115,7 @@ public sealed class SessionRuleHookFilesTests : IDisposable
         File.WriteAllText(path, "garbage");
 
         // Act
-        var written = SessionRulesFile.WriteIfChanged(path, id, "devlinux", "", Array.Empty<HookRuleEntry>(), DateTime.UtcNow);
+        var written = SessionRulesFile.WriteIfChanged(path, id, "devlinux", "", Array.Empty<HookRuleEntry>(), new DateTime(2026, 10, 18, 12, 0, 0, DateTimeKind.Utc));
 
         // Assert
         Assert.True(written);

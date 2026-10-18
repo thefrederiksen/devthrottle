@@ -54,7 +54,7 @@ public sealed class SessionRulesMaintainerTests : IDisposable
             backend: new StubSessionBackend(),
             claudeSessionId: null,
             activityState: ActivityState.Idle,
-            createdAt: DateTimeOffset.UtcNow,
+            createdAt: new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero),
             customName: "rules-maintainer-test",
             customColor: null);
         session.AgentKind = kind;

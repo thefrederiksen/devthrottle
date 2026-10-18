@@ -28,7 +28,7 @@ namespace CcDirector.ControlApi;
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
 /// </summary>
-public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, Triggers.IFactoryCheckSource, IDisposable
+public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, Triggers.IFactoryCheckSource, CcDirector.Core.Rules.ISessionRuleGateway, IDisposable
 {
     /// <summary>How often the heartbeat fires.</summary>
     public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
@@ -1146,6 +1146,85 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGateway
         {
             FileLog.Write($"[GatewayClient] PushSkillPlacementAsync FAILED: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Session Rules part 2, phase 1 (wire contract W1): the hook rules whose scope reaches this machine
+    /// and repo, with this Director's own credential. Never an empty list on failure: a Gateway that
+    /// could not be asked, answered something that is not the contract's shape, or answered for a
+    /// different machine or repo is a FAILURE with its reason - "no rule reaches this session" is a claim
+    /// only a real answer can make.
+    /// </summary>
+    public async Task<CcDirector.Core.Rules.EffectiveHookRulesFetch> FetchEffectiveHookRulesAsync(
+        string machine, string repo, CancellationToken ct)
+    {
+        if (!_config.IsEnabled) return CcDirector.Core.Rules.EffectiveHookRulesFetch.Failed("no Gateway is configured");
+        var route = "gateway/rules/effective?kind=hook" +
+                    $"&machine={Uri.EscapeDataString(machine)}&repo={Uri.EscapeDataString(repo)}";
+        try
+        {
+            using var resp = await _http.GetAsync(route, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                var refusal = $"GET /{route} returned HTTP {(int)resp.StatusCode}: {RefusalSentence(body)}";
+                FileLog.Write($"[GatewayClient] FetchEffectiveHookRulesAsync FAILED: {refusal}");
+                return CcDirector.Core.Rules.EffectiveHookRulesFetch.Failed(refusal);
+            }
+            var mediaType = resp.Content.Headers.ContentType?.MediaType;
+            if (!string.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase))
+                return CcDirector.Core.Rules.EffectiveHookRulesFetch.Failed(
+                    $"the Gateway answered '{mediaType}' instead of JSON: it does not serve effective rules");
+
+            var answer = await resp.Content.ReadFromJsonAsync<CcDirector.Core.Rules.EffectiveHookRulesResponse>(ct);
+            if (answer?.Rules is null)
+                return CcDirector.Core.Rules.EffectiveHookRulesFetch.Failed("the Gateway answered with no list of rules");
+            if (!string.Equals(answer.Machine, machine, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(answer.Repo ?? "", repo, StringComparison.Ordinal))
+                return CcDirector.Core.Rules.EffectiveHookRulesFetch.Failed(
+                    $"the Gateway answered for machine '{answer.Machine}' repo '{answer.Repo}', not the machine '{machine}' repo '{repo}' asked about");
+
+            return CcDirector.Core.Rules.EffectiveHookRulesFetch.Answered(answer.Rules);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            FileLog.Write($"[GatewayClient] FetchEffectiveHookRulesAsync FAILED: machine={machine}, repo='{repo}', {ex.Message}");
+            return CcDirector.Core.Rules.EffectiveHookRulesFetch.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Session Rules part 2, phase 1 (wire contract W5): forward the before-a-command hook's decisions as
+    /// firings, each exactly as the hook wrote it. A failure leaves the caller's drops in place for its
+    /// next attempt; decisionId is unique per tenant, so a retried post is a duplicate, never a second
+    /// firing.
+    /// </summary>
+    public async Task<CcDirector.Core.Rules.HookFiringsPost> PostHookFiringsAsync(
+        IReadOnlyList<JsonElement> decisions, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(decisions);
+        if (!_config.IsEnabled) return CcDirector.Core.Rules.HookFiringsPost.Failed("no Gateway is configured");
+        try
+        {
+            using var resp = await _http.PostAsJsonAsync(
+                "gateway/rules/hook-firings", new CcDirector.Core.Rules.HookFiringsRequest { Decisions = decisions }, ct);
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                var refusal = $"POST /gateway/rules/hook-firings returned HTTP {(int)resp.StatusCode}: {RefusalSentence(body)}";
+                FileLog.Write($"[GatewayClient] PostHookFiringsAsync FAILED: {refusal}");
+                return CcDirector.Core.Rules.HookFiringsPost.Failed(refusal);
+            }
+            var answer = await resp.Content.ReadFromJsonAsync<CcDirector.Core.Rules.HookFiringsResponse>(ct);
+            if (answer is null)
+                return CcDirector.Core.Rules.HookFiringsPost.Failed("the Gateway answered with an empty body");
+            return CcDirector.Core.Rules.HookFiringsPost.Answered(answer);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            FileLog.Write($"[GatewayClient] PostHookFiringsAsync FAILED: {decisions.Count} decision(s), {ex.Message}");
+            return CcDirector.Core.Rules.HookFiringsPost.Failed(ex.Message);
         }
     }
 

@@ -51,7 +51,7 @@ public sealed class HookDecisionForwarderTests : IDisposable
             backend: new StubSessionBackend(),
             claudeSessionId: null,
             activityState: ActivityState.Idle,
-            createdAt: DateTimeOffset.UtcNow,
+            createdAt: new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero),
             customName: "decision-drop-test",
             customColor: null);
         _sessions.AdoptSession(session);
