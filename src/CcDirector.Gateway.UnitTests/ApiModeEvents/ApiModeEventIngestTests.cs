@@ -283,6 +283,63 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Null(refused.PromptText);
     }
 
+    // ----- a queued prompt whose ending was lost in a hole between two generations (item 9) -----
+
+    [Fact]
+    public void Accept_AHoleThatSwallowedTheDelivery_TheLaterGenerationsFirstOtherEventRulesItUnknown()
+    {
+        // Arrange: p1 and p2 queued while t0 runs in generation A; p1's delivery and t0's end fell in the hole.
+        Push(A(Ready(1), Started(2, "t0"), Queued(3, "p1", position: 1), Queued(4, "p2", position: 2)));
+
+        // Act: generation B re-announces p2 (still waiting), then its next event.
+        Push(B(Queued(1, "p2", position: 1)));
+        var afterTheReannouncement = Receipt("p1").State;
+        Push(B(Started(2, "t9")));
+
+        // Assert: p1 stays Queued until an event that follows the re-announcements; then it is Unknown, text kept.
+        Assert.Equal(ApiModeReceiptState.Queued, afterTheReannouncement);
+        var p1 = Receipt("p1");
+        Assert.Equal(ApiModeReceiptState.Unknown, p1.State);
+        Assert.Equal("text of p1", p1.PromptText);
+        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p2").State);
+    }
+
+    [Fact]
+    public void Accept_TheLaterGenerationReannouncesTheQueuedPrompt_RulesNothingAndItsDeliveryStands()
+    {
+        // Arrange
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act
+        Push(B(Queued(1, "p1"), Ready(2), Delivered(3, "p1", PlainAck)));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Delivered, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_NoLaterGeneration_LeavesTheQueuedPromptQueued()
+    {
+        // Arrange + Act: everything in one generation; a missing delivery there is not a lost one.
+        Push(A(Ready(1), Queued(2, "p1"), Started(3, "t9"), Ended(4, "t9", TurnOutcome.Done, null, "stop")));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_TheLaterGenerationsFirstEventIsTheQueuedPromptsOwnDelivery_IsDelivered()
+    {
+        // Arrange
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act
+        Push(B(Delivered(1, "p1", PlainAck)));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Delivered, Receipt("p1").State);
+    }
+
     // ----- a turn whose end was lost in a hole between two generations (item 7) -----
 
     [Fact]

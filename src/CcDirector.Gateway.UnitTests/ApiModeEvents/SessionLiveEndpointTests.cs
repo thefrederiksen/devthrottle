@@ -706,6 +706,29 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Stream_AQueuedPromptTheLaterGenerationDidNotReannounce_IsSentUnknownAsTheReceiptsEndpointSaysIt()
+    {
+        // Item 9: p1 and p2 queued in generation A; generation B re-announces p2 only, then the agent connects.
+        await StartAsync();
+        PushA(Queued(1, "p1"), Queued(2, "p2"));
+        PushB(Queued(1, "p2"), Ready(2));
+
+        await using var stream = await OpenStreamAsync(Alice, ApiSession, lastEventId: "gen-a:2");
+        var reset = await stream.NextAsync();
+        var receipts = await stream.NextAsync();
+        var (status, body) = await GetAsync(Alice, ApiSession, "/receipts");
+
+        Assert.Equal(("reset", ApiModeLiveResetCodes.NewGeneration), (reset!.Event, Reset(reset).Code));
+        Assert.Equal(HttpStatusCode.OK, status);
+        var streamed = Items(receipts!).Where(i => i.PromptId is not null).ToDictionary(i => i.PromptId!, i => (i.Text, i.Tone));
+        var served = JsonSerializer.Deserialize<SessionReceiptsDto>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!
+            .Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone));
+        Assert.Equal(("Not known - the Director reconnected without this prompt in its queue or any record of sending it", "neutral"), streamed["p1"]);
+        Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), streamed["p2"]);
+        Assert.Equal(streamed.OrderBy(kv => kv.Key, StringComparer.Ordinal), served.OrderBy(kv => kv.Key, StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task Items_CursorAfterAGatewayRestart_AnswersAResetAndNoCursor()
     {
         await StartAsync();
@@ -1096,6 +1119,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         });
         GatewayResponseCompression.Use(app);
         SessionLiveEndpoint.Map(app, _feed, _receipts, _conversation, _pushed, StaleAfter, _boundary, _clock, liveBacklog);
+        SessionReceiptsEndpoint.Map(app, _receipts, _pushed, StaleAfter, _boundary);
 
         await app.StartAsync();
         _app = app;

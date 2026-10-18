@@ -910,4 +910,165 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         // Assert
         Assert.Equal("Delivered - the turn failed: the model errored", ApiModeLiveRuling.ReceiptWords(Only(store)));
     }
+    // ----- a queued prompt whose ending was lost in a hole between two generations (item 9) -----
+
+    private const string UnknownWords = "Not known - the Director reconnected without this prompt in its queue or any record of sending it";
+
+    /// <summary>p1 queued in generation A, with its text; then the push had a hole.</summary>
+    private ApiModeReceiptStore StoreWithPromptOneQueuedInGenerationA()
+    {
+        var store = Store();
+        store.RecordQueued(Director, Sid, "p1", "turnRunning", At(7), T0, "text of p1");
+        return store;
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_InALaterGenerationThatDidNotReannounceIt_RulesTheReceiptUnknownAndKeepsTheRest()
+    {
+        // Arrange
+        var store = StoreWithPromptOneQueuedInGenerationA();
+
+        // Act
+        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+
+        // Assert
+        Assert.Equal(1, changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Unknown, r.State);
+        Assert.Equal("turnRunning", r.QueueReason);
+        Assert.Equal("text of p1", r.PromptText);
+        Assert.Equal(T0, r.QueuedAtUtc);
+        Assert.Null(r.Disposition);
+        Assert.Null(r.RefusalReason);
+        Assert.Equal(AfterRestart(1), store.ReadWithPositions(Sid).Single().LastPosition);
+        Assert.Equal(UnknownWords, ApiModeLiveRuling.ReceiptWords(r));
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_AfterTheLaterGenerationReannouncedIt_RulesNothing()
+    {
+        // Arrange: generation B re-announced p1 at sequence 1.
+        var store = StoreWithPromptOneQueuedInGenerationA();
+        store.RecordQueued(Director, Sid, "p1", "turnRunning", AfterRestart(1), T0);
+
+        // Act
+        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(2));
+
+        // Assert
+        Assert.Equal(0, changed);
+        Assert.Equal(ApiModeReceiptState.Queued, Only(store).State);
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_InTheSameGeneration_RulesNothing()
+    {
+        // Arrange: no hole lies between them.
+        var store = StoreWithPromptOneQueuedInGenerationA();
+
+        // Act
+        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", At(8));
+
+        // Assert
+        Assert.Equal(0, changed);
+        Assert.Equal(ApiModeReceiptState.Queued, Only(store).State);
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_TheProvingEventsOwnPrompt_IsLeftToItsOwnChange()
+    {
+        // Arrange
+        var store = StoreWithPromptOneQueuedInGenerationA();
+
+        // Act: generation B's first event is p1's own delivery.
+        var changed = store.RecordQueueLeftProven(Director, Sid, "p1", "PromptDelivered", AfterRestart(1));
+
+        // Assert
+        Assert.Equal(0, changed);
+        Assert.Equal(ApiModeReceiptState.Queued, Only(store).State);
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_DeliveredAndRefusedReceipts_AreNotTouched()
+    {
+        // Arrange
+        var store = Store();
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0);
+        store.RecordRefused(Director, Sid, "p2", BusyRefusal, "agent", At(2), T0);
+
+        // Act
+        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+
+        // Assert
+        Assert.Equal(0, changed);
+        Assert.Equal(new[] { ApiModeReceiptState.Delivered, ApiModeReceiptState.Refused }, store.Read(Sid).Select(r => r.State));
+    }
+
+    [Fact]
+    public void RecordQueued_AReannouncementOlderThanTheUnknownRuling_ReplacesItAndTheRowNeverMovesBackwards()
+    {
+        // Arrange: ruled Unknown at sequence 5 of generation B.
+        var store = StoreWithPromptOneQueuedInGenerationA();
+        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+
+        // Act: its re-announcement at sequence 1 of generation B arrives after the ruling.
+        var changed = store.RecordQueued(Director, Sid, "p1", "turnRunning", AfterRestart(1), T0);
+
+        // Assert
+        Assert.True(changed);
+        var stored = store.ReadWithPositions(Sid).Single();
+        Assert.Equal(ApiModeReceiptState.Queued, stored.Receipt.State);
+        Assert.Equal("text of p1", stored.Receipt.PromptText);
+        Assert.Equal(AfterRestart(5), stored.LastPosition);
+    }
+
+    [Fact]
+    public void RecordDelivered_AfterTheUnknownRuling_ReplacesItWhateverItsSequence()
+    {
+        // Arrange
+        var store = StoreWithPromptOneQueuedInGenerationA();
+        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+
+        // Act
+        var changed = store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, AfterRestart(2), T0.AddSeconds(3));
+
+        // Assert
+        Assert.True(changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Delivered, r.State);
+        Assert.Equal(StartedAck, r.Acknowledgement);
+        Assert.Equal("text of p1", r.PromptText);
+    }
+
+    [Fact]
+    public void RecordRefused_AfterTheUnknownRuling_ReplacesIt()
+    {
+        // Arrange
+        var store = StoreWithPromptOneQueuedInGenerationA();
+        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+
+        // Act
+        var changed = store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", AfterRestart(9), T0.AddSeconds(3));
+
+        // Assert
+        Assert.True(changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Refused, r.State);
+        Assert.Equal(BusyRefusal, r.RefusalReason);
+        Assert.Equal(AfterRestart(9), store.ReadWithPositions(Sid).Single().LastPosition);
+    }
+
+    [Fact]
+    public void RecordQueued_FromAnOlderGenerationThanTheUnknownRuling_IsAReplayAndChangesNothing()
+    {
+        // Arrange
+        var store = StoreWithPromptOneQueuedInGenerationA();
+        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+
+        // Act
+        var changed = store.RecordQueued(Director, Sid, "p1", "turnRunning", At(7), T0);
+
+        // Assert
+        Assert.False(changed);
+        Assert.Equal(ApiModeReceiptState.Unknown, Only(store).State);
+    }
 }

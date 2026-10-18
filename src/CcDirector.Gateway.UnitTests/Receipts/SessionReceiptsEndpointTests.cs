@@ -348,4 +348,45 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
         Assert.Equal("Delivered", served.Words);
         Assert.Equal((served.Words, served.Tone), (shownFirst.Text, shownFirst.Tone));
     }
+    // ----- a queued prompt whose ending was lost: the endpoint and the live stream give the same words (item 9) -----
+
+    [Fact]
+    public void Read_AQueuedPromptNotReannouncedByTheLaterGeneration_GivesTheWordsTheLiveStreamGives()
+    {
+        // Arrange: p1 and p2 queued in generation A; generation B re-announces p2 only, then the agent connects. A live
+        // reader rebuilt from the store when generation B began, before the store ruled anything.
+        RecordQueued("p1", 1);
+        RecordQueued("p2", 2);
+        var reader = new ApiModeLiveRuling(AliceStored());
+        var events = new[]
+        {
+            new ApiModeHeldEvent("gen-b", GenerationBStarted, Tests.ApiModeEvents.ApiModeEventTestData.Queued(1, "p2", sid: AliceSession, position: 1)),
+            new ApiModeHeldEvent("gen-b", GenerationBStarted, Ready(2, AliceSession)),
+        };
+        var shown = new Dictionary<string, (string Text, string Tone)>();
+        foreach (var held in events)
+        {
+            // Act: the store, as the ingest writes it, then the live reader.
+            using (_boundary.EnterScope(Alice))
+            {
+                if (ApiModeLostQueuedPrompt.Proves(held.Event, out var own))
+                    _store.RecordQueueLeftProven(AliceDirector, AliceSession, own, ApiModeLostQueuedPrompt.Describe(held.Event, held.Position), held.Position);
+                if (held.Event is PromptQueued q)
+                    _store.RecordQueued(AliceDirector, AliceSession, q.PromptId, ApiModeEventIngest.Word(q.Reason), held.Position, T0);
+            }
+            foreach (var item in reader.Rule(held).Where(i => i.PromptId is not null))
+                shown[item.PromptId!] = (item.Text, item.Tone);
+        }
+        var served = Body(Get(Alice, AliceSession)).Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone));
+        var stored = AliceStored();
+        ApiModeLiveRuling.PlaceInLine(stored);
+        var rebuilt = stored.ToDictionary(r => r.Receipt.PromptId, r => { var i = ApiModeLiveRuling.ReceiptItem(r.Receipt, 0); return (i.Text, i.Tone); });
+
+        // Assert
+        Assert.Equal(("Not known - the Director reconnected without this prompt in its queue or any record of sending it", "neutral"), served["p1"]);
+        Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), served["p2"]);
+        Assert.Equal(served["p1"], shown["p1"]);
+        Assert.Equal(served["p2"], shown["p2"]);
+        Assert.Equal(served.OrderBy(kv => kv.Key, StringComparer.Ordinal), rebuilt.OrderBy(kv => kv.Key, StringComparer.Ordinal));
+    }
 }

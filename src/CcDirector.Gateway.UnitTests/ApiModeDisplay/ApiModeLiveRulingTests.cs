@@ -1112,4 +1112,203 @@ public sealed class ApiModeLiveRulingTests
         Assert.Equal(new[] { "Queued, 1st in line: a turn is running" }, ReceiptWordsOf(items, "p2"));
         Assert.Equal(new[] { "Queued: a turn is running" }, ReceiptWordsOf(items, "p1"));
     }
+    // ----- a queued prompt whose ending was lost in a hole between two generations (item 9) -----
+
+    private const string UnknownWords = "Not known - the Director reconnected without this prompt in its queue or any record of sending it";
+
+    /// <summary>A queued receipt as the store answers it: queued by the event at <paramref name="lastSequence"/> of
+    /// generation A, with its text.</summary>
+    private static ApiModeStoredReceipt StoredQueued(string promptId, long lastSequence)
+        => Stored(new ApiModeReceiptDto { PromptId = promptId, PromptText = $"text of {promptId}", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, lastSequence);
+
+    /// <summary>A receipt the store already ruled Unknown at <paramref name="ruledAt"/> of generation B.</summary>
+    private static ApiModeStoredReceipt StoredUnknown(string promptId, long ruledAt)
+        => new(new ApiModeReceiptDto { PromptId = promptId, PromptText = $"text of {promptId}", State = ApiModeReceiptState.Unknown, QueueReason = "turnRunning" },
+            new ApiModeEventPosition("gen-b", GenBStarted, ruledAt));
+
+    public static TheoryData<SessionEvent> QueueLeftProofs => new()
+    {
+        Started(1, "t1", "p9"),
+        Ready(1),
+        Gone(1, 137, "Pi exited (exit code 137)"),
+        Delivered(1, "p9", "ok"),
+        Refused(1, "p9", PiNotRunning, PromptRefusedBy.Director),
+        Ended(1, "t0", TurnOutcome.Done, null, "stop"),
+    };
+
+    [Theory]
+    [MemberData(nameof(QueueLeftProofs))]
+    public void Rule_AProofInALaterGenerationThatDidNotReannounceIt_RulesTheStoredQueuedReceiptUnknown(SessionEvent proof)
+    {
+        // Arrange: p1 was queued in generation A; generation B's first event is not a re-announcement of it.
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+
+        // Act
+        var items = ruling.Rule(HeldB(proof));
+
+        // Assert
+        var receipt = Assert.Single(items, i => i.ItemId == "receipt:p1");
+        Assert.Equal(UnknownWords, receipt.Text);
+        Assert.Equal("neutral", receipt.Tone);
+        Assert.Equal("text of p1", receipt.PromptText);
+    }
+
+    [Fact]
+    public void Rule_TheReceiptReannouncedThenAProof_IsNotRuledUnknown()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+
+        // Act: generation B re-announces p1 first, then a turn starts.
+        var items = ruling.Rule(HeldB(Queued(1, "p1"))).Concat(ruling.Rule(HeldB(Ready(2)))).ToList();
+
+        // Assert: p1 keeps the words it opened with (1st in line), so nothing is sent for it.
+        Assert.Empty(ReceiptWordsOf(items, "p1"));
+    }
+
+    [Theory]
+    [InlineData("queued")]
+    [InlineData("text")]
+    public void Rule_APromptQueuedOrAReplysTextInALaterGeneration_RulesNothing(string kind)
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+        SessionEvent e = kind == "queued" ? Queued(1, "p2", position: 1) : Text(1, "t0", "hello");
+
+        // Act
+        var items = ruling.Rule(HeldB(e));
+
+        // Assert: a PromptQueued may be a re-announcement, and text is not taken as a proof.
+        Assert.DoesNotContain(UnknownWords, ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_AProofInTheSameGenerationAsTheQueuedReceipt_RulesNothing()
+    {
+        // Arrange: no hole lies between them.
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+
+        // Act
+        var items = ruling.Rule(HeldA(Ready(8)));
+
+        // Assert
+        Assert.Empty(ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_AProofThatEndsTheQueuedPromptItself_IsItsOwnEndingNotUnknown()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+
+        // Act
+        var items = ruling.Rule(HeldB(Delivered(1, "p1", "ok")));
+
+        // Assert
+        Assert.Equal(new[] { "Delivered" }, ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_AProofWithoutItsPositionWhileAStoredReceiptIsQueued_Throws()
+    {
+        // Arrange: without the position the ruling cannot tell whether the proof is of a later generation.
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+
+        // Act + Assert
+        Assert.Throws<InvalidOperationException>(() => ruling.Rule(Ready(1)));
+    }
+
+    public static TheoryData<SessionEvent, string> LateRealEvents => new()
+    {
+        { Queued(1, "p1", position: 1), "Queued, 1st in line: a turn is running" },
+        { Delivered(1, "p1", "ok"), "Delivered" },
+        { Refused(1, "p1", PiNotRunning, PromptRefusedBy.Director), "Refused: " + PiNotRunning },
+    };
+
+    [Theory]
+    [MemberData(nameof(LateRealEvents))]
+    public void Rule_ARealEventOlderThanTheRulingInItsGeneration_ReplacesTheUnknownRuling(SessionEvent late, string expected)
+    {
+        // Arrange: the ruling was made at sequence 5 of generation B.
+        var ruling = new ApiModeLiveRuling(new[] { StoredUnknown("p1", 5) });
+
+        // Act: the prompt's own event, at sequence 1 of the same generation, arrives after it.
+        var items = ruling.Rule(HeldB(late));
+
+        // Assert
+        Assert.Equal(new[] { expected }, ReceiptWordsOf(items, "p1"));
+        Assert.Equal("text of p1", Assert.Single(items, i => i.ItemId == "receipt:p1").PromptText);
+    }
+
+    [Fact]
+    public void Rule_ARulingThenTheRealDeliveryInTheSameReader_ReplacesIt()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+        Assert.Equal(new[] { UnknownWords }, ReceiptWordsOf(ruling.Rule(HeldB(Ready(1))), "p1"));
+
+        // Act
+        var items = ruling.Rule(HeldB(Delivered(2, "p1", "ok")));
+
+        // Assert
+        Assert.Equal(new[] { "Delivered" }, ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_AnEventOfAnOlderGenerationThanTheRuling_IsAReplayAndChangesNothing()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { StoredUnknown("p1", 5) });
+
+        // Act
+        var items = ruling.Rule(HeldA(Queued(7, "p1")));
+
+        // Assert
+        Assert.Empty(items);
+    }
+
+    [Fact]
+    public void Rule_ThreeQueuedAndTheLaterGenerationReannouncesTwo_TheFirstIsRuledUnknownAndThePlacesMoveUp()
+    {
+        // Arrange: p1, p2 and p3 queued in generation A, 1st, 2nd and 3rd.
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 1), StoredQueued("p2", 2), StoredQueued("p3", 3) });
+
+        // Act: generation B re-announces p2 and p3 (p1 left the queue in the hole), then the agent connects.
+        var items = new[] { Queued(1, "p2", position: 1), Queued(2, "p3", position: 2), (SessionEvent)Ready(3) }
+            .SelectMany(e => ruling.Rule(HeldB(e))).ToList();
+
+        // Assert: the last words each receipt was sent with.
+        string Last(string p) => ReceiptWordsOf(items, p).Last();
+        Assert.Equal(UnknownWords, Last("p1"));
+        Assert.Equal("Queued, 1st in line: a turn is running", Last("p2"));
+        Assert.Equal("Queued, 2nd in line: a turn is running", Last("p3"));
+    }
+
+    [Fact]
+    public void PlaceInLine_AnUnknownReceipt_HasNoPlaceAndIsNotCountedAhead()
+    {
+        // Arrange: both in generation B; p1, ahead of p2, was ruled Unknown.
+        var stored = new[]
+        {
+            StoredUnknown("p1", 3),
+            new ApiModeStoredReceipt(new ApiModeReceiptDto { PromptId = "p2", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, new ApiModeEventPosition("gen-b", GenBStarted, 1)),
+        };
+
+        // Act
+        ApiModeLiveRuling.PlaceInLine(stored);
+
+        // Assert
+        Assert.Equal(new int?[] { null, 1 }, stored.Select(s => s.Receipt.QueuePosition));
+    }
+
+    [Fact]
+    public void ReceiptWords_AnUnknownReceipt_SaysNeitherDeliveredNorRefusedInANeutralTone()
+    {
+        // Arrange
+        var receipt = new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Unknown, QueueReason = "turnRunning" };
+
+        // Act + Assert
+        Assert.Equal(UnknownWords, ApiModeLiveRuling.ReceiptWords(receipt));
+        Assert.Equal("neutral", ApiModeLiveRuling.ReceiptTone(receipt));
+    }
 }
