@@ -64,4 +64,40 @@ public sealed class SessionRuleEntity : GatewayMintedKeyEntity
 
     public DateTime CreatedUtc { get; set; }
     public DateTime UpdatedUtc { get; set; }
+
+    // ---- Session Rules part 2, phase 1: kinds, where a rule applies, and hook triggers ---------------
+
+    /// <summary>What starts this rule: "screen", "hook" or "session_start" (mission decision D6). Rows
+    /// written before kinds existed are "screen".</summary>
+    public string Kind { get; set; } = RuleKinds.Screen;
+
+    /// <summary>Where this rule applies: "everywhere", "machine", "repo" or "repo_on_machine" (ruling P4).
+    /// Rows written before this existed apply everywhere.</summary>
+    public string AppliesToKind { get; set; } = RuleAppliesToKinds.Everywhere;
+
+    /// <summary>The machines this rule applies on, as the Directors report their names.</summary>
+    public List<string> AppliesToMachines { get; set; } = new();
+
+    /// <summary>The machines this rule does NOT apply on; never set together with <see cref="AppliesToMachines"/>.</summary>
+    public List<string> AppliesToExceptMachines { get; set; } = new();
+
+    /// <summary>The repository this rule applies in, in the one spelling of its origin remote (ruling P6).
+    /// Empty when the rule is not tied to a repository.</summary>
+    public string AppliesToRepo { get; set; } = "";
+
+    /// <summary>A hook rule's event, e.g. "before_command". Empty for every other kind.</summary>
+    public string HookEvent { get; set; } = "";
+
+    /// <summary>A hook rule's tool, e.g. "shell". Empty for every other kind.</summary>
+    public string HookTool { get; set; } = "";
+
+    /// <summary>A hook rule's handler, e.g. "match". Empty for every other kind.</summary>
+    public string HookHandler { get; set; } = "";
+
+    /// <summary>A Match handler's literal text: the rule matches a command that contains any of these
+    /// (ruling P1). Literal text, never an expression and never code.</summary>
+    public List<string> HookMatch { get; set; } = new();
+
+    /// <summary>A hook rule's result: "deny" or "allow". Empty for every other kind.</summary>
+    public string HookResult { get; set; } = "";
 }

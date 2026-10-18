@@ -109,6 +109,15 @@ public static class RuleCandidateFilter
 
         foreach (var rule in rules ?? none)
         {
+            // Ruling P8: a hook rule is never a candidate, whatever is on the screen.
+            if (!ReadsTheScreen(rule))
+            {
+                skipped.Add(new RuleSkipped(rule.Id,
+                    $"this is a {rule.Kind} rule, and only screen rules are evaluated against a screen - a hook " +
+                    "rule is decided by the agent's hook on its own machine."));
+                continue;
+            }
+
             var scopeProblem = OutOfScope(rule.Scope, facts);
             if (scopeProblem is not null)
             {
@@ -159,6 +168,10 @@ public static class RuleCandidateFilter
 
         return new RuleCandidates(chosen, skipped, null);
     }
+
+    /// <summary>Whether a rule is one the screen evaluator may consider (ruling P8): screen rules only.</summary>
+    public static bool ReadsTheScreen(SessionRule rule) =>
+        string.Equals(rule.Kind, RuleKinds.Screen, StringComparison.Ordinal);
 
     /// <summary>
     /// Why this rule's scope does not cover this session, or null when it does. Each part is a filter:

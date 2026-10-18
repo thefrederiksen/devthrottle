@@ -153,13 +153,13 @@ public sealed class GatewayDbContext : DbContext
 
             // The rule's stored state, read through this same scoped context, because "may this firing say
             // it typed something" is a question about the rule and not about the row being written.
-            var state = SessionRules.AsNoTracking()
+            var rule = SessionRules.AsNoTracking()
                 .Where(r => r.Id == firing.RuleId)
-                .Select(r => r.State)
+                .Select(r => new { r.State, r.Kind })
                 .FirstOrDefault();
 
             Rules.SessionRuleRecordRules.CheckFiring(
-                firing, Rules.RulePrimitiveRegistry.Default, state, DryRunState);
+                firing, Rules.RulePrimitiveRegistry.Default, rule?.State, rule?.Kind, DryRunState);
         }
     }
 
@@ -871,6 +871,18 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.State).HasMaxLength(32);
             // The trigger words are a bounded sub-document: a primitive collection, like skill triggers.
             b.PrimitiveCollection(e => e.TriggerWords);
+            // Session Rules part 2, phase 1: what starts the rule and where it applies. Rows written before
+            // these columns existed are screen rules that apply everywhere - the migration's defaults.
+            b.Property(e => e.Kind).HasMaxLength(32).HasDefaultValue(Rules.RuleKinds.Screen);
+            b.Property(e => e.AppliesToKind).HasMaxLength(32).HasDefaultValue(Rules.RuleAppliesToKinds.Everywhere);
+            b.PrimitiveCollection(e => e.AppliesToMachines);
+            b.PrimitiveCollection(e => e.AppliesToExceptMachines);
+            b.Property(e => e.AppliesToRepo).HasMaxLength(512);
+            b.Property(e => e.HookEvent).HasMaxLength(64);
+            b.Property(e => e.HookTool).HasMaxLength(64);
+            b.Property(e => e.HookHandler).HasMaxLength(64);
+            b.PrimitiveCollection(e => e.HookMatch);
+            b.Property(e => e.HookResult).HasMaxLength(32);
             // The derived calls are TYPED sub-documents serialized to a JSON column (the cron store's
             // "sub-doc -> JSON in a column" pattern). This is the shape that makes ruling 15 structural
             // rather than a promise: the column holds a name and argument VALUES, checked against a real
@@ -892,6 +904,22 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.RuleId, e.OccurredUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.OccurredUtc });
             b.OwnsMany(e => e.PrimitiveRuns, o => o.ToJson());
+            // Session Rules part 2, phase 1: hook firings (wire contract W5). A screen firing has no decision
+            // id, and both providers let any number of rows leave a unique column empty, so the index only
+            // ever compares hook firings - which is what makes a retried post a duplicate, per account.
+            b.Property(e => e.Kind).HasMaxLength(32).HasDefaultValue(Rules.RuleKinds.Screen);
+            b.Property(e => e.DecisionId).HasMaxLength(64);
+            b.HasIndex(e => new { e.TenantId, e.DecisionId }).IsUnique();
+            b.Property(e => e.HookEvent).HasMaxLength(64);
+            b.Property(e => e.HookTool).HasMaxLength(64);
+            b.Property(e => e.Subject).HasMaxLength(Rules.HookRuleWords.SubjectMaxLength);
+            b.Property(e => e.Machine).HasMaxLength(256);
+            b.Property(e => e.Repo).HasMaxLength(512);
+            b.Property(e => e.Agent).HasMaxLength(64);
+            b.Property(e => e.AgentEvent).HasMaxLength(64);
+            b.Property(e => e.AgentTool).HasMaxLength(64);
+            b.PrimitiveCollection(e => e.OverriddenRuleIds);
+            b.PrimitiveCollection(e => e.MatchedRuleIds);
         });
 
         modelBuilder.Entity<SessionTurnHeadEntity>(b =>
