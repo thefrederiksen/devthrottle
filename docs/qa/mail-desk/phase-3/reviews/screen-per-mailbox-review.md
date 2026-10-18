@@ -150,3 +150,110 @@ has already moved, remain as the contract marks them: not observed on a real mai
 search of the Gateway's Mail Desk code on `origin/mail-desk-phase-3` found nothing that parses the context's
 `version`, so raising it to 2 breaks nothing there today. The pull request's own description was not used as
 evidence.
+
+## Re-review
+
+Reviewed: the same branch at commit `6d9d5daa9`, which answers the three findings above
+(`screen-per-mailbox-answers.md`). The same reviewer, the same rig, the same throwaway probes re-run against the
+answered check, plus one new probe for the new limit.
+
+**Suite:** 281 passed in 4.5 seconds at `6d9d5daa9`. **The new tests fail on the old check:** with `screen.py`
+swapped for its text at `724f2392a` and everything else left at `6d9d5daa9`, 10 failed and 271 passed, and the 10
+are exactly the tests the answers name (two new failure kinds in each of the two per-kind tests, the mode 000 file,
+fourteen all failing, a healthy mailbox beside 13 and beside 20, beside 10 with full details, and 40 failing as a
+whole-run failure). The tree was confirmed clean after the swap. **Nothing else broke:** every test that passed at
+`724f2392a` passes at `6d9d5daa9`, and the six deliberate breakages from the first review are not repeated here; the
+one that matters for finding 3 was.
+
+### Finding 1: closed
+
+The first review's probes, re-run unchanged against `6d9d5daa9`:
+
+| Memory | At `724f2392a` | At `6d9d5daa9` |
+|---|---|---|
+| 13 channels all failing | exit 0 | exit 0 |
+| 14 channels all failing | exit 1, "the context came to 7530 bytes" | exit 0, 7008 bytes, 11 of 14 details kept, the last 3 dropped, the log says so |
+| 20 channels all failing | exit 1 | exit 0, 7142 bytes, 4 of 20 details kept |
+| 23 channels all failing | exit 1 | exit 0, 6949 bytes, count 0 |
+| 24 channels all failing | exit 1 | exit 1, `24 of 24 mailboxes could not be checked on <machine>, more than the Mail Desk context can name; the first is <address>`, line 2 that mailbox's own sentence, memory untouched |
+| 1 healthy with one ordinary message, plus 13 to 19 failing | exit 1 from 13 up, "a message's sender address alone is larger..." | exit 0, the message whole and not trimmed, the cursor moved |
+| 1 healthy with one ordinary message, plus 20 failing | exit 1 | exit 1, the honest "20 of 21 mailboxes" sentence |
+| 1 healthy with one 550-character message, plus 13 failing | not measured | exit 0, the message whole, the cursor moved |
+| 1 healthy beside 10 failing with 500-character details | exit 1 | exit 0 |
+
+The misleading sender-address sentence did not appear in any run. The thresholds the answers state are confirmed
+to within one: measured, the first whole-run failure is AT 20 failing beside one with new mail and AT 24 when every
+mailbox fails, where the answers and the contract say "more than 20" and "more than 24". A wording nit, not a defect.
+The read of `fit_failures` agrees with the measurements: the sections, including a healthy channel's filing results,
+are measured before new mail is placed; details are emptied from the last failing channel back, each time
+re-measured; the sentences are never touched; and the memory is not, since only `sections` is edited.
+
+### Finding 2: closed
+
+The first review's probe (the second mailbox's token file at mode 000, a healthy first mailbox beside it), re-run:
+exit 0; the second channel's section carries
+`the saved sign-in of second@example.org on testmachine cannot be read (PermissionError): check its permissions or sign in again`
+with the path and the whole error on its detail line; the healthy mailbox was read and its cursor moved. The
+write-back path is covered by the new `sign_in_write_back_fails` kind in both per-kind tests. Both new sentences are
+within 165 characters with the suite's longest machine name.
+
+### Finding 3: closed
+
+`World.run` now keeps the run's standard error as `last_err`, and the assertion reads that. Broken on purpose the
+same way as in the first review (the Graph id logged in `OutlookReader.file`), the suite now shows two red:
+`test_MoveFailing_WithARealLengthGraphId_KeepsTheWholeSentence` itself and
+`test_FilingQueue_ARefusedMove_DoesNotQuoteTheGraphId`. Before the fix, only the second went red.
+
+### New finding 4 (low): the new whole-run sentence can pass 165 characters with a long address
+
+**What breaks.** The sentence `<n> of <m> mailboxes could not be checked on <machine>, more than the Mail Desk
+context can name; the first is <address>` ends with an address of any length. Measured: 40 channels with
+57-character addresses (`a-rather-long-mailbox-name-number-00@subdomain.example.org`) and a 17-character machine
+name give a first line of 175 characters. The Gateway's window after uv's line shows 165, so what is cut off is the
+address, which is the one thing in the sentence that tells the owner where to start, and it is not shown again
+(line 2 is not in the window). The test for this sentence uses 17-character addresses and so passes.
+
+**Why it should change.** The contract's own rule, restated in this pull request, is "every sentence, wherever it
+goes, is held to the same 165 characters", and every other sentence that names an address keeps within it by
+construction or by `short_error`. Mailbox addresses of 40 to 60 characters are ordinary for a company mailbox on a
+subdomain. The harm is bounded (the run is already failing for a reason the count explains, and 20 or more failing
+mailboxes is rare), hence low.
+
+### New finding 5 (low, shown at the sign-in library layer only): a saved sign-in whose JSON is not an object still fails the whole run
+
+**What breaks.** Finding 2 made an unreadable file one channel's failure, and a file whose text is not JSON was
+already one (`not a sign-in cache`, through `ValueError`). Between the two sits a file that IS JSON but not an
+object: `[]`, `1`, `"x"`. `SerializableTokenCache.deserialize` accepts it, and the first lookup then raises
+`AttributeError` ("'list' object has no attribute 'get'"), which the `except (ValueError, RuntimeError)` around
+`get_accounts` and `acquire_token_silent` does not catch, so it reaches `main()` as "stopped on an error it does not
+handle" and stops every mailbox. Measured with the real token cache class (`deserialize` then `find` for the
+account, which is what `get_accounts` does): `AttributeError` for all three contents. It could not be shown through
+the check itself, because the rig replaces the sign-in application and never reads the cache; that limit is why
+this is stated as shown at the library layer, not end to end.
+
+**Why it should change.** It is the same class as finding 2: a defect in one mailbox's sign-in file stopping every
+mailbox, where the per-channel sentence for a bad cache already exists. The likelihood is low (the file is written
+by cc-outlook and the sign-in library, not by hand), hence low.
+
+### New observation D (no change demanded): a large filing report brings the limit down to ten failing mailboxes, and the state repeats
+
+Measured: one live mailbox with 60 queued moves (48 of which fit the filing half of the budget) and one new message,
+beside 10 mailboxes not signed in, is exit 1 with the honest "10 of 11 mailboxes" sentence, where beside 5 it is
+exit 0 with 48 filed and 12 left queued. In the exit 1 case the 48 moves were carried out on the server and the memory
+was not written, so the next run attempts all 60 again, gets `already-gone` for 48, and lands in the same exit 1,
+every five minutes, until enough of the failing mailboxes are signed in. The answers name the cause ("fewer when a
+large filing report shares the run"), the sentence tells the owner what to fix, and at `724f2392a` the same memory
+also exited 1 (with the misleading sentence), so this is not a regression. It is recorded so the Tech Lead knows the
+figure is 10, not 20, when filing is heavy, and that the condition does not clear itself.
+
+### Observations A to C
+
+The Developer's answers are accepted as written: A stays a loud whole-run stop by a stated choice; B has no shown
+harm; C is carried to the Gateway task that reads `already-gone`.
+
+### Scope of the re-review
+
+Read: the diff `bb93c97a4..6d9d5daa9` in full (the check, the contract, the rig, the two changed test files, the
+answers). Ran: the suite at `6d9d5daa9`; the suite with the check swapped to `724f2392a`; the three probe files
+against `6d9d5daa9`; one deliberate breakage, restored. Not reached: a real Graph, a real sign-in service, Windows and
+macOS, the Gateway side of section 6.
