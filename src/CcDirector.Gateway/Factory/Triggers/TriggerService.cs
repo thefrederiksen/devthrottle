@@ -20,6 +20,9 @@ public enum TriggerReportRefusal
     HeldByAnotherDirector,
     /// <summary>A check from a definition, reported by a Director that never said on Hello that it runs them.</summary>
     CannotRunDefinitionChecks,
+    /// <summary>A Mail Desk screening check (<see cref="MailDesk.MailDeskStart.Is"/>) reported for an account Mail Desk
+    /// is not switched on for. Nothing is recorded.</summary>
+    MailDeskOff,
 }
 
 /// <summary>The answer to one check report: the run row it wrote, or why it wrote none.</summary>
@@ -110,6 +113,7 @@ public sealed class TriggerService
     private readonly Func<TenantId, string, bool> _directorRunsDefinitionChecks;
     private readonly Func<TenantId, string, bool> _machineRunsDefinitionChecks;
     private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
+    private readonly Func<TenantId, bool> _mailDeskOn;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
     // The triggers whose start is running right now on this Gateway. A lock with no session that is NOT in here is a
     // start that ended with its outcome unknown (or one a stopped Gateway left behind): the check looks for its session.
@@ -131,13 +135,16 @@ public sealed class TriggerService
     /// published; throws <see cref="InvalidOperationException"/> with the reason when the published version cannot be
     /// read (<see cref="FactorySeatStart.ReadPublished"/>). A definition trigger's session is built from it (phase 5b,
     /// brief D item 8); a command trigger never reads it.</param>
+    /// <param name="mailDeskOn">Whether Mail Desk is switched on for the account (<see cref="MailDesk.MailDeskSwitch.IsOn"/>).
+    /// A Mail Desk screening check reported for an account it is off for is refused before anything is recorded.</param>
     public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
         Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks,
-        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf)
+        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf, Func<TenantId, bool> mailDeskOn)
     {
         _startLifetime = startLifetime;
+        _mailDeskOn = mailDeskOn ?? throw new ArgumentNullException(nameof(mailDeskOn));
         _definitionOf = definitionOf ?? throw new ArgumentNullException(nameof(definitionOf));
         _directorRunsDefinitionChecks = directorRunsDefinitionChecks ?? throw new ArgumentNullException(nameof(directorRunsDefinitionChecks));
         _machineRunsDefinitionChecks = machineRunsDefinitionChecks ?? throw new ArgumentNullException(nameof(machineRunsDefinitionChecks));
@@ -320,6 +327,16 @@ public sealed class TriggerService
         if (found is null)
             return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                 $"no trigger '{triggerIdOrName}' in this account");
+        // MAIL DESK OFF IS DECIDED HERE, on the trigger already read, before the per-trigger lock and before anything is
+        // written: no run row, no kept check state, no claim renewed, no start. The factory gate in front of this route
+        // is on for an account whose factories run, so it cannot be the refusal (Mail Desk phase 1 contract, section 1).
+        // When Mail Desk is on the report goes on exactly as any other trigger's; phase 3 adds its hand-off.
+        if (MailDesk.MailDeskStart.Is(found) && !_mailDeskOn(tenant))
+        {
+            FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={found.Name} is a Mail Desk check and Mail Desk is off for account {tenant.ToLogString()} - refused, nothing recorded");
+            return TriggerReportResult.Refused(TriggerReportRefusal.MailDeskOff,
+                $"trigger '{found.Name}' is the Mail Desk screening check, and Mail Desk is not switched on for this account; this report was not recorded and nothing was started");
+        }
         if (found.IsDefinitionCheck && !_directorRunsDefinitionChecks(tenant, directorId))
             return TriggerReportResult.Refused(TriggerReportRefusal.CannotRunDefinitionChecks,
                 $"trigger '{found.Name}' runs a check from the definition of {found.Factory}, and Director {directorId} has not said it runs those; this report was not recorded");

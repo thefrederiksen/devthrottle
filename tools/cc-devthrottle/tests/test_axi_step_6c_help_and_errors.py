@@ -371,6 +371,11 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-definition-schemas", "factory-export", "factory-import",
     # The Website Business Factory mission, product track: factory triggers.
     "trigger-add", "trigger-list", "trigger-show", "trigger-pause", "trigger-resume", "trigger-runs",
+    # The Mail Desk mission, phase 1: the channels, the rules document and the decisions.
+    "maildesk-status", "maildesk-channel-list", "maildesk-channel-add", "maildesk-channel-remove", "maildesk-mode",
+    "maildesk-rules-show", "maildesk-rules-history", "maildesk-allow-add", "maildesk-allow-remove", "maildesk-block-add",
+    "maildesk-block-remove", "maildesk-rule-add", "maildesk-rule-remove", "maildesk-route-add", "maildesk-route-remove",
+    "maildesk-decisions",
     # The Factories screen mission, phase A: the factory registry and the goal number a boss posts.
     "factory-register", "factory-list", "factory-purpose", "factory-goal-number-post", "factory-goal-number-show",
     # Issue #3685: a factory's boss reads its own Factories screen.
