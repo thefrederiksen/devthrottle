@@ -206,7 +206,10 @@ public sealed class FactoryDrawingFoldTests
         Assert.Equal(new[] { FactoryDrawingKinds.StartEvery, FactoryDrawingKinds.Task, FactoryDrawingKinds.EndDone }, outreach.Select(n => n.Kind));
         Assert.StartsWith("Every ", outreach[0].Title);
         Assert.True(outreach[1].Dashed);
-        Assert.Contains(view.Notes, n => n.StartsWith("Outreach lists no steps yet", StringComparison.Ordinal));
+        // The note is the lane's own, so a seat's page shows only its own.
+        Assert.StartsWith("Outreach lists no steps yet", view.Lanes.Single(l => l.SeatId == "outreach").Note);
+        Assert.Null(view.Lanes.Single(l => l.SeatId == "writer").Note);
+        Assert.DoesNotContain(view.Notes, n => n.Contains("Outreach", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -237,5 +240,121 @@ public sealed class FactoryDrawingFoldTests
         });
         var lane = view.Lanes.Single(l => l.SeatId == "writer");
         Assert.All(writer, n => Assert.True(n.Y + n.Height <= lane.Y + lane.Height, $"{n.Id} runs out of its lane"));
+    }
+
+    private static CronRunRecord NoSession(string infra, string? ending, string result, string? problem = null) => new()
+    {
+        ScheduledUtc = new DateTime(2026, 10, 18, 4, 0, 0, DateTimeKind.Utc), InfraStatus = infra, Ending = ending,
+        Result = result, Problem = problem, ResultReason = "the check broke its contract",
+    };
+
+    [Theory]
+    [InlineData("check-failed", CronRunEndings.NoSession, CronRunResults.Problem, CronRunProblems.CheckFailed)]
+    [InlineData("check-due", CronRunEndings.NoSession, CronRunResults.Problem, CronRunProblems.CheckNotRun)]
+    [InlineData("not-started", CronRunEndings.NoSession, CronRunResults.Problem, CronRunProblems.DidNotRun)]
+    public void View_RunWithNoSessionThatIsAProblem_IsARedStartThatDidNotStart_NeverAGreenOne(string infra, string ending, string result, string problem)
+    {
+        var view = Draw(Definition(), Runs(NoSession(infra, ending, result, problem)));
+
+        var start = view.Nodes.Single(n => n.Id == "writer/start");
+        Assert.Equal(FactoryTone.Red, start.Tone);
+        Assert.StartsWith("did not start", start.Sub);
+        Assert.True(view.Arrows.Single(a => a.From == "writer/start").Dashed);
+        Assert.Equal("The Writer's run of today 04:00 did not start.", view.Status!.Text);
+    }
+
+    [Fact]
+    public void View_StartTheGatewayNeverHeardBackFrom_IsAmberNotConfirmed_NotStarted()
+    {
+        var view = Draw(Definition(), Runs(NoSession("start-unknown", CronRunEndings.StartUnknown, CronRunResults.StartUnknown)));
+
+        var start = view.Nodes.Single(n => n.Id == "writer/start");
+        Assert.Equal(FactoryTone.Amber, start.Tone);
+        Assert.Equal("start not confirmed, today 04:00", start.Sub);
+        Assert.Equal(FactoryTone.Amber, view.Status!.Tone);
+        Assert.Equal("The Writer's run of today 04:00 may not have started.", view.Status.Text);
+    }
+
+    [Fact]
+    public void View_CheckStillDue_IsCheckingAndNeverRunningNow()
+    {
+        var view = Draw(Definition(), Runs(NoSession("check-due", CronRunEndings.Checking, CronRunResults.Checking)));
+
+        Assert.Equal("checking, today 04:00", view.Nodes.Single(n => n.Id == "writer/start").Sub);
+        Assert.Equal(FactoryTone.Grey, view.Nodes.Single(n => n.Id == "writer/end").Tone);
+        Assert.DoesNotContain("running", view.Status!.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void View_WorkListDrainThatWentWell_IsGreen_AndNotHeadlinedAmber()
+    {
+        var run = NoSession("started", CronRunEndings.WorkList, CronRunResults.Ok);
+        run.EndingText = "a work-list drain";
+        var view = Draw(Definition(), Runs(run));
+
+        Assert.Equal(FactoryTone.Ok, view.Nodes.Single(n => n.Id == "writer/start").Tone);
+        Assert.Equal(FactoryTone.Ok, view.Status!.Tone);
+    }
+
+    [Fact]
+    public void View_CircleCaptions_ClearTheLabelBand_AndStayInsideTheLaneAndTheDrawing()
+    {
+        // The longest captions the fold makes: an interval start with a second start, a red sub, and a long end sub.
+        var run = ClosedItself();
+        run.EndingText = "stopped by another session after a very long while";
+        var view = Draw(Definition(), Runs(run));
+
+        foreach (var n in view.Nodes.Where(n => n.Kind is not (FactoryDrawingKinds.Task or FactoryDrawingKinds.Decision)))
+        {
+            var half = Math.Max(n.Title.Length * 6.6, (n.Sub?.Length ?? 0) * 5.8) / 2;
+            var lane = view.Lanes.Single(l => l.SeatId == n.SeatId);
+            var cx = n.X + n.Width / 2;
+            Assert.True(cx - half >= FactoryDrawingFold.Margin + FactoryDrawingFold.LabelWidth, $"{n.Id}'s caption runs onto the label band");
+            Assert.True(cx + half <= lane.X + lane.Width, $"{n.Id}'s caption runs out of its lane");
+            Assert.True(cx + half <= view.Width, $"{n.Id}'s caption runs out of the drawing");
+        }
+    }
+
+    [Fact]
+    public void View_AnswerThatStaysOnTheLine_HasRoomInTheGapAfterItsDecision()
+    {
+        var view = Draw(Definition(WriterWithSteps.Replace("continueWhen: no", "continueWhen: RED, or any doubt at all")), Runs());
+
+        var decision = view.Nodes.Single(n => n.Id == "writer/3");
+        var next = view.Nodes.Single(n => n.Id == "writer/end");
+        var label = view.Arrows.Single(a => a.From == "writer/3" && a.To == "writer/end").Label!;
+        Assert.True(next.X - (decision.X + decision.Width) >= label.Length * 5.6 + 16, "the label does not fit its gap");
+    }
+
+    [Fact]
+    public void View_BranchHeading_UsesTheWholeDecisionName_NotTheClippedOne()
+    {
+        var view = Draw(Definition(WriterWithSteps.Replace("name: Anything wrong?", "name: Is the machine safe tonight?")), Runs());
+
+        Assert.Equal("Email the owner (when Is the machine safe tonight?: yes, Writer)",
+            view.Nodes.Single(n => n.Id == "writer/3/branch").Panel!.Heading);
+        Assert.Contains("when Is the machine safe tonight?: yes", view.Nodes.Single(n => n.Id == "writer/3/branch").Panel!.Heading);
+    }
+
+    [Fact]
+    public void View_Legend_NamesEveryStartShapeTheDrawingHas_AndNoOther()
+    {
+        var view = Draw(Definition(), Runs());
+
+        var kinds = view.Legend.Select(l => l.Kind).ToList();
+        Assert.Contains(FactoryDrawingKinds.StartClock, kinds);
+        Assert.Contains(FactoryDrawingKinds.StartEvery, kinds);
+        Assert.DoesNotContain(FactoryDrawingKinds.StartTalk, kinds);
+        Assert.DoesNotContain(FactoryDrawingKinds.EndStop, kinds);
+    }
+
+    [Fact]
+    public void View_SeatTheDefinitionDoesNotHold_SaysSo_AndNotToAddStepsToAFileThatIsNotThere()
+    {
+        var f = Factory();
+        f.Seats.Add(new() { Id = "ghost", Name = "Ghost", Role = "Ghost", BriefFile = "briefs/ghost.md", Computer = "SOREN_NORTH" });
+        var view = FactoryDrawingFold.View(f, Rows(), Definition(), Runs(), TimeZoneInfo.Utc, Now);
+
+        Assert.Equal("Ghost is not in the published definition, so only how it starts is drawn.", view.Lanes.Single(l => l.SeatId == "ghost").Note);
     }
 }

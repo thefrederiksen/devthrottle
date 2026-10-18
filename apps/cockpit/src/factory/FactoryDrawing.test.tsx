@@ -24,8 +24,8 @@ const DRAWING: FactoryDrawingView = {
     tone: "red",
   },
   lanes: [
-    { seatId: "cleaner", title: "Cleaner", sub: "SOREN_NORTH", href: "/factories/machine-care/seats/cleaner", x: 20, y: 20, width: 860, height: 120 },
-    { seatId: "boss", title: "Boss", sub: "SOREN_NORTH", href: "/factories/machine-care/seats/boss", x: 20, y: 152, width: 860, height: 120 },
+    { seatId: "cleaner", title: "Cleaner", sub: "SOREN_NORTH", href: "/factories/machine-care/seats/cleaner", note: null, x: 20, y: 20, width: 860, height: 120 },
+    { seatId: "boss", title: "Boss", sub: "SOREN_NORTH", href: "/factories/machine-care/seats/boss", note: "Boss lists no steps yet.", x: 20, y: 152, width: 860, height: 120 },
   ],
   nodes: [
     { id: "cleaner/start", seatId: "cleaner", kind: "start-clock", title: "Daily 00:00", sub: "did not start, today 00:00", tone: "red", repeats: false, dashed: false, panel: null, x: 162, y: 52, width: 44, height: 44 },
@@ -126,6 +126,17 @@ describe("What a factory does, drawn", () => {
     expect(screen.queryByTestId("fd-node-boss/start")).toBeNull();
     expect(screen.queryByTestId("fd-arrow-boss/start-boss/end")).toBeNull();
     expect(screen.queryByTestId("fd-status")).toBeNull();
+    // Another seat's note is not on this seat's page.
+    expect(screen.queryByText("Boss lists no steps yet.")).toBeNull();
+  });
+
+  it("is a group, never an image, so its steps reach assistive technology as buttons", async () => {
+    screenClient.getFactoryDrawing.mockResolvedValue(DRAWING);
+    renderPanel();
+
+    const drawing = await screen.findByTestId("fd-drawing");
+    expect(drawing.getAttribute("role")).toBe("group");
+    expect(screen.getByTestId("fd-lane-note-boss").textContent).toBe("Boss lists no steps yet.");
   });
 
   it("a refusal shows the Gateway's sentence", async () => {

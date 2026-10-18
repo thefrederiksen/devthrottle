@@ -43,7 +43,31 @@ public static class FactoryDrawingFold
     }
 
     /// <summary>The newest run of a seat, as the drawing reads it.</summary>
-    private sealed record SeatRun(CronRunRecord? Run, string StartTone, string StartSub, string EndTone, string? EndSub, bool Started);
+    private enum RunState { None, NotStarted, Unconfirmed, Checking, NothingToDo, Started }
+
+    private sealed record SeatRun(CronRunRecord? Run, RunState State, string StartTone, string StartSub, string EndTone, string? EndSub)
+    {
+        /// <summary>Whether a session ran: only then is the start's arrow solid and the run's colour on the end.</summary>
+        public bool Started => State == RunState.Started;
+    }
+
+    /// <summary>The most characters a caption under a circle, or an arrow's label, may hold.</summary>
+    internal const int MaxCaption = 30;
+    internal const int MaxLabel = 30;
+
+    // Rough widths of one character, to leave room for the text the Cockpit draws: a 12 px semibold caption, a
+    // 10.5 px second line, and a 10 px label.
+    private const double CaptionChar = 6.6;
+    private const double SubChar = 5.8;
+    private const double LabelChar = 5.6;
+
+    private static bool IsCircle(string kind) => kind is not (FactoryDrawingKinds.Task or FactoryDrawingKinds.Decision);
+
+    private static double TextWidth(string text, double perChar) => text.Length * perChar;
+
+    /// <summary>How wide a circle's caption is: its title or its second line, whichever is wider.</summary>
+    private static double CaptionWidth(FactoryDrawingNodeDto n) =>
+        Math.Max(TextWidth(n.Title, CaptionChar), n.Sub is null ? 0 : TextWidth(n.Sub, SubChar));
 
     public static FactoryDrawingViewDto View(RegisteredFactoryDto factory, FactorySeatsViewDto seats, FactoryDefinition? definition,
         IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> runs, TimeZoneInfo zone, DateTime nowUtc)
@@ -64,7 +88,6 @@ public static class FactoryDrawingFold
         var x0 = Margin + LabelWidth + Inset;
         var top = Margin;
         var widest = x0 + 2 * (TaskWidth + Gap);
-        var noSteps = new List<string>();
         var worst = (Rank: -1, Status: (FactoryDrawingStatusDto?)null);
 
         foreach (var seat in ordered)
@@ -74,7 +97,6 @@ public static class FactoryDrawingFold
             var run = RunOf(seat, runs, zone, nowUtc);
             var laneTop = top;
             var bottom = Lane(view, factory, seat, row, seatDefinition, run, x0, laneTop + LanePad, ref widest);
-            if (seatDefinition is null || seatDefinition.Steps.Count == 0) noSteps.Add(seat.Name);
             var height = bottom - laneTop + LanePad;
             view.Lanes.Add(new FactoryDrawingLaneDto
             {
@@ -82,6 +104,11 @@ public static class FactoryDrawingFold
                 Sub = row?.ComputerText ?? seat.Computer,
                 Href = $"/factories/{Uri.EscapeDataString(factory.Factory)}/seats/{Uri.EscapeDataString(seat.Id)}",
                 X = Margin, Y = laneTop, Height = height,
+                Note = definition is null ? null
+                    : seatDefinition is null ? $"{seat.Name} is not in the published definition, so only how it starts is drawn."
+                    : seatDefinition.Steps.Count == 0
+                        ? $"{seat.Name} lists no steps yet, so the dashed box stands for its brief. Add steps to seats/{seat.Id}.yaml in the definition to draw what it does."
+                        : null,
             });
             top = laneTop + height + LaneGap;
 
@@ -93,12 +120,10 @@ public static class FactoryDrawingFold
         view.Width = Math.Round(widest + Inset + Margin, 2);
         view.Height = Math.Round((view.Lanes.Count == 0 ? Margin + 80 : top - LaneGap) + Margin, 2);
         view.Status = worst.Status;
-        view.Legend = Legend();
+        view.Legend = Legend(view.Nodes);
 
         if (definition is null)
             view.Notes.Add("This factory has no published definition, so the drawing shows only how each seat starts. Its steps are drawn once the definition lists them.");
-        else if (noSteps.Count > 0)
-            view.Notes.Add($"{Join(noSteps)} {(noSteps.Count == 1 ? "lists" : "list")} no steps yet, so the dashed box stands for the brief. Add steps to the seat's file in the definition to draw what it does.");
         view.Notes.Add("Steps are not tracked one by one yet: the colours show how the newest run started and how it ended.");
         return view;
     }
@@ -150,7 +175,9 @@ public static class FactoryDrawingFold
             var branchWidth = node.Kind == FactoryDrawingKinds.Decision && BranchOf(steps, node) is not null
                 ? TaskWidth / 2 + Gap + CircleSize - w / 2
                 : 0;
-            if (x > x0 && x + w + branchWidth > x0 + MaxRowWidth)
+            // A circle's caption is centred under it and may be wider than the circle: it reaches this far either side.
+            var overhang = IsCircle(node.Kind) ? Math.Max(0, CaptionWidth(node) / 2 - w / 2) : 0;
+            if (x > x0 && x + w + Math.Max(branchWidth, overhang) > x0 + MaxRowWidth)
             {
                 rowRights.Add(rowRight);
                 rowHeights.Add(RowHeight(rowHasBranch));
@@ -161,11 +188,15 @@ public static class FactoryDrawingFold
                 rowHasBranch = false;
                 rowRight = x0;
             }
+            // The first shape of a row moves right until its caption clears the lane's label band.
+            if (x == x0) x += Math.Max(0, overhang - (Inset - 4));
             var box = new Box(x, rowStart + (MainHeight - h) / 2, w, h);
             placed.Add((node, box, rowIndex));
-            rowRight = Math.Max(rowRight, box.Right + branchWidth);
+            rowRight = Math.Max(rowRight, box.Right + Math.Max(branchWidth, overhang));
             if (branchWidth > 0) rowHasBranch = true;
-            x = box.Right + Gap;
+            // After a decision the gap holds the answer that stays on the line.
+            var label = node.Kind == FactoryDrawingKinds.Decision ? StepOf(steps, node)?.ContinueWhen : null;
+            x = box.Right + (label is null ? Gap : Math.Max(Gap, TextWidth(Clip(label, MaxLabel), LabelChar) + 16));
         }
         rowRights.Add(rowRight);
         rowHeights.Add(RowHeight(rowHasBranch));
@@ -180,6 +211,7 @@ public static class FactoryDrawingFold
             var (b, bb, br) = placed[i + 1];
             var fromStart = i == 0;
             var label = a.Kind == FactoryDrawingKinds.Decision ? StepOf(steps, a)?.ContinueWhen : null;
+            if (label is not null) label = Clip(label, MaxLabel);
             List<double[]> points;
             double lx, ly;
             if (ar == br)
@@ -205,7 +237,7 @@ public static class FactoryDrawingFold
         var bottom = rowTops[^1] + rowHeights[^1];
         foreach (var (node, box, r) in placed.Where(p => p.Node.Kind == FactoryDrawingKinds.Decision))
         {
-            if (StepOf(steps, node)?.Branch is not { } branch) continue;
+            if (StepOf(steps, node) is not { Branch: { } branch } step) continue;
             var by = rowTops[r] + MainHeight + LabelBand / 2 + BranchDrop;
             var bbox = new Box(box.Cx - TaskWidth / 2, by, TaskWidth, TaskHeight);
             var stop = branch.Ends == "stop";
@@ -215,7 +247,7 @@ public static class FactoryDrawingFold
                 Sub = branch.Detail is null ? null : Clip(branch.Detail, 26), Tone = FactoryTone.Neutral,
                 Panel = new FactoryDrawingPanelDto
                 {
-                    Heading = $"{branch.Name} (when {node.Title}: {branch.When}, {seat.Name})",
+                    Heading = $"{branch.Name} (when {step.Name}: {branch.When}, {seat.Name})",
                     Lines = Lines(branch.Detail, stop ? "Then the seat stops and waits for you." : "Then the seat finishes."),
                 },
             };
@@ -227,13 +259,18 @@ public static class FactoryDrawingFold
                 Kind = stop ? FactoryDrawingKinds.EndStop : FactoryDrawingKinds.EndDone,
                 Title = stop ? "Stops for you" : "Done", Tone = stop ? FactoryTone.Red : FactoryTone.Neutral,
             }, ebox);
+            // The answer that takes the branch sits beside its arrow, never on it.
+            var when = Clip(branch.When, MaxLabel);
             Arrow(view, node.Id, branchNode.Id, Straight(new[] { box.Cx, box.Bottom }, new[] { box.Cx, bbox.Y }),
-                branch.When, box.Cx + 8, (box.Bottom + bbox.Y) / 2 + 4, stop ? FactoryTone.Red : FactoryTone.Neutral, dashed: false);
+                when, box.Cx + 8 + TextWidth(when, LabelChar) / 2, (box.Bottom + bbox.Y) / 2 + 4, stop ? FactoryTone.Red : FactoryTone.Neutral, dashed: false);
             Arrow(view, branchNode.Id, $"{node.Id}/branch/end", Straight(new[] { bbox.Right, bbox.Cy }, new[] { ebox.X, ebox.Cy }),
                 null, 0, 0, stop ? FactoryTone.Red : FactoryTone.Neutral, dashed: false);
         }
 
+        // Every shape's right edge and every caption under a circle, plus the branch ends below.
         widest = Math.Max(widest, rowRights.Max() + 24);
+        foreach (var n in view.Nodes.Where(n => n.SeatId == id && IsCircle(n.Kind)))
+            widest = Math.Max(widest, n.X + n.Width / 2 + CaptionWidth(n) / 2 + 8);
         return bottom;
     }
 
@@ -252,7 +289,7 @@ public static class FactoryDrawingFold
         var start = def?.Starts.FirstOrDefault();
         var (kind, title) = start switch
         {
-            { Every: { } every } => (FactoryDrawingKinds.StartEvery, $"Every {every}, when its check says so"),
+            { Every: { } every } => (FactoryDrawingKinds.StartEvery, $"Every {every}, by its check"),
             { Cron: not null } => (FactoryDrawingKinds.StartClock, row?.WhenText ?? "On a schedule"),
             null when scheduled => (FactoryDrawingKinds.StartClock, row?.WhenText ?? "On a schedule"),
             _ => (FactoryDrawingKinds.StartTalk, "When you talk to it"),
@@ -260,7 +297,7 @@ public static class FactoryDrawingFold
         var more = def is { Starts.Count: > 1 } ? $" (and {def.Starts.Count - 1} more)" : "";
         return new FactoryDrawingNodeDto
         {
-            Id = $"{seatId}/start", SeatId = seatId, Kind = kind, Title = Clip(title + more, 34),
+            Id = $"{seatId}/start", SeatId = seatId, Kind = kind, Title = Clip(title, MaxCaption - more.Length) + more,
             Sub = kind == FactoryDrawingKinds.StartTalk ? null : run.StartSub, Tone = kind == FactoryDrawingKinds.StartTalk ? FactoryTone.Neutral : run.StartTone,
             Panel = run.Run is { } r && !run.Started && r.ResultReason is { } why
                 ? new FactoryDrawingPanelDto { Heading = $"{title}: {run.StartSub}", Lines = { Reason(why) } }
@@ -301,7 +338,12 @@ public static class FactoryDrawingFold
     private static SeatStepBranchDefinition? BranchOf(IReadOnlyList<SeatStepDefinition> steps, FactoryDrawingNodeDto node) =>
         StepOf(steps, node)?.Branch;
 
-    /// <summary>The newest run of any of the seat's schedules, and how its start and its end are coloured.</summary>
+    /// <summary>
+    /// The newest run of any of the seat's schedules, and how its start and its end are coloured. A run with no session
+    /// is ruled on what the Gateway already folded onto it - its ending and its result - never on one status string: a
+    /// work-list drain went well, a due check is still checking, a start the Gateway never heard back from is not
+    /// confirmed, a check that found nothing ran nothing, and every other run with no session did not start.
+    /// </summary>
     private static SeatRun RunOf(RegisteredFactorySeatDto seat, IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> runs,
         TimeZoneInfo zone, DateTime nowUtc)
     {
@@ -309,19 +351,31 @@ public static class FactoryDrawingFold
             .SelectMany(j => runs.TryGetValue(j, out var list) ? list : Array.Empty<CronRunRecord>())
             .OrderByDescending(r => r.ScheduledUtc)
             .FirstOrDefault();
-        if (newest is null) return new SeatRun(null, FactoryTone.Grey, "not run yet", FactoryTone.Grey, null, Started: false);
+        if (newest is null) return new SeatRun(null, RunState.None, FactoryTone.Grey, "not run yet", FactoryTone.Grey, null);
 
         var when = FactoriesScreenFold.When(newest.ScheduledUtc, zone, nowUtc, capital: false);
-        if (newest.SessionId is null && newest.InfraStatus == "not-started")
-            return new SeatRun(newest, FactoryTone.Red, $"did not start, {when}", FactoryTone.Grey, null, Started: false);
+        var endText = newest.EndingText is null ? null : Clip(newest.EndingText, MaxCaption);
+        if (newest.SessionId is null)
+        {
+            if (newest.Ending == CronRunEndings.WorkList)
+                return new SeatRun(newest, RunState.Started, FactoryTone.Ok, $"started {when}",
+                    newest.Result == CronRunResults.Problem ? FactoryTone.Red : FactoryTone.Ok, endText);
+            if (newest.Ending == CronRunEndings.Checking || newest.Result == CronRunResults.Checking)
+                return new SeatRun(newest, RunState.Checking, FactoryTone.Blue, $"checking, {when}", FactoryTone.Grey, null);
+            if (newest.Ending == CronRunEndings.StartUnknown || newest.Result == CronRunResults.StartUnknown)
+                return new SeatRun(newest, RunState.Unconfirmed, FactoryTone.Amber, $"start not confirmed, {when}", FactoryTone.Grey, null);
+            if (newest.Ending == CronRunEndings.NothingToDo || newest.Result == CronRunResults.NothingToDo)
+                return new SeatRun(newest, RunState.NothingToDo, FactoryTone.Ok, $"nothing to do, {when}", FactoryTone.Grey, null);
+            return new SeatRun(newest, RunState.NotStarted, FactoryTone.Red, $"did not start, {when}", FactoryTone.Grey, null);
+        }
 
         var endTone = newest.Result == CronRunResults.Problem ? FactoryTone.Red
             : newest.Ending is null or CronRunEndings.StillOpen or CronRunEndings.Checking ? FactoryTone.Blue
             : newest.Ending == CronRunEndings.ClosedItself || newest.Result is CronRunResults.Ok or CronRunResults.NothingToDo
                 ? FactoryTone.Ok
                 : FactoryTone.Amber;
-        var endSub = endTone == FactoryTone.Blue ? "running now" : newest.EndingText;
-        return new SeatRun(newest, FactoryTone.Ok, $"started {when}", endTone, endSub is null ? null : Clip(endSub, 30), Started: true);
+        return new SeatRun(newest, RunState.Started, FactoryTone.Ok, $"started {when}", endTone,
+            endTone == FactoryTone.Blue ? "running now" : endText);
     }
 
     /// <summary>One seat's line for the top of the Overview, with how bad it is (higher is worse).</summary>
@@ -329,19 +383,21 @@ public static class FactoryDrawingFold
     {
         if (run.Run is not { } r) return (-1, null);
         var when = FactoriesScreenFold.When(r.ScheduledUtc, zone, nowUtc, capital: false);
-        if (!run.Started)
-            return (4, new FactoryDrawingStatusDto
-            {
-                Text = $"The {seat.Name}'s run of {when} did not start.",
-                Sub = r.ResultReason is null ? null : Reason(r.ResultReason), Tone = FactoryTone.Red,
-            });
+        var why = r.ResultReason is null ? null : Reason(r.ResultReason);
+        switch (run.State)
+        {
+            case RunState.NotStarted:
+                return (4, new FactoryDrawingStatusDto { Text = $"The {seat.Name}'s run of {when} did not start.", Sub = why, Tone = FactoryTone.Red });
+            case RunState.Unconfirmed:
+                return (2, new FactoryDrawingStatusDto { Text = $"The {seat.Name}'s run of {when} may not have started.", Sub = why, Tone = FactoryTone.Amber });
+            case RunState.Checking:
+                return (1, new FactoryDrawingStatusDto { Text = $"The {seat.Name}'s check of {when} has not answered yet.", Tone = FactoryTone.Blue });
+            case RunState.NothingToDo:
+                return (0, new FactoryDrawingStatusDto { Text = $"The {seat.Name}'s check of {when} found nothing to do.", Tone = FactoryTone.Ok });
+        }
         return run.EndTone switch
         {
-            FactoryTone.Red => (3, new FactoryDrawingStatusDto
-            {
-                Text = $"The {seat.Name}'s run of {when} ended with a problem.",
-                Sub = r.ResultReason is null ? null : Reason(r.ResultReason), Tone = FactoryTone.Red,
-            }),
+            FactoryTone.Red => (3, new FactoryDrawingStatusDto { Text = $"The {seat.Name}'s run of {when} ended with a problem.", Sub = why, Tone = FactoryTone.Red }),
             FactoryTone.Amber => (2, new FactoryDrawingStatusDto { Text = $"The {seat.Name}'s run of {when} {r.EndingText ?? "ended"}.", Tone = FactoryTone.Amber }),
             FactoryTone.Blue => (1, new FactoryDrawingStatusDto { Text = $"The {seat.Name} is running now (started {when}).", Tone = FactoryTone.Blue }),
             _ => (0, new FactoryDrawingStatusDto
@@ -352,17 +408,26 @@ public static class FactoryDrawingFold
         };
     }
 
-    private static List<FactoryDrawingLegendDto> Legend() => new()
+    /// <summary>What each shape and colour on THIS drawing means: only the shapes it has, then the colours.</summary>
+    private static List<FactoryDrawingLegendDto> Legend(IReadOnlyList<FactoryDrawingNodeDto> nodes)
     {
-        new() { Kind = FactoryDrawingKinds.StartClock, Text = "starts on a schedule" },
-        new() { Kind = FactoryDrawingKinds.Task, Text = "a step (a circling arrow: it repeats)" },
-        new() { Kind = FactoryDrawingKinds.Decision, Text = "a decision" },
-        new() { Kind = FactoryDrawingKinds.EndDone, Text = "finishes" },
-        new() { Kind = FactoryDrawingKinds.EndStop, Tone = FactoryTone.Red, Text = "stops and waits for you" },
-        new() { Kind = FactoryDrawingKinds.Tone, Tone = FactoryTone.Ok, Text = "went well" },
-        new() { Kind = FactoryDrawingKinds.Tone, Tone = FactoryTone.Red, Text = "failed or did not start" },
-        new() { Kind = FactoryDrawingKinds.Tone, Tone = FactoryTone.Grey, Text = "not run" },
-    };
+        var kinds = nodes.Select(n => n.Kind).ToHashSet(StringComparer.Ordinal);
+        var all = new List<FactoryDrawingLegendDto>
+        {
+            new() { Kind = FactoryDrawingKinds.StartClock, Text = "starts on a schedule" },
+            new() { Kind = FactoryDrawingKinds.StartEvery, Text = "starts on an interval, when its check says so" },
+            new() { Kind = FactoryDrawingKinds.StartTalk, Text = "starts when you talk to it" },
+            new() { Kind = FactoryDrawingKinds.Task, Text = nodes.Any(n => n.Repeats) ? "a step (a circling arrow: it repeats)" : "a step" },
+            new() { Kind = FactoryDrawingKinds.Decision, Text = "a decision" },
+            new() { Kind = FactoryDrawingKinds.EndDone, Text = "finishes" },
+            new() { Kind = FactoryDrawingKinds.EndStop, Tone = FactoryTone.Red, Text = "stops and waits for you" },
+        };
+        var legend = all.Where(l => kinds.Contains(l.Kind)).ToList();
+        legend.Add(new() { Kind = FactoryDrawingKinds.Tone, Tone = FactoryTone.Ok, Text = "went well" });
+        legend.Add(new() { Kind = FactoryDrawingKinds.Tone, Tone = FactoryTone.Red, Text = "failed or did not start" });
+        legend.Add(new() { Kind = FactoryDrawingKinds.Tone, Tone = FactoryTone.Grey, Text = "not run" });
+        return legend;
+    }
 
     private static void Add(FactoryDrawingViewDto view, FactoryDrawingNodeDto node, Box box)
     {
@@ -389,7 +454,7 @@ public static class FactoryDrawingFold
         view.Arrows.Add(new FactoryDrawingArrowDto
         {
             From = from, To = to, Path = FactoryMapFold.PathOf(points), Head = FactoryMapFold.HeadOf(end, tip),
-            Label = label is null ? null : Clip(label, 24), LabelX = Math.Round(lx, 2), LabelY = Math.Round(ly, 2),
+            Label = label, LabelX = Math.Round(lx, 2), LabelY = Math.Round(ly, 2),
             Tone = tone, Dashed = dashed,
         });
     }
@@ -414,9 +479,6 @@ public static class FactoryDrawingFold
 
     private static string Reason(string why) =>
         Capital(why.StartsWith(NotStartedPrefix, StringComparison.Ordinal) ? why[NotStartedPrefix.Length..] : why);
-
-    private static string Join(IReadOnlyList<string> names) =>
-        names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
 
     private static string Capital(string s) => string.IsNullOrEmpty(s) ? s : char.ToUpperInvariant(s[0]) + s[1..];
 

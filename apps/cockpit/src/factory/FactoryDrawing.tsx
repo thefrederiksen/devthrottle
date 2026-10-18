@@ -11,7 +11,8 @@ import { useView } from "./FactoryActivityTabs";
 
 // What a factory does, drawn (owner, 18 October 2026): a small slice of BPMN, never executable. Each seat is a lane
 // from how it starts, through the steps its definition lists, to how it ends; a decision is a diamond with its branch
-// below. The newest run is painted on the start and the end, and a click on a shape opens what it does. Nothing here
+// below. The newest run is painted on the start and the end, and a click on a shape opens what it does. The root is a
+// group, not an image: an image hides its children from assistive technology, and its steps are buttons. Nothing here
 // decides anything (rule 7): every position, word and tone comes finished from the Gateway, and this component only
 // turns them into SVG shapes. With a seat, only that seat's lane is drawn (the seat's own page).
 
@@ -73,6 +74,13 @@ export function FactoryDrawingPanel({
               {open.panel.runs !== null && <code className="fd-runs dt-private">{open.panel.runs}</code>}
             </div>
           )}
+          {d.lanes.map((l) =>
+            l.note === null ? null : (
+              <p key={`lane-${l.seatId}`} className="fa-dim ff-note" data-testid={`fd-lane-note-${l.seatId}`}>
+                {l.note}
+              </p>
+            ),
+          )}
           {d.notes.map((n) => (
             <p key={n} className="fa-dim ff-note">
               {n}
@@ -117,7 +125,7 @@ export function FactoryDrawing({
       className="ff-svg fd-svg"
       viewBox={`0 ${top} ${view.width} ${view.height}`}
       style={{ minWidth: Math.min(view.width, 760) }}
-      role="img"
+      role="group"
       aria-label={`What ${view.title} does`}
       data-testid="fd-drawing"
     >

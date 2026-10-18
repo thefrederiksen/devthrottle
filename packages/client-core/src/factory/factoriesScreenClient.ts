@@ -727,6 +727,8 @@ export interface FactoryDrawingLane {
   title: string;
   sub: string;
   href: string;
+  /** What this lane rests on, when it is not the whole story; per lane, so a seat's page shows only its own. */
+  note: string | null;
   x: number;
   y: number;
   width: number;

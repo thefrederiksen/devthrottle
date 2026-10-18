@@ -55,6 +55,10 @@ public sealed class FactoryDrawingLaneDto
 
     /// <summary>The seat's own page.</summary>
     public string Href { get; set; } = "";
+
+    /// <summary>What this lane rests on, when it is not the whole story ("Outreach lists no steps yet..."), or null.
+    /// Per lane, so a seat's page shows only its own.</summary>
+    public string? Note { get; set; }
     public double X { get; set; }
     public double Y { get; set; }
     public double Width { get; set; }
