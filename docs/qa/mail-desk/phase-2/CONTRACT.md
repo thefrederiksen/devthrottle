@@ -74,10 +74,19 @@ characters, `FAILURE_DETAIL_CHARS`, so that failing channels never crowd new mai
 none). **Failing channels never take the room new mail needs:** when healthy channels have new mail, the failing
 channels' sections may fill the context only up to 1,024 bytes short of its 7,168 (`MESSAGE_RESERVE_BYTES`), and
 otherwise up to all of it. Over that, detail lines are emptied, the last failing channel's first, and the sentences
-always stay. Only if the sentences alone still do not fit (measured with 17-character addresses and the longest sentence:
-more than 20 failing mailboxes beside one with new mail, more than 24 when every mailbox fails; fewer when a large
-filing report shares the run) does the run fail as a whole, saying how many mailboxes failed and which is
-first. The rows for the memory as a whole, the memory over the Director's limit, and anything else are still line 1 of
+always stay. Every channel is signed in before any channel files, and the filing half is cut down to leave room for
+the sentences of the sign-in failures already known and for new mail, so a long filing report and many mailboxes that
+are not signed in never meet over budget: fewer items are filed that run, the rest stay queued in order. Only if the
+sentences alone still do not fit does the run fail as a whole, saying how many mailboxes failed and which is first.
+Measured with the longest sentence (not signed in, and in no cc-outlook account list), the first whole-run failure is
+at:
+
+| Address length | Every mailbox failing | Beside one mailbox with new mail |
+|---|---|---|
+| 17 characters | 26 | 22 |
+| 30 characters | 23 | 19 |
+| 58 characters | 18 | 15 |
+ The rows for the memory as a whole, the memory over the Director's limit, and anything else are still line 1 of
 standard error with exit 1. Every sentence, wherever it goes, is held to the same 165 characters.
 
 | Failure | Line 1 |
@@ -96,7 +105,7 @@ standard error with exit 1. Every sentence, wherever it goes, is held to the sam
 | A page without a `value` list | `Microsoft Graph answered a page without a 'value' list for <address> while <step>` |
 | A message without a usable id or receive time, or a text field that is not text | `Microsoft Graph answered a message without a usable id or receive time for <address> while reading the Inbox` |
 | An unknown provider | `provider <name> has no reader in this version of screen.py (channel <address>); this version reads: outlook` |
-| More failing channels than the context can name, even without their detail lines (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `<n> of <m> mailboxes could not be checked on <machine>, more than the Mail Desk context can name; the first is <address>` (the first one's sentence on line 2) |
+| More failing channels than the context can name, even without their detail lines (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `<n> of <m> mailboxes failed on <machine>, too many to name in the context; first: <address>`, leaving out `; first: <address>` when the address would take the sentence past 165 characters (the first one's own sentence, which names it, on line 2) |
 | The memory would outgrow the Director's limit | `the Mail Desk check's memory would be <n> bytes, over the Director's 65536, so nothing was written: give this factory fewer channels` |
 | The memory is missing, empty, not JSON, unreadable, or holds a field this check did not write | one sentence naming the file or the channel and the field (3.2) |
 | Anything else | `screen.py stopped on an error it does not handle: <kind>: <message>` |
@@ -467,7 +476,9 @@ red); the failing channel's entry not put back after a part-done run (10 red); t
 red); an unforeseen error taken as one channel's failure (1 red); the end-of-run key pruning touching a failed channel
 (92 red); the detail not cut (1 red); and the memory checks of a channel failing the whole run again (28 red).
 The review of that work (`docs/qa/mail-desk/phase-3/reviews/screen-per-mailbox-review.md`) added 10 tests, 281 in
-all; each of the 10 fails against the check as it was before the review was answered (commit `724f2392a`).
+all; each of the 10 fails against the check as it was before the review was answered (commit `724f2392a`). The
+re-review added 11 more, 292 in all: 8 fail against the check at `6d9d5daa9` (with the test whose wording changed),
+and 3 read the sign-in library's own behaviour and pass on both.
 
 | Brief | What it proves | File |
 |---|---|---|

@@ -25,9 +25,9 @@ Mail Desk context budget") was false.
   every failing mailbox. The run then fails as a whole with a true sentence:
   `40 of 40 mailboxes could not be checked on <machine>, more than the Mail Desk context can name; the first is
   <address>`, with the first mailbox's own sentence on line 2.
-- **Where that limit is.** Measured with 17-character addresses and the longest sentence, that happens past 20
-  failing mailboxes beside one with new mail, and past 24 when every mailbox fails. It comes sooner when a large
-  filing report shares the run. The memory's own cap allows about three channels at their caps (phase 2, section 2),
+- **Where that limit is.** It depends on the address length; the measured table is under "Answers to the
+  re-review" below. The "more than 20" first written here was a measurement with one address length, and the
+  reviewer's "at 20" with another; both were right for their addresses. The memory's own cap allows about three channels at their caps (phase 2, section 2),
   so this limit is far past any factory the memory can carry. A run never ends with the misleading sender-address
   sentence any more.
 
@@ -90,3 +90,69 @@ sign-in service's error text.
 **C (a move done before the channel failed is still queued).** Agreed. It is now an ordinary path. Phase 3's
 Gateway work (task F) must read `already-gone` as "not in the Inbox any more", as the phase 2 contract, section 3.4,
 says. I am naming it here so the Tech Lead can carry it to that task.
+
+## Answers to the re-review
+
+Run the suite on the answered check and all 292 pass. Against the check at `6d9d5daa9`, 9 fail: the 8 tests added
+below, and the test whose expected sentence changed with finding 4. The 3 tests of the sign-in library's own
+behaviour pass on both, as they should.
+
+### Finding 4: the whole-run sentence could pass 165 characters. Accepted, fixed.
+
+The sentence is shorter and the address is only included when it fits:
+
+    <n> of <m> mailboxes failed on <machine>, too many to name in the context; first: <address>
+
+That is 86 characters before the address with the longest Windows machine name, so an address of up to 79
+characters fits. When it does not fit, `; first: <address>` is left out. Line 2 is the first mailbox's own
+sentence, which names the address, so nothing is lost; it is just no longer inside the 200-character window.
+
+Tests:
+- The reviewer's addresses (58 characters, I counted, not 57) with the 15-character machine name: the sentence is
+  within 165 and ends with the address.
+- A 114-character address: the sentence leaves it out, and line 2 names it.
+
+### Finding 5: a saved sign-in that is JSON but not an object stopped every mailbox. Accepted, fixed.
+
+Before the cache is deserialized, the text must be a JSON object. Anything else is refused as phase 2's existing
+"is not a sign-in cache", which fails that channel only with the "not signed in" fix. I chose this over catching
+`AttributeError` around the sign-in calls. Catching it there would also swallow a defect in the check itself, which
+must stay a loud whole-run stop.
+
+Tests:
+- `[]`, `1`, `"x"` and `null` as the file's content: each fails only that channel, and the healthy mailbox is read.
+  These go through the check end to end, because the shape test runs before the faked sign-in application.
+- The premise, from the real library: three tests deserialize `[]`, `1` and `"x"` into MSAL's own
+  `SerializableTokenCache` and show that its first account lookup raises `AttributeError`.
+
+### Observation D: a heavy filing report brought the limit down to ten, and the state repeated. Acted on.
+
+My view: this is worth fixing, because the case behind it is the common one. A new machine, or a machine whose
+sign-ins were cleared, has every mailbox failing at once, and a live mailbox beside it can easily have a long queue.
+It must not loop every five minutes until the owner signs in elsewhere.
+
+The fix:
+- **Every channel now signs in before any channel files or reads.** Phase 2 did the same, in an all-or-nothing way.
+  The checks of each channel's memory still come before any network call.
+- **The filing half is sized after sign-in.** It is cut down to leave room for the sentences of the failures already
+  known, plus the 1,024 bytes kept for new mail.
+- **What happens now:** fewer items are filed that run, the rest stay queued in order, and the run succeeds. The next
+  run goes on filing.
+
+The test is the reviewer's case: 60 queued moves and one new message, beside 10 and beside 20 mailboxes not signed in.
+Each run exits 0, files fewer than the 48 it would file alone, keeps the rest queued in order, and the next run files
+more. Both fail at `6d9d5daa9`.
+
+What is still possible: a Graph failure that comes after filing, in many mailboxes at once. Those failures are not
+known when the filing half is sized. That would mean Graph failing for many mailboxes in the same five minutes, and
+it ends at the honest whole-run sentence, not a misleading one.
+
+### The limits, measured on the answered check
+
+With the longest sentence (not signed in, and in no cc-outlook account list), the first whole-run failure is at:
+
+| Address length | Every mailbox failing | Beside one mailbox with new mail |
+|---|---|---|
+| 17 characters | 26 | 22 |
+| 30 characters | 23 | 19 |
+| 58 characters | 18 | 15 |

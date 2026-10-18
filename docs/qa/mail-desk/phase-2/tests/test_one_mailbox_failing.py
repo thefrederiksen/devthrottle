@@ -560,7 +560,97 @@ def test_MoreFailingMailboxesThanTheContextCanName_IsAWholeRunFailureSayingHowMa
     assert code == 1
     assert world.state.read_bytes() == before
     lines = err.splitlines()
-    assert lines[0] == (f"40 of 40 mailboxes could not be checked on {MACHINE}, more than the Mail Desk context can "
-                        f"name; the first is {addresses[0]}")
+    assert lines[0] == (f"40 of 40 mailboxes failed on {MACHINE}, too many to name in the context; first: "
+                        f"{addresses[0]}")
     assert len(lines[0]) <= world.screen.SENTENCE_LIMIT
     assert lines[1].startswith(f"{addresses[0]} is not signed in on {MACHINE}")
+
+
+
+# ---------------------------------------------------------------------------------------------------- re-review
+
+
+LONG_MACHINE = "DESKTOP-ABCD123"   # the longest name Windows gives a computer
+
+
+def test_TooManyFailing_WithTheReviewersLongAddresses_TheSentenceStaysWithinTheLimitAndNamesIt(world, monkeypatch):
+    """Re-review finding 4: the reviewer's long addresses (58 characters) made this sentence 175 characters."""
+    monkeypatch.setattr(world.screen.socket, "gethostname", lambda: LONG_MACHINE)
+    addresses = [f"a-rather-long-mailbox-name-number-{i:02d}@subdomain.example.org" for i in range(40)]
+    assert len(addresses[0]) == 58
+    world.memory(*[channel(a, cursor=CURSOR) for a in addresses])
+
+    code, _, _, err = world.run()
+
+    assert code == 1
+    sentence = err.splitlines()[0]
+    assert len(sentence) <= world.screen.SENTENCE_LIMIT
+    assert sentence.endswith(f"; first: {addresses[0]}")
+
+
+def test_TooManyFailing_WithAnAddressTooLongToFit_TheSentenceLeavesItToLineTwo(world, monkeypatch):
+    monkeypatch.setattr(world.screen.socket, "gethostname", lambda: LONG_MACHINE)
+    addresses = [f"{'x' * 90}{i:02d}@subdomain.example.org" for i in range(40)]
+    world.memory(*[channel(a, cursor=CURSOR) for a in addresses])
+
+    code, _, _, err = world.run()
+
+    assert code == 1
+    lines = err.splitlines()
+    assert lines[0] == f"40 of 40 mailboxes failed on {LONG_MACHINE}, too many to name in the context"
+    assert lines[1].startswith(f"{addresses[0]} is not signed in")
+
+
+@pytest.mark.parametrize("content", ["[]", "1", '"x"', "null"])
+def test_ASavedSignInThatIsJsonButNotAnObject_FailsThatChannelOnly(world, content):
+    """Re-review finding 5: MSAL's cache takes any JSON and fails only at its first lookup, with an AttributeError
+    the check did not name, which stopped every mailbox. It is refused first, as not a sign-in cache."""
+    world.plant(SECOND, content=content)
+    world.memory(healthy(world), channel(SECOND, cursor=CURSOR, sentCache=FRESH_SENT))
+    failure = channel_failed(world, SECOND).splitlines()
+    assert failure[0].startswith(f"{SECOND} is not signed in on {MACHINE}: ")
+    assert "is not a sign-in cache" in failure[1]
+    assert world.read_memory()["channels"][0]["cursor"]["newest"] == NEW_MAIL
+
+
+@pytest.mark.parametrize("content", ["[]", "1", '"x"'])
+def test_MsalsOwnCache_TakesJsonThatIsNotAnObjectAndFailsOnItsFirstLookup(content):
+    """The premise of the test above, from the real library rather than assumed: the rig replaces the sign-in
+    application, so this reads the real token cache the check deserializes into."""
+    import msal
+    cache = msal.SerializableTokenCache()
+    cache.deserialize(content)
+    with pytest.raises(AttributeError):
+        list(cache.search(msal.TokenCache.CredentialType.ACCOUNT, query={"username": SECOND}))
+
+
+@pytest.mark.parametrize("failing", [10, 20])
+def test_AHeavyFilingReportBesideManyFailing_FilesLessAndTheRunSucceeds(world, failing):
+    """Re-review observation D: a live mailbox with 60 queued moves and one new message, beside 10 mailboxes not
+    signed in, failed the whole run every five minutes. Every channel now signs in before any files, so the filing
+    report is sized to leave the failures and new mail their room: fewer are filed this run, the rest stay queued in
+    order, and the next run goes on."""
+    world.plant(MAILBOX)
+    keys, queue = {}, []
+    for i in range(60):
+        graph_id = f"AAMkQueued{i:03d}="
+        world.graph.box(MAILBOX)["inbox"].append(msg(graph_id, "2026-10-18T05:00:00Z"))
+        key = world.screen.short_key(MAILBOX, graph_id)
+        keys[key] = {"id": graph_id, "reportedUtc": "2026-10-18T05:05:00Z"}
+        queue.append({"messageKey": key, "decision": "archive"})
+    world.graph.box(MAILBOX)["inbox"].append(msg("AAMkHealthy1=", NEW_MAIL))
+    world.memory(channel(MAILBOX, mode="live", cursor=CURSOR, sentCache=FRESH_SENT, keys=keys, filingQueue=queue),
+                 *[channel(a, cursor=CURSOR) for a in many(failing)])
+
+    code, output, context, _ = world.run()
+
+    assert code == 0
+    filed = context["channels"][0]["filing"]
+    assert 0 < len(filed) < 48                                  # 48 were filed with no failures beside it
+    assert [f["messageKey"] for f in filed] == [q["messageKey"] for q in queue[:len(filed)]]
+    assert world.read_memory()["channels"][0]["filingQueue"] == queue[len(filed):]
+    assert output["count"] == len(filed) + 1
+    assert all("failure" in s for s in context["channels"][1:])
+
+    code, _, context, _ = world.run()
+    assert code == 0 and context["channels"][0]["filing"]       # the next run goes on filing
