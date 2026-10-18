@@ -4,7 +4,7 @@ the Sent-folder cache, short keys and what standard error may say.
 
 import json
 
-from conftest import MAILBOX, NOW, SECOND, all_messages, channel, msg, sent
+from conftest import MAILBOX, NOW, SECOND, all_messages, channel, channel_failed, msg, sent
 
 CURSOR = {"newest": "2026-10-18T07:00:00Z", "idsAtNewest": []}
 
@@ -86,15 +86,15 @@ def test_TwoChannels_TheTenMessageStopIsSharedOldestFirst(world):
     assert [len(c["messages"]) for c in context["channels"]] == [3, 3]
 
 
-def test_UnknownProvider_FailsNamingItAndNothingIsRead(world):
+def test_UnknownProvider_FailsThatChannelNamingItAndTheOtherIsRead(world):
+    """Changed in phase 3 by the Delivery Lead's ruling of 18 October 2026: the unknown provider fails its own channel
+    only, before anything is asked of the network for it, and the Outlook channel beside it is read."""
     world.plant()
     world.memory(channel(MAILBOX, cursor=CURSOR), channel(SECOND, provider="gmail"))
-    before = world.state.read_bytes()
-    code, _, _, err = world.run()
-    assert code != 0
-    assert "provider gmail has no reader in this version of screen.py" in err
-    assert world.graph.log == [] and world.sign_in.authorities == []
-    assert world.state.read_bytes() == before
+    assert "provider gmail has no reader in this version of screen.py" in channel_failed(world, SECOND)
+    assert {entry[3] for entry in world.graph.log} == {f"token-for-{MAILBOX}"}
+    assert world.sign_in.authorities == [("f575e3f4-8f62-4bfb-8f30-f776e55b51bd",
+                                          "https://login.microsoftonline.com/common")]   # one sign-in: the Outlook one
 
 
 def test_Providers_EverythingOutlookIsInsideTheOutlookReader(world):
@@ -191,8 +191,7 @@ def test_ChannelId_TheGatewaysIdIsCarriedIntoTheReport(world):
     assert context["channels"][0]["id"] == "c-0001"
 
 
-def test_UnknownProvider_TheSentenceIsTheFirstLine(world):
+def test_UnknownProvider_TheSentenceIsTheChannelsFailure(world):
     world.memory(channel(provider="gmail"))
-    _, _, _, err = world.run()
-    assert err.splitlines()[0] == ("provider gmail has no reader in this version of screen.py (channel "
+    assert channel_failed(world).splitlines()[0] == ("provider gmail has no reader in this version of screen.py (channel "
                                    "email@devthrottle.com); this version reads: outlook")
