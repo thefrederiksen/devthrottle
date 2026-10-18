@@ -505,10 +505,28 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
         foreach (var group in dropped.GroupBy(e => e.SourceGeneration))
         {
             FileLog.Write($"[ApiModeEventPusher] DROPPED UNACKNOWLEDGED EVENTS: session={sessionId}, generation={group.Key}, " +
-                          $"sequences {group.First().Event.Sequence}..{group.Last().Event.Sequence} ({group.Count()} events): the Gateway has not acknowledged them " +
+                          $"{DescribeDropped(group.Select(e => (e.Event, e.Anchor is not null)))}: the Gateway has not acknowledged them " +
                           $"and the Director holds at most {_maxHeldEvents} events or {_maxHeldCharacters} characters per session; what follows them goes up as a new generation");
             AfterHoleLocked(sessionId, state, group.Last(), "the memory bound dropped events");
         }
+    }
+
+    /// <summary>What the memory bound dropped, oldest first, in words: the session's own events by their sequences, and
+    /// each re-announcement by its prompt id. A re-announcement's sequence is the number it was given to go up under, the
+    /// session's own number of an event before the hole, so naming it by that number would say a real event was lost
+    /// (review of pull request #4190, finding 2).</summary>
+    internal static string DescribeDropped(IEnumerable<(SessionEvent Event, bool Reannouncement)> dropped)
+    {
+        var all = dropped.ToList();
+        var own = all.Where(d => !d.Reannouncement).Select(d => d.Event.Sequence).ToList();
+        var reannounced = all.Where(d => d.Reannouncement).Select(d => ((PromptQueued)d.Event).PromptId).ToList();
+        var parts = new List<string>();
+        if (own.Count > 0)
+            parts.Add($"sequences {own[0]}..{own[^1]} ({own.Count} events)");
+        if (reannounced.Count > 0)
+            parts.Add($"the re-announcement of {reannounced.Count} queued prompt(s) [{string.Join(", ", reannounced)}], not yet sent " +
+                      "(made at a hole, not events of the session)");
+        return string.Join(" and ", parts);
     }
 
     // ---------------------------------------------------------------- generations as the Gateway is sent them

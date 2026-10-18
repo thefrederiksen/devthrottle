@@ -236,4 +236,70 @@ public sealed class ApiModeEventPusherQueueTests : IAsyncDisposable
             });
         Assert.Equal(new Dictionary<string, int?> { ["p1"] = null, ["p2"] = null, ["p3"] = 1 }, Places());
     }
+
+    [Fact]
+    public async Task Publish_TheMemoryBoundDropsPartOfAReannouncement_TheRestIsReplacedAndOneGenerationGoesUp()
+    {
+        // Arrange: the Gateway cannot take the push yet, at most two events are held, and p1 and p2 are queued.
+        _gatewayHasThePush = false;
+        var pusher = Pusher(maxHeldEvents: 2);
+        _current = pusher;
+        _stream.Publish([Queued("p1", 1), Queued("p2", 2)]);
+
+        // Act: a hole while the Gateway is off, so the next event's generation opens by re-announcing p1 and p2; the bound
+        // then drops p1's and p2's own events and p1's re-announcement, but not p2's (review of pull request #4190,
+        // finding 1). Then the Gateway can take the push.
+        _current = _gatewayOff;
+        _stream.Publish([Text()]);
+        _current = pusher;
+        _stream.Publish([Text()]);
+        _gatewayHasThePush = true;
+        await pusher.PushSessionAsync(Sid);
+
+        // Assert: p2's leftover re-announcement was replaced, not sent as a generation of its own: the Gateway gets one
+        // generation, which re-announces the whole line and then the text.
+        var batch = Assert.Single(_received);
+        Assert.Collection(Events(batch),
+            e => Assert.Equal(("p1", 1, 1L), (Assert.IsType<PromptQueued>(e).PromptId, ((PromptQueued)e).Position, e.Sequence)),
+            e => Assert.Equal(("p2", 2, 2L), (Assert.IsType<PromptQueued>(e).PromptId, ((PromptQueued)e).Position, e.Sequence)),
+            e => Assert.Equal(3L, Assert.IsType<MessageText>(e).Sequence));
+        Assert.Equal(new Dictionary<string, int?> { ["p1"] = 1, ["p2"] = 2 }, Places());
+    }
+
+    [Fact]
+    public void DescribeDropped_OwnEventsAndAReannouncement_NamesTheReannouncementByItsPromptNotItsSequence()
+    {
+        // Arrange: the session's own events 1 and 2, then p1 re-announced at a hole, given sequence 2 to go up under.
+        PromptQueued Own(long sequence) => new()
+        {
+            SessionId = Sid, Sequence = sequence, At = At,
+            PromptId = $"own-{sequence}", PromptText = "t", Reason = PromptQueuedReason.TurnRunning, Position = 1,
+        };
+        var reannouncement = Own(2) with { PromptId = "p1" };
+
+        // Act
+        var words = ApiModeEventPusher.DescribeDropped([(Own(1), false), (Own(2), false), (reannouncement, true)]);
+
+        // Assert
+        Assert.Equal("sequences 1..2 (2 events) and the re-announcement of 1 queued prompt(s) [p1], not yet sent " +
+                     "(made at a hole, not events of the session)", words);
+    }
+
+    [Fact]
+    public void DescribeDropped_OnlyReannouncements_NamesNoSequence()
+    {
+        // Arrange
+        var reannouncement = new PromptQueued
+        {
+            SessionId = Sid, Sequence = 4, At = At,
+            PromptId = "p2", PromptText = "t", Reason = PromptQueuedReason.TurnRunning, Position = 2,
+        };
+
+        // Act
+        var words = ApiModeEventPusher.DescribeDropped([(reannouncement, true)]);
+
+        // Assert
+        Assert.DoesNotContain("sequence", words);
+        Assert.Contains("[p2]", words);
+    }
 }

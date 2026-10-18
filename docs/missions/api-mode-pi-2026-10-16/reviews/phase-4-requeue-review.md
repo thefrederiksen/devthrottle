@@ -225,6 +225,25 @@ wrong place on a screen. Worth a test because the rule is stated in the pull req
 guarantee: a hole with two prompts queued, a bound that drops one re-announcement, and an assertion that the Gateway
 receives exactly one generation with both prompts at 1 and 2. Not blocking.
 
+**Developer's answer: fixed, with a test that fails without the branch.** New test
+`Publish_TheMemoryBoundDropsPartOfAReannouncement_TheRestIsReplacedAndOneGenerationGoesUp` in
+`ApiModeEventPusherQueueTests`, on the same real stream, sink, pusher, ingest and receipt store as the other four. The
+Gateway cannot take the push, at most two events are held, p1 and p2 are queued (sequences 1 and 2), the Gateway is
+turned off for one text event (sequence 3), and on again for the next (sequence 4). The hole at sequence 4 opens a
+generation that re-announces p1 and p2, so five events are held; the bound drops the two original `PromptQueued`
+events and p1's re-announcement and stops before p2's, the state the review names. The new segment made after that
+drop must replace p2's leftover. The test asserts the Gateway receives exactly one batch, one generation, holding p1
+at sequence 1 and place 1, p2 at sequence 2 and place 2, then the text at sequence 3, and that the receipts route
+answers p1 1st and p2 2nd.
+
+The mutation the review describes - `Remove(state, replaced);` in `NewSegmentLocked` commented out - was run against
+`CcDirector.Gateway.UnitTests` filtered to `ApiModeEventPusher`: 1 failed, 27 passed, 28 total, and the one is the new
+test, with `Assert.Single() Failure: The collection contained 2 items`. That is the harm the review traced: p2's
+leftover went up alone under the older label, one batch before the full one. The mutation was reverted and the run
+below is on the unmutated code.
+
+Unchanged by this answer: the code of the branch. The review found it right; this adds only the proof.
+
 ### Finding 2 (low). The bound's drop log names a re-announcement by a sequence that belongs to a real event
 
 **Where.** `EnforceBoundLocked` logs `sequences {first}..{last}` from `Event.Sequence`. A re-announcement's
@@ -238,6 +257,20 @@ re-announcements' loss is not named.
 one line later, in the "A HOLE STARTS A NEW GENERATION" line that lists the re-announced prompt ids. No screen is
 affected. A fix is one line: group or name the re-announcements by prompt id in the drop log, as `TakeBatch` already
 does for a too-large one. Not blocking.
+
+**Developer's answer: fixed.** `EnforceBoundLocked` now builds the drop's description with a new
+`ApiModeEventPusher.DescribeDropped`, which names the session's own dropped events by their sequences, first to last
+with their count, and each dropped re-announcement by its prompt id, never by the sequence it was given to go up
+under. In the state of finding 1 the line used to read "sequences 1..2 (3 events)", where the 2 was p1's
+re-announcement; it now reads "sequences 1..2 (2 events) and the re-announcement of 1 queued prompt(s) [p1], not yet
+sent (made at a hole, not events of the session)". A drop of re-announcements alone names no sequence at all. Two
+tests pin the words: `DescribeDropped_OwnEventsAndAReannouncement_NamesTheReannouncementByItsPromptNotItsSequence` and
+`DescribeDropped_OnlyReannouncements_NamesNoSequence`. The rest of the line, and what the bound does, is unchanged.
+
+**The proof for both answers** (`DOTNET_USE_POLLING_FILE_WATCHER=1`, .NET 10, one project at a time with no other test
+run on the machine): `CcDirector.Core.UnitTests` filtered to `ApiMode`, 271 passed, 0 failed;
+`CcDirector.Gateway.UnitTests` filtered to `ApiMode` with `-p:RunWorkspaceTypecheck=false`, 439 passed, 0 failed (the
+436 of the review plus the three new tests). The default gate was not run for this answer.
 
 ## 5. Notes (none blocks the merge)
 
