@@ -99,7 +99,7 @@ Every route answers 404 with no body when the switch is off for the calling acco
 
 | Method and path | Body or query | Answer |
 |---|---|---|
-| `GET /status` | - | `{ enabled: true, rulesVersion, channels: [<channel row>], today: { date, timeZone, total, byDecision: { route: n, archive: n, ... every decision, zeros included } }, help: [...] }` |
+| `GET /status` | - | `{ enabled: true, rulesVersion, channels: [<channel row>], today: { date, timeZone, total, byDecision: { route: n, archive: n, ... every decision, zeros included } }, help: [...] }`. `channels` is the active list; `today` is the account's day over every channel, removed ones included (review of 4231, F1) |
 | `GET /channels` | `?all=true` also lists removed ones | `{ count, channels: [<channel row>] }` - **this is the route phase 7's page reads** |
 | `POST /channels` | `{ address, provider, machines: [..], why }` | 201 `<channel row>`; 409 if an active channel has that address; 400 for a bad address, provider, or empty machines |
 | `POST /channels/remove` | `{ address, why }` | 200 `<channel row>` (removed); 404 `{"error":"no_such_channel"}` |
