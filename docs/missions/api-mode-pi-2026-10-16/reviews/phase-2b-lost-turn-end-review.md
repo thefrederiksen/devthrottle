@@ -399,6 +399,36 @@ to accept or address: in the ruling, `ReceiptIfChanged` compares words only, so 
 turn id) is not re-sent to the client; harmless, or compare the turn id too. A relinked receipt also gains a turn id
 the fold then counts, which narrows the count gap the Developer named under note 1.
 
+#### Developer's answer
+
+**Accepted, with the Reviewer's fix, in the store and the live ruling alike.** A real `TurnStarted` that names a
+receipt ruled lost with no turn id now always links the receipt to its turn, so the real `TurnEnded` can find it. It
+clears the lost ending only when it is newer than the receipt's last position: `IsNewer` against the row in
+`ApiModeReceiptStore.RecordTurnStarted`, and a new `IsNewerThanLast` against `_lastPositions` in
+`ApiModeLiveRuling.TurnStart` (which `TouchForward` now uses too, so the two ask the same question one way). When the
+start is older, the receipt keeps `lost` with the turn id set and its position unmoved; the late real `TurnEnded` then
+finds no open receipt under the turn and takes the existing replace branch in both readers. The note in
+`ApiModeLostTurnEnd` says the same.
+
+**The side effect in the ruling, addressed rather than accepted.** The store counts the relink as a change, so the
+ruling now re-sends the relinked receipt's item (same words, turn id now set) instead of leaving the client without the
+turn id. `ReceiptIfChanged` is unchanged; the item is added for the relinked receipt only.
+
+**Tests.** The two reproductions are in under my names, the same event sequence on each side:
+`ApiModeReceiptStoreTests.RecordTurnEnded_AfterAnOlderRealStartLinkedALostReceiptWithNoTurn_TheRealEndReplacesTheLostEnding`
+(failed before the fix, passes now) and
+`ApiModeLiveRulingTests.Rule_NoTurnRuledLostThenItsOlderRealTurnStartedAndEnded_ShowsTheRealOutcome` (passed before and
+after); both end with "Delivered - the turn failed: the model errored". The two older-position tests are flipped and
+renamed to `RecordTurnStarted_ALostReceiptWithNoTurnAndAnOlderRealStart_LinksItAndKeepsTheLostEnding` and
+`Rule_NoTurnRuledLostThenItsOlderRealTurnStarted_LinksItAndKeepsTheLostEnding`: lost kept, turn id `t1`, the store's
+position still B#4. A new store test, `RecordTurnStarted_ALostReceiptWithNoTurnAndANewerRealStart_ReplacesTheLostEnding`,
+pins the newer case on the store side; the ruling's `Rule_AStoredLostEndingWithNoTurnThenItsRealTurnStarted_ReplacesIt`
+already pinned it there and still passes.
+
+**Ran, on devlinux, Debug, one class at a time, no other test host up:** `ApiModeLiveRulingTests` 96 passed,
+`ApiModeReceiptStoreTests` 60 passed, `SessionReceiptsEndpointTests` 13 passed, `SessionLiveEndpointTests` 54 passed,
+and as a cross-check `ApiModeEventIngestTests` 28 passed. None failed.
+
 ### 4. Notes (none blocks the merge once finding 1 is fixed)
 
 1. **A lost `PromptDelivered` is a different hole, outside item 7.** In the ingest test

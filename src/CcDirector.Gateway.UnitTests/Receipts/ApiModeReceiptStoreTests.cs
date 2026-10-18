@@ -842,10 +842,10 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     }
 
     [Fact]
-    public void RecordTurnStarted_ALostReceiptWithNoTurn_TheRealStartReplacesTheLostEnding()
+    public void RecordTurnStarted_ALostReceiptWithNoTurnAndAnOlderRealStart_LinksItAndKeepsTheLostEnding()
     {
-        // Arrange: ruled lost at generation B; then the TurnStarted naming p1 arrives at an older position the
-        // forward-only rule would drop.
+        // Arrange: ruled lost at generation B; then the TurnStarted naming p1 arrives at an older position - an earlier
+        // turn the proof already showed over (re-review of pull request #4179, finding 1).
         var store = StoreWithADeliveredPromptAndNoTurn();
         store.RecordTurnOverProven(Director, Sid, ApiModeLostTurnEnd.Continuing.None, "ConnectionReady", AfterRestart(4));
 
@@ -856,9 +856,44 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         Assert.Equal(1, changed);
         var r = Only(store);
         Assert.Equal("t1", r.TurnId);
-        Assert.Null(r.TurnOutcome);
-        Assert.Equal("Delivered", ApiModeLiveRuling.ReceiptWords(r));
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, r.TurnOutcome);
+        Assert.Equal(ApiModeLiveRuling.LostWords, ApiModeLiveRuling.ReceiptWords(r));
         Assert.Equal(AfterRestart(4), store.ReadWithPositions(Sid).Single().LastPosition); // the position never moves back
+    }
+
+    [Fact]
+    public void RecordTurnStarted_ALostReceiptWithNoTurnAndANewerRealStart_ReplacesTheLostEnding()
+    {
+        // Arrange: ruled lost at generation B.
+        var store = StoreWithADeliveredPromptAndNoTurn();
+        store.RecordTurnOverProven(Director, Sid, ApiModeLostTurnEnd.Continuing.None, "ConnectionReady", AfterRestart(1));
+
+        // Act: a TurnStarted naming p1, newer than the ruling - the turn is genuinely starting now.
+        var changed = store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, AfterRestart(2));
+
+        // Assert
+        Assert.Equal(1, changed);
+        var r = Only(store);
+        Assert.Equal("t1", r.TurnId);
+        Assert.Null(r.TurnOutcome);
+        Assert.Equal(AfterRestart(2), store.ReadWithPositions(Sid).Single().LastPosition);
+    }
+
+    [Fact]
+    public void RecordTurnEnded_AfterAnOlderRealStartLinkedALostReceiptWithNoTurn_TheRealEndReplacesTheLostEnding()
+    {
+        // Arrange: ruled lost at generation B; the TurnStarted naming p1 arrives late, older than the ruling. The live
+        // ruling's twin is Rule_NoTurnRuledLostThenItsOlderRealTurnStartedAndEnded_ShowsTheRealOutcome.
+        var store = StoreWithADeliveredPromptAndNoTurn();
+        store.RecordTurnOverProven(Director, Sid, ApiModeLostTurnEnd.Continuing.None, "ConnectionReady", AfterRestart(1));
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+
+        // Act
+        var changed = store.RecordTurnEnded(Director, Sid, "t1", "failed", "the model errored", At(3), T0.AddSeconds(4));
+
+        // Assert
+        Assert.Equal(1, changed);
+        Assert.Equal("Delivered - the turn failed: the model errored", ApiModeLiveRuling.ReceiptWords(Only(store)));
     }
 
     [Fact]

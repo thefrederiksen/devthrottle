@@ -31,8 +31,11 @@ namespace CcDirector.Gateway.Receipts;
 /// <para><b>A turn whose start was lost too.</b> When the hole swallowed the carrying turn's <c>TurnStarted</c> as well,
 /// the receipt reads Delivered with no turn id and no outcome. The same proofs rule it lost under the same condition,
 /// with one difference: a <c>TurnStarted</c> that names the prompt is that prompt's own turn starting, not a proof that
-/// it is over. Such a receipt's later real <c>TurnStarted</c> replaces the lost ending, as a real <c>TurnEnded</c>
-/// replaces it on a receipt that has its turn (<see cref="ApiModeReceiptStore.RecordTurnStarted"/>).</para>
+/// it is over. Such a receipt's real <c>TurnStarted</c>, when it arrives late, links the receipt to its turn whatever
+/// its position, so the turn's real <c>TurnEnded</c> can replace the lost ending as it does on a receipt that has its
+/// turn. It clears the lost ending only when it is newer than the receipt's last position (the turn is genuinely
+/// starting now); an older one is an earlier turn arriving out of order, which the proof already showed over, so the
+/// lost ending stays until that real end arrives (<see cref="ApiModeReceiptStore.RecordTurnStarted"/>).</para>
 ///
 /// <para>Every other event in the new generation - a reply's text, a tool card, the same turn's own events - proves
 /// nothing, and the receipt is left as it was. Inside ONE generation the rule never applies: there every event the
