@@ -343,14 +343,24 @@ internal static class SessionRuleRecordRules
             throw new RuleRejectedException(
                 "a hook firing has to carry the hook's decision id - it is what tells a retried post from a " +
                 "second decision.");
-        if (firing.DecisionId.Length > 64)
-            throw new RuleRejectedException(
-                $"a decision id is at most 64 characters, and this one is {firing.DecisionId.Length}.");
 
         RequireSomething(firing.SessionId, "which session this fired on");
         RequireSomething(firing.Reason, "why - for a hook rule, the rule's own sentence");
         RequireSomething(firing.Outcome, "what happened next");
         RequireSomething(firing.Machine, "which machine the hook ran on");
+
+        // EVERY VALUE FITS ITS COLUMN, checked here rather than left to the database. SQLite does not enforce a
+        // length and PostgreSQL does, so a value too long for its column would pass every local test and then
+        // fail the hosted save as a server error - for the whole post, not for this one decision. The lengths
+        // are the model's (GatewayDbContext); this is the one place a forwarded decision is refused by id.
+        FitsItsColumn("decisionId", firing.DecisionId, 64);
+        FitsItsColumn("sessionId", firing.SessionId, 64);
+        FitsItsColumn("machine", firing.Machine, 256);
+        FitsItsColumn("repo", firing.Repo, 512);
+        FitsItsColumn("agent", firing.Agent, 64);
+        FitsItsColumn("agentEvent", firing.AgentEvent, 64);
+        FitsItsColumn("agentTool", firing.AgentTool, 64);
+        FitsItsColumn("subject", firing.Subject, HookRuleWords.SubjectMaxLength);
 
         if (!HookRuleWords.Decisions.Contains(firing.Decision ?? "", StringComparer.Ordinal))
             throw new RuleRejectedException(
@@ -369,10 +379,6 @@ internal static class SessionRuleRecordRules
         if (string.IsNullOrWhiteSpace(firing.Subject))
             throw new RuleRejectedException(
                 "a hook firing records the command its rule matched, and this one records no command.");
-        if (firing.Subject.Length > HookRuleWords.SubjectMaxLength)
-            throw new RuleRejectedException(
-                $"the command a hook firing records is cut to {HookRuleWords.SubjectMaxLength} characters by the " +
-                $"hook, and this one is {firing.Subject.Length}.");
 
         if (!string.IsNullOrEmpty(firing.TypedText))
             throw new RuleRejectedException("a hook rule types nothing, so a hook firing cannot record having typed.");
@@ -380,6 +386,14 @@ internal static class SessionRuleRecordRules
         if (firing.PrimitiveRuns is { Count: > 0 })
             throw new RuleRejectedException(
                 "a phase 1 hook rule runs no checks, so a hook firing cannot record one having run.");
+    }
+
+    /// <summary>Refuse a hook decision value longer than the column that stores it, naming the field.</summary>
+    private static void FitsItsColumn(string field, string? value, int maxLength)
+    {
+        if (value is not null && value.Length > maxLength)
+            throw new RuleRejectedException(
+                $"{field} is at most {maxLength} characters, and this decision's is {value.Length}.");
     }
 
     /// <summary>Refuse a required part of the record that is missing, saying what it was for.</summary>

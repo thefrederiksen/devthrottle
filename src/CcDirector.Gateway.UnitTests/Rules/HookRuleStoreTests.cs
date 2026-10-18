@@ -273,6 +273,9 @@ public sealed class HookRuleStoreTests : IDisposable
                 r.AppliesToKind = RuleAppliesToKinds.Repo;
                 r.AppliesToRepo = "https://github.com/TheFrederiksen/devthrottle.git";
             }, "spelling"),
+            ("an empty match text", r => r.HookMatch = new List<string> { "" }, "blank"),
+            ("a match text of only spaces", r => r.HookMatch = new List<string> { "echo", " \t " }, "blank"),
+            ("no match text", r => r.HookMatch = new List<string>(), "match"),
             ("a session start rule", r => r.Kind = RuleKinds.SessionStart, "phase 5"),
             ("an unknown kind", r => r.Kind = "telepathy", "telepathy"),
         };

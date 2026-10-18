@@ -249,7 +249,7 @@ public sealed class SessionRuleStore : IRuleReading
     /// no rule, a rule that is not a hook rule, or is not a record of anything, is refused with the reason.
     /// Each decision is written on its own, so one refusal never costs the others.
     /// </summary>
-    public HookFiringsAnswer RecordHookFirings(IEnumerable<HookDecision> decisions, DateTime nowUtc)
+    public HookFiringsAnswer RecordHookFirings(IEnumerable<HookDecision> decisions)
     {
         var all = (decisions ?? Array.Empty<HookDecision>()).ToList();
         FileLog.Write($"[SessionRuleStore] RecordHookFirings: {all.Count} decision(s)");

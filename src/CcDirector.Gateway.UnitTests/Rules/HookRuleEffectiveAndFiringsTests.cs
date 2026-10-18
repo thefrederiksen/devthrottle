@@ -111,7 +111,7 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
         var global = Hook(store, "Never echo the probe anywhere.", RuleAppliesTo.Everywhere, HookRuleWords.Allow);
         var rule = Hook(store, "Never echo the probe in this repository.", RuleAppliesTo.InRepo(RepoA));
 
-        var answer = store.RecordHookFirings(new[] { Decision(rule.Id, overridden: new[] { global.Id }) }, Now);
+        var answer = store.RecordHookFirings(new[] { Decision(rule.Id, overridden: new[] { global.Id }) });
 
         Assert.Equal(1, answer.Accepted);
         Assert.Equal(0, answer.Duplicates);
@@ -146,11 +146,11 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
         var store = new SessionRuleStore(Db);
         var rule = Hook(store, "Never echo the probe.", RuleAppliesTo.Everywhere);
 
-        var first = store.RecordHookFirings(new[] { Decision(rule.Id), Decision(rule.Id) }, Now);
+        var first = store.RecordHookFirings(new[] { Decision(rule.Id), Decision(rule.Id) });
         Assert.Equal(1, first.Accepted);
         Assert.Equal(1, first.Duplicates);
 
-        var retried = store.RecordHookFirings(new[] { Decision(rule.Id) }, Now);
+        var retried = store.RecordHookFirings(new[] { Decision(rule.Id) });
         Assert.Equal(0, retried.Accepted);
         Assert.Equal(1, retried.Duplicates);
 
@@ -165,8 +165,8 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
         var ruleA = Hook(a, "Never echo the probe.", RuleAppliesTo.Everywhere);
         var ruleB = Hook(b, "Never echo the probe.", RuleAppliesTo.Everywhere);
 
-        Assert.Equal(1, a.RecordHookFirings(new[] { Decision(ruleA.Id) }, Now).Accepted);
-        Assert.Equal(1, b.RecordHookFirings(new[] { Decision(ruleB.Id) }, Now).Accepted);
+        Assert.Equal(1, a.RecordHookFirings(new[] { Decision(ruleA.Id) }).Accepted);
+        Assert.Equal(1, b.RecordHookFirings(new[] { Decision(ruleB.Id) }).Accepted);
     }
 
     [Fact]
@@ -182,7 +182,7 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
             Decision(nobody, decisionId: "d-nobody"),
             Decision(screen.Id, decisionId: "d-screen"),
             Decision(hook.Id, decisionId: "d-good"),
-        }, Now);
+        });
 
         Assert.Equal(1, answer.Accepted);
         Assert.Equal(2, answer.Refused.Count);
@@ -212,7 +212,7 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
             Decision(rule.Id, decisionId: new string('d', 65)),
         };
 
-        var answer = store.RecordHookFirings(bad, Now);
+        var answer = store.RecordHookFirings(bad);
 
         Assert.Equal(0, answer.Accepted);
         Assert.Equal(bad.Length, answer.Refused.Count);
@@ -230,5 +230,91 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
             rule.Id, "s1", "screen", "understood", RuleDecisions.Decline, "nothing to do",
             Array.Empty<RulePrimitiveRun>(), "", "nothing happened", "grounding: nothing quoted.", Now));
         Assert.Contains("hook", ex.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+    // ---- every value fits its column, so PostgreSQL never refuses a decision the store accepted -------------
+
+    /// <summary>
+    /// Every free-text value a hook firing stores, and the length of its column. SQLite does not enforce a
+    /// length and PostgreSQL does, so a value the store let through would be refused by the hosted database as
+    /// a server error for the whole post. The store refuses it first, by id, with the field named.
+    /// </summary>
+    public static IEnumerable<object[]> ColumnLengths() => new[]
+    {
+        new object[] { "sessionId", 64 },
+        new object[] { "machine", 256 },
+        new object[] { "repo", 512 },
+        new object[] { "agent", 64 },
+        new object[] { "agentEvent", 64 },
+        new object[] { "agentTool", 64 },
+        new object[] { "decisionId", 64 },
+        new object[] { "subject", HookRuleWords.SubjectMaxLength },
+    };
+
+    private static CcDirector.Gateway.Data.Entities.SessionRuleFiringEntity HookFiring(string field, int length)
+    {
+        var value = new string('x', length);
+        var firing = new CcDirector.Gateway.Data.Entities.SessionRuleFiringEntity
+        {
+            Kind = RuleKinds.Hook,
+            DecisionId = "d-1",
+            SessionId = "s-1",
+            Decision = HookRuleWords.WouldDeny,
+            Reason = "Never echo the probe.",
+            Outcome = "dry run",
+            HookEvent = HookRuleWords.BeforeCommand,
+            HookTool = HookRuleWords.Shell,
+            Subject = "echo RULE-PROBE",
+            Machine = "devlinux",
+        };
+        switch (field)
+        {
+            case "sessionId": firing.SessionId = value; break;
+            case "machine": firing.Machine = value; break;
+            case "repo": firing.Repo = value; break;
+            case "agent": firing.Agent = value; break;
+            case "agentEvent": firing.AgentEvent = value; break;
+            case "agentTool": firing.AgentTool = value; break;
+            case "decisionId": firing.DecisionId = value; break;
+            case "subject": firing.Subject = value; break;
+            default: throw new ArgumentException(field);
+        }
+        return firing;
+    }
+
+    private static readonly string DryRun = RuleWireNames.ToWireName(nameof(RuleState.DryRun));
+
+    [Theory]
+    [MemberData(nameof(ColumnLengths))]
+    public void CheckFiring_HookValueOneLongerThanItsColumn_IsRefusedNamingTheField(string field, int length)
+    {
+        var ex = Assert.Throws<RuleRejectedException>(() => SessionRuleRecordRules.CheckFiring(
+            HookFiring(field, length + 1), RulePrimitiveRegistry.Default, DryRun, RuleKinds.Hook, DryRun));
+        Assert.Contains(field, ex.Reason, StringComparison.Ordinal);
+        Assert.Contains(length.ToString(), ex.Reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(ColumnLengths))]
+    public void CheckFiring_HookValueExactlyItsColumnLength_IsAccepted(string field, int length)
+        => SessionRuleRecordRules.CheckFiring(
+            HookFiring(field, length), RulePrimitiveRegistry.Default, DryRun, RuleKinds.Hook, DryRun);
+
+    // ---- one account never reaches another's hook rules ----------------------------------------------
+
+    [Fact]
+    public void EffectiveHookRulesAndRecordHookFirings_AnotherAccountsRule_IsNeitherListedNorFiredOn()
+    {
+        var a = new SessionRuleStore(_h.Open(new FixedTenantContext(new TenantId("tenant-a"))));
+        var b = new SessionRuleStore(_h.Open(new FixedTenantContext(new TenantId("tenant-b"))));
+        var ruleA = Hook(a, "Never echo the probe.", RuleAppliesTo.Everywhere);
+
+        // The presence first: account A sees its own rule, so an empty answer for B is not a broken query.
+        Assert.Contains(a.EffectiveHookRules("devlinux", RepoA), e => e.Rule.Id == ruleA.Id);
+        Assert.DoesNotContain(b.EffectiveHookRules("devlinux", RepoA), e => e.Rule.Id == ruleA.Id);
+
+        var fromB = b.RecordHookFirings(new[] { Decision(ruleA.Id, decisionId: "d-cross") });
+        Assert.Equal(0, fromB.Accepted);
+        Assert.Contains(ruleA.Id.ToString(), Assert.Single(fromB.Refused).Reason, StringComparison.Ordinal);
+        Assert.Empty(a.FiringsFor(ruleA.Id));
     }
 }

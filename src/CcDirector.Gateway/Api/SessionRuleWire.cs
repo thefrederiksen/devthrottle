@@ -176,6 +176,14 @@ internal static class SessionRuleWire
             throw new RuleRejectedException(
                 "a hook rule does not watch the screen, so it has no trigger words - its match text is what it " +
                 "looks for.");
+
+        // The ceilings bound how often a screen rule ACTS on a session. A phase 1 hook rule acts on nothing - it
+        // records what it would have decided - so a bound written on one would be stored as nothing at all.
+        foreach (var bound in new[] { "cooldownSeconds", "dailyCap" })
+            if (body.TryGetProperty(bound, out _))
+                throw new RuleRejectedException(
+                    $"a hook rule has no {bound} - it is decided by the hook on every command it polices, and a " +
+                    "bound written here would be stored as nothing.");
     }
 
     /// <summary>
@@ -250,8 +258,22 @@ internal static class SessionRuleWire
             throw new RuleRejectedException("the body is { \"decisions\": [ ... ] }, and it has no decisions list.");
 
         var read = new List<HookDecision>();
+        var position = 0;
         foreach (var item in list.EnumerateArray())
         {
+            // THE CAP HOLDS AT BOTH ENDS. Every decision is recorded under the store's one write lock, which the
+            // screen evaluator and every rules route also wait on, so one post may carry no more than the
+            // Director's own batch. The rest are refused by id. By W5 a Director deletes a refused decision, so
+            // one past the cap is lost: the cap only holds without loss because the Director never sends more.
+            if (position++ >= HookRuleWords.MaxDecisionsPerPost)
+            {
+                unreadable.Add(new HookFiringRefusal(
+                    item.ValueKind == JsonValueKind.Object ? RuleCallJson.Text(item, "decisionId") ?? "" : "",
+                    $"one post carries at most {HookRuleWords.MaxDecisionsPerPost} decisions; this one is past " +
+                    "that and was not read."));
+                continue;
+            }
+
             if (item.ValueKind != JsonValueKind.Object)
             {
                 unreadable.Add(new HookFiringRefusal("", "a decision is an object, and this one is not."));

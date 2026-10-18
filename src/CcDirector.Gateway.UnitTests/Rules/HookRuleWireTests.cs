@@ -118,6 +118,14 @@ public sealed class HookRuleWireTests : IDisposable
         var withWords = HookBody.Replace("\"result\": \"deny\"", "\"result\": \"deny\", \"triggerWords\": [\"limit\"]");
         Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withWords), Now));
 
+        // A bound the caller wrote is refused, never silently dropped: they believed the rule would carry it.
+        foreach (var bound in new[] { "cooldownSeconds", "dailyCap" })
+        {
+            var withBound = HookBody.Replace("\"result\": \"deny\"", $"\"result\": \"deny\", \"{bound}\": 1");
+            var refused = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withBound), Now));
+            Assert.Contains(bound, refused.Reason, StringComparison.Ordinal);
+        }
+
         Assert.Empty(store.All());
     }
 
@@ -286,6 +294,20 @@ public sealed class HookRuleWireTests : IDisposable
     }
 
     [Fact]
+    public void ReadHookDecisions_MoreThanOneHundredInOnePost_ReadsTheFirstHundredAndRefusesTheRestById()
+    {
+        var items = string.Join(",", Enumerable.Range(0, 102).Select(i => W3($"d-{i}")));
+        var unreadable = new List<HookFiringRefusal>();
+
+        var read = SessionRuleWire.ReadHookDecisions(Body($$"""{ "decisions": [ {{items}} ] }"""), unreadable);
+
+        Assert.Equal(HookRuleWords.MaxDecisionsPerPost, read.Count);
+        Assert.Equal("d-99", read.Last().DecisionId);
+        Assert.Equal(new[] { "d-100", "d-101" }, unreadable.Select(r => r.DecisionId));
+        Assert.All(unreadable, r => Assert.Contains("100", r.Reason, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ReadHookDecisions_NoDecisionsList_IsRefused()
     {
         var ex = Assert.Throws<RuleRejectedException>(
@@ -314,7 +336,7 @@ public sealed class HookRuleWireTests : IDisposable
         var unreadable = new List<HookFiringRefusal>();
         var decisions = SessionRuleWire.ReadHookDecisions(
             Body($$"""{ "decisions": [ {{W3("d-wire", rule.Id.ToString())}} ] }"""), unreadable);
-        Assert.Equal(1, store.RecordHookFirings(decisions, Now).Accepted);
+        Assert.Equal(1, store.RecordHookFirings(decisions).Accepted);
 
         var wire = AsWire(SessionRuleWire.Project(Assert.Single(store.FiringsFor(rule.Id))));
 

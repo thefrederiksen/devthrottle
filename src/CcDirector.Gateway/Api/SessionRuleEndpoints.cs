@@ -115,7 +115,7 @@ internal static class SessionRuleEndpoints
             {
                 var unreadable = new List<HookFiringRefusal>();
                 var decisions = SessionRuleWire.ReadHookDecisions(body, unreadable);
-                var recorded = store.RecordHookFirings(decisions, DateTime.UtcNow);
+                var recorded = store.RecordHookFirings(decisions);
                 var answer = recorded with { Refused = unreadable.Concat(recorded.Refused).ToList() };
                 FileLog.Write(
                     $"[SessionRuleEndpoints] POST /gateway/rules/hook-firings: accepted={answer.Accepted} " +
