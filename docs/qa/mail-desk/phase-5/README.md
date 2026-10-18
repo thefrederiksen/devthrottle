@@ -92,6 +92,12 @@ gives a held claim the trigger's machine and an unclaimed one none, leaves no mo
 removes both columns and keeps the rows. The PostgreSQL one also drives the real `TriggerStore` on PostgreSQL through
 a handover and a hand-back.
 
+`src/CcDirector.Gateway.UnitTests/Factory/Triggers/BackupMachinesThroughTheRoutesTests.cs` (5 tests, added after the
+review - see `docs/qa/mail-desk/phase-3/reviews/backup-machines-answers.md`): through the real routes, a backup is
+given the check's code and a machine on no list is not; a whole handover and hand-back through the pull, the download
+and the report; a report from a backup a republish removed, and from any machine on no list, is refused and records
+nothing.
+
 `tools/cc-devthrottle/tests/test_trigger_ops.py`:
 `test_list_and_show_print_where_the_check_runs_as_the_gateway_worded_it`.
 
@@ -140,7 +146,9 @@ uv run --no-project --with pytest --with typer --with click --with rich --with r
 
 | Run | Result |
 |---|---|
-| Backup tests (claim, definition, SQLite migration) | 25 passed, 0 failed |
+| Backup tests (claim, definition, SQLite migration), before the review | 25 passed, 0 failed |
+| Backup tests after the review's two fixes (adds the route tests) | 30 passed, 0 failed; each fix removed turns two of them red |
+| The whole Gateway.UnitTests project after the fixes, in three parts | 14,492: 14,487 passed, 2 skipped, the same 3 Linux failures as on origin/main |
 | `Factory` tests of Gateway.UnitTests, before the new tests were added | 2,606: one failed - the format document did not name `backupMachines`; fixed by documenting it |
 | `scripts/test-database.ps1`, the whole project, no filter | GREEN: 79 executed, 79 passed, 0 failed, **0 skipped** - including `AddTriggerBackupMachinesPostgresTests` |
 | `cc-devthrottle` tool tests, the whole suite | 4,832 passed, 2 skipped (neither in the trigger tests) |
@@ -150,9 +158,10 @@ uv run --no-project --with pytest --with typer --with click --with rich --with r
 
 - **No live failover on two real machines.** Every "Director" here is a name calling the service; that is phase 6's,
   if the owner's second machine is online.
-- **A backup Director's own behaviour is not exercised.** No Director change was made: a Director runs what it is
-  handed. That it does so for a trigger whose machine field names another machine is assumed because an assignment carries no
-  machine at all, not tested here.
+- **A real backup Director is not exercised.** No Director change was made. What a backup Director calls - its
+  trigger pull, the check download, its report - is proved route by route in `BackupMachinesThroughTheRoutesTests`
+  (added after review finding 1, which found the check download refused a backup). The Director's own code running
+  against those answers is not run here.
 - **The seat starting on a backup is proved only as far as the start request** - which machine and which Director it
   names. That the backup can actually run the seat (its repository, its agent) is not checked at publish and not
   proven.
@@ -163,4 +172,5 @@ uv run --no-project --with pytest --with typer --with click --with rich --with r
   unchanged.
 - **A report from a caller that does not say its machine** (only tests and older callers inside the Gateway) leaves
   the holder's machine unknown when it takes a claim; such a claim can then only lapse, never be taken back early.
-  The one production route always says the machine.
+  The one production route always says the machine, and since review finding 2 a report from a machine on no list
+  is refused (409 `machine_not_on_the_list`).

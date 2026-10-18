@@ -21,6 +21,9 @@ public enum TriggerReportRefusal
     HeldByAnotherDirector,
     /// <summary>A check from a definition, reported by a Director that never said on Hello that it runs them.</summary>
     CannotRunDefinitionChecks,
+    /// <summary>The reporting Director's machine is not on the trigger's list - its own machine and its backups - such
+    /// as a backup a republish removed whose check was still running (Mail Desk, phase 5).</summary>
+    MachineNotOnTheList,
 }
 
 /// <summary>The answer to one check report: the run row it wrote, or why it wrote none.</summary>
@@ -348,6 +351,15 @@ public sealed class TriggerService
                     $"no trigger '{triggerIdOrName}' in this account");
 
             var now = _nowUtc();
+            // A machine on no list is never handed the trigger, and its report is not taken either: recorded, it would
+            // take the claim from a machine on no list, which the trigger's own machine could not take back before
+            // the lapse. A caller that does not say its machine keeps the path it always had.
+            if (machine is not null && TriggerMachines.PositionOf(trigger, machine) < 0)
+            {
+                FileLog.Write($"[TriggerService] ReportCheckAsync REFUSED: trigger={trigger.Name}, director={directorId} on {machine}, not on {TriggerMachines.Text(trigger)}");
+                return TriggerReportResult.Refused(TriggerReportRefusal.MachineNotOnTheList,
+                    $"trigger '{trigger.Name}' runs on {TriggerMachines.Text(trigger)}, not on {machine}, so this report from Director {directorId} was not recorded");
+            }
             if (TriggerStore.IsHeldByAnother(trigger, directorId, now))
                 return TriggerReportResult.Refused(TriggerReportRefusal.HeldByAnotherDirector,
                     $"Director {trigger.ClaimedByDirectorId} runs the check of trigger '{trigger.Name}'; this report was not recorded");

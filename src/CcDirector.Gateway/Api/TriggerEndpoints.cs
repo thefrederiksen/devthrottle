@@ -275,6 +275,8 @@ internal static class TriggerEndpoints
                     Refuse(StatusCodes.Status409Conflict, "held_by_another_director", result.Error!),
                 TriggerReportRefusal.CannotRunDefinitionChecks =>
                     Refuse(StatusCodes.Status409Conflict, "cannot_run_definition_checks", result.Error!),
+                TriggerReportRefusal.MachineNotOnTheList =>
+                    Refuse(StatusCodes.Status409Conflict, "machine_not_on_the_list", result.Error!),
                 _ => throw new InvalidOperationException($"unhandled trigger report refusal: {result.Refusal}"),
             };
         });
