@@ -1,11 +1,11 @@
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Tools;
 
 /// <summary>
-/// The directory that puts the cc-* tools on PATH on macOS and Linux - <c>~/.local/bin</c>, where the
-/// installer links each tool to its console script in <c>pyenv/bin</c> - and the one rule for making sure
-/// the Director's own PATH holds it (issue devthrottle_internal#2474).
+/// Where the cc-* tool shims live - the one rule for it, <see cref="ShimDirFor"/> - and the one rule for
+/// making sure the Director's own PATH holds that directory (issue devthrottle_internal#2474).
 ///
 /// WHY THE DIRECTOR FIXES ITS OWN PATH. A Director started over SSH, or by anything else that does not read
 /// a login profile, inherits a PATH without <c>~/.local/bin</c>: non-interactive bash returns from
@@ -16,9 +16,30 @@ namespace CcDirector.Core.Tools;
 /// </summary>
 public static class ToolShimPath
 {
-    /// <summary><c>~/.local/bin</c>: where the macOS and Linux installers link the cc-* tools.</summary>
-    public static string UnixShimDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin");
+    /// <summary>
+    /// Where this process's machine root keeps its tool shims: <see cref="ShimDirFor"/> asked about
+    /// <c>CcStorage.MachineRoot()</c>. Every reader and writer of the shims in the Director asks here, so
+    /// the tools board, the PATH repair and the browser harness installer can never disagree with the
+    /// setup engine about where a link is.
+    /// </summary>
+    public static string MachineShimDir => ShimDirForRootSetting(
+        Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT"),
+        CcStorage.DefaultRoot(),
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        OperatingSystem.IsWindows());
+
+    /// <summary>
+    /// The pure form of <see cref="MachineShimDir"/>: the machine root is the default root when the
+    /// CC_DIRECTOR_ROOT setting is empty, and otherwise the machine root that setting climbs to (a
+    /// Director's own instance home climbs out to the root above it), exactly as <c>CcStorage.MachineRoot</c>
+    /// decides it. The cc-devthrottle command line tool answers the same question with the same inputs
+    /// (<c>setup_ops._shim_dir</c>).
+    /// </summary>
+    internal static string ShimDirForRootSetting(string? rootSetting, string defaultRoot, string? home, bool isWindows)
+    {
+        var machineRoot = string.IsNullOrEmpty(rootSetting) ? defaultRoot : CcStorage.MachineRootOf(rootSetting);
+        return ShimDirFor(machineRoot, defaultRoot, home, isWindows);
+    }
 
     /// <summary>
     /// Where the tool shims of the install at <paramref name="installRoot"/> are written. This is the ONE
@@ -101,16 +122,17 @@ public static class ToolShimPath
     }
 
     /// <summary>
-    /// On macOS and Linux, put <see cref="UnixShimDir"/> at the front of this process's PATH when it is
-    /// missing. Returns true when PATH was changed. Does nothing on Windows, where the installer puts the
-    /// managed bin directory on the user's PATH in the registry and every start reads it.
+    /// On macOS and Linux, put <see cref="MachineShimDir"/> at the front of this process's PATH when it is
+    /// missing - <c>~/.local/bin</c> for the machine's default root, the root's own <c>bin</c> for any other.
+    /// Returns true when PATH was changed. Does nothing on Windows, where the installer puts the managed bin
+    /// directory on the user's PATH in the registry and every start reads it.
     /// </summary>
     public static bool EnsureOnProcessPath()
     {
         if (OperatingSystem.IsWindows()) return false;
 
         var current = Environment.GetEnvironmentVariable("PATH");
-        var dir = UnixShimDir;
+        var dir = MachineShimDir;
         var updated = WithDirectory(current, dir);
         if (updated == current)
         {

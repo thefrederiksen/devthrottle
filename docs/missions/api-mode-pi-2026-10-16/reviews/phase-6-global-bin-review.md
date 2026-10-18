@@ -198,6 +198,53 @@ alone with "its own links sit in `<root>/bin`, which is not on PATH", and that p
 every session and, after the first start, for the Director. The readers should ask the same rule the writers ask, or
 the pull request's text should stop claiming they are right. The Developer decides which.
 
+#### Developer's answer to finding 1: fixed
+
+The three readers now ask the same rule the writers ask, one definition per language, keyed the same way.
+
+- **.NET.** `ToolShimPath.MachineShimDir` is the rule `ShimDirFor` asked about this process's machine root. Its pure
+  form, `ShimDirForRootSetting(rootSetting, defaultRoot, home, isWindows)`, takes the machine root exactly as
+  `CcStorage.MachineRoot` does: the default root when the CC_DIRECTOR_ROOT setting is empty, otherwise
+  `CcStorage.MachineRootOf` of the setting, so an instance home climbs out to the root above it. `UnixShimDir` is
+  removed, so nothing can name `~/.local/bin` without the rule any more.
+  - `ToolShimPath.EnsureOnProcessPath` adds `MachineShimDir`. A scratch Director's first start now puts
+    `<scratch>/bin` on its own PATH, where the self-heal is about to write the links.
+  - `ToolHealthProbe.PathGapReason` takes the shim directory as a parameter, and its one caller passes
+    `MachineShimDir`, so the board names the link the repair writes.
+  - `BrowserHarnessInstaller.ShimDir` is now `ToolShimPath.MachineShimDir`, the one composition of the rule rather
+    than a second copy of it.
+- **Python.** `setup_ops._shim_dir_for(install_root, default_root, home, is_windows)` is the Python form of
+  `ShimDirFor`, with the same four inputs and the same answers; `_is_same_directory` compares the way
+  `IsSameDirectory` does. `_default_root()` is split out of `_install_root()` (the branch that ignores
+  CC_DIRECTOR_ROOT). `_shim_dir` and `_shim_paths` both ask `_shim_dir_for`, so `doctor` looks for the links of a
+  scratch root in `<scratch>/bin` and `repair`'s PATH notice names that directory.
+
+**Tests, all on inputs the test gives, never the machine (rule 5a).**
+
+- `ToolShimPathTests`: 5 new cases for `ShimDirForRootSetting`: no setting and an empty setting go to the user bin;
+  an instance home under the default root goes to the user bin; a scratch root and an instance home under a scratch
+  root go to the scratch root's own `bin`. The old `UnixShimDir` test is removed along with the property.
+- `ToolHealthProbePathGapTests`: every case now passes a made-up shim directory instead of reading the real home;
+  1 new case proves a scratch root's reason names `<scratch>/bin/cc-devthrottle`.
+- `tools/cc-devthrottle/tests/test_setup_ops.py`: 5 new cases for `_shim_dir_for` (default root, scratch root,
+  trailing separator, and Windows for both). 2 new cases on a scratch root with no default install: `doctor` reports
+  no problem when the link is in `<scratch>/bin` and names nothing under `~/.local/bin`, and `repair` names
+  `<scratch>/bin`. The `isolated_install` fixture used to pin CC_DIRECTOR_ROOT to a folder that is not the default
+  root of its made-up home, which under the new rule is a scratch root. It now pins the default root of that home, so
+  every existing case still models the machine's own install.
+
+| Project | Filter | Result |
+|---|---|---|
+| `src/CcDirector.Core.UnitTests` | `ToolShimPathTests`, `ToolHealthProbePathGapTests`, `ToolReadersUseTheMachineRootTests` | 34 passed, 0 failed |
+| `src/CcDirector.Core.Tests` | `BrowserHarnessInstallerTests` | 16 passed, 0 failed |
+| `tools/cc-devthrottle` (pytest, in a scratch environment) | `tests/test_setup_ops.py`, `tests/test_setup_machine_root.py` | 50 passed, 0 failed |
+
+On devlinux, .NET 10 at `~/.dotnet`, Debug, one project at a time after checking that no other test run was going.
+The Python tests ran with `FORCE_COLOR=1`, as continuous integration runs them, in a throwaway environment made from
+the machine's bundled Python; nothing was installed into the machine's own `pyenv`. `PythonToolsHealAndShimTests` and
+`ToolReconcilerTests` were not run, as instructed. No real Director was run. Afterwards `~/.local/bin/cc-devthrottle`
+and `~/.local/bin/cc-pdf` still point at `/home/soren/.local/share/cc-director/pyenv/bin/`, as before.
+
 ### Finding 2 (low): the pull request's own account of the test classes and of PATH is inaccurate in two places
 
 This is about the record, not the code. The record will be read by the next seat as proof.
@@ -210,6 +257,19 @@ This is about the record, not the code. The record will be read by the next seat
   the scratch root's own `bin`. Windows matches, but because both are on PATH, not because neither is.
 
 Neither sentence changes what shipped; both would mislead the next reader of the mission record.
+
+#### Developer's answer to finding 2: recorded, and the pull request text corrected
+
+Both sentences were wrong as written, and the pull request description is corrected:
+
+- The two classes marked Windows-only, when run on Linux before this change, wrote real `~/.local/bin/cc-pdf`
+  links pointing into temporary folders that were then deleted, and their legacy alias purge removed retired names
+  from that directory. No test in either class writes or removes a `cc-devthrottle` link, so a test run was not the
+  devlinux `cc-devthrottle` breakage. At most it could have left a broken `cc-pdf`.
+- The scratch root's own `bin` is on PATH: the session launcher puts `CcStorage.Bin()` first on every session's PATH
+  on every platform, and the Director's own PATH now holds it from the first start (finding 1). Windows matches
+  because both are on PATH, not because neither is. The "readers only, unchanged" paragraph is replaced by the fix
+  above.
 
 ## What I ran, and what it showed
 

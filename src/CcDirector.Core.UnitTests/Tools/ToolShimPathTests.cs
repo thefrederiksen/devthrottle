@@ -4,8 +4,9 @@ using Xunit;
 namespace CcDirector.Core.UnitTests.Tools;
 
 /// <summary>
-/// The rule the Director uses at start-up to put <c>~/.local/bin</c> on its own PATH, and so on the PATH
-/// of every session it starts (issue devthrottle_internal#2474). Pure: no test changes this process's PATH.
+/// Where the tool shims live (<see cref="ToolShimPath.ShimDirFor"/>) and the rule the Director uses at start-up to put
+/// that directory on its own PATH, and so on the PATH of every session it starts (issue devthrottle_internal#2474).
+/// Pure: no test reads the real home folder or changes this process's PATH.
 /// </summary>
 public sealed class ToolShimPathTests
 {
@@ -119,11 +120,46 @@ public sealed class ToolShimPathTests
         Assert.False(ToolShimPath.Contains(original, Dir));
     }
 
-    [Fact]
-    public void UnixShimDir_IsDotLocalBinUnderTheHomeFolder()
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    // --- Which machine root the Director's readers ask about (review of pull request 4211) ------------
 
-        Assert.Equal(Path.Combine(home, ".local", "bin"), ToolShimPath.UnixShimDir);
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void ShimDirForRootSetting_NoSetting_IsTheUsersLocalBin(string? setting)
+    {
+        var dir = ToolShimPath.ShimDirForRootSetting(setting, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(Home, ".local", "bin"), dir);
+    }
+
+    [Fact]
+    public void ShimDirForRootSetting_ADirectorsInstanceHomeUnderTheDefaultRoot_IsTheUsersLocalBin()
+    {
+        // The installed Director hands every session its own instance home; that is still the machine's install.
+        var setting = Path.Combine(DefaultRoot, "instances", "default");
+
+        var dir = ToolShimPath.ShimDirForRootSetting(setting, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(Home, ".local", "bin"), dir);
+    }
+
+    [Fact]
+    public void ShimDirForRootSetting_AScratchRoot_IsThatRootsOwnBin()
+    {
+        var dir = ToolShimPath.ShimDirForRootSetting(ScratchRoot, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(ScratchRoot, "bin"), dir);
+    }
+
+    [Fact]
+    public void ShimDirForRootSetting_AnInstanceHomeUnderAScratchRoot_IsTheScratchRootsOwnBin()
+    {
+        // A test Director on a scratch root hands its sessions <scratch>/instances/<slug>; the links it
+        // wrote are in <scratch>/bin, so that is where every reader must look.
+        var setting = Path.Combine(ScratchRoot, "instances", "slot-5");
+
+        var dir = ToolShimPath.ShimDirForRootSetting(setting, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(ScratchRoot, "bin"), dir);
     }
 }
