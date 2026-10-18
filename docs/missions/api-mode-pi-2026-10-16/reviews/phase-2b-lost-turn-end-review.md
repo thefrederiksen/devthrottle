@@ -447,3 +447,36 @@ and as a cross-check `ApiModeEventIngestTests` 28 passed. None failed.
 the lost ruling, in the store and in the ruling, with the two reproductions as tests. Everything else in the rebase and
 the new path is approved as it stands; after that one change the pull request is complete for item 7 as the Tech Lead
 ruled it, including the first review's finding 1.
+
+## Check of the re-review fix
+
+Pull request #4179 checked at its head `44ddcf7a7` (one commit on the re-review head `6cafc2c7f`). Reviewer seat,
+session 868ed433, 17 October 2026 on devlinux.
+
+**Verdict: approve.** Finding 1 is fixed as recommended, in the store and the live ruling alike, and the one side effect
+I named is addressed rather than accepted.
+
+**Read, in full:** the diff from `6cafc2c7f` to `44ddcf7a7` (three production files, two test files, the Developer's
+answer in this file). **Ran, Debug, one run, after checking no other test host was up:** `ApiModeLiveRulingTests` and
+`ApiModeReceiptStoreTests` in one filter: **156 tests, 156 passed, none failed.**
+
+**The store** (`RecordTurnStarted`): a lost row with no turn id is always linked to the turn; the lost ending is cleared
+and the row touched only when the event is newer than the row's last position; an older one keeps `lost`, moves only
+`UpdatedAtUtc`, and still counts as a change. `EndTurnOnce` is untouched, so the late real `TurnEnded` now finds no open
+row under the turn and takes the existing replace branch. `RecordTurnEnded_AfterAnOlderRealStartLinkedALostReceiptWithNoTurn_TheRealEndReplacesTheLostEnding`
+is my store reproduction under the Developer's name, and it passes. The flipped test keeps `lost` with turn id `t1` and
+the position still at B#4; the new newer-case test pins the clear.
+
+**The live ruling** (`TurnStart`): the same question is asked of `_lastPositions` through the new `IsNewerThanLast`,
+which `TouchForward` now also uses (I checked it is the same predicate the old inline condition expressed: without a
+position or without a last position it counts as newer, as the #4178 convention has it). A newer start clears and
+touches; an older start links, keeps `lost`, does not touch, and its receipt item is re-sent with the turn id set, so a
+client is not left holding an item without it. `TurnEnd` is untouched and takes the lost-receipts branch. My ruling
+reproduction is in under the Developer's name and passes, as does the flipped older-position test.
+
+**Both readers now agree on the sequence of finding 1**: after the late start and the late end, the store's row and the
+ruling's receipt both read "Delivered - the turn failed: the model errored", with the position unmoved. The note in
+`ApiModeLostTurnEnd` states the rule as now implemented. Nothing else in the pull request changed.
+
+**Approve.** The pull request is complete for item 7 as the Tech Lead ruled it, including the first review's finding 1
+and the re-review's finding 1.
