@@ -128,6 +128,8 @@ public static class AiFeature
     public const string DirectorSpeech = "director.speech";
     /// <summary>The Director's brief condenser.</summary>
     public const string DirectorBrief = "director.brief";
+    /// <summary>The Mail Desk's two questions about one email: a real person or spam, and which route (<c>MailDeskModel</c>).</summary>
+    public const string MailDesk = "mail-desk";
 
     /// <summary>Transcription, per surface: <c>transcription.dictation</c>, <c>transcription.voice</c>, ...
     /// The surface is the source the transcription service already stamps on every stored transcript;
