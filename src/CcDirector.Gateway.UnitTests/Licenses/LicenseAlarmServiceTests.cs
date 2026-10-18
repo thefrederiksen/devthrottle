@@ -112,8 +112,8 @@ public sealed class LicenseAlarmServiceTests : IDisposable
         Assert.Single(AlarmLog(One));
     }
 
-    // An alarm no longer raised closes by itself and writes a "closed" row; raised later, it is a NEW alarm with its own
-    // email and push.
+    // An alarm no longer raised closes by itself and writes a "closed" row; raised after the hold-down, it is a NEW alarm
+    // with its own email and push.
     [Fact]
     public async Task RaiseAsync_AlarmNoLongerRaised_ClosesAndLogs_ThenRaisedLaterOpensANewAlarm()
     {
@@ -130,7 +130,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
         Assert.Equal("Alarm closed, because this is no longer true: machine-a holds no spare that could take it off alice@example.com.", closedRow.Message);
         Assert.Equal(_now, closedRow.CreatedAtUtc);
 
-        _now = T0.AddMinutes(9);
+        _now = T0.AddMinutes(5) + LicenseAlarmService.HoldDown;
         await Raise(One, NotReady, OnMachineA());
 
         var second = Assert.Single(_alarms.ListOpen(One));
@@ -328,6 +328,166 @@ public sealed class LicenseAlarmServiceTests : IDisposable
             }
             Current = null;
         }
+    }
+
+    // ----- an alarm that comes and goes tells the owner once (the hold-down) -----
+
+    private async Task OpenThenClose(TimeSpan openFor, LicenseAlarmCondition? condition = null)
+    {
+        await Raise(One, NotReady, condition ?? OnMachineA());
+        _now += openFor;
+        await Raise(One, NotReady);
+    }
+
+    // The machine that drops off for a few minutes and comes back: the second opening is a real alarm - its row, its
+    // banner line, its "opened" log row - but no email and no push go out, because the owner was told minutes ago.
+    [Fact]
+    public async Task RaiseAsync_ReopenedWithinTheHoldDown_ShowsButSendsNoEmailAndNoPush()
+    {
+        await OpenThenClose(TimeSpan.FromMinutes(15));
+        Assert.Single(_sent);
+        Assert.Single(_pushed);
+        _now += TimeSpan.FromMinutes(20);
+
+        var raised = await Raise(One, NotReady, OnMachineA());
+
+        Assert.Equal(new LicenseAlarmRaised(1, 0, 0, 1), raised);
+        var open = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal(_now, open.OpenedAtUtc);
+        Assert.Equal(LicenseGatewayReasonCodes.HeldCameBack, open.EmailState);
+        Assert.Single(_sent);
+        Assert.Single(_pushed);
+        var reopened = AlarmLog(One).Last();
+        Assert.Equal(LicenseLogKinds.AlarmOpened, reopened.Kind);
+        Assert.Equal("Alarm opened again within 6 hours of closing, so no email or push was sent. machine-a holds no spare that "
+                     + "could take it off alice@example.com. Sign machine-a in to a second account.", reopened.Message);
+        // The minute check owes it nothing either.
+        _now += TimeSpan.FromMinutes(5);
+        Assert.Equal(0, await _alarms.SendDueEmailAsync(One, CancellationToken.None));
+        Assert.Single(_sent);
+    }
+
+    // Five openings in three hours, as on 18 October 2026: one email, one push, and every opening is still shown and
+    // logged. The hold-down is measured from the LAST close, so the run is held for as long as it keeps coming back.
+    [Fact]
+    public async Task RaiseAsync_FiveOpeningsInThreeHours_TellTheOwnerOnce()
+    {
+        for (var i = 0; i < 5; i++)
+        {
+            await OpenThenClose(TimeSpan.FromMinutes(15));
+            _now += TimeSpan.FromMinutes(20);
+        }
+
+        Assert.Single(_sent);
+        Assert.Single(_pushed);
+        Assert.Equal(10, AlarmLog(One).Count);
+    }
+
+    // After the hold-down a reopening is news again: email and push.
+    [Fact]
+    public async Task RaiseAsync_ReopenedAfterTheHoldDown_SendsEmailAndPushAgain()
+    {
+        await OpenThenClose(TimeSpan.FromMinutes(15));
+        _now += LicenseAlarmService.HoldDown + TimeSpan.FromSeconds(1);
+
+        await Raise(One, NotReady, OnMachineA());
+
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(_alarms.ListOpen(One)).EmailState);
+        Assert.Equal(2, _sent.Count);
+        Assert.Equal(2, _pushed.Count);
+    }
+
+    // The hold-down is per identity: machine-b's first alarm is told even while machine-a's return is held, and each
+    // machine is told exactly once.
+    [Fact]
+    public async Task RaiseAsync_TwoMachines_EachToldOnce()
+    {
+        await OpenThenClose(TimeSpan.FromMinutes(15));
+        _now += TimeSpan.FromMinutes(5);
+
+        var raised = await Raise(One, NotReady, OnMachineA(), OnMachineB());
+
+        Assert.Equal(new LicenseAlarmRaised(2, 0, 0, 1), raised);
+        Assert.Equal(2, _sent.Count);
+        Assert.Contains("machine-b", _sent[1].Email.Subject);
+        Assert.Equal(new[] { "machine-a", "machine-b" }, _pushed.Select(p => p.Alarm.MachineName));
+        var states = _alarms.ListOpen(One).ToDictionary(a => a.MachineName, a => a.EmailState);
+        Assert.Equal(LicenseGatewayReasonCodes.HeldCameBack, states["machine-a"]);
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, states["machine-b"]);
+    }
+
+    // The held decision is read from the stored rows: a NEW service on the same database - a Gateway that restarted
+    // between the close and the reopen - still holds it.
+    [Fact]
+    public async Task RaiseAsync_GatewayRestartsBetweenCloseAndReopen_StillHeld()
+    {
+        await OpenThenClose(TimeSpan.FromMinutes(15));
+        _now += TimeSpan.FromMinutes(20);
+        var restarted = new LicenseAlarmService(_db, Mail, Push, () => _now);
+
+        var raised = await restarted.RaiseAsync(One, NotReady, new[] { OnMachineA() }, CancellationToken.None);
+
+        Assert.Equal(1, raised.Held);
+        Assert.Single(_sent);
+        Assert.Single(_pushed);
+    }
+
+    // The owner was never told of an alarm that closed with its email still owed, so its return is told, not held.
+    [Fact]
+    public async Task RaiseAsync_LastOneClosedWithItsEmailOwed_ReopeningIsTold()
+    {
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, "the DevThrottle account service could not be reached");
+        await OpenThenClose(TimeSpan.FromMinutes(2));
+        _mailAnswers = () => new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null);
+        _now += TimeSpan.FromMinutes(5);
+
+        await Raise(One, NotReady, OnMachineA());
+
+        Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, Assert.Single(_alarms.ListOpen(One)).EmailState);
+        Assert.Equal(2, _sent.Count);
+    }
+
+    // The banner's count: 1 for an alarm that told the owner, then one more for each return in the run - read from the
+    // stored rows, so a restarted service counts the same. A return after the hold-down starts again at 1.
+    [Fact]
+    public async Task TimesInARow_CountsEachReturnInTheRun_AndStartsAgainAfterTheHoldDown()
+    {
+        await Raise(One, NotReady, OnMachineA());
+        Assert.Equal(1, _alarms.TimesInARow(One, _alarms.ListOpen(One)).Values.Single());
+        _now += TimeSpan.FromMinutes(15);
+        await Raise(One, NotReady);
+        _now += TimeSpan.FromMinutes(20);
+        await OpenThenClose(TimeSpan.FromMinutes(15));
+        _now += TimeSpan.FromMinutes(20);
+        await Raise(One, NotReady, OnMachineA());
+
+        var restarted = new LicenseAlarmService(_db, Mail, Push, () => _now);
+        var open = restarted.ListOpen(One);
+        Assert.Equal(3, restarted.TimesInARow(One, open)[Assert.Single(open).Id]);
+
+        _now += TimeSpan.FromMinutes(15);
+        await Raise(One, NotReady);
+        _now += LicenseAlarmService.HoldDown + TimeSpan.FromMinutes(1);
+        await Raise(One, NotReady, OnMachineA());
+        open = _alarms.ListOpen(One);
+        Assert.Equal(1, _alarms.TimesInARow(One, open)[Assert.Single(open).Id]);
+        Assert.Equal(2, _sent.Count);
+    }
+
+    // Every kind is held, not only one: the hold-down is in the one mechanism.
+    [Fact]
+    public async Task RaiseAsync_AnotherKindComingAndGoing_IsHeldToo()
+    {
+        var silent = new LicenseAlarmCondition(MachineA, "machine-a", null, "machine-a has not reported for 20 minutes.",
+            "Check that the Director on machine-a is running.");
+        await Raise(One, Stopped, silent);
+        _now += TimeSpan.FromMinutes(15);
+        await Raise(One, Stopped);
+        _now += TimeSpan.FromMinutes(20);
+
+        Assert.Equal(1, (await Raise(One, Stopped, silent)).Held);
+        Assert.Single(_sent);
+        Assert.Single(_pushed);
     }
 
     // The title is what a locked screen shows: never an email address.

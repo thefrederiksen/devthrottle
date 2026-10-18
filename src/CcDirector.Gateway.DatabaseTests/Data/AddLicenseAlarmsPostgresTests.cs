@@ -142,11 +142,23 @@ public sealed class AddLicenseAlarmsPostgresTests
                 SELECT string_agg("Kind", ',' ORDER BY "Kind") FROM gateway.license_switch_log
                 """));
 
-            // Raised once more: a new alarm, a new email.
+            // Raised once more a minute later: a new alarm, but inside the hold-down, so it is held - no email, no push -
+            // found by the last close stored in PostgreSQL.
             now = now.AddMinutes(1);
+            var held = await alarms.RaiseAsync(TenantId.Local, kind, new[] { condition }, CancellationToken.None);
+            Assert.Equal(1, held.Held);
+            var reopened = Assert.Single(alarms.ListOpen(TenantId.Local));
+            Assert.Equal(LicenseGatewayReasonCodes.HeldCameBack, reopened.EmailState);
+            Assert.Equal(2, alarms.TimesInARow(TenantId.Local, new[] { reopened })[reopened.Id]);
+            Assert.Equal("2", Scalar("""SELECT count(*) FROM gateway.license_alarms"""));
+            Assert.Equal((1, 1), (emails, pushes));
+
+            // Cleared, and raised again after the hold-down: a new alarm, a new email.
+            await alarms.RaiseAsync(TenantId.Local, kind, Array.Empty<LicenseAlarmCondition>(), CancellationToken.None);
+            now = now + LicenseAlarmService.HoldDown + TimeSpan.FromMinutes(1);
             await alarms.RaiseAsync(TenantId.Local, kind, new[] { condition }, CancellationToken.None);
             Assert.Single(alarms.ListOpen(TenantId.Local));
-            Assert.Equal("2", Scalar("""SELECT count(*) FROM gateway.license_alarms"""));
+            Assert.Equal("3", Scalar("""SELECT count(*) FROM gateway.license_alarms"""));
             Assert.Equal((2, 2), (emails, pushes));
         }
         finally
@@ -161,7 +173,7 @@ public sealed class AddLicenseAlarmsPostgresTests
             Assert.Equal(MigrationBefore, ctx.Database.GetAppliedMigrations().Last());
         }
         Assert.Equal("0", TablePresent());
-        Assert.Equal("4", Scalar("""SELECT count(*) FROM gateway.license_switch_log"""));
+        Assert.Equal("6", Scalar("""SELECT count(*) FROM gateway.license_switch_log"""));
 
         using (var ctx = NewContext())
             ctx.Database.Migrate();

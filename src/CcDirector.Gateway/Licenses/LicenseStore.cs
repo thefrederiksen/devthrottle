@@ -116,6 +116,10 @@ public static class LicenseGatewayReasonCodes
     /// <summary>On a no-room row or a failed-renewal row: this Gateway has no DevThrottle account to email, so no
     /// email is sent for it.</summary>
     public const string NoOwnerAccount = "no-owner-account";
+
+    /// <summary>On a license alarm: it opened again within <see cref="LicenseAlarmService.HoldDown"/> of the same alarm
+    /// closing, after the owner was told of that one, so no email and no push were sent for it.</summary>
+    public const string HeldCameBack = "held-came-back";
 }
 
 /// <summary>The two usage windows, as the bar table names them.</summary>

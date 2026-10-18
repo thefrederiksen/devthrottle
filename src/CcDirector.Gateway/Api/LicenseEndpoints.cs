@@ -259,7 +259,8 @@ public static class LicenseEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
-            var response = LicenseAlarmFold.Banner(alarms.ListOpen(tenant), nowUtc());
+            var open = alarms.ListOpen(tenant);
+            var response = LicenseAlarmFold.Banner(open, nowUtc(), alarms.TimesInARow(tenant, open));
             FileLog.Write($"[LicenseEndpoints] GET alarms: tenant={tenant.ToLogString()}, open={response.Count}");
             return Results.Json(response);
         }

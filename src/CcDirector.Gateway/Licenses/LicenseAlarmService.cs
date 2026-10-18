@@ -55,8 +55,9 @@ public sealed record LicenseAlarmOpened(Guid AlarmId, LicenseAlarmKind Kind, str
 /// <summary>Sends the push for alarms that just opened to every phone of one tenant. Never throws.</summary>
 public delegate Task LicenseAlarmPusher(TenantId tenant, IReadOnlyList<LicenseAlarmOpened> opened, CancellationToken ct);
 
-/// <summary>What one <see cref="LicenseAlarmService.RaiseAsync"/> did.</summary>
-public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed);
+/// <summary>What one <see cref="LicenseAlarmService.RaiseAsync"/> did. <paramref name="Held"/> is how many of the
+/// <paramref name="Opened"/> came back within <see cref="LicenseAlarmService.HoldDown"/> and told nobody.</summary>
+public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed, int Held = 0);
 
 /// <summary>
 /// THE LICENSE ALARM (License Switching phase 6): the ONE mechanism by which a problem with licenses is made loud and
@@ -68,7 +69,7 @@ public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed);
 /// <c>license_alarms</c>, one row of the Licenses log, one push to the owner's phones, and one owner email. An alarm
 /// already open stays open and sends nothing more; only its two sentences are brought up to date. An open alarm of that
 /// kind that is not in the list closes by itself and writes a row of the Licenses log. Raising it again later opens a
-/// NEW alarm, with its own push and its own email. A check never closes another kind's alarms.
+/// NEW alarm, with its own push and its own email - unless it comes back within the hold-down, below. A check never closes another kind's alarms.
 ///
 /// ONE OWNER EMAIL FOR EACH ALARM, through the same channel and with the same care as the "no account has room" email
 /// (<see cref="LicenseOwnerMailer"/>): recorded as emailed only when the mail service confirmed it, and a send that
@@ -76,6 +77,14 @@ public sealed record LicenseAlarmRaised(int Opened, int StillOpen, int Closed);
 /// - for as long as the alarm is open. Every alarm whose email is due in one check of one tenant goes out in ONE email.
 /// A confirmed send is remembered in this process until its row is marked. The one gap is the same as that email's: a
 /// Gateway that stops between the confirmation and the mark sends once more after it restarts.
+///
+/// AN ALARM THAT COMES AND GOES TELLS THE OWNER ONCE. An alarm that opens again within <see cref="HoldDown"/> of the
+/// same alarm (same kind, machine and account) closing, when the owner was told of that one, opens as usual - its row,
+/// its banner line and its Licenses log row - but sends no push and no email: its row is marked
+/// <see cref="LicenseGatewayReasonCodes.HeldCameBack"/>. The banner says how many times in a row it has come back. After
+/// the hold-down an opening tells the owner again. The decision reads the last closed row from the database, never this
+/// process's memory, so a Gateway restart between the close and the reopen still holds it. The hold-down never changes
+/// WHEN an alarm opens or closes, only whether an opening tells the owner.
 ///
 /// ONE PUSH FOR EACH ALARM, when it opens. It carries the machine's name and the kind's title only - never an account
 /// email address, because a push shows on a locked screen. It is not tried again: the banner and the email are the
@@ -91,6 +100,15 @@ public sealed class LicenseAlarmService
 
     /// <summary>The longest the Gateway itself waits between two tries of one alarm's owner email.</summary>
     internal static readonly TimeSpan LongestOwnEmailWait = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How long after an alarm closes its reopening is held back from the owner's email and phones. Six hours, because
+    /// what makes an alarm come and go is one cause that lasts - a machine whose connection drops for ten or twenty
+    /// minutes at a time opened and closed its alarm five times in three hours on 18 October 2026, one email and one
+    /// push each - and six hours covers a working session of that, while a problem that comes back the next morning is
+    /// news and is told again.
+    /// </summary>
+    public static readonly TimeSpan HoldDown = TimeSpan.FromHours(6);
 
     private readonly GatewayDatabase _db;
     private readonly LicenseOwnerEmailSender _mail;
@@ -136,24 +154,24 @@ public sealed class LicenseAlarmService
         var gate = _raising.GetOrAdd(tenant, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         List<LicenseAlarmOpened> opened;
-        int stillOpen, closed;
+        int stillOpen, closed, held;
         try
         {
-            (opened, stillOpen, closed) = Reconcile(tenant, kind, wanted, _nowUtc());
+            (opened, stillOpen, closed, held) = Reconcile(tenant, kind, wanted, _nowUtc());
         }
         finally
         {
             gate.Release();
         }
-        if (opened.Count + closed > 0)
-            FileLog.Write($"[LicenseAlarmService] RaiseAsync: tenant={tenant.ToLogString()}, kind={kind.Key}, opened={opened.Count}, stillOpen={stillOpen}, closed={closed}");
+        if (opened.Count + held + closed > 0)
+            FileLog.Write($"[LicenseAlarmService] RaiseAsync: tenant={tenant.ToLogString()}, kind={kind.Key}, opened={opened.Count + held}, held={held}, stillOpen={stillOpen}, closed={closed}");
 
         if (opened.Count > 0)
         {
             await PushAsync(tenant, opened, ct).ConfigureAwait(false);
             await SendDueEmailAsync(tenant, ct).ConfigureAwait(false);
         }
-        return new LicenseAlarmRaised(opened.Count, stillOpen, closed);
+        return new LicenseAlarmRaised(opened.Count + held, stillOpen, closed, held);
     }
 
     /// <summary>Every alarm of the tenant that is open now, oldest first.</summary>
@@ -248,7 +266,7 @@ public sealed class LicenseAlarmService
 
     // ----- the database part of a raise -----
 
-    private (List<LicenseAlarmOpened> Opened, int StillOpen, int Closed) Reconcile(TenantId tenant, LicenseAlarmKind kind,
+    private (List<LicenseAlarmOpened> Opened, int StillOpen, int Closed, int Held) Reconcile(TenantId tenant, LicenseAlarmKind kind,
         IReadOnlyList<LicenseAlarmCondition> wanted, DateTime nowUtc)
     {
         try
@@ -257,6 +275,7 @@ public sealed class LicenseAlarmService
             var open = ctx.LicenseAlarms.Where(a => a.Kind == kind.Key && a.ClosedAtUtc == null).ToList();
             var opened = new List<LicenseAlarmOpened>();
             var stillOpen = 0;
+            var heldCount = 0;
             var now = Utc(nowUtc);
             foreach (var condition in wanted)
             {
@@ -272,6 +291,7 @@ public sealed class LicenseAlarmService
                     stillOpen++;
                     continue;
                 }
+                var held = CameBackWithinHoldDown(ctx, kind.Key, machineId, account, now);
                 row = new LicenseAlarmEntity
                 {
                     Kind = kind.Key,
@@ -281,11 +301,18 @@ public sealed class LicenseAlarmService
                     Problem = condition.Problem,
                     Action = condition.Action,
                     OpenedAtUtc = now,
+                    EmailState = held ? LicenseGatewayReasonCodes.HeldCameBack : null,
                     TenantId = ctx.ActiveTenant!,
                 };
                 ctx.LicenseAlarms.Add(row);
-                ctx.LicenseSwitchLog.Add(LogRow(ctx, LicenseLogKinds.AlarmOpened, row, LicenseAlarmFold.OpenedLogMessage(row.Problem, row.Action), now));
-                opened.Add(new LicenseAlarmOpened(row.Id, kind, row.MachineName));
+                var message = held
+                    ? LicenseAlarmFold.HeldLogMessage(row.Problem, row.Action)
+                    : LicenseAlarmFold.OpenedLogMessage(row.Problem, row.Action);
+                ctx.LicenseSwitchLog.Add(LogRow(ctx, LicenseLogKinds.AlarmOpened, row, message, now));
+                if (held)
+                    heldCount++;
+                else
+                    opened.Add(new LicenseAlarmOpened(row.Id, kind, row.MachineName));
             }
             // Open, and no longer true: it closes by itself.
             foreach (var row in open)
@@ -296,13 +323,68 @@ public sealed class LicenseAlarmService
             ctx.SaveChanges();
             foreach (var row in open)
                 ForgetEmail(tenant, row.Id);
-            return (opened, stillOpen, open.Count);
+            return (opened, stillOpen, open.Count, heldCount);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[LicenseAlarmService] Reconcile FAILED: tenant={tenant.ToLogString()}, kind={kind.Key}: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Whether an alarm opening now for this identity comes back within <see cref="HoldDown"/> of the last one closing,
+    /// after the owner was told of that one: it was emailed, it was itself held, or there is no account to email (its
+    /// push was the telling). One that closed with its email still owed told the owner nothing, so its return is told.
+    /// </summary>
+    private static bool CameBackWithinHoldDown(GatewayDbContext ctx, string kind, Guid machineId, string account, DateTime now)
+    {
+        var since = now - HoldDown;
+        var last = ctx.LicenseAlarms.AsNoTracking()
+            .Where(a => a.Kind == kind && a.MachineId == machineId && a.AccountEmail == account
+                        && a.ClosedAtUtc != null && a.ClosedAtUtc > since)
+            .ToList()
+            .OrderByDescending(a => a.ClosedAtUtc)
+            .FirstOrDefault();
+        return last?.EmailState is LicenseGatewayReasonCodes.OwnerEmailed or LicenseGatewayReasonCodes.HeldCameBack
+            or LicenseGatewayReasonCodes.NoOwnerAccount;
+    }
+
+    /// <summary>
+    /// For each open alarm, how many times in a row it has opened: 1 for one that told the owner, and for one held by
+    /// <see cref="HoldDown"/>, one more than the alarm it came back after, walked back through the stored rows to the
+    /// opening that told the owner. Read from the database, so it is the same after a Gateway restart.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, int> TimesInARow(TenantId tenant, IReadOnlyList<LicenseAlarmEntity> open)
+    {
+        ArgumentNullException.ThrowIfNull(open);
+        var times = new Dictionary<Guid, int>();
+        var held = open.Where(a => a.EmailState == LicenseGatewayReasonCodes.HeldCameBack).ToList();
+        foreach (var alarm in open)
+            times[alarm.Id] = 1;
+        if (held.Count == 0)
+            return times;
+        using var ctx = _db.CreateContext(tenant);
+        foreach (var alarm in held)
+        {
+            var earlier = ctx.LicenseAlarms.AsNoTracking()
+                .Where(a => a.Kind == alarm.Kind && a.MachineId == alarm.MachineId && a.AccountEmail == alarm.AccountEmail
+                            && a.ClosedAtUtc != null)
+                .Select(a => new { a.OpenedAtUtc, a.EmailState })
+                .ToList()
+                .Where(a => a.OpenedAtUtc < alarm.OpenedAtUtc)
+                .OrderByDescending(a => a.OpenedAtUtc)
+                .ToList();
+            var count = 1;
+            foreach (var before in earlier)
+            {
+                count++;
+                if (before.EmailState != LicenseGatewayReasonCodes.HeldCameBack)
+                    break; // the opening that told the owner: the start of this run
+            }
+            times[alarm.Id] = count;
+        }
+        return times;
     }
 
     private static LicenseSwitchLogEntity LogRow(GatewayDbContext ctx, string logKind, LicenseAlarmEntity alarm, string message, DateTime now)

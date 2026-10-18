@@ -56,6 +56,36 @@ public sealed class LicenseAlarmFoldTests
         Assert.Matches("^[0-9a-f]{32}$", line.AlarmId);
     }
 
+    // An alarm that has come and gone says so on its line, with the count folded here; one that opened once, or one the
+    // count does not name, says nothing more.
+    [Fact]
+    public void Banner_AlarmThatCameBack_SaysHowManyTimesInARow()
+    {
+        var once = Alarm("machine-a", "", "machine-a has not reported for 20 minutes.", "Check that the Director on machine-a is running.");
+        var thrice = Alarm("machine-b", "", "machine-b has not reported for 20 minutes.", "Check that the Director on machine-b is running.", minutes: 1);
+        var unnamed = Alarm("machine-c", "", "machine-c has not reported for 20 minutes.", "Check that the Director on machine-c is running.", minutes: 2);
+
+        var banner = LicenseAlarmFold.Banner(new[] { once, thrice, unnamed }, T0, new Dictionary<Guid, int> { [once.Id] = 1, [thrice.Id] = 3 });
+
+        Assert.Equal("machine-a has not reported for 20 minutes. Check that the Director on machine-a is running.", banner.Alarms[0].Text);
+        Assert.Equal("machine-b has not reported for 20 minutes. Check that the Director on machine-b is running. It has come and gone: "
+                     + "this is the third time in a row, each within 6 hours of the last, and you were told only the first time.",
+            banner.Alarms[1].Text);
+        Assert.Equal("machine-c has not reported for 20 minutes. Check that the Director on machine-c is running.", banner.Alarms[2].Text);
+    }
+
+    [Theory]
+    [InlineData(2, "second")]
+    [InlineData(10, "tenth")]
+    [InlineData(11, "11th")]
+    [InlineData(12, "12th")]
+    [InlineData(13, "13th")]
+    [InlineData(21, "21st")]
+    [InlineData(22, "22nd")]
+    [InlineData(23, "23rd")]
+    [InlineData(111, "111th")]
+    public void Ordinal_SaysTheNumberAsAnOrdinal(int n, string expected) => Assert.Equal(expected, LicenseAlarmFold.Ordinal(n));
+
     [Fact]
     public void Banner_SeveralAlarms_HasTheSummaryLine_AndOneLineEachInOrder()
     {
@@ -117,7 +147,7 @@ public sealed class LicenseAlarmFoldTests
             "machine-a holds no spare that could take it off alice@example.com.\r\n\r\n"
             + "Sign machine-a in to a second account.\r\n\r\n"
             + "Each problem is shown in red at the top of every page of the Cockpit until it is fixed, and on its Licenses page.\r\n"
-            + "\r\nThis is the only email for this problem. Another is sent only if a problem is fixed and then comes back.",
+            + "\r\nThis is the only email for this problem. Another is sent only if a problem is fixed and then comes back more than 6 hours later.",
             email.BodyText);
     }
 
