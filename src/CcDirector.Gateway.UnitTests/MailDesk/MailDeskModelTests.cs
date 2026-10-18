@@ -484,6 +484,28 @@ public sealed class MailDeskModelTests
         Assert.Equal(MailDeskModelErrorKinds.Unreachable, result.ErrorKind);
     }
 
+    [Fact]
+    public async Task AskPersonOrSpamAsync_ASuccessReplyWithAnUnknownCharacterSet_IsAnUnexpectedFailureNotAnException()
+    {
+        // Arrange: the web client throws InvalidOperationException reading a body whose charset it does not know.
+        var log = new List<string>();
+        var handler = FakeHandler.Responding(() =>
+        {
+            var content = new StringContent(Completion("A", "A", -0.01), Encoding.UTF8);
+            content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json; charset=no-such-charset");
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+        });
+
+        // Act
+        var result = await Model(handler, log).AskPersonOrSpamAsync(Email);
+
+        // Assert
+        Assert.Equal(MailDeskAnswerKind.Failed, result.Kind);
+        Assert.Equal(MailDeskModelErrorKinds.Unexpected, result.ErrorKind);
+        Assert.Contains(nameof(InvalidOperationException), result.Error, StringComparison.Ordinal);
+        Assert.Contains(log, line => line.Contains("AskAsync FAILED", StringComparison.Ordinal) && line.Contains("errorKind=unexpected", StringComparison.Ordinal));
+    }
+
     // ===== nothing of the email, and never the credential, in any log line ========================
 
     [Fact]
@@ -543,6 +565,8 @@ internal sealed class FakeHandler : HttpMessageHandler
 
     public static FakeHandler Answering(string body, HttpStatusCode status = HttpStatusCode.OK)
         => new(_ => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") }));
+
+    public static FakeHandler Responding(Func<HttpResponseMessage> respond) => new(_ => Task.FromResult(respond()));
 
     public static FakeHandler Hanging()
         => new(async ct =>

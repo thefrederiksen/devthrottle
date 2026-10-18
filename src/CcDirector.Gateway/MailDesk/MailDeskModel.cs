@@ -50,6 +50,13 @@ public static class MailDeskModelErrorKinds
     public const string Cancelled = "cancelled";
     /// <summary>The request never got an answer: the connection failed.</summary>
     public const string Unreachable = "unreachable";
+    /// <summary>The web client failed in a way none of the other kinds name (a reply it cannot read as text, for
+    /// one). The error sentence names the exception's type, never its message.</summary>
+    public const string Unexpected = "unexpected";
+    /// <summary>The account's plan does not include the Wingman, so the question is not asked.</summary>
+    public const string PlanRefused = "plan-refused";
+    /// <summary>The account's plan could not be read, so the question is not asked and nothing is said about a plan.</summary>
+    public const string PlanUnknown = "plan-unknown";
     /// <summary>The reply was not a chat completion.</summary>
     public const string NotAChatCompletion = "not-a-chat-completion";
     /// <summary>The reply carried no token count, so its cost is unknown and it cannot be held to the spend limit.</summary>
@@ -317,6 +324,15 @@ public sealed class MailDeskModel : IMailDeskModel
             // The exception's message can carry the host, never the credential or the email; only its type is logged.
             return Failed(question, started, MailDeskModelErrorKinds.Unreachable,
                 $"the hosted model could not be reached ({ex.GetType().Name})");
+        }
+        catch (Exception ex)
+        {
+            // The external-service boundary, as in HostedCandidateJudge: anything else the web client throws (a
+            // success reply whose Content-Type names an unknown character set, for one) is this question's typed
+            // failure, never an exception into the screening. Only the type is recorded; the message could carry
+            // the host or the body.
+            return Failed(question, started, MailDeskModelErrorKinds.Unexpected,
+                $"the hosted model's reply could not be read ({ex.GetType().Name})");
         }
     }
 

@@ -3,6 +3,7 @@ using CcDirector.Core.HostedAi;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.HostedAi;
+using CcDirector.Gateway.Tenancy;
 
 namespace CcDirector.Gateway.MailDesk;
 
@@ -12,7 +13,11 @@ namespace CcDirector.Gateway.MailDesk;
 /// the model <see cref="IncludedModelId.WingmanFast"/>, and the tag
 /// <c>GatewayAiCallTags.For(tenant, AiFeature.MailDesk)</c>.
 ///
-/// When the Gateway cannot ask - no key in the vault (a self-hosted Gateway holds none for the hosted model), or a
+/// It asks the account's plan first, as the dictionary-suggestion and Mentor factories do: the Mail Desk's questions
+/// are Wingman model calls (the Wingman endpoint and model), so the scope is <see cref="EntitlementScopes.Wingman"/>.
+/// A self-hosted Gateway is not gated.
+///
+/// When the Gateway cannot ask - the plan does not allow it, no key in the vault (a self-hosted Gateway holds none for the hosted model), or a
 /// hosted Gateway that cannot name the account on the call - it hands back a model whose every question fails with a
 /// plain sentence saying so. The screening's rules and lists still decide; only the questions are failed, each one
 /// named on its decision row, so nothing is guessed and nothing is hidden.
@@ -24,6 +29,7 @@ public static class MailDeskModelFactory
 
     /// <summary>Build the model for <paramref name="tenant"/>.</summary>
     /// <param name="tenant">The account the calls are for, named on every call.</param>
+    /// <param name="aiGate">The one gate that decides whether the hosted Gateway may make an AI call for the account.</param>
     /// <param name="readKey">Reads a key by name: <c>KeyVault.Get</c> in production. Never logged.</param>
     /// <param name="mode">The transcription mode the Wingman endpoint is resolved for.</param>
     /// <param name="http">HTTP client; tests inject one over a fake handler.</param>
@@ -31,14 +37,29 @@ public static class MailDeskModelFactory
     /// <param name="time">The clock the per-call deadline runs on; the system clock when null.</param>
     public static IMailDeskModel Create(
         TenantId tenant,
+        TenantAiGate aiGate,
         Func<string, string?> readKey,
         TranscriptionMode mode,
         HttpClient? http = null,
         Action<string>? log = null,
         TimeProvider? time = null)
     {
+        ArgumentNullException.ThrowIfNull(aiGate);
         ArgumentNullException.ThrowIfNull(readKey);
         var write = log ?? FileLog.Write;
+        try
+        {
+            aiGate.EnsureAllowedForTenant(tenant, EntitlementScopes.Wingman);
+        }
+        catch (TenantAiRefusedException ex)
+        {
+            var kind = ex.Decision.Verdict == TenantAiVerdict.Unknown
+                ? MailDeskModelErrorKinds.PlanUnknown
+                : MailDeskModelErrorKinds.PlanRefused;
+            write($"[MailDeskModelFactory] Create: the AI gate did not allow the call (verdict={ex.Decision.Verdict}); every Mail Desk model question fails");
+            return new UnavailableMailDeskModel(kind, ex.Message, write);
+        }
+
         var ep = TranscriptionEndpointResolver.ResolveWingman(mode);
         var key = readKey(ep.KeyName);
         if (string.IsNullOrWhiteSpace(key))

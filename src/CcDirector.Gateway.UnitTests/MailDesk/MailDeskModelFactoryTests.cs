@@ -4,6 +4,8 @@ using CcDirector.Core.Configuration;
 using CcDirector.Core.HostedAi;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.MailDesk;
+using CcDirector.Gateway.Tenancy;
+using CcDirector.Gateway.Tests.Data;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.MailDesk;
@@ -42,7 +44,7 @@ public sealed class MailDeskModelFactoryTests : IDisposable
     {
         // Arrange
         var handler = FakeHandler.Answering(Completion("A"));
-        var model = MailDeskModelFactory.Create(TenantId.Local, _ => storedKey, TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
+        var model = MailDeskModelFactory.Create(TenantId.Local, TenantAiGate.SelfHost, _ => storedKey, TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
 
         // Act
         var spam = await model.AskPersonOrSpamAsync(Email);
@@ -65,7 +67,7 @@ public sealed class MailDeskModelFactoryTests : IDisposable
         // Arrange
         var handler = FakeHandler.Answering(Completion("B"));
         string? askedFor = null;
-        var model = MailDeskModelFactory.Create(TenantId.Local, name => { askedFor = name; return Key; },
+        var model = MailDeskModelFactory.Create(TenantId.Local, TenantAiGate.SelfHost, name => { askedFor = name; return Key; },
             TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
 
         // Act
@@ -89,7 +91,7 @@ public sealed class MailDeskModelFactoryTests : IDisposable
         // Arrange
         Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar, ServiceToken);
         var handler = FakeHandler.Answering(Completion("A"));
-        var model = MailDeskModelFactory.Create(Account, _ => Key, TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
+        var model = MailDeskModelFactory.Create(Account, TenantAiGate.SelfHost, _ => Key, TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
 
         // Act
         await model.AskPersonOrSpamAsync(Email);
@@ -107,7 +109,7 @@ public sealed class MailDeskModelFactoryTests : IDisposable
         // Arrange
         Environment.SetEnvironmentVariable(AccountNotifyByTenantClient.ServiceTokenEnvVar, null);
         var handler = FakeHandler.Answering(Completion("A"));
-        var model = MailDeskModelFactory.Create(Account, _ => Key, TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
+        var model = MailDeskModelFactory.Create(Account, TenantAiGate.SelfHost, _ => Key, TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
 
         // Act
         var result = await model.AskPersonOrSpamAsync(Email);
@@ -120,14 +122,42 @@ public sealed class MailDeskModelFactoryTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_TheAiGateRefusesTheAccount_EveryQuestionFailsWithTheGatesSentenceAndNoKeyIsRead()
+    {
+        // Arrange: a hosted gate (entitlements wired) refuses a call with no account tenant to check, before any read.
+        using var harness = new GatewayDbTestHarness();
+        var db = harness.Open();
+        var gate = new TenantAiGate(new EntitlementRegistry(db, requireLivemode: true), new TenantRegistry(db), log: _ => { });
+        var handler = FakeHandler.Answering(Completion("A"));
+        var keyRead = false;
+        var model = MailDeskModelFactory.Create(TenantId.System, gate, _ => { keyRead = true; return Key; },
+            TranscriptionMode.DevThrottle, new HttpClient(handler), _ => { });
+
+        // Act
+        var spam = await model.AskPersonOrSpamAsync(Email);
+        var route = await model.AskRouteAsync(Email, OneRoute);
+
+        // Assert
+        foreach (var result in new[] { spam, route })
+        {
+            Assert.Equal(MailDeskAnswerKind.Failed, result.Kind);
+            Assert.Equal(MailDeskModelErrorKinds.PlanRefused, result.ErrorKind);
+            Assert.Contains("scope=wingman", result.Error, StringComparison.Ordinal);
+            Assert.Contains("no account tenant to check the plan of", result.Error, StringComparison.Ordinal);
+        }
+        Assert.False(keyRead);
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
     public void Create_AnyOutcome_NeverLogsTheKey()
     {
         // Arrange
         var log = new List<string>();
 
         // Act
-        MailDeskModelFactory.Create(TenantId.Local, _ => Key, TranscriptionMode.DevThrottle, new HttpClient(FakeHandler.Answering("")), log.Add);
-        MailDeskModelFactory.Create(TenantId.Local, _ => null, TranscriptionMode.DevThrottle, new HttpClient(FakeHandler.Answering("")), log.Add);
+        MailDeskModelFactory.Create(TenantId.Local, TenantAiGate.SelfHost, _ => Key, TranscriptionMode.DevThrottle, new HttpClient(FakeHandler.Answering("")), log.Add);
+        MailDeskModelFactory.Create(TenantId.Local, TenantAiGate.SelfHost, _ => null, TranscriptionMode.DevThrottle, new HttpClient(FakeHandler.Answering("")), log.Add);
 
         // Assert
         Assert.Equal(2, log.Count);
