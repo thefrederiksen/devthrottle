@@ -4,6 +4,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
+using EventData = CcDirector.Gateway.Tests.ApiModeEvents.ApiModeEventTestData;
 
 namespace CcDirector.Gateway.Tests.Receipts;
 
@@ -929,7 +930,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         var store = StoreWithPromptOneQueuedInGenerationA();
 
         // Act
-        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+        var changed = store.RecordQueueLeftProven(Director, Sid, EventData.Ready(1), "ConnectionReady", AfterRestart(1));
 
         // Assert
         Assert.Equal(1, changed);
@@ -952,7 +953,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         store.RecordQueued(Director, Sid, "p1", "turnRunning", AfterRestart(1), T0);
 
         // Act
-        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(2));
+        var changed = store.RecordQueueLeftProven(Director, Sid, EventData.Ready(1), "ConnectionReady", AfterRestart(2));
 
         // Assert
         Assert.Equal(0, changed);
@@ -966,7 +967,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         var store = StoreWithPromptOneQueuedInGenerationA();
 
         // Act
-        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", At(8));
+        var changed = store.RecordQueueLeftProven(Director, Sid, EventData.Ready(1), "ConnectionReady", At(8));
 
         // Assert
         Assert.Equal(0, changed);
@@ -980,10 +981,51 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         var store = StoreWithPromptOneQueuedInGenerationA();
 
         // Act: generation B's first event is p1's own delivery.
-        var changed = store.RecordQueueLeftProven(Director, Sid, "p1", "PromptDelivered", AfterRestart(1));
+        var changed = store.RecordQueueLeftProven(Director, Sid, EventData.Delivered(1, "p1", "{}"), "PromptDelivered", AfterRestart(1));
 
         // Assert
         Assert.Equal(0, changed);
+        Assert.Equal(ApiModeReceiptState.Queued, Only(store).State);
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_ATurnStartedThatCarriesTheQueuedPrompt_KeepsItQueuedAndMovesItToTheProof()
+    {
+        // Arrange: p1's delivery fell in the hole; generation B's first event is the turn that carries it (review of pull
+        // request #4209, finding 2).
+        var store = StoreWithPromptOneQueuedInGenerationA();
+
+        // Act: the turn's start, then a later proof of the same generation.
+        var atTheStart = store.RecordQueueLeftProven(Director, Sid, EventData.Started(1, "t1", "p1"), "TurnStarted", AfterRestart(1));
+        var later = store.RecordQueueLeftProven(Director, Sid, EventData.Ready(2), "ConnectionReady", AfterRestart(2));
+
+        // Assert: a record of the prompt, not proof that it vanished; it is never ruled Unknown.
+        Assert.Equal((0, 0), (atTheStart, later));
+        var stored = store.ReadWithPositions(Sid).Single();
+        Assert.Equal(ApiModeReceiptState.Queued, stored.Receipt.State);
+        Assert.Equal(AfterRestart(1), stored.LastPosition);
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_ATurnStartedThatCarriesAnotherPrompt_RulesTheQueuedOneUnknown()
+    {
+        // Arrange
+        var store = StoreWithPromptOneQueuedInGenerationA();
+
+        // Act
+        var changed = store.RecordQueueLeftProven(Director, Sid, EventData.Started(1, "t1", "p9"), "TurnStarted", AfterRestart(1));
+
+        // Assert
+        Assert.Equal(1, changed);
+        Assert.Equal(ApiModeReceiptState.Unknown, Only(store).State);
+    }
+
+    [Fact]
+    public void RecordQueueLeftProven_AnEventThatProvesNothing_IsRefused()
+    {
+        var store = StoreWithPromptOneQueuedInGenerationA();
+
+        Assert.Throws<ArgumentException>(() => store.RecordQueueLeftProven(Director, Sid, EventData.Queued(1, "p2"), "PromptQueued", AfterRestart(1)));
         Assert.Equal(ApiModeReceiptState.Queued, Only(store).State);
     }
 
@@ -996,7 +1038,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
         store.RecordRefused(Director, Sid, "p2", BusyRefusal, "agent", At(2), T0);
 
         // Act
-        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+        var changed = store.RecordQueueLeftProven(Director, Sid, EventData.Ready(1), "ConnectionReady", AfterRestart(1));
 
         // Assert
         Assert.Equal(0, changed);
@@ -1008,7 +1050,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         // Arrange: ruled Unknown at sequence 5 of generation B.
         var store = StoreWithPromptOneQueuedInGenerationA();
-        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+        store.RecordQueueLeftProven(Director, Sid, EventData.Started(5, "t9"), "TurnStarted", AfterRestart(5));
 
         // Act: its re-announcement at sequence 1 of generation B arrives after the ruling.
         var changed = store.RecordQueued(Director, Sid, "p1", "turnRunning", AfterRestart(1), T0);
@@ -1026,7 +1068,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         // Arrange
         var store = StoreWithPromptOneQueuedInGenerationA();
-        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+        store.RecordQueueLeftProven(Director, Sid, EventData.Started(5, "t9"), "TurnStarted", AfterRestart(5));
 
         // Act
         var changed = store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, AfterRestart(2), T0.AddSeconds(3));
@@ -1044,7 +1086,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         // Arrange
         var store = StoreWithPromptOneQueuedInGenerationA();
-        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+        store.RecordQueueLeftProven(Director, Sid, EventData.Started(5, "t9"), "TurnStarted", AfterRestart(5));
 
         // Act
         var changed = store.RecordRefused(Director, Sid, "p1", BusyRefusal, "agent", AfterRestart(9), T0.AddSeconds(3));
@@ -1062,7 +1104,7 @@ public sealed class ApiModeReceiptStoreTests : IDisposable
     {
         // Arrange
         var store = StoreWithPromptOneQueuedInGenerationA();
-        store.RecordQueueLeftProven(Director, Sid, null, "TurnStarted", AfterRestart(5));
+        store.RecordQueueLeftProven(Director, Sid, EventData.Started(5, "t9"), "TurnStarted", AfterRestart(5));
 
         // Act
         var changed = store.RecordQueued(Director, Sid, "p1", "turnRunning", At(7), T0);

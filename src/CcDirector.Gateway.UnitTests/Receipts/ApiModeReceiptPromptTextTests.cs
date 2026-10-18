@@ -10,6 +10,7 @@ using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
 using Xunit;
+using EventData = CcDirector.Gateway.Tests.ApiModeEvents.ApiModeEventTestData;
 
 namespace CcDirector.Gateway.Tests.Receipts;
 
@@ -434,7 +435,7 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
         store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0, Spoken);
 
         // Act: generation B's ConnectionReady comes after its re-announcements, and p1 was not one.
-        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+        var changed = store.RecordQueueLeftProven(Director, Sid, EventData.Ready(1), "ConnectionReady", AfterRestart(1));
 
         // Assert
         Assert.Equal(1, changed);
@@ -466,7 +467,7 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
         // Arrange
         var store = Store();
         store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0, Spoken);
-        store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(3));
+        store.RecordQueueLeftProven(Director, Sid, EventData.Ready(1), "ConnectionReady", AfterRestart(3));
 
         // Act: the real delivery replaces the ruling; it carries no text (an older Director).
         store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, AfterRestart(2), T0, null);

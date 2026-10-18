@@ -107,6 +107,21 @@ turn's end fall in a hole made by the memory bound, the generation after the hol
 and at the first event after them the first prompt's receipt reads the Unknown words while the other two
 read 1st and 2nd. Re-run the seven classes and that one on the rebased tree.
 
+**Developer's answer.** Accepted and done. The branch is rebased onto pull request #4179's new head (`cdd81b9a6`,
+which sits on current main with #4190), with `git rebase --onto origin/api-mode-lost-turn-end b72faa0d7`. The one
+conflict, in `PushApiModeEventsHubTests.cs`, is resolved keeping both sides whole: main's `NewHub` with its
+`fleetDisplayState` parameter and the two display-push tests, and this branch's `Hello(DateTime startedAt)`. Three
+tests are added to `ApiModeEventPusherQueueTests`, driving the real `SessionEventStream`, `ApiModeEventPusher`,
+ingest, buffer and receipt store:
+`Publish_AHoleSwallowsADelivery_ThePromptIsRuledUnknownAtTheFirstEventAfterTheReannouncements` (p1, p2, p3 queued;
+p1's delivery published while the Gateway is off; the next generation re-announces p2 and p3 only; a reply text
+proves nothing, so p1 still reads Queued; at the next tool event p1 reads the Unknown words and p2, p3 read 1st and
+2nd), `Publish_AHoleWhileThePromptStaysQueued_ItIsReannouncedAndStaysQueued`, and
+`Publish_AHoleSwallowsADeliveryAndTheNextEventIsItsTurnsStart_ThePromptIsNotRuledUnknown` (finding 2 through the real
+pusher). The hole is made by turning the Gateway off rather than by the memory bound: it is the same hole to the
+pusher (a new segment that re-announces from the stream's own queue line), and it keeps the test free of the bound's
+arithmetic. With the first proof switched off, the first of the three fails.
+
 ### Finding 2 - medium - a `TurnStarted` that names the prompt rules it "no record of sending it"
 
 **Where.** `ApiModeLostQueuedPrompt.Proves`, which answers true for `TurnStarted` with `ownPromptId` null;
@@ -138,6 +153,19 @@ and item 7's review already noted the same gap from the other side (a prompt who
 hole). Either way, one test: a `TurnStarted` naming the only queued prompt as generation B's first event
 does not rule it Unknown.
 
+**Developer's answer.** Accepted and done, the smallest change the review names. `ApiModeLostQueuedPrompt.Proves` now
+hands back the prompts the event names (`ownPromptIds`, a set): the one a `PromptDelivered` or `PromptRefused` ends,
+or the ones a `TurnStarted` carries. Leaving them out of the proof is not enough on its own: a `TurnStarted` does not
+link a Queued receipt, so the row would still sit in the older generation and the next proof of the same generation
+would rule it Unknown anyway. So a still-queued prompt that a `TurnStarted` carries keeps reading Queued, as before
+this change, and its position moves to the `TurnStarted`, as a re-announcement would move it
+(`ApiModeLostQueuedPrompt.IsCarriedBy`, applied the same way in `ApiModeReceiptStore.RecordQueueLeftProven` and
+`ApiModeLiveRuling.QueuesLeft`). The store method now takes the proving event itself, and refuses one that proves
+nothing. Ruling such a prompt Delivered is left as the review frames it, a product ruling. Tests: in the store (the
+turn's start then a later proof, never Unknown, position moved; a turn that carries another prompt still rules the
+queued one; an event that proves nothing is refused), the live ruling (the same two), the ingest, and the real pusher
+(above). With the change switched off, the five that pin the record fail.
+
 ### Finding 3 - medium - the first proof reads the store, under its global lock, once per tool event
 
 **Where.** `ApiModeEventIngest.FeedReceipts`: `RecordQueueLeftProven` runs for every event `Proves` accepts,
@@ -166,6 +194,18 @@ skip the read when the event's generation is that one. A Gateway restart empties
 once more, which is idempotent. One test: two proving events in one generation make one store read (count
 the rows read with the existing test fixture, or assert on the store's own counter if one is added).
 
+**Developer's answer.** Accepted and done. The ingest remembers, per tenant and session, the generation the proof was
+last made in (in memory, a `ConcurrentDictionary`), and skips the store for every later proving event of that
+generation. It is written only after the store call returns, so a failed proof is made again. A Gateway restart
+forgets it and the next event proves once more, which changes nothing already ruled. The live ruling is not changed:
+it reads its own memory, not the store. `ApiModeEventIngestTests.Accept_ManyProofsInOneGeneration_ReadTheStoreForTheProofOnce`
+counts the database work with a diagnostic listener on the test's own database file (the instrument from pull
+request #4200, kept as a private class in the test until one of the two is on main): the first proof is one
+transaction, and three more tool events of the same generation do no database work at all (no connection, no
+transaction, no statement). `Accept_AProofInEachOfTwoLaterGenerations_ProvesInEach` shows a newer generation proves
+again. With the memory switched off, the count test fails. The dictionary holds one short entry per API-mode session
+the Gateway has seen since it started and is never pruned; that is small, and named here so it is a choice.
+
 ### Finding 4 - low - the second proof's clock caveat names the safe direction and not the unsafe one
 
 **Where.** The class summary of `ApiModeLostQueuedPrompt`, second-proof paragraph: "It could fire falsely only
@@ -187,6 +227,10 @@ The exposure itself is small and already bounded by the replacement rule.
 **What closes it.** Reword the caveat: a backward step of the Director's clock after the process started, by
 more than the process's age, followed by a reconnect.
 
+**Developer's answer.** Accepted and done. The class summary now names the unsafe direction: a BACKWARD step of the
+Director machine's clock after the process started, by more than the process's age at the step, followed by a
+reconnect; and says that a forward step is safe.
+
 ### Finding 5 - low - the second proof's read has no index to run on
 
 **Where.** `ApiModeReceiptStore.ProveProcessEndedOnce`: `Where(r => r.DirectorId == directorId && r.State ==
@@ -204,6 +248,14 @@ reconnects at once.
 
 **What closes it.** An index on `(TenantId, DirectorId, State)`, or `(TenantId, DirectorId)`, with its
 migration. Not a merge blocker on its own.
+
+**Developer's answer.** Accepted and done. The receipt table has a new index on `(TenantId, DirectorId, State)`,
+tenant-leading as the table's other indexes are for the global filter. This pull request had no migration of its
+own, so it adds one on both providers, generated with the Entity Framework tool at version 9.0.2 (the project's):
+`20261018124011_AddApiModeReceiptDirectorIndex` (SQLite) and `20261018124044_AddApiModeReceiptDirectorIndex`
+(PostgreSQL, `gateway` schema), each newer than `AddApiModeReceiptPromptText`, with both model snapshots updated. Each
+migration only creates the one index. `FleetOutcomeStopIdentityMigrationTests` passes (3 of 3). Not exercised on a
+real PostgreSQL.
 
 ## 3. What I checked and found right (so the next seat need not)
 

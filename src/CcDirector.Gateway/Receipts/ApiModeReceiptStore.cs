@@ -1,5 +1,6 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Contracts.ApiMode;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -469,29 +470,33 @@ public sealed class ApiModeReceiptStore
     /// <see cref="ApiModeLostQueuedPrompt.Applies"/>, the condition the live ruling applies too. Everything else on the
     /// receipt - its queue reason, its prompt's text - is kept. Answers how many receipts changed.
     /// </summary>
-    /// <param name="ownPromptId">The prompt the proving event itself ends, which its own change rules; null for any other
-    /// event.</param>
+    /// <param name="provingEvent">The event that proved it: <see cref="ApiModeLostQueuedPrompt.Proves"/> must accept it.
+    /// The prompts it names are not ruled; a still-queued prompt its <c>TurnStarted</c> carries keeps reading Queued and
+    /// moves to its position (<see cref="ApiModeLostQueuedPrompt.IsCarriedBy"/>).</param>
     /// <param name="proof">What proved it, for the log line.</param>
-    public int RecordQueueLeftProven(string directorId, string sessionId, string? ownPromptId, string proof, ApiModeEventPosition position)
+    public int RecordQueueLeftProven(string directorId, string sessionId, SessionEvent provingEvent, string proof, ApiModeEventPosition position)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
-        if (ownPromptId is not null) RequireId(ownPromptId, nameof(ownPromptId));
+        ArgumentNullException.ThrowIfNull(provingEvent);
+        if (!ApiModeLostQueuedPrompt.Proves(provingEvent, out var ownPromptIds))
+            throw new ArgumentException($"{provingEvent.GetType().Name} does not prove that a queue was left", nameof(provingEvent));
+        foreach (var promptId in ownPromptIds) RequireId(promptId, nameof(provingEvent));
         ArgumentException.ThrowIfNullOrWhiteSpace(proof);
         RequirePosition(position);
 
         lock (_gate)
         {
-            try { return ProveQueueLeftOnce(sessionId, ownPromptId, proof, position); }
+            try { return ProveQueueLeftOnce(sessionId, provingEvent, ownPromptIds, proof, position); }
             catch (DbUpdateException ex)
             {
                 FileLog.Write($"[ApiModeReceiptStore] RecordQueueLeftProven session={sessionId}: write lost a race with another writer ({ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
-                return ProveQueueLeftOnce(sessionId, ownPromptId, proof, position);
+                return ProveQueueLeftOnce(sessionId, provingEvent, ownPromptIds, proof, position);
             }
         }
     }
 
-    private int ProveQueueLeftOnce(string sessionId, string? ownPromptId, string proof, ApiModeEventPosition position)
+    private int ProveQueueLeftOnce(string sessionId, SessionEvent provingEvent, IReadOnlyCollection<string> ownPromptIds, string proof, ApiModeEventPosition position)
     {
         using var ctx = _db.CreateContext();
         using var tx = ctx.Database.BeginTransaction();
@@ -502,7 +507,13 @@ public sealed class ApiModeReceiptStore
         var changed = 0;
         foreach (var row in candidates)
         {
-            if (!ApiModeLostQueuedPrompt.Applies(position, ownPromptId, row.PromptId, ApiModeReceiptState.Queued, row.LastGeneration, row.LastGenerationStartedUtc))
+            if (ApiModeLostQueuedPrompt.IsCarriedBy(provingEvent, position, row.PromptId, ApiModeReceiptState.Queued, row.LastGeneration, row.LastGenerationStartedUtc))
+            {
+                FileLog.Write($"[ApiModeReceiptStore] RecordQueueLeftProven session={sessionId} prompt={row.PromptId}: it was queued at {row.LastGeneration}#{row.LastSequence} and {proof} carries it, a record that it was sent; it is not ruled {nameof(ApiModeReceiptState.Unknown)}, stays Queued and moves to {position}");
+                Touch(row, position);
+                continue;
+            }
+            if (!ApiModeLostQueuedPrompt.Applies(position, ownPromptIds, row.PromptId, ApiModeReceiptState.Queued, row.LastGeneration, row.LastGenerationStartedUtc))
                 continue;
             FileLog.Write($"[ApiModeReceiptStore] RecordQueueLeftProven session={sessionId} prompt={row.PromptId}: it was queued at {row.LastGeneration}#{row.LastSequence} and {proof} comes after every re-announcement of its generation, which did not re-announce it; the event that took it out of the queue was lost, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}");
             row.State = nameof(ApiModeReceiptState.Unknown);

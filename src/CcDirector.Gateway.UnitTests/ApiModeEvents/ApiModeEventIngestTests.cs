@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeEvents;
@@ -7,6 +8,8 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 using static CcDirector.Gateway.Tests.ApiModeEvents.ApiModeEventTestData;
 
@@ -340,6 +343,63 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Equal(ApiModeReceiptState.Delivered, Receipt("p1").State);
     }
 
+    [Fact]
+    public void Accept_TheLaterGenerationOpensWithTheTurnThatCarriesTheQueuedPrompt_ItIsNeverRuledUnknown()
+    {
+        // Arrange: p1 queued in generation A; its delivery fell in the hole (review of pull request #4209, finding 2).
+        Push(A(Ready(1), Queued(2, "p1")));
+
+        // Act: generation B opens with the turn that carries p1, then a tool runs in it.
+        Push(B(Started(1, "t1", "p1"), Tool(2)));
+
+        // Assert: the TurnStarted is a record of p1, not proof that it vanished.
+        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_ManyProofsInOneGeneration_ReadTheStoreForTheProofOnce()
+    {
+        // Arrange: p1 queued in generation A, then ruled Unknown at generation B's first tool event (review of pull
+        // request #4209, finding 3).
+        Push(A(Ready(1), Queued(2, "p1")));
+        int firstProof;
+        using (var work = new DatabaseWork(_harness.DbPath))
+        {
+            Push(B(Tool(1)));
+            firstProof = work.Transactions;
+        }
+
+        // Act: three more tool events of the same generation, each a proof.
+        using var later = new DatabaseWork(_harness.DbPath);
+        Push(B(Tool(2), Tool(3)));
+        Push(B(Tool(4)));
+
+        // Assert: the first proof ran in the store, and the later ones did not touch the database at all.
+        Assert.Equal(1, firstProof);
+        Assert.Equal((0, 0, 0), later.Work);
+        Assert.Equal(ApiModeReceiptState.Unknown, Receipt("p1").State);
+    }
+
+    [Fact]
+    public void Accept_AProofInEachOfTwoLaterGenerations_ProvesInEach()
+    {
+        // Arrange: p1 queued in A; B re-announced it and its tool event proved nothing against it.
+        Push(A(Ready(1), Queued(2, "p1")));
+        Push(B(Queued(1, "p1"), Tool(2)));
+        Assert.Equal(ApiModeReceiptState.Queued, Receipt("p1").State);
+
+        // Act: a third generation that does not re-announce it.
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Tool(1)));
+
+        // Assert
+        Assert.Equal(ApiModeReceiptState.Unknown, Receipt("p1").State);
+    }
+
+    private static ToolCallStarted Tool(long seq) => new()
+    {
+        SessionId = Sid, Sequence = seq, At = T0, TurnId = "t1", ToolCallId = $"c{seq}", ToolName = "bash", Kind = ToolCallKind.Execute, Input = "ls",
+    };
+
     // ----- a turn whose end was lost in a hole between two generations (item 7) -----
 
     [Fact]
@@ -456,5 +516,61 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Equal(3, HeldSequences(Bob).Count());
         Assert.Equal(3, bobSaw.Count);
         Assert.All(bobSaw, e => Assert.IsNotType<PromptDelivered>(e.Event));
+    }
+
+    /// <summary>
+    /// Counts the database work Entity Framework does against ONE database file, from its diagnostic events: every
+    /// connection opened, every transaction begun and every statement run. Other tests use other files and are not counted.
+    /// (The same instrument as pull request #4200's, kept here until one of the two is on main.)
+    /// </summary>
+    private sealed class DatabaseWork : IObserver<DiagnosticListener>, IObserver<KeyValuePair<string, object?>>, IDisposable
+    {
+        private readonly string _dataSource;
+        private readonly IDisposable _all;
+        private readonly List<IDisposable> _subscriptions = new();
+        private int _connectionsOpened;
+        private int _transactions;
+        private int _commands;
+
+        public DatabaseWork(string databaseFile)
+        {
+            _dataSource = databaseFile;
+            _all = DiagnosticListener.AllListeners.Subscribe(this);
+        }
+
+        public int Transactions => Volatile.Read(ref _transactions);
+
+        /// <summary>Connections opened, transactions begun and statements run, together.</summary>
+        public (int ConnectionsOpened, int Transactions, int Commands) Work
+            => (Volatile.Read(ref _connectionsOpened), Volatile.Read(ref _transactions), Volatile.Read(ref _commands));
+
+        public void OnNext(DiagnosticListener listener)
+        {
+            if (listener.Name == DbLoggerCategory.Name)
+                lock (_subscriptions) _subscriptions.Add(listener.Subscribe(this));
+        }
+
+        public void OnNext(KeyValuePair<string, object?> e)
+        {
+            if (e.Key == RelationalEventId.ConnectionOpening.Name && e.Value is ConnectionEventData c && Ours(c.Connection))
+                Interlocked.Increment(ref _connectionsOpened);
+            else if (e.Key == RelationalEventId.TransactionStarted.Name && e.Value is TransactionEndEventData t && Ours(t.Transaction.Connection))
+                Interlocked.Increment(ref _transactions);
+            else if (e.Key == RelationalEventId.CommandExecuting.Name && e.Value is CommandEventData d && Ours(d.Command.Connection))
+                Interlocked.Increment(ref _commands);
+        }
+
+        private bool Ours(System.Data.Common.DbConnection? connection)
+            => connection is not null && string.Equals(Path.GetFullPath(connection.DataSource), Path.GetFullPath(_dataSource), StringComparison.Ordinal);
+
+        public void OnCompleted() { }
+        public void OnError(Exception error) { }
+
+        public void Dispose()
+        {
+            _all.Dispose();
+            lock (_subscriptions)
+                foreach (var s in _subscriptions) s.Dispose();
+        }
     }
 }
