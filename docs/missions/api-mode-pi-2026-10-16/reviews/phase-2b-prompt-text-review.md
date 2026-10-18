@@ -271,11 +271,22 @@ the session's live buffer. A live reader is then reset and rebuilds from the sto
 history, which keep the text, so nothing is lost. The window of live events behind a prompt of N
 characters is 2,000,000 minus 2N, as the review works out. No change.
 
-**Migrations.** The new base adds no migration and changes no model (only two entity comments), so
-`AddApiModeReceiptPromptText` stays the newest migration on both providers and was not regenerated.
+**Migrations.** The contract branch's head added no migration and changed no model. The final rebase
+onto main (after #4121 merged) brought in main's `AddLicenseMachineCannotSwitch`, a model change the old
+designer files did not carry, and `TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel`
+failed on both providers. So `AddApiModeReceiptPromptText` was regenerated with `dotnet ef migrations
+add` on both providers (SQLite `20261018015813`, PostgreSQL `20261018015844`). The migration bodies are
+byte for byte the old ones, the snapshots are unchanged, and it is the newest migration on both.
 
 **Run on devlinux, one class at a time:** ApiModeReceiptPromptTextTests 24, ApiModeReceiptStoreTests
 41, ApiModeLiveRulingTests 46, SessionReceiptsEndpointTests 9, SessionLiveEndpointTests 55,
 ApiModeEventIngestTests 28, and the two classes that check the model has no pending changes
 (FleetOutcomeStopIdentityMigrationTests 3, GatewayHostBootSmokeTests 11): 217 passed, none failed. No
 test names the migration by name; those two classes are the migration's checks.
+
+**After the final rebase onto main** (#4121 merged as `142bcbff1`; main carries #4142, #4174 and
+#4178's place in line), run one class at a time on devlinux: ApiModeReceiptPromptTextTests 24,
+ApiModeReceiptStoreTests 42, ApiModeLiveRulingTests 77, SessionReceiptsEndpointTests 13,
+SessionLiveEndpointTests 56, ApiModeEventIngestTests 28, FleetOutcomeStopIdentityMigrationTests 3 (after
+regenerating the migration), GatewayHostBootSmokeTests 11: 254 passed, none failed. #4178's place in line
+and the prompt text are both carried on the ruling's receipt copy and item, side by side.

@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261017151948_AddApiModeReceiptPromptText")]
+    [Migration("20261018015844_AddApiModeReceiptPromptText")]
     partial class AddApiModeReceiptPromptText
     {
         /// <inheritdoc />
@@ -2782,6 +2782,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("ActiveAccountEmail")
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
+
+                    b.Property<string>("CannotSwitchReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<double>("ClockSkewSeconds")
                         .HasColumnType("double precision");

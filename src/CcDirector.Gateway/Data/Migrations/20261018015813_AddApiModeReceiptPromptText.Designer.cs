@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261017151913_AddApiModeReceiptPromptText")]
+    [Migration("20261018015813_AddApiModeReceiptPromptText")]
     partial class AddApiModeReceiptPromptText
     {
         /// <inheritdoc />
@@ -2705,6 +2705,10 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<string>("ActiveAccountEmail")
                         .HasMaxLength(320)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CannotSwitchReason")
+                        .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
                     b.Property<double>("ClockSkewSeconds")
