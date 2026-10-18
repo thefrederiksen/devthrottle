@@ -28,8 +28,8 @@ def failed(world):
 
 
 CLIENT = "f575e3f4-8f62-4bfb-8f30-f776e55b51bd"
-ADD = (f"add the account with cc-outlook accounts add {MAILBOX} --client-id {CLIENT}, then run cc-outlook -a "
-       f"{MAILBOX} auth")
+ADD = f"first run cc-outlook accounts add {MAILBOX} -c {CLIENT}"
+THEN = f"then run cc-outlook -a {MAILBOX} auth"
 
 
 def first_line(err):
@@ -80,6 +80,7 @@ def test_SignIn_TheAccountIsInNoRegistry_SaysHowToAddItAndNeverGuessesANickname(
     world.memory(channel(cursor=CURSOR))
     err = failed(world)
     assert first_line(err) == f"{MAILBOX} is not signed in on {MACHINE}: {ADD}"
+    assert err.splitlines()[1].startswith(THEN)
     assert "-a devthrottle" not in err
 
 
@@ -202,7 +203,7 @@ def test_Graph_AMessageWithoutAnId_IsAFailedCheck(world):
     world.plant()
     world.graph.box(MAILBOX)["inbox"] += [{"receivedDateTime": "2026-10-18T09:00:00Z", "subject": "x"}]
     world.memory(channel(cursor=CURSOR))
-    assert "without an id" in failed(world)
+    assert "without a usable id" in failed(world)
 
 
 def test_Graph_FailingAfterAMoveInLiveMode_KeepsTheQueueAndTheRetryIsAlreadyGone(world, monkeypatch):
@@ -230,8 +231,9 @@ def test_Graph_AMoveAnswering500_IsAFailedCheck(world, monkeypatch):
     world.memory(channel(mode="live", cursor=CURSOR, keys={key: {"id": "id-1", "reportedUtc": "2026-10-18T06:05:00Z"}},
                          filingQueue=[{"messageKey": key, "decision": "archive"}]))
     monkeypatch.setattr(world.graph, "answer", lambda *a: (500, {}))
-    assert first_line(failed(world)) == (f"moving a message of {MAILBOX} to archive failed: Microsoft Graph "
-                                         f"answered HTTP 500 to POST https://graph.microsoft.com/v1.0/me/messages/id-1/move")
+    err = failed(world)
+    assert first_line(err) == f"Microsoft Graph answered HTTP 500 for {MAILBOX} while moving a message to archive"
+    assert "id-1" not in err                                # the Graph id is on no line at all
 
 
 # ---------------------------------------------------------------------------------------------------- the memory
@@ -276,3 +278,51 @@ def test_Memory_NotSet_IsAFailedCheck(world, monkeypatch):
     monkeypatch.delenv("CC_CHECK_STATE_FILE")
     code, _, _, err = world.run()
     assert code != 0 and "CC_CHECK_STATE_FILE is not set" in err
+
+
+# ---------------------------------------------------------------------------------------------------- observation 1
+
+
+CAPITALS = "Email@DevThrottle.com"
+
+
+def test_SignIn_ATokenFileNamedWithCapitals_IsFoundForTheLowerCaseChannel(world):
+    """cc-outlook names the file after the address as it was typed (get_msal_token_path, from the profile key that
+    save_profile stores as given). The Gateway's channel address is lower case, so the check matches the file name
+    without regard to case; MSAL matches the account's username without regard to case too (get_accounts)."""
+    path = world.plant(CAPITALS)
+    assert path.name == "Email_DevThrottle_com_msal.json"
+    world.sign_in.accounts[MAILBOX] = True
+    world.memory(channel(cursor=CURSOR))
+    code, _, _, _ = world.run()
+    assert code == 0
+
+
+def test_SignIn_TwoFilesDifferingOnlyInCase_AreMoreThanOne(world):
+    world.plant(CAPITALS)
+    world.plant(MAILBOX)
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)).startswith(f"{MAILBOX} is signed in more than once on {MACHINE}")
+
+
+def test_SignIn_AnAccountRegisteredWithCapitals_IsNamedAsCcOutlookHoldsIt(world):
+    """resolve_account matches the address key exactly and with case, so when the address must be named (here the
+    instances disagree on the nickname) it is named as cc-outlook stored it, or -a would not find it."""
+    world.register({CAPITALS: {"client_id": CLIENT, "nickname": "devthrottle"}}, instance="default")
+    world.register({CAPITALS: {"client_id": CLIENT, "nickname": "desk"}}, instance="slot5")
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)) == f"{MAILBOX} is not signed in on {MACHINE}: run cc-outlook -a {CAPITALS} auth"
+
+
+def test_SignIn_ANicknameLeadingToAnAccountRegisteredWithCapitals_IsUsed(world):
+    world.register({CAPITALS: {"client_id": CLIENT, "nickname": "devthrottle"}})
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)).endswith(": run cc-outlook -a devthrottle auth")
+
+
+def test_CcOutlook_MatchesTheAddressWithCaseAndNamesTheFileAsTyped(world):
+    """The premise of the three tests above, read from cc-outlook's source rather than assumed."""
+    source = AUTH.read_text(encoding="utf-8")
+    assert "if account_name in profiles.get('profiles', {}):" in source        # resolve_account: exact, with case
+    assert "if account_name.lower() in nickname_map:" in source                # nicknames: without case
+    assert "profiles['profiles'][email] = {" in source                          # save_profile: the key as typed
