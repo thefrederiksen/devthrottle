@@ -109,8 +109,8 @@ describe("LicensesView: Forget this machine", () => {
 
   it("shows a refusal in the Gateway's sentence and keeps the confirmation open", async () => {
     silentWindowsMachine();
-    const why = "the-windows-machine is in the middle of a switch; it can be forgotten once the switch is over.";
-    answers[FORGET] = () => json(409, { code: "switch_in_progress", error: why });
+    const why = "A sign-in on the-windows-machine has not finished; it can be forgotten once it has.";
+    answers[FORGET] = () => json(409, { code: "sign_in_in_progress", error: why });
     render(<LicensesView />);
 
     const dialog = await openForget();

@@ -142,7 +142,7 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `spares` | The spares it holds, in account email order. |
 | `switchInProgress` | Null, or `switchId`, `fromAccountEmail`, `toAccountEmail`, `text` - the switch it is in the middle of and one sentence saying where it stands. The two emails are "" when only the machine's own report says a switch is running. |
 | `heldUntilUtc`, `heldText` | **Both null unless the machine is held out of the automatic switch** because its switch keeps failing the same way (contract section 5.8). Then: the time it is held until, and the Gateway's sentence saying so, why and until when. The page draws `heldText` in the schedule, under the machine's status, exactly as given; never compare `heldUntilUtc` with now. Switch now is still offered for its account, and still sends the machine a switch at once. |
-| `canForget`, `forgetText` | **Phase 6: whether Forget this machine is offered for it** (section 6, `POST /gateway/licenses/machines/forget`), and the sentence. It is offered only for a machine whose status is `report-refused` or `not-reporting`, and never while a switch or a sign-in on it is under way. Offered: "Take machine-a off this page, with what it holds, and end its open problems and their alarms. For a machine that is gone or renamed; if it reports again, it comes back." Not offered, the sentence the route refuses with: "machine-a is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.", "machine-a is in the middle of a switch; it can be forgotten once the switch is over." or "A sign-in on machine-a has not finished; it can be forgotten once it has." The page draws the button only where `canForget` is true. |
+| `canForget`, `forgetText` | **Phase 6: whether Forget this machine is offered for it** (section 6, `POST /gateway/licenses/machines/forget`), and the sentence. It is offered only for a machine whose status is `report-refused` or `not-reporting`, and never while a sign-in on it is under way. A switch recorded on such a machine does not stop it: a machine that is gone never answers it. Offered: "Take machine-a off this page, with what it holds, and end its open problems and their alarms. For a machine that is gone or renamed; if it reports again, it comes back." Not offered, the sentence the route refuses with: "machine-a is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be." or "A sign-in on machine-a has not finished; it can be forgotten once it has." The page draws the button only where `canForget` is true. |
 | `readiness`, `readinessTargetAccountEmail`, `readinessText`, `readinessTone` | **Phase 6: whether it is ready for the account it would switch to next.** `readiness` is `ready`, `not-ready` or `no-room` (no other account has room - not a readiness gap); the account is null for `no-room`. All four are null when the machine is on no account. The page draws `readinessText` on the machine's line in the schedule, in `readinessTone`, exactly as given, and never decides anything from the state word. |
 
 **Readiness** (`readiness`, `readinessText`, phase 6; contract section 11). The sentences, word for word:
@@ -1219,10 +1219,18 @@ same folded overview, so it refuses exactly what the page does not offer, with t
 Forgetting a machine, in one save:
 
 - ends its open `report-refused` and `machine-silent` rows, so the alarms raised from them close on the next minute;
+- ends an open switch of it as `failed`, reason `machine-forgotten`: "Ended without an answer: machine-a was forgotten
+  before this switch was over." A machine that is gone never answers a switch, so without this it could never end;
 - removes what it holds and its row: it is no longer in the overview, the forecast or the schedule;
 - writes one `forgotten` row, "machine-a was forgotten: it is off the Licenses page, with what it held, and its open
   problems are over. If it reports again, it comes back.";
 - keeps every earlier row of the log about it.
+
+**The approvers on that machine go with it.** Each approver whose machine and user are this machine's is removed,
+and the `forgotten` row names the accounts: "... It approved the sign-ins of alice@example.com; that approver is
+removed too. ..." Their approver alarms close on the next check. No removal record is left, so a machine that comes
+back registers its approver again on its next check. The approvers are kept in the account's settings, apart from
+the store, so they are removed after the store's save; when the store refuses, they stay.
 
 A machine none of whose reports was ever accepted is forgotten under the stand-in row the page lists it under: its
 open refusal ends. **There is no automatic age-out:** only the owner forgets a machine. **A machine that reports again
@@ -1235,7 +1243,7 @@ by the minute check, which finds the machine no longer holds that sign-in.
 | `400` `invalid_body` | The body is not a JSON object. |
 | `400` `invalid_machine` | `machineId` is not 32 hexadecimal digits. |
 | `404` `machine_not_found` | No machine of this account has that identifier: "That machine is not on the Licenses page of this account; load the page again." |
-| `409` `forget_not_offered`, `switch_in_progress`, `sign_in_in_progress` | The machine is reporting, or a switch or a sign-in on it is under way; `error` is its `forgetText`. A switch or a sign-in started after the page was read is caught by the store as well, which changes nothing. |
+| `409` `forget_not_offered`, `sign_in_in_progress` | The machine is reporting, or a sign-in on it is under way; `error` is its `forgetText`. The store reads the open rows again before its one save and refuses an open sign-in itself, changing nothing. That is not a transaction: a sign-in started between that read and the save stays open in the log on a machine that is gone. |
 
 ### Who may call the writes
 

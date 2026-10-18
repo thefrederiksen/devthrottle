@@ -12,25 +12,34 @@ age-out.
 
 - **The verdict is folded once, on the Gateway** (`LicenseDisplayFold.ApplyForget` and `ForgetVerdict`). Each machine
   of the overview has `canForget` and `forgetText`. It is offered only for a machine whose status is `report-refused`
-  or `not-reporting`, and never while a switch (`switchInProgress`) or a sign-in (`signInsInProgress`) on it is under
-  way. It runs last in the overview, after the sign-in fold, so a sign-in in progress counts. The Cockpit draws the
+  or `not-reporting`, and never while a sign-in (`signInsInProgress`) on it is under way. A switch recorded on such a
+  machine does not stop it (review finding 1): a machine that is gone never answers its switch. It runs last in the overview, after the sign-in fold, so a sign-in in progress counts. The Cockpit draws the
   button where `canForget` is true and decides nothing.
 - **The route** is `POST /gateway/licenses/machines/forget`, with the body `{"machineId": "..."}`. It is owner only,
   by the same `FleetManagerOwnerDevice.Require` rule as the other license writes, and its body must be
   `application/json`. A session key is refused by `SessionKeyGuard`, which does not list the route. The route folds
   the same overview the page gets (the new `FoldOverview`, now shared with the overview route) and refuses exactly
-  what the page does not offer, with the same sentence: `409` `forget_not_offered`, `switch_in_progress` or
-  `sign_in_in_progress`. An identifier that is not this account's machine is `404` `machine_not_found`.
+  what the page does not offer, with the same sentence: `409` `forget_not_offered` or `sign_in_in_progress`. An identifier that is not this account's machine is `404` `machine_not_found`.
 - **The store does it in one save** (`LicenseStore.ForgetMachine`):
   - it ends the machine's open `report-refused` rows (by `IsRefusalOf`, the same rule as the page) and its open
     `machine-silent` rows;
+  - it ends the machine's open switch rows as `failed`, with reason `machine-forgotten`. A machine that is gone never
+    answers, and the minute check settles an unanswered switch only from a later report, so such a switch would never
+    end. Ending it also means no open row names the machine row that is gone; the minute check throws on one that does;
   - it removes its holdings and its machine row;
   - it writes one `forgotten` row ("Machine forgotten"), which keeps the machine's identifier and name.
 
-  The store checks for an open switch or sign-in of the machine again, inside its own transaction, and refuses with
-  nothing changed. This matters because the minute check settles an open switch against its machine row and throws
-  when that row is gone. A machine none of whose reports was ever accepted is forgotten under the stand-in identifier
-  the page lists it under, and its refusal ends.
+  The store reads the machine's open rows again and refuses an open sign-in, with nothing changed: a sign-in is only a
+  delay, because the sign-in check ends one on a machine it has not seen for long enough. That read and the save are
+  NOT one transaction (review finding 4): a sign-in started between them stays open in the log on a machine that is
+  gone. A machine none of whose reports was ever accepted is forgotten under the stand-in identifier the page lists it
+  under, and its refusal ends.
+- **The approvers on that machine go with it** (review finding 3). The route reads the accounts whose approvers are
+  on this machine and user, the store's row names them ("It approved the sign-ins of ...; that approver is removed
+  too."), and after the store's save `LicenseApproverStore.RemoveForMachine` removes them. Their approver alarms close
+  on the next check. Unlike the owner's own removal, it leaves no removal record, so a machine that comes back
+  registers its approver again. The approvers live in the account's settings, apart from the store, so the two writes
+  are not one save; when the store refuses, the approvers stay.
 - **What closes by itself afterwards.** The refused and silent alarms of 4172 (merged as `8994f5e1a`) close on the
   next minute, because their rows are ended. The readiness alarm of a machine closes because the machine is no longer read. An
   open renewal warning about it is ended by the renewal email check, which finds that the machine no longer holds
@@ -54,9 +63,15 @@ a throwaway SQLite file, and reads the page back through the real overview route
   and the log still holding the earlier row.
 - `AForgottenMachineThatReportsAgain_ComesBack`: it comes back, reporting, with nothing to forget.
 - `AReportingMachine_IsNotOffered_AndTheRouteRefusesItWithTheSameSentence`: `409` with the page's own sentence.
-- `ASilentMachineInTheMiddleOfASwitch_IsNotOffered_AndTheStoreRefusesItToo` and
-  `ASilentMachineWithASignInUnderWay_IsNotOffered_AndTheStoreRefusesItToo`: not offered, and the store refuses it
+- `AMachineThatDiedWithASwitchUnanswered_IsOffered_AndForgettingEndsTheSwitchAsFailed` (review finding 1): a switch
+  marked unanswered stays open through three days of the real minute check. The machine is offered and forgotten, the
+  switch is `failed` with `machine-forgotten`, and the minute check then runs with nothing to say.
+- `AMachineThatDiedReportingASwitchInProgress_IsOffered_AndForgotten` (review finding 1): the switch its last report
+  named does not stop it.
+- `ASilentMachineWithASignInUnderWay_IsNotOffered_AndTheStoreRefusesItToo`: not offered, and the store refuses it
   with nothing changed.
+- `AMachineThatApprovesSignIns_TakesItsApproversWithIt_AndSaysSo` (review finding 3): the answer names the account,
+  only the approver on that machine goes, and no removal record is left.
 - `AMachineWhoseReportsWereNeverAccepted_IsForgottenUnderItsStandInRow_AndItsRefusalEnds` and
   `ARefusedMachineWithARow_IsForgotten_AndItsRefusalEnds`: the real ingest refuses the reports, and the machine is
   forgotten.
@@ -78,22 +93,17 @@ Also changed:
   with the confirmation still open.
 
 **Revert proofs.**
-- I made the store skip its open switch and sign-in check. The two store tests failed, and the other ten passed.
-  With the check restored, all twelve passed.
+- Before the review: I made the store skip its open switch and sign-in check. The two store tests failed, and the
+  other ten passed. With the check restored, all twelve passed.
+- After the review, with 16 tests: putting back the fold's refusal of a machine with a switch in progress fails the
+  two finding 1 tests; skipping the approver removal fails the finding 3 test. In each case the other tests passed,
+  and with the code restored all sixteen passed.
 - After the rebase onto 4172, I made the store leave the open health rows open. Five tests failed: the two alarm
   tests and the three that check the rows end. The other nine passed. With the store restored, all fourteen passed.
 
 ## The gate
 
-Run on commit `3cf354c65`, rebased onto origin/main `8994f5e1a` (4172 merged), with TEMP and TMP on D:. The next
-commit changes only this file.
-
-- **Default run: GREEN**, tree clean. Every suite completed, including Core.UnitTests (2316) and the parked
-  Gateway.UnitTests tests this change reaches (984).
-- **`-Parked -Filter License`: GREEN**, tree clean. Gateway.UnitTests: 1103. Gateway.Tests: 26 (shard 3 of 4, with
-  the self-hosted write test). Core.UnitTests: 253. Avalonia.Tests: 32.
-- **Cockpit:** `vitest run src/licenses` passed 113 tests in 6 files. `npm run typecheck --workspaces` is clean.
-  `copy_fixtures.py` run again on this head gives the committed `fixtures.ts`.
+GATE_LINES_GO_HERE
 
 ## What the live proof should look for (after a deploy; this piece deploys nothing)
 
