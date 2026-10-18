@@ -75,6 +75,10 @@ public sealed class ApiModeEventIngest
         // Before the event's own change, so a TurnStarted rules the turn before it lost and only then links its prompts.
         if (ApiModeLostTurnEnd.Proves(e, out var continuing))
             _receipts.RecordTurnOverProven(directorId, e.SessionId, continuing, ApiModeLostTurnEnd.Describe(e, position), position);
+        // Likewise before the event's own change: a prompt still queued from an older generation that this generation did
+        // not re-announce is ruled Unknown first, and the event's own prompt is left to its own change.
+        if (ApiModeLostQueuedPrompt.Proves(e, out var ownPromptId))
+            _receipts.RecordQueueLeftProven(directorId, e.SessionId, ownPromptId, ApiModeLostQueuedPrompt.Describe(e, position), position);
         switch (e)
         {
             case PromptQueued q:
