@@ -109,7 +109,7 @@ def test_FilingQueue_ADestinationOtherThanTheTwo_IsRefusedAndNeverSent(world):
     key = world.screen.short_key(MAILBOX, "id-1")
     world.memory(channel(mode="live", cursor={"newest": "2026-10-18T09:00:00Z", "idsAtNewest": ["id-1"]},
                          keys={key: {"id": "id-1", "reportedUtc": "2026-10-18T09:05:00Z"}},
-                         filingQueue=[{"key": key, "to": "deleteditems"}, {"key": key, "to": "sendMail"}]))
+                         filingQueue=[{"messageKey": key, "decision": "deleteditems"}, {"messageKey": key, "decision": "sendMail"}]))
     code, output, context, _ = world.run()
     assert code == 0
     assert world.graph.posts() == []
@@ -123,7 +123,7 @@ def test_FilingQueue_AnIdWithASlash_IsRefusedByTheGuardAndNeverSent(world):
     key = "0123456789abcdef"
     world.memory(channel(mode="live", cursor={"newest": "2026-10-18T09:00:00Z", "idsAtNewest": []},
                          keys={key: {"id": "abc/../../sendMail", "reportedUtc": "2026-10-18T09:05:00Z"}},
-                         filingQueue=[{"key": key, "to": "archive"}]))
+                         filingQueue=[{"messageKey": key, "decision": "archive"}]))
     code, _, context, _ = world.run()
     assert code == 0
     assert world.graph.posts() == []

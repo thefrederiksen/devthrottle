@@ -19,7 +19,7 @@ def test_ObserveMode_AFilingQueue_MakesNoMoveAndKeepsTheQueue(world):
     inbox = world.graph.box(MAILBOX)["inbox"]
     inbox += [msg("id-1", "2026-10-18T08:00:00Z"), msg("id-2", "2026-10-18T08:30:00Z")]
     k1, k2 = world.screen.short_key(MAILBOX, "id-1"), world.screen.short_key(MAILBOX, "id-2")
-    queue = [{"key": k1, "to": "archive"}, {"key": k2, "to": "junkemail"}]
+    queue = [{"messageKey": k1, "decision": "archive"}, {"messageKey": k2, "decision": "junk"}]
     world.memory(channel(mode="observe", cursor=CURSOR, keys=keyed(world, "id-1", "id-2"), filingQueue=queue))
 
     code, output, context, err = world.run()
@@ -44,7 +44,7 @@ def test_LiveMode_ArchiveAndJunk_AreMovedAndReported(world):
     box["inbox"] += [msg("id-1", "2026-10-18T08:00:00Z"), msg("id-2", "2026-10-18T08:30:00Z")]
     k1, k2 = world.screen.short_key(MAILBOX, "id-1"), world.screen.short_key(MAILBOX, "id-2")
     world.memory(channel(mode="live", cursor=CURSOR, keys=keyed(world, "id-1", "id-2"),
-                         filingQueue=[{"key": k1, "to": "archive"}, {"key": k2, "to": "junkemail"}]))
+                         filingQueue=[{"messageKey": k1, "decision": "archive"}, {"messageKey": k2, "decision": "junk"}]))
 
     code, output, context, _ = world.run()
 
@@ -55,8 +55,8 @@ def test_LiveMode_ArchiveAndJunk_AreMovedAndReported(world):
     assert [m["id"] for m in box["archive"]] == ["moved-id-1"]
     assert [m["id"] for m in box["junkemail"]] == ["moved-id-2"]
     assert box["inbox"] == []
-    assert context["channels"][0]["filing"] == [{"key": k1, "to": "archive", "result": "moved"},
-                                                {"key": k2, "to": "junkemail", "result": "moved"}]
+    assert context["channels"][0]["filing"] == [{"messageKey": k1, "decision": "archive", "result": "moved"},
+                                                {"messageKey": k2, "decision": "junk", "result": "moved"}]
     assert output["count"] == 2                                        # something was filed
     assert world.read_memory()["channels"][0]["filingQueue"] == []
 
@@ -65,16 +65,16 @@ def test_LiveMode_AVanishedMessage_IsAlreadyGone(world):
     world.plant()
     key = world.screen.short_key(MAILBOX, "id-gone")
     world.memory(channel(mode="live", cursor=CURSOR, keys=keyed(world, "id-gone"),
-                         filingQueue=[{"key": key, "to": "archive"}]))
+                         filingQueue=[{"messageKey": key, "decision": "archive"}]))
     code, output, context, _ = world.run()
     assert code == 0
-    assert context["channels"][0]["filing"] == [{"key": key, "to": "archive", "result": "already-gone"}]
+    assert context["channels"][0]["filing"] == [{"messageKey": key, "decision": "archive", "result": "already-gone"}]
     assert world.read_memory()["channels"][0]["filingQueue"] == []
 
 
 def test_LiveMode_AKeyNotInTheTable_IsRefusedWithNoRequest(world):
     world.plant()
-    world.memory(channel(mode="live", cursor=CURSOR, keys={}, filingQueue=[{"key": "ffffffffffffffff", "to": "archive"}]))
+    world.memory(channel(mode="live", cursor=CURSOR, keys={}, filingQueue=[{"messageKey": "ffffffffffffffff", "decision": "archive"}]))
     code, _, context, _ = world.run()
     assert code == 0
     assert world.graph.posts() == []
@@ -87,7 +87,7 @@ def test_LiveMode_ALongQueue_FilesWhatFitsAndLeavesTheRestQueued(world):
     world.plant()
     ids = [f"id-{n:03}" for n in range(120)]
     world.graph.box(MAILBOX)["inbox"] += [msg(i, "2026-10-18T08:00:00Z") for i in ids]
-    queue = [{"key": world.screen.short_key(MAILBOX, i), "to": "archive"} for i in ids]
+    queue = [{"messageKey": world.screen.short_key(MAILBOX, i), "decision": "archive"} for i in ids]
     world.memory(channel(mode="live", cursor=CURSOR, keys=keyed(world, *ids), filingQueue=queue))
 
     _, first, context, _ = world.run()
@@ -111,7 +111,7 @@ def test_LiveMode_FilingHappensBeforeNewMailIsRead(world):
     world.graph.box(MAILBOX)["inbox"] += [msg("id-1", "2026-10-18T08:00:00Z")]
     key = world.screen.short_key(MAILBOX, "id-1")
     world.memory(channel(mode="live", cursor=CURSOR, keys=keyed(world, "id-1"),
-                         filingQueue=[{"key": key, "to": "archive"}],
+                         filingQueue=[{"messageKey": key, "decision": "archive"}],
                          sentCache={"refreshedUtc": "2026-10-18T11:00:00Z", "hashes": []}))
     world.run()
     methods = [m for m, _, _, _ in world.graph.log]

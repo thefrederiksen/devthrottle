@@ -27,19 +27,68 @@ def failed(world):
 # ---------------------------------------------------------------------------------------------------- test 6
 
 
-def test_SignIn_NoneFound_FailsNamingTheMachineAndTheFix(world):
-    world.memory(channel(nickname="devthrottle", cursor=CURSOR))
+CLIENT = "f575e3f4-8f62-4bfb-8f30-f776e55b51bd"
+ADD = (f"add the account with cc-outlook accounts add {MAILBOX} --client-id {CLIENT}, then run cc-outlook -a "
+       f"{MAILBOX} auth")
+
+
+def first_line(err):
+    return err.splitlines()[0]
+
+
+def test_SignIn_NoneFound_TheFirstLineIsOnePlainSentenceNamingTheMachineAndTheFix(world):
+    """The Gateway quotes the first line of a failure as it is on the Mail Desk page, so it is exactly one sentence;
+    where the check looked follows on the next line."""
+    world.register({MAILBOX: {"client_id": CLIENT, "nickname": "devthrottle"}})
+    world.memory(channel(cursor=CURSOR))
     err = failed(world)
-    assert f"{MAILBOX} is not signed in on {MACHINE}" in err
-    assert "run cc-outlook -a devthrottle auth" in err
+    assert first_line(err) == f"{MAILBOX} is not signed in on {MACHINE}: run cc-outlook -a devthrottle auth"
+    assert "found none" in err.splitlines()[1]
     assert world.graph.log == []
 
 
-def test_SignIn_NoneFoundAndNoNickname_TheFixNamesTheAddressNeverAGuessedNickname(world):
+def test_SignIn_TheNicknameIsCcOutlooksDerivedOneWhenNoneIsStored(world):
+    world.register({MAILBOX: {"client_id": CLIENT}})                       # an account added before nicknames
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)) == f"{MAILBOX} is not signed in on {MACHINE}: run cc-outlook -a devthrottle auth"
+
+
+def test_SignIn_TheNicknameIsReadFromTheRegistryNeverFromTheAddress(world):
+    world.register({MAILBOX: {"client_id": CLIENT, "nickname": "desk"}})
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)).endswith(": run cc-outlook -a desk auth")
+
+
+def test_SignIn_ANicknameThatLeadsToAnotherAccount_NamesTheAddressInstead(world):
+    """cc-outlook's nickname lookup lets the last account win, so a nickname shared with a later account would sign in
+    the wrong mailbox. The address always resolves exactly."""
+    world.register({MAILBOX: {"client_id": CLIENT}, "other@devthrottle.example": {"client_id": CLIENT,
+                                                                                 "nickname": "devthrottle"}})
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)).endswith(f": run cc-outlook -a {MAILBOX} auth")
+
+
+def test_SignIn_InstancesDisagreeingOnTheNickname_NamesTheAddress(world):
+    world.register({MAILBOX: {"client_id": CLIENT, "nickname": "devthrottle"}}, instance="default")
+    world.register({MAILBOX: {"client_id": CLIENT, "nickname": "desk"}}, instance="slot5")
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)).endswith(f": run cc-outlook -a {MAILBOX} auth")
+
+
+def test_SignIn_TheAccountIsInNoRegistry_SaysHowToAddItAndNeverGuessesANickname(world):
+    world.register({"someone@example.com": {"client_id": CLIENT}})
     world.memory(channel(cursor=CURSOR))
     err = failed(world)
-    assert f"run cc-outlook -a {MAILBOX} auth" in err
-    assert "-a devthrottle " not in err
+    assert first_line(err) == f"{MAILBOX} is not signed in on {MACHINE}: {ADD}"
+    assert "-a devthrottle" not in err
+
+
+def test_SignIn_AnUnreadableRegistry_NamesNoNickname(world):
+    folder = world.base / "instances" / "default" / "config" / "outlook"
+    folder.mkdir(parents=True)
+    (folder / "profiles.json").write_text("{not json", encoding="utf-8")
+    world.memory(channel(cursor=CURSOR))
+    assert first_line(failed(world)) == f"{MAILBOX} is not signed in on {MACHINE}: {ADD}"
 
 
 def test_SignIn_MoreThanOneFound_FailsNamingEveryPathAndPicksNone(world):
@@ -47,18 +96,20 @@ def test_SignIn_MoreThanOneFound_FailsNamingEveryPathAndPicksNone(world):
     second = world.plant(instance="slot5")
     world.memory(channel(cursor=CURSOR))
     err = failed(world)
-    assert "signed in more than once" in err
+    assert first_line(err).startswith(f"{MAILBOX} is signed in more than once on {MACHINE}")
     assert str(first) in err and str(second) in err
     assert world.sign_in.authorities == []                             # it never opened either of them
     assert world.graph.log == []
 
 
-def test_SignIn_RenewalFails_FailsSayingExpiredAndNamingTheFix(world):
+def test_SignIn_RenewalFails_IsNotSignedInWithExpiredOnTheNextLine(world):
     world.plant()
+    world.register({MAILBOX: {"client_id": CLIENT, "nickname": "devthrottle"}})
     world.sign_in.renew_fails.add(MAILBOX)
-    world.memory(channel(nickname="devthrottle", cursor=CURSOR))
+    world.memory(channel(cursor=CURSOR))
     err = failed(world)
-    assert "has expired" in err and "run cc-outlook -a devthrottle auth" in err
+    assert first_line(err) == f"{MAILBOX} is not signed in on {MACHINE}: run cc-outlook -a devthrottle auth"
+    assert "has expired and could not be renewed (invalid_grant)" in err.splitlines()[1]
     assert world.graph.log == []
 
 
@@ -67,7 +118,15 @@ def test_SignIn_TheCacheHoldsNoAccount_FailsNamingTheFix(world):
     world.sign_in.accounts[MAILBOX] = False
     world.memory(channel(cursor=CURSOR))
     err = failed(world)
-    assert "not signed in" in err and f"run cc-outlook -a {MAILBOX} auth" in err
+    assert first_line(err) == f"{MAILBOX} is not signed in on {MACHINE}: {ADD}"
+    assert "holds no account" in err.splitlines()[1]
+
+
+def test_Failure_TheRunLogFollowsTheSentence(world):
+    world.memory(channel(cursor=CURSOR))
+    err = failed(world)
+    assert "is not signed in" in first_line(err)
+    assert any(line.startswith("screen.py: 1 channel(s)") for line in err.splitlines()[1:])
 
 
 def test_SignIn_OnlyUnderHomeOrTheOldFolder_IsNotFound(world):
@@ -129,7 +188,7 @@ def test_Graph_Failing_IsAFailedCheckAndTheSameMailIsReadNextRun(world, failure,
     world.graph.fail = None
     code, _, context, _ = world.run()
     assert code == 0
-    assert [m["key"] for m in all_messages(context)] == [world.screen.short_key(MAILBOX, "id-1")]
+    assert [m["messageKey"] for m in all_messages(context)] == [world.screen.short_key(MAILBOX, "id-1")]
 
 
 def test_Graph_APageWithoutValue_IsAFailedCheck(world, monkeypatch):
@@ -153,7 +212,7 @@ def test_Graph_FailingAfterAMoveInLiveMode_KeepsTheQueueAndTheRetryIsAlreadyGone
     world.graph.box(MAILBOX)["inbox"] += [msg("id-1", "2026-10-18T06:00:00Z")]
     key = world.screen.short_key(MAILBOX, "id-1")
     world.memory(channel(mode="live", cursor=CURSOR, keys={key: {"id": "id-1", "reportedUtc": "2026-10-18T06:05:00Z"}},
-                         filingQueue=[{"key": key, "to": "archive"}],
+                         filingQueue=[{"messageKey": key, "decision": "archive"}],
                          sentCache={"refreshedUtc": "2026-10-18T11:00:00Z", "hashes": []}))
     real = world.graph.answer
     monkeypatch.setattr(world.graph, "answer", lambda m, *a: real(m, *a) if m == "POST" else (500, {}))
@@ -161,7 +220,7 @@ def test_Graph_FailingAfterAMoveInLiveMode_KeepsTheQueueAndTheRetryIsAlreadyGone
     assert len(world.graph.box(MAILBOX)["archive"]) == 1
     monkeypatch.setattr(world.graph, "answer", real)
     _, _, context, _ = world.run()
-    assert context["channels"][0]["filing"] == [{"key": key, "to": "archive", "result": "already-gone"}]
+    assert context["channels"][0]["filing"] == [{"messageKey": key, "decision": "archive", "result": "already-gone"}]
     assert len(world.graph.box(MAILBOX)["archive"]) == 1
 
 
@@ -169,15 +228,16 @@ def test_Graph_AMoveAnswering500_IsAFailedCheck(world, monkeypatch):
     world.plant()
     key = world.screen.short_key(MAILBOX, "id-1")
     world.memory(channel(mode="live", cursor=CURSOR, keys={key: {"id": "id-1", "reportedUtc": "2026-10-18T06:05:00Z"}},
-                         filingQueue=[{"key": key, "to": "archive"}]))
+                         filingQueue=[{"messageKey": key, "decision": "archive"}]))
     monkeypatch.setattr(world.graph, "answer", lambda *a: (500, {}))
-    assert "moving a message to archive failed" in failed(world)
+    assert first_line(failed(world)) == (f"moving a message of {MAILBOX} to archive failed: Microsoft Graph "
+                                         f"answered HTTP 500 to POST https://graph.microsoft.com/v1.0/me/messages/id-1/move")
 
 
 # ---------------------------------------------------------------------------------------------------- the memory
 
 
-@pytest.mark.parametrize("content,reason", [("", "the memory is empty"), ("not json", "not JSON"),
+@pytest.mark.parametrize("content,reason", [("", "memory is empty"), ("not json", "not JSON"),
                                             ('{"channels": []}', "holds no 'channels'"),
                                             ('{"cursor": {}}', "holds no 'channels'"),
                                             ('{"channels": [{"provider": "outlook", "mode": "observe"}]}', "no 'address'"),
@@ -193,7 +253,7 @@ def test_Memory_NotWhatTheGatewayWrites_IsAFailedCheckWithNoNetwork(world, conte
 def test_Memory_TheSameChannelTwice_IsAFailedCheck(world):
     world.plant()
     world.memory(channel(), channel(address="Email@DevThrottle.com"))
-    assert "in the memory twice" in failed(world)
+    assert "memory twice" in failed(world)
 
 
 def test_Memory_FieldsTheCheckDoesNotOwn_AreWrittenBackUnchanged(world):

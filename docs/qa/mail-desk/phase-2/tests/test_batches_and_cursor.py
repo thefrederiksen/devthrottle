@@ -47,8 +47,8 @@ def sized_message(world, mid, received, target_bytes):
     """A message whose reported entry is target_bytes of UTF-8, padded in its preview (cut to 200 characters) and
     then its subject."""
     base = msg(mid, received, sender="sender.name@example.com", name="Sender Name", subject="", preview="")
-    entry = lambda m: world.screen.compact({"key": "0123456789abcdef", "received": received, "from": "sender.name@example.com",
-                                            "name": "Sender Name", "subject": m["subject"], "hasAttachments": False,
+    entry = lambda m: world.screen.compact({"messageKey": "0123456789abcdef", "receivedUtc": received,
+                                            "sender": "sender.name@example.com", "senderName": "Sender Name", "subject": m["subject"], "hasAttachments": False,
                                             "knownSender": False, "preview": m["bodyPreview"][:200]})
     base["bodyPreview"] = "p" * min(200, max(0, target_bytes - len(entry(base).encode("utf-8"))))
     base["subject"] = "s" * max(0, target_bytes - len(entry(base).encode("utf-8")))
@@ -64,7 +64,7 @@ def test_Batch_TwentyFiveSmallMessages_TenPerRunAndAllOfThemOnce(world):
     start(world, [msg(i, at(n)) for n, i in enumerate(ids)])
     reported, contexts = run_until_quiet(world)
     assert [len(all_messages(c)) for c in contexts] == [10, 10, 5, 0]
-    assert [m["key"] for m in reported] == keys_of(world, ids)          # oldest first, nothing skipped, nothing twice
+    assert [m["messageKey"] for m in reported] == keys_of(world, ids)          # oldest first, nothing skipped, nothing twice
     assert [c["channels"][0]["more"] for c in contexts] == [True, True, False, False]
 
 
@@ -90,7 +90,7 @@ def test_Batch_LargeMessages_TheSevenKilobyteBudgetStopsTheBatch(world):
     counts = [len(all_messages(c)) for c in contexts if all_messages(c)]
     assert counts[0] == 7                                              # 7 x 900 bytes fits in 7168; 8 does not
     assert all(n <= 7 for n in counts)
-    assert [m["key"] for m in reported] == keys_of(world, ids)
+    assert [m["messageKey"] for m in reported] == keys_of(world, ids)
 
 
 def test_Batch_ASingleMessageLargerThanTheBudget_IsReportedTrimmedAndTheCheckMovesOn(world):
@@ -99,16 +99,16 @@ def test_Batch_ASingleMessageLargerThanTheBudget_IsReportedTrimmedAndTheCheckMov
     reported, contexts = run_until_quiet(world)
     first = all_messages(contexts[0])
     assert len(first) == 1 and first[0]["trimmed"] is True
-    assert first[0]["from"] == "someone@example.com" and first[0]["key"] == world.screen.short_key(MAILBOX, "huge")
+    assert first[0]["sender"] == "someone@example.com" and first[0]["messageKey"] == world.screen.short_key(MAILBOX, "huge")
     assert first[0]["preview"] == ""
-    assert [m["key"] for m in reported] == keys_of(world, ["huge", "after"])
+    assert [m["messageKey"] for m in reported] == keys_of(world, ["huge", "after"])
     assert "trimmed" not in reported[1]
 
 
 def test_Batch_AnOversizedMessageAfterOthers_WaitsToBeFirstNextRun(world):
     start(world, [msg("small", at(1)), msg("huge", at(2), subject="S" * 20000), msg("after", at(3))])
     _, contexts = run_until_quiet(world)
-    assert [[m["key"] for m in all_messages(c)] for c in contexts[:3]] == [
+    assert [[m["messageKey"] for m in all_messages(c)] for c in contexts[:3]] == [
         keys_of(world, ["small"]), keys_of(world, ["huge"]), keys_of(world, ["after"])]
 
 
@@ -121,7 +121,7 @@ def test_Cursor_MessagesSharingOneReceiveTimeAcrossTheCut_AreReportedOnceEach(wo
     ids = [f"same-{n:02}" for n in range(15)]
     start(world, [msg(i, at(5)) for i in ids])
     _, contexts = run_until_quiet(world)
-    batches = [[m["key"] for m in all_messages(c)] for c in contexts]
+    batches = [[m["messageKey"] for m in all_messages(c)] for c in contexts]
     assert [len(b) for b in batches] == [10, 5, 0]
     assert sorted(batches[0] + batches[1]) == sorted(keys_of(world, ids))
     cursor = world.read_memory()["channels"][0]["cursor"]
@@ -142,7 +142,7 @@ def test_Cursor_TheCutBetweenTwoMessagesOfOneSecond_KeepsBothIdsOnceTheSecondIsR
     world.run()
     assert world.read_memory()["channels"][0]["cursor"] == {"newest": at(20), "idsAtNewest": ["tie-a"]}
     _, _, context, _ = world.run()
-    assert [m["key"] for m in all_messages(context)] == keys_of(world, ["tie-b"])
+    assert [m["messageKey"] for m in all_messages(context)] == keys_of(world, ["tie-b"])
     assert world.read_memory()["channels"][0]["cursor"] == {"newest": at(20), "idsAtNewest": ["tie-a", "tie-b"]}
 
 
@@ -152,7 +152,7 @@ def test_Cursor_NewMailArrivingBetweenRuns_IsPickedUpAfterTheBacklog(world):
     world.run()
     world.graph.box(MAILBOX)["inbox"].append(msg("late", at(100)))
     reported, _ = run_until_quiet(world)
-    assert [m["key"] for m in reported] == keys_of(world, ids[10:] + ["late"])
+    assert [m["messageKey"] for m in reported] == keys_of(world, ids[10:] + ["late"])
 
 
 # ---------------------------------------------------------------------------------------------------- first run
@@ -165,7 +165,7 @@ def test_FirstRun_MoreThanTwoHundredMessages_ReadsOnlyTheMostRecentTwoHundred(wo
                                           for n, i in enumerate(ids)]
     world.memory(channel())
     reported, _ = run_until_quiet(world)
-    assert [m["key"] for m in reported] == keys_of(world, ids[50:])
+    assert [m["messageKey"] for m in reported] == keys_of(world, ids[50:])
 
 
 def test_FirstRun_OlderThanThirtyDays_IsNotRead(world):
@@ -173,7 +173,7 @@ def test_FirstRun_OlderThanThirtyDays_IsNotRead(world):
     world.graph.box(MAILBOX)["inbox"] += [msg("old", "2026-09-17T11:00:00Z"), msg("recent", "2026-09-19T11:00:00Z")]
     world.memory(channel())
     reported, _ = run_until_quiet(world)
-    assert [m["key"] for m in reported] == keys_of(world, ["recent"])
+    assert [m["messageKey"] for m in reported] == keys_of(world, ["recent"])
 
 
 def test_FirstRun_EmptyInbox_CountsZeroAndStaysAFirstRun(world):
@@ -194,7 +194,7 @@ def test_Utf8_NonLatinSubjectsAndNames_SurviveTheOutput(world):
     _, _, context, _ = world.run()
     reported = all_messages(context)
     assert [m["subject"] for m in reported] == subjects
-    assert [m["name"] for m in reported] == [s[::-1] for s in subjects]
+    assert [m["senderName"] for m in reported] == [s[::-1] for s in subjects]
 
 
 def test_Utf8_TheBudgetCountsBytesNotCharacters(world):
@@ -209,4 +209,4 @@ def test_Utf8_TheBudgetCountsBytesNotCharacters(world):
     assert len(output["context"].encode("utf-8")) <= BUDGET
     assert len(reported) == 4
     reported_all, _ = run_until_quiet(world)
-    assert [m["key"] for m in reported + reported_all] == keys_of(world, ids)
+    assert [m["messageKey"] for m in reported + reported_all] == keys_of(world, ids)
