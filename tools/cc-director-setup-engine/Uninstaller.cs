@@ -530,8 +530,9 @@ public sealed class Uninstaller
         }
         catch (Exception ex) { errors.Add($"Director app ({app}): {ex.Message}"); }
 
-        // 2. Our shim symlinks in ~/.local/bin (only those pointing into our pyenv).
-        var userBin = _layout.MacUserBinDir;
+        // 2. Our shim symlinks (only those pointing into our pyenv): ~/.local/bin for the machine's default
+        //    root, the root's own bin for any other (InstallLayout.ToolShimDir).
+        var userBin = _layout.ToolShimDir;
         if (Directory.Exists(userBin))
         {
             foreach (var entry in Directory.EnumerateFileSystemEntries(userBin))

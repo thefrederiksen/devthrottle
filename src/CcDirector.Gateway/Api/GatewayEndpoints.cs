@@ -2047,6 +2047,16 @@ internal static partial class GatewayEndpoints
             // The tunnel unary has no 2s aggregate timeout - keep-alive sustains a multi-second spawn - so
             // the orphan risk the old dedicated 20s HttpClient guarded against does not apply.
             var spawnReq = ContinuationRequest(row, context);
+            // An API-mode seat continued on a Director too old to start API mode would come back as a terminal session
+            // with a success answer (API mode mission, phase 6 review, round 2, finding R2-1). Refused here, before the
+            // create is sent, with the guard's sentence, as both create doors and the Director-driven restores refuse it.
+            // Nothing is started and the journal row is left as it is, so the seat can still be restored once that
+            // Director is updated, or on another one.
+            if (ConnectionChoiceFold.DirectorCannotCarry(spawnReq, target) is { } noApiMode)
+            {
+                FileLog.Write($"[GatewayEndpoints] restore REFUSED for dead {row.SessionId} on {target.DirectorId}: {noApiMode} (the journal row is kept)");
+                return Results.Json(new { error = noApiMode }, statusCode: StatusCodes.Status409Conflict);
+            }
             // A seat continued on a Director that cannot build its kit would run with none of its limits: refused here,
             // before the create is sent, as every other door refuses it.
             if (SpawnFactory.DirectorCannotBuildKit(spawnReq, target,

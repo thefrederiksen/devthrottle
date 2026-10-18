@@ -18,6 +18,9 @@ public enum DueCheckRefusal
     HeldByAnotherDirector,
     /// <summary>The reporting Director never said on Hello that it runs checks from a definition.</summary>
     CannotRunDefinitionChecks,
+    /// <summary>A timed start of the Mail Desk screening check (<see cref="MailDesk.MailDeskStart.Is(CronJobDto)"/>)
+    /// reported for an account Mail Desk is not switched on for. Nothing is recorded.</summary>
+    MailDeskOff,
 }
 
 /// <summary>The answer to one due check's report: the run as it now stands, or why nothing was recorded.</summary>
@@ -77,6 +80,7 @@ public sealed class DueCheckService
     private readonly Action<TenantId, CronRunRecord> _resultRecorded;
     private readonly Func<DateTime> _nowUtc;
     private readonly CancellationToken _startLifetime;
+    private readonly Func<TenantId, bool> _mailDeskOn;
 
     /// <param name="jobOf">A schedule of the account by id, or null when it is gone.</param>
     /// <param name="starter">The cron starter the schedule itself starts sessions through.</param>
@@ -85,10 +89,14 @@ public sealed class DueCheckService
     /// <param name="resultRecorded">Told of every run this records with its result on it, so its factory activity row
     /// is written (production: <see cref="CronRunResultService.WriteOwedActivityFor"/>).</param>
     /// <param name="startLifetime">The Gateway's own lifetime, which a session start runs on - never the request's.</param>
+    /// <param name="mailDeskOn">Whether Mail Desk is switched on for the account (<see cref="MailDesk.MailDeskSwitch.IsOn"/>).
+    /// A timed start of the Mail Desk screening check reported for an account it is off for is refused, unrecorded.</param>
     public DueCheckService(CronRunHistoryStore runs, Func<TenantId, string, CronJobDto?> jobOf, FactoryCheckStateStore states,
         ICronSessionStarter starter, Func<TenantId, string, bool> directorRunsDefinitionChecks,
-        Action<TenantId, CronRunRecord> resultRecorded, Func<DateTime> nowUtc, CancellationToken startLifetime)
+        Action<TenantId, CronRunRecord> resultRecorded, Func<DateTime> nowUtc, CancellationToken startLifetime,
+        Func<TenantId, bool> mailDeskOn)
     {
+        _mailDeskOn = mailDeskOn ?? throw new ArgumentNullException(nameof(mailDeskOn));
         _runs = runs ?? throw new ArgumentNullException(nameof(runs));
         _jobOf = jobOf ?? throw new ArgumentNullException(nameof(jobOf));
         _states = states ?? throw new ArgumentNullException(nameof(states));
@@ -172,6 +180,14 @@ public sealed class DueCheckService
             return HeldBy(due, directorId);
 
         var job = _jobOf(tenant, due.JobId);
+        // MAIL DESK OFF, decided before the report is read and before anything is written, exactly as a trigger's report
+        // is (TriggerService.ReportCheckAsync): no run result, no kept state, no start. The run stays waiting on its check.
+        if (job is not null && MailDesk.MailDeskStart.Is(job) && !_mailDeskOn(tenant))
+        {
+            FileLog.Write($"[DueCheckService] Report: run={id}, schedule={job.Id} is a Mail Desk check and Mail Desk is off for account {tenant.ToLogString()} - refused, nothing recorded");
+            return DueCheckReportResult.Refused(DueCheckRefusal.MailDeskOff,
+                $"run {id} is the Mail Desk screening check, and Mail Desk is not switched on for this account; this report was not recorded and nothing was started");
+        }
         var reading = TriggerCheckContract.Read(report, definitionCheck: true);
         var now = _nowUtc();
 

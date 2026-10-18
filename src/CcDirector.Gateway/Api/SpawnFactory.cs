@@ -440,8 +440,9 @@ internal static class SpawnFactory
         return refuseSeatStart is null ? Running.MachineSessionSpawner.CannotTellKit : refuseSeatStart(req, directorId);
     }
 
-    // "2.12.0", "v2.16.0", "2.16.0-rc1", "2.16.0+68fd9d7" -> the release; anything else -> null.
-    private static Version? ReleaseOf(string? reported)
+    // "2.12.0", "v2.16.0", "2.16.0-rc1", "2.16.0+68fd9d7" -> the release; anything else -> null. Shared with the
+    // connection-mode guard (ConnectionChoiceFold.DirectorCannotCarry), which reads Director versions the same way.
+    internal static Version? ReleaseOf(string? reported)
     {
         var t = (reported ?? "").Trim();
         if (t.StartsWith('v') || t.StartsWith('V')) t = t[1..];

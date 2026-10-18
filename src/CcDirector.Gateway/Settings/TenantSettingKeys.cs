@@ -256,6 +256,14 @@ public static class TenantSettingKeys
     public const string FactoryAgentsSwitch = "factory_agents_switch";
 
     /// <summary>
+    /// Whether Mail Desk is switched on for this account (the Mail Desk mission, issue #4213): a JSON decision -
+    /// enabled, who switched it, why, and when. Written ONLY by the administrator route
+    /// <c>POST /gateway/admin/mail-desk</c>, never by the account's own settings page. Unlike the factory agents switch
+    /// there is no machine switch: see <c>MailDesk.MailDeskSwitch</c>.
+    /// </summary>
+    public const string MailDeskSwitch = "mail_desk_switch";
+
+    /// <summary>
     /// The pause-everything switch (issue #3910): the moment the account's scheduler was paused, as a round-trip UTC
     /// time. No row means not paused. Read and written only by <c>Running.CronPauseSwitch</c>; it sits beside the
     /// schedules and never changes one.
@@ -353,6 +361,7 @@ public static class TenantSettingKeys
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
+        MailDeskSwitch,
         SchedulesPaused,
         FactoryManagerSessionId, FactoryManagerMachine, FactoryManagerFolder, FactoryManagerEarlierSessionIds,
         GatewayInstanceId,

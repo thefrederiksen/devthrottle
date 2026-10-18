@@ -639,7 +639,7 @@ public sealed class PythonToolsInstaller
                   Path.Combine(_layout.BinDir, $"{name}.exe"),
                   Path.Combine(_layout.BinDir, name), // bare-name bash shim
               }
-            : new[] { Path.Combine(_layout.MacUserBinDir, name) };
+            : new[] { Path.Combine(_layout.ToolShimDir, name) };
 
     /// <summary>
     /// The orphaned legacy alias shim files that currently exist on disk (issue #823) - pure detection, no
@@ -786,7 +786,7 @@ public sealed class PythonToolsInstaller
                       Path.Combine(_layout.BinDir, $"{script}.exe"),
                       Path.Combine(_layout.BinDir, script), // bare-name bash shim
                   }
-                : new[] { Path.Combine(_layout.MacUserBinDir, script) };
+                : new[] { Path.Combine(_layout.ToolShimDir, script) };
             foreach (var path in paths)
             {
                 try { if (File.Exists(path)) File.Delete(path); }
@@ -863,16 +863,18 @@ public sealed class PythonToolsInstaller
         + $"\"%~dp0..\\pyenv\\Scripts\\{script}.exe\" %*\r\n";
 
     /// <summary>
-    /// On macOS each shim is a symlink in ~/.local/bin pointing at the venv's console script. The
-    /// Director .app launcher already prepends ~/.local/bin to PATH, and InstallFinalizer ensures it
-    /// is on the user's shell PATH too. Replaces any existing entry of the same name (migration).
+    /// On macOS and Linux each shim is a symlink in <see cref="InstallLayout.ToolShimDir"/> pointing at the
+    /// venv's console script. For the machine's default root that is ~/.local/bin, which the Director
+    /// puts on its own PATH and InstallFinalizer puts on the user's shell PATH; for any other root it is
+    /// that root's own bin, so a scratch root never re-points the user's links at an environment that is
+    /// deleted with it. Replaces any existing entry of the same name (migration).
     /// </summary>
     private void WriteUnixShims(IReadOnlyList<string> scripts)
     {
-        Directory.CreateDirectory(_layout.MacUserBinDir);
+        Directory.CreateDirectory(_layout.ToolShimDir);
         foreach (var script in scripts)
         {
-            var link = Path.Combine(_layout.MacUserBinDir, script);
+            var link = Path.Combine(_layout.ToolShimDir, script);
             var target = Path.Combine(_layout.PyenvBinDir, script);
             try
             {

@@ -24,8 +24,19 @@ public static class LicenseAlarmFold
     /// <summary>The line above the alarms when more than one is open; null for none or one.</summary>
     public static string? Summary(int count) => count > 1 ? $"{count} license problems need you." : null;
 
+    /// <summary>
+    /// The sentence added to the banner's line of an alarm that has come and gone, held back from the owner's email and
+    /// phones by <see cref="LicenseAlarmService.HoldDown"/>; null for an alarm that opened once.
+    /// </summary>
+    public static string? CameBack(int timesInARow) => timesInARow < 2
+        ? null
+        : $"It has come and gone: this is the {Ordinal(timesInARow)} time in a row, each within {HoldDownWords} of the last, and you were told only the first time.";
+
     /// <summary>The banner: one line for each open alarm, oldest first, and a summary line when there are several.</summary>
-    public static LicenseAlarmsResponse Banner(IReadOnlyList<LicenseAlarmEntity> open, DateTime nowUtc)
+    /// <param name="timesInARow">How many times in a row each alarm has opened (<see cref="LicenseAlarmService.TimesInARow"/>);
+    /// an alarm not in it opened once.</param>
+    public static LicenseAlarmsResponse Banner(IReadOnlyList<LicenseAlarmEntity> open, DateTime nowUtc,
+        IReadOnlyDictionary<Guid, int>? timesInARow = null)
     {
         ArgumentNullException.ThrowIfNull(open);
         return new LicenseAlarmsResponse
@@ -40,7 +51,9 @@ public static class LicenseAlarmFold
                 Kind = a.Kind,
                 MachineName = a.MachineName.Length == 0 ? null : a.MachineName,
                 AccountEmail = a.AccountEmail.Length == 0 ? null : a.AccountEmail,
-                Text = Line(a.Problem, a.Action),
+                Text = CameBack(timesInARow is not null && timesInARow.TryGetValue(a.Id, out var times) ? times : 1) is { } cameBack
+                    ? $"{Line(a.Problem, a.Action)} {cameBack}"
+                    : Line(a.Problem, a.Action),
                 OpenedAtUtc = DateTime.SpecifyKind(a.OpenedAtUtc, DateTimeKind.Utc),
             }).ToList(),
         };
@@ -61,6 +74,10 @@ public static class LicenseAlarmFold
 
     /// <summary>The Licenses log's row for an alarm that opened.</summary>
     public static string OpenedLogMessage(string problem, string action) => $"Alarm opened. {Line(problem, action)}";
+
+    /// <summary>The Licenses log's row for an alarm that opened again within the hold-down, and told nobody.</summary>
+    public static string HeldLogMessage(string problem, string action)
+        => $"Alarm opened again within {HoldDownWords} of closing, so no email or push was sent. {Line(problem, action)}";
 
     /// <summary>The Licenses log's row for an alarm that closed by itself.</summary>
     public static string ClosedLogMessage(string problem) => $"Alarm closed, because this is no longer true: {problem}";
@@ -94,7 +111,20 @@ public static class LicenseAlarmFold
         body.Append("Each problem is shown in red at the top of every page of the Cockpit until it is fixed, and on its Licenses page.\r\n");
         body.Append("\r\nThis is the only email for ");
         body.Append(alarms.Count == 1 ? "this problem" : "these problems");
-        body.Append(". Another is sent only if a problem is fixed and then comes back.");
+        body.Append(CultureInfo.InvariantCulture, $". Another is sent only if a problem is fixed and then comes back more than {HoldDownWords} later.");
         return new LicenseOwnerEmail(accounts, subject, body.ToString());
+    }
+
+    /// <summary>The hold-down in words, as the banner, the log and the email say it.</summary>
+    private static string HoldDownWords => $"{LicenseAlarmService.HoldDown.TotalHours.ToString(CultureInfo.InvariantCulture)} hours";
+
+    /// <summary>"second", "third" ... "tenth", then "11th", "21st", "22nd" and so on.</summary>
+    internal static string Ordinal(int n)
+    {
+        string[] words = { "", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth" };
+        if (n >= 1 && n < words.Length)
+            return words[n];
+        var suffix = (n % 100) is 11 or 12 or 13 ? "th" : (n % 10) switch { 1 => "st", 2 => "nd", 3 => "rd", _ => "th" };
+        return $"{n.ToString(CultureInfo.InvariantCulture)}{suffix}";
     }
 }

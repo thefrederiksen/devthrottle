@@ -61,7 +61,8 @@ internal static class Program
         FileLog.Write($"[Program] Instance: slug={InstanceContext.Slug}, isDefault={InstanceContext.IsDefault}, " +
                       $"explicit={InstanceContext.WasExplicitlySelected}, home={InstanceContext.InstanceHome}");
 
-        // Put ~/.local/bin on this process's PATH on macOS and Linux when whatever started the Director left it
+        // Put the tool shim directory (~/.local/bin for the machine's default root, the root's own bin for any
+        // other) on this process's PATH on macOS and Linux when whatever started the Director left it
         // out - an SSH start does (issue devthrottle_internal#2474). Before any session starts, so every
         // session inherits it and can run cc-devthrottle, and so a Smart Restart hands it to the next build.
         CcDirector.Core.Tools.ToolShimPath.EnsureOnProcessPath();

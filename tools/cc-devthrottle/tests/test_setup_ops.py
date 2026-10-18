@@ -46,11 +46,16 @@ def _write_healthy_script(root: Path, script: str) -> None:
 
 @pytest.fixture
 def isolated_install(monkeypatch, tmp_path):
-    root = tmp_path / "cc-director"
-    monkeypatch.setenv("CC_DIRECTOR_ROOT", str(root))
+    # The machine's own install: CC_DIRECTOR_ROOT names the DEFAULT root of this made-up home, so the
+    # shims are where the machine's install keeps them (~/.local/bin on macOS and Linux). A root that is
+    # not the default keeps them in its own bin directory; the scratch-root tests below cover that.
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "profile"))
     monkeypatch.setenv("HOME", str(tmp_path / "profile"))
+    monkeypatch.delenv("CC_DIRECTOR_ROOT", raising=False)
+    root = setup_ops._default_root()
+    monkeypatch.setenv("CC_DIRECTOR_ROOT", str(root))
     # PATH is what the installer leaves behind, per platform: on Windows it adds the install bin
     # directory, where it writes the shims; on macOS and Linux the shims are links in
     # ~/.local/bin and that is the ONLY directory it puts on PATH
@@ -505,3 +510,83 @@ def test_repair_says_nothing_about_path_when_the_shim_directory_is_on_it(isolate
 
     # Assert
     assert "PATH:" not in capsys.readouterr().err
+
+
+# The shim directory rule (_shim_dir_for), the Python form of ToolShimPath.ShimDirFor. Pure: every
+# answer comes from the four inputs, never the machine.
+
+_DEFAULT_ROOT = Path("/home/tester/.local/share/cc-director")
+_HOME = Path("/home/tester")
+
+
+def test_shim_dir_for_the_default_root_off_windows_is_the_user_bin():
+    assert setup_ops._shim_dir_for(_DEFAULT_ROOT, _DEFAULT_ROOT, _HOME, is_windows=False) == _HOME / ".local" / "bin"
+
+
+def test_shim_dir_for_a_scratch_root_off_windows_is_its_own_bin():
+    scratch = Path("/tmp/scratch-root")
+
+    assert setup_ops._shim_dir_for(scratch, _DEFAULT_ROOT, _HOME, is_windows=False) == scratch / "bin"
+
+
+def test_shim_dir_for_the_default_root_with_a_trailing_separator_is_still_the_user_bin():
+    root = Path(str(_DEFAULT_ROOT) + "/")
+
+    assert setup_ops._shim_dir_for(root, _DEFAULT_ROOT, _HOME, is_windows=False) == _HOME / ".local" / "bin"
+
+
+@pytest.mark.parametrize("root", [_DEFAULT_ROOT, Path("/tmp/scratch-root")])
+def test_shim_dir_for_any_root_on_windows_is_its_own_bin(root):
+    assert setup_ops._shim_dir_for(root, _DEFAULT_ROOT, _HOME, is_windows=True) == root / "bin"
+
+
+@pytest.fixture
+def scratch_install(monkeypatch, tmp_path):
+    """A Director on a scratch root, on a machine with no default install: the case the review of pull
+    request 4211 found doctor misreporting. The machine's default root is somewhere else and empty."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "machine"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "machine"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "profile"))
+    monkeypatch.setenv("HOME", str(tmp_path / "profile"))
+    root = tmp_path / "scratch-root"
+    # A session of that Director is handed its instance home, which climbs back to the scratch root.
+    monkeypatch.setenv("CC_DIRECTOR_ROOT", str(root / "instances" / "slot-5"))
+    monkeypatch.setenv("PATH", str(root / "bin"))
+    if os.name == "nt":
+        monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+    return root
+
+
+def test_doctor_on_a_scratch_root_looks_for_the_links_in_the_roots_own_bin(scratch_install, tmp_path):
+    target = _script_target(scratch_install, "cc-devthrottle")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("fake", encoding="utf-8")
+    bin_dir = scratch_install / "bin"
+    bin_dir.mkdir(parents=True)
+    if os.name == "nt":
+        (bin_dir / "cc-devthrottle.cmd").write_text("@echo off\r\n", encoding="utf-8")
+        (bin_dir / "cc-devthrottle").write_text("#!/bin/sh\n", encoding="utf-8")
+    else:
+        shim = bin_dir / "cc-devthrottle"
+        shim.write_text("#!/bin/sh\n", encoding="utf-8")
+        shim.chmod(0o755)
+
+    data = setup_ops.doctor_data()
+
+    assert data["installRoot"] == str(scratch_install)
+    assert data["shimDir"] == str(bin_dir)
+    assert data["problems"] == []
+    # And nothing points at the user's global bin, which this root never writes.
+    user_bin = str(tmp_path / "profile" / ".local" / "bin")
+    assert all(not s["path"].startswith(user_bin) for c in data["commands"] for s in c["shims"].values())
+
+
+def test_repair_on_a_scratch_root_names_its_own_bin_when_it_is_off_path(scratch_install, monkeypatch, capsys):
+    monkeypatch.setattr(setup_ops, "_run_setup_command", lambda *args: None)
+    monkeypatch.setenv("PATH", str(scratch_install / "elsewhere"))
+
+    setup_ops.repair()
+
+    err = capsys.readouterr().err
+    assert f"PATH: {scratch_install / 'bin'} is not on this" in err
+    assert ".local" not in err

@@ -643,12 +643,16 @@ public sealed class Session : IDisposable
         DateTime? needsYouSince,
         DateTime? snoozeUntil,
         bool snoozeExpired,
-        string? inboxLine = null)
+        string? inboxLine = null,
+        CcDirector.Gateway.Contracts.ApiModeSessionDisplay? apiMode = null)
     {
         var color = string.IsNullOrWhiteSpace(effectiveColor) ? null : effectiveColor.Trim();
         var label = string.IsNullOrWhiteSpace(stateLabel) ? null : stateLabel.Trim();
         var bucket = string.IsNullOrWhiteSpace(triageBucket) ? null : triageBucket.Trim();
         var inbox = string.IsNullOrWhiteSpace(inboxLine) ? null : inboxLine;
+        // The API-mode verdict is compared by value, as JSON, so a push that changes only the wheel button still
+        // raises the change and the screen redraws it (mission #4070).
+        var apiModeJson = System.Text.Json.JsonSerializer.Serialize(apiMode);
 
         var changed =
             !string.Equals(GatewayEffectiveColor, color, StringComparison.Ordinal)
@@ -657,7 +661,8 @@ public sealed class Session : IDisposable
             || GatewayNeedsYouSince != needsYouSince
             || GatewaySnoozeUntil != snoozeUntil
             || GatewaySnoozeExpired != snoozeExpired
-            || !string.Equals(GatewayInboxLine, inbox, StringComparison.Ordinal);
+            || !string.Equals(GatewayInboxLine, inbox, StringComparison.Ordinal)
+            || !string.Equals(_gatewayApiModeJson, apiModeJson, StringComparison.Ordinal);
 
         if (!changed) return;
 
@@ -668,11 +673,26 @@ public sealed class Session : IDisposable
         GatewaySnoozeUntil = snoozeUntil;
         GatewaySnoozeExpired = snoozeExpired;
         GatewayInboxLine = inbox;
+        // Its own copy, so a later change to the caller's object cannot reach the screen unannounced.
+        _gatewayApiModeJson = apiModeJson;
+        GatewayApiMode = System.Text.Json.JsonSerializer.Deserialize<CcDirector.Gateway.Contracts.ApiModeSessionDisplay?>(apiModeJson);
 
-        FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}, inboxLine={inbox ?? "(none)"}");
+        var wheel = apiMode?.WheelAction;
+        FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}, inboxLine={inbox ?? "(none)"}, "
+            + $"apiMode={apiMode?.Kind ?? "(none)"}, wheel={wheel?.Verb ?? "(none)"}, wheelLabel={wheel?.Label ?? "(none)"}, wheelEnabled={wheel?.Enabled.ToString() ?? "(none)"}, wheelReason={wheel?.DisabledReason ?? "(none)"}");
         try { OnGatewayDisplayStateChanged?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler FAILED: {ex.Message}"); }
     }
+
+    /// <summary>The Gateway's API-mode verdict for this session (<see cref="CcDirector.Gateway.Contracts.SessionDto.ApiMode"/>,
+    /// mission #4070), the Terminal tab's wheel button included; null when the Gateway says there is none - every
+    /// terminal-mode session, and every session until a Gateway has stamped one. Delivered with the display state by
+    /// <see cref="ApplyGatewayDisplayState"/>, stored and echoed verbatim; the Terminal view draws the wheel button from
+    /// it and never reads <see cref="ConnectionMode"/> or the wheel holder to decide.</summary>
+    public CcDirector.Gateway.Contracts.ApiModeSessionDisplay? GatewayApiMode { get; private set; }
+
+    /// <summary>The stored verdict as JSON: the value compared for a change, and the source of the stored copy.</summary>
+    private string _gatewayApiModeJson = "null";
 
     /// <summary>Set (or clear, on a null/blank value) this session's sticky explicit role. The value is
     /// validated against the role set by the caller; this only stores it.</summary>

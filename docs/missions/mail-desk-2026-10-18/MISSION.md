@@ -157,6 +157,13 @@ Every answer the owner gave, in his words where he gave words. Dictated text is 
   page is shared client code mounted by both shells, like Settings (rule 8). It ships in the Gateway image, so it is
   inside D16's deploy grant, and it is hidden when the account's switch is off.
 
+- **D22. GRANT - the Delivery Lead publishes and adds the mailboxes.** Asked whether the Delivery Lead may publish
+  the `mail-desk` factory and add both mailboxes in observe mode, the owner: "You can publish when you have something
+  ready that we can test out." So in phase 6 the Delivery Lead - a session in no factory, the 6c rule - publishes the
+  account's `mail-desk` factory and adds both channels (D19), each in **observe** mode on devlinux, once phases 1 to 5
+  and 7 are merged and deployed. This grant does NOT cover `maildesk mode ... live`: live mode stays the owner's own
+  decision (D17).
+
 ### Overrides of the method
 
 None. The order of reviewers is the repository rules' section 5a (the owner's ruling of 28 September 2026), which is

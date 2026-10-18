@@ -68,7 +68,7 @@ public sealed class DefinitionTriggerServiceTests : IDisposable
             startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, director) => _definitionDirectors.Contains(director),
             machineRunsDefinitionChecks: (_, machine) => _definitionMachines.Contains(machine),
-            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null);
+            definitionOf: (_, factory) => _published.TryGetValue(factory, out var p) ? p : null, mailDeskOn: _ => false);
 
     /// <summary>A definition trigger as a publish writes it: a check path and no command.</summary>
     private Guid AddDefinitionTrigger(bool paused = false, string prompt = "New mail: {count}. {context}")

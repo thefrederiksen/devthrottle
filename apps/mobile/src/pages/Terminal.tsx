@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { listSessions } from "@devthrottle/client-core/api/client";
 import { TerminalMirror, type TerminalStreamStatus } from "@devthrottle/client-core/terminal/stream";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
+import { TerminalWheelButton } from "@devthrottle/client-core/sessions/TerminalWheelButton";
 import { SessionControls } from "../components/SessionControls";
 import { SessionAppBar } from "../components/SessionAppBar";
 import { useSessionManage } from "../components/useSessionManage";
@@ -98,6 +99,8 @@ export function Terminal() {
 
       <div className="term-statusbar">
         <span className="term-status" role="status">{status}</span>
+        {/* The Gateway's wheel verdict for an API-mode session; renders nothing when the verdict has no button. */}
+        <TerminalWheelButton session={manage.session} onChanged={manage.refreshNow} />
         <button type="button" className="term-keys-toggle" onClick={() => setShowKeys((v) => !v)}>
           {showKeys ? "Hide keys" : "Keys"}
         </button>

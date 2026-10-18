@@ -55,6 +55,10 @@ public sealed class DeviceRegistryImporter
     /// <summary>The devices.json path this importer migrates from - the marker's identity.</summary>
     public string StorePath => _storePath;
 
+    /// <summary>Runs between the marker check and the import's own transaction - the window in which a second
+    /// importer can finish first. Tests only: it lets a test put that race in order rather than hope for it.</summary>
+    internal Action? AfterMarkerCheck { get; set; }
+
     /// <summary>
     /// Run the one-time import. Returns a result describing what happened: whether it was skipped because a
     /// marker already recorded a prior import, and how many rows were written. Idempotent - a second call with
@@ -75,6 +79,8 @@ public sealed class DeviceRegistryImporter
             return new DeviceImportResult(Skipped: true, ImportedCount: 0);
         }
 
+        AfterMarkerCheck?.Invoke();
+
         var parsed = ReadLegacyFile();
 
         using var tx = ctx.Database.BeginTransaction();
@@ -89,8 +95,27 @@ public sealed class DeviceRegistryImporter
             ImportedCount = parsed.Count,
         });
 
-        ctx.SaveChanges();
-        tx.Commit();
+        try
+        {
+            ctx.SaveChanges();
+            tx.Commit();
+        }
+        catch (DbUpdateException ex)
+        {
+            // TWO IMPORTERS RACED, AND THE OTHER ONE WON. The check above runs before this transaction, so two
+            // importers on one database - two Gateway replicas starting together, or two test classes each opening
+            // the default store - can both find no marker, and the second insert then fails on the marker's unique
+            // SourcePath (main, 18 October 2026: "UNIQUE constraint failed: device_import_markers.SourcePath").
+            // Nothing of this transaction committed. If the marker is there now, the other importer moved the file
+            // in full - the marker and its rows commit together - so this one has nothing to do. If it is NOT
+            // there, the failure was something else, and it is thrown as it was.
+            tx.Rollback();
+            using var check = _db.CreateUnscopedContext();
+            if (!check.DeviceImportMarkers.AsNoTracking().Any(m => m.SourcePath == _storePath))
+                throw;
+            FileLog.Write($"[DeviceRegistryImporter] Import: another importer finished {_storePath} first ({ex.InnerException?.Message ?? ex.Message}) -> no-op");
+            return new DeviceImportResult(Skipped: true, ImportedCount: 0);
+        }
 
         FileLog.Write($"[DeviceRegistryImporter] Import: migrated {parsed.Count} device(s) from {_storePath} into device_credentials (marker written)");
         return new DeviceImportResult(Skipped: false, ImportedCount: parsed.Count);

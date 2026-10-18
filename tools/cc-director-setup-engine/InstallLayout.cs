@@ -1,4 +1,5 @@
 using CcDirector.Core.Storage;
+using CcDirector.Core.Tools;
 using System.Runtime.InteropServices;
 
 namespace CcDirector.Setup.Engine;
@@ -25,7 +26,16 @@ public sealed class InstallLayout
     /// <exception cref="ArgumentException">
     /// <paramref name="localRoot"/> is blank, or is a relative path.
     /// </exception>
-    public InstallLayout(string localRoot)
+    public InstallLayout(string localRoot) : this(localRoot, defaultRoot: null, homeDir: null)
+    {
+    }
+
+    /// <summary>
+    /// A layout whose idea of this machine's default root and of the user's home folder is fixed by the
+    /// caller, so a test decides where the tool links go without reading - or writing - a real home folder.
+    /// Null means "ask the machine", which is what <see cref="InstallLayout(string)"/> does.
+    /// </summary>
+    internal InstallLayout(string localRoot, string? defaultRoot, string? homeDir)
     {
         if (string.IsNullOrWhiteSpace(localRoot))
             throw new ArgumentException("localRoot must not be empty.", nameof(localRoot));
@@ -43,7 +53,12 @@ public sealed class InstallLayout
         }
 
         LocalRoot = localRoot;
+        _defaultRoot = defaultRoot;
+        _homeDir = homeDir;
     }
+
+    private readonly string? _defaultRoot;
+    private readonly string? _homeDir;
 
     /// <summary>
     /// The production layout. The root is <see cref="CcStorage.MachineRoot"/> - the ONE folder per
@@ -102,10 +117,39 @@ public sealed class InstallLayout
     /// <summary>macOS user apps dir (~/Applications) - where the Director .app is placed (user-writable).</summary>
     public string MacAppsDir => Path.Combine(HomeDir, "Applications");
 
-    /// <summary>macOS user bin (~/.local/bin) - where cc-* tool shim symlinks go (the .app launcher PATHs it).</summary>
-    public string MacUserBinDir => Path.Combine(HomeDir, ".local", "bin");
+    /// <summary>
+    /// Where the cc-* tool shims of THIS install are written, on the platform this process runs on. See
+    /// <see cref="ToolShimDirFor"/>.
+    /// </summary>
+    public string ToolShimDir => ToolShimDirFor(HostPlatform.Current);
 
-    private static string HomeDir => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    /// <summary>
+    /// Where the cc-* tool shims of this install are written on <paramref name="platform"/>: the install's
+    /// own <see cref="BinDir"/> on Windows, and on macOS and Linux the user's <c>~/.local/bin</c> ONLY when
+    /// this install is the machine's default root - any other root keeps its links in its own
+    /// <see cref="BinDir"/>. The rule itself is <see cref="ToolShimPath.ShimDirFor"/>.
+    ///
+    /// This replaced a property that answered <c>~/.local/bin</c> for every root. A Director started on a
+    /// scratch root (CC_DIRECTOR_ROOT, as every slot-5 test Director is) ran the start-up tools self-heal
+    /// against that root and re-pointed the user's real links at the scratch environment, so deleting the
+    /// scratch root broke the tools for every session on the machine. Every shim writer, remover and reader
+    /// in the engine goes through this one property, so none of them can reach the global bin from a root
+    /// that is not the machine's.
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">There is no layout for <paramref name="platform"/>.</exception>
+    public string ToolShimDirFor(OSPlatform platform)
+    {
+        if (!HostPlatform.IsSupported(platform))
+            throw new PlatformNotSupportedException($"There is no install layout for {platform}.");
+
+        return ToolShimPath.ShimDirFor(
+            LocalRoot,
+            _defaultRoot ?? CcStorage.DefaultRoot(),
+            HomeDir,
+            platform == OSPlatform.Windows);
+    }
+
+    private string HomeDir => _homeDir ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
     /// <summary>
     /// The configuration directory of this install - the parent of every per-tool config folder, and

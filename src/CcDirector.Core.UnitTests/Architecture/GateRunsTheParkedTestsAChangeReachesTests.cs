@@ -91,7 +91,36 @@ public sealed class GateRunsTheParkedTestsAChangeReachesTests
     {
         var script = Script("select-tests.ps1");
 
-        Assert.Contains("@(& git -C $repoRoot diff --name-only HEAD)", script);
-        Assert.Contains("@(& git -C $repoRoot ls-files --others --exclude-standard)", script);
+        Assert.Contains("$dirty = @(& git -C $repoRoot diff --name-only HEAD 2>$null)", script);
+        Assert.Contains("$untracked = @(& git -C $repoRoot ls-files --others --exclude-standard 2>$null)", script);
+        Assert.Contains("$changed = @($changed + $dirty + $untracked | Where-Object { $_ } | Select-Object -Unique)", script);
+    }
+
+    [Fact]
+    public void SelectTests_AGitWarningOnStandardError_DoesNotEndTheGate()
+    {
+        // On 18 October 2026 every gate run on a tree holding a file git would convert line endings for died on
+        // git's "LF will be replaced by CRLF" warning: Windows PowerShell 5.1 turns a native command's standard-error
+        // line into a terminating error under Stop, even with 2>$null. The reads of what the change touches run with
+        // the preference lowered, and put it back afterwards.
+        var script = Script("select-tests.ps1").Replace("\r\n", "\n");
+
+        var lowered = script.IndexOf("$ErrorActionPreference = \"Continue\"", StringComparison.Ordinal);
+        var restored = script.IndexOf("} finally { $ErrorActionPreference = $previousPreference }", StringComparison.Ordinal);
+        Assert.True(lowered >= 0 && restored > lowered, "select-tests.ps1 no longer lowers the error preference around its git reads.");
+        foreach (var read in new[]
+                 {
+                     "& git -C $repoRoot diff --name-only \"$Base...HEAD\"",
+                     "& git -C $repoRoot diff --name-only HEAD",
+                     "& git -C $repoRoot ls-files --others --exclude-standard",
+                 })
+        {
+            var at = script.IndexOf(read, StringComparison.Ordinal);
+            Assert.True(at > lowered && at < restored, $"'{read}' runs outside the lowered error preference, so a git warning ends the gate.");
+        }
+
+        // Lowered is not ignored: a read that fails still stops the gate, saying which.
+        Assert.Contains("throw \"git diff --name-only HEAD failed (exit $LASTEXITCODE)", script);
+        Assert.Contains("throw \"git ls-files --others failed (exit $LASTEXITCODE)", script);
     }
 }
