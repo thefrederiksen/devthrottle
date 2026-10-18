@@ -553,6 +553,8 @@ public static class FactoryBriefPanelFold
     {
         var known = !string.IsNullOrWhiteSpace(id);
         if (kind == FactoryMemoryAuthorKinds.Session) return known ? $"session {id}" : "a session";
+        // A definition draft the Gateway offered on its own (the Mail Desk template), named by what wrote it.
+        if (kind == FactoryDefinitionStore.GatewayAuthorKind) return known ? $"the Gateway ({id})" : "the Gateway";
         return known ? $"a person ({id})" : "a person";
     }
 
