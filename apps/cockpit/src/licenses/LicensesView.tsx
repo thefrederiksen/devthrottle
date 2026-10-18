@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   addLicenseSpare,
+  forgetLicenseMachine,
   getLicenseApprovers,
   getLicenseForecast,
   getLicenseLog,
@@ -33,7 +34,8 @@ import { LICENSES_SURFACE as SURFACE, LocalTime, TonePill, toneClass } from "./l
 // THE LICENSES PAGE (the License Switching mission, phase 3): every Claude account as a card with its two usage
 // windows, the schedule (which account each machine is on, which is next and when), the sign-ins, the switch log,
 // and the things a person does here: Switch now, setting the day a subscription is billed again, saying which
-// machine approves the sign-ins of an account, adding a spare to a machine, and renewing a sign-in.
+// machine approves the sign-ins of an account, adding a spare to a machine, renewing a sign-in, and forgetting a machine
+// that is gone.
 //
 // THE PAGE DECIDES NOTHING (CLAUDE.md rule 7). Every status, tone, sentence and offer on it is folded on the
 // Gateway (LicenseDisplayFold) and shown as sent. The page never compares a percentage with the switching
@@ -243,6 +245,19 @@ export function LicensesView() {
     refreshAll();
   };
 
+  // FORGET THIS MACHINE. Offered by the Gateway for a machine that has stopped reporting or whose reports are refused;
+  // the confirmation shows the Gateway's sentence, and the answer's sentence is shown after it. A refusal throws with
+  // the Gateway's own sentence and the confirmation stays open and shows it.
+  const [forgetting, setForgetting] = useState<LicenseMachine | null>(null);
+  const [forgetAnswer, setForgetAnswer] = useState<string | null>(null);
+
+  const confirmForget = async () => {
+    if (forgetting === null) return;
+    setForgetAnswer(null);
+    setForgetAnswer((await forgetLicenseMachine(forgetting.machineId)).text);
+    refreshAll();
+  };
+
   // WHO APPROVES AN ACCOUNT. What is on screen is always a read of the Gateway: after a set or a removal the page
   // shows the Gateway's sentence for it and reads the approvers and the overview again. It keeps no list of its own.
   const [removingApprover, setRemovingApprover] = useState<LicenseApprover | null>(null);
@@ -330,7 +345,12 @@ export function LicensesView() {
               {forecast.data.nextSwitchText}
             </p>
           )}
-          <ScheduleTable machines={data.machines} forecast={forecast.data} />
+          {forgetAnswer !== null && (
+            <p className="lic-choice-text" data-testid="lic-forget-answer">
+              {forgetAnswer}
+            </p>
+          )}
+          <ScheduleTable machines={data.machines} forecast={forecast.data} onForget={setForgetting} />
 
           <h2 className="lic-h2">Sign-ins</h2>
           {/* error-reported-by: usePolled */}
@@ -410,6 +430,18 @@ export function LicensesView() {
         action="renew the sign-in"
         onConfirm={confirmRenewNow}
         onClose={() => setRenewing(null)}
+      />
+
+      <ConfirmDialog
+        open={forgetting !== null}
+        title={forgetting === null ? "" : `Forget ${forgetting.label}?`}
+        // The Gateway's sentence for this machine, as it stood when the person asked.
+        message={forgetting === null ? null : <p className="lic-choice-text">{forgetting.forgetText}</p>}
+        confirmLabel="Forget"
+        busyLabel="Forgetting..."
+        action="forget the machine"
+        onConfirm={confirmForget}
+        onClose={() => setForgetting(null)}
       />
 
       <ConfirmDialog
@@ -510,7 +542,15 @@ function SwitchNowAnswer({
 }
 
 /** The schedule: one row per machine - the account it is on, the one it moves to next, and the Gateway's sentence. */
-function ScheduleTable({ machines, forecast }: { machines: ReadonlyArray<LicenseMachine>; forecast: LicenseForecast | null }) {
+function ScheduleTable({
+  machines,
+  forecast,
+  onForget,
+}: {
+  machines: ReadonlyArray<LicenseMachine>;
+  forecast: LicenseForecast | null;
+  onForget: (machine: LicenseMachine) => void;
+}) {
   return (
     <div className="lic-table-wrap">
     <table className="lic-table" data-testid="lic-schedule">
@@ -540,6 +580,11 @@ function ScheduleTable({ machines, forecast }: { machines: ReadonlyArray<License
                   <div className={toneClass(machine.readinessTone)} data-testid="lic-machine-readiness" data-readiness={machine.readiness ?? undefined}>
                     {machine.readinessText}
                   </div>
+                )}
+                {machine.canForget && (
+                  <Button variant="ghost" onClick={() => onForget(machine)} data-testid="lic-machine-forget">
+                    Forget this machine
+                  </Button>
                 )}
               </td>
               <td className="lic-nowrap">{machine.activeAccountEmail}</td>

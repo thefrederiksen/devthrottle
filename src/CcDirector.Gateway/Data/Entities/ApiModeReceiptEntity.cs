@@ -22,6 +22,11 @@ public sealed class ApiModeReceiptEntity : TenantScopedEntity
     /// <summary>The Director's id for the prompt (the event model's <c>promptId</c>).</summary>
     public string PromptId { get; set; } = "";
 
+    /// <summary>The prompt's own text, exactly as the Director wrote it to the agent (or would have): never trimmed,
+    /// reworded or shortened. Set by the first event that carries it and never blanked by a later one. Null when no
+    /// event carried any (a receipt from a Director older than the text on the events). Unbounded column.</summary>
+    public string? PromptText { get; set; }
+
     /// <summary>The Director that reported this receipt.</summary>
     public string DirectorId { get; set; } = "";
 

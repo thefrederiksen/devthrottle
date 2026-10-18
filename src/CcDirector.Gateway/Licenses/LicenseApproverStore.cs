@@ -226,6 +226,35 @@ public sealed class LicenseApproverStore
         return gone is not null;
     }
 
+    /// <summary>
+    /// A machine was forgotten (<see cref="LicenseStore.ForgetMachine"/>): remove every approver on that machine and
+    /// user, and answer the accounts they approved for, in account order. It leaves NO removal record, unlike
+    /// <see cref="Remove"/>: the owner did not reject the approver, the machine left, and a machine that comes back
+    /// registers its approver again on its next check.
+    /// </summary>
+    public IReadOnlyList<string> RemoveForMachine(TenantId tenant, string machineName, string osUser, DateTime nowUtc)
+    {
+        List<string> removed;
+        lock (_gate)
+        {
+            var all = Read(tenant);
+            removed = all.Where(a => a.NamesMachine(machineName, osUser)).Select(a => a.AccountEmail)
+                .OrderBy(e => e, StringComparer.Ordinal).ToList();
+            if (removed.Count > 0)
+            {
+                all.RemoveAll(a => a.NamesMachine(machineName, osUser));
+                Write(tenant, all, nowUtc);
+            }
+        }
+        FileLog.Write($"[LicenseApproverStore] RemoveForMachine: tenant={tenant.ToLogString()}, removed={removed.Count}");
+        return removed;
+    }
+
+    /// <summary>The accounts whose sign-ins the approvers on this machine and user approve, in account order.</summary>
+    public IReadOnlyList<string> AccountsApprovedBy(TenantId tenant, string machineName, string osUser)
+        => List(tenant).Where(a => a.NamesMachine(machineName, osUser)).Select(a => a.AccountEmail)
+            .OrderBy(e => e, StringComparer.Ordinal).ToList();
+
     /// <summary>The registrations the owner removed and has not set an approver for since, oldest first.</summary>
     public IReadOnlyList<LicenseApproverRemoval> ListRemovals(TenantId tenant)
     {

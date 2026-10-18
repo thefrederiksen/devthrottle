@@ -176,7 +176,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
              set.GetProperty("browserProfile").GetString(), set.GetProperty("machineId").GetString(), set.GetProperty("label").GetString()));
         // Just set by the owner, so never checked: an absence is never read as healthy, and the page says so.
         Assert.False(set.GetProperty("canApproveNow").GetBoolean());
-        Assert.Equal(("cannot-approve", "Not checked", "warning", "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day."),
+        Assert.Equal(("cannot-approve", "Not checked", "warning", "The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Nothing to do: the Director on the-mac is connected and checks it within 10 minutes."),
             (set.GetProperty("status").GetString(), set.GetProperty("statusText").GetString(), set.GetProperty("statusTone").GetString(),
              set.GetProperty("text").GetString()));
         Assert.Equal(("owner", "not-checked", JsonValueKind.Null),
@@ -185,7 +185,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
         Assert.Equal(("Set by you.", JsonValueKind.Null), (set.GetProperty("sourceText").GetString(), set.GetProperty("reachText").ValueKind));
         Assert.Equal("The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked.",
             set.GetProperty("healthText").GetString());
-        Assert.Equal("Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.",
+        Assert.Equal("Nothing to do: the Director on the-mac is connected and checks it within 10 minutes.",
             set.GetProperty("whatToDo").GetString());
 
         var list = List(One).Json;
@@ -430,7 +430,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
 
         var a = accounts.Single(x => x.GetProperty("accountEmail").GetString() == A);
         Assert.Equal(List(One).Json.GetProperty("approvers")[0].GetRawText(), a.GetProperty("approver").GetRawText());
-        Assert.Equal(("The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Make sure the Director on the-mac is running with license switching on; it checks its approvers once a day.", "warning"),
+        Assert.Equal(("The approver for account-a@example.com (browser profile \"work\" on the-mac) has never been checked. Nothing to do: the Director on the-mac is connected and checks it within 10 minutes.", "warning"),
             (a.GetProperty("approverText").GetString(), a.GetProperty("approverTone").GetString()));
         var b = accounts.Single(x => x.GetProperty("accountEmail").GetString() == B);
         Assert.Equal(JsonValueKind.Null, b.GetProperty("approver").ValueKind);
@@ -554,7 +554,7 @@ public sealed class LicenseSignInEndpointsTests : IDisposable
         Assert.Equal("the-mac (owner)", set.GetProperty("label").GetString());
         Assert.StartsWith("The approver for account-a@example.com (browser profile \"work\" on the-mac (owner)) has never been checked.",
             set.GetProperty("text").GetString());
-        Assert.Contains("the Director on the-mac (owner) is running", set.GetProperty("whatToDo").GetString());
+        Assert.Contains("the Director on the-mac (owner) is connected", set.GetProperty("whatToDo").GetString());
     }
 
     // ---- the approver's health (phase 6, Track C) ----

@@ -2076,8 +2076,13 @@ def spawn_session(
     # would shadow it, breaking every gateway.post_json call in here.
     director_target: Optional[str] = None,
     connection: Optional[str] = None,
-) -> None:
-    """Open a new session here, on another computer (--machine), or on one named Director (--director)."""
+    next_steps: bool = True,
+) -> str:
+    """Open a new session here, on another computer (--machine), or on one named Director (--director).
+
+    Answers the new session's id. `next_steps=False` leaves out the closing list of commands, for a caller
+    such as `session review` that opens a session as one step of its own and prints its own next steps.
+    """
     # Checked first, like every other usage error: an unknown word is the caller's to fix before anything starts.
     connection_mode = parse_connection(connection, "--connection")
     if prompt:
@@ -2331,7 +2336,9 @@ def spawn_session(
     ]
     if inherited_from is not None:
         steps.append(f"cc-devthrottle mission detach {sid}")
-    axi_cli.print_next(steps)
+    if next_steps:
+        axi_cli.print_next(steps)
+    return sid
 
 
 def _my_director() -> str:

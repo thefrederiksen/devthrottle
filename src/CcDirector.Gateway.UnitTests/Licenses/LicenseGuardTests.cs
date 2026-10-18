@@ -36,6 +36,8 @@ public sealed class LicenseGuardTests
     [InlineData("POST", "/gateway/licenses/accounts/renewal", false)]
     [InlineData("POST", "/gateway/licenses/switch-now", false)]
     [InlineData("GET", "/gateway/licenses/switch-now", false)]
+    [InlineData("POST", "/gateway/licenses/machines/forget", false)]
+    [InlineData("GET", "/gateway/licenses/machines/forget", false)]
     [InlineData("GET", "/gateway/licenses/approvers", true)]
     [InlineData("GET", "/Gateway/Licenses/Approvers/", true)]
     [InlineData("HEAD", "/gateway/licenses/approvers", true)]

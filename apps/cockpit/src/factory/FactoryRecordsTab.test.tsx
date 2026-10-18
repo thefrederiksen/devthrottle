@@ -25,7 +25,7 @@ vi.mock("@devthrottle/client-core/factory/factoryRecordsClient", async (importOr
   return { ...real, ...client };
 });
 
-const pageClient = vi.hoisted(() => ({ getFactoryPage: vi.fn(), getFactorySeats: vi.fn(), getFactoryFloor: vi.fn(() => new Promise(() => {})), startFactoryTalk: vi.fn() }));
+const pageClient = vi.hoisted(() => ({ getFactoryPage: vi.fn(), getFactorySeats: vi.fn(), getFactoryFloor: vi.fn(() => new Promise(() => {})), getFactoryDrawing: vi.fn(() => new Promise(() => {})), startFactoryTalk: vi.fn() }));
 vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => pageClient);
 
 import { FactoryView } from "./FactoryView";

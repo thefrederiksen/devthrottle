@@ -337,6 +337,41 @@ public static class LicenseDecisionEngine
         => TargetsWithRoom(snapshot, sourceAccountEmail).FirstOrDefault();
 
     /// <summary>
+    /// When no account has room for the machines on <paramref name="sourceAccountEmail"/>: the other account that has
+    /// room again first, and when, from the reset times the readings carry. An account has room again once every window
+    /// at or over the threshold has reset, and once a bar on it has passed. An account whose return cannot be told - a
+    /// window at or over the threshold with no reset time ahead, a window that is not known, or a reading too old to show
+    /// it while it shows no window at or over the threshold - is left out. Null when no account's return can be told.
+    /// Ties go to the account email in ordinal order.
+    /// </summary>
+    public static LicenseAccountReturn? FirstBackWithRoom(LicenseSnapshot snapshot, string sourceAccountEmail)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (string.IsNullOrWhiteSpace(sourceAccountEmail))
+            throw new ArgumentException("The account in use is required", nameof(sourceAccountEmail));
+        var source = Normalize(sourceAccountEmail);
+        var now = snapshot.NowUtc;
+        LicenseAccountReturn? first = null;
+        foreach (var reading in IndexReadings(snapshot.Accounts).Values.Where(r => !SameAccount(r.AccountEmail, source)))
+        {
+            if (reading.FiveHour is not { } five || reading.SevenDay is not { } week)
+                continue;
+            var full = new[] { five, week }.Where(w => w.Utilization >= ThresholdPercent).ToList();
+            if (full.Count == 0 && IsReadingStale(reading, now))
+                continue; // under the threshold on a reading too old to trust: when it has room is not known
+            if (full.Any(w => w.ResetsAtUtc is not { } reset || reset <= now))
+                continue; // full, and when it resets is not known
+            var back = full.Count == 0 ? now : full.Max(w => w.ResetsAtUtc!.Value);
+            foreach (var bar in snapshot.Bars.Where(b => SameAccount(b.AccountEmail, reading.AccountEmail) && b.BarredUntilUtc > back))
+                back = bar.BarredUntilUtc;
+            if (first is null || back < first.BackAtUtc
+                || (back == first.BackAtUtc && string.CompareOrdinal(reading.AccountEmail, first.AccountEmail) < 0))
+                first = new LicenseAccountReturn(reading.AccountEmail, back);
+        }
+        return first;
+    }
+
+    /// <summary>
     /// True when the reading cannot be trusted at <paramref name="nowUtc"/>: never read, or older than the
     /// limit for where it was read (active 6 minutes, spare 30).
     /// </summary>

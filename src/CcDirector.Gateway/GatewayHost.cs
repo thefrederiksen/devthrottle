@@ -2503,7 +2503,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // machine, and the sign-ins started from the Cockpit. Each sends inside the tenant's scope, where
         // SendCommandAsync resolves a Director's connection for that tenant alone.
         LicenseApprovers = new Licenses.LicenseApproverStore(_tenantSettings);
-        LicenseApproverReadiness = new Licenses.LicenseApproverReadiness(LicenseApprovers, LicenseReads, LicenseNow.UtcNow);
+        LicenseApproverReadiness = new Licenses.LicenseApproverReadiness(LicenseApprovers, LicenseReads, IsDirectorConnected, LicenseNow.UtcNow);
         LicenseSignInLog = new Licenses.LicenseSignInLog(_gatewayDb);
         var licenseCommands = Licenses.LicenseCommandSenders.Over(SendCommandAsync);
         LicenseApprovals = new Licenses.LicenseApprovalRelay(LicenseApprovers, LicenseReads, new Licenses.LicenseApprovalLog(_gatewayDb),
@@ -2953,7 +2953,7 @@ public sealed class GatewayHost : IAsyncDisposable
             _licenseAlarmPush.NotifyOpenedAsync, LicenseNow.UtcNow);
         // Built after the alarm service they raise through: an approver that cannot approve is one license alarm.
         LicenseMachineHealthAlarm = new Licenses.LicenseMachineHealthAlarm(LicenseStore, LicenseReads, LicenseAlarms, LicenseNow.UtcNow);
-        LicenseApproverAlarm = new Licenses.LicenseApproverAlarm(LicenseApprovers, LicenseReads, LicenseAlarms,
+        LicenseApproverAlarm = new Licenses.LicenseApproverAlarm(LicenseApprovers, LicenseReads, LicenseAlarms, IsDirectorConnected,
             tenant => _tenantBoundary.EnterScope(tenant), LicenseNow.UtcNow, _licenseSwitchLifetime.Token);
         LicenseApproverRegistrations = new Licenses.LicenseApproverRegistration(LicenseApprovers, LicenseReads, LicenseNow.UtcNow,
             LicenseApproverAlarm.RaiseSoon);
@@ -5461,6 +5461,11 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
             isDefined: _factorySeatBriefs.IsDefined);
+        // What a factory does, drawn (owner, 18 October 2026): its seats' starts, steps and ends, from the definition.
+        Api.FactoriesScreenEndpoints.MapDrawing(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            definitions: FactoryDefinitions);
         // One seat's own page (Factory Seats mission): opened from every seat row, with or without a schedule.
         Api.FactoriesScreenEndpoints.MapSeatPage(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),

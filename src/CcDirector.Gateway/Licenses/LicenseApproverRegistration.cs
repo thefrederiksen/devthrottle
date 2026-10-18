@@ -53,13 +53,18 @@ public sealed class LicenseApproverRegistration
     }
 
     /// <summary>The approver records that name the calling Director's machine and operating system user, which that
-    /// Director checks daily. Empty when the Director reports licenses for no machine of the tenant.</summary>
+    /// Director checks daily. Each record that reads as not checked now is marked
+    /// <see cref="LicenseApproverAssignment.CheckDue"/>, so the Director checks it at its next ten-minute look: a record
+    /// the owner has just set, or one stored before checks existed, would otherwise block the automatic sign-in until the
+    /// daily run (the phase 6 review, finding 1). Empty when the Director reports licenses for no machine of the
+    /// tenant.</summary>
     /// <param name="tenant">The calling connection's bound tenant.</param>
     /// <param name="directorId">The calling connection's bound Director.</param>
     public LicenseApproverAssignments Assignments(TenantId tenant, string directorId)
     {
         FileLog.Write($"[LicenseApproverRegistration] Assignments: tenant={tenant.ToLogString()}, director={directorId}");
-        var machine = ReportingMachine(_reads.Read(tenant, _nowUtc()), directorId);
+        var now = _nowUtc();
+        var machine = ReportingMachine(_reads.Read(tenant, now), directorId);
         if (machine is null)
         {
             FileLog.Write($"[LicenseApproverRegistration] Assignments: director={directorId} reports licenses for no machine of this account, none");
@@ -67,9 +72,13 @@ public sealed class LicenseApproverRegistration
         }
         var rows = _approvers.List(tenant)
             .Where(a => a.NamesMachine(machine.MachineName, machine.OsUser))
-            .Select(a => new LicenseApproverAssignment { AccountEmail = a.AccountEmail, BrowserProfile = a.BrowserProfile, Source = a.Source })
+            .Select(a => new LicenseApproverAssignment
+            {
+                AccountEmail = a.AccountEmail, BrowserProfile = a.BrowserProfile, Source = a.Source,
+                CheckDue = LicenseApproverHealth.StateOf(a, now) == LicenseApproverStates.NotChecked,
+            })
             .ToList();
-        FileLog.Write($"[LicenseApproverRegistration] Assignments: director={directorId}, machine={machine.MachineName}, count={rows.Count}");
+        FileLog.Write($"[LicenseApproverRegistration] Assignments: director={directorId}, machine={machine.MachineName}, count={rows.Count}, checkDue={rows.Count(r => r.CheckDue)}");
         return new LicenseApproverAssignments { Rows = rows };
     }
 

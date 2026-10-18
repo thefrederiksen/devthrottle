@@ -19,6 +19,8 @@ namespace CcDirector.Gateway.Api;
 /// <item><c>GET /gateway/licenses/log</c> - the switch log, newest first, one page at a time.</item>
 /// <item><c>PUT /gateway/licenses/accounts/renewal</c> - set or clear the date an account's subscription is billed
 /// again. A write, and the owner's own: it is not in the session key guard's list.</item>
+/// <item><c>POST /gateway/licenses/machines/forget</c> - forget a machine that has stopped reporting, or whose reports
+/// are refused. A write, and the owner's own, like the renewal date.</item>
 /// </list>
 ///
 /// Every route answers for the CALLER'S OWN account and no other: the tenant comes from the request's credential,
@@ -102,7 +104,18 @@ public static class LicenseEndpoints
             await (await SwitchNowAsync(ctx, c => OwnerOnly(c, what), resolveTenant, tenantInScope, switches, store,
                 ParseBody<LicenseSwitchNowRequest>(await ReadBodyTextAsync(ctx)))).ExecuteAsync(ctx);
         });
-        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}, POST {LicenseRoutes.SwitchNow}");
+        app.MapPost(LicenseRoutes.ForgetMachine, async (HttpContext ctx) =>
+        {
+            const string what = "forget a machine on the Licenses page";
+            if ((OwnerOnly(ctx, what) ?? NotJson(ctx)) is { } refusedBeforeTheBody)
+            {
+                await refusedBeforeTheBody.ExecuteAsync(ctx);
+                return;
+            }
+            await ForgetMachine(ctx, c => OwnerOnly(c, what), resolveTenant, snapshots, nowUtc, approvers, signIns, isConnected,
+                readiness, store, ParseBody<LicenseForgetMachineRequest>(await ReadBodyTextAsync(ctx))).ExecuteAsync(ctx);
+        });
+        FileLog.Write($"[LicenseEndpoints] mapped GET {LicenseRoutes.Overview}, GET {LicenseRoutes.Forecast}, GET {LicenseRoutes.Log}, PUT {LicenseRoutes.AccountRenewal}, POST {LicenseRoutes.SwitchNow}, POST {LicenseRoutes.ForgetMachine}");
     }
 
     internal static IResult Overview(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
@@ -115,21 +128,89 @@ public static class LicenseEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return NoAccount();
-            // The page does not judge the open "no account has room" events, so none are passed.
-            var now = nowUtc();
-            var picture = snapshots.ReadPicture(tenant, now, NoExhaustions);
-            var response = LicenseDisplayFold.Overview(picture);
-            // Who approves each account's sign-ins, and where a sign-in can be started now (contract section 8).
-            LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
-                directorId => isConnected(tenant, directorId), now);
-            // Whether each machine is ready for the account it would switch to next: what the minute check acts on.
-            LicenseReadinessFold.Apply(response, readiness.Judge(tenant, picture, now));
+            var response = FoldOverview(tenant, snapshots, nowUtc(), approvers, signIns, isConnected, readiness);
             FileLog.Write($"[LicenseEndpoints] GET overview: tenant={tenant.ToLogString()}, accounts={response.Accounts.Count}, machines={response.Machines.Count}");
             return Results.Json(response);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[LicenseEndpoints] GET /gateway/licenses FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    // The overview as the page gets it, folded once for the overview route and for Forget this machine, so the route
+    // refuses exactly what the page does not offer.
+    private static LicenseOverviewResponse FoldOverview(TenantId tenant, LicenseSnapshotSource snapshots, DateTime now,
+        LicenseApproverStore approvers, LicenseSignInLog signIns, Func<TenantId, string, bool> isConnected,
+        LicenseReadinessService readiness)
+    {
+        // The page does not judge the open "no account has room" events, so none are passed.
+        var picture = snapshots.ReadPicture(tenant, now, NoExhaustions);
+        var response = LicenseDisplayFold.Overview(picture);
+        // Who approves each account's sign-ins, and where a sign-in can be started now (contract section 8).
+        LicenseSignInFold.Apply(response, picture.Overview.Machines, approvers.List(tenant), signIns.ListOpen(tenant),
+            directorId => isConnected(tenant, directorId), now);
+        // Whether each machine is ready for the account it would switch to next: what the minute check acts on.
+        LicenseReadinessFold.Apply(response, readiness.Judge(tenant, picture, now));
+        // Whether each machine may be forgotten; after the sign-ins, because one under way is a reason it may not.
+        LicenseDisplayFold.ApplyForget(response);
+        return response;
+    }
+
+    internal static IResult ForgetMachine(HttpContext ctx, Func<HttpContext, IResult?> ownerOnly,
+        Func<HttpContext, TenantId?> resolveTenant, LicenseSnapshotSource snapshots, Func<DateTime> nowUtc,
+        LicenseApproverStore approvers, LicenseSignInLog signIns, Func<TenantId, string, bool> isConnected,
+        LicenseReadinessService readiness, LicenseStore store, LicenseForgetMachineRequest? body)
+    {
+        FileLog.Write("[LicenseEndpoints] POST forget machine");
+        try
+        {
+            if (ownerOnly(ctx) is { } notTheOwner)
+                return notTheOwner;
+            if (resolveTenant(ctx) is not { } tenant)
+                return NoAccount();
+            if (body is null)
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "The body is a JSON object with machineId: the machine's machineId in the overview.");
+            if (!Guid.TryParseExact(body.MachineId ?? "", "N", out var machineId))
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_machine", "machineId is the machine's machineId in the overview: 32 hexadecimal digits.");
+
+            var now = nowUtc();
+            var id = machineId.ToString("N");
+            var machine = FoldOverview(tenant, snapshots, now, approvers, signIns, isConnected, readiness).Machines.FirstOrDefault(m => m.MachineId == id);
+            if (machine is null)
+            {
+                FileLog.Write($"[LicenseEndpoints] POST forget machine: tenant={tenant.ToLogString()}, machine={id} is not on the page");
+                return Refuse(StatusCodes.Status404NotFound, LicenseForgetRefusals.NotFound, LicenseDisplayFold.ForgetRefused(LicenseForgetRefusals.NotFound, ""));
+            }
+            if (LicenseDisplayFold.ForgetVerdict(machine) is { RefusalCode: { } offered } notOffered)
+            {
+                FileLog.Write($"[LicenseEndpoints] POST forget machine: tenant={tenant.ToLogString()}, machine={id}, refused={offered}");
+                return Refuse(StatusCodes.Status409Conflict, offered, notOffered.Text);
+            }
+
+            // The names as they were before, so its row is labelled as the log labels it.
+            var names = store.ListMachineNames(tenant);
+            // The approvers on this machine go with it (the review of pull request 4183, finding 3). They live in the
+            // tenant's settings, not in the store's tables, so they are removed AFTER the store's save: a refusal there
+            // leaves them in place, and the row written says which ones go.
+            var approving = approvers.AccountsApprovedBy(tenant, machine.MachineName, machine.OsUser);
+            var result = store.ForgetMachine(tenant, machineId, machine.Label, now, approving);
+            if (result.Row is not { } row)
+            {
+                var code = result.RefusedBecause ?? throw new InvalidOperationException("Forgetting a machine wrote nothing and gave no reason.");
+                FileLog.Write($"[LicenseEndpoints] POST forget machine: tenant={tenant.ToLogString()}, machine={id}, refused by the store={code}");
+                return Refuse(code == LicenseForgetRefusals.NotFound ? StatusCodes.Status404NotFound : StatusCodes.Status409Conflict,
+                    code, LicenseDisplayFold.ForgetRefused(code, machine.Label));
+            }
+            if (approving.Count > 0)
+                approvers.RemoveForMachine(tenant, machine.MachineName, machine.OsUser, now);
+            FileLog.Write($"[LicenseEndpoints] POST forget machine: tenant={tenant.ToLogString()}, machine={id} forgotten, approvers removed={approving.Count}");
+            return Results.Json(LicenseDisplayFold.ForgetAccepted(row, names));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseEndpoints] POST /gateway/licenses/machines/forget FAILED: {ex.Message}");
             throw;
         }
     }

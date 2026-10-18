@@ -195,6 +195,17 @@ public sealed class AutoModeSetupOfferTests : IDisposable
         Assert.Null(Why());
     }
 
+    [Theory]
+    [InlineData("\"true\"")]
+    [InlineData("1")]
+    [InlineData("{\"on\": true}")]
+    [InlineData("[true]")]
+    public void WhyItWouldStop_TheServerSettingNotTheValueTrue_GoesAheadBecauseClaudeCodeAsksOnlyOnExactlyTrue(string value)
+    {
+        Config(c => c["cachedGrowthBookFeatures"] = new JsonObject { ["tengu_auto_mode_config"] = new JsonObject { ["envOnboarding"] = JsonNode.Parse(value) } });
+        Assert.Null(Why());
+    }
+
     [Fact]
     public void WhyItWouldStop_NothingEverFetchedFromTheServer_GoesAhead()
     {

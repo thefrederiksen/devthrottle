@@ -594,6 +594,29 @@ public static class FactoryDefinitionCheck
             if (map.Find("starts") is { Value: DefinitionList starts })
                 foreach (var start in starts.Items)
                     CheckStart(path, (DefinitionMap)start, machine, named);
+
+            if (map.Find("steps") is { Value: DefinitionList steps })
+                foreach (var step in steps.Items.Cast<DefinitionMap>())
+                    CheckStep(path, step);
+        }
+
+        // A STEP'S WAYS ON (the factory drawing): only a question has a branch or an answer that stays on the main line,
+        // and a question that repeats or runs a command is two steps written as one - each is said on its own line.
+        private void CheckStep(string path, DefinitionMap step)
+        {
+            var name = Text(step.Find("name")!);
+            if (step.Find("decision") is not null)
+            {
+                foreach (var key in new[] { "runs", "repeats" })
+                    if (step.Find(key) is { } e)
+                        Error(_findings, path, e.KeyLine,
+                            $"The step '{name}' is a decision, and a decision does not {(key == "runs" ? "run a command" : "repeat")}. Put the work in a step of its own before it.");
+                return;
+            }
+            foreach (var key in new[] { "continueWhen", "branch" })
+                if (step.Find(key) is { } e)
+                    Error(_findings, path, e.KeyLine,
+                        $"The step '{name}' has {key} but no decision. Only a decision has a branch; add decision, or remove {key}.");
         }
 
         // AN ASK RULE ON A SEAT NOBODY WATCHES (Factory Definition mission, phase 5, QA finding 4): an ask rule binds
@@ -949,7 +972,26 @@ public static class FactoryDefinitionCheck
             Secrets: TextList(s, "secrets"),
             FactorySkills: skills is null ? Array.Empty<string>() : TextList(skills, "factory"),
             FleetSkills: skills is null ? Array.Empty<string>() : TextList(skills, "fleet"),
-            Files: TextList(s, "files"));
+            Files: TextList(s, "files"),
+            Steps: s.Find("steps")?.Value is DefinitionList steps
+                ? steps.Items.Cast<DefinitionMap>().Select(BuildStep).ToList()
+                : Array.Empty<SeatStepDefinition>());
+    }
+
+    private static SeatStepDefinition BuildStep(DefinitionMap st)
+    {
+        var branch = st.Find("branch")?.Value as DefinitionMap;
+        return new SeatStepDefinition(
+            Name: Text(st.Find("name")!),
+            Detail: OptionalText(st, "detail"),
+            Runs: OptionalText(st, "runs"),
+            Repeats: OptionalText(st, "repeats"),
+            Decision: OptionalText(st, "decision"),
+            ContinueWhen: OptionalText(st, "continueWhen"),
+            Branch: branch is null
+                ? null
+                : new SeatStepBranchDefinition(Text(branch.Find("when")!), Text(branch.Find("name")!),
+                    OptionalText(branch, "detail"), Text(branch.Find("ends")!)));
     }
 
     private static SeatStartDefinition BuildStart(DefinitionMap st)

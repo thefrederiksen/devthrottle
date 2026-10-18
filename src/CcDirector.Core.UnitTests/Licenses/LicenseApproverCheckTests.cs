@@ -174,6 +174,110 @@ public sealed class LicenseApproverCheckTests : IDisposable
         Assert.Equal(2, _tool.ApproverCheckCalls.Count);
     }
 
+    // ----- a record the Gateway marks due is checked within ten minutes (the phase 6 review, finding 1) -----
+
+    [Fact]
+    public async Task TickAsync_ARecordTheGatewayMarksDue_IsCheckedAtTheNextLook_NotAtTheDailyRun()
+    {
+        // The daily run has just happened with nothing assigned; then the owner sets an approver on this machine.
+        var check = Check(offers: true);
+        Assert.NotNull(await check.TickAsync(CancellationToken.None));
+        var dailyRun = check.LastRunUtc;
+        _tool.ApproverCheckCalls.Clear();
+        _channel.Assign(AccountA, "work-chrome", checkDue: true);
+        Answers("work-chrome", AccountA, LicenseApproverStates.CanApprove, shown: AccountA);
+
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        var report = await check.TickAsync(CancellationToken.None);
+
+        // Only the due record: this Director's own profiles wait for the daily run.
+        Assert.Equal(new[] { ("work-chrome", (string?)AccountA) }, _tool.ApproverCheckCalls);
+        Assert.Equal((AccountA, LicenseApproverStates.CanApprove), (Assert.Single(report!.Rows).AccountEmail, report.Rows[0].State));
+        Assert.Same(report, _channel.Reports.Last());
+        // A check of one record is not the daily run: the next one is still a day after the last.
+        Assert.Equal(dailyRun, check.LastRunUtc);
+    }
+
+    [Fact]
+    public async Task TickAsync_BetweenDailyRuns_ARecordNotMarkedDue_IsNotChecked_AndNoReportIsSent()
+    {
+        _channel.Assign(AccountA, "work-chrome");
+        var check = Check();
+        await check.TickAsync(CancellationToken.None);
+
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        Assert.Null(await check.TickAsync(CancellationToken.None));
+
+        Assert.Single(_tool.ApproverCheckCalls);
+        Assert.Single(_channel.Reports);
+    }
+
+    [Fact]
+    public async Task TickAsync_ADueRecordTheGatewayStillMarksDue_IsNotCheckedAgainUntilTheDailyRun()
+    {
+        // A row the Gateway did not take stays due; checking it again every ten minutes would open the browser all day.
+        var check = Check();
+        await check.TickAsync(CancellationToken.None);
+        _channel.Assign(AccountA, "work-chrome", checkDue: true);
+
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        Assert.NotNull(await check.TickAsync(CancellationToken.None));
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        Assert.Null(await check.TickAsync(CancellationToken.None));
+        Assert.Single(_tool.ApproverCheckCalls);
+
+        // The daily run checks every assigned record again, due or not.
+        _clock.Advance(LicenseApproverCheck.RunInterval);
+        Assert.NotNull(await check.TickAsync(CancellationToken.None));
+        Assert.Equal(2, _tool.ApproverCheckCalls.Count);
+    }
+
+    [Fact]
+    public async Task TickAsync_ARecordRemovedAndSetAgain_IsCheckedAgainWhenDue()
+    {
+        var check = Check();
+        await check.TickAsync(CancellationToken.None);
+        _channel.Assign(AccountA, "work-chrome", checkDue: true);
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        await check.TickAsync(CancellationToken.None);
+
+        // The owner moves the approver elsewhere, then back: the record is new and never checked.
+        _channel.Assignments.Rows.Clear();
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        Assert.Null(await check.TickAsync(CancellationToken.None));
+        _channel.Assign(AccountA, "work-chrome", checkDue: true);
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        Assert.NotNull(await check.TickAsync(CancellationToken.None));
+
+        Assert.Equal(2, _tool.ApproverCheckCalls.Count);
+    }
+
+    [Fact]
+    public async Task TickAsync_ADueCheckNotTaken_IsSentAgainAtTheNextLook_WithoutCheckingAgain()
+    {
+        var check = Check();
+        await check.TickAsync(CancellationToken.None);
+        var dailyRun = check.LastRunUtc;
+        _channel.Assign(AccountA, "work-chrome", checkDue: true);
+        _channel.ReportFailWith = "the Gateway stream is not connected";
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        Assert.Null(await check.TickAsync(CancellationToken.None));
+
+        _channel.ReportFailWith = null;
+        _clock.Advance(LicenseApproverCheck.CheckInterval);
+        var report = await check.TickAsync(CancellationToken.None);
+
+        Assert.Equal(AccountA, Assert.Single(report!.Rows).AccountEmail);
+        Assert.Single(_tool.ApproverCheckCalls, c => c.Email == AccountA);
+        Assert.Equal(dailyRun, check.LastRunUtc);
+    }
+
+    [Fact]
+    public void CheckInterval_IsTheCadenceTheGatewaysSentencesPromise()
+    {
+        Assert.Equal(LicenseApproverContract.DueCheckWithin, LicenseApproverCheck.CheckInterval);
+    }
+
     [Fact]
     public async Task TickAsync_GatewayKeepsNoApproverRecords_NoCheckRuns_AndOneRunsOnceItDoes()
     {

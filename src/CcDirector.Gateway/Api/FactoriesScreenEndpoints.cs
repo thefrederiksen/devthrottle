@@ -151,6 +151,42 @@ internal static class FactoriesScreenEndpoints
     }
 
     /// <summary>
+    /// What a factory does, drawn (owner, 18 October 2026): GET /gateway/factories/{factory}/drawing, folded by
+    /// <see cref="FactoryDrawingFold"/> from the registry, the published definition's steps and the newest runs. The
+    /// owner's, like the floor. A published definition that cannot be read is refused in words, never drawn empty.
+    /// </summary>
+    public static void MapDrawing(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FactoriesScreenSources sources,
+        FactoryDefinitionStore definitions)
+    {
+        ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(sources);
+        ArgumentNullException.ThrowIfNull(definitions);
+
+        app.MapGet(Prefix + "/{factory}/drawing", (HttpContext ctx, string factory) =>
+            FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory drawing {factory}", tenant =>
+            {
+                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                PublishedFactoryDefinition? published;
+                try
+                {
+                    published = FactorySeatStart.ReadPublished(definitions, tenant, registered.Factory);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    FileLog.Write($"[FactoriesScreenEndpoints] GET drawing: {registered.Factory} definition unreadable: {ex.Message}");
+                    return Results.Json(new { error = $"The drawing cannot be made: {ex.Message}." }, statusCode: StatusCodes.Status409Conflict);
+                }
+                var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
+                var dto = FactoryDrawingFold.View(registered, FactoriesScreenFold.Seats(registered, input, published is not null),
+                    published?.Definition, input.ScheduleRuns, input.Activity.Zone, input.Activity.NowUtc);
+                FileLog.Write($"[FactoriesScreenEndpoints] GET drawing: {registered.Factory} v{published?.Version.ToString() ?? "(none)"} lanes={dto.Lanes.Count}, nodes={dto.Nodes.Count}, status={dto.Status?.Tone ?? "(none)"}");
+                return Results.Json(dto);
+            }));
+
+        FileLog.Write($"[FactoriesScreenEndpoints] mapped {Prefix}/{{factory}}/drawing");
+    }
+
+    /// <summary>
     /// One seat's page (Factory Seats mission, phase 1): every seat has one, with or without a schedule, folded by
     /// <see cref="FactorySeatPageFold"/>. The owner's, like the Seats tab it is opened from.
     ///

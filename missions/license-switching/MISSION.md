@@ -169,6 +169,7 @@ accounts; per-session account choice (all sessions on a machine share the active
 | 3 | Cockpit Licenses page | Reviewer | after 2's API exists |
 | 4 | Adding a spare to a machine from the Cockpit/CLI, using the proven email-link flow | Reviewer | after 1 |
 | 5 | Deploy (Gateway via `deploy-hosted-gateway`), install the Director build on the owner's machines, set up spares, QA report | QA seat that did not build | last |
+| 6 | It runs itself: readiness all the time, fixed at once, the 80% alarm, per-machine switch, approvers, Director health | Three Tech Leads, a phase review | after 5 |
 
 ### Phase 6: it runs itself
 
@@ -198,6 +199,42 @@ start fixing at once, alarm loudly only if it is still not ready at 80%." Each i
     runs.
   - Only where automation is switched on: a Director reports licenses only with license switching on for it, so a
     tenant whose machines never reported gets no sign-in and no alarm.
+
+#### Phase 6 decisions (the owner's words, 16 October 2026)
+
+1. Who signs in and switches: "The Director's own code, as built. A session is used only to tell you about a failure."
+2. When to check: "Check all the time; start fixing at once, alarm loudly only if it is still not ready at 80%."
+3. Partial switch: "Yes. Switch every ready machine at once; the one left behind keeps trying and switches the moment
+   it is ready."
+4. Where the standing approvers live: one of the owner's own machines, which already has a browser profile per account
+   and both mail tools (named in the private record).
+5. The gaps of 16 October were closed by hand before this phase began.
+6. Delivery: "As the next phase of the License Switching mission, with a Delivery Lead driving it to done."
+
+The 13 October ruling still stands: the automation stays switched on for the owner's own tenant only.
+
+#### How phase 6 was run
+
+A Delivery Lead drove three tracks in parallel, each with its own Tech Lead and Developers, every pull request read by
+a separate review session before it merged:
+
+- **Track A - readiness, the 80% alarm, the per-machine switch, the real reasons** (`phase-6/track-a/report.md`):
+  the one license alarm (banner on every Cockpit page and the phone, one push, one owner email, open until fixed), every
+  ready machine switching at 97% with the machine left behind switching when ready, and the readiness above.
+- **Track B - reporting and Director health** (`phase-6/track-b/report.md`): a refused report and a machine that stops
+  reporting are visible statuses and alarms; the Director heals a hand sign-in by backing up the duplicate spare; the
+  Director renews the ACTIVE sign-in in place, not only the spares; the tools are no longer taken away while the tool
+  bundle updates (the cause of the 16 October failed switch); the launcher restarts a crashed Director on Windows and
+  macOS, with the Linux unit an owner step; and "Forget this machine" for a machine that is gone.
+- **Track C - standing approvers** (`phase-6/track-c/report.md`): a Director that offers its browser profiles
+  (`licenseSwitching.offerApprovers`, off by default) registers the profiles that can approve an account; a daily check
+  opens the real approval page and tells "can approve" from "needs a fresh sign-in"; an approver that cannot approve is
+  a not-ready reason and raises the alarm; a form with pick lists whose Save names what is missing; and the monthly
+  renewal completes through the approvers.
+- **The phase review** (`phase-6/phase-review.md`) read the three tracks as one and found one gap at the seam between A
+  and C: an approver set by hand was not checked for up to a day, so the automatic sign-in waited and a second alarm
+  told the owner to start a Director that was running. Answered and fixed in pull request 4194
+  (`phase-6/review-4194.md`): an unchecked approver is checked within ten minutes.
 
 ## 7. The check
 

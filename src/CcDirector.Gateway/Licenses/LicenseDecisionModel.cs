@@ -143,6 +143,12 @@ public sealed record LicenseBar(string AccountEmail, string Window, DateTime Bar
 /// usable again only once all of them have reset.</param>
 public sealed record LicenseExhaustion(string AccountEmail, DateTime StartedAtUtc, DateTime EndsAtUtc);
 
+/// <summary>The account that has room again first while no account has room (<see cref="LicenseDecisionEngine.FirstBackWithRoom"/>).</summary>
+/// <param name="AccountEmail">The account, lower-cased.</param>
+/// <param name="BackAtUtc">When it has room again: the latest reset among its windows at or over the threshold, or the
+/// end of a bar on it when that is later.</param>
+public sealed record LicenseAccountReturn(string AccountEmail, DateTime BackAtUtc);
+
 /// <summary>Everything the engine knows about one tenant at one moment.</summary>
 /// <param name="NowUtc">The Gateway's clock.</param>
 /// <param name="Accounts">The freshest reading of every account seen in the tenant.</param>

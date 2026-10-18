@@ -37,6 +37,7 @@ public sealed class LicenseApproverAlarm
     private readonly LicenseApproverStore _approvers;
     private readonly LicenseReadModel _reads;
     private readonly LicenseAlarmService _alarms;
+    private readonly Func<TenantId, string, bool> _isConnected;
     private readonly Func<TenantId, IDisposable> _enterScope;
     private readonly Func<DateTime> _nowUtc;
     private readonly CancellationToken _lifetime;
@@ -50,16 +51,19 @@ public sealed class LicenseApproverAlarm
     private readonly System.Collections.Concurrent.ConcurrentDictionary<TenantId, SemaphoreSlim> _raising = new();
 
     /// <param name="alarms">The one license alarm mechanism (contract section 9).</param>
+    /// <param name="isConnected">Whether a Director of the tenant, by its identifier, is connected now; it decides what a
+    /// not-checked approver's alarm tells the owner to do.</param>
     /// <param name="enterScope">Enters a tenant's scope for a raise started off the caller's own scope.</param>
     /// <param name="lifetime">Cancelled when the Gateway stops.</param>
     /// <param name="log">Where this class's log lines go; the Gateway's log unless a test watches them.</param>
     public LicenseApproverAlarm(LicenseApproverStore approvers, LicenseReadModel reads, LicenseAlarmService alarms,
-        Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime, Action<string>? log = null)
+        Func<TenantId, string, bool> isConnected, Func<TenantId, IDisposable> enterScope, Func<DateTime> nowUtc, CancellationToken lifetime, Action<string>? log = null)
     {
         _log = log ?? FileLog.Write;
         _approvers = approvers ?? throw new ArgumentNullException(nameof(approvers));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
         _alarms = alarms ?? throw new ArgumentNullException(nameof(alarms));
+        _isConnected = isConnected ?? throw new ArgumentNullException(nameof(isConnected));
         _enterScope = enterScope ?? throw new ArgumentNullException(nameof(enterScope));
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
         _lifetime = lifetime;
@@ -81,7 +85,8 @@ public sealed class LicenseApproverAlarm
         {
             var machine = machines.FirstOrDefault(m => approver.NamesMachine(m.MachineName, m.OsUser));
             var label = LicenseSignInFold.Label(machines, machine?.MachineName ?? approver.MachineName, machine?.OsUser ?? approver.OsUser);
-            var verdict = LicenseApproverReadiness.Verdict(approver, label, now);
+            var reach = LicenseApproverReadiness.ReachOf(approver, machines, directorId => _isConnected(tenant, directorId), now);
+            var verdict = LicenseApproverReadiness.Verdict(approver, label, reach, now);
             if (verdict.WhatToDo is null)
                 continue;
             if (verdict.HealthText.Length > LicenseAlarmService.MaxSentenceLength || verdict.WhatToDo.Length > LicenseAlarmService.MaxSentenceLength)

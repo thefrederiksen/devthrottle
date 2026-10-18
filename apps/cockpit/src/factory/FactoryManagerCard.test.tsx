@@ -14,6 +14,7 @@ import type { FactoryManagerCard as CardView } from "@devthrottle/client-core/fa
 //   * the name check's findings are listed, each in the Gateway's sentence.
 
 const screenClient = vi.hoisted(() => ({
+  getFactoryDrawing: vi.fn(() => new Promise(() => {})),
   getFactoryManagerCard: vi.fn(),
   startFactoryManagerTalk: vi.fn(),
 }));

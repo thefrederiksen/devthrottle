@@ -20,7 +20,7 @@ internal static class LicenseReadinessTestKit
         var directors = new FakeLicenseDirectors();
         var signIns = new LicenseSignInService(log, reads, isConnected, directors.SendAsync, directors.EnterScope, nowUtc,
             CancellationToken.None);
-        var approvers = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(db)), reads, nowUtc);
+        var approvers = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(db)), reads, isConnected, nowUtc);
         var alarms = new LicenseAlarmService(db,
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
             (_, _, _) => Task.CompletedTask, nowUtc);

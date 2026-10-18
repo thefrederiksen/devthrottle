@@ -16,6 +16,7 @@ import { FailuresCard, useScrollToHash } from "./FactoryFailures";
 import { ProblemsCard } from "./FactoryProblems";
 import { EmailsCard } from "./FactoryEmails";
 import { FactoryFloorPanel } from "./FactoryFloor";
+import { FactoryDrawingPanel } from "./FactoryDrawing";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { FactoryDefinitionTab } from "./FactoryDefinitionTab";
 import { FactoryRecordsTab } from "./FactoryRecordsTab";
@@ -93,6 +94,7 @@ export function FactoryView() {
               <Link to={page.leftOpenHref}>{page.leftOpenText}</Link>
             </p>
           )}
+          {tab !== "seats" && <GoalLine page={page} />}
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
             <span>{page.bossText}</span>
             <span>{page.seatCountText}</span>
@@ -137,7 +139,12 @@ export function FactoryView() {
         </section>
       )}
       {notYet === null && tab === "overview" && <Overview page={page} onChanged={view.reload} onDone={done} />}
-      {notYet === null && tab === "floor" && <FactoryFloorPanel factory={page.id} full />}
+      {notYet === null && tab === "floor" && (
+        <>
+          <FactoryDrawingPanel factory={page.id} />
+          <FactoryFloorPanel factory={page.id} full />
+        </>
+      )}
       {notYet === null && tab === "seats" &&
         (seats.error !== null ? (
           // error-reported-by: useView
@@ -147,7 +154,12 @@ export function FactoryView() {
         ) : (
           <SeatsTab view={seats.data} onChanged={seats.reload} />
         ))}
-      {notYet === null && tab === "activity" && <ActivityTab fixedFactory={page.id} />}
+      {notYet === null && tab === "activity" && (
+        <>
+          <ActivityExtras page={page} />
+          <ActivityTab fixedFactory={page.id} />
+        </>
+      )}
       {notYet === null && tab === "reports" && <ReportsTab fixedFactory={page.id} />}
       {notYet === null && tab === "memory" && <FactoryMemoryTab factory={page.id} />}
       {notYet === null && tab === "records" && <FactoryRecordsTab factory={page.id} />}
@@ -180,26 +192,65 @@ function Overview({
   onChanged: () => void;
   onDone: (resultText: string) => void;
 }) {
-  const { goal, goalNumber, failures, problems, emails, waiting, bossLatest, lastTalk } = page;
+  // The Overview (owner, 18 October 2026): how the newest run went, the drawing of what the factory does, and only
+  // what needs the owner. The goal is in the header; emails, the boss's latest and the last talk are on Activity.
+  const { failures, problems, waiting } = page;
+  const nothing = (problems === null || problems.items.length === 0) && failures === null && waiting.emptyText !== null;
   return (
     <div className="fa-overview" data-testid="fa-overview">
-      {problems !== null && <ProblemsCard problems={problems} onChanged={onChanged} />}
+      <FactoryDrawingPanel factory={page.id} showStatus />
+      {problems !== null && problems.items.length > 0 && <ProblemsCard problems={problems} onChanged={onChanged} />}
       {failures !== null && <FailuresCard factory={page.id} failures={failures} onChanged={onChanged} />}
-      {emails !== null && <EmailsCard emails={emails} />}
+      {(waiting.emptyText === null || nothing) && (
+        <section className="fa-panel" id="waiting" data-testid="fa-page-waiting">
+          <h2 className="fa-section-title">{waiting.heading}</h2>
+          {waiting.orderText !== null && <p className="fa-dim">{waiting.orderText}</p>}
+          {waiting.bulkHandled !== null && (
+            <div className="fa-bulk">
+              <OwnerActionButton action={waiting.bulkHandled} onDone={onDone} />
+            </div>
+          )}
+          {waiting.bulkHandledNote !== null && <p className="fa-dim">{waiting.bulkHandledNote}</p>}
+          {waiting.emptyText !== null ? (
+            <p className="fa-dim">{waiting.emptyText}</p>
+          ) : (
+            <div className="fa-waiting">
+              {waiting.items.map((item) => (
+                <WaitingItem key={item.id} item={item} onHandled={onChanged} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
 
-      <section className="fa-panel" data-testid="fa-goal">
-        <h2 className="fa-section-title">{goal.heading}</h2>
-        {goal.text !== null && <p className="fa-goal-text dt-private">{goal.text}</p>}
-        {goal.note !== null && <p className="fa-dim">{goal.note}</p>}
-        {goal.emptyText !== null && <p className="fa-dim">{goal.emptyText}</p>}
-      </section>
-
-      <section className="fa-panel" data-testid="fa-goal-number">
-        <h2 className="fa-section-title">{goalNumber.heading}</h2>
-        {goalNumber.valueText !== null && <p className="fa-goal-value">{goalNumber.valueText}</p>}
-        {goalNumber.asOfText !== null && (
-          <p className="fa-dim">
-            {goalNumber.asOfText}
+// The goal and its number, as one line under the factory's name (owner, 18 October 2026).
+function GoalLine({ page }: { page: FactoryPageView }) {
+  const { goal, goalNumber } = page;
+  return (
+    <p className="fa-goal-line" data-testid="fa-goal">
+      <span className="fa-goal-label">{goal.heading}:</span>{" "}
+      {goal.text !== null && <span className="dt-private">{goal.text}</span>}
+      {goal.emptyText !== null && <span className="fa-dim">{goal.emptyText}</span>}
+      {goal.note !== null && <span className="fa-dim"> {goal.note}</span>}
+      <span className="fa-goal-number" data-testid="fa-goal-number">
+        {(goalNumber.emptyText !== null || goalNumber.valueText !== null) && (
+          <span className="fa-goal-sep" aria-hidden="true">
+            {" | "}
+          </span>
+        )}
+        {goalNumber.emptyText !== null && <span className="fa-dim">{goalNumber.emptyText}</span>}
+        {goalNumber.valueText !== null && (
+          <>
+            <strong title={goalNumber.heading}>{goalNumber.valueText}</strong>
+            {goalNumber.asOfText !== null && (
+              <>
+                {" "}
+                <span className="fa-dim">{goalNumber.asOfText}</span>
+              </>
+            )}
             {goalNumber.linkHref !== null && (
               <>
                 {" "}
@@ -208,31 +259,20 @@ function Overview({
                 </a>
               </>
             )}
-          </p>
+          </>
         )}
-        {goalNumber.emptyText !== null && <p className="fa-dim">{goalNumber.emptyText}</p>}
-      </section>
+      </span>
+    </p>
+  );
+}
 
-      <section className="fa-panel" id="waiting" data-testid="fa-page-waiting">
-        <h2 className="fa-section-title">{waiting.heading}</h2>
-        {waiting.orderText !== null && <p className="fa-dim">{waiting.orderText}</p>}
-        {waiting.bulkHandled !== null && (
-          <div className="fa-bulk">
-            <OwnerActionButton action={waiting.bulkHandled} onDone={onDone} />
-          </div>
-        )}
-        {waiting.bulkHandledNote !== null && <p className="fa-dim">{waiting.bulkHandledNote}</p>}
-        {waiting.emptyText !== null ? (
-          <p className="fa-dim">{waiting.emptyText}</p>
-        ) : (
-          <div className="fa-waiting">
-            {waiting.items.map((item) => (
-              <WaitingItem key={item.id} item={item} onHandled={onChanged} />
-            ))}
-          </div>
-        )}
-      </section>
-
+// What happened, beyond the record: the emails the factory sent, the boss's latest and the last talk - on the Activity
+// tab since the Overview became the drawing (owner, 18 October 2026).
+function ActivityExtras({ page }: { page: FactoryPageView }) {
+  const { emails, bossLatest, lastTalk } = page;
+  return (
+    <div className="fa-activity-extras">
+      {emails !== null && <EmailsCard emails={emails} />}
       <section className="fa-panel" data-testid="fa-boss-latest">
         <h2 className="fa-section-title">{bossLatest.heading}</h2>
         {bossLatest.emptyText !== null && <p className="fa-dim">{bossLatest.emptyText}</p>}
@@ -249,7 +289,6 @@ function Overview({
           </Link>
         )}
       </section>
-
       <section className="fa-panel" data-testid="fa-last-talk">
         <h2 className="fa-section-title">{lastTalk.heading}</h2>
         <p className="dt-private">{lastTalk.text}</p>

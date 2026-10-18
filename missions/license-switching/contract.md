@@ -1034,6 +1034,40 @@ alarm is open. **There is no route that raises or clears an alarm** - only Gatew
 Raised by the Gateway's readiness check (`Licenses.LicenseReadinessService`, once a minute, after the switch check and
 the settling of sign-ins with no answer). See section 11.
 
+### 9.6a The no-room alarm, `no-room-at-80` (Track A)
+
+Raised by the same readiness check, after `not-ready-at-80`. The owner, 16 October: "at 80%, of license expiry, we need
+to make sure that the next License is available on all the computers. We need to warn about this if it's not the
+case." "No other account has room" is not a readiness gap (section 11), so `not-ready-at-80` never opens for it; this
+is its warning, while there is still time to act. The no-room email at the switch threshold (97%) is separate and
+unchanged.
+
+- **When it is true:** an account in use stands at or above 80% of either window (a window whose reset time has passed
+  does not count) while no other account has room for its machines (`LicenseDecisionEngine.NextTarget` is null).
+- **One alarm for the account, never one for each machine on it:** no machine, the account in use as its account.
+  Title "No account to switch to", so the push is "No account to switch to. Open Licenses to see what to do."
+- **Freshness, the same rule as `not-ready-at-80`:** it opens only on a fresh reading of the account in use; an open one
+  stays open while that reading is stale; it closes on a fresh reading under 80%, on an account having room again, or
+  on no machine being left on the account.
+- **Which account comes back first** (`LicenseDecisionEngine.FirstBackWithRoom`): of the other accounts, the one that
+  has room again soonest - once every window at or over the threshold has reset, and once a bar on it has passed, from
+  the reset times the Gateway already holds. An account whose return cannot be told (a full window with no reset time
+  ahead, a window not known, a reading too old to show it while nothing is full) is left out. Ties go to the account
+  email in ordinal order.
+- What is wrong: "account-a@example.com is at 85% of its weekly limit and no other account has room to switch its
+  machines to; the first to have room again is account-b@example.com, at 2026-10-15 03:12 UTC." When no return can be
+  told: "...; no other account's reading says when it will have room again." While the reading is stale: "account-a@example.com
+  was at or above 80% at its last fresh reading and ...". When two long account emails would make it longer than an
+  alarm takes, "The account in use is at 85% of its weekly limit and no other account has room to switch its machines
+  to; the first has room again at 2026-10-15 03:12 UTC." (or "...; the Licenses page names them." when no return can
+  be told).
+- The one thing to do: "Nothing can be switched to before 2026-10-15 03:12 UTC; to keep working, free up or add an
+  account." When no return can be told: "Nothing can be switched to until another account has room; to keep working,
+  free up or add an account."
+
+The two kinds are raised on their own: a kind whose raise fails is logged, the other kind is still raised, and then
+the failure is thrown.
+
 ### 9.7 The refused-report and silent-machine alarms, `report-refused` and `machine-silent` (Track B)
 
 Raised by `Licenses.LicenseMachineHealthAlarm` on the Gateway's once-a-minute license check, after the switch check that
@@ -1074,7 +1108,7 @@ stay owner-only; no session key gains anything.
 
 | Method | Payload | Answer |
 |---|---|---|
-| `GetLicenseApproverAssignments()` | none | `{ rows: [{ accountEmail, browserProfile, source }] }` - the records that name the caller's machine and operating system user |
+| `GetLicenseApproverAssignments()` | none | `{ rows: [{ accountEmail, browserProfile, source, checkDue }] }` - the records that name the caller's machine and operating system user; `checkDue` is true for a record that reads `not-checked` now (10.4) |
 | `ReportLicenseApproverChecks(report)` | `{ offersApprovers, rows: [{ browserProfile, browserProfileName, accountEmail, shownAccount, state, checkedAtUtc, detail }] }` | `{ rows: [{ browserProfile, accountEmail, outcome, reason }] }`, one per row, in order |
 
 Both are refused before Hello and are listed in the Hello answer only by a Gateway that keeps registrations. The
@@ -1128,7 +1162,34 @@ the owner switched automation on, and the machine's offer setting is off by defa
 ### 10.4 The not-checked rule
 
 A record whose last check is older than 26 hours (`LicenseApproverContract.NotCheckedAfter`), or that was never
-checked, reads `not-checked`. An absence is never read as healthy.
+checked, reads `not-checked`. An absence is never read as healthy: readiness (section 11) starts no automatic sign-in
+through a `not-checked` approver, whatever the reason.
+
+**A not-checked record is checked within ten minutes, not a day.** The key holder runs a full check of every assigned
+record (and, when it offers them, of its own profiles) at start and then once a day. Between those runs it asks for its
+assignments at every ten-minute look (`LicenseApproverContract.DueCheckWithin`, the same figure as its scheduler's
+interval) and checks at once each record the Gateway marks `checkDue` - one the owner has just set, one stored before
+checks existed, one whose check is too old. A due record it has already checked since its last daily run is not checked
+again until the next one, so a row the Gateway refused never opens the browser every ten minutes; a record that leaves
+its assignments and comes back is checked again. A due check does not move the time of the next daily run. A Gateway
+that predates `checkDue` sends false, and the Director checks daily as before.
+
+**Approving needs license switching on, and so does the check.** That is the contract already, on both sides: the
+Gateway relays an approval only to a machine whose Director reports licenses (`LicenseApprovalRelay`), the approving
+Director refuses one with "License switching is turned off on this Director, so nothing was approved.", and only a
+reporting Director gets assignments. So the check runs only where switching is on, and the sentence says so when it is
+not.
+
+**What a not-checked record tells the owner to do** (`LicenseApproverReadiness.Verdict`, by `LicenseApproverReach`):
+
+| The approving machine's Director | The one thing to do |
+|---|---|
+| Connected, and reported within the last 10 minutes (`LicenseStore.SilentAfter`) | Nothing to do: the Director on machine-a is connected and checks it within 10 minutes. |
+| Reported before, not connected now | Start the Director on machine-a; it checks this approver within 10 minutes of connecting. |
+| Never reported, or connected and silent for more than 10 minutes (license switching off) | Make sure the Director on machine-a is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting. |
+
+The record still reads `not-checked` in every row: the approver alarm (10.6) stays open and readiness still waits, until
+the check is stored.
 
 ### 10.5 The owner's removal
 
@@ -1155,7 +1216,8 @@ line.
 
 **What is judged.** For every machine on an account: the account it would switch to next
 (`LicenseDecisionEngine.NextTarget`), and whether the machine is ready for it (`LicenseDecisionEngine.Readiness`, the
-one definition of ready). "No other account has room" is its own state (`no-room`), never a readiness gap. The pure fold
+one definition of ready). "No other account has room" is its own state (`no-room`), never a readiness gap; at 80% it
+raises its own alarm, `no-room-at-80` (section 9.6a). The pure fold
 is `Licenses.LicenseReadinessFold`; the Licenses page and the minute check call the same `Judge` on the same facts.
 
 **What is done about a machine that is not ready**, in this order:

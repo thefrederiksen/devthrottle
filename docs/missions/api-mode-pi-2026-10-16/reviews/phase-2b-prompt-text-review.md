@@ -1,0 +1,376 @@
+# Phase 2 follow-on review: the prompt's text on its receipt (Gateway side)
+
+Mission: API mode for agent wrappers, proven on Pi (issue #4070). Phase 2 follow-on, item 2. Pull
+request #4146, branch `api-mode-receipt-prompt-text`, reviewed at its head commit `3ac62bd28`, which
+sits on the Director's unmerged contract pull request #4121 (branch `apimode/p4-prompt-text`, head
+`b4c0c84cb`). Only what #4146 adds on top of that branch was reviewed
+(`git diff origin/apimode/p4-prompt-text...review-4146`). Reviewer seat, opened by the Delivery Lead,
+running a different agent family from the Developer. Written 17 October 2026 on devlinux, session
+9ae46f73 ("Prompt Delivery - Reviewer - API mode prompt text #4146").
+
+**Verdict: the change holds. The text is stored and served verbatim on every path, the two migrations
+follow the repository's pattern and leave old rows null, the first-wins rule is kept in the store and
+in the live ruling, and the tests are real proofs over a real SQLite file, the real ingest and real
+HTTP. Four findings. Finding 1 is a sentence this pull request repeats in three places that the
+combined code does not keep: the "older Director sends no text, the receipt stays null" case cannot
+reach the store, because the contract branch refuses such a batch whole. That is the contract
+branch's rule, not a defect in storing or serving, but the claim and the two test comments that
+rest on it should be corrected, or the real test written, before the two merge. Findings 2 to 4 are
+small and the Developer decides, except that finding 3 is a decision whoever rebases second over
+#4142 must make in writing.**
+
+## 1. Scope: what I read, what I ran, what I could not reach
+
+**Read, in full:** every file the branch changes on top of `origin/apimode/p4-prompt-text` except the
+two generated migration designer files and the two model snapshots, which I read as diffs. The whole
+of `ApiModeReceiptStore.cs` and `ApiModeLiveRuling.cs` on the branch, not only the diff. The three
+prompt events and `SessionEventJson` in `CcDirector.Gateway.Contracts.ApiMode` on the contract
+branch, and the contract branch's Director-side diff (`ApiModeSessionHost`, `PiDialect`) to see which
+events carry the text. `ApiModeEventIngest.Parse`, `ApiModeEventBuffer.Trim`, the batch limits in
+`DirectorUpStreamMessages`, the hub's inbound message size, `ApiModeVerdictReceipts.Read` (the fleet
+list's projection), `SessionLiveEndpoint` and `SessionReceiptsEndpoint`. Pull request #4142's store
+and ruling (`Supersede`, `Supersedes`) for finding 3. The event model's "What a `promptId` is". The
+generated `packages/client-core/src/api/schema.ts` on this branch and on `origin/main`, and
+`packages/client-core/src/apimode/liveTypes.ts` on `origin/api-mode-phase-3-live-chat`. The two new
+and two extended test files. The previous two `AddColumn` migrations and the previous designer files
+for the pattern.
+
+**Ran:** nothing. The gate runs on Windows and the brief says not to run tests here. The Developer
+reports 223 passed in the touched classes and their callers and 14 in the pending-model-change checks;
+I did not repeat that run, and every statement below is from reading the code at the head commit.
+
+**Could not reach:** a real PostgreSQL (the migration was read against the pattern, not applied); the
+behaviour of a Director that predates the contract branch (there is no test that sends an event
+without `promptText` through the real parser, which is finding 1).
+
+## 2. What is right, so the next seat does not re-check it
+
+- **Verbatim, on every path.** The store assigns the string it was handed and nothing else:
+  `KeepPromptText` is one assignment, there is no `Trim`, `Substring`, `Replace` or normalisation in
+  any of the three touched product files, `ToDto` copies the column, the ruling's `Copy` and
+  `ReceiptItem` copy the field, and `KeepPromptText` in the ruling is the same one assignment. The
+  column is unbounded on both providers (`TEXT`, `text`) with no `HasMaxLength`. The endpoints
+  serialise with the host's default System.Text.Json options, which escape newlines and keep every
+  space, and the two new endpoint tests read the real JSON body back and compare it equal to a
+  string with leading and trailing spaces, an inner newline and a trailing newline. The ingest test
+  round-trips each of the three events through the real serializer. The prompt's text appears in no
+  log line (it is the user's words and can be long).
+- **The migrations are the repository's pattern.** Each is one `AddColumn<string>` with
+  `nullable: true` and no default, the same shape as `AddSessionNameToCronRuns` and
+  `AddFactoryCheckState`; `Down` drops the one column. The designer files carry `ProductVersion`
+  9.0.2 like the `AddLicenseAlarms` pair before them. Each snapshot gains exactly one property. On
+  both providers an existing row gets `NULL` for the new column, and `ToDto` serves that as null.
+  `origin/main` has no migration newer than this branch's base (the newest on main is
+  `AddLicenseAlarms`, 2026-10-17 08:22 and 08:25; these are 15:19 and 15:48), so the order stays
+  clean after the rebase onto main that the pull request body promises.
+- **First wins, never blanked, in both keepers.** Store and ruling use the same two-line rule: set
+  only when the row has none and the event carries a non-empty text. The tests pin a later event
+  with null, a later event with empty, and a later event with other text, in the store and in the
+  ruling, and the ruling started from stored receipts keeps the stored text.
+- **The fleet list does not pay for it.** `ApiModeVerdictReceipts.Read` projects named columns and
+  does not select `PromptText`, so the row verdict for every API-mode session in the list is not
+  inflated by prompt text. Only the one session's receipts read and its live items carry it.
+- **The store's own bound is unreachable by design and tested as a guard.** `MaxPromptTextLength`
+  equals the batch limit the ingest already enforces on the summed event JSON before any event is
+  parsed, so no event can hand the store a longer text. A text of twice the 64 KB verbatim limit is
+  stored whole, which is the right ruling for the user's own words.
+- **The hub admits it.** The hub's `MaximumReceiveMessageSize` is `MaxInboundMessageBytes`, which
+  resolves to 32 MB, so a 4,000,000-character batch arrives; the batch limit, not the transport, is
+  the ceiling.
+- **The tests meet the test standard.** Per-test SQLite file harness, a fixed clock injected into
+  the store, the real ingest and buffer, the existing in-process HTTP test host for the two
+  endpoints. No sleep, port, process or real clock.
+- **No attribution** in the commit message.
+
+## 3. Findings
+
+### Finding 1. "A receipt from an older Director stays null" is not a path the combined code has
+
+**Where:** `ApiModeReceiptEntity.PromptText` comment ("Null when no event carried any (a receipt
+from a Director older than the text on the events)"), `ApiModeReceiptDto.PromptText` comment, the
+pull request body, and the comments on `Items_AResetStartsFromAStoredReceiptWithoutText_PromptTextIsNull`
+and `Read_AReceiptFromADirectorThatSentNoText_PromptTextIsNull` ("as from an older Director").
+
+**Severity:** medium as a statement, low as code. Nothing stored or served is wrong; a sentence the
+next seat will rely on is.
+
+**What happens:** on the contract branch `PromptText` is `required string` on `PromptQueued`,
+`PromptDelivered` and `PromptRefused`, and `SessionEventJson.Options` is the default resolver.
+System.Text.Json enforces `required` members on deserialization: a JSON object without `promptText`
+throws `JsonException` ("was missing required properties"). `ApiModeEventIngest.Parse` turns that
+into `ArgumentException("event i is not a session event: ...")`, and the hub refuses the batch
+whole. So an older Director's receipt is never stored null; its batch is never stored at all.
+
+**Concrete failure case:** a Director on the current release runs a Pi session in API mode. The
+hosted Gateway deploys main with #4121 and #4146. The Director's next push carries
+`{"type":"promptQueued","sessionId":...,"promptId":...,"reason":"turnRunning","position":1}` with no
+`promptText`. The Gateway answers a refusal; the Director resends the same events on its next push
+and is refused again; the session's receipts and live stream stop at the last accepted sequence
+until the Director updates. That may be the intended rule (Directors update themselves and the
+mission is unreleased), but then it is the contract branch's rule to state, and this pull request
+should not describe a tolerance it does not have.
+
+**What to do:** one of two, and the Tech Lead picks. Either the contract branch makes the property
+optional on the wire (`string?`, no `required`) and this pull request's claim becomes true, with a
+test that sends an event JSON without `promptText` through `Parse` and asserts a null receipt. Or
+the claim is cut from the two comments, the body and the two test comments, which then say what
+they do prove: a row stored before the column existed, or by a caller that passed no text, serves
+null. The "null when absent" tests themselves are right and stay either way.
+
+### Finding 2. The store and the live ruling disagree on an event the store sets aside
+
+**Where:** `ApiModeReceiptStore.RecordQueued`, `RecordDelivered`, `RecordRefused` (the "already
+ended" and "not newer" branches return before `KeepPromptText`); `ApiModeLiveRuling.Rule` (the three
+receipt arms call `KeepPromptText` before the finality check); `ApiModeLiveRuling.ReceiptIfChanged`
+(an item is emitted only when the receipt's words change).
+
+**Severity:** low. Unreachable with a Director from the contract branch, which puts the text on
+every one of the three events (checked in the `ApiModeSessionHost` and `PiDialect` diff). It
+matters only if a future Director carries the text on some events and not others.
+
+**Concrete case, the two keepers:** a Queued without text, then a Refused without text, then a late
+Queued with text at a newer sequence. The store logs "a prompt that ended cannot be queued again" and
+keeps the row's text null; the ruling sets the text and then returns, so the live reader is handed a
+receipt item with the text that the stored receipt does not have. The next reset shows the reader a
+receipt without text that it had seen with one.
+
+**Concrete case, the words rule:** a Queued without text and reason `turnRunning`, then a Queued with
+text and the same reason. The store keeps the text (the reason refresh path writes it). The ruling
+keeps it too, but the receipt's words are unchanged, so `ReceiptIfChanged` emits nothing and no live
+reader learns the text until the next event changes the words.
+
+**What to do:** either move `KeepPromptText` in the ruling below the finality check so the two
+keepers set it under the same condition, or leave it and say in the `KeepPromptText` comment that
+the ruling keeps text the store would set aside. For the words rule, nothing now: with a Director
+that always carries the text, the first event sets it and the first item carries it.
+
+### Finding 3. Over #4142, a retry's text never replaces the refused attempt's, and nobody has said so
+
+**Where:** #4142's `ApiModeReceiptStore.Supersede` clears every field the refused attempt wrote and
+moves the row's first position; it does not know `PromptText`. This pull request's `KeepPromptText`
+is first-wins. After the rebase, a retry under the same prompt id keeps the text of the refused
+attempt and ignores the retry's.
+
+**Severity:** low for correctness, because of the event model's own definition. A retry "reuses its
+Gateway id exactly": the id names one prompt, so the retry carries the same words, and keeping the
+first is keeping the right text. It matters as an unstated decision in a merge of two pull requests
+that each touch the same three methods.
+
+**Concrete case:** Refused with text "run the tests" at sequence 3; the retry's Delivered at
+sequence 9 with text "run the tests". Stored text: "run the tests", from sequence 3, on a row whose
+first position now says sequence 9. Correct, and invisible. If a Director ever retried with edited
+words, the stored text would be the words the agent did not get.
+
+**What to do:** whoever rebases second writes one sentence in `Supersede`'s comment ("the prompt's
+text is kept: a retry under the same id is the same prompt") and one test in the supersede suite
+asserting the kept text after a retry. Do not clear `PromptText` in `Supersede`: the retry always
+carries the text under the contract branch, but clearing would turn a late text-less event into a
+blanking, which this pull request's rule forbids.
+
+### Finding 4. One long prompt is held three times and can empty a session's live buffer
+
+**Where:** `ApiModeEventBuffer.Trim` lets the oldest events go while the session is over 2,000,000
+characters of raw event JSON, but keeps the newest event even when it alone is over the bound
+(`state.Events.Count > 1`). `ApiModeEventIngest.Parse` charges each event its JSON length, and the
+same prompt text travels on Queued, on Delivered (beside the acknowledgement) or on Refused.
+
+**Severity:** low, and acceptable as designed. Noted so the size reasoning in the pull request body
+is complete.
+
+**Concrete case:** a pasted prompt of 1,100,000 characters. Queued carries it: 1.1 million. Delivered
+carries it again: 2.2 million held for the session, and every event before the Queued is let go.
+A live reader on its next read gets `Complete: false`, is reset, and rebuilds from the stored
+receipts and history, which carry the text. A prompt of 2,000,001 characters does this on its first
+event alone; one of up to 4,000,000 (the batch limit) is still accepted and held alone. The window
+of live events behind a prompt of N characters is therefore 2,000,000 minus 2N, not minus N.
+
+**Why acceptable:** the reset path is exactly what the design does on eviction, nothing is lost that
+the stored receipts do not keep, and a prompt that long is an edge the user made. The alternative,
+carrying the text on one event only, is the contract branch's decision and would reintroduce the
+"text arrives on an event the keeper sets aside" case of finding 2.
+
+**One more number, pre-existing and not changed here:** the buffer's worst case is 1,000 sessions
+at 2,000,000 characters, about 4 GB of UTF-16, and the same bound was there before this change.
+
+## 4. Answers to the six questions in the brief
+
+1. **Verbatim.** Holds. See section 2, first point. The one place the Gateway changes what it was
+   given is that an empty string is treated as "no text" and stored null. A Director never sends an
+   empty prompt (the Director refuses a prompt command with no text), and null and empty read the
+   same to a client, so this is harmless, but it is a tiny rewrite and the `KeepPromptText` comment
+   says so honestly.
+2. **The migrations.** Both follow the pattern; old rows upgrade to `NULL`; order against main is
+   clean. See section 2, second point.
+3. **First wins with #4142 in flight.** Correct under the event model, because a retry is the same
+   prompt. It does not matter for the words stored; it matters that the merge says so and proves it.
+   Finding 3.
+4. **Size.** No own limit, counted by the buffer at its JSON length, bounded only by the batch. One
+   long prompt can evict a session's whole live buffer, and the same text is charged twice per
+   prompt. Acceptable because eviction is a reset to the stored receipts, which keep the text.
+   Finding 4.
+5. **`schema.ts`.** Verified: the generated file on this branch and on `origin/main` contains
+   neither `/sessions/{sid}/receipts` nor `/sessions/{sid}/live/items`, and neither
+   `ApiModeReceiptDto` nor `ApiModeLiveItem`. The Developer was right not to invent them. The phase 3
+   Chat branch (`api-mode-phase-3-live-chat`) carries `promptText?: string | null` on its own
+   `liveTypes.ts` item, under the JSON name this pull request serves. A note, not a finding: those
+   two routes are missing from the OpenAPI document the generator reads, which is why phase 3 has a
+   hand-written type at all; that is worth a line in the phase 3 review.
+6. **Tests and logging.** The tests are real proofs (section 2). The one proof missing is the one
+   named in finding 1. Logging: every store change still goes through `Write`, which logs the
+   operation, session, prompt, position and what changed; a kept text adds no line and the text is
+   never logged, which is right.
+
+## 5. What the next seat need not re-check
+
+The verbatim path end to end inside the Gateway; the two migrations and the snapshots; the fleet
+list projection; the hub's inbound size; the phase 3 type name. What the next seat must still
+settle: finding 1's choice (contract branch or claim), and finding 3's sentence and test in whichever
+of #4142 and #4146 lands second.
+
+## Developer's answer
+
+Written 17 October 2026 on devlinux by the Developer seat, after the Tech Lead's rulings. The branch was
+rebased onto the current head of the contract branch `apimode/p4-prompt-text` (`a8802dd17`), which now
+carries #4121's final contract and has merged main, so #4142 (`Supersede`), #4174 and #4178 are under
+this branch. #4121 is not merged yet, so the rebase onto main itself waits for it.
+
+**Finding 1, settled by #4121.** #4121's commit `1b4df19be` made `PromptText` optional (`string?`, no
+`required`) on all three events, so a batch from a Director older than the field is accepted and its
+events read back with null text. With that contract the "older Director, the receipt stays null"
+sentences on `ApiModeReceiptEntity.PromptText`, `ApiModeReceiptDto.PromptText`, the two test comments
+and the pull request body are true, and are kept. The missing proof is now written end to end:
+`Accept_ABatchFromADirectorOlderThanPromptText_IsAcceptedWholeAndFeedsTheReceipts` (#4121's test,
+which sends the events' JSON with `promptText` removed through the real ingest) now also asserts that
+both stored receipts have null text, never an empty string. Every null path in this branch takes
+`string?`: the ingest passes the event's text as it is, the store and the ruling treat null and empty
+as "no text", and `ToDto`, `Copy` and `ReceiptItem` copy null through.
+
+**Finding 2, accepted.** In `ApiModeLiveRuling.Rule` the three receipt arms now call `KeepPromptText`
+after the finality check (main's `Supersedes` check), not before it. The ruling therefore sets the text
+under exactly the store's condition: a new receipt, a Queued receipt, or a retry over a Refused one; never
+a late event after Delivered, which both set aside. The comment on the ruling's `KeepPromptText` says
+so. Proof: `Rule_ALateEventWithTextAfterDelivered_SetsNoTextAsTheStoreDoesNot`, for a late Queued and a
+late Refused, drives the store and the ruling with the same events and asserts the stored receipt and
+the next receipt item the live reader gets both have no text. With the keeper moved back above the
+check, both cases fail; with the fix they pass. The "words rule" case needs nothing, as the review
+says.
+
+**Finding 3, accepted.** `Supersede` in the store and `Supersedes` in the ruling keep `PromptText` and
+now say why in their comments: a retry under the same id is the same prompt, so it carries the same
+words, and clearing the text would let a retry's event without text blank the row. The rebase also
+showed that the merge of #4142 left the store's three supersede branches without a `KeepPromptText`
+call, so a retry carrying text over a refusal that had none would never have filled it, while the
+ruling would. Each supersede branch now calls `KeepPromptText`, the first-wins rule. Proofs:
+`RecordDelivered_RetryAfterARefusalWithText_KeepsTheText` (the review's case: refused with text at
+sequence 3, the retry delivered at 9), `RecordQueued_RetryWithoutTextAfterARefusalWithText_DoesNotBlankIt`,
+`RecordRefused_RetryWithTextAfterARefusalWithout_SetsTheText`, and the same two cases in the ruling
+(`Rule_RetryAfterARefusal_KeepsTheTextAsTheStoreDoes`, `Rule_RetryWithTextAfterARefusalWithout_SetsTheTextAsTheStoreDoes`).
+
+**Finding 4, accepted as is.** One long prompt is charged on every event that carries it and can empty
+the session's live buffer. A live reader is then reset and rebuilds from the stored receipts and
+history, which keep the text, so nothing is lost. The window of live events behind a prompt of N
+characters is 2,000,000 minus 2N, as the review works out. No change.
+
+**Migrations.** The contract branch's head added no migration and changed no model. The final rebase
+onto main (after #4121 merged) brought in main's `AddLicenseMachineCannotSwitch`, a model change the old
+designer files did not carry, and `TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel`
+failed on both providers. So `AddApiModeReceiptPromptText` was regenerated with `dotnet ef migrations
+add` on both providers (SQLite `20261018015813`, PostgreSQL `20261018015844`). The migration bodies are
+byte for byte the old ones, the snapshots are unchanged, and it is the newest migration on both.
+
+**Run on devlinux, one class at a time:** ApiModeReceiptPromptTextTests 24, ApiModeReceiptStoreTests
+41, ApiModeLiveRulingTests 46, SessionReceiptsEndpointTests 9, SessionLiveEndpointTests 55,
+ApiModeEventIngestTests 28, and the two classes that check the model has no pending changes
+(FleetOutcomeStopIdentityMigrationTests 3, GatewayHostBootSmokeTests 11): 217 passed, none failed. No
+test names the migration by name; those two classes are the migration's checks.
+
+**After the final rebase onto main** (#4121 merged as `142bcbff1`; main carries #4142, #4174 and
+#4178's place in line), run one class at a time on devlinux: ApiModeReceiptPromptTextTests 24,
+ApiModeReceiptStoreTests 42, ApiModeLiveRulingTests 77, SessionReceiptsEndpointTests 13,
+SessionLiveEndpointTests 56, ApiModeEventIngestTests 28, FleetOutcomeStopIdentityMigrationTests 3 (after
+regenerating the migration), GatewayHostBootSmokeTests 11: 254 passed, none failed. #4178's place in line
+and the prompt text are both carried on the ruling's receipt copy and item, side by side.
+
+## Re-review
+
+Written 17 October 2026 on devlinux by a second Reviewer seat (session 28157ee8, "Prompt Delivery - Reviewer - #4146
+re-review"), a different agent family from the Developer, after the Developer's answer above. Reviewed at the head
+commit `38370cf98`, which sits directly on `origin/main` `142bcbff1` (the merge base is main's head, so the branch is
+four commits over current main and carries #4121, #4142, #4174 and #4178). Read: the whole product diff over main, the
+whole of `ApiModeReceiptStore.cs` and `ApiModeLiveRuling.cs` at the head, the three prompt events as merged on main
+(`git show 142bcbff1`), the new and extended test files, the two migrations, both designer files and both snapshots,
+and pull request #4179's diff where it touches the store, the ruling and the receipt DTO.
+
+**Verdict: approve.** Every one of the four findings is fixed in the code, proven by a test, and recorded truthfully in
+the answer above. Nothing new to hold on.
+
+### The four findings, checked one by one
+
+1. **Finding 1 (the "older Director" claim), fixed by the contract.** On main, `PromptText` is `string?` with no
+   `required` on `PromptQueued`, `PromptDelivered` and `PromptRefused`, and its comment says why (the Gateway deploys
+   before every Director updates). So a batch without `promptText` is accepted, the ingest hands the store null, and
+   the entity, the DTO and the two test comments that say "a Director older than the text" are now true sentences.
+   The missing proof exists: `Accept_ABatchFromADirectorOlderThanPromptText_IsAcceptedWholeAndFeedsTheReceipts` sends
+   the events' JSON with the field removed through the real parser and asserts both receipts have null text.
+2. **Finding 2 (store and ruling disagree on a set-aside event), fixed.** In `ApiModeLiveRuling.Rule` all three
+   receipt arms now call `KeepPromptText` after the `Supersedes` finality check. I walked every branch of the two
+   keepers side by side: a new row and a new receipt both set the text; a Queued row refreshed by a Queued event (the
+   place-in-line re-send of #4178 takes this path) sets it in both; a Refused row superseded by a retry's Queued,
+   Delivered or Refused sets it in both after the clearing; a Delivered row met by a late Queued or Refused sets it in
+   neither (the store returns null before its keeper, the ruling returns before its keeper); a replay at or before the
+   stored position sets it in neither. `Rule_ALateEventWithTextAfterDelivered_SetsNoTextAsTheStoreDoesNot` drives the
+   store and the ruling with the same events for both late kinds and asserts both have no text.
+3. **Finding 3 (a retry's text over a refusal), fixed and written down.** The store's `Supersede` clears thirteen
+   fields and leaves `PromptText` alone, and its comment says why in the sentence the first review asked for; the
+   ruling's `Supersedes` comment says the same. The rebase defect the Developer found is real and fixed: each of the
+   three supersede branches in the store now calls `KeepPromptText`, so a retry carrying text over a refusal that had
+   none fills it, as the ruling already did. The three store tests and the two ruling tests named in the answer exist
+   and cover the case from the first review (refused with text at sequence 3, the retry delivered at 9).
+4. **Finding 4 (one long prompt charged on every event), accepted as is.** No change, as agreed.
+
+### The other checks the brief asked for
+
+- **The migration is the newest on both providers.** On main the newest are `20261017121400_AddLicenseMachineCannotSwitch`
+  (SQLite) and `20261017121456_AddLicenseMachineCannotSwitch` (PostgreSQL); this branch adds `20261018015813` and
+  `20261018015844`, newer than both. Its body adds exactly one nullable column (`TEXT` on SQLite, `text` on
+  PostgreSQL, no default, no length) and `Down` drops that one column. The regenerated bodies are identical to the ones
+  the branch carried before the rebase: the regenerating commit `38370cf98` renames the two body files with zero
+  changed lines, and I diffed them as well.
+- **The designer files carry the current model.** I extracted the model-building body of each designer file and
+  diffed it against the matching snapshot's body: identical on both providers, and both contain the
+  `CannotSwitchReason` column that the rebase brought in. That is exactly what
+  `TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel` asserts, and it passed in my run below.
+- **The null paths and comments against the merged contract.** The ingest passes each event's `PromptText` as it is
+  (`string?`); the three store methods take `string? promptText = null` and treat null and empty as "no text"; `ToDto`,
+  `Copy` and `ReceiptItem` copy null through. The contract's own comment ("a current Director always fills it") holds
+  on main: `ApiModeSessionHost` and `PiDialect` put the text on every Queued, Delivered and Refused they build.
+- **Verbatim.** `KeepPromptText` in both keepers is one assignment of the string it was handed. No `Trim`,
+  `Substring`, `Replace` or normalisation touches the text anywhere in the three product files (the one `Trim('"')`
+  in the ingest is pre-existing and strips the quotes from a serialised enum word, never from text). The text appears
+  in no log line. The endpoint tests read the real JSON body back and compare it equal to a string with leading and
+  trailing spaces, an inner newline and a trailing newline. The only change the Gateway ever makes is to store an
+  empty string as null, which the comments say and which null and empty readers cannot tell apart.
+- **No attribution** in the four commit messages or in this record.
+
+### Pull request #4179 (lost turn end), the clash I can see
+
+Not reviewed; only its overlap with this branch. Both diffs are against the same base, so whichever lands second will
+rebase over the other. The overlap is textual, not semantic:
+
+- `ApiModeReceiptStore.cs`: #4179 edits the "ONE TURN PER PROMPT" bullet of the class comment and this branch edits the
+  "VERBATIM" bullet directly under it; #4179's hunk at `RecordTurnStarted`'s summary begins two lines after this
+  branch's change to `RecordRefused`'s new-row lambda. Expect a conflict in both places, each a few lines.
+- `ApiModeLiveRuling.cs`: #4179 wraps the `switch` in `Rule` into a new `RuleEvent` method at the lines just above the
+  three `KeepPromptText` calls this branch adds. Expect a conflict or a near miss there.
+- `ApiModeReceiptDtos.cs`: the two additions are in different regions of `ApiModeReceiptDto` and should merge clean.
+
+Nothing in #4179 reads, writes or clears `PromptText`: its `EndTurn` helper and the lost-ending branches touch only the
+turn fields, and the receipt items it re-shows go through `ReceiptItem`, which copies the text. So the rule this pull
+request sets is not changed by #4179, and the second rebase is a textual merge only.
+
+### Run on devlinux
+
+One run, filtered to the eight named classes, started only after `ps` showed no other test host on the machine:
+ApiModeReceiptPromptTextTests, ApiModeReceiptStoreTests, ApiModeLiveRulingTests, SessionReceiptsEndpointTests,
+SessionLiveEndpointTests, ApiModeEventIngestTests, FleetOutcomeStopIdentityMigrationTests, GatewayHostBootSmokeTests:
+**254 passed, 0 failed, 0 skipped, 33 seconds**, the same count the Developer reports after the final rebase.

@@ -239,9 +239,9 @@ internal sealed class FakeApproverChannel : ILicenseApproverChannel
 
     public List<LicenseApproverCheckReport> Reports { get; } = new();
 
-    public FakeApproverChannel Assign(string accountEmail, string profile, string source = LicenseApproverSources.Owner)
+    public FakeApproverChannel Assign(string accountEmail, string profile, string source = LicenseApproverSources.Owner, bool checkDue = false)
     {
-        Assignments.Rows.Add(new LicenseApproverAssignment { AccountEmail = accountEmail, BrowserProfile = profile, Source = source });
+        Assignments.Rows.Add(new LicenseApproverAssignment { AccountEmail = accountEmail, BrowserProfile = profile, Source = source, CheckDue = checkDue });
         return this;
     }
 

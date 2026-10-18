@@ -53,6 +53,11 @@ public static class LicenseLogKinds
     /// <summary>A silent machine is reporting again. Final when written.</summary>
     public const string ReportingAgain = "reporting-again";
 
+    /// <summary>The owner forgot a machine that had stopped reporting, or whose reports were refused: its row and
+    /// holdings were removed and its open refusal and silence ended (<see cref="LicenseStore.ForgetMachine"/>). Final
+    /// when written. A machine that reports again comes back as a new row.</summary>
+    public const string Forgotten = "forgotten";
+
     /// <summary>An approval the relay passed between machines (<see cref="LicenseApprovalLog"/>): who asked, for which
     /// account, who was set to approve it, and whether it was approved. Final when written.</summary>
     public const string Approval = "approval";
@@ -96,6 +101,10 @@ public static class LicenseGatewayReasonCodes
 {
     public const string DirectorOffline = "director-offline";
     public const string DirectorError = "director-error";
+
+    /// <summary>The machine was forgotten while the switch was open (<see cref="LicenseStore.ForgetMachine"/>): it ended
+    /// without an answer.</summary>
+    public const string MachineForgotten = "machine-forgotten";
 
     /// <summary>On a no-room row or a failed-renewal row: its one owner email was sent.</summary>
     public const string OwnerEmailed = "owner-emailed";
@@ -1184,6 +1193,124 @@ public sealed class LicenseStore
         }
     }
 
+    /// <summary>
+    /// Forget a machine (the owner's "Forget this machine"): end its open <see cref="LicenseLogKinds.ReportRefused"/> and
+    /// <see cref="LicenseLogKinds.MachineSilent"/> rows, end its open switch rows as failed, remove its holdings and its
+    /// machine row, and write one <see cref="LicenseLogKinds.Forgotten"/> row - all in one save, so the page never shows
+    /// half of it. <paramref name="machineId"/> is the machine's identifier on the page: its machine row, or for a
+    /// machine none of whose reports was ever accepted, the stand-in row of its open refusal
+    /// (<see cref="LicenseDisplayFold.RefusedMachineId"/>). The Licenses log keeps every earlier row about it. A machine
+    /// that reports again is a new row.
+    ///
+    /// AN OPEN SWITCH DOES NOT STOP IT (the review of pull request 4183, finding 1). A machine that is gone never answers,
+    /// and the minute check settles an unanswered switch only from a later report, so such a switch would never end
+    /// and the machine could never be forgotten. It ends here, as failed with <see cref="LicenseGatewayReasonCodes.MachineForgotten"/>,
+    /// so no open row names a machine row that is gone. A late answer changes nothing: an ended row is not settled again.
+    ///
+    /// A MACHINE THAT IS REPORTING IS REFUSED HERE TOO (the review of pull request 4183, round two, finding 1). The route
+    /// offers it only for a machine the page calls not reporting or refused, but that was read before this save; a
+    /// machine that reported again in between is still on its feet, and ending its switch or removing its approvers would
+    /// be wrong. So a machine with no open refusal whose last accepted report is not stale
+    /// (<see cref="LicenseStaleness.IsMachineStale"/>, the page's own rule) is refused with nothing changed. A refused
+    /// report never moves the last accepted report, so this never refuses a refused machine.
+    ///
+    /// AN OPEN SIGN-IN DOES: refused with nothing changed. It is only a delay, because the sign-in check ends a sign-in
+    /// on a machine it has not seen for long enough.
+    ///
+    /// The open rows are read and then written in one save, not in a transaction: a sign-in started between the two is
+    /// left open on a machine that is gone, and the sign-in check never settles it.
+    /// </summary>
+    /// <param name="approverAccounts">The accounts whose sign-ins this machine approves, which the caller removes after
+    /// this save; the forgotten row says so.</param>
+    public LicenseForgetResult ForgetMachine(TenantId tenant, Guid machineId, string label, DateTime nowUtc,
+        IReadOnlyList<string>? approverAccounts = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(label);
+        var approving = approverAccounts ?? Array.Empty<string>();
+        var now = Utc(nowUtc);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var machine = ctx.LicenseMachines.FirstOrDefault(m => m.Id == machineId);
+            var idText = machineId.ToString("N");
+            var refusals = OpenRefusals(ctx)
+                .Where(r => machine is not null
+                    ? IsRefusalOf(r, machine.MachineName, machine.OsUser, machine.DirectorId)
+                    : LicenseDisplayFold.RefusedMachineId(r) == idText)
+                .ToList();
+            if (machine is null && refusals.Count == 0)
+            {
+                FileLog.Write($"[LicenseStore] ForgetMachine: tenant={tenant.ToLogString()}, machine={idText} is not in this account");
+                return new LicenseForgetResult(null, LicenseForgetRefusals.NotFound);
+            }
+            if (machine is not null && refusals.Count == 0 && !LicenseStaleness.IsMachineStale(Utc(machine.LastReportAtUtc), now))
+            {
+                FileLog.Write($"[LicenseStore] ForgetMachine: REFUSED tenant={tenant.ToLogString()}, machine={idText}: it reported at {Utc(machine.LastReportAtUtc):O}");
+                return new LicenseForgetResult(null, LicenseForgetRefusals.NotOffered);
+            }
+            var open = ctx.LicenseSwitchLog.Where(r => r.MachineId == machineId && r.FinishedAtUtc == null).ToList();
+            if (open.FirstOrDefault(r => r.Kind == LicenseSignInLog.Kind && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown)) is { } signIn)
+            {
+                FileLog.Write($"[LicenseStore] ForgetMachine: REFUSED tenant={tenant.ToLogString()}, machine={idText}: a sign-in is open, row={signIn.Id}");
+                return new LicenseForgetResult(null, LicenseForgetRefusals.SignInOpen);
+            }
+            var silences = open.Where(r => r.Kind == LicenseLogKinds.MachineSilent).ToList();
+            foreach (var row in refusals.Concat(silences))
+            {
+                row.State = LicenseLogStates.Ended;
+                row.FinishedAtUtc = now;
+            }
+            var switches = open.Where(r => r.Kind == LicenseLogKinds.Switch && LicenseLogStates.IsOpen(r.State)).ToList();
+            foreach (var row in switches)
+            {
+                row.State = LicenseLogStates.Failed;
+                row.ReasonCode = LicenseGatewayReasonCodes.MachineForgotten;
+                row.Message = $"Ended without an answer: {label} was forgotten before this switch was over.";
+                row.FinishedAtUtc = now;
+            }
+            var named = machine is not null
+                ? (machine.MachineName, machine.OsUser, machine.DirectorId)
+                : (refusals[0].MachineName, refusals[0].OsUser, refusals[0].DirectorId ?? "");
+            var holdings = ctx.LicenseHoldings.Where(h => h.MachineId == machineId).ToList();
+            ctx.LicenseHoldings.RemoveRange(holdings);
+            if (machine is not null)
+                ctx.LicenseMachines.Remove(machine);
+            var forgotten = new LicenseSwitchLogEntity
+            {
+                Kind = LicenseLogKinds.Forgotten,
+                MachineId = machineId,
+                MachineName = named.Item1,
+                OsUser = named.Item2,
+                DirectorId = named.Item3,
+                State = LicenseLogStates.Recorded,
+                Message = ForgottenMessage(label, approving),
+                CreatedAtUtc = now,
+                FinishedAtUtc = now,
+                TenantId = ctx.ActiveTenant!,
+            };
+            ctx.LicenseSwitchLog.Add(forgotten);
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] ForgetMachine: tenant={tenant.ToLogString()}, machine={idText}, machineRow={machine is not null}, "
+                          + $"holdings={holdings.Count}, refusalsEnded={refusals.Count}, silencesEnded={silences.Count}, switchesEnded={switches.Count}, approves={approving.Count}");
+            return new LicenseForgetResult(forgotten, null);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] ForgetMachine FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>What the forgotten row says: what left the page, and the approvers it took with it.</summary>
+    public static string ForgottenMessage(string label, IReadOnlyList<string> approverAccounts)
+    {
+        var said = $"{label} was forgotten: it is off the Licenses page, with what it held, and its open problems are over.";
+        if (approverAccounts.Count > 0)
+            said += $" It approved the sign-ins of {string.Join(", ", approverAccounts)}; "
+                    + (approverAccounts.Count == 1 ? "that approver is" : "those approvers are") + " removed too.";
+        return said + " If it reports again, it comes back.";
+    }
+
     /// <summary>A silent machine's report was accepted: its silence row ends and one row says it is reporting again.
     /// False when the row is not open.</summary>
     public bool CloseSilence(TenantId tenant, Guid rowId, LicenseMachineView machine, DateTime nowUtc)
@@ -1341,4 +1468,16 @@ public sealed class LicenseStore
     };
 
     private static DateTime? UtcOrNull(DateTime? value) => value is { } v ? Utc(v) : null;
+}
+
+/// <summary>What <see cref="LicenseStore.ForgetMachine"/> did: the <see cref="LicenseLogKinds.Forgotten"/> row it wrote,
+/// or why nothing was changed (one of <see cref="LicenseForgetRefusals"/>).</summary>
+public sealed record LicenseForgetResult(LicenseSwitchLogEntity? Row, string? RefusedBecause);
+
+/// <summary>Why a machine was not forgotten. The words of each are <c>LicenseDisplayFold.ForgetRefused</c>'s.</summary>
+public static class LicenseForgetRefusals
+{
+    public const string NotFound = "machine_not_found";
+    public const string NotOffered = "forget_not_offered";
+    public const string SignInOpen = "sign_in_in_progress";
 }

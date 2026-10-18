@@ -14,6 +14,7 @@ import { GatewayError } from "@devthrottle/client-core/api/client";
 //     Gateway said it did, and a refusal stays on screen in the Gateway's words with nothing reloaded.
 
 const screenClient = vi.hoisted(() => ({
+  getFactoryDrawing: vi.fn(() => new Promise(() => {})),
   getFactorySeatPage: vi.fn(),
   takeScheduleOffSeat: vi.fn(),
   startFactoryTalk: vi.fn(),
