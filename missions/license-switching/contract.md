@@ -1034,6 +1034,40 @@ alarm is open. **There is no route that raises or clears an alarm** - only Gatew
 Raised by the Gateway's readiness check (`Licenses.LicenseReadinessService`, once a minute, after the switch check and
 the settling of sign-ins with no answer). See section 11.
 
+### 9.6a The no-room alarm, `no-room-at-80` (Track A)
+
+Raised by the same readiness check, after `not-ready-at-80`. The owner, 16 October: "at 80%, of license expiry, we need
+to make sure that the next License is available on all the computers. We need to warn about this if it's not the
+case." "No other account has room" is not a readiness gap (section 11), so `not-ready-at-80` never opens for it; this
+is its warning, while there is still time to act. The no-room email at the switch threshold (97%) is separate and
+unchanged.
+
+- **When it is true:** an account in use stands at or above 80% of either window (a window whose reset time has passed
+  does not count) while no other account has room for its machines (`LicenseDecisionEngine.NextTarget` is null).
+- **One alarm for the account, never one for each machine on it:** no machine, the account in use as its account.
+  Title "No account to switch to", so the push is "No account to switch to. Open Licenses to see what to do."
+- **Freshness, the same rule as `not-ready-at-80`:** it opens only on a fresh reading of the account in use; an open one
+  stays open while that reading is stale; it closes on a fresh reading under 80%, on an account having room again, or
+  on no machine being left on the account.
+- **Which account comes back first** (`LicenseDecisionEngine.FirstBackWithRoom`): of the other accounts, the one that
+  has room again soonest - once every window at or over the threshold has reset, and once a bar on it has passed, from
+  the reset times the Gateway already holds. An account whose return cannot be told (a full window with no reset time
+  ahead, a window not known, a reading too old to show it while nothing is full) is left out. Ties go to the account
+  email in ordinal order.
+- What is wrong: "account-a@example.com is at 85% of its weekly limit and no other account has room to switch its
+  machines to; the first to have room again is account-b@example.com, at 2026-10-15 03:12 UTC." When no return can be
+  told: "...; no other account's reading says when it will have room again." While the reading is stale: "account-a@example.com
+  was at or above 80% at its last fresh reading and ...". When two long account emails would make it longer than an
+  alarm takes, "The account in use is at 85% of its weekly limit and no other account has room to switch its machines
+  to; the first has room again at 2026-10-15 03:12 UTC." (or "...; the Licenses page names them." when no return can
+  be told).
+- The one thing to do: "Nothing can be switched to before 2026-10-15 03:12 UTC; to keep working, free up or add an
+  account." When no return can be told: "Nothing can be switched to until another account has room; to keep working,
+  free up or add an account."
+
+The two kinds are raised on their own: a kind whose raise fails is logged, the other kind is still raised, and then
+the failure is thrown.
+
 ### 9.7 The refused-report and silent-machine alarms, `report-refused` and `machine-silent` (Track B)
 
 Raised by `Licenses.LicenseMachineHealthAlarm` on the Gateway's once-a-minute license check, after the switch check that
@@ -1182,7 +1216,8 @@ line.
 
 **What is judged.** For every machine on an account: the account it would switch to next
 (`LicenseDecisionEngine.NextTarget`), and whether the machine is ready for it (`LicenseDecisionEngine.Readiness`, the
-one definition of ready). "No other account has room" is its own state (`no-room`), never a readiness gap. The pure fold
+one definition of ready). "No other account has room" is its own state (`no-room`), never a readiness gap; at 80% it
+raises its own alarm, `no-room-at-80` (section 9.6a). The pure fold
 is `Licenses.LicenseReadinessFold`; the Licenses page and the minute check call the same `Judge` on the same facts.
 
 **What is done about a machine that is not ready**, in this order:

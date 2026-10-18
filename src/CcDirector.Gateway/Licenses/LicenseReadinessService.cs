@@ -9,11 +9,12 @@ namespace CcDirector.Gateway.Licenses;
 /// <summary>What one readiness check did for one tenant.</summary>
 /// <param name="Judged">Every machine on an account, judged (<see cref="LicenseReadinessFold.Judge"/>).</param>
 /// <param name="Started">The sign-ins this check started.</param>
-/// <param name="Alarms">What the 80% alarm did; null when the check did not run.</param>
+/// <param name="Alarms">What the 80% not-ready alarm did; null when the check did not run or its raise failed.</param>
+/// <param name="NoRoomAlarms">What the 80% no-room alarm did; null when the check did not run or its raise failed.</param>
 public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness> Judged, IReadOnlyList<LicenseSignInStart> Started,
-    LicenseAlarmRaised? Alarms)
+    LicenseAlarmRaised? Alarms, LicenseAlarmRaised? NoRoomAlarms)
 {
-    public static readonly LicenseReadinessTick NotRun = new(Array.Empty<LicenseMachineReadiness>(), Array.Empty<LicenseSignInStart>(), null);
+    public static readonly LicenseReadinessTick NotRun = new(Array.Empty<LicenseMachineReadiness>(), Array.Empty<LicenseSignInStart>(), null, null);
 }
 
 /// <summary>
@@ -30,7 +31,11 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 ///    and account, and this check relies on it;
 /// 3. raises the license alarm (<see cref="LicenseAlarmService"/>, the one mechanism) with every machine still not ready
 ///    while its account is at or above 80% - so the alarm opens once, stays while the condition holds, and closes by
-///    itself when the machine is ready or the account falls back under 80%.
+///    itself when the machine is ready or the account falls back under 80%;
+/// 4. raises the no-room alarm, through the same mechanism, with every account in use at or above 80% while no other
+///    account has room for its machines - one alarm for the account, not one for each machine - so the owner is warned
+///    while there is still time to act, not only by the no-room email at the switch threshold. Each kind is raised on
+///    its own: a kind whose raise fails is logged, the other kind is still raised, and then the failure is thrown.
 ///
 /// The Licenses page reads <see cref="Judge"/>, the same function on the same facts.
 ///
@@ -150,13 +155,20 @@ public sealed class LicenseReadinessService
                     started.Add(start);
             }
 
-            var alarms = await _alarms.RaiseAsync(tenant, LicenseReadinessFold.AlarmKind,
-                LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, _alarms.ListOpen(tenant)), ct).ConfigureAwait(false);
-            if (started.Count + alarms.Opened + alarms.Closed > 0)
+            var open = _alarms.ListOpen(tenant);
+            var failures = new List<Exception>();
+            var alarms = await RaiseKindAsync(tenant, LicenseReadinessFold.AlarmKind,
+                LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, open), failures, ct).ConfigureAwait(false);
+            var noRoom = await RaiseKindAsync(tenant, LicenseReadinessFold.NoRoomAlarmKind,
+                LicenseReadinessFold.NoRoomAlarmConditions(picture.Snapshot, judged, open), failures, ct).ConfigureAwait(false);
+            if (started.Count + Changed(alarms) + Changed(noRoom) > 0)
                 FileLog.Write($"[LicenseReadinessService] TickAsync: tenant={tenant.ToLogString()}, judged={judged.Count}, "
-                              + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, alarmsOpened={alarms.Opened}, "
-                              + $"alarmsStillOpen={alarms.StillOpen}, alarmsClosed={alarms.Closed}");
-            return new LicenseReadinessTick(judged, started, alarms);
+                              + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, alarmsOpened={alarms?.Opened}, "
+                              + $"alarmsStillOpen={alarms?.StillOpen}, alarmsClosed={alarms?.Closed}, noRoomOpened={noRoom?.Opened}, "
+                              + $"noRoomStillOpen={noRoom?.StillOpen}, noRoomClosed={noRoom?.Closed}");
+            if (failures.Count > 0)
+                throw new AggregateException($"The raise of {failures.Count} license alarm kind(s) failed for tenant {tenant.ToLogString()}.", failures);
+            return new LicenseReadinessTick(judged, started, alarms, noRoom);
         }
         catch (Exception ex)
         {
@@ -166,6 +178,23 @@ public sealed class LicenseReadinessService
         finally
         {
             _ticking.TryRemove(tenant, out _);
+        }
+    }
+
+    private static int Changed(LicenseAlarmRaised? raised) => raised is null ? 0 : raised.Opened + raised.Closed;
+
+    private async Task<LicenseAlarmRaised?> RaiseKindAsync(TenantId tenant, LicenseAlarmKind kind,
+        IReadOnlyList<LicenseAlarmCondition> conditions, List<Exception> failures, CancellationToken ct)
+    {
+        try
+        {
+            return await _alarms.RaiseAsync(tenant, kind, conditions, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            FileLog.Write($"[LicenseReadinessService] RaiseKindAsync FAILED: tenant={tenant.ToLogString()}, kind={kind.Key} ({ex.GetType().Name}): {ex.Message}");
+            failures.Add(ex);
+            return null;
         }
     }
 }
