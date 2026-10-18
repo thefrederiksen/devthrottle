@@ -695,3 +695,62 @@ clock, process, sleep or port.
 ### Verdict
 
 **Approve.** Fit to merge at `94b24a9db`.
+
+### The Tech Lead's further check - does one test pin a carried prompt's whole life without a delivery?
+
+Asked after the section above was written: the Delivery Lead approved the carried wording and requires a test that a
+carried prompt WITHOUT a `PromptDelivered` never reads Delivered through its whole life - carried, its turn ends (done,
+failed, stopped), a lost turn end, the next hole, and the opening after a Gateway restart.
+
+**The branch has no such test.** It pins the stages one at a time, in different classes, and three stages are not pinned
+anywhere. Read against the six changed test files and the two endpoint classes:
+
+| Stage | Where it is pinned on the branch |
+|---|---|
+| Carried, reads the carried words, state Unknown | Store, live ruling, ingest, the real pusher, the receipts endpoint, the live stream |
+| Its turn ends `done` | Ingest (`Accept_ACarriedPromptThenAPromptQueuedBehindIt_...`), receipts endpoint |
+| Its turn ends `failed` | Store (`RecordQueueLeftProven_ACarriedPrompt_TakesItsTurnsOutcomeAndKeepsItsCarriedWords`); the live ruling only on the way to a real delivery |
+| Its turn ends `cancelled` (stopped) | **Nowhere** on a carried receipt |
+| A lost turn end | Store only (`RecordTurnOverProven_ACarriedPromptWhoseTurnsEndWasLost_...`); **not** the live ruling, not through the ingest |
+| The next hole | Ingest, but only after a `done` ending, so the lost ending followed by a hole is **not** pinned |
+| The opening after a Gateway restart | **Nowhere.** The receipts endpoint test builds its live reader from the store BEFORE the carried ruling and compares `ReceiptItem` over the stored rows at the end, which is the opening's words but not a restart: no test builds a fresh ingest (an empty once-per-generation memory, so the proof is made again) and a fresh ruling from the stored rows AFTER a carried ruling |
+
+### Finding 6 - medium - no test pins a carried prompt's whole life without a delivery
+
+**Where.** `ApiModeEventIngestTests`, which is the one class that drives the real ingest and the real store together and
+can rebuild a ruling from the store.
+
+**The state that reaches it.** The rule that a carried prompt never reads Delivered without an acknowledgement is spread
+over `ReceiptWords`, both `TurnEnd` paths, both lost-turn-end paths, the ingest's once-per-generation memory and the
+seed from stored receipts. A regression in any one of them on a later stage of the life - a lost ending that turns the
+words to the Delivered form, a restart that proves again and rules differently, a stopped turn that lands a Delivered
+outcome word - would pass every test on the branch, because each test stops after one stage.
+
+**The harm.** The ruling the Delivery Lead made binding is exactly "never Delivered without the acknowledgement"; today
+that is proven by reading the code, not by a test that walks the life. The three unpinned stages are the ones a future
+change is most likely to touch.
+
+**What closes it.** One test, in `ApiModeEventIngestTests`, through the real ingest and store, with a theory over the
+three endings and a separate arm for the lost one:
+
+1. Generation A: `ConnectionReady`, `PromptQueued p1`. Generation B opens with `TurnStarted t1 [p1]`. Assert through
+   `WordsNow` and the stored receipt: state Unknown, the carried words, turn `t1`, no disposition, no acknowledgement.
+2. Theory arm, one of `done`, `failed`, `cancelled`: `TurnEnded t1`. Assert state Unknown, the carried words, the
+   outcome on the receipt. Then the next hole: generation C with `ConnectionReady` and a tool event. Assert unchanged.
+3. Lost arm: no `TurnEnded`; generation C opens with `ConnectionReady`. Assert state Unknown, outcome `lost`, the carried
+   words. Then the next hole, generation D with a tool event. Assert unchanged.
+4. In both arms, the Gateway restart: build a NEW ingest over the same database (its once-per-generation memory empty)
+   and feed it one more event of the current generation, then build `new ApiModeLiveRuling(store.ReadWithPositions)`
+   and render `ReceiptItem` for `p1`. Assert the same words and tone, state Unknown, and that no item for `p1` at any
+   step began with "Delivered".
+5. A guard that the test can fail: with the carried branch of `ProveQueueLeftOnce` changed to write Delivered, every
+   arm must fail at step 1. The Developer records that run in the answer.
+
+Name: `Accept_ACarriedPromptWithoutItsDelivery_NeverReadsDeliveredThroughItsTurnsEndTheNextHoleAndAGatewayRestart`,
+or one name per arm in the same shape.
+
+### Verdict, amended
+
+**Hold, on finding 6 only.** The code is right as it stands and nothing in checks 1 to 5 changes; the hold is for the
+test the Delivery Lead requires, which the branch does not have. With that test added and the ten classes green
+(the nine above plus the one it lands in, if different), approve without a further read.
