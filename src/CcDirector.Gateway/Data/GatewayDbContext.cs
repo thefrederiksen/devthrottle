@@ -1268,6 +1268,9 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Seat).HasMaxLength(64);
             b.Property(e => e.CheckPath).HasMaxLength(256);
             b.Property(e => e.SecretsJson).HasMaxLength(4096);
+            // Mail Desk, phase 5: the backup machines in order, and the machine of the Director holding the claim.
+            b.Property(e => e.BackupMachinesJson).HasMaxLength(2048).HasDefaultValue("[]");
+            b.Property(e => e.ClaimedByMachine).HasMaxLength(256).HasDefaultValue("");
             // One trigger per name per account. The store also refuses a name that differs only in case.
             b.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         });
