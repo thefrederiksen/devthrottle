@@ -60,6 +60,13 @@ public sealed class FactoryDefinitionStore
     public const int MaxChangeNoteLength = 500;
 
     /// <summary>
+    /// The author kind of a draft the Gateway wrote on its own, not for a caller: the built-in Mail Desk template
+    /// offered to an account (Mail Desk mission, design 5.3). Its author id names what wrote it, such as
+    /// "Mail Desk template". Only ever a draft: a person or a session in no factory publishes it.
+    /// </summary>
+    public const string GatewayAuthorKind = "gateway";
+
+    /// <summary>
     /// The most drafts that may wait above a factory's published version before a SESSION is refused another. With
     /// nothing published yet, every version is a waiting draft. The same number a seat's brief uses.
     /// </summary>
@@ -287,7 +294,7 @@ public sealed class FactoryDefinitionStore
     public FactoryDefinitionWrite SaveDraft(TenantId tenant, string factory, IReadOnlyDictionary<string, string>? files,
         int? expectedVersion, string authorKind, string? authorId, string? changeNote, DateTime nowUtc)
     {
-        RequireAWriter(authorKind);
+        RequireADraftWriter(authorKind);
         if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
             return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadFactory, factoryRefusal!, null);
         lock (_gate)
@@ -433,6 +440,17 @@ public sealed class FactoryDefinitionStore
     {
         if (authorKind is not (FactoryMemoryAuthorKinds.Person or FactoryMemoryAuthorKinds.Session))
             throw new ArgumentException($"'{authorKind}' is not a kind of writer: a definition is written by a person or a session.", nameof(authorKind));
+    }
+
+    /// <summary>
+    /// A DRAFT may also be written by the Gateway itself (<see cref="GatewayAuthorKind"/>): the built-in Mail Desk
+    /// template is offered to an account as a draft (Mail Desk mission, design 5.3). The Gateway never publishes or
+    /// restores, so <see cref="Publish"/> and <see cref="Restore"/> keep <see cref="RequireAWriter"/>.
+    /// </summary>
+    private static void RequireADraftWriter(string authorKind)
+    {
+        if (authorKind == GatewayAuthorKind) return;
+        RequireAWriter(authorKind);
     }
 
     /// <summary>
