@@ -103,7 +103,15 @@ Also changed:
 
 ## The gate
 
-GATE_LINES_GO_HERE
+Run on commit `d3d67a295`, after the review of 4183, on origin/main `8994f5e1a`, with TEMP and TMP on D:. The next
+commit changes only this file.
+
+- **Default run: GREEN**, tree clean. Every suite completed, including Core.UnitTests (2316) and the parked
+  Gateway.UnitTests tests this change reaches (1049).
+- **`-Parked -Filter License`: GREEN**, tree clean. Gateway.UnitTests: 1105. Gateway.Tests: 26 (shard 3 of 4, with
+  the self-hosted write test). Core.UnitTests: 253. Avalonia.Tests: 32.
+- **Cockpit:** `vitest run src/licenses` passed 113 tests in 6 files. `npm run typecheck --workspaces` is clean.
+  `copy_fixtures.py` gives the committed `fixtures.ts`.
 
 ## What the live proof should look for (after a deploy; this piece deploys nothing)
 
