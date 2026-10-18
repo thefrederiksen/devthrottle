@@ -28,6 +28,9 @@ public sealed class ApiModeWheelOnTheDisplayPushTests
     private const string Sid = "44444444-4444-4444-8444-444444444444";
     private const string DirectorId = "dir-A";
 
+    /// <summary>One fixed instant for every row and clock, so no test reads the machine's clock.</summary>
+    private static readonly DateTime Now = new(2026, 10, 17, 12, 0, 0, DateTimeKind.Utc);
+
     private sealed class NoVerdicts : ITurnVerdictRowSource
     {
         public bool ColourEnabled(TenantId tenant) => true;
@@ -69,7 +72,7 @@ public sealed class ApiModeWheelOnTheDisplayPushTests
         SessionId = Sid,
         Name = Sid,
         ActivityState = "WaitingForInput",
-        LastActivityAt = DateTime.UtcNow,
+        LastActivityAt = Now,
         ConnectionMode = ConnectionModes.Api,
         WheelHolder = wheelHolder,
     };
@@ -82,7 +85,7 @@ public sealed class ApiModeWheelOnTheDisplayPushTests
     private static DisplayFold Fold(PushedSessionStore pushed, ApiModeDisplayFacts? facts) => new(
         voice: () => null,
         needsYou: new NeedsYouClock(),
-        voiceWaiting: new VoiceWaitingClock(utcNow: () => DateTime.UtcNow),
+        voiceWaiting: new VoiceWaitingClock(utcNow: () => Now),
         snoozes: null,
         handRaises: new HandRaiseRegistry(),
         snoozeExpiry: () => null,
