@@ -56,7 +56,7 @@ Vocabulary, held once as constants in `src/CcDirector.Gateway/MailDesk/MailDeskW
   "rules":  [ { "name": "citizenship",
                 "when": { "subjectContains": ["citizen"], "fromAny": ["a@example.com", "b@example.com"] },
                 "route": { "factory": "citizenship", "seat": "intake" } } ],
-  "allow":  [ { "from": "*@github.com", "what": "GitHub notifications", "do": "archive" },
+  "allow":  [ { "from": "*@notifications.example.com", "what": "build notifications", "do": "archive" },
               { "from": "news@example.org", "what": "a newsletter I read", "do": "keep-for-owner" },
               { "from": "billing@example.net", "what": "invoices", "do": { "route": { "factory": "books", "seat": "clerk" } } } ],
   "block":  [ { "from": "*@spammy-domain.example", "why": "cold sales, never answered" } ],
@@ -171,4 +171,4 @@ maildesk decisions [--since <time>] [--layer L] [--decision D] [--channel <addre
 
 The repository is public. Tests and examples use only `email@devthrottle.com` and the reserved example domains
 (`example.com`, `example.org`, `example.net`, `*.example`). Never the owner's second mailbox address, never a real
-sender.
+sender's address or domain (the phase 0 review's ruling, 18 October 2026) - not even a well-known one.
