@@ -43,7 +43,17 @@ a turn also carry `turnId` (assigned by the Director; Pi has no turn id of its o
 every event of it from sequence 1; when an event is lost before it was sent (the memory bound dropped it, it was too
 large for any batch, or it was published while the Gateway was turned off), the events after the hole go up as a new
 generation, a fresh id counted again from sequence 1, so a reader is told its earlier cursor is incomplete and folds
-again from the new generation. A receipt whose own event fell in the hole is not corrected by the Director.
+again from the new generation.
+
+**Every new generation starts by re-announcing the queue** (the Delivery Lead's ruling on the review of pull request
+#4178, finding 1). The Gateway takes a generation as one Director queue: a receipt still queued from an older generation
+gets no place in line. A hole does not end the Director's process, so its queue survives it. The first events of every
+new generation are therefore one `PromptQueued` for each prompt still waiting for its receipt at the hole, oldest first,
+with its place in that line as `position`, its `reason` and its `promptText`, before any later event of that generation.
+The line is the session's own, kept from its events (a `PromptQueued` joins the end, its `PromptDelivered` or
+`PromptRefused` leaves) and carried on every batch, so it is known even at a hole whose events never reached the pusher.
+With nothing queued, nothing is re-announced. This also restores the receipt of a queued prompt whose own `PromptQueued`
+fell in the hole. A delivery or refusal whose own event fell in the hole is not corrected by the Director.
 
 | Event | Fields | Meaning |
 |---|---|---|
