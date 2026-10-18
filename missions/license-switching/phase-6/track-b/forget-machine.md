@@ -30,7 +30,11 @@ age-out.
   - it writes one `forgotten` row ("Machine forgotten"), which keeps the machine's identifier and name.
 
   The store reads the machine's open rows again and refuses an open sign-in, with nothing changed: a sign-in is only a
-  delay, because the sign-in check ends one on a machine it has not seen for long enough. That read and the save are
+  delay, because the sign-in check ends one on a machine it has not seen for long enough. It also refuses, with
+  nothing changed, a machine with no open refusal that has reported again since the page was read: its last accepted
+  report is not stale by `LicenseStaleness.IsMachineStale`, the page's own rule (round two, finding 1). A refused
+  report never moves the last accepted report, so a refused machine is never refused for this. The ended switch's
+  `reasonText` is "The machine was forgotten, so this switch can never be answered." (round two, finding 2). That read and the save are
   NOT one transaction (review finding 4): a sign-in started between them stays open in the log on a machine that is
   gone. A machine none of whose reports was ever accepted is forgotten under the stand-in identifier the page lists it
   under, and its refusal ends.
@@ -68,6 +72,9 @@ a throwaway SQLite file, and reads the page back through the real overview route
   switch is `failed` with `machine-forgotten`, and the minute check then runs with nothing to say.
 - `AMachineThatDiedReportingASwitchInProgress_IsOffered_AndForgotten` (review finding 1): the switch its last report
   named does not stop it.
+- `TheStoreRefusesAMachineThatReportedAgain_AfterThePageWasRead_AndChangesNothing` (round two, finding 1): the store
+  alone, called on a machine that reported again with an unanswered switch and an approver; it refuses, and the
+  switch, the machine and the approver stay.
 - `ASilentMachineWithASignInUnderWay_IsNotOffered_AndTheStoreRefusesItToo`: not offered, and the store refuses it
   with nothing changed.
 - `AMachineThatApprovesSignIns_TakesItsApproversWithIt_AndSaysSo` (review finding 3): the answer names the account,
@@ -95,6 +102,9 @@ Also changed:
 **Revert proofs.**
 - Before the review: I made the store skip its open switch and sign-in check. The two store tests failed, and the
   other ten passed. With the check restored, all twelve passed.
+- Round two, with 17 tests: without the store's staleness check, its new test fails; without the reason's sentence,
+  the unanswered-switch test fails (it now checks the log's `reasonText`). In each case the other sixteen passed, and
+  with the code restored all seventeen passed.
 - After the review, with 16 tests: putting back the fold's refusal of a machine with a switch in progress fails the
   two finding 1 tests; skipping the approver removal fails the finding 3 test. In each case the other tests passed,
   and with the code restored all sixteen passed.
@@ -103,15 +113,7 @@ Also changed:
 
 ## The gate
 
-Run on commit `d3d67a295`, after the review of 4183, on origin/main `8994f5e1a`, with TEMP and TMP on D:. The next
-commit changes only this file.
-
-- **Default run: GREEN**, tree clean. Every suite completed, including Core.UnitTests (2316) and the parked
-  Gateway.UnitTests tests this change reaches (1049).
-- **`-Parked -Filter License`: GREEN**, tree clean. Gateway.UnitTests: 1105. Gateway.Tests: 26 (shard 3 of 4, with
-  the self-hosted write test). Core.UnitTests: 253. Avalonia.Tests: 32.
-- **Cockpit:** `vitest run src/licenses` passed 113 tests in 6 files. `npm run typecheck --workspaces` is clean.
-  `copy_fixtures.py` gives the committed `fixtures.ts`.
+GATE_LINES_GO_HERE
 
 ## What the live proof should look for (after a deploy; this piece deploys nothing)
 

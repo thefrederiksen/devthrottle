@@ -1220,7 +1220,8 @@ Forgetting a machine, in one save:
 
 - ends its open `report-refused` and `machine-silent` rows, so the alarms raised from them close on the next minute;
 - ends an open switch of it as `failed`, reason `machine-forgotten`: "Ended without an answer: machine-a was forgotten
-  before this switch was over." A machine that is gone never answers a switch, so without this it could never end;
+  before this switch was over." Its `reasonText` is "The machine was forgotten, so this switch can never be
+  answered." A machine that is gone never answers a switch, so without this it could never end;
 - removes what it holds and its row: it is no longer in the overview, the forecast or the schedule;
 - writes one `forgotten` row, "machine-a was forgotten: it is off the Licenses page, with what it held, and its open
   problems are over. If it reports again, it comes back.";
@@ -1243,7 +1244,7 @@ by the minute check, which finds the machine no longer holds that sign-in.
 | `400` `invalid_body` | The body is not a JSON object. |
 | `400` `invalid_machine` | `machineId` is not 32 hexadecimal digits. |
 | `404` `machine_not_found` | No machine of this account has that identifier: "That machine is not on the Licenses page of this account; load the page again." |
-| `409` `forget_not_offered`, `sign_in_in_progress` | The machine is reporting, or a sign-in on it is under way; `error` is its `forgetText`. The store reads the open rows again before its one save and refuses an open sign-in itself, changing nothing. That is not a transaction: a sign-in started between that read and the save stays open in the log on a machine that is gone. |
+| `409` `forget_not_offered`, `sign_in_in_progress` | The machine is reporting, or a sign-in on it is under way; `error` is its `forgetText`. The store reads the machine again before its one save and refuses it itself, changing nothing, when a sign-in on it is open or when it has reported again since the page was read (no open refusal, and a last accepted report that is not stale). That is not a transaction: a sign-in started between that read and the save stays open in the log on a machine that is gone. |
 
 ### Who may call the writes
 
