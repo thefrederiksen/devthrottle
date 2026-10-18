@@ -18,8 +18,10 @@ docs/qa/mail-desk/phase-2/CONTRACT.md. In short:
   across all channels; the cursor moves only past what was reported, and the next run continues.
 - Standard output is exactly {"count": N, "context": "<JSON>"}.
 - Any failure is a non-zero exit, and the memory is NOT rewritten, so the same mail is read again next run. The FIRST
-  line of standard error is then one plain sentence saying what is wrong and how to fix it (the Gateway shows it as
-  it is); detail and the run's log follow on later lines.
+  line of standard error is then one plain sentence saying what is wrong and how to fix it; detail and the run's log
+  follow on later lines. The Gateway keeps only the first 200 characters of standard error, flattened onto one line,
+  and uv's own line can come first, so every sentence is at most SENTENCE_LIMIT characters (CONTRACT.md section 1).
+  No failure is ever a traceback: main() turns anything unexpected into a sentence too.
 
 Every Microsoft Graph call goes through graph_request(), the one request guard. It lets out only GET to
 graph.microsoft.com and POST /v1.0/me/messages/{id}/move with a body of exactly {"destinationId": "archive"} or
@@ -36,6 +38,7 @@ import os
 import re
 import socket
 import sys
+import traceback
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -63,6 +66,14 @@ SENT_MAX_PAGES = 5              # the most recent 500 sent messages
 SENT_MAX_ADDRESSES = 400
 KEYS_KEPT = 40                  # per channel, the most recently reported; see CONTRACT.md "Short keys"
 KEYS_MAX_AGE = timedelta(days=7)
+# The Gateway quotes a failed check as "exit code 1: " plus the first 200 characters of standard error with every line
+# joined by a space (TriggerCheckContract.OneLine and QuotedOutputLimit). uv writes a line of its own first whenever it
+# builds the script's environment ("Installed 10 packages in 95ms", 29 characters); 35 are kept for it, so the
+# check's own first line must be at most 165 characters for the whole sentence, fix and all, to reach the owner.
+GATEWAY_REASON_WINDOW = 200
+UV_LINE_ALLOWANCE = 35
+SENTENCE_LIMIT = GATEWAY_REASON_WINDOW - UV_LINE_ALLOWANCE
+SHORT_ERROR_CHARS = 50
 KEY_HEX = 16
 ADDRESS_HASH_HEX = 12
 
@@ -85,11 +96,23 @@ class RefusedRequest(Exception):
 
 
 class GraphError(Exception):
-    """Graph answered with an HTTP error status."""
+    """Graph answered with an HTTP error status. The reader that made the call turns it into a sentence."""
 
-    def __init__(self, status, message):
-        super().__init__(message)
+    def __init__(self, status, detail):
+        super().__init__(detail)
         self.status = status
+
+
+class GraphUnreachable(Exception):
+    """Graph could not be reached at all. The reader that made the call turns it into a sentence."""
+
+    def __init__(self, reason, detail):
+        super().__init__(detail)
+        self.reason = reason
+
+
+class GraphNotJson(Exception):
+    """Graph answered something that is not JSON. The reader that made the call turns it into a sentence."""
 
 
 RUN_LOG = []
@@ -98,6 +121,18 @@ RUN_LOG = []
 def log(text):
     """Kept until the end of the run, so that a failure's sentence is the first line of standard error."""
     RUN_LOG.append(f"screen.py: {text}")
+
+
+def machine():
+    """This computer's name without its domain, so a fully qualified name does not use up the reason window."""
+    return socket.gethostname().split(".")[0]
+
+
+def short_error(text):
+    """An error message on one line, cut to SHORT_ERROR_CHARS, for a failure sentence. The whole message goes on the
+    detail line."""
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= SHORT_ERROR_CHARS else flat[:SHORT_ERROR_CHARS - 3] + "..."
 
 
 def utc_now():
@@ -175,6 +210,10 @@ def graph_request(method, url, token, body=None):
 
 
 def check_request(method, url, body):
+    # Before parsing: urlsplit silently removes tab, carriage return and line feed, so an id holding one would
+    # otherwise look clean to every rule below (review finding 3).
+    if any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in url):
+        raise RefusedRequest("refused: the address holds a space or a control character")
     parts = urllib.parse.urlsplit(url)
     if parts.scheme != "https" or parts.netloc != GRAPH_HOST:
         raise RefusedRequest(f"refused: {parts.scheme}://{parts.netloc} is not https://{GRAPH_HOST}")
@@ -191,7 +230,8 @@ def check_request(method, url, body):
     if method == "POST":
         match = MOVE_PATH.fullmatch(parts.path)
         if not match:
-            raise RefusedRequest(f"refused: POST {parts.path} is not the move of one message")
+            # The path is not quoted: it may hold a Graph id from the memory, and the reason goes into the context.
+            raise RefusedRequest("refused: a POST that is not the move of one message")
         if not MESSAGE_ID.fullmatch(match.group(1)):
             raise RefusedRequest("refused: the message id holds a character a Graph id never has")
         if parts.query:
@@ -204,6 +244,12 @@ def check_request(method, url, body):
     raise RefusedRequest(f"refused: {method} is never sent to Graph; only GET and the move to Archive or Junk Email")
 
 
+def shown_url(url):
+    """A Graph address for the log: no query, and no message id (it may come from the memory, and the Gateway never
+    handles a Graph id)."""
+    return re.sub(r"/messages/[^/]+/move$", "/messages/{id}/move", url.split("?")[0])
+
+
 def transport(method, url, headers, data):
     """The network. Only graph_request() calls it; the tests replace urlopen with a fake Graph that records every
     call."""
@@ -212,24 +258,14 @@ def transport(method, url, headers, data):
         with urllib.request.urlopen(request, timeout=60) as response:
             raw = response.read()
     except urllib.error.HTTPError as e:
-        raise GraphError(e.code, f"Microsoft Graph answered HTTP {e.code} to {method} {url.split('?')[0]}") from None
+        raise GraphError(e.code, f"HTTP {e.code} to {method} {shown_url(url)}") from None
     except (urllib.error.URLError, OSError) as e:
-        raise CheckFailed(f"Microsoft Graph could not be reached from {socket.gethostname()}",
-                          f"{method} {url.split('?')[0]}: {getattr(e, 'reason', e)}") from None
+        reason = getattr(e, "reason", e)
+        raise GraphUnreachable(reason, f"{method} {shown_url(url)}: {reason}") from None
     try:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        raise CheckFailed(f"Microsoft Graph answered something that is not JSON to {method} {url.split('?')[0]}") from None
-
-
-def graph_get(url, token):
-    try:
-        page = graph_request("GET", url, token)
-    except GraphError as e:
-        raise CheckFailed(str(e)) from None
-    if not isinstance(page, dict):
-        raise CheckFailed(f"Microsoft Graph answered a page that is not a JSON object to GET {url.split('?')[0]}")
-    return page
+        raise GraphNotJson(f"{method} {shown_url(url)}") from None
 
 
 # ---------------------------------------------------------------------------------------------------- Outlook
@@ -277,13 +313,15 @@ def derive_nickname(email):
 
 def outlook_fix(address, base):
     """How to sign the address in, in cc-outlook's own words, read from cc-outlook's account list in every Director
-    instance (instances/*/config/outlook/profiles.json, PROFILES_FILE in tools/cc-outlook/src/auth.py).
+    instance (instances/*/config/outlook/profiles.json, PROFILES_FILE in tools/cc-outlook/src/auth.py). Returns the fix
+    for the sentence and, when there is one, the step after it for the detail line.
 
     An account's nickname is its stored one, or else the derived one (get_nickname), and it is used only if
     cc-outlook's nickname lookup (_build_nickname_map, where the last account wins) leads back to this address. When
-    the instances disagree, the address itself is named: resolve_account matches an account's address exactly first.
-    When no instance holds the account, the fix says how to add it. Never a guessed nickname."""
-    names = set()
+    the instances disagree, the address is named as cc-outlook holds it: resolve_account matches the address key
+    exactly and with case, and save_profile keeps it as it was typed. When no instance holds the account, the fix is
+    the first step of adding it; the next run's failure then names the sign-in. Never a guessed nickname."""
+    names, registered_as = set(), set()
     for path in sorted(Path(base).glob("instances/*/config/outlook/profiles.json")):
         try:
             profiles = json.loads(path.read_text(encoding="utf-8")).get("profiles") or {}
@@ -296,11 +334,12 @@ def outlook_fix(address, base):
         except (ValueError, AttributeError, IndexError, TypeError):
             continue  # cc-outlook cannot read this file either, so it names no account
         names.add(nickname if lookup.get(nickname) == email else email)
+        registered_as.add(email)
     if len(names) == 1:
-        return f"run cc-outlook -a {names.pop()} auth"
+        return f"run cc-outlook -a {names.pop()} auth", None
     if names:
-        return f"run cc-outlook -a {address} auth"
-    return (f"add the account with cc-outlook accounts add {address} --client-id {OUTLOOK_CLIENT_ID}, "
+        return f"run cc-outlook -a {registered_as.pop() if len(registered_as) == 1 else address} auth", None
+    return (f"first run cc-outlook accounts add {address} -c {OUTLOOK_CLIENT_ID}",
             f"then run cc-outlook -a {address} auth")
 
 
@@ -312,18 +351,22 @@ class OutlookReader:
         self.token = None
 
     def not_signed_in(self, base, detail):
-        return CheckFailed(f"{self.address} is not signed in on {socket.gethostname()}: {outlook_fix(self.address, base)}",
-                           detail)
+        fix, then = outlook_fix(self.address, base)
+        return CheckFailed(f"{self.address} is not signed in on {machine()}: {fix}",
+                           "; ".join(part for part in (then, detail) if part))
 
     def sign_in(self):
         base = director_base(account_record_home())
         name = outlook_cache_name(self.address)
-        found = sorted(Path(base).glob(f"instances/*/config/outlook/tokens/{name}"))
+        # cc-outlook names the file after the address as it was typed (get_msal_token_path), so a capital letter there
+        # is matched here regardless of case; MSAL's get_accounts matches the username regardless of case too.
+        found = sorted(p for p in Path(base).glob("instances/*/config/outlook/tokens/*_msal.json")
+                       if p.name.lower() == name)
         if not found:
             raise self.not_signed_in(base, f"looked for {base}/instances/*/config/outlook/tokens/{name} and found none")
         if len(found) > 1:
-            raise CheckFailed(f"{self.address} is signed in more than once on {socket.gethostname()}, so the check cannot "
-                              f"tell which sign-in to use: keep one and sign out of the others with cc-outlook",
+            raise CheckFailed(f"{self.address} is signed in more than once on {machine()}: keep one and sign out of "
+                              f"the others with cc-outlook",
                               "the sign-ins found: " + ", ".join(str(p) for p in found))
         path = found[0]
         cache = msal.SerializableTokenCache()
@@ -331,11 +374,21 @@ class OutlookReader:
             cache.deserialize(path.read_text(encoding="utf-8"))
         except ValueError:
             raise self.not_signed_in(base, f"the saved sign-in at {path} is not a sign-in cache") from None
-        app = msal.PublicClientApplication(client_id=OUTLOOK_CLIENT_ID, authority=OUTLOOK_AUTHORITY, token_cache=cache)
-        accounts = app.get_accounts(username=self.address)
-        if not accounts:
-            raise self.not_signed_in(base, f"the saved sign-in at {path} holds no account for {self.address}")
-        result = app.acquire_token_silent([OUTLOOK_SCOPE], account=accounts[0])
+        try:
+            # Both reach the sign-in service: the constructor reads the authority's configuration, and the silent
+            # renewal posts the refresh token when the access token has expired.
+            app = msal.PublicClientApplication(client_id=OUTLOOK_CLIENT_ID, authority=OUTLOOK_AUTHORITY,
+                                               token_cache=cache)
+            accounts = app.get_accounts(username=self.address)
+            if not accounts:
+                raise self.not_signed_in(base, f"the saved sign-in at {path} holds no account for {self.address}")
+            result = app.acquire_token_silent([OUTLOOK_SCOPE], account=accounts[0])
+        except OSError as e:   # MSAL's transport is requests, whose every error is an OSError
+            raise CheckFailed(f"could not reach the Microsoft sign-in service from {machine()} for {self.address}: "
+                              f"{type(e).__name__}", f"{type(e).__name__}: {e}") from None
+        except (ValueError, RuntimeError) as e:
+            raise CheckFailed(f"the Microsoft sign-in service failed on {machine()} for {self.address}: "
+                              f"{short_error(e)}", f"{type(e).__name__}: {e}") from None
         if not result or "access_token" not in result:
             error = (result or {}).get("error", "no token came back")
             raise self.not_signed_in(base, f"the saved sign-in at {path} has expired and could not be renewed ({error})")
@@ -348,6 +401,36 @@ class OutlookReader:
             log(f"{self.address}: the renewed sign-in was written back to its file")
         self.token = result["access_token"]
 
+    def graph(self, method, url, what, body=None, missing=None):
+        """One Graph call through the guard, its failure turned into a sentence naming this mailbox and what was being
+        done. The address it called goes on the detail line. With `missing`, an HTTP 404 returns it instead."""
+        try:
+            return graph_request(method, url, self.token, body)
+        except GraphError as e:
+            if e.status == 404 and missing is not None:
+                return missing
+            raise CheckFailed(f"Microsoft Graph answered HTTP {e.status} for {self.address} while {what}", str(e)) from None
+        except GraphUnreachable as e:
+            raise CheckFailed(f"Microsoft Graph could not be reached from {machine()} for {self.address} while {what}: "
+                              f"{short_error(e.reason)}", str(e)) from None
+        except GraphNotJson as e:
+            raise CheckFailed(f"Microsoft Graph answered something that is not JSON for {self.address} while {what}",
+                              str(e)) from None
+
+    def page(self, url, what):
+        page = self.graph("GET", url, what)
+        if not isinstance(page, dict) or not isinstance(page.get("value"), list):
+            raise CheckFailed(f"Microsoft Graph answered a page without a 'value' list for {self.address} while {what}",
+                              f"GET {shown_url(url)}")
+        return page
+
+    def message(self, raw, what):
+        message = read_message(raw)
+        if message is None:
+            raise CheckFailed(f"Microsoft Graph answered a message without a usable id or receive time for "
+                              f"{self.address} while {what}")
+        return message
+
     def sent_hashes(self):
         """The hashed addresses of everyone in the most recent sent messages, newest first, at most 400."""
         query = urllib.parse.urlencode({"$select": "toRecipients,ccRecipients,bccRecipients",
@@ -355,12 +438,14 @@ class OutlookReader:
         url = f"{GRAPH}/me/mailFolders/sentitems/messages?{query}"
         hashes = []
         for _ in range(SENT_MAX_PAGES):
-            page = graph_get(url, self.token)
-            for message in page_values(page, url):
+            page = self.page(url, "reading the Sent folder")
+            for message in page["value"]:
+                if not isinstance(message, dict):
+                    continue
                 for field in ("toRecipients", "ccRecipients", "bccRecipients"):
                     for recipient in message.get(field) or []:
                         address = ((recipient or {}).get("emailAddress") or {}).get("address")
-                        if address:
+                        if isinstance(address, str) and address:
                             digest = address_hash(address)
                             if digest not in hashes:
                                 hashes.append(digest)
@@ -378,8 +463,8 @@ class OutlookReader:
         url = f"{GRAPH}/me/mailFolders/inbox/messages?{query}"
         seen = []
         while url and len(seen) < FIRST_RUN_MESSAGES:
-            page = graph_get(url, self.token)
-            seen.extend(read_message(m, url) for m in page_values(page, url))
+            page = self.page(url, "reading the Inbox")
+            seen.extend(self.message(m, "reading the Inbox") for m in page["value"])
             url = page.get("@odata.nextLink")
         return list(reversed(seen[:FIRST_RUN_MESSAGES]))
 
@@ -392,8 +477,9 @@ class OutlookReader:
         url = f"{GRAPH}/me/mailFolders/inbox/messages?{query}"
         fresh = []
         for _ in range(MAX_INBOX_PAGES):
-            page = graph_get(url, self.token)
-            fresh.extend(m for m in (read_message(x, url) for x in page_values(page, url)) if m["id"] not in already)
+            page = self.page(url, "reading the Inbox")
+            fresh.extend(m for m in (self.message(x, "reading the Inbox") for x in page["value"])
+                         if m["id"] not in already)
             url = page.get("@odata.nextLink")
             if not url or len(fresh) > wanted:
                 break
@@ -403,13 +489,9 @@ class OutlookReader:
         """Moves one message to the folder of a filing decision. Returns "moved", or "already-gone" when Graph no longer
         has it."""
         destination = OUTLOOK_FOLDERS[decision]
-        try:
-            graph_request("POST", f"{GRAPH}/me/messages/{message_id}/move", self.token, {"destinationId": destination})
-        except GraphError as e:
-            if e.status == 404:
-                return "already-gone"
-            raise CheckFailed(f"moving a message of {self.address} to {destination} failed: {e}") from None
-        return "moved"
+        answer = self.graph("POST", f"{GRAPH}/me/messages/{message_id}/move", f"moving a message to {destination}",
+                            {"destinationId": destination}, missing="already-gone")
+        return "already-gone" if answer == "already-gone" else "moved"
 
 
 INBOX_FIELDS = "id,receivedDateTime,from,subject,hasAttachments,bodyPreview"
@@ -417,25 +499,20 @@ INBOX_FIELDS = "id,receivedDateTime,from,subject,hasAttachments,bodyPreview"
 READERS = {"outlook": OutlookReader}
 
 
-def page_values(page, url):
-    values = page.get("value")
-    if not isinstance(values, list):
-        raise CheckFailed(f"Microsoft Graph answered a page without a 'value' list to GET {url.split('?')[0]}")
-    return values
-
-
-def read_message(raw, url):
+def read_message(raw):
+    """One Graph message in the check's own shape, or None when it has no id or receive time as text, or a text field
+    that is not text."""
     try:
         sender = (raw.get("from") or {}).get("emailAddress") or {}
-        message = {"id": raw["id"], "received": raw["receivedDateTime"], "from": (sender.get("address") or "").lower(),
+        message = {"id": raw["id"], "received": raw["receivedDateTime"], "from": sender.get("address") or "",
                    "name": sender.get("name") or "", "subject": raw.get("subject") or "",
                    "hasAttachments": bool(raw.get("hasAttachments")), "preview": raw.get("bodyPreview") or ""}
     except (AttributeError, KeyError, TypeError):
-        raise CheckFailed(f"Microsoft Graph answered a message without an id or a receive time to GET "
-                          f"{url.split('?')[0]}") from None
-    if not isinstance(message["id"], str) or not isinstance(message["received"], str):
-        raise CheckFailed(f"Microsoft Graph answered a message whose id or receive time is not text to GET "
-                          f"{url.split('?')[0]}")
+        return None
+    if not all(isinstance(message[f], str) for f in ("id", "received", "from", "name", "subject", "preview")) \
+            or not message["id"] or not message["received"]:
+        return None
+    message["from"] = message["from"].lower()
     return message
 
 
@@ -443,7 +520,10 @@ def read_message(raw, url):
 
 
 def read_memory(path):
-    text = Path(path).read_text(encoding="utf-8").strip()
+    try:
+        text = Path(path).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError) as e:
+        raise CheckFailed(f"the Mail Desk check's memory could not be read: {short_error(e)}", str(e)) from None
     if not text:
         raise CheckFailed("the Mail Desk check's memory is empty: the Gateway writes the channels into it before the "
                           "first run")
@@ -471,8 +551,19 @@ def read_memory(path):
             raise CheckFailed(f"the channel {address} has a 'filingQueue' that is not a list")
         cursor = channel.get("cursor")
         if cursor is not None and not (isinstance(cursor, dict) and isinstance(cursor.get("newest"), str)
-                                       and isinstance(cursor.get("idsAtNewest"), list)):
+                                       and isinstance(cursor.get("idsAtNewest"), list)
+                                       and all(isinstance(i, str) for i in cursor["idsAtNewest"])):
             raise CheckFailed(f"the channel {address} has a 'cursor' this check did not write")
+        keys = channel.get("keys", {})
+        if not (isinstance(keys, dict) and all(isinstance(entry, dict) and isinstance(entry.get("id"), str)
+                                               and isinstance(entry.get("reportedUtc"), str)
+                                               for entry in keys.values())):
+            raise CheckFailed(f"the channel {address} has a 'keys' table this check did not write")
+        sent = channel.get("sentCache")
+        if sent is not None and not (isinstance(sent, dict) and isinstance(sent.get("refreshedUtc"), str)
+                                     and isinstance(sent.get("hashes"), list)
+                                     and all(isinstance(h, str) for h in sent["hashes"])):
+            raise CheckFailed(f"the channel {address} has a 'sentCache' this check did not write")
     return memory
 
 
@@ -640,7 +731,7 @@ def run(state_path, now):
     memory_text = compact(memory)
     if utf8_size(memory_text) > MEMORY_CAP_BYTES:
         raise CheckFailed(f"the Mail Desk check's memory would be {utf8_size(memory_text)} bytes, over the Director's "
-                          f"{MEMORY_CAP_BYTES}, so nothing was written (the Director would keep none of it)")
+                          f"{MEMORY_CAP_BYTES}, so nothing was written: give this factory fewer channels")
     return memory_text, output
 
 
@@ -656,6 +747,15 @@ def main():
     except (CheckFailed, RefusedRequest) as e:
         detail = getattr(e, "detail", None)
         print("\n".join([str(e)] + ([detail] if detail else []) + RUN_LOG), file=sys.stderr)
+        return 1
+    except Exception as e:
+        # The entry point: a failure the check did not foresee is still one sentence first, never a traceback, and
+        # the memory is not written. Where it stopped is the next line; the whole traceback comes last, after the
+        # run's log, so the cause is not hidden.
+        where = traceback.extract_tb(e.__traceback__)[-1]
+        print("\n".join([f"screen.py stopped on an error it does not handle: {type(e).__name__}: {short_error(e)}",
+                         f"in {where.name}, {Path(where.filename).name} line {where.lineno}"] + RUN_LOG
+                        + [traceback.format_exc().rstrip()]), file=sys.stderr)
         return 1
     Path(state_path).write_text(memory_text, encoding="utf-8")
     print("\n".join(RUN_LOG), file=sys.stderr)

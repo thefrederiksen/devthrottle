@@ -128,3 +128,51 @@ def test_FilingQueue_AnIdWithASlash_IsRefusedByTheGuardAndNeverSent(world):
     assert code == 0
     assert world.graph.posts() == []
     assert context["channels"][0]["filing"][0]["result"] == "refused"
+
+
+# ---------------------------------------------------------------------------------------------------- review finding 3
+
+
+@pytest.mark.parametrize("bad", ["\n", "\r", "\t", " ", "\x00", "\x1f", "\x7f"],
+                         ids=["line-feed", "carriage-return", "tab", "space", "null", "unit-separator", "delete"])
+def test_Guard_AnIdHoldingAControlCharacter_IsRefusedByTheGuardItself(world, bad):
+    """urlsplit silently drops tab, carriage return and line feed, so these must be refused before it parses."""
+    url = f"{GRAPH}/me/messages/abc{bad}def/move"
+    with pytest.raises(world.screen.RefusedRequest, match="space or a control character"):
+        world.screen.graph_request("POST", url, "token-for-email@devthrottle.com", {"destinationId": "archive"})
+    with pytest.raises(world.screen.RefusedRequest):
+        world.screen.graph_request("GET", f"{GRAPH}/me/mailFolders/inbox{bad}/messages", "token-for-x")
+    assert world.graph.log == []
+
+
+def test_FilingQueue_AnIdWithALineFeed_IsRefusedForThatItemOnly(world):
+    """Per item, as the contract promises: the bad id is refused and reported, the good one is moved, the run
+    succeeds, and both leave the queue."""
+    world.plant()
+    world.graph.box(MAILBOX)["inbox"].append(msg("AAMkGood=", "2026-10-18T06:00:00Z"))
+    bad, good = "0123456789abcdef", world.screen.short_key(MAILBOX, "AAMkGood=")
+    world.memory(channel(mode="live", cursor={"newest": "2026-10-18T09:00:00Z", "idsAtNewest": []},
+                         keys={bad: {"id": "AAMk\nBad", "reportedUtc": "2026-10-18T06:05:00Z"},
+                               good: {"id": "AAMkGood=", "reportedUtc": "2026-10-18T06:05:00Z"}},
+                         filingQueue=[{"messageKey": bad, "decision": "archive"},
+                                      {"messageKey": good, "decision": "archive"}]))
+    code, _, context, _ = world.run()
+    assert code == 0
+    assert [r["result"] for r in context["channels"][0]["filing"]] == ["refused", "moved"]
+    assert [p[1].split("/")[-2] for p in world.graph.posts()] == ["AAMkGood="]
+    assert world.read_memory()["channels"][0]["filingQueue"] == []
+
+
+# ---------------------------------------------------------------------------------------------------- observation 5
+
+
+def test_FilingQueue_ARefusedMove_DoesNotQuoteTheGraphId(world):
+    world.plant()
+    key = "0123456789abcdef"
+    world.memory(channel(mode="live", cursor={"newest": "2026-10-18T09:00:00Z", "idsAtNewest": []},
+                         keys={key: {"id": "AAMkSecret/other", "reportedUtc": "2026-10-18T09:05:00Z"}},
+                         filingQueue=[{"messageKey": key, "decision": "archive"}]))
+    code, output, context, err = world.run()
+    assert code == 0
+    assert context["channels"][0]["filing"][0]["result"] == "refused"
+    assert "AAMkSecret" not in output["context"] and "AAMkSecret" not in err

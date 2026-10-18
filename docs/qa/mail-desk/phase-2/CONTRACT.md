@@ -18,11 +18,65 @@ decisions `archive` and `junk`, and `messageKey`, `sender` and `receivedUtc` as 
 - **Exit 0:** it printed one output (section 4), rewrote the memory (section 3), and wrote its log to standard error.
 - **Exit 1:** a failed check, and **the memory file is not touched**. The Gateway keeps the memory it had, and the next
   run reads the same mail again. Standard error is then:
-  1. **line 1: one plain sentence** saying what is wrong and how to fix it. The Gateway's signed-in fold quotes it
-     word for word on the Mail Desk page (phase 1, `MailDeskChannelFold`), so it never carries a prefix, a path list or
-     a stack trace;
-  2. line 2, when there is one: the detail (where the check looked, the error the sign-in service gave);
-  3. then the run's log so far (section 7).
+  1. **line 1: one plain sentence** saying what is wrong and how to fix it, **at most 165 characters** (1.1). It never
+     carries a path list or a stack trace, and it never names a Graph id;
+  2. line 2, when there is one: the detail (the next step of the fix, where the check looked, the error the sign-in
+     service gave, the Graph address that failed with any message id replaced by `{id}`);
+  3. then the run's log so far (section 7);
+  4. last, and only for a failure the check did not foresee: the Python traceback.
+- **No failure is ever a traceback first.** Anything the check did not foresee is still one sentence on line 1:
+  `screen.py stopped on an error it does not handle: <kind>: <message, cut to 50 characters>`, with
+  `in <function>, screen.py line <n>` on line 2.
+
+### 1.1 What the Gateway keeps of a failure: the reason window
+
+**Phase 3 must build on this, not on the raw stream.** For a non-zero exit, the Gateway on `origin/main`
+(`TriggerCheckContract.Read`) does not look for a line or a prefix. It takes **all** of standard error, joins every line
+with one space (`OneLine`: split on carriage return, line feed and tab, trim, drop empty pieces), cuts it at **200
+characters** (`QuotedOutputLimit`), adding `...` when it cut, and stores `exit code 1: <that>` as the run's reason. That
+reason is the trigger's `LastReason`, which phase 1's signed-in label quotes verbatim, and which the Open problems card
+and the 08:00 email show.
+
+- **The reason does not start with the check's sentence.** It starts with `exit code 1: `, and the Director's process
+  is `uv run --script checks/screen.py` (`DefinitionCheckRunner`), so whatever uv writes to standard error comes before
+  the check's own first line. Phase 3 must not assume any prefix, and must not try to strip one.
+- **What uv writes**, measured on devlinux with uv 0.12.23: nothing at all when the script's environment is already
+  built (the usual run); `Installed 10 packages in 95ms` (29 characters) when it builds the environment from a warm
+  package cache (after the script changes, or the cache was pruned); and `Downloading cryptography (4.5MiB)
+  Downloaded cryptography Installed 10 packages in 16ms` (85 characters, flattened) on a machine whose package cache is
+  empty.
+- **The check's rule:** every sentence is at most `SENTENCE_LIMIT` = 200 - 35 = **165 characters**, so the whole
+  sentence, fix and all, is inside the window behind a uv line of up to 34 characters. The machine is named without
+  its domain. A failing Graph call is named by mailbox and step ("while reading the Inbox"), never by its address.
+- **What the rule does not cover:** on a machine whose package cache is empty, uv's 85 characters can cut a long
+  sentence on that first run. The failure repeats every 5 minutes and uv is silent from the second run, so the next
+  reason is whole. An address much longer than the 21 and 18 characters tested here also eats into the 165.
+- The tests judge every failure by the Gateway's own rule applied after a stand-in uv line
+  (`test_what_the_gateway_keeps.py`), never by the raw stream.
+
+### 1.2 Every failure sentence
+
+`<machine>` is the computer's name without its domain; `<address>` is the channel's address in lower case.
+
+| Failure | Line 1 |
+|---|---|
+| No saved sign-in, or it has expired, or it holds no account for the address | `<address> is not signed in on <machine>: run cc-outlook -a <nickname or address> auth` (section 6) |
+| No cc-outlook account list on the machine holds the address | `<address> is not signed in on <machine>: first run cc-outlook accounts add <address> -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd` (line 2 begins `then run cc-outlook -a <address> auth`; once it is added, the next run's failure names the sign-in) |
+| More than one saved sign-in | `<address> is signed in more than once on <machine>: keep one and sign out of the others with cc-outlook` |
+| The sign-in service cannot be reached | `could not reach the Microsoft sign-in service from <machine> for <address>: <error kind>` (for example `ConnectionError`, `ProxyError`, `Timeout`; the whole error on line 2) |
+| The sign-in service answers with an error | `the Microsoft sign-in service failed on <machine> for <address>: <its message, cut to 50 characters>` |
+| Graph answers an HTTP error | `Microsoft Graph answered HTTP <status> for <address> while <step>` |
+| Graph cannot be reached | `Microsoft Graph could not be reached from <machine> for <address> while <step>: <error, cut to 50 characters>` |
+| Graph answers something that is not JSON | `Microsoft Graph answered something that is not JSON for <address> while <step>` |
+| A page without a `value` list | `Microsoft Graph answered a page without a 'value' list for <address> while <step>` |
+| A message without a usable id or receive time, or a text field that is not text | `Microsoft Graph answered a message without a usable id or receive time for <address> while reading the Inbox` |
+| An unknown provider | `provider <name> has no reader in this version of screen.py (channel <address>); this version reads: outlook` |
+| The memory would outgrow the Director's limit | `the Mail Desk check's memory would be <n> bytes, over the Director's 65536, so nothing was written: give this factory fewer channels` |
+| The memory is missing, empty, not JSON, unreadable, or holds a field this check did not write | one sentence naming the file or the channel and the field (3.2) |
+| Anything else | `screen.py stopped on an error it does not handle: <kind>: <message>` |
+
+`<step>` is one of `reading the Inbox`, `reading the Sent folder`, `moving a message to archive`, `moving a message to
+junkemail`.
 
 ## 2. Limits
 
@@ -96,7 +150,7 @@ prove that a channel id, a machine name and nested objects come back unchanged.
 | Field | Written by | Meaning |
 |---|---|---|
 | `channels` | Gateway | One entry per mailbox, in the order they are reported. It must be a list with at least one entry. An empty or missing list is a failed check, and so is an empty memory file. There is no default. |
-| `address` | Gateway | The mailbox, **in lower case**, as in phase 1's channel row. The saved sign-in's file name is made from it. Two entries with the same address are a failed check. The check never hard-codes an address. |
+| `address` | Gateway | The mailbox, as in phase 1's channel row. The check reads it in lower case. The saved sign-in's file name is made from it and matched **without regard to case**, because cc-outlook names the file after the address as it was typed when the account was added (6). Two entries with the same address, in any case, are a failed check. The check never hard-codes an address. |
 | `provider` | Gateway | `outlook`. Any other value is a failed check that names it: `provider gmail has no reader in this version of screen.py (channel ...); this version reads: outlook`. Every channel is checked before any network call. |
 | `mode` | Gateway | `observe` or `live`. Anything else is a failed check. |
 | `id` | Gateway, optional | Copied into the channel's section of the report (4.2), so the Gateway can match it to its channel row. |
@@ -106,6 +160,12 @@ prove that a channel id, a machine name and nested objects come back unchanged.
 | `keys` | check | The short-key table: each key, the Graph id it stands for, and when it was reported. |
 
 The channel row carries **no nickname**. The sign-in fix finds the nickname for itself (section 6).
+
+**The check's own fields are checked before any network call.** A `cursor` that is not `{"newest": <text>,
+"idsAtNewest": [<text>, ...]}`, a `keys` table that is not an object of `{"id": <text>, "reportedUtc": <text>}`, or a
+`sentCache` that is not `{"refreshedUtc": <text>, "hashes": [<text>, ...]}` is a failed check naming the channel and the
+field (`the channel <address> has a 'keys' table this check did not write`). A memory file that cannot be read, or is
+not UTF-8, is a failed check too. None of them is ever a traceback.
 
 ### 3.3 Short keys
 
@@ -130,11 +190,16 @@ The channel row carries **no nickname**. The sign-in fix finds the nickname for 
   - `moved`: Graph moved it (`archive` to the Archive folder, `junk` to Junk Email).
   - `already-gone`: Graph answered 404, so the message is no longer there (it was deleted, or moved already).
   - `refused`: nothing was sent, and a `reason` says why. The decision is not `archive` or `junk`, the key is not in
-    the table, or the request guard refused the call (for example, an id holding a character a Graph id never has).
+    the table, or the request guard refused the call (for example, an id holding a character a Graph id never has, a
+    space or a control character). The reason never quotes the Graph id. A refusal is per item: the rest of the queue
+    is still carried out and the run succeeds.
 - Any other Graph answer to a move (500, 403, or no answer at all) is a **failed check**. The memory is not rewritten,
   so the whole queue is still there next run. A move that succeeded before the failure is therefore tried again, and
   this time it comes back `already-gone`, because Graph gives a moved message a new id. **The Gateway must read
   `already-gone` as "not in the Inbox any more", not as "moved by us".** Nothing is moved twice.
+- **Not yet observed on a real mailbox:** that Graph answers 404 to a move of an id it has already moved. The fake Graph
+  does; phase 6 should see it once on the real one. If the real Graph kept the old id usable, the retried move would
+  be a second move into the same folder, which changes nothing.
 
 ### 3.5 The cursor and the first run
 
@@ -146,6 +211,10 @@ The channel row carries **no nickname**. The sign-in fix finds the nickname for 
   message reported, and every id reported at exactly that time (plus the ids it already held, when that time did not
   change). So when a batch is cut between messages of the same second, none is lost and none is repeated (test 5).
 - A channel that reported nothing keeps its cursor. A channel that has never reported anything stays a first run.
+- **What a receive-time cursor cannot see:** a message that enters the Inbox with a receive time older than the cursor
+  (moved back from Junk Email or Archive, restored after deletion, or delivered late by the server) is never reported.
+  This comes with the cursor the mission chose (the phase 0 pattern). Phase 3 must not promise that every message that
+  is ever in the Inbox is screened.
 
 ## 4. The output
 
@@ -265,6 +334,9 @@ reaches the network**:
   to any other folder, a body with an extra key, no body at all, and a move with a query;
 - an id holding anything but letters, digits, `-`, `_` and `=` (so no `/`, `.` or `%`), and any path holding `..`, `%`
   or `\`;
+- any address holding a space or a control character, checked **before** the address is parsed, because Python's
+  `urlsplit` silently removes tab, carriage return and line feed and would otherwise hand the rules above a clean
+  path;
 - any host other than `https://graph.microsoft.com` with no port and no user name, and any address with a fragment;
 - a `GET` with a body, or a `GET` outside `/v1.0/`.
 
@@ -299,10 +371,20 @@ The check's only other network traffic is MSAL's own renewal of the sign-in, to 
 | No saved sign-in | `<address> is not signed in on <machine>: run cc-outlook -a <nickname> auth` | where it looked |
 | The sign-in cannot be renewed (expired) | the same sentence | `the saved sign-in at <path> has expired and could not be renewed (<error>)` |
 | The saved file holds no account for the address, or is not a sign-in cache | the same sentence | what was wrong with the file |
-| The account is in no cc-outlook account list | `<address> is not signed in on <machine>: add the account with cc-outlook accounts add <address> --client-id f575e3f4-8f62-4bfb-8f30-f776e55b51bd, then run cc-outlook -a <address> auth` | as above |
-| More than one saved sign-in | `<address> is signed in more than once on <machine>, so the check cannot tell which sign-in to use: keep one and sign out of the others with cc-outlook` | every path found. The check never picks one. |
+| The account is in no cc-outlook account list | `<address> is not signed in on <machine>: first run cc-outlook accounts add <address> -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd` | `then run cc-outlook -a <address> auth`, then where it looked. Once the account is added, the next run fails with the row above, naming the sign-in. |
+| More than one saved sign-in | `<address> is signed in more than once on <machine>: keep one and sign out of the others with cc-outlook` | every path found. The check never picks one. |
+| The sign-in service cannot be reached | `could not reach the Microsoft sign-in service from <machine> for <address>: <error kind>` | the whole error |
 
-`<machine>` is this computer's name, as the operating system gives it.
+`<machine>` is this computer's name as the operating system gives it, without its domain. Every sentence is in 1.2.
+
+- **Case.** cc-outlook keeps an account under the address exactly as it was typed (`save_profile`), names the sign-in
+  file after it (`get_msal_token_path`), and `-a <address>` matches it exactly and with case (`resolve_account`); only
+  nicknames are matched without case, and they are stored in lower case. So the check finds the file without regard to
+  case, MSAL finds the account without regard to case (`get_accounts`), and when the fix must name the address it names
+  it as cc-outlook holds it. Two sign-in files differing only in case are "more than once".
+- **The sign-in service out of reach.** MSAL calls `login.microsoftonline.com` when it is set up (the authority's
+  configuration) and when it renews an expired token. When it cannot, the check fails with one sentence naming the
+  machine, the address and the kind of error, and the whole error on line 2.
 
 - A renewed sign-in is written back to the same file, readable by its owner only (mode 0600) on Linux and macOS, exactly
   as cc-outlook does it. It never goes into the memory or the output.
@@ -315,7 +397,8 @@ Standard error is the check's only log. It is written in plain words, one line e
 `screen.py: `. It names the channels and their modes, the filing results by key, any queue not carried out, any
 Sent-folder refresh, how many messages were reported and whether more mail is waiting. It never holds a token, a
 sender, a subject, a name or any body text (a test asserts this). On a failure, the sentence and its detail come first
-and the log follows (section 1).
+and the log follows (section 1). Only the first 200 characters, flattened, reach the Gateway (1.1); the rest is for a
+person reading the Director's own record of the run.
 
 ## 8. The tests
 
@@ -329,7 +412,10 @@ no real token, no network and no port.
 
 To show the tests can fail, the check was broken on purpose six ways, and each break turned at least one test red: the
 guard letting `PATCH` through; observe mode filing anyway; the preview cut before cleaning; the cursor forgetting the
-ids it held at its time; the nickname collision ignored; and `junk` filed to Archive.
+ids it held at its time; the nickname collision ignored; and `junk` filed to Archive. For the review
+(`docs/qa/mail-desk/phase-2/reviews/`), the whole suite was also run against the check as it stood before the review
+was answered (commit `200156d4d`): 92 of its 208 tests fail there, every one of them a test added or changed for a
+finding or an observation, and all 208 pass on the answered check.
 
 | Brief | What it proves | File |
 |---|---|---|
@@ -343,3 +429,7 @@ ids it held at its time; the nickname collision ignored; and `junk` filed to Arc
 | 8 | Invisible characters are stripped before the 200-character cut, with the kind of padding phase 0 found. | `test_text_channels_and_keys.py` |
 | 9 | Two channels in one run, signed in separately and sharing the 10-message stop; an unknown provider fails and names itself. | `test_text_channels_and_keys.py` |
 | 10 | Non-Latin subjects and names survive, and the budget counts bytes, not characters. | `test_batches_and_cursor.py` |
+| Review 1 | Every kind of failure, with one channel and two, in observe and live mode: the whole first sentence is inside what the Gateway keeps, after a uv line, judged by the Gateway's own rule; a real-length Graph id cannot push it out. | `test_what_the_gateway_keeps.py` |
+| Review 2 | The sign-in service out of reach (in setup and in renewal), a memory field this check did not write, a memory that is not UTF-8, a message field of the wrong kind, and anything unforeseen: one sentence first, never a traceback, memory unchanged. | `test_no_traceback.py` |
+| Review 3 | A space or a control character in an id is refused by the guard itself, and per item: the rest of the queue is filed. | `test_request_guard.py` |
+| Observation 1 | A sign-in file named with capitals is found; two differing only in case are "more than once"; the fix names the address as cc-outlook holds it; the premise is read from cc-outlook's source. | `test_sign_in_and_failures.py` |

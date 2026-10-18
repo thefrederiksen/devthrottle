@@ -17,6 +17,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -36,6 +37,20 @@ MAILBOX = "email@devthrottle.com"
 SECOND = "second@example.org"
 NOW = datetime(2026, 10, 18, 12, 0, 0, tzinfo=timezone.utc)
 MACHINE = "testmachine"
+
+# What uv writes to standard error ahead of the check whenever it builds the script's environment (uv 0.12.23 on
+# devlinux, warm cache). The Director keeps it with the check's own output (DefinitionCheckRunner runs uv run --script).
+UV_LINE = "Installed 10 packages in 95ms"
+
+
+def gateway_reason(err, exit_code=1, uv_line=UV_LINE):
+    """The reason the Gateway stores for a failed check, by its own rule on origin/main: TriggerCheckContract.Read takes
+    ALL of standard error, OneLine splits it on carriage return, line feed and tab, trims each piece, drops the empty
+    ones, joins them with one space and cuts at QuotedOutputLimit (200), adding "..." when it cut."""
+    pieces = [p.strip() for p in re.split(r"[\r\n\t]", (uv_line + "\n" if uv_line else "") + err)]
+    flat = " ".join(p for p in pieces if p)
+    said = flat if len(flat) <= 200 else flat[:200] + "..."
+    return f"exit code {exit_code}: {said}" if said else f"exit code {exit_code}"
 
 
 def load_screen():
@@ -78,6 +93,7 @@ class FakeGraph:
         self.mailboxes = {}
         self.log = []          # (method, url, body text or None, token) for EVERY request that reached the network
         self.fail = None       # None, an HTTP status, "unreachable" or "not-json"
+        self.fail_for = {}     # address -> the same, for that mailbox only, or "no-value" (a page without "value")
 
     def box(self, address):
         return self.mailboxes.setdefault(address, {"inbox": [], "sentitems": [], "archive": [], "junkemail": []})
@@ -91,11 +107,14 @@ class FakeGraph:
         token = (request.get_header("Authorization") or "").removeprefix("Bearer ")
         body = request.data.decode("utf-8") if request.data is not None else None
         self.log.append((method, url, body, token))
-        if self.fail == "unreachable":
+        failure = self.fail_for.get(token.removeprefix("token-for-"), self.fail)
+        if failure == "no-value":
+            return Response(b'{"items": []}')
+        if failure == "unreachable":
             raise urllib.error.URLError("connection refused")
-        if isinstance(self.fail, int):
-            raise urllib.error.HTTPError(url, self.fail, "error", {}, io.BytesIO(b'{"error": {"code": "x"}}'))
-        if self.fail == "not-json":
+        if isinstance(failure, int):
+            raise urllib.error.HTTPError(url, failure, "error", {}, io.BytesIO(b'{"error": {"code": "x"}}'))
+        if failure == "not-json":
             return Response(b"<html>a proxy page</html>")
         status, answer = self.answer(method, url, body, token)
         if status >= 400:
@@ -128,7 +147,7 @@ class FakeGraph:
             mid, destination = segments[4], json.loads(body)["destinationId"]
             for folder in box.values():
                 for m in folder:
-                    if m["id"] == mid:
+                    if m.get("id") == mid:
                         folder.remove(m)
                         moved = dict(m, id=f"moved-{mid}")
                         box[destination].append(moved)
@@ -147,10 +166,14 @@ class FakeSignIn:
         self.renews = set()
         self.scopes_asked = []
         self.authorities = []
+        self.construct_raises = None   # what MSAL's constructor raises (its authority discovery is a network call)
+        self.renew_raises = {}         # address -> what acquire_token_silent raises (the renewal is a network call)
 
     def factory(self, client_id, authority, token_cache):
         rig = self
         rig.authorities.append((client_id, authority))
+        if rig.construct_raises is not None:
+            raise rig.construct_raises
 
         class App:
             def get_accounts(self, username=None):
@@ -159,6 +182,8 @@ class FakeSignIn:
             def acquire_token_silent(self, scopes, account):
                 rig.scopes_asked.append(list(scopes))
                 address = account["username"]
+                if address in rig.renew_raises:
+                    raise rig.renew_raises[address]
                 if address in rig.renew_fails:
                     return {"error": "invalid_grant", "error_description": "the refresh token has expired"}
                 if address in rig.renews:
