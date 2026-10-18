@@ -95,6 +95,19 @@ def test_list_prints_the_status_the_gateway_decided_verbatim():
     assert "website-new-mail  [RED - check failed: exit code 1]" in result.stdout
 
 
+def test_list_and_show_print_where_the_check_runs_as_the_gateway_worded_it():
+    backed = dict(_TRIGGER, backupMachines=["machine-b"],
+                  machinesText="SOREN_NORTH, then machine-b if SOREN_NORTH is away")
+    with patch("src.trigger_ops.TriggerClient") as client_cls:
+        client_cls.return_value.list.return_value = [backed]
+        client_cls.return_value.get.return_value = backed
+        listed = runner.invoke(app, ["trigger", "list"])
+        shown = runner.invoke(app, ["trigger", "show", "website-new-mail"])
+    assert listed.exit_code == 0 and shown.exit_code == 0, listed.output + shown.output
+    assert " on SOREN_NORTH, then machine-b if SOREN_NORTH is away  last check:" in listed.stdout
+    assert "Machine:       SOREN_NORTH, then machine-b if SOREN_NORTH is away" in shown.stdout
+
+
 def test_list_json_is_the_gateway_answer():
     with patch("src.trigger_ops.TriggerClient") as client_cls:
         client_cls.return_value.list.return_value = [_TRIGGER]
