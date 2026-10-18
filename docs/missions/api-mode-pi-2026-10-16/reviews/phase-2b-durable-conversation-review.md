@@ -220,6 +220,42 @@ to exist, cleared when the final is stored, so a reply's second and later deltas
 first delta still writes its place row under the lock, as the design requires. One transaction per batch rather than
 one per event would cut the stored-item cost further, but that is a larger change and not a condition.
 
+**Developer's answer (fixed, as the Tech Lead ruled).** `ApiModeConversationStore.Record` now asks the ruling first,
+with no database: an event it keeps nothing of (thought text) opens no context. The store remembers in memory, per
+(tenant, session), the reply ids whose place row is known to exist, so a reply's second and later deltas touch nothing;
+an id goes when the reply's final is seen, and the whole set goes when a turn ends, when the bound or the retention lets
+rows go, and past 256 open replies. The first delta still writes the place row; after a Gateway restart an open reply's
+next delta costs one query to learn the row is there, then nothing. A tool's finish is still ruled after its stored card
+is read, so its title survives a restart. The memory only ever promises that a row exists; if another Gateway's bound
+let the row go during a deploy, the reply's final becomes a new row at the end, where it would have gone had its deltas
+arrived after the drop.
+
+*The lock.* The store's one lock shared by every session is gone. Every write of a session is made under that session's
+own lock (and already under the buffer's session lock), so sessions never wait for each other in this store. Nothing
+spans sessions but the retention sweep, which takes no lock: its delete re-checks the cutoff, so a session written
+between its two statements keeps its new rows. `Read` takes no store lock either: it is one query, and what makes the
+opening exact is the buffer's session lock its caller holds. A same-session race, were one ever possible, is still safe:
+the order is unique per session, and the loser re-reads and decides again.
+
+*The test.* `Record_DeltasAfterTheReplysPlaceRow_DoNoDatabaseWork` pushes 200 deltas (100 reply, 100 thought) after the
+place row and counts, from Entity Framework's own diagnostic events filtered to the test's database file, connections
+opened, transactions begun and statements run: 0, 0, 0. Against the old store the same test reads 0, 200, 100 and
+fails. The test also checks the instrument sees a stored final, so a silent instrument cannot pass it.
+`Record_AnOpenReplyAfterAGatewayRestart_CostsOneQueryThenNothing` covers the restart.
+
+*Measured* on the in-process SQLite harness, a probe test of the same shape as the review's (three rounds of 500-event
+batches through the real ingest, after a warm-up; deleted after the run, never committed). Each figure is the batch's
+whole ingest time divided by 500, so it includes the buffer and the receipt store's pass:
+
+| | Before | After |
+|---|---|---|
+| Reply delta | 0.18 to 0.20 milliseconds | 0.02 to 0.04 milliseconds |
+| Thought delta | 0.04 milliseconds | 0.007 to 0.02 milliseconds |
+| Stored final | 7.4 to 8.3 milliseconds | 7.1 to 8.7 milliseconds (unchanged: one transaction per stored item) |
+
+On PostgreSQL the difference is larger than on SQLite: a delta was three round trips (begin, select, rollback) and is now
+none. One transaction per batch for stored finals was not taken; the review did not make it a condition.
+
 **Finding 2 (low). The new 128-character refusal drops a whole batch for an id the Director does not mint.**
 *Where:* `ApiModeEventIngest.CheckFields`, the `SourceId` cases; `PiDialect` lines 658 to 762 pass Pi's tool call id
 through unchanged. *The state that reaches it:* a `ToolCallStarted` or `ToolCallFinished` whose tool call id, minted
@@ -231,6 +267,14 @@ has. *The fix, when it is taken:* bound the id at the Director, where both the s
 through the same place, since the id is only a correlation key; then a refusal at the Gateway is a true Director
 defect, as the other refusals are.
 
+**Developer's answer (fixed, as the Tech Lead ruled: the refusal is removed).** The ingest no longer checks a message,
+tool call or permission request id for length. An item whose id is longer than the column (160 characters) is not kept
+in the conversation: one log line names the session, the item kind and the id's length, and the rest of the batch, the
+receipts and the live stream go on as before. A reply's over-long id is remembered, so its later deltas log nothing more.
+`Accept_AToolCallIdLongerThanTheConversationKeeps_KeepsTheRestOfTheBatch` replaces the refusal test: a batch with a
+receipt, a tool whose id does not fit, a reply and a turn end is accepted whole, the buffer holds every event, the
+receipt is kept, and the conversation keeps the reply and the turn line.
+
 **Finding 3 (low). A poll reader with a cursor starts its ruling from empty, not from the stored conversation.**
 *Where:* `SessionLiveEndpoint.ReadItems`, the cursor path, calls `StartRuling`, which builds a new ruling and
 catches it up on the held events only. *The state that reaches it:* a Gateway restarted in the middle of a
@@ -241,6 +285,11 @@ poll's ruling has not seen the start, `vouched` is false because the buffer hold
 re-applies everything, once, though the opening it holds already had the card. The stream reader in the same state
 continues smoothly, because its ruling came from the opening. Not wrong, only a flicker; the fix is to build the
 cursor poll's ruling from the stored conversation as the opening does.
+
+**Developer's answer (stays, as the Tech Lead ruled).** The cost is one reset and one re-applied opening, once, on a
+poll reader, only after a Gateway restart in the middle of a tool; the picture is correct before and after. Building
+the cursor poll's ruling from the store would add a database read to every cursor poll for every reader, to save a
+flicker that needs a restart to happen. The stream reader, which is what the clients use, is not affected.
 
 **Finding 4 (low). A re-sent tool finish can replace a stored title with "A tool that started before this view
 began" on a reader that opened from the store.** *Where:* `ApiModeLiveRuling.ToolFinish` and the stored-conversation
@@ -255,6 +304,11 @@ kind without such a guard in the reader's ruling. Narrow (a database failure bet
 in a window of seconds), so low. The fix is to give the reader's ruling the stored finished cards too, so a finish for
 a card it knows is finished is ignored or re-ruled with the stored title.
 
+**Developer's answer (stays, as the Tech Lead ruled).** It needs a database failure between the two writes of one
+batch and a reader opening in the seconds before the Director's re-send; the wrong card lives only on that reader and is
+gone on its next connection, and the stored row is right. Loading finished cards into every reader's ruling changes what
+every opening carries to cover that window; not worth it now.
+
 **Finding 5 (low). Retention is per row for receipts and per session for the conversation.** *Where:*
 `ApiModeReceiptStore.PurgeOlderThan` (every row last changed before the cutoff) against
 `ApiModeConversationStore.PurgeOlderThan` (a session whole, when its newest item is older than the cutoff). *The
@@ -265,6 +319,12 @@ conversation's rule makes is kept by one store and broken by the other. The desi
 receipts" and does not settle which rule; this is a question for the Tech Lead, not a defect in the code against its
 record. The cheap alignment is to make the receipts' purge per session too.
 
+**Developer's answer (stays per session, as the Tech Lead ruled).** Per session avoids a silent gap at the start of a
+session still in use: the conversation is read as one continuous run from its first kept item, and a per-row purge would
+cut its top with no line saying so. The class comment of `ApiModeConversationStore` now says why it differs from the
+receipts' per-row rule (a receipt is an answer about one prompt that stands on its own) and states the consequence: a
+session in use for more than 90 days can show replies whose receipts have gone.
+
 **Finding 6 (low, record). What "deltas are never stored" costs the opening.** *Where:* `RecordOnce` (a place row
 with no text) and `ApiModeConversationOpening.Build` (the fold of held deltas). *The state that reaches it:* (a) a
 reply that streamed deltas and never got its final because the agent died; (b) a Gateway restart while a reply is
@@ -274,6 +334,10 @@ or after a restart, it is absent, where a live reader saw its partial text and t
 only the deltas sent after it started. Both follow from the design and neither is a wrong picture that lasts beyond
 the final; recorded so the phase 3 client's authors know what an opening can and cannot show.
 
+**Developer's answer (stays, as the Tech Lead ruled).** It follows from "deltas are never stored", and storing deltas
+would bring back exactly the per-delta database cost finding 1 removes. The final replaces the partial picture when it
+arrives; a reply that never gets a final still has its turn's failure line. Recorded for the phase 3 client's authors.
+
 **Finding 7 (low, record). A no-cursor reader is still reset on every Director restart.** *Where:* the stream loop's
 generation check. *The state that reaches it:* a reader that opened from the stored conversation, following live,
 when the Director starts a new generation. *The harm:* the client drops up to 2,000 items and re-applies the whole
@@ -281,6 +345,9 @@ opening (up to two million characters in one frame), though the durable conversa
 connection ids no longer collide across them. The design kept the reset for cursor readers and said nothing about
 this case; the behaviour is correct, and removing the reset later needs the ruling's per-generation sequence guard
 (`_receiptSequences`) to be made generation-aware first. Not for this change.
+
+**Developer's answer (stays, as the Tech Lead ruled).** The behaviour is correct, and removing the reset first needs the
+ruling's per-generation sequence guard made generation-aware; that is separate work, not a fix to this change.
 
 ## 5. Notes (none blocks the merge)
 

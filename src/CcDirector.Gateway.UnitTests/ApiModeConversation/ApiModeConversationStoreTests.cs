@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeDisplay;
@@ -8,6 +9,8 @@ using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Receipts;
 using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Xunit;
 using static CcDirector.Gateway.Tests.ApiModeEvents.ApiModeEventTestData;
 
@@ -29,6 +32,7 @@ public sealed class ApiModeConversationStoreTests : IDisposable
     private readonly HostedTenantBoundary _boundary;
     private DateTime _now = T0.UtcDateTime;
     private ApiModeConversationStore _conversation = null!;
+    private ApiModeReceiptStore _receipts = null!;
     private ApiModeEventIngest _ingest = null!;
 
     public ApiModeConversationStoreTests()
@@ -45,7 +49,8 @@ public sealed class ApiModeConversationStoreTests : IDisposable
     private void StartGateway()
     {
         _conversation = new ApiModeConversationStore(_harness.Open(_ambient), () => _now);
-        _ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), new ApiModeReceiptStore(_harness.Open(_ambient), () => _now), _conversation, _boundary);
+        _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => _now);
+        _ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), _receipts, _conversation, _boundary);
     }
 
     private void Push(ApiModeEventBatch batch, TenantId? tenant = null) => Assert.NotNull(_ingest.Accept(tenant ?? Alice, Director, batch));
@@ -167,16 +172,60 @@ public sealed class ApiModeConversationStoreTests : IDisposable
     }
 
     [Fact]
-    public void Accept_AMessageIdLongerThanTheConversationKeeps_IsRefusedWholeAndStoresNothing()
+    public void Accept_AToolCallIdLongerThanTheConversationKeeps_KeepsTheRestOfTheBatch()
     {
-        // Arrange
-        var tooLong = new string('m', ApiModeConversationStore.MaxSourceIdLength + 1);
-        var batch = A(Ready(1), new MessageText { SessionId = Sid, Sequence = 2, At = T0, TurnId = "t1", MessageId = tooLong, Channel = MessageTextChannel.Reply, Kind = MessageTextKind.Final, Text = "hi" });
+        // Arrange: the tool call id is the model provider's, passed through unchanged; this one does not fit the column.
+        var tooLong = new string('c', ApiModeConversationStore.MaxItemIdLength);
+        var batch = A(Delivered(1, "p1", PlainAck), Started(2, "t1", "p1"), ToolStart(3, tooLong), ToolEnd(4, tooLong),
+            Final(5, "m1", "Listed them"), Ended(6, "t1", TurnOutcome.Done, null, "end_turn"));
 
-        // Act + Assert
-        var refused = Assert.Throws<ArgumentException>(() => _ingest.Accept(Alice, Director, batch));
-        Assert.Contains("messageId", refused.Message, StringComparison.Ordinal);
-        Assert.Empty(Stored());
+        // Act
+        var held = _ingest.Accept(Alice, Director, batch);
+
+        // Assert: the batch is accepted whole, so the live stream holds every event; the receipt is kept; the
+        // conversation keeps everything but the one tool card.
+        Assert.Equal(6L, held!.Sequence);
+        using (_boundary.EnterScope(Alice))
+            Assert.Equal("p1", Assert.Single(_receipts.Read(Sid)).PromptId);
+        Assert.Equal(new[] { "reply:m1", "turn:t1" }, Stored().Select(s => s.Item.ItemId));
+    }
+
+    [Fact]
+    public void Record_DeltasAfterTheReplysPlaceRow_DoNoDatabaseWork()
+    {
+        // Arrange: the reply's first delta writes its place row.
+        Push(A(Started(1, "t1"), Text(2, "t1", "Lo")));
+        using var database = new DatabaseWorkCounter(_harness.DbPath);
+
+        // Act: a run of later reply deltas and thought deltas, as a streaming agent sends them.
+        var deltas = Enumerable.Range(3, 200).Select(seq => (SessionEvent)(seq % 2 == 0
+            ? Text(seq, "t1", "o")
+            : Text(seq, "t1", "hmm", channel: MessageTextChannel.Thought))).ToArray();
+        Push(A(deltas));
+
+        // Assert: no connection opened, no transaction begun and no statement run; and the final still fills the place,
+        // which the instrument must see, or it proves nothing.
+        Assert.Equal((0, 0, 0), database.Work);
+        Push(A(Text(203, "t1", "Looking", MessageTextKind.Final)));
+        Assert.True(database.Transactions > 0 && database.Commands > 0, $"the instrument saw no work for a stored final ({database.Work}), so it proves nothing");
+        Assert.Equal(("reply:m1", "Looking"), (Stored()[0].Item.ItemId, Stored()[0].Item.Text));
+    }
+
+    [Fact]
+    public void Record_AnOpenReplyAfterAGatewayRestart_CostsOneQueryThenNothing()
+    {
+        // Arrange: the reply is streaming when the Gateway restarts, so the new process does not know its row exists.
+        Push(A(Started(1, "t1"), Text(2, "t1", "Lo")));
+        StartGateway();
+        Push(A(Text(3, "t1", "o")));
+        using var database = new DatabaseWorkCounter(_harness.DbPath);
+
+        // Act
+        Push(A(Text(4, "t1", "k")));
+
+        // Assert
+        Assert.Equal((0, 0, 0), database.Work);
+        Assert.Equal(new[] { ("reply:m1", false) }, Stored().Select(s => (s.Item.ItemId, s.HasFinal)));
     }
 
     // ----- the bound -----
@@ -304,5 +353,61 @@ public sealed class ApiModeConversationStoreTests : IDisposable
 
         // Assert
         Assert.Equal(("bash", "done", "ls"), (card.Text, card.Status, card.Detail));
+    }
+}
+
+/// <summary>
+/// Counts the database work Entity Framework does against ONE database file, from its diagnostic events: every
+/// connection opened, every transaction begun and every statement run. Other tests running at the same time use other files and are not counted.
+/// </summary>
+internal sealed class DatabaseWorkCounter : IObserver<DiagnosticListener>, IObserver<KeyValuePair<string, object?>>, IDisposable
+{
+    private readonly string _dataSource;
+    private readonly IDisposable _all;
+    private readonly List<IDisposable> _subscriptions = new();
+    private int _connectionsOpened;
+    private int _transactions;
+    private int _commands;
+
+    public DatabaseWorkCounter(string databaseFile)
+    {
+        _dataSource = databaseFile;
+        _all = DiagnosticListener.AllListeners.Subscribe(this);
+    }
+
+    public int ConnectionsOpened => Volatile.Read(ref _connectionsOpened);
+    public int Transactions => Volatile.Read(ref _transactions);
+    public int Commands => Volatile.Read(ref _commands);
+
+    /// <summary>Connections opened, transactions begun and statements run, together.</summary>
+    public (int ConnectionsOpened, int Transactions, int Commands) Work => (ConnectionsOpened, Transactions, Commands);
+
+    public void OnNext(DiagnosticListener listener)
+    {
+        if (listener.Name == DbLoggerCategory.Name)
+            lock (_subscriptions) _subscriptions.Add(listener.Subscribe(this));
+    }
+
+    public void OnNext(KeyValuePair<string, object?> e)
+    {
+        if (e.Key == RelationalEventId.ConnectionOpening.Name && e.Value is ConnectionEventData c && Ours(c.Connection))
+            Interlocked.Increment(ref _connectionsOpened);
+        else if (e.Key == RelationalEventId.TransactionStarted.Name && e.Value is TransactionEndEventData t && Ours(t.Transaction.Connection))
+            Interlocked.Increment(ref _transactions);
+        else if (e.Key == RelationalEventId.CommandExecuting.Name && e.Value is CommandEventData d && Ours(d.Command.Connection))
+            Interlocked.Increment(ref _commands);
+    }
+
+    private bool Ours(System.Data.Common.DbConnection? connection)
+        => connection is not null && string.Equals(Path.GetFullPath(connection.DataSource), Path.GetFullPath(_dataSource), StringComparison.Ordinal);
+
+    public void OnCompleted() { }
+    public void OnError(Exception error) { }
+
+    public void Dispose()
+    {
+        _all.Dispose();
+        lock (_subscriptions)
+            foreach (var s in _subscriptions) s.Dispose();
     }
 }

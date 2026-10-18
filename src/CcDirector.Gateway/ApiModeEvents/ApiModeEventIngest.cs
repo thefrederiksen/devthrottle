@@ -109,8 +109,7 @@ public sealed class ApiModeEventIngest
     /// generation or no start time, too many events, an event that is not a session event, an event of another session,
     /// sequences that do not rise strictly, a sequence below the first,
     /// more characters than <see cref="ApiModeEventBatch.MaxCharacters"/>, a turn that ended other than done with no reason, or an
-    /// id or text longer than the receipt store or the conversation store keeps - so nothing reaches a store that it would
-    /// refuse half-way.
+    /// id or text longer than the receipt store keeps - so nothing reaches the store that it would refuse half-way.
     /// </summary>
     internal static IReadOnlyList<ApiModeEventBuffer.Incoming> Parse(ApiModeEventBatch batch)
     {
@@ -173,12 +172,9 @@ public sealed class ApiModeEventIngest
                     throw new ArgumentException($"event {i} (TurnEnded {ApiModeEventIngest.Word(t.Outcome)}) carries no reason; every outcome but done must say why", "batch");
                 if (t.Reason is not null) Text(i, t.Reason, "reason");
                 break;
-            // The ids an item of the durable conversation is named by: refused here when too long, so the conversation
-            // store is never handed one it would refuse half-way through a batch.
-            case MessageText m: Id(i, m.TurnId, "turnId"); SourceId(i, m.MessageId, "messageId"); break;
-            case ToolCallStarted t: Id(i, t.TurnId, "turnId"); SourceId(i, t.ToolCallId, "toolCallId"); break;
-            case ToolCallFinished t: Id(i, t.TurnId, "turnId"); SourceId(i, t.ToolCallId, "toolCallId"); break;
-            case PermissionRequested p: Id(i, p.TurnId, "turnId"); SourceId(i, p.RequestId, "requestId"); break;
+            // A message, tool call or permission request id is not checked for length: the durable conversation does not
+            // keep an item whose id is longer than its column and goes on (ApiModeConversationStore), so one such id never
+            // costs the whole batch.
             case SessionTurnEvent other: Id(i, other.TurnId, "turnId"); break;
         }
     }
@@ -187,13 +183,6 @@ public sealed class ApiModeEventIngest
     {
         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"event {i} has an empty {name}", "batch");
         if (value.Length > ApiModeReceiptStore.MaxIdLength) throw new ArgumentException($"event {i} has a {name} longer than {ApiModeReceiptStore.MaxIdLength} characters", "batch");
-    }
-
-    private static void SourceId(int i, string? value, string name)
-    {
-        var max = ApiModeConversation.ApiModeConversationStore.MaxSourceIdLength;
-        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"event {i} has an empty {name}", "batch");
-        if (value.Length > max) throw new ArgumentException($"event {i} has a {name} longer than {max} characters", "batch");
     }
 
     private static void Text(int i, string? value, string name)
