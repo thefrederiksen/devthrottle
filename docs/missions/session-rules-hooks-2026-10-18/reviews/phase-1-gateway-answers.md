@@ -25,18 +25,17 @@ naming the field. Test: added to `CreateFromBody_HookBodyWithScreenOnlyFields_Is
 
 ## Notes
 
-**N1 - no Gateway-side cap on a post. ACCEPTED, fixed - with one consequence to decide.**
-`SessionRuleWire.ReadHookDecisions` reads at most `HookRuleWords.MaxDecisionsPerPost` (100) items, counted by
-position over the whole list, malformed items included. Every item past the cap is refused, by its decision
-id, with a reason that names the cap. Test:
-`ReadHookDecisions_MoreThanOneHundredInOnePost_ReadsTheFirstHundredAndRefusesTheRestById`.
-**The consequence, for the Tech Lead:** by W5 the Director deletes a refused decision, so a decision refused
-for being past the cap is LOST. The cap holds without loss only while the Director never sends more than 100.
-That is true of the Director branch today (`HookDecisionForwarder.MaxBatch` is 100), so nothing is lost in
-practice. But the two numbers must change together, and nothing ties them. My recommendation is to settle it
-in the wire contract, in one of two ways. Either state that the two caps are equal and must change together.
-Or let W5 answer past-the-cap decisions as a separate "not read" list, which the Director keeps and sends
-again. That second option is a contract change, so I have not made it.
+**N1 - no Gateway-side cap on a post. ACCEPTED, fixed as ruling P17 decided.**
+My first fix refused, by id, each decision past 100, and these answers pointed out the cost. By W5 the
+Director deletes a decision refused by id, so a decision past the cap would be lost. The Tech Lead's ruling
+P17 settled it. The limit is now ONE constant, `HookFiringLimits.MaxDecisionsPerPost` (100), in
+`CcDirector.Gateway.Contracts`. The Director's forwarder reads it for `MaxBatch`, and the Gateway reads it for
+its limit. `SessionRuleWire.ReadHookDecisions` refuses a post over the limit WHOLE, as a 400 that states the
+limit and the count, and records nothing from it. The Director's forwarder already treats any non-success
+answer as a failed post: it keeps every drop and backs off. So nothing is lost to the limit. Tests:
+`ReadHookDecisions_PostOverTheSharedLimit_IsRefusedWholeNamingTheLimit`,
+`ReadHookDecisions_PostOfExactlyTheSharedLimit_IsReadWhole`, and on the Director side
+`HookDecisionForwarderTests.MaxBatch_IsTheOneSharedLimitTheGatewayHolds`.
 
 **N2 - tenant separation of the rule lookup had no presence test. ACCEPTED, tests added.**
 `EffectiveHookRulesAndRecordHookFirings_AnotherAccountsRule_IsNeitherListedNorFiredOn`. Account A first sees

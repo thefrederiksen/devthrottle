@@ -49,8 +49,9 @@ public sealed class HookDecisionForwarder : IDisposable
     /// <summary>The longest wait between attempts while the Gateway keeps failing.</summary>
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(5);
 
-    /// <summary>The most decisions one post carries.</summary>
-    internal const int MaxBatch = 100;
+    /// <summary>The most decisions one post carries: the Gateway's own limit, read from the one constant both
+    /// ends share (ruling P17), because a larger batch would be refused whole on every sweep.</summary>
+    internal const int MaxBatch = CcDirector.Gateway.Contracts.HookFiringLimits.MaxDecisionsPerPost;
 
     /// <summary>A decision is a few hundred bytes with a subject of at most 4000 characters; anything
     /// larger than this was not written by the hook.</summary>

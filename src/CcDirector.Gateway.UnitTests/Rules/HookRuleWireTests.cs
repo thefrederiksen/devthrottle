@@ -294,17 +294,34 @@ public sealed class HookRuleWireTests : IDisposable
     }
 
     [Fact]
-    public void ReadHookDecisions_MoreThanOneHundredInOnePost_ReadsTheFirstHundredAndRefusesTheRestById()
+    public void ReadHookDecisions_PostOverTheSharedLimit_IsRefusedWholeNamingTheLimit()
     {
-        var items = string.Join(",", Enumerable.Range(0, 102).Select(i => W3($"d-{i}")));
+        // Ruling P17: refused WHOLE, never decision by decision - the Director deletes a decision refused by id,
+        // so a per-decision refusal past the limit would destroy real records. A whole refusal is a failed post,
+        // and the Director keeps every drop.
+        var limit = CcDirector.Gateway.Contracts.HookFiringLimits.MaxDecisionsPerPost;
+        var items = string.Join(",", Enumerable.Range(0, limit + 1).Select(i => W3($"d-{i}")));
+        var unreadable = new List<HookFiringRefusal>();
+
+        var ex = Assert.Throws<RuleRejectedException>(
+            () => SessionRuleWire.ReadHookDecisions(Body($$"""{ "decisions": [ {{items}} ] }"""), unreadable));
+
+        Assert.Contains(limit.ToString(), ex.Reason, StringComparison.Ordinal);
+        Assert.Contains((limit + 1).ToString(), ex.Reason, StringComparison.Ordinal);
+        Assert.Empty(unreadable);
+    }
+
+    [Fact]
+    public void ReadHookDecisions_PostOfExactlyTheSharedLimit_IsReadWhole()
+    {
+        var limit = CcDirector.Gateway.Contracts.HookFiringLimits.MaxDecisionsPerPost;
+        var items = string.Join(",", Enumerable.Range(0, limit).Select(i => W3($"d-{i}")));
         var unreadable = new List<HookFiringRefusal>();
 
         var read = SessionRuleWire.ReadHookDecisions(Body($$"""{ "decisions": [ {{items}} ] }"""), unreadable);
 
-        Assert.Equal(HookRuleWords.MaxDecisionsPerPost, read.Count);
-        Assert.Equal("d-99", read.Last().DecisionId);
-        Assert.Equal(new[] { "d-100", "d-101" }, unreadable.Select(r => r.DecisionId));
-        Assert.All(unreadable, r => Assert.Contains("100", r.Reason, StringComparison.Ordinal));
+        Assert.Equal(limit, read.Count);
+        Assert.Empty(unreadable);
     }
 
     [Fact]

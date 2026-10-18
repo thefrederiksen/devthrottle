@@ -76,10 +76,6 @@ public static class HookRuleWords
 
     /// <summary>The longest command text a firing keeps (wire contract W3).</summary>
     public const int SubjectMaxLength = 4000;
-
-    /// <summary>The most decisions one W5 post may carry - the Director's own batch size, so the contract holds
-    /// at both ends. Decisions past it are refused by id with the reason.</summary>
-    public const int MaxDecisionsPerPost = 100;
 }
 
 /// <summary>
