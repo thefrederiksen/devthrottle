@@ -275,7 +275,10 @@ $defaultProjects = @(
     "src\CcDirector.Reclaim.Tests\CcDirector.Reclaim.Tests.csproj",
     # The delivery rig's rate arithmetic and scenario pass rules (Prompt Delivery mission, October 2026). Pure
     # functions, no agent is started; it builds the rig, which is the cost.
-    "src\CcDirector.DeliveryQualification.Tests\CcDirector.DeliveryQualification.Tests.csproj"
+    "src\CcDirector.DeliveryQualification.Tests\CcDirector.DeliveryQualification.Tests.csproj",
+    # The Session Rules hook evaluator, cc-rule-hook (Session Rules part 2, phase 1). In process, a scratch
+    # folder, an injected clock: about 60 tests in well under a second, measured 2026-10-18.
+    "src\CcDirector.RuleHook.Tests\CcDirector.RuleHook.Tests.csproj"
 )
 
 # THE INSTALLER, WHICH IS IN THE DEFAULT RUN AND IS NOT IN THE SOLUTION.

@@ -15,9 +15,9 @@ namespace CcDirector.RuleHook;
 /// the command alone", which was checked against the installed Claude Code before this was written. The
 /// only catch is at this entry point, and what it catches goes into the evaluation log.
 ///
-/// A process whose environment has no <see cref="RulesFileEnvVar"/> is not a Director session (a user's
-/// own Claude Code, which shares nothing with this hook but the settings it never loads) or a Director
-/// that predates rules: it has nowhere to log, so it does nothing.
+/// A process whose environment has no <see cref="RulesFileEnvVar"/> is not a Director session that has
+/// rules - a session from a Director that predates them, or the hook run by hand: it has nowhere to log,
+/// so it does nothing.
 /// </summary>
 internal sealed class HookRunner
 {

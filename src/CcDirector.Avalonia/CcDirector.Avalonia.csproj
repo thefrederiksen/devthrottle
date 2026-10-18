@@ -50,4 +50,42 @@
     <!-- Expose internal helpers (e.g. CleanViewDiff) to the unit-test project. -->
     <InternalsVisibleTo Include="CcDirector.Avalonia.Tests" />
   </ItemGroup>
+
+  <!-- THE SESSION RULES HOOK EVALUATOR, CARRIED INSIDE THE DIRECTOR (Session Rules part 2, phase 1, ruling P16).
+       A build for a Windows or Linux runtime identifier (every publish, and the slot builds) compiles
+       cc-rule-hook to native code for the same platform and embeds it here as the resource "cc-rule-hook";
+       ClaudeHookInstaller writes it out beside the hook scripts (RuleHookBinary). Carried, not shipped
+       beside: the Director installs, updates and rolls back as ONE file, and the hook always matches it.
+       A plain build with no runtime identifier (the tests, the solution) carries none and skips this.
+       macOS is not given one yet: the Mac hook arrives in phase 4.
+       Native compilation needs the platform's toolchain. Without it the build FAILS and says so; pass
+       -p:EmbedRuleHook=false to build a Director that carries no hook on purpose. -->
+  <PropertyGroup>
+    <EmbedRuleHook Condition="'$(EmbedRuleHook)' == '' and ($(RuntimeIdentifier.StartsWith('win-')) or $(RuntimeIdentifier.StartsWith('linux-')))">true</EmbedRuleHook>
+    <RuleHookProject>$(MSBuildThisFileDirectory)..\CcDirector.RuleHook\CcDirector.RuleHook.csproj</RuleHookProject>
+    <RuleHookPublishDir>$(MSBuildThisFileDirectory)obj\rule-hook\$(Configuration)\$(RuntimeIdentifier)\</RuleHookPublishDir>
+    <RuleHookExecutable>$(RuleHookPublishDir)cc-rule-hook</RuleHookExecutable>
+    <RuleHookExecutable Condition="$(RuntimeIdentifier.StartsWith('win-'))">$(RuleHookPublishDir)cc-rule-hook.exe</RuleHookExecutable>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(EmbedRuleHook)' == 'true'">
+    <RuleHookSource Include="$(MSBuildThisFileDirectory)..\CcDirector.RuleHook\*.cs;$(RuleHookProject)" />
+  </ItemGroup>
+
+  <!-- Incremental: the evaluator is recompiled only when its source changed. -->
+  <Target Name="PublishRuleHook" Condition="'$(EmbedRuleHook)' == 'true'" Inputs="@(RuleHookSource)" Outputs="$(RuleHookExecutable)">
+    <Error Condition="'$(DOTNET_HOST_PATH)' == ''" Text="Building the Session Rules hook needs the dotnet host (DOTNET_HOST_PATH is not set). Build with the dotnet command line, or pass -p:EmbedRuleHook=false to build a Director that carries no hook." />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; publish &quot;$(RuleHookProject)&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(RuleHookPublishDir)&quot; --nologo -v q" ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="RuleHookPublishExitCode" />
+    </Exec>
+    <Error Condition="'$(RuleHookPublishExitCode)' != '0'" Text="cc-rule-hook could not be compiled to native code for $(RuntimeIdentifier) (exit code $(RuleHookPublishExitCode)). Native compilation needs the platform's toolchain: on Windows the Visual Studio 'Desktop development with C++' build tools, on Linux clang or gcc. To build a Director that carries NO Session Rules hook on purpose (its sessions evaluate no rules, and it logs that loudly), pass -p:EmbedRuleHook=false." />
+  </Target>
+
+  <Target Name="EmbedRuleHook" BeforeTargets="BeforeBuild" DependsOnTargets="PublishRuleHook" Condition="'$(EmbedRuleHook)' == 'true'">
+    <Error Condition="!Exists('$(RuleHookExecutable)')" Text="The Session Rules hook was not produced at $(RuleHookExecutable)." />
+    <ItemGroup>
+      <!-- The LogicalName must match RuleHookBinary.ResourceName in CcDirector.Core. -->
+      <EmbeddedResource Include="$(RuleHookExecutable)" LogicalName="cc-rule-hook" />
+    </ItemGroup>
+    <Message Importance="high" Text="Embedding the Session Rules hook: $(RuleHookExecutable)" />
+  </Target>
 </Project>

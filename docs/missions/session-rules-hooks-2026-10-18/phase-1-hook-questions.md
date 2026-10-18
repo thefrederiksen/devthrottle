@@ -92,3 +92,6 @@ without the hook (logged loudly by the installer, per P15). This changes P11's "
 own executable" to "ships inside the Director and is written beside the hook scripts".
 
 Until answered I am building the timing scripts and measuring, which do not depend on this.
+
+**Answered:** B, recorded as P16 (replaces P15 and the shipping half of P11), adding an atomic replace and
+a refused replace logged and retried, never fatal. Built: `ad9ad6f8d` and the build commit after it.

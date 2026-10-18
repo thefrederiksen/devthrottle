@@ -14,6 +14,13 @@
 .PARAMETER Configuration
     Build configuration. Defaults to Release.
 
+.PARAMETER NoRuleHook
+    Build a Director that carries no Session Rules hook. The Director normally CARRIES cc-rule-hook,
+    compiled to native code and embedded in its own executable (Session Rules part 2, phase 1, ruling
+    P16; the EmbedRuleHook target in CcDirector.Avalonia.csproj). Native compilation on Windows needs the
+    Visual Studio "Desktop development with C++" build tools; without them the build fails and says so.
+    With -NoRuleHook its sessions evaluate no rules, on purpose.
+
 .EXAMPLE
     .\scripts\local-build-avalonia.ps1
     .\scripts\local-build-avalonia.ps1 -SelfContained
@@ -22,7 +29,8 @@ param(
     [switch]$SelfContained,
     [string]$Configuration = "Release",
     [string]$Slot = "",
-    [string]$OutputDir = ""
+    [string]$OutputDir = "",
+    [switch]$NoRuleHook
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,10 +85,23 @@ if ($LASTEXITCODE -ne 0) {
 
 # Step 2: Build Avalonia project with RID
 Write-Host "  Building Avalonia project..." -ForegroundColor Gray
-& dotnet build $projectPath -c $Configuration -r win-x64 --self-contained $selfContainedFlag --nologo -v q
+$embedRuleHook = if ($NoRuleHook) { "false" } else { "true" }
+& dotnet build $projectPath -c $Configuration -r win-x64 --self-contained $selfContainedFlag "-p:EmbedRuleHook=$embedRuleHook" --nologo -v q
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Avalonia build failed with exit code $LASTEXITCODE"
     exit 1
+}
+
+# The Session Rules hook: a presence check, not an absence of errors. The resource name is in the
+# Director's own assembly only when the hook was embedded; checked before it disappears into the bundle.
+$directorDll = Join-Path $repoRoot "src\CcDirector.Avalonia\obj\$Configuration\net10.0\win-x64\cc-director.dll"
+if ($NoRuleHook) {
+    Write-Host "  Session Rules hook: NOT embedded (-NoRuleHook) - this Director's sessions evaluate no rules" -ForegroundColor Yellow
+} elseif (-not [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($directorDll)).Contains("cc-rule-hook")) {
+    Write-Error "The Director was built without the Session Rules hook ($directorDll carries no cc-rule-hook)."
+    exit 1
+} else {
+    Write-Host "  Session Rules hook: embedded" -ForegroundColor Gray
 }
 
 # Step 3: Publish

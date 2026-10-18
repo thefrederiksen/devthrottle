@@ -24,6 +24,12 @@
 #   scripts/local-build-linux.sh --slot 1             # output -> cc-director-linux1
 #   scripts/local-build-linux.sh --configuration Debug
 #   scripts/local-build-linux.sh --rid linux-arm64    # force a runtime identifier
+#   scripts/local-build-linux.sh --no-rule-hook       # a Director that carries no Session Rules hook
+#
+# The Director CARRIES the Session Rules hook evaluator, cc-rule-hook, compiled to native code and
+# embedded in its own executable (Session Rules part 2, phase 1, ruling P16; the EmbedRuleHook target in
+# CcDirector.Avalonia.csproj). Native compilation needs clang or gcc. Without one the build fails and says
+# so; --no-rule-hook builds a Director whose sessions evaluate no rules, on purpose.
 #
 set -euo pipefail
 
@@ -34,6 +40,7 @@ SELF_CONTAINED=true
 CONFIGURATION="Release"
 SLOT=""
 RID=""
+EMBED_RULE_HOOK=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         --configuration|-c) CONFIGURATION="$2"; shift 2 ;;
         --slot) SLOT="$2"; shift 2 ;;
         --rid) RID="$2"; shift 2 ;;
+        --no-rule-hook) EMBED_RULE_HOOK=false; shift ;;
         -h|--help)
             grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -128,6 +136,7 @@ PUBLISH_ARGS=(
     --self-contained "$SELF_CONTAINED"
     -p:PublishSingleFile=true
     -p:IncludeNativeLibrariesForSelfExtract=true
+    -p:EmbedRuleHook="$EMBED_RULE_HOOK"
     --nologo
     -v q
 )
@@ -142,6 +151,22 @@ EXE_PATH="$PUBLISH_DIR/cc-director"
 if [[ ! -f "$EXE_PATH" ]]; then
     echo "ERROR: published executable not found at $EXE_PATH" >&2
     exit 1
+fi
+
+# ----------------------------------------------------------------------------
+# The Session Rules hook: a presence check, not an absence of errors
+# ----------------------------------------------------------------------------
+# The resource name is in the Director's own assembly only when the hook was embedded. Checked on the
+# compiled assembly, before it disappears into the single-file bundle.
+DIRECTOR_DLL="$REPO_ROOT/src/CcDirector.Avalonia/obj/$CONFIGURATION/net10.0/$RID/cc-director.dll"
+if [[ "$EMBED_RULE_HOOK" == true ]]; then
+    if ! grep -qa "cc-rule-hook" "$DIRECTOR_DLL"; then
+        echo "ERROR: the Director was built without the Session Rules hook ($DIRECTOR_DLL carries no cc-rule-hook)." >&2
+        exit 1
+    fi
+    echo "  Session Rules hook: embedded"
+else
+    echo "  Session Rules hook: NOT embedded (--no-rule-hook) - this Director's sessions evaluate no rules"
 fi
 
 # ----------------------------------------------------------------------------
