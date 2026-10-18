@@ -197,7 +197,7 @@ there. That keeps one ruler, lets agent sessions edit the lists through the Gate
 | Memory kept only when the work was taken | `TriggerService.KeepState` | Saved on nothing-to-do and on a session that started; NOT on skipped-running, paused, failed, or a start that failed - so counted work is seen again. |
 | Failed checks as problems | pull requests 4048, 4062 | The Open problems card and the 08:00 factory email. |
 | A mail check against Microsoft Graph for email@devthrottle.com | `docs/qa/factory-definition/phase-0/inventory/email-check/check_new_mail.py` (+ tests, fake Graph in the phase 5b rig) | A starting point: paging, the 500-message cap, state per folder, the fake Graph. Written for outreach replies with an app-only sign-in; this mission changes both. |
-| cc-outlook's sign-in | `tools/cc-outlook/src/auth.py` | Device-code sign-in, authority `common`, the owner's Azure app (client id `f575e3f4...`), delegated scopes including `Mail.ReadWrite`; the saved sign-in (an MSAL token cache) at `CcStorage.tool_config('outlook')/tokens/<email>_msal.json`, which is resolved from the user's own folder, never from a `CC_` variable (`tools/cc_storage/storage.py`). |
+| cc-outlook's sign-in | `tools/cc-outlook/src/auth.py` | Device-code sign-in, authority `common`, the owner's Azure app (client id `f575e3f4...`), delegated scopes including `Mail.ReadWrite`; the saved sign-in (an MSAL token cache) at `CcStorage.tool_config('outlook')/tokens/<name>_msal.json`, where `<name>` is the address with `@` and `.` turned into `_` (`get_msal_token_path`). **Phase 0 finding (corrects the first version of this row, which said the path is resolved from the user's own folder, never from a `CC_` variable):** `tool_config` FOLLOWS `CC_DIRECTOR_ROOT`, and a Director gives its sessions `CC_DIRECTOR_ROOT=<Director base>/instances/<instance>`, so a sign-in made in a Director terminal lands in that instance's folder (on devlinux: `~/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json`). See 5.4. |
 | Hosted model calls from the Gateway, attributed and costed | `src/CcDirector.Gateway/Transcription/HostedCandidateJudge.cs`, `src/CcDirector.Gateway/Wingman/HostedInferenceBrain.cs`, `IncludedModelId` | A Gateway feature may call only an **included** model name, so an internal feature never bills a member's credits. Today: `devthrottle/wingman-fast` = `Qwen/Qwen2.5-72B-Instruct` on DeepInfra ($0.36 per million input tokens, $0.40 output; `devthrottle_internal/website/api/_lib/inference-providers.js`). |
 | Factory definitions published by a person or a session in no factory | Factory Definition phase 6c (#4103) | How the built-in Mail Desk factory gets published for the account. |
 
@@ -232,6 +232,31 @@ there. That keeps one ruler, lets agent sessions edit the lists through the Gate
 - A missing or expired sign-in is a **failed check** whose reason names the fix ("email@devthrottle.com is not signed
   in on devlinux: run cc-outlook -a devthrottle auth"), so it reaches the Open problems card and the 08:00 email.
 - Phase 0 proves the premise before anything is built on it (7.2, P0-a).
+
+**Phase 0 findings (18 October 2026; evidence in `docs/qa/mail-desk/phase-0/README.md` and `a-sign-in/`). These
+correct the bullets above, and where they disagree, these win:**
+
+- **Where screen.py finds the sign-in.** A check runs with every `CC_` variable stripped, so it cannot use
+  `CC_DIRECTOR_ROOT`, and cc-outlook's own fallback without that variable (on Linux `~/.cc-director`) holds no
+  tokens. screen.py looks ONLY under the Director's per-user base folder - Linux `~/.local/share/cc-director`, Windows
+  `%LOCALAPPDATA%\cc-director`, macOS `~/Library/Application Support/cc-director` - at
+  `instances/*/config/outlook/tokens/<name>_msal.json`, with `<name>` made by cc-outlook's own rule
+  (`get_msal_token_path` in `tools/cc-outlook/src/auth.py`: `@` and `.` become `_`). On Linux and macOS the home
+  folder comes from the operating system's account record, not from `HOME`. **None found: a failed check naming the
+  fix. More than one found: a failed check naming every path found; it never picks one.** No fallback to
+  `~/.cc-director`. Proven by the test Director run and by tests (`a-sign-in/tests`).
+- **The token CAN send mail.** Asking for `Mail.ReadWrite` alone, even with a forced refresh, returns a token whose
+  scopes include `Mail.Send` (and Calendars.ReadWrite, MailboxSettings.Read, User.Read): Microsoft's version 2
+  endpoint puts every scope consented for Graph into the token. A narrower token would need a second Azure app, which
+  this mission is not granted. So "screen.py never sends mail" rests ONLY on screen.py's own code: one request guard
+  through which every Graph call goes, allowing only GET and `POST /me/messages/{id}/move` with `destinationId`
+  `archive` or `junkemail`, and phase 2's tests proving nothing else can leave it.
+- **uv is not on the live Director's PATH on devlinux.** The owner's Director (2.22.0) was started with a PATH
+  without `~/.local/bin`, the only place uv is, so a check that declares packages fails there with "the check
+  declares packages and uv is not on this machine". This must be fixed on the machine before phase 6 (the Delivery
+  Lead decides how); it needs no product change.
+- Renewal works as designed: the renewed cache was written back to the same file, mode 0600, and read again silently
+  by the next run, and cc-outlook still saw the account as signed in.
 
 ### 5.5 The screening check, `checks/screen.py`
 
