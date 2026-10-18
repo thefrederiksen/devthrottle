@@ -380,3 +380,88 @@ run a query; the fix is described under the finding and is local to `ApiModeConv
 recorded for the Delivery Lead to schedule or decline; finding 5 is a question for the Tech Lead. The design is
 implemented as approved, the join is proven by reading and by the tests, the migration is sound on both providers,
 the tenant scoping holds, and the contract the phase 3 clients will read is now stated in one place and is true.
+
+## 7. Check of the review fixes (head `e98eb5afe`)
+
+Checked on 18 October 2026, same seat (session 109), at the branch's new head `e98eb5afe`, one commit on the
+reviewed head. Read: the whole diff since the review commit (`ApiModeConversationStore.cs`, `ApiModeEventIngest.cs`,
+`GatewayDatabase.cs`, the store tests, the Developer's answers appended above). Ran (one of the two permitted runs,
+filtered, after checking no other test host was running): `ApiModeConversationStoreTests`, `ApiModeEventIngestTests`,
+`SessionLiveEndpointTests`, `PiFixtureIngestTests`, `ApiModeLiveRulingTests`: 197 passed, 0 failed, 61 seconds. The
+second run was not needed.
+
+**Verdict: approve. The condition is met.**
+
+**Finding 1, fixed as recommended, plus a lock per session.** `Record` now asks the ruling before it touches the
+database: an event the ruling keeps nothing of returns with no context, and a reply delta whose id is in the session's
+in-memory settled set returns before any context too. The set is filled from `Settle` after a write is committed or
+found to need nothing (the place row exists either way), an id leaves it when the reply's final is stored, and the
+whole set is dropped when a turn ends, when the bound lets rows go (`EnforceBound` now answers whether it dropped),
+when the retention purge touches the session, and past 256 entries. The invariant the set promises, "a row with this
+id exists", is the only thing the write path relies on, and every event that can falsify it clears the set; the one
+it cannot see, another Gateway's bound during a deploy, degrades to the reply's final becoming a new row at the end,
+which the class comment states. A tool's finish still goes to the database first to read its stored card, so finding
+3 of section 3 (the title survives a restart) still holds. The store-wide lock is gone: each (tenant, session) has
+its own gate, `Read` takes none (the opening's exactness rests on the buffer's session lock, which its caller holds),
+and the purge takes none but re-checks the cutoff in its delete, so a session written between its two statements
+keeps its rows. I traced the lock order and found no inversion: the ingest holds the buffer's session lock, then the
+receipt store's lock, then this store's session gate, never nested the other way. The proof is a real presence check:
+`Record_DeltasAfterTheReplysPlaceRow_DoNoDatabaseWork` counts connections, transactions and statements from Entity
+Framework's own diagnostic events for the test's database file, asserts 0, 0, 0 for 200 deltas, and then asserts the
+same instrument sees the stored final, so a silent instrument fails it. `Record_AnOpenReplyAfterAGatewayRestart_...`
+covers the one query after a restart. The Developer's measurement (0.02 to 0.04 milliseconds per reply delta against
+0.18 to 0.20 before) is of the same shape as mine and I have no reason to doubt it.
+
+**Finding 2, the refusal removed as ruled.** `CheckFields` no longer checks a message, tool call or request id for
+length; `SessionTurnEvent other: Id(...)` still bounds every turn id at 64, which is the width of the `TurnId` column,
+so no stored string can exceed its column. An item whose id is over 160 is left out by `Keepable` with one log line
+(a reply's over-long id is remembered so its later deltas log nothing more), and nothing else about the batch
+changes. `Accept_AToolCallIdLongerThanTheConversationKeeps_KeepsTheRestOfTheBatch` proves the batch is accepted
+whole, the receipt is kept, the buffer holds every event and the conversation keeps the reply and the turn line.
+Right.
+
+**Findings 3 to 7, as ruled.** The answers are accurate to the code; the class comment now records why the
+conversation's retention is per session where the receipts' is per row, and its consequence. Nothing to add.
+
+**One new note (low, record). The store's per-session map never shrinks.** `_sessions` gains one entry (a lock and
+an empty set) per (tenant, session) that ever writes and keeps it for the process's life; the event buffer evicts past
+1,000 sessions, this map does not. A few hundred bytes a session, so a long uptime over many sessions costs megabytes,
+not more. Worth an eviction on turn end when the set is empty, or alongside the buffer's, some day; not now.
+
+### The question: can one session id span two Director processes on main today?
+
+**No. Not reachable, and the same guarantees cover the receipts' turn linkage.** Checked on `origin/main` at
+`432e54a28`, which has #4091 and #4190 merged.
+
+- **Every production creation route mints a fresh id.** `SessionManager` has five `new Session(` sites; four are
+  preceded by `var id = Guid.NewGuid()` (the API-mode route at line 884 among them, which builds the
+  `ApiModeSessionBackend` and its `SessionEventStream` from that id and nothing else). The fifth,
+  `RestoreEmbeddedSession(PersistedSession, ...)`, does reuse `ps.Id`, but it has no production caller (tests only),
+  and it builds a terminal (embedded) backend, never an API-mode one. `LoadPersistedSessions`, the other reader of
+  persisted ids, has no production caller either; the manager's own comment says the app clears `sessions.json` at
+  start and never restores from it.
+- **No request can preassign a DevThrottle session id.** `NewSessionRequest` has no such field (its
+  `ResumeSessionId` is the agent's own conversation id, for `--resume`), so nothing that goes through the create verb
+  can reuse one. The "preassigned session id" the plugins speak of is the agent's id (Claude's, Copilot's), not ours.
+- **#4091 continues an interrupted API-mode session as a NEW session.** The Gateway's restore verb builds a
+  `NewSessionRequest` from the journal row and creates the continuation over the tunnel; its log line says so
+  ("created continuation {new id} for dead {old id}"), and the pull request's own section "Not resumed by session
+  id" records the Tech Lead's ruling that a continuation is never a resume. The dead id is removed from the journal
+  after. So the stored conversation of the dead id keeps the old generation's `turn:turn-1`, and the continuation's
+  `turn:turn-1` lands under a different session id.
+- **#4190's hole generations stay inside one process and one numbering.** The pusher opens a new generation label
+  after a hole, but turn ids and message ids come from `SessionEventStream.Numbering`, one instance per stream per
+  session host, which the pusher does not touch; the sequence restarts, the turn counter does not. So two generations
+  of one session id from one process cannot both carry `turn-1`.
+- **A move makes a fresh session** (the move-session skill: a new session, then the original deleted), and in a
+  team the hub refuses a push for a session id another Director's roster lists, so two Directors cannot feed one id.
+
+What this rests on is still unstated in any contract, as observation C said: the store keys items by (tenant,
+session, item id), the receipts link turns by (session, turn id), and both are safe only because no path reuses a
+session id across processes and turn numbering is per process. The guard is the minting, not a check. If a future
+change ever lets a session id survive a Director process (a true resume under the same id, a preassigned id on the
+create verb), the first symptom would be a new generation's `reply:turn-1-message-1` and `turn:turn-1` replacing the
+old generation's rows in place, and `p1`'s receipt taking the new turn's ending, exactly as observation C's throwaway
+test showed. Two cheap closures, either of which ends the dependence: a turn id that carries the generation (the
+Director's numbering, one place), or the conversation and receipt stores keying by generation as well. That is the
+Tech Lead's call and separate work; it is not a finding against this pull request.
