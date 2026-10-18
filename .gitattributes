@@ -10,3 +10,8 @@ src/CcDirector.Core/Wingman/Prompts/*.txt text eol=lf
 # that turned them into carriage return plus line feed would test a stream Pi never sends.
 src/CcDirector.Core.Tests/TestData/pi-rpc/*.jsonl -text
 docs/missions/api-mode-pi-2026-10-16/preamble-proof/*.jsonl -text
+
+# The built-in Mail Desk factory template is hashed into its template version, which decides whether an account is
+# offered a new draft. A checkout that rewrote its line endings would give one template two versions, one per build
+# machine. Pin it.
+src/CcDirector.Gateway/MailDesk/Template/** text eol=lf

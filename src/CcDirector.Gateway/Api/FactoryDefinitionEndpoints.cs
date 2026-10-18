@@ -466,12 +466,28 @@ internal static class FactoryDefinitionEndpoints
         IReadOnlyDictionary<string, string> content, int expectedVersion, Caller caller, string? note, Account account,
         Func<DateTime> nowUtc, string notStored, bool? created, Func<FactoryDefinitionDto, IResult>? saved = null)
     {
+        var (check, write) = CheckAndSave(store, tenant, folded, content, expectedVersion, caller.Kind, caller.Id, note,
+            account, nowUtc);
+        if (write is null)
+            return CheckRefused(folded, check, notStored);
+        return Answer(write, store, tenant, folded, check, created: write.Ok ? created : null, saved: saved);
+    }
+
+    /// <summary>
+    /// THE CHECKED SAVE ITSELF, with no request around it: the whole-definition check with the account's skills and
+    /// machines, then - only when it finds no error - the store's draft. <c>Write</c> is null when the check refused
+    /// and nothing was stored. A draft save, an import and a create answer through <see cref="SaveChecked"/>; the
+    /// Gateway's own offer of the Mail Desk template (<see cref="MailDesk.MailDeskTemplateOffer"/>) calls this, so the
+    /// template is held to exactly what a person's import is.
+    /// </summary>
+    internal static (FactoryDefinitionCheckResult Check, FactoryDefinitionWrite? Write) CheckAndSave(
+        FactoryDefinitionStore store, TenantId tenant, string folded, IReadOnlyDictionary<string, string> content,
+        int expectedVersion, string authorKind, string? authorId, string? note, Account account, Func<DateTime> nowUtc)
+    {
         var check = Check(content, folded, tenant, account);
         if (check.HasErrors)
-            return CheckRefused(folded, check, notStored);
-
-        var write = store.SaveDraft(tenant, folded, content, expectedVersion, caller.Kind, caller.Id, note, nowUtc());
-        return Answer(write, store, tenant, folded, check, created: write.Ok ? created : null, saved: saved);
+            return (check, null);
+        return (check, store.SaveDraft(tenant, folded, content, expectedVersion, authorKind, authorId, note, nowUtc()));
     }
 
     /// <summary>

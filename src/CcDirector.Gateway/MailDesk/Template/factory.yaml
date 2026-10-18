@@ -1,0 +1,14 @@
+factory: mail-desk
+title: Mail Desk
+purpose: Screens every incoming message on every channel and routes it to the factory that handles it
+goalText: |
+  Every message that reaches one of the account's channels is looked at within one check interval, and
+  every one gets a decision: routed to the factory and seat that handle it, filed to Archive or Junk, kept
+  for the owner, or handed to the Mail Desk agent. Every decision is recorded with the layer that made it
+  and the reason. A channel in observe mode only records: it moves no message and starts no session. A
+  channel in live mode files and routes what was decided. The Mail Desk never sends a message and never
+  deletes one. The channels - which address, which provider, which machine, which mode - are Mail Desk
+  data on the Gateway, not part of this definition.
+defaults:
+  machine: devlinux
+  agent: ClaudeCode
