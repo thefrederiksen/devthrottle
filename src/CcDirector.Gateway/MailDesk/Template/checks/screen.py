@@ -17,11 +17,16 @@ docs/qa/mail-desk/phase-2/CONTRACT.md. In short:
 - New Inbox mail since the cursor, oldest first, is reported in batches of at most 10 messages and 7 KB of context
   across all channels; the cursor moves only past what was reported, and the next run continues.
 - Standard output is exactly {"count": N, "context": "<JSON>"}.
-- Any failure is a non-zero exit, and the memory is NOT rewritten, so the same mail is read again next run. The FIRST
-  line of standard error is then one plain sentence saying what is wrong and how to fix it; detail and the run's log
-  follow on later lines. The Gateway keeps only the first 200 characters of standard error, flattened onto one line,
-  and uv's own line can come first, so every sentence is at most SENTENCE_LIMIT characters (CONTRACT.md section 1).
-  No failure is ever a traceback: main() turns anything unexpected into a sentence too.
+- One mailbox failing does not stop the others (phase 3, docs/qa/mail-desk/phase-3/CONTRACT.md section 6.1). A
+  failure that belongs to one channel - its sign-in, its Graph calls, its provider or mode, a field of its own this
+  check did not write - goes into that channel's section of the context as "failure": {"sentence", "detail"}, its
+  memory fields come back exactly as they were, every other channel is read as usual, and the exit is 0.
+- A failure of the whole run (the memory itself unusable, the memory over its cap, anything unforeseen) is a non-zero
+  exit, and the memory is NOT rewritten, so the same mail is read again next run. The FIRST line of standard error is
+  then one plain sentence saying what is wrong and how to fix it; detail and the run's log follow on later lines. The
+  Gateway keeps only the first 200 characters of standard error, flattened onto one line, and uv's own line can come
+  first, so every sentence - a channel's too - is at most SENTENCE_LIMIT characters (CONTRACT.md section 1). No
+  failure is ever a traceback: main() turns anything unexpected into a sentence too.
 
 Every Microsoft Graph call goes through graph_request(), the one request guard. It lets out only GET to
 graph.microsoft.com and POST /v1.0/me/messages/{id}/move with a body of exactly {"destinationId": "archive"} or
@@ -32,6 +37,7 @@ Standard error is the check's only log. It says what was done in plain words, an
 subject or any body text.
 """
 
+import copy
 import hashlib
 import json
 import os
@@ -74,6 +80,14 @@ GATEWAY_REASON_WINDOW = 200
 UV_LINE_ALLOWANCE = 35
 SENTENCE_LIMIT = GATEWAY_REASON_WINDOW - UV_LINE_ALLOWANCE
 SHORT_ERROR_CHARS = 50
+# A failing channel's detail line, as it is put into the context: cut so that failing channels never crowd new mail out
+# of the 7 KB budget. The detail is for a person; the sentence before it is never cut.
+FAILURE_DETAIL_CHARS = 500
+# When healthy channels have new mail, failing channels' sections may fill the context only up to this much short of the
+# budget, so the first new message always fits (a typical one whole, phase 0's worst one at 680 bytes too). Past that,
+# failing channels lose their detail lines, the last channel first; their sentences are never dropped (review finding 1).
+MESSAGE_RESERVE_BYTES = 1024
+CONTEXT_VERSION = 2             # phase 3: a channel's section may carry "failure"
 KEY_HEX = 16
 ADDRESS_HASH_HEX = 12
 
@@ -83,8 +97,9 @@ MODES = ("observe", "live")
 
 
 class CheckFailed(Exception):
-    """A reason the check cannot answer: one plain sentence, and optional detail for the lines after it. The exit code
-    is 1 and the memory is not written."""
+    """A reason the check cannot answer: one plain sentence, and optional detail for the lines after it. Raised while
+    one channel is being checked, it fails that channel only (its section carries it); anywhere else, the exit code is
+    1 and the memory is not written."""
 
     def __init__(self, sentence, detail=None):
         super().__init__(sentence)
@@ -377,7 +392,18 @@ class OutlookReader:
         path = found[0]
         cache = msal.SerializableTokenCache()
         try:
-            cache.deserialize(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            # The file is there and cannot be read (its permissions, a folder in its place, a disk error): this
+            # mailbox's sign-in, said as it is (review finding 2).
+            raise CheckFailed(f"the saved sign-in of {self.address} on {machine()} cannot be read "
+                              f"({type(e).__name__}): check its permissions or sign in again", f"{path}: {e}") from None
+        try:
+            # A sign-in cache is a JSON object. MSAL takes any JSON and only fails later, on its first lookup, with an
+            # AttributeError, so anything else is refused here as not a sign-in cache (re-review finding 5).
+            if not isinstance(json.loads(text), dict):
+                raise ValueError("not a JSON object")
+            cache.deserialize(text)
         except ValueError:
             raise self.not_signed_in(base, f"the saved sign-in at {path} is not a sign-in cache") from None
         try:
@@ -403,9 +429,14 @@ class OutlookReader:
         # Written back exactly as cc-outlook does (MSALTokenBackend._save_cache): when it changed, to the same file,
         # then owner-only. Never into the memory.
         if cache.has_state_changed:
-            path.write_text(cache.serialize(), encoding="utf-8")
-            if os.name == "posix":
-                os.chmod(path, 0o600)
+            try:
+                path.write_text(cache.serialize(), encoding="utf-8")
+                if os.name == "posix":
+                    os.chmod(path, 0o600)
+            except OSError as e:
+                raise CheckFailed(f"the renewed sign-in of {self.address} could not be saved on {machine()} "
+                                  f"({type(e).__name__}): check the file's permissions and the free space",
+                                  f"{path}: {e}") from None
             log(f"{self.address}: the renewed sign-in was written back to its file")
         self.token = result["access_token"]
 
@@ -550,29 +581,35 @@ def read_memory(path):
         if address in addresses:
             raise CheckFailed(f"the channel {address} is in the Mail Desk check's memory twice")
         addresses.add(address)
-        if channel.get("mode") not in MODES:
-            raise CheckFailed(f"the channel {address} has mode {channel.get('mode')!r}; it must be observe or live")
-        if channel.get("provider") not in READERS:
-            raise CheckFailed(f"provider {channel.get('provider')} has no reader in this version of screen.py "
-                              f"(channel {address}); this version reads: {', '.join(sorted(READERS))}")
-        if not isinstance(channel.get("filingQueue", []), list):
-            raise CheckFailed(f"the channel {address} has a 'filingQueue' that is not a list")
-        cursor = channel.get("cursor")
-        if cursor is not None and not (isinstance(cursor, dict) and isinstance(cursor.get("newest"), str)
-                                       and isinstance(cursor.get("idsAtNewest"), list)
-                                       and all(isinstance(i, str) for i in cursor["idsAtNewest"])):
-            raise CheckFailed(f"the channel {address} has a 'cursor' this check did not write")
-        keys = channel.get("keys", {})
-        if not (isinstance(keys, dict) and all(isinstance(entry, dict) and isinstance(entry.get("id"), str)
-                                               and isinstance(entry.get("reportedUtc"), str)
-                                               for entry in keys.values())):
-            raise CheckFailed(f"the channel {address} has a 'keys' table this check did not write")
-        sent = channel.get("sentCache")
-        if sent is not None and not (isinstance(sent, dict) and isinstance(sent.get("refreshedUtc"), str)
-                                     and isinstance(sent.get("hashes"), list)
-                                     and all(isinstance(h, str) for h in sent["hashes"])):
-            raise CheckFailed(f"the channel {address} has a 'sentCache' this check did not write")
     return memory
+
+
+def check_channel(channel, address):
+    """What is wrong with one channel's entry, before any network call: a mode, provider or filing queue the Gateway
+    should not have written, or a field of this check's own that it did not write. Fails that channel only."""
+    if channel.get("mode") not in MODES:
+        raise CheckFailed(f"the channel {address} has mode {channel.get('mode')!r}; it must be observe or live")
+    provider = channel.get("provider")
+    if not isinstance(provider, str) or provider not in READERS:
+        raise CheckFailed(f"provider {provider} has no reader in this version of screen.py "
+                          f"(channel {address}); this version reads: {', '.join(sorted(READERS))}")
+    if not isinstance(channel.get("filingQueue", []), list):
+        raise CheckFailed(f"the channel {address} has a 'filingQueue' that is not a list")
+    cursor = channel.get("cursor")
+    if cursor is not None and not (isinstance(cursor, dict) and isinstance(cursor.get("newest"), str)
+                                   and isinstance(cursor.get("idsAtNewest"), list)
+                                   and all(isinstance(i, str) for i in cursor["idsAtNewest"])):
+        raise CheckFailed(f"the channel {address} has a 'cursor' this check did not write")
+    keys = channel.get("keys", {})
+    if not (isinstance(keys, dict) and all(isinstance(entry, dict) and isinstance(entry.get("id"), str)
+                                           and isinstance(entry.get("reportedUtc"), str)
+                                           for entry in keys.values())):
+        raise CheckFailed(f"the channel {address} has a 'keys' table this check did not write")
+    sent = channel.get("sentCache")
+    if sent is not None and not (isinstance(sent, dict) and isinstance(sent.get("refreshedUtc"), str)
+                                 and isinstance(sent.get("hashes"), list)
+                                 and all(isinstance(h, str) for h in sent["hashes"])):
+        raise CheckFailed(f"the channel {address} has a 'sentCache' this check did not write")
 
 
 def prune_keys(keys, queue, now):
@@ -630,59 +667,142 @@ def trim_to_fit(entry, room):
 
 
 def build_context(sections):
-    return compact({"version": 1, "channels": sections})
+    return compact({"version": CONTEXT_VERSION, "channels": sections})
+
+
+def failure_of(error):
+    """A channel's failure as its section carries it: the sentence whole, and the detail line cut to
+    FAILURE_DETAIL_CHARS ("" when there is none)."""
+    detail = " ".join(str(error.detail or "").split())
+    if len(detail) > FAILURE_DETAIL_CHARS:
+        detail = detail[:FAILURE_DETAIL_CHARS - 3] + "..."
+    return {"sentence": str(error), "detail": detail}
+
+
+def fit_failures(sections, reserve):
+    """Failing channels' sections must leave `reserve` bytes of the context for new mail. Over that, the detail lines
+    go, the last failing channel's first; the sentences always stay. If the sentences alone still do not fit, the run
+    cannot name every failing mailbox, and says how many failed instead (a failure of the whole run)."""
+    room = CONTEXT_BUDGET_BYTES - reserve
+    failing = [section for section in sections if "failure" in section]
+    dropped = 0
+    for section in reversed(failing):
+        if utf8_size(build_context(sections)) <= room:
+            break
+        if section["failure"]["detail"]:
+            section["failure"]["detail"] = ""
+            dropped += 1
+    if dropped:
+        log(f"{dropped} failing channel(s) reported without their detail, so the context stays within its budget")
+    if failing and utf8_size(build_context(sections)) > room:
+        sentence = f"{len(failing)} of {len(sections)} mailboxes failed on {machine()}, too many to name in the context"
+        first = f"; first: {failing[0]['address']}"
+        # The address is the place to start, so it is named when it fits in the sentence's 165 characters; when it
+        # does not, line 2 (the first mailbox's own sentence) still names it (re-review finding 4).
+        raise CheckFailed(sentence + first if len(sentence + first) <= SENTENCE_LIMIT else sentence,
+                          failing[0]["failure"]["sentence"])
+
+
+def read_channel(channel, reader, address, now, filing_room):
+    """With the channel signed in: carries out its filing queue (live mode), refreshes its Sent-folder cache and reads
+    its new mail. Changes only this channel's entry. Returns (filing results, bytes of filing used, the messages found,
+    whether more is waiting, the Sent-folder hashes). A CheckFailed raised here fails this channel only."""
+    results, used = [], 0
+    queue = channel.get("filingQueue", [])
+    if queue and channel["mode"] == "live":
+        results, left, used = file_queue(channel, reader, channel.get("keys", {}), filing_room)
+        channel["filingQueue"] = left
+        log(f"{address}: filing " + ", ".join(f"{r['messageKey']} {r['decision']} {r['result']}" for r in results)
+            + (f"; {len(left)} left queued for the next run" if left else ""))
+
+    sent = channel.get("sentCache")
+    if not sent or sent.get("refreshedUtc", "") < iso(now - SENT_REFRESH):
+        sent = {"refreshedUtc": iso(now), "hashes": reader.sent_hashes()}
+        channel["sentCache"] = sent
+        log(f"{address}: the Sent folder was read again: {len(sent['hashes'])} address(es) written to")
+
+    if channel.get("cursor"):
+        found, more_left = reader.inbox_since(channel["cursor"], MAX_MESSAGES_PER_RUN)
+    else:
+        found = reader.inbox_first_run(now)
+        more_left = False
+        log(f"{address}: first run: {len(found)} message(s) in the look-back")
+    return results, used, found, more_left, set(sent["hashes"])
 
 
 def run(state_path, now):
     memory = read_memory(state_path)
     channels = memory["channels"]
-    log(f"{len(channels)} channel(s): " + ", ".join(f"{c['address']} ({c['provider']}, {c['mode']})" for c in channels))
+    log(f"{len(channels)} channel(s): " + ", ".join(f"{c['address']} ({c.get('provider')}, {c.get('mode')})" for c in channels))
 
-    readers = [READERS[c["provider"]](c) for c in channels]
-    for reader in readers:
-        reader.sign_in()
+    sections, readers, originals, candidates, more, filed_total = [], [], [], [], [], 0
+    failed = set()
 
-    sections, candidates, more, filed_total = [], [], [], 0
-    filing_room = FILING_BUDGET_BYTES
-    for index, (channel, reader) in enumerate(zip(channels, readers)):
+    def fail(index, error):
+        # The channel's entry is put back whole, so its memory comes back exactly as it was even when it failed
+        # part-way (a move done, the Sent folder read, then the Inbox failing).
+        channels[index] = originals[index]
+        failed.add(index)
+        sections[index]["failure"] = failure_of(error)
+        log(f"{sections[index]['address']}: could not be checked, the other channels go on: {error}")
+
+    # First every channel is checked and signed in, before any channel files or reads. The checks come before any
+    # network call. Signing in first means the failures a whole machine has at once (its sign-ins gone) are known
+    # before filing takes its share of the context (re-review observation D).
+    for index, channel in enumerate(channels):
         address = channel["address"].strip().lower()
-        keys = channel.get("keys", {})
         # "more" is in place from the start, as false (one byte longer than true), so the budget is measured on the
         # context as it is finally written.
-        section = {"address": address, "provider": channel["provider"], "mode": channel["mode"], "messages": [],
+        section = {"address": address, "provider": channel.get("provider"), "mode": channel.get("mode"), "messages": [],
                    "filing": [], "more": False}
         if "id" in channel:
             section = {"id": channel["id"], **section}
+        sections.append(section)
+        more.append(False)
+        originals.append(copy.deepcopy(channel))
+        readers.append(None)
+        try:
+            check_channel(channel, address)
+            readers[index] = READERS[channel["provider"]](channel)
+        except CheckFailed as e:
+            fail(index, e)
+    for index, reader in enumerate(readers):
+        if reader is None:
+            continue
+        try:
+            reader.sign_in()
+        except CheckFailed as e:
+            readers[index] = None
+            fail(index, e)
+
+    # Filing gets its half of the context, less what the failures known now need (their sentences; their details can
+    # go) and the room kept for new mail, so a long filing report and many failing mailboxes never meet over budget.
+    named_only = [dict(sec, failure=dict(sec["failure"], detail="")) if "failure" in sec else sec for sec in sections]
+    filing_room = max(0, min(FILING_BUDGET_BYTES,
+                             CONTEXT_BUDGET_BYTES - MESSAGE_RESERVE_BYTES - utf8_size(build_context(named_only))))
+    for index, reader in enumerate(readers):
+        if reader is None:
+            continue
+        channel, section = channels[index], sections[index]
+        try:
+            results, used, found, more_left, known = read_channel(channel, reader, section["address"], now,
+                                                                  filing_room)
+        except CheckFailed as e:
+            fail(index, e)
+            continue
         queue = channel.get("filingQueue", [])
         if queue and channel["mode"] == "observe":
             section["filingNotCarriedOut"] = {"count": len(queue), "reason": "the channel is in observe mode"}
-            log(f"{address}: {len(queue)} queued filing item(s) NOT carried out: the channel is in observe mode")
-        elif queue:
-            results, left, used = file_queue(channel, reader, keys, filing_room)
-            filing_room -= used
-            section["filing"] = results
-            channel["filingQueue"] = left
-            filed_total += len(results)
-            log(f"{address}: filing " + ", ".join(f"{r['messageKey']} {r['decision']} {r['result']}" for r in results)
-                + (f"; {len(left)} left queued for the next run" if left else ""))
-
-        sent = channel.get("sentCache")
-        if not sent or sent.get("refreshedUtc", "") < iso(now - SENT_REFRESH):
-            sent = {"refreshedUtc": iso(now), "hashes": reader.sent_hashes()}
-            channel["sentCache"] = sent
-            log(f"{address}: the Sent folder was read again: {len(sent['hashes'])} address(es) written to")
-        known = set(sent["hashes"])
-
-        if channel.get("cursor"):
-            found, more_left = reader.inbox_since(channel["cursor"], MAX_MESSAGES_PER_RUN)
-        else:
-            found = reader.inbox_first_run(now)
-            more_left = False
-            log(f"{address}: first run: {len(found)} message(s) in the look-back")
+            log(f"{section['address']}: {len(queue)} queued filing item(s) NOT carried out: the channel is in "
+                f"observe mode")
+        filing_room -= used
+        section["filing"] = results
+        filed_total += len(results)
         for order, message in enumerate(found):
             candidates.append((message["received"], index, order, message, known))
-        more.append(more_left)
-        sections.append(section)
+        more[index] = more_left
+
+    fit_failures(sections, MESSAGE_RESERVE_BYTES if candidates else 0)
 
     # New mail across every channel, oldest first, until 10 messages or the 7 KB budget.
     candidates.sort(key=lambda c: (c[0], c[1], c[2]))
@@ -715,6 +835,8 @@ def run(state_path, now):
         reported_count += 1
 
     for index, channel in enumerate(channels):
+        if index in failed:
+            continue
         mine = reported[index]
         left = len([c for c in candidates if c[1] == index]) - len(mine)
         sections[index]["more"] = more[index] or left > 0

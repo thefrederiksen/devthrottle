@@ -16,7 +16,17 @@ decisions `archive` and `junk`, and `messageKey`, `sender` and `receivedUtc` as 
   stripped except the `CC_CHECK_` ones.
 - It reads one variable, `CC_CHECK_STATE_FILE`, the memory file. It takes no arguments and no secrets.
 - **Exit 0:** it printed one output (section 4), rewrote the memory (section 3), and wrote its log to standard error.
-- **Exit 1:** a failed check, and **the memory file is not touched**. The Gateway keeps the memory it had, and the next
+  **One mailbox failing does not stop the others** (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026; the rule is section 6.1 of
+  `docs/qa/mail-desk/phase-3/CONTRACT.md`). A failure that belongs to one channel - every sign-in failure, every Graph
+  failure for that channel, an unknown provider, a bad `mode` or `filingQueue`, and a `cursor`, `keys` or `sentCache`
+  this check did not write - is still exit 0: that channel's section of the context carries
+  `"failure": {"sentence": ..., "detail": ...}` (4.2), its own entry in the memory is written back exactly as it was,
+  and every other channel is read as if the failing one were not there. A run where every channel failed prints count
+  0 and exits 0.
+- **Exit 1:** a failed check of the whole run, and **the memory file is not touched**. Since phase 3 that is only: a
+  memory missing, empty, unreadable, not UTF-8 or not JSON; no `channels` list or an empty one; a channel with no
+  `address`; two channels with one address; the memory, the context or the output over its cap; and anything the check
+  did not foresee. The Gateway keeps the memory it had, and the next
   run reads the same mail again. Standard error is then:
   1. **line 1: one plain sentence** saying what is wrong and how to fix it, **at most 165 characters** (1.1). It never
      carries a path list or a stack trace, and it never names a Graph id;
@@ -58,12 +68,35 @@ and the 08:00 email show.
 
 `<machine>` is the computer's name without its domain; `<address>` is the channel's address in lower case.
 
+**Where each one goes** (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026): every row naming an `<address>` or a channel is a failure of that channel only. Its
+sentence is the `sentence` of the channel's `failure` in the context, and line 2 is its `detail` (cut to 500
+characters, `FAILURE_DETAIL_CHARS`, so that failing channels never crowd new mail out of the 7 KB; `""` when there is
+none). **Failing channels never take the room new mail needs:** when healthy channels have new mail, the failing
+channels' sections may fill the context only up to 1,024 bytes short of its 7,168 (`MESSAGE_RESERVE_BYTES`), and
+otherwise up to all of it. Over that, detail lines are emptied, the last failing channel's first, and the sentences
+always stay. Every channel is signed in before any channel files, and the filing half is cut down to leave room for
+the sentences of the sign-in failures already known and for new mail, so a long filing report and many mailboxes that
+are not signed in never meet over budget: fewer items are filed that run, the rest stay queued in order. Only if the
+sentences alone still do not fit does the run fail as a whole, saying how many mailboxes failed and which is first.
+Measured with the longest sentence (not signed in, and in no cc-outlook account list), the first whole-run failure is
+at:
+
+| Address length | Every mailbox failing | Beside one mailbox with new mail |
+|---|---|---|
+| 17 characters | 26 | 22 |
+| 30 characters | 23 | 19 |
+| 58 characters | 18 | 15 |
+ The rows for the memory as a whole, the memory over the Director's limit, and anything else are still line 1 of
+standard error with exit 1. Every sentence, wherever it goes, is held to the same 165 characters.
+
 | Failure | Line 1 |
 |---|---|
 | No saved sign-in, or it has expired, or it holds no account for the address | `<address> is not signed in on <machine>: run cc-outlook -a <nickname or address> auth` (section 6) |
 | No cc-outlook account list on the machine holds the address | `<address> is not signed in on <machine>: first run cc-outlook accounts add <address> -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd` (line 2 begins `then run cc-outlook -a <address> auth`; once it is added, the next run's failure names the sign-in) |
 | More than one saved sign-in | `<address> is signed in more than once on <machine>: keep one and sign out of the others with cc-outlook` |
 | A cc-outlook account list exists and cannot be read (for example its permissions) | `<address> is not signed in on <machine>, and cc-outlook's account list cannot be read: <error kind>` (the file and the whole error on line 2) |
+| The saved sign-in is there and cannot be read (its permissions, a folder in its place, a disk error) (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026; it was an unforeseen error) | `the saved sign-in of <address> on <machine> cannot be read (<error kind>): check its permissions or sign in again` (the file and the whole error on line 2) |
+| The renewed sign-in cannot be written back to its file (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `the renewed sign-in of <address> could not be saved on <machine> (<error kind>): check the file's permissions and the free space` |
 | The sign-in service cannot be reached | `could not reach the Microsoft sign-in service from <machine> for <address>: <error kind>` (for example `ConnectionError`, `ProxyError`, `Timeout`; the whole error on line 2) |
 | The sign-in service answers with an error | `the Microsoft sign-in service failed on <machine> for <address>: <its message, cut to 50 characters>` |
 | Graph answers an HTTP error | `Microsoft Graph answered HTTP <status> for <address> while <step>` |
@@ -72,6 +105,7 @@ and the 08:00 email show.
 | A page without a `value` list | `Microsoft Graph answered a page without a 'value' list for <address> while <step>` |
 | A message without a usable id or receive time, or a text field that is not text | `Microsoft Graph answered a message without a usable id or receive time for <address> while reading the Inbox` |
 | An unknown provider | `provider <name> has no reader in this version of screen.py (channel <address>); this version reads: outlook` |
+| More failing channels than the context can name, even without their detail lines (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `<n> of <m> mailboxes failed on <machine>, too many to name in the context; first: <address>`, leaving out `; first: <address>` when the address would take the sentence past 165 characters (the first one's own sentence, which names it, on line 2) |
 | The memory would outgrow the Director's limit | `the Mail Desk check's memory would be <n> bytes, over the Director's 65536, so nothing was written: give this factory fewer channels` |
 | The memory is missing, empty, not JSON, unreadable, or holds a field this check did not write | one sentence naming the file or the channel and the field (3.2) |
 | Anything else | `screen.py stopped on an error it does not handle: <kind>: <message>` |
@@ -152,8 +186,8 @@ prove that a channel id, a machine name and nested objects come back unchanged.
 |---|---|---|
 | `channels` | Gateway | One entry per mailbox, in the order they are reported. It must be a list with at least one entry. An empty or missing list is a failed check, and so is an empty memory file. There is no default. |
 | `address` | Gateway | The mailbox, as in phase 1's channel row. The check reads it in lower case. The saved sign-in's file name is made from it and matched **without regard to case**, because cc-outlook names the file after the address as it was typed when the account was added (6). Two entries with the same address, in any case, are a failed check. The check never hard-codes an address. |
-| `provider` | Gateway | `outlook`. Any other value is a failed check that names it: `provider gmail has no reader in this version of screen.py (channel ...); this version reads: outlook`. Every channel is checked before any network call. |
-| `mode` | Gateway | `observe` or `live`. Anything else is a failed check. |
+| `provider` | Gateway | `outlook`. Any other value fails that channel, naming it: `provider gmail has no reader in this version of screen.py (channel ...); this version reads: outlook`. Every channel is checked before any network call. (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026: that channel only, no longer the run.) |
+| `mode` | Gateway | `observe` or `live`. Anything else fails that channel (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026). |
 | `id` | Gateway, optional | Copied into the channel's section of the report (4.2), so the Gateway can match it to its channel row. |
 | `filingQueue` | Gateway adds; check removes | Items `{"messageKey": <short key>, "decision": "archive" or "junk"}`, oldest first. See 3.4. A missing queue means an empty one. |
 | `cursor` | check | The newest receive time reported, and the Graph ids reported at exactly that time (the phase 0 pattern). A missing cursor means this channel has never reported a message, so the next run is a first run. The Gateway must not write it. |
@@ -164,9 +198,10 @@ The channel row carries **no nickname**. The sign-in fix finds the nickname for 
 
 **The check's own fields are checked before any network call.** A `cursor` that is not `{"newest": <text>,
 "idsAtNewest": [<text>, ...]}`, a `keys` table that is not an object of `{"id": <text>, "reportedUtc": <text>}`, or a
-`sentCache` that is not `{"refreshedUtc": <text>, "hashes": [<text>, ...]}` is a failed check naming the channel and the
-field (`the channel <address> has a 'keys' table this check did not write`). A memory file that cannot be read, or is
-not UTF-8, is a failed check too. None of them is ever a traceback.
+`sentCache` that is not `{"refreshedUtc": <text>, "hashes": [<text>, ...]}` fails that channel, naming it and the
+field (`the channel <address> has a 'keys' table this check did not write`); so does a `filingQueue` that is not a list
+(changed in phase 3 by the Delivery Lead's ruling of 18 October 2026: that channel only, no longer the run). A memory file that cannot be read, or is not UTF-8, is a failed check of
+the whole run. None of them is ever a traceback.
 
 ### 3.3 Short keys
 
@@ -194,8 +229,9 @@ not UTF-8, is a failed check too. None of them is ever a traceback.
     the table, or the request guard refused the call (for example, an id holding a character a Graph id never has, a
     space or a control character). The reason never quotes the Graph id. A refusal is per item: the rest of the queue
     is still carried out and the run succeeds.
-- Any other Graph answer to a move (500, 403, or no answer at all) is a **failed check**. The memory is not rewritten,
-  so the whole queue is still there next run. A move that succeeded before the failure is therefore tried again, and
+- Any other Graph answer to a move (500, 403, or no answer at all) **fails that channel** (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026; it failed the whole
+  run before). The channel's entry in the memory is written back exactly as it was, so the whole queue is still there
+  next run, and the channel's section reports no filing at all. A move that succeeded before the failure is therefore tried again, and
   this time it comes back `already-gone`, because Graph gives a moved message a new id. **The Gateway must read
   `already-gone` as "not in the Inbox any more", not as "moved by us".** Nothing is moved twice.
 - **Not yet observed on a real mailbox:** that Graph answers 404 to a move of an id it has already moved. The fake Graph
@@ -236,7 +272,7 @@ Standard output is exactly one line:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "channels": [
     {
       "id": "c-0001",
@@ -271,6 +307,19 @@ Standard output is exactly one line:
       "filing": [],
       "more": true,
       "filingNotCarriedOut": { "count": 2, "reason": "the channel is in observe mode" }
+    },
+    {
+      "id": "c-0003",
+      "address": "third@example.net",
+      "provider": "outlook",
+      "mode": "observe",
+      "messages": [],
+      "filing": [],
+      "more": false,
+      "failure": {
+        "sentence": "third@example.net is not signed in on devlinux: run cc-outlook -a example auth",
+        "detail": "looked for .../instances/*/config/outlook/tokens/third_example_net_msal.json and found none"
+      }
     }
   ]
 }
@@ -282,7 +331,7 @@ Standard output is exactly one line:
 
 | Field | Meaning |
 |---|---|
-| `version` | `1`. Any change to this shape raises it. |
+| `version` | `2` (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026, for `failure`; it was `1`). Any change to this shape raises it. |
 | `channels` | One section per channel in the memory, in the memory's order. Every channel has a section, even one with nothing in it. |
 | `id` | The channel's `id` from the memory, present only when the memory has one. |
 | `address`, `provider`, `mode` | The channel, as the memory gave them (the address in lower case). |
@@ -299,6 +348,7 @@ Standard output is exactly one line:
 | `filing` | Live mode only: the result of each item attempted (3.4), in queue order. It is empty otherwise. |
 | `filingNotCarriedOut` | Present only when the channel is in observe mode and its queue is not empty. It says how many items were waiting, and why they were not carried out. |
 | `more` | True when this channel has more new mail than this run reported. The next run continues from there. |
+| `failure` | Present only when this channel could not be checked this run (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026): `{"sentence": <the sentence of 1.2>, "detail": <its line 2, at most 500 characters, or "" when there is none or there was no room for it (1.2)>}`. The channel's `messages` and `filing` are then empty, `more` is false, `filingNotCarriedOut` is absent, and its entry in the memory is exactly as it was. |
 
 ### 4.3 Cleaning text
 
@@ -389,8 +439,10 @@ The check's only other network traffic is MSAL's own renewal of the sign-in, to 
 
 - A renewed sign-in is written back to the same file, readable by its owner only (mode 0600) on Linux and macOS, exactly
   as cc-outlook does it. It never goes into the memory or the output.
-- **When any one channel fails, the whole run fails**, so no channel's memory moves (section 1). One mailbox whose
-  sign-in has expired therefore stops the screening of every mailbox until it is signed in again.
+- **One channel failing fails that channel only** (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026; until then, one channel failing failed the whole run, so one
+  mailbox whose sign-in had expired stopped the screening of every mailbox). The failing channel's section carries the
+  sentence and its detail, its memory comes back exactly as it was, and every other channel is read and keeps its
+  memory (section 1).
 
 ## 7. Standard error
 
@@ -418,6 +470,16 @@ ids it held at its time; the nickname collision ignored; and `junk` filed to Arc
 was answered (commit `200156d4d`): 92 of its 208 tests fail there, every one of them a test added or changed for a
 finding or an observation, and all 208 pass on the answered check.
 
+**Phase 3 (one mailbox failing does not stop the others).** The suite is 271 tests. To show the new ones can fail, the
+check was broken on purpose seven ways, each put back after: a channel's failure failing the whole run again (147
+red); the failing channel's entry not put back after a part-done run (10 red); the context version left at 1 (119
+red); an unforeseen error taken as one channel's failure (1 red); the end-of-run key pruning touching a failed channel
+(92 red); the detail not cut (1 red); and the memory checks of a channel failing the whole run again (28 red).
+The review of that work (`docs/qa/mail-desk/phase-3/reviews/screen-per-mailbox-review.md`) added 10 tests, 281 in
+all; each of the 10 fails against the check as it was before the review was answered (commit `724f2392a`). The
+re-review added 11 more, 292 in all: 8 fail against the check at `6d9d5daa9` (with the test whose wording changed),
+and 3 read the sign-in library's own behaviour and pass on both.
+
 | Brief | What it proves | File |
 |---|---|---|
 | 1 | Nothing but GET and the two moves leaves the guard. The log is empty for each refused shape, and only `transport()` reaches the network. | `test_request_guard.py` |
@@ -434,3 +496,4 @@ finding or an observation, and all 208 pass on the answered check.
 | Review 2 | The sign-in service out of reach (in setup and in renewal), a memory field this check did not write, a memory that is not UTF-8, a message field of the wrong kind, and anything unforeseen: one sentence first, never a traceback, memory unchanged. | `test_no_traceback.py` |
 | Review 3 | A space or a control character in an id is refused by the guard itself, and per item: the rest of the queue is filed. | `test_request_guard.py` |
 | Observation 1 | A sign-in file named with capitals is found; two differing only in case are "more than once"; the fix names the address as cc-outlook holds it; the premise is read from cc-outlook's source. | `test_sign_in_and_failures.py` |
+| Phase 3, 6.1 | One mailbox failing does not stop the others: one channel's sign-in missing while the other is read and its cursor moves; the failing channel's fields byte for byte as they were, even after its move and its Sent folder ran before its Inbox failed; each of 20 kinds of channel failure in its own section with the other channel's report whole; both channels failing (exit 0, count 0); the whole-run failures still exit 1 with the memory untouched; an unforeseen error inside one channel still fails the whole run. | `test_one_mailbox_failing.py` |
