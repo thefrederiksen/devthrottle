@@ -115,8 +115,10 @@ The Mail Desk start's assignment carries the kept memory (`DefinitionAssignment.
 - The memory stays under 65,536 bytes; above that the Gateway refuses to write it and raises a problem naming the
   sizes (phase 2 measured about three channels at their caps).
 
-**Tests:** a first channel; a second channel added later starting a first run while the first keeps its cursor; a
-channel removed; two machines each handed only their own channels, and each one's report leaving the other's cursor
+**Tests:** a first channel; a channel added through the real route (`POST /gateway/mail-desk/channels`, what
+`maildesk channel add` calls) appearing in the very next assignment's memory and being read as a first run while the
+first keeps its cursor; a channel removed through `POST /gateway/mail-desk/channels/remove` missing from the next
+assignment's memory, so it stops being read, its decisions kept; two machines each handed only their own channels, and each one's report leaving the other's cursor
 byte for byte; no channel for this machine; the size refusal.
 
 ## 5. The model call
