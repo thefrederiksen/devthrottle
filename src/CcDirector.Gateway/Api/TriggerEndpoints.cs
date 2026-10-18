@@ -37,6 +37,8 @@ namespace CcDirector.Gateway.Api;
 ///   POST   /directors/{directorId}/triggers/{id}/checks    body TriggerCheckReport -> TriggerRunDto
 ///                                                          | 202 TriggerStartAccepted (a session start was begun; its
 ///                                                            run row is written when it returns) | 404 | 409
+///                                                          (409 mail_desk_off: a Mail Desk screening check for an
+///                                                            account Mail Desk is not switched on for; nothing recorded)
 ///
 /// A TIMED START'S DUE CHECK rides the same two routes (Factory Definition, phase 5b, design 3.3, see
 /// <see cref="DueCheckService"/>): the pull also hands a Director that runs definition checks the due check of a
@@ -274,6 +276,10 @@ internal static class TriggerEndpoints
                     Refuse(StatusCodes.Status409Conflict, "held_by_another_director", result.Error!),
                 TriggerReportRefusal.CannotRunDefinitionChecks =>
                     Refuse(StatusCodes.Status409Conflict, "cannot_run_definition_checks", result.Error!),
+                // The shape the Mail Desk phase 1 contract names, { error, detail }: the error is the code a reader
+                // matches on, the detail is the sentence.
+                TriggerReportRefusal.MailDeskOff => Results.Json(new { error = "mail_desk_off", detail = result.Error! },
+                    statusCode: StatusCodes.Status409Conflict),
                 _ => throw new InvalidOperationException($"unhandled trigger report refusal: {result.Refusal}"),
             };
         });
