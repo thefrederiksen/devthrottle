@@ -290,3 +290,87 @@ ApiModeReceiptStoreTests 42, ApiModeLiveRulingTests 77, SessionReceiptsEndpointT
 SessionLiveEndpointTests 56, ApiModeEventIngestTests 28, FleetOutcomeStopIdentityMigrationTests 3 (after
 regenerating the migration), GatewayHostBootSmokeTests 11: 254 passed, none failed. #4178's place in line
 and the prompt text are both carried on the ruling's receipt copy and item, side by side.
+
+## Re-review
+
+Written 17 October 2026 on devlinux by a second Reviewer seat (session 28157ee8, "Prompt Delivery - Reviewer - #4146
+re-review"), a different agent family from the Developer, after the Developer's answer above. Reviewed at the head
+commit `38370cf98`, which sits directly on `origin/main` `142bcbff1` (the merge base is main's head, so the branch is
+four commits over current main and carries #4121, #4142, #4174 and #4178). Read: the whole product diff over main, the
+whole of `ApiModeReceiptStore.cs` and `ApiModeLiveRuling.cs` at the head, the three prompt events as merged on main
+(`git show 142bcbff1`), the new and extended test files, the two migrations, both designer files and both snapshots,
+and pull request #4179's diff where it touches the store, the ruling and the receipt DTO.
+
+**Verdict: approve.** Every one of the four findings is fixed in the code, proven by a test, and recorded truthfully in
+the answer above. Nothing new to hold on.
+
+### The four findings, checked one by one
+
+1. **Finding 1 (the "older Director" claim), fixed by the contract.** On main, `PromptText` is `string?` with no
+   `required` on `PromptQueued`, `PromptDelivered` and `PromptRefused`, and its comment says why (the Gateway deploys
+   before every Director updates). So a batch without `promptText` is accepted, the ingest hands the store null, and
+   the entity, the DTO and the two test comments that say "a Director older than the text" are now true sentences.
+   The missing proof exists: `Accept_ABatchFromADirectorOlderThanPromptText_IsAcceptedWholeAndFeedsTheReceipts` sends
+   the events' JSON with the field removed through the real parser and asserts both receipts have null text.
+2. **Finding 2 (store and ruling disagree on a set-aside event), fixed.** In `ApiModeLiveRuling.Rule` all three
+   receipt arms now call `KeepPromptText` after the `Supersedes` finality check. I walked every branch of the two
+   keepers side by side: a new row and a new receipt both set the text; a Queued row refreshed by a Queued event (the
+   place-in-line re-send of #4178 takes this path) sets it in both; a Refused row superseded by a retry's Queued,
+   Delivered or Refused sets it in both after the clearing; a Delivered row met by a late Queued or Refused sets it in
+   neither (the store returns null before its keeper, the ruling returns before its keeper); a replay at or before the
+   stored position sets it in neither. `Rule_ALateEventWithTextAfterDelivered_SetsNoTextAsTheStoreDoesNot` drives the
+   store and the ruling with the same events for both late kinds and asserts both have no text.
+3. **Finding 3 (a retry's text over a refusal), fixed and written down.** The store's `Supersede` clears thirteen
+   fields and leaves `PromptText` alone, and its comment says why in the sentence the first review asked for; the
+   ruling's `Supersedes` comment says the same. The rebase defect the Developer found is real and fixed: each of the
+   three supersede branches in the store now calls `KeepPromptText`, so a retry carrying text over a refusal that had
+   none fills it, as the ruling already did. The three store tests and the two ruling tests named in the answer exist
+   and cover the case from the first review (refused with text at sequence 3, the retry delivered at 9).
+4. **Finding 4 (one long prompt charged on every event), accepted as is.** No change, as agreed.
+
+### The other checks the brief asked for
+
+- **The migration is the newest on both providers.** On main the newest are `20261017121400_AddLicenseMachineCannotSwitch`
+  (SQLite) and `20261017121456_AddLicenseMachineCannotSwitch` (PostgreSQL); this branch adds `20261018015813` and
+  `20261018015844`, newer than both. Its body adds exactly one nullable column (`TEXT` on SQLite, `text` on
+  PostgreSQL, no default, no length) and `Down` drops that one column. The regenerated bodies are identical to the ones
+  the branch carried before the rebase: the regenerating commit `38370cf98` renames the two body files with zero
+  changed lines, and I diffed them as well.
+- **The designer files carry the current model.** I extracted the model-building body of each designer file and
+  diffed it against the matching snapshot's body: identical on both providers, and both contain the
+  `CannotSwitchReason` column that the rebase brought in. That is exactly what
+  `TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel` asserts, and it passed in my run below.
+- **The null paths and comments against the merged contract.** The ingest passes each event's `PromptText` as it is
+  (`string?`); the three store methods take `string? promptText = null` and treat null and empty as "no text"; `ToDto`,
+  `Copy` and `ReceiptItem` copy null through. The contract's own comment ("a current Director always fills it") holds
+  on main: `ApiModeSessionHost` and `PiDialect` put the text on every Queued, Delivered and Refused they build.
+- **Verbatim.** `KeepPromptText` in both keepers is one assignment of the string it was handed. No `Trim`,
+  `Substring`, `Replace` or normalisation touches the text anywhere in the three product files (the one `Trim('"')`
+  in the ingest is pre-existing and strips the quotes from a serialised enum word, never from text). The text appears
+  in no log line. The endpoint tests read the real JSON body back and compare it equal to a string with leading and
+  trailing spaces, an inner newline and a trailing newline. The only change the Gateway ever makes is to store an
+  empty string as null, which the comments say and which null and empty readers cannot tell apart.
+- **No attribution** in the four commit messages or in this record.
+
+### Pull request #4179 (lost turn end), the clash I can see
+
+Not reviewed; only its overlap with this branch. Both diffs are against the same base, so whichever lands second will
+rebase over the other. The overlap is textual, not semantic:
+
+- `ApiModeReceiptStore.cs`: #4179 edits the "ONE TURN PER PROMPT" bullet of the class comment and this branch edits the
+  "VERBATIM" bullet directly under it; #4179's hunk at `RecordTurnStarted`'s summary begins two lines after this
+  branch's change to `RecordRefused`'s new-row lambda. Expect a conflict in both places, each a few lines.
+- `ApiModeLiveRuling.cs`: #4179 wraps the `switch` in `Rule` into a new `RuleEvent` method at the lines just above the
+  three `KeepPromptText` calls this branch adds. Expect a conflict or a near miss there.
+- `ApiModeReceiptDtos.cs`: the two additions are in different regions of `ApiModeReceiptDto` and should merge clean.
+
+Nothing in #4179 reads, writes or clears `PromptText`: its `EndTurn` helper and the lost-ending branches touch only the
+turn fields, and the receipt items it re-shows go through `ReceiptItem`, which copies the text. So the rule this pull
+request sets is not changed by #4179, and the second rebase is a textual merge only.
+
+### Run on devlinux
+
+One run, filtered to the eight named classes, started only after `ps` showed no other test host on the machine:
+ApiModeReceiptPromptTextTests, ApiModeReceiptStoreTests, ApiModeLiveRulingTests, SessionReceiptsEndpointTests,
+SessionLiveEndpointTests, ApiModeEventIngestTests, FleetOutcomeStopIdentityMigrationTests, GatewayHostBootSmokeTests:
+**254 passed, 0 failed, 0 skipped, 33 seconds**, the same count the Developer reports after the final rebase.
