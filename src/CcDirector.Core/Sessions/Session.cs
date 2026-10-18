@@ -671,42 +671,34 @@ public sealed class Session : IDisposable
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler FAILED: {ex.Message}"); }
     }
 
-    /// <summary>The Gateway's Terminal tab wheel button for this API-mode session ("Take the wheel" / "Hand back",
-    /// whether it can be pressed and why not), or null when the Gateway says there is none - which is every
-    /// terminal-mode session, and every session until a Gateway has stamped one. Mission #4070, phase 4. Delivered by
-    /// the set-display-state command and rendered verbatim; the Terminal view never reads <see cref="ConnectionMode"/>
-    /// or the wheel holder to decide.</summary>
-    public CcDirector.Gateway.Contracts.ApiModeWheelAction? GatewayWheelAction { get; private set; }
+    /// <summary>The Gateway's API-mode verdict for this session (<see cref="CcDirector.Gateway.Contracts.SessionDto.ApiMode"/>,
+    /// mission #4070), the Terminal tab's wheel button included; null when the Gateway says there is none - every
+    /// terminal-mode session, and every session until a Gateway has stamped one. Delivered by the set-display-state
+    /// command, stored and echoed verbatim; the Terminal view draws the wheel button from it and never reads
+    /// <see cref="ConnectionMode"/> or the wheel holder to decide.</summary>
+    public CcDirector.Gateway.Contracts.ApiModeSessionDisplay? GatewayApiMode { get; private set; }
+
+    private string _gatewayApiModeJson = "null";
 
     /// <summary>
-    /// Store the wheel button the Gateway ruled for this session, delivered with its folded display state. Stores
-    /// only what it was told (a copy, so a later change to the caller's object cannot reach the screen unannounced);
-    /// the Gateway is the authority. Fires <see cref="OnGatewayDisplayStateChanged"/> only on a real change, so the
-    /// Gateway re-stamping the same answer does not churn the screen. Null clears it: no button.
+    /// Store the API-mode verdict the Gateway folded for this session, delivered with its display state. Stores only
+    /// what it was told, as its own copy, so a later change to the caller's object cannot reach the screen
+    /// unannounced; the Gateway is the authority. Fires <see cref="OnGatewayDisplayStateChanged"/> only on a real
+    /// change, so the Gateway re-stamping the same answer does not churn the screen. Null clears it.
     /// </summary>
-    public void ApplyGatewayWheelAction(CcDirector.Gateway.Contracts.ApiModeWheelAction? action)
+    public void ApplyGatewayApiMode(CcDirector.Gateway.Contracts.ApiModeSessionDisplay? verdict)
     {
-        if (SameWheelAction(GatewayWheelAction, action)) return;
-        GatewayWheelAction = action is null
-            ? null
-            : new CcDirector.Gateway.Contracts.ApiModeWheelAction
-            {
-                Verb = action.Verb,
-                Label = action.Label,
-                Enabled = action.Enabled,
-                DisabledReason = action.DisabledReason,
-            };
+        var json = System.Text.Json.JsonSerializer.Serialize(verdict);
+        if (json == _gatewayApiModeJson) return;
+        _gatewayApiModeJson = json;
+        GatewayApiMode = System.Text.Json.JsonSerializer.Deserialize<CcDirector.Gateway.Contracts.ApiModeSessionDisplay?>(json);
 
-        FileLog.Write($"[Session] ApplyGatewayWheelAction: session={Id}, verb={action?.Verb ?? "(none)"}, "
-            + $"label={action?.Label ?? "(none)"}, enabled={action?.Enabled.ToString() ?? "(none)"}, reason={action?.DisabledReason ?? "(none)"}");
+        var wheel = verdict?.WheelAction;
+        FileLog.Write($"[Session] ApplyGatewayApiMode: session={Id}, kind={verdict?.Kind ?? "(none)"}, wheel={wheel?.Verb ?? "(none)"}, "
+            + $"label={wheel?.Label ?? "(none)"}, enabled={wheel?.Enabled.ToString() ?? "(none)"}, reason={wheel?.DisabledReason ?? "(none)"}");
         try { OnGatewayDisplayStateChanged?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler FAILED: {ex.Message}"); }
     }
-
-    private static bool SameWheelAction(CcDirector.Gateway.Contracts.ApiModeWheelAction? a, CcDirector.Gateway.Contracts.ApiModeWheelAction? b) =>
-        a is null || b is null
-            ? a is null && b is null
-            : a.Verb == b.Verb && a.Label == b.Label && a.Enabled == b.Enabled && a.DisabledReason == b.DisabledReason;
 
     /// <summary>Set (or clear, on a null/blank value) this session's sticky explicit role. The value is
     /// validated against the role set by the caller; this only stores it.</summary>

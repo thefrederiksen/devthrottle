@@ -21,6 +21,10 @@ public sealed class TerminalWheelPresenterTests
     private static ApiModeWheelAction Wheel(string verb, string label, bool enabled = true, string? disabledReason = null) =>
         new() { Verb = verb, Label = label, Enabled = enabled, DisabledReason = disabledReason };
 
+    /// <summary>The verdict the Gateway sends, carrying the button (null carries no verdict at all).</summary>
+    private static ApiModeSessionDisplay? Verdict(ApiModeWheelAction? wheel) =>
+        wheel is null ? null : new ApiModeSessionDisplay { Kind = "idle", WheelAction = wheel };
+
     private static ApiModeWheelAction Take => Wheel(ApiModeWheelVerbs.TakeTheWheel, "Take the wheel");
     private static ApiModeWheelAction HandBack => Wheel(ApiModeWheelVerbs.HandBack, "Hand back");
 
@@ -43,7 +47,7 @@ public sealed class TerminalWheelPresenterTests
     private static Session NewSession(ApiModeWheelAction? action)
     {
         var session = new Session(Guid.NewGuid(), "/test/repo", "/test/repo", null, new InertBackend(), SessionBackendType.ConPty);
-        session.ApplyGatewayWheelAction(action);
+        session.ApplyGatewayApiMode(Verdict(action));
         return session;
     }
 
@@ -241,7 +245,7 @@ public sealed class TerminalWheelPresenterTests
         presenter.Changed += () => changes++;
 
         // Act - the Gateway's next push turns the button into its other half.
-        session.ApplyGatewayWheelAction(Take);
+        session.ApplyGatewayApiMode(Verdict(Take));
 
         // Assert
         Assert.Equal(1, changes);
@@ -261,7 +265,7 @@ public sealed class TerminalWheelPresenterTests
         presenter.Changed += () => changes++;
 
         // Act
-        session.ApplyGatewayWheelAction(HandBack);
+        session.ApplyGatewayApiMode(Verdict(HandBack));
 
         // Assert - nothing redrawn until the screen thread runs the posted work.
         Assert.Equal(0, changes);
@@ -281,7 +285,7 @@ public sealed class TerminalWheelPresenterTests
         presenter.Changed += () => changes++;
 
         // Act
-        first.ApplyGatewayWheelAction(HandBack);
+        first.ApplyGatewayApiMode(Verdict(HandBack));
 
         // Assert
         Assert.Equal(0, changes);
@@ -289,7 +293,7 @@ public sealed class TerminalWheelPresenterTests
     }
 
     [Fact]
-    public void ApplyGatewayWheelAction_SameVerdictAgain_DoesNotRaise()
+    public void ApplyGatewayApiMode_SameVerdictAgain_DoesNotRaise()
     {
         // Arrange
         var session = NewSession(Take);
@@ -297,14 +301,14 @@ public sealed class TerminalWheelPresenterTests
         session.OnGatewayDisplayStateChanged += () => raised++;
 
         // Act
-        session.ApplyGatewayWheelAction(Wheel(ApiModeWheelVerbs.TakeTheWheel, "Take the wheel"));
+        session.ApplyGatewayApiMode(Verdict(Wheel(ApiModeWheelVerbs.TakeTheWheel, "Take the wheel")));
 
         // Assert
         Assert.Equal(0, raised);
     }
 
     [Fact]
-    public void ApplyGatewayWheelAction_NewVerdictThenClear_RaisesEachTime()
+    public void ApplyGatewayApiMode_NewVerdictThenClear_RaisesEachTime()
     {
         // Arrange
         var session = NewSession(Take);
@@ -312,12 +316,12 @@ public sealed class TerminalWheelPresenterTests
         session.OnGatewayDisplayStateChanged += () => raised++;
 
         // Act
-        session.ApplyGatewayWheelAction(HandBack);
-        session.ApplyGatewayWheelAction(null);
+        session.ApplyGatewayApiMode(Verdict(HandBack));
+        session.ApplyGatewayApiMode(Verdict(null));
 
         // Assert
         Assert.Equal(2, raised);
-        Assert.Null(session.GatewayWheelAction);
+        Assert.Null(session.GatewayApiMode?.WheelAction);
     }
 
     [Fact]
@@ -368,7 +372,7 @@ public sealed class TerminalWheelPresenterTests
     }
 
     [Fact]
-    public void ApplyGatewayWheelAction_CallerChangesItsObjectAfterwards_DoesNotReachTheSession()
+    public void ApplyGatewayApiMode_CallerChangesItsObjectAfterwards_DoesNotReachTheSession()
     {
         // Arrange
         var sent = Take;
@@ -378,7 +382,7 @@ public sealed class TerminalWheelPresenterTests
         sent.Label = "changed";
 
         // Assert
-        Assert.Equal("Take the wheel", session.GatewayWheelAction!.Label);
+        Assert.Equal("Take the wheel", session.GatewayApiMode?.WheelAction!.Label);
     }
 
     // Rule 7, pinned at the source: the presenter and the window's drawing of the button never branch on the raw

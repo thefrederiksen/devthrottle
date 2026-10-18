@@ -345,10 +345,11 @@ public sealed class SessionCommandExecutorTests
     // ---------- set-display-state carries the wheel button (mission #4070, phase 4) ----------
 
     [Fact]
-    public async Task DispatchAsync_SetDisplayState_StoresTheWheelActionVerbatim_AndALaterStampWithoutOneClearsIt()
+    public async Task DispatchAsync_SetDisplayState_StoresTheApiModeVerdictVerbatim_MapEchoesIt_AndALaterStampWithoutOneClearsIt()
     {
-        // The desktop's Terminal tab draws its wheel button from Session.GatewayWheelAction, never from the wheel holder.
-        // The Gateway's four fields must land on the session as sent, and a stamp without them means no button.
+        // The desktop's Terminal tab draws its wheel button from Session.GatewayApiMode, never from the wheel holder.
+        // The Gateway's verdict (pull request #4184's SetDisplayStateRequest.ApiMode) must land on the session as sent,
+        // come back out of Map unchanged, and a stamp without it means no verdict and no button.
         var (sm, session, _) = NewSession();
         try
         {
@@ -363,7 +364,7 @@ public sealed class SessionCommandExecutorTests
                         EffectiveColor = "blue",
                         StateLabel = "Working",
                         TriageBucket = "active",
-                        WheelAction = wheel,
+                        ApiMode = wheel is null ? null : new ApiModeSessionDisplay { Kind = "working", WheelAction = wheel },
                     }, Json),
                 };
                 var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
@@ -377,15 +378,20 @@ public sealed class SessionCommandExecutorTests
                 Enabled = false,
                 DisabledReason = "A turn is running.",
             });
-            var stored = session.GatewayWheelAction;
+            Assert.Equal("working", session.GatewayApiMode?.Kind);
+            var stored = session.GatewayApiMode?.WheelAction;
             Assert.NotNull(stored);
             Assert.Equal(ApiModeWheelVerbs.TakeTheWheel, stored!.Verb);
             Assert.Equal("Take the wheel", stored.Label);
             Assert.False(stored.Enabled);
             Assert.Equal("A turn is running.", stored.DisabledReason);
+            var echoed = ControlEndpoints.Map(session, directorId: "").ApiMode?.WheelAction;
+            Assert.Equal("Take the wheel", echoed?.Label);
+            Assert.Equal("A turn is running.", echoed?.DisabledReason);
 
             await Stamp(null);
-            Assert.Null(session.GatewayWheelAction);
+            Assert.Null(session.GatewayApiMode);
+            Assert.Null(ControlEndpoints.Map(session, directorId: "").ApiMode);
         }
         finally { sm.Dispose(); }
     }

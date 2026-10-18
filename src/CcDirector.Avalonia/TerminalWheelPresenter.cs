@@ -12,7 +12,7 @@ namespace CcDirector.Avalonia;
 /// with fakes and the window only copies the values onto controls.
 ///
 /// IT RENDERS THE GATEWAY'S VERDICT AND NOTHING ELSE (CLAUDE.md rule 7): the button, its words, whether it can be
-/// pressed and why not come from <see cref="Session.GatewayWheelAction"/> - the Gateway's
+/// pressed and why not come from <see cref="Session.GatewayApiMode"/>'s wheel action - the Gateway's
 /// <see cref="ApiModeWheelAction"/>, stamped down with the display state. A terminal session shows nothing because the
 /// Gateway sent no button - this class never reads the connection mode or the wheel holder. A verb this build does not
 /// know is a broken contract, so it shows that problem and no button, never a guessed one. Pressing it calls the GATEWAY's verb through <see cref="IGatewayWheel"/>, never the session's own
@@ -49,11 +49,11 @@ public sealed class TerminalWheelPresenter
 
     /// <summary>The Gateway's button for the attached session, or null when there is none or this build cannot read
     /// it (see <see cref="Problem"/>).</summary>
-    public ApiModeWheelAction? Action => Problem is null ? _session?.GatewayWheelAction : null;
+    public ApiModeWheelAction? Action => Problem is null ? _session?.GatewayApiMode?.WheelAction : null;
 
     /// <summary>Why the Gateway's button cannot be drawn: a verb this build does not know, or a button with no words.
     /// Null when there is no button or it is readable.</summary>
-    public string? Problem => ProblemWith(_session?.GatewayWheelAction);
+    public string? Problem => ProblemWith(_session?.GatewayApiMode?.WheelAction);
 
     /// <summary>True when there is a button to draw.</summary>
     public bool IsVisible => Action is not null;
@@ -87,7 +87,7 @@ public sealed class TerminalWheelPresenter
         FileLog.Write($"[TerminalWheelPresenter] Attach: session={session?.Id.ToString() ?? "(none)"}");
         if (_session is not null) _session.OnGatewayDisplayStateChanged -= OnDisplayStateChanged;
         _session = session;
-        _shownAction = Signature(session?.GatewayWheelAction);
+        _shownAction = Signature(session?.GatewayApiMode?.WheelAction);
         IsPending = false;
         Refusal = null;
         if (session is not null) session.OnGatewayDisplayStateChanged += OnDisplayStateChanged;
@@ -144,7 +144,7 @@ public sealed class TerminalWheelPresenter
 
     private void ApplyDisplayState()
     {
-        var now = Signature(_session?.GatewayWheelAction);
+        var now = Signature(_session?.GatewayApiMode?.WheelAction);
         // A new verdict is a new button: an old refusal no longer describes it.
         if (now != _shownAction) Refusal = null;
         _shownAction = now;

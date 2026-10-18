@@ -69,9 +69,9 @@ internal sealed class FleetDisplayStateExecutor : ISessionCommandArea
             request.SnoozeExpired,
             request.InboxLine);
 
-        // The Terminal tab's wheel button (mission #4070, phase 4), stored verbatim. Null clears it: no button, which is
-        // also what an older Gateway that does not send the field means.
-        session.ApplyGatewayWheelAction(request.WheelAction);
+        // The API-mode verdict, the Terminal tab's wheel button inside it (mission #4070, phase 4), stored verbatim. Null
+        // clears it: no verdict and no button, which is also what an older Gateway that does not send the field means.
+        session.ApplyGatewayApiMode(request.ApiMode);
 
         // Reconcile the raw hold mirror on THIS reliable, change-gated channel - not only on the one-shot
         // hold mirror the Gateway fires alongside its own edges. The Gateway folds a real HoldState every
@@ -86,7 +86,7 @@ internal sealed class FleetDisplayStateExecutor : ISessionCommandArea
             case HoldStates.None: session.ApplyGatewayHold(HoldState.None); break;
         }
 
-        FileLog.Write($"[FleetDisplayStateExecutor] set-display-state: session={guid}, color={request.EffectiveColor ?? "(cleared)"}, label={request.StateLabel ?? "(none)"}, inboxLine={request.InboxLine ?? "(none)"}, hold={request.HoldState ?? "(unchanged)"}, wheel={request.WheelAction?.Verb ?? "(none)"}");
+        FileLog.Write($"[FleetDisplayStateExecutor] set-display-state: session={guid}, color={request.EffectiveColor ?? "(cleared)"}, label={request.StateLabel ?? "(none)"}, inboxLine={request.InboxLine ?? "(none)"}, hold={request.HoldState ?? "(unchanged)"}, wheel={request.ApiMode?.WheelAction?.Verb ?? "(none)"}");
         return DirectorCommandResult.Success();
     }
 }
