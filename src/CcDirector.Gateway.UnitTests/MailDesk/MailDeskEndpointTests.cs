@@ -89,7 +89,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         _h.Dispose();
     }
 
-    private MailDeskEndpoints.Parts Parts() => new(_channels, _rules, _decisions,
+    private MailDeskEndpoints.Parts Parts() => new(_channels, _rules, _decisions, new MailDeskSettingsStore(_db),
         new MailDeskChannelFold(_ => _triggers.ToList(), _ => _timeZone, _decisions),
         FactoryOf, _ => _knownMachines.ToList(), () => _now);
 
@@ -1049,7 +1049,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         var before = Recorded();
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(10, routes.Count);
+        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
 
         // Act + Assert
         foreach (var endpoint in routes)
@@ -1078,7 +1078,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     {
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(10, routes.Count);
+        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
         foreach (var endpoint in routes)
         {
             var method = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Single();

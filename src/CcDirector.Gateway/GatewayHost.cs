@@ -287,6 +287,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <inheritdoc cref="MailDeskChannels"/>
     internal MailDesk.MailDeskDecisionStore MailDeskDecisions { get; }
 
+    /// <inheritdoc cref="MailDeskChannels"/>
+    internal MailDesk.MailDeskSettingsStore MailDeskSettings { get; }
+
     /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
     /// database shape does not depend on it; only the routes do.</summary>
     public Factory.FactoryActivityRecord FactoryActivity { get; }
@@ -2507,6 +2510,7 @@ public sealed class GatewayHost : IAsyncDisposable
         MailDeskChannels = new MailDesk.MailDeskChannelStore(_gatewayDb);
         MailDeskRules = new MailDesk.MailDeskRulesStore(_gatewayDb);
         MailDeskDecisions = new MailDesk.MailDeskDecisionStore(_gatewayDb);
+        MailDeskSettings = new MailDesk.MailDeskSettingsStore(_gatewayDb);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
@@ -5604,6 +5608,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 MailDeskChannels,
                 MailDeskRules,
                 MailDeskDecisions,
+                MailDeskSettings,
                 new MailDesk.MailDeskChannelFold(Triggers.Store.List, _tenantSettingsResolver.TimeZone, MailDeskDecisions),
                 _sessionHistory.FactoryOf,
                 KnownMachinesOf,

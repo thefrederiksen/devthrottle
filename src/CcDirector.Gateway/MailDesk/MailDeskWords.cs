@@ -86,7 +86,9 @@ public static class MailDeskWords
         public const string Route = "route";
         public const string Channel = "channel";
         public const string Mode = "mode";
-        public static readonly IReadOnlyList<string> All = new[] { Rule, Allow, Block, Route, Channel, Mode };
+        /// <summary>One of the account's Mail Desk settings: a threshold or the spend limit (phase 3).</summary>
+        public const string Setting = "setting";
+        public static readonly IReadOnlyList<string> All = new[] { Rule, Allow, Block, Route, Channel, Mode, Setting };
         /// <summary>The kinds that change the rules document, and so carry a version before and after.</summary>
         public static readonly IReadOnlyList<string> Rules = new[] { Rule, Allow, Block, Route };
     }

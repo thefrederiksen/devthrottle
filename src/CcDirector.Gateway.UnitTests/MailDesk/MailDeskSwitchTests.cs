@@ -234,7 +234,7 @@ public sealed class MailDeskSwitchTests : IDisposable
 
         var decisions = new MailDeskDecisionStore(Db);
         CcDirector.Gateway.Api.MailDeskEndpoints.Map(MailDeskGate.Group(app, mailDesk, Resolve), Resolve, new CcDirector.Gateway.Api.MailDeskEndpoints.Parts(
-            new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), decisions,
+            new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), decisions, new MailDeskSettingsStore(Db),
             new MailDeskChannelFold(_ => Array.Empty<TriggerEntity>(), _ => "UTC", decisions),
             _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, _ => Array.Empty<string>(), () => _now));
 
@@ -255,6 +255,8 @@ public sealed class MailDeskSwitchTests : IDisposable
         "POST " + MailDeskGate.Prefix + "/rules/{list}/add",
         "POST " + MailDeskGate.Prefix + "/rules/{list}/remove",
         "GET " + MailDeskGate.Prefix + "/decisions",
+        "GET " + MailDeskGate.Prefix + "/settings",
+        "POST " + MailDeskGate.Prefix + "/settings",
     };
 
     private static IReadOnlyList<RouteEndpoint> Endpoints(WebApplication app)

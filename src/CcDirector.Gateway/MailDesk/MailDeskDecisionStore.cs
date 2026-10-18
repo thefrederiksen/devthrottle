@@ -147,6 +147,21 @@ public sealed class MailDeskDecisionStore
     }
 
     /// <summary>
+    /// What the Mail Desk has spent on model questions for the account, ever, in millionths of a dollar (phase 3
+    /// contract, section 7): the sum of the cost on every decision row, whatever its channel (removed or not), its
+    /// decision or its age. A failed screening keeps on its row the cost of the questions that were answered, so they
+    /// count too.
+    /// </summary>
+    public long SpentMicros(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskDecisions.AsNoTracking().Where(d => d.CostMicros != null).Sum(d => d.CostMicros!.Value);
+        }
+    }
+
+    /// <summary>
     /// The counts by decision for each channel, of the decisions made at or after <paramref name="fromUtc"/> and before
     /// <paramref name="toUtc"/> - what "today" is once the route has turned the account's local midnight into instants.
     /// A channel with no decisions in the span is not in the map; <see cref="MailDeskDecisionCounts.Zero"/> stands for it.

@@ -76,5 +76,23 @@ public static partial class MailDeskAddresses
         return true;
     }
 
+    /// <summary>
+    /// Whether <paramref name="sender"/> matches <paramref name="pattern"/> (phase 3 contract, section 3): the exact
+    /// address, or for <c>*@domain</c> an address whose domain is exactly that domain (not a subdomain of it), both
+    /// without regard to case. An empty sender (the mailbox gave none) matches no pattern.
+    /// </summary>
+    public static bool Matches(string? pattern, string? sender)
+    {
+        var p = Fold(pattern);
+        var s = Fold(sender);
+        if (p.Length == 0 || s.Length == 0) return false;
+        if (p.StartsWith("*@", StringComparison.Ordinal))
+        {
+            var at = s.LastIndexOf('@');
+            return at > 0 && string.Equals(s[(at + 1)..], p[2..], StringComparison.Ordinal);
+        }
+        return string.Equals(p, s, StringComparison.Ordinal);
+    }
+
     private static string Fold(string? raw) => (raw ?? "").Trim().ToLowerInvariant();
 }
