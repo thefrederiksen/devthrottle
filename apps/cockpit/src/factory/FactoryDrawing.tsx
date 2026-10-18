@@ -191,8 +191,9 @@ function Node({ node: n, open, onOpen }: { node: FactoryDrawingNode; open: boole
             )}
             {n.repeats && (
               <g className="fd-repeat" aria-label="repeats">
-                <path d={`M ${cx - 5} ${n.y + n.height - 6} a 6 6 0 1 1 9 0`} fill="none" />
-                <polygon points={`${cx + 4},${n.y + n.height - 6} ${cx + 7},${n.y + n.height - 11} ${cx + 9},${n.y + n.height - 5}`} />
+                {/* In the top right corner, clear of the step's two lines of text. */}
+                <path d={`M ${n.x + n.width - 17} ${n.y + 14} a 5 5 0 1 1 8 0`} fill="none" />
+                <polygon points={`${n.x + n.width - 9},${n.y + 14} ${n.x + n.width - 6.5},${n.y + 9.5} ${n.x + n.width - 4.5},${n.y + 14.5}`} />
               </g>
             )}
           </>

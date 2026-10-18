@@ -800,6 +800,11 @@ a.fa-tab {
   min-width: 0;
 }
 
+/* The drawing is the Overview's first row and takes its whole width (owner, 18 Oct 2026). */
+.fa-overview > .fd-panel {
+  grid-column: 1 / -1;
+}
+
 .fa-goal-text,
 .fa-goal-value {
   margin: 0;
