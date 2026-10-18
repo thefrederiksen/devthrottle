@@ -584,6 +584,50 @@ public sealed class MailDeskSwitchTests : IDisposable
         Assert.Empty(_starts);
     }
 
+    // Mail Desk phase 1 and phase 5 each added a refusal to the same report route. A screening check reported from a
+    // machine on no list is refused as Mail Desk off while Mail Desk is off, and as a machine not on the list once it
+    // is on - each in its own shape, neither swallowing the other.
+    [Fact]
+    public async Task CheckReportRoute_MachineNotOnTheList_AnswersMailDeskOffThenMachineNotOnTheList()
+    {
+        // Arrange: the reporting Director is on a machine that is neither the trigger's own nor a backup.
+        var mailDesk = Switch();
+        var factory = new FactoryAgentsSwitch(false, new TenantSettingsStore(Db));
+        factory.Set(Account, true, "email@devthrottle.com", "the owner's factories run", _now);
+        var service = Service(mailDesk);
+        var trigger = AddMailDeskTrigger();
+        var app = WebApplication.CreateBuilder().Build();
+        TriggerEndpoints.Map(FactoryAgentsGate.Group(app, factory, Resolve), Resolve, service,
+            directorMachine: (_, _) => "ELSEWHERE", nowUtc: () => _now,
+            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
+            isDefined: (_, _) => true,
+            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
+        var report = Endpoints(app).Single(e => Describe(e) == "POST /directors/{directorId}/triggers/{id}/checks");
+        var route = new Dictionary<string, string> { ["directorId"] = Director, ["id"] = trigger.ToString("D") };
+        var body = JsonSerializer.Serialize(Report(count: 3));
+
+        // Act: once with Mail Desk off, once after it is switched on.
+        var (offStatus, offBody) = await Invoke(app, report, Account.Value, body, route);
+        mailDesk.Set(Account, true, "email@devthrottle.com", "the owner's account only", _now);
+        var (onStatus, onBody) = await Invoke(app, report, Account.Value, body, route);
+
+        // Assert
+        Assert.Equal(StatusCodes.Status409Conflict, offStatus);
+        var off = JsonDocument.Parse(offBody).RootElement;
+        Assert.Equal("mail_desk_off", off.GetProperty("error").GetString());
+        Assert.Contains("Mail Desk is not switched on", off.GetProperty("detail").GetString());
+        Assert.False(off.TryGetProperty("code", out _));
+
+        Assert.Equal(StatusCodes.Status409Conflict, onStatus);
+        var on = JsonDocument.Parse(onBody).RootElement;
+        Assert.Equal("machine_not_on_the_list", on.GetProperty("code").GetString());
+        Assert.Contains("not on ELSEWHERE", on.GetProperty("error").GetString());
+        Assert.False(on.TryGetProperty("detail", out _));
+
+        Assert.Equal((0, 0), (Recorded(trigger).Runs, Recorded(trigger).StateRows));
+        Assert.Empty(_starts);
+    }
+
     // ---- the administrator route ---------------------------------------------------------------------------
 
     private static AdminMailDeskEndpoint.SetRequest Req(string? account, bool? enabled = true,
