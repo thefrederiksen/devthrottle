@@ -36,6 +36,7 @@ internal sealed class ClaudeCodeToolEvent
     [JsonPropertyName("hook_event_name")] public string? HookEventName { get; set; }
     [JsonPropertyName("tool_name")] public string? ToolName { get; set; }
     [JsonPropertyName("tool_input")] public ClaudeCodeToolInput? ToolInput { get; set; }
+    [JsonPropertyName("tool_use_id")] public string? ToolUseId { get; set; }
 }
 
 /// <summary>The shell tool's input. Only the command text is read.</summary>

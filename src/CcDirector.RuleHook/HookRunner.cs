@@ -60,12 +60,13 @@ internal sealed class HookRunner
         var started = Stopwatch.GetTimestamp();
         var occurred = _utcNow();
         var tool = "-";
+        var callId = "-";
         var rulesRead = 0;
         var matched = 0;
         string outcome;
         try
         {
-            outcome = Evaluate(standardInput, rulesFile, started, occurred, ref tool, ref rulesRead, ref matched);
+            outcome = Evaluate(standardInput, rulesFile, started, occurred, ref tool, ref callId, ref rulesRead, ref matched);
         }
         catch (Exception ex)
         {
@@ -75,7 +76,7 @@ internal sealed class HookRunner
         try
         {
             EvaluationLog.Append(rulesFile, occurred, tool, rulesRead, matched, outcome,
-                (long)Stopwatch.GetElapsedTime(started).TotalMicroseconds, _logLimitBytes);
+                (long)Stopwatch.GetElapsedTime(started).TotalMicroseconds, callId, _logLimitBytes);
         }
         catch (Exception)
         {
@@ -87,13 +88,15 @@ internal sealed class HookRunner
     }
 
     private string Evaluate(TextReader standardInput, string rulesFile, long started, DateTime occurred,
-        ref string tool, ref int rulesRead, ref int matched)
+        ref string tool, ref string callId, ref int rulesRead, ref int matched)
     {
         var raw = standardInput.ReadToEnd();
         if (string.IsNullOrWhiteSpace(raw))
             throw new InvalidOperationException("no event on standard input");
         var hookEvent = JsonSerializer.Deserialize(raw, RuleHookJson.Default.ClaudeCodeToolEvent)
             ?? throw new InvalidOperationException("the event on standard input is null");
+        if (!string.IsNullOrEmpty(hookEvent.ToolUseId))
+            callId = OneLine(hookEvent.ToolUseId);
 
         var agentTool = hookEvent.ToolName ?? "";
         // Claude Code 2.1.302 lists its shell tools as Bash and PowerShell (the Windows one). The rule

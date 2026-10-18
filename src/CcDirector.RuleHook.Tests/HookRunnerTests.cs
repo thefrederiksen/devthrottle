@@ -137,8 +137,30 @@ public sealed class HookRunnerTests : IDisposable
         Assert.Equal(0, exit);
         var line = Assert.Single(LogLines());
         Assert.StartsWith("2026-10-18T12:00:00.1234567Z\tshell\trules=0\tmatched=0\tno_match\t", line);
-        Assert.EndsWith("us", line);
         Assert.Empty(Decisions());
+    }
+
+    [Fact]
+    public void Run_AnyEvaluation_LogLineEndsWithMicrosecondsThenTheAgentsCallId()
+    {
+        WriteRules();
+
+        Run(EventFor("echo RULE-PROBE"));
+
+        // Ruling P14: the call id is the last field, so a no_match line is tied to ONE command without
+        // the log ever holding command text. The id is the one in the captured event.
+        var fields = Assert.Single(LogLines()).Split('\t');
+        Assert.Equal(7, fields.Length);
+        Assert.Matches("^[0-9]+us$", fields[5]);
+        Assert.Equal("toolu_01MKy8QwHzZ26tkw5UsWdSkM", fields[6]);
+    }
+
+    [Fact]
+    public void Run_EventUnreadable_LogLineCallIdIsADash()
+    {
+        Run("this is not json");
+
+        Assert.Equal("-", Assert.Single(LogLines()).Split('\t')[^1]);
     }
 
     [Fact]
@@ -381,7 +403,6 @@ public sealed class HookRunnerTests : IDisposable
         Assert.True(text.Length <= limit / 2 + 200, $"log is {text.Length} characters after the cut");
         Assert.DoesNotContain("old line 0000", text);
         Assert.Contains("old line 0199", text);
-        Assert.EndsWith("no_match\t" + text.Split('\t')[^1], text);
         Assert.All(text.TrimEnd('\n').Split('\n'), line => Assert.True(line.StartsWith("old line ") || line.StartsWith("2026-"), line));
     }
 

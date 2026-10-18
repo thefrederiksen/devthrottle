@@ -11,7 +11,9 @@ namespace CcDirector.RuleHook;
 ///
 /// A line is tab-separated: UTC time, tool, <c>rules=</c>n, <c>matched=</c>n, the outcome
 /// (<c>would_deny</c>, <c>would_allow</c>, <c>no_match</c>, <c>no_rules_file</c> or <c>error: ...</c>),
-/// and the evaluation time in microseconds with a <c>us</c> suffix. It never holds command text.
+/// the evaluation time in microseconds with a <c>us</c> suffix, and the agent's call id (Claude Code's
+/// <c>tool_use_id</c>, or <c>-</c> when the event could not be read) - ruling P14, which ties a line to one
+/// command. It never holds command text.
 /// </summary>
 internal static class EvaluationLog
 {
@@ -23,11 +25,11 @@ internal static class EvaluationLog
     public static string PathFor(string rulesFile) => Path.ChangeExtension(rulesFile, ".eval.log");
 
     public static void Append(string rulesFile, DateTime occurredUtc, string tool, int rulesRead, int matched,
-        string outcome, long microseconds, long limitBytes)
+        string outcome, long microseconds, string callId, long limitBytes)
     {
         var path = PathFor(rulesFile);
         var line = string.Create(CultureInfo.InvariantCulture,
-            $"{occurredUtc:yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'}\t{tool}\trules={rulesRead}\tmatched={matched}\t{outcome}\t{microseconds}us\n");
+            $"{occurredUtc:yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'}\t{tool}\trules={rulesRead}\tmatched={matched}\t{outcome}\t{microseconds}us\t{callId}\n");
         // Shared for reading, writing and deleting: Claude Code can run two shell calls at once, so two
         // hooks can append to one log, and on Windows a plain append would refuse the second one.
         using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
