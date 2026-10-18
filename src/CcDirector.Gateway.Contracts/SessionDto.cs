@@ -1282,10 +1282,11 @@ public static class ConnectionModes
     /// THE ONE SWITCH THAT OFFERS API MODE (mission #4070, section 8). While it is false, no surface offers API mode: the
     /// Gateway's agent list carries only Terminal for every agent, so the Cockpit and the phone draw no Connection row;
     /// the desktop New Session dialog hides its row; and the Gateway refuses a create that asks for API mode, so
-    /// <c>cc-devthrottle session spawn --connection api</c> is refused with that reason. It stays false until phase 4
-    /// (take the wheel) lands, so no surface offers a mode it cannot finish. Turning API mode on is this one line.
+    /// <c>cc-devthrottle session spawn --connection api</c> is refused with that reason. It was false until phase 4
+    /// (take the wheel) landed, so no surface offered a mode it could not finish; it is on now. Terminal stays the
+    /// default in New Session: turning this on only offers API mode, it never chooses it.
     /// </summary>
-    public static bool ApiModeOffered { get; } = false;
+    public static bool ApiModeOffered { get; } = true;
 
     /// <summary>The words a person sees for each mode: the New Session row's choices.</summary>
     public const string TerminalLabel = "Terminal";

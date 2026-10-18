@@ -321,7 +321,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     // ---- through the routes ---------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task GetAgents_WhileApiModeIsNotOffered_ServesTerminalAloneForEveryAgentIncludingAnOlderDirectorsRow()
+    public async Task GetAgents_ApiModeOffered_ServesApiModeOnlyToTheWrapperThatDeclaresIt()
     {
         // Arrange: Pi declares API mode; an older Director's row carries no connections at all.
         await StartAsync();
@@ -338,13 +338,15 @@ public sealed class ConnectionChoiceTests : IDisposable
             a => a.GetProperty("connections").EnumerateArray()
                 .Select(c => (c.GetProperty("mode").GetString()!, c.GetProperty("label").GetString()!)).ToList());
         Assert.Equal(3, connections.Count);
-        Assert.All(connections.Values, c => Assert.Equal(new[] { ("terminal", "Terminal") }, c));
+        Assert.Equal(new[] { ("terminal", "Terminal"), ("api", "API mode") }, connections["Pi"]);
+        Assert.Equal(new[] { ("terminal", "Terminal") }, connections["ClaudeCode"]);
+        Assert.Equal(new[] { ("terminal", "Terminal") }, connections["Codex"]);
     }
 
     [Theory]
     [InlineData("machine")]
     [InlineData("director")]
-    public async Task PostSessions_ApiModeWhileNotOffered_Is400WithTheReasonAndNothingIsSent(string door)
+    public async Task PostSessions_ApiModeOffered_GoesToTheDirectorInApiMode(string door)
     {
         // Arrange
         await StartAsync();
@@ -353,9 +355,9 @@ public sealed class ConnectionChoiceTests : IDisposable
         using var response = await Create(door, ConnectionModes.Api);
 
         // Assert
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("API mode is not offered yet", await response.Content.ReadAsStringAsync());
-        Assert.Null(SawAt(door));
+        Assert.True(response.IsSuccessStatusCode, $"{door} door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.NotNull(SawAt(door));
+        Assert.Equal(ConnectionModes.Api, SawAt(door)!.ConnectionMode);
     }
 
     [Theory]
@@ -395,21 +397,6 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Fact]
-    public async Task PostMachineSessions_ApiModeWithAForgedRestoreClaimWhileNotOffered_Is400AndNothingIsSent()
-    {
-        // Arrange: the phase 5 review's probe - a device caller adds any restore claim to an API-mode create.
-        await StartAsync();
-
-        // Act
-        using var response = await Create("machine", ConnectionModes.Api, ForgedClaim());
-
-        // Assert
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("API mode is not offered yet", await response.Content.ReadAsStringAsync());
-        Assert.Null(_machineDoorSaw);
-    }
-
-    [Fact]
     public async Task PostDirectorSessions_ApiModeWithAForgedRestoreClaimFromADevice_IsRefusedAndNothingIsSent()
     {
         // Arrange
@@ -426,7 +413,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Fact]
-    public async Task PostDirectorSessions_ARealRestoreOfAnApiModeSeatWhileNotOffered_GoesToTheDirectorInApiMode()
+    public async Task PostDirectorSessions_ARealRestoreOfAnApiModeSeat_GoesToTheDirectorInApiMode()
     {
         // Arrange: the Director the create is for, on the credential it said Hello on, restoring a seat that ran in API mode.
         await StartAsync();
