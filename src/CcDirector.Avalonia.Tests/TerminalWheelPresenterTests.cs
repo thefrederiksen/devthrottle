@@ -1,8 +1,9 @@
+using System.Text.RegularExpressions;
 using CcDirector.ControlApi;
-using CcDirector.Core.ApiMode;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
+using CcDirector.Gateway.Contracts;
 using Xunit;
 
 namespace CcDirector.Avalonia.Tests;
@@ -16,8 +17,12 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class TerminalWheelPresenterTests
 {
-    private static readonly GatewayWheelAction Take = new(WheelVerb.Take, "Take the wheel", true, null);
-    private static readonly GatewayWheelAction HandBack = new(WheelVerb.HandBack, "Hand back", true, null);
+    /// <summary>The Gateway's button, built exactly as the Gateway's fold builds it (pull request #4133).</summary>
+    private static ApiModeWheelAction Wheel(string verb, string label, bool enabled = true, string? disabledReason = null) =>
+        new() { Verb = verb, Label = label, Enabled = enabled, DisabledReason = disabledReason };
+
+    private static ApiModeWheelAction Take => Wheel(ApiModeWheelVerbs.TakeTheWheel, "Take the wheel");
+    private static ApiModeWheelAction HandBack => Wheel(ApiModeWheelVerbs.HandBack, "Hand back");
 
     /// <summary>A Gateway seam whose every call waits until the test answers it.</summary>
     private sealed class FakeWheel : IGatewayWheel
@@ -35,7 +40,7 @@ public sealed class TerminalWheelPresenterTests
         }
     }
 
-    private static Session NewSession(GatewayWheelAction? action)
+    private static Session NewSession(ApiModeWheelAction? action)
     {
         var session = new Session(Guid.NewGuid(), "/test/repo", "/test/repo", null, new InertBackend(), SessionBackendType.ConPty);
         session.ApplyGatewayWheelAction(action);
@@ -90,7 +95,7 @@ public sealed class TerminalWheelPresenterTests
     {
         // Arrange
         const string reason = "The terminal is in the middle of a turn. Hand back when it has finished.";
-        var (presenter, _) = NewPresenter(NewSession(HandBack with { Enabled = false, DisabledReason = reason }));
+        var (presenter, _) = NewPresenter(NewSession(Wheel(ApiModeWheelVerbs.HandBack, "Hand back", enabled: false, disabledReason: reason)));
 
         // Assert
         Assert.True(presenter.IsVisible);
@@ -103,7 +108,7 @@ public sealed class TerminalWheelPresenterTests
     public async Task PressAsync_NotEnabled_CallsNothing()
     {
         // Arrange
-        var (presenter, wheel) = NewPresenter(NewSession(HandBack with { Enabled = false, DisabledReason = "not now" }));
+        var (presenter, wheel) = NewPresenter(NewSession(Wheel(ApiModeWheelVerbs.HandBack, "Hand back", enabled: false, disabledReason: "not now")));
 
         // Act
         await presenter.PressAsync();
@@ -292,7 +297,7 @@ public sealed class TerminalWheelPresenterTests
         session.OnGatewayDisplayStateChanged += () => raised++;
 
         // Act
-        session.ApplyGatewayWheelAction(new GatewayWheelAction(WheelVerb.Take, "Take the wheel", true, null));
+        session.ApplyGatewayWheelAction(Wheel(ApiModeWheelVerbs.TakeTheWheel, "Take the wheel"));
 
         // Assert
         Assert.Equal(0, raised);
@@ -314,6 +319,89 @@ public sealed class TerminalWheelPresenterTests
         Assert.Equal(2, raised);
         Assert.Null(session.GatewayWheelAction);
     }
+
+    [Fact]
+    public void Attach_UnknownVerb_ShowsTheProblemAndNoButton()
+    {
+        // Arrange
+        var (presenter, _) = NewPresenter(NewSession(Wheel("grab", "Grab")));
+
+        // Assert - a verb this build does not know is never guessed into a button.
+        Assert.False(presenter.IsVisible);
+        Assert.Null(presenter.Action);
+        Assert.Contains("does not know (\"grab\")", presenter.Problem);
+        Assert.Equal(presenter.Problem, presenter.Note);
+    }
+
+    [Fact]
+    public async Task PressAsync_UnknownVerb_CallsNothing()
+    {
+        // Arrange
+        var (presenter, wheel) = NewPresenter(NewSession(Wheel("grab", "Grab")));
+
+        // Act
+        await presenter.PressAsync();
+
+        // Assert
+        Assert.Empty(wheel.Calls);
+    }
+
+    [Fact]
+    public void Attach_BlankLabel_ShowsTheProblemAndNoButton()
+    {
+        // Arrange
+        var (presenter, _) = NewPresenter(NewSession(Wheel(ApiModeWheelVerbs.TakeTheWheel, "  ")));
+
+        // Assert
+        Assert.False(presenter.IsVisible);
+        Assert.Contains("no words", presenter.Problem);
+    }
+
+    [Fact]
+    public void Attach_LabelTheGatewayChose_IsShownAsGiven()
+    {
+        // Arrange - the words are the Gateway's: whatever it sends is what the button says.
+        var (presenter, _) = NewPresenter(NewSession(Wheel(ApiModeWheelVerbs.HandBack, "Give the conversation back")));
+
+        // Assert
+        Assert.Equal("Give the conversation back", presenter.Label);
+    }
+
+    [Fact]
+    public void ApplyGatewayWheelAction_CallerChangesItsObjectAfterwards_DoesNotReachTheSession()
+    {
+        // Arrange
+        var sent = Take;
+        var session = NewSession(sent);
+
+        // Act
+        sent.Label = "changed";
+
+        // Assert
+        Assert.Equal("Take the wheel", session.GatewayWheelAction!.Label);
+    }
+
+    // Rule 7, pinned at the source: the presenter and the window's drawing of the button never branch on the raw
+    // fields. Comments are stripped first, because they name the fields to say they are not read.
+    [Fact]
+    public void WheelButtonSource_ReadsNeitherWheelHolderNorConnectionMode()
+    {
+        // Arrange
+        var presenter = Code(File.ReadAllText(Path.Combine(TestRepoRoot.Path, "src", "CcDirector.Avalonia", "TerminalWheelPresenter.cs")));
+        var window = File.ReadAllText(Path.Combine(TestRepoRoot.Path, "src", "CcDirector.Avalonia", "MainWindow.axaml.cs"));
+        var start = window.IndexOf("private void UpdateWheelBar()", StringComparison.Ordinal);
+        var end = window.IndexOf("private async void TabBarWheelButton_Click", StringComparison.Ordinal);
+        Assert.True(start > 0 && end > start, "the window's wheel drawing was not found where this test looks");
+        var drawing = Code(window[start..end]);
+
+        // Assert
+        Assert.True(presenter.Length > 1000);
+        foreach (var source in new[] { presenter, drawing })
+            Assert.DoesNotMatch(new Regex("WheelHolder|ConnectionMode"), source);
+    }
+
+    private static string Code(string source) =>
+        Regex.Replace(Regex.Replace(source, @"/\*[\s\S]*?\*/", ""), @"//.*$", "", RegexOptions.Multiline);
 
     /// <summary>An inert backend: the Session needs one, and this test never runs a process.</summary>
     private sealed class InertBackend : ISessionBackend

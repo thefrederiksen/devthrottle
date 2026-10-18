@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { SessionDto } from "../api/client";
 import { readWheelAction } from "./wheelAction";
@@ -10,8 +13,8 @@ function row(apiMode: unknown, over: Partial<SessionDto> = {}): SessionDto {
   return { sessionId: "s-1", ...over, apiMode } as unknown as SessionDto;
 }
 
-function apiModeWith(terminalWheel: unknown): unknown {
-  return { kind: "idle", connectionLabel: "API mode", terminalWheel };
+function apiModeWith(wheelAction: unknown): unknown {
+  return { kind: "idle", connectionLabel: "API mode", wheelAction };
 }
 
 describe("readWheelAction", () => {
@@ -30,45 +33,55 @@ describe("readWheelAction", () => {
     expect(readWheelAction(row(apiModeWith(null)))).toBeNull();
   });
 
-  it("returns null when the Gateway's button is none", () => {
-    expect(readWheelAction(row(apiModeWith({ kind: "none", label: "", enabled: false })))).toBeNull();
-  });
-
   it("reads Take the wheel verbatim", () => {
-    const action = readWheelAction(row(apiModeWith({ kind: "take", label: "Take the wheel", enabled: true, disabledReason: null })));
-    expect(action).toEqual({ verb: "take", label: "Take the wheel", enabled: true, disabledReason: null });
+    const action = readWheelAction(row(apiModeWith({ verb: "takeTheWheel", label: "Take the wheel", enabled: true, disabledReason: null })));
+    expect(action).toEqual({ verb: "takeTheWheel", label: "Take the wheel", enabled: true, disabledReason: null });
   });
 
   it("reads Hand back verbatim", () => {
-    const action = readWheelAction(row(apiModeWith({ kind: "handBack", label: "Hand back", enabled: true })));
+    const action = readWheelAction(row(apiModeWith({ verb: "handBack", label: "Hand back", enabled: true })));
     expect(action).toEqual({ verb: "handBack", label: "Hand back", enabled: true, disabledReason: null });
   });
 
   it("carries the Gateway's reason when the button is not enabled", () => {
     const reason = "The terminal is in the middle of a turn. Hand back when it has finished.";
-    const action = readWheelAction(row(apiModeWith({ kind: "handBack", label: "Hand back", enabled: false, disabledReason: reason })));
+    const action = readWheelAction(row(apiModeWith({ verb: "handBack", label: "Hand back", enabled: false, disabledReason: reason })));
     expect(action).toEqual({ verb: "handBack", label: "Hand back", enabled: false, disabledReason: reason });
   });
 
   it("drops a reason the Gateway sent on an enabled button", () => {
-    const action = readWheelAction(row(apiModeWith({ kind: "take", label: "Take the wheel", enabled: true, disabledReason: "stale" })));
+    const action = readWheelAction(row(apiModeWith({ verb: "takeTheWheel", label: "Take the wheel", enabled: true, disabledReason: "stale" })));
     expect(action?.disabledReason).toBeNull();
   });
 
   it("does not decide from the connection mode or the wheel holder", () => {
     // A row the raw fields would call API mode held by the protocol, but whose verdict says no button: nothing.
-    const verdictSaysNone = row(apiModeWith({ kind: "none" }), { connectionMode: "api", wheelHolder: "protocol" } as Partial<SessionDto>);
+    const verdictSaysNone = row(apiModeWith(null), { connectionMode: "api", wheelHolder: "protocol" } as Partial<SessionDto>);
     expect(readWheelAction(verdictSaysNone)).toBeNull();
     // And a terminal-mode row is not hidden by the reader: only the verdict is.
-    const verdictSaysTake = row(apiModeWith({ kind: "take", label: "Take the wheel", enabled: true }), { connectionMode: "terminal", wheelHolder: "none" } as Partial<SessionDto>);
-    expect(readWheelAction(verdictSaysTake)?.verb).toBe("take");
+    const verdictSaysTake = row(apiModeWith({ verb: "takeTheWheel", label: "Take the wheel", enabled: true }), { connectionMode: "terminal", wheelHolder: "none" } as Partial<SessionDto>);
+    expect(readWheelAction(verdictSaysTake)?.verb).toBe("takeTheWheel");
   });
 
   it("throws on a button kind it does not know, rather than guessing one", () => {
-    expect(() => readWheelAction(row(apiModeWith({ kind: "grab", label: "Grab", enabled: true })))).toThrow(/does not know \("grab"\)/);
+    expect(() => readWheelAction(row(apiModeWith({ verb: "grab", label: "Grab", enabled: true })))).toThrow(/does not know \("grab"\)/);
   });
 
   it("throws on a button with no words, rather than inventing them", () => {
-    expect(() => readWheelAction(row(apiModeWith({ kind: "take", label: "  ", enabled: true })))).toThrow(/no words/);
+    expect(() => readWheelAction(row(apiModeWith({ verb: "takeTheWheel", label: "  ", enabled: true })))).toThrow(/no words/);
+  });
+});
+
+// Rule 7, pinned at the source: the button and its reader never branch on the raw fields. The comments name them
+// (to say they are not read), so comments are stripped before looking.
+describe("the wheel button's source", () => {
+  const HERE = dirname(fileURLToPath(import.meta.url));
+  const code = (file: string) =>
+    readFileSync(join(HERE, file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+  it.each(["wheelAction.ts", "TerminalWheelButton.tsx"])("%s reads neither wheelHolder nor connectionMode", (file) => {
+    const source = code(file);
+    expect(source.length).toBeGreaterThan(200);
+    expect(source).not.toMatch(/wheelHolder|connectionMode/);
   });
 });

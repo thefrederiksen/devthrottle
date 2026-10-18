@@ -21,12 +21,12 @@ vi.mock("../errors/reportClientError", () => ({
 import { GatewayError, type SessionDto } from "../api/client";
 import { TerminalWheelButton } from "./TerminalWheelButton";
 
-function sessionWith(terminalWheel: unknown, sessionId = "s-1"): SessionDto {
-  return { sessionId, apiMode: { kind: "idle", terminalWheel } } as unknown as SessionDto;
+function sessionWith(wheelAction: unknown, sessionId = "s-1"): SessionDto {
+  return { sessionId, apiMode: { kind: "idle", wheelAction } } as unknown as SessionDto;
 }
 
-const TAKE = { kind: "take", label: "Take the wheel", enabled: true, disabledReason: null };
-const HAND_BACK = { kind: "handBack", label: "Hand back", enabled: true, disabledReason: null };
+const TAKE = { verb: "takeTheWheel", label: "Take the wheel", enabled: true, disabledReason: null };
+const HAND_BACK = { verb: "handBack", label: "Hand back", enabled: true, disabledReason: null };
 
 /** A promise the test resolves or rejects by hand, so nothing waits on a clock. */
 function deferred(): { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void } {
@@ -49,8 +49,8 @@ describe("TerminalWheelButton", () => {
     expect(container.innerHTML).toBe("");
   });
 
-  it("TerminalWheelButton_VerdictSaysNone_RendersNothingEvenForAnApiModeRow", () => {
-    const row = { ...sessionWith({ kind: "none" }), connectionMode: "api", wheelHolder: "protocol" } as unknown as SessionDto;
+  it("TerminalWheelButton_VerdictHasNoWheelAction_RendersNothingEvenForAnApiModeRow", () => {
+    const row = { ...sessionWith(null), connectionMode: "api", wheelHolder: "protocol" } as unknown as SessionDto;
     const { container } = render(<TerminalWheelButton session={row} />);
     expect(container.innerHTML).toBe("");
   });
@@ -184,7 +184,7 @@ describe("TerminalWheelButton", () => {
   });
 
   it("TerminalWheelButton_UnreadableVerdict_ShowsTheProblemAndNoButton", () => {
-    render(<TerminalWheelButton session={sessionWith({ kind: "grab", label: "Grab", enabled: true })} />);
+    render(<TerminalWheelButton session={sessionWith({ verb: "grab", label: "Grab", enabled: true })} />);
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByRole("alert").textContent).toMatch(/does not know \("grab"\)/);
     expect(calls.reported).toHaveBeenCalledTimes(1);

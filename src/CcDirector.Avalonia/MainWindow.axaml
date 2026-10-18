@@ -12,6 +12,35 @@
         Icon="avares://cc-director/app.ico">
 
     <Window.Styles>
+        <!-- The Terminal tab's wheel button (mission #4070): taking the wheel is the primary action, handing it back the
+             secondary one. Colours and the readable disabled states are docs/VisualStyle.md's "Button States". -->
+        <Style Selector="Button#TabBarWheelButton.take">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button#TabBarWheelButton.take:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#1A8AD4" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button#TabBarWheelButton.take:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#004E82" />
+            <Setter Property="Foreground" Value="#6699BB" />
+        </Style>
+        <Style Selector="Button#TabBarWheelButton.handback">
+            <Setter Property="Background" Value="{DynamicResource ButtonBackground}" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+        </Style>
+        <Style Selector="Button#TabBarWheelButton.handback:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#505050" />
+            <Setter Property="Foreground" Value="#CCCCCC" />
+        </Style>
+        <Style Selector="Button#TabBarWheelButton.handback:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#2D2D2D" />
+            <Setter Property="Foreground" Value="#666666" />
+        </Style>
+        <Style Selector="Button#TabBarWheelButton:disabled">
+            <Setter Property="Cursor" Value="Arrow" />
+        </Style>
         <!-- Toolbar buttons: flat, icon + label, subtle hover. The New Session
              button opts out (accent styling inline) since it is the primary action. -->
         <Style Selector="Button.toolbarBtn">
@@ -1161,8 +1190,6 @@
                                        IsVisible="False" />
                             <Button x:Name="TabBarWheelButton"
                                     Click="TabBarWheelButton_Click"
-                                    Background="{DynamicResource AccentBrush}"
-                                    Foreground="White"
                                     BorderThickness="0"
                                     Cursor="Hand"
                                     Padding="10,4"
