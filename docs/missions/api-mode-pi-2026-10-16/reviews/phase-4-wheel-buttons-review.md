@@ -219,3 +219,130 @@ A real round trip through a Director, the local gate on Windows, and the rendere
 Director side is pull request #4094's to prove, and its reviewer should check the contract this
 code relies on: that the Director awaits the delta push with the new holder before it answers the
 wheel command, since both the desktop's and the web's "next verdict" depend on it.
+
+## Round 2
+
+Reviewed on 18 October 2026 against commit 37ce89db4, the new head of pull request #4186, in a detached
+worktree of that commit at `../devthrottle-review-4186b`. Since round 1 (commit 2d606339a) the branch
+has two commits of its own: the merge of origin/main (f9daf7828, bringing in pull request #4184, the
+Gateway push that carries the wheel action, and pull request #4094, the Director's wheel verbs) and
+37ce89db4, which folds the API-mode verdict into `Session.ApplyGatewayDisplayState`. origin/main has
+moved one commit past the merge (dac07950f, the phone's license banner), which touches nothing this
+branch reads. Same reviewer seat as round 1, running a different agent family from the Developer.
+
+**Verdict: round 2 holds. No findings. Round 1's one finding (a press ending in "unknown verb") is
+closed by the merge: the verb the Gateway sends is in the Director's write area on this branch, and a
+test on the branch reads the Gateway's constant and the Director's verb list together so they cannot
+drift. The merge lost nothing, the verdict is compared by value with every field in the comparison,
+the removed method had no caller left, rule 7 holds on every surface, and every test I ran passed.**
+
+### Scope: what I read, what I ran
+
+**Read, in full:** the diff of 37ce89db4 (`Session.cs`, `FleetDisplayStateExecutor.cs`, the new
+`GatewayDisplayStateSignalTests` case, and the presenter tests' change to a shared stamp helper); the
+merge result for the seven Gateway-side files the round-1 branch carried beyond its own 29; every caller
+of `ApplyGatewayApiMode`, `GatewayApiMode`, `ApplyGatewayDisplayState` and
+`OnGatewayDisplayStateChanged` across the whole tree (source, tests and documents); the contract types
+`ApiModeSessionDisplay` and `ApiModeWheelAction`; the Director's command areas, the verb-to-area map
+and `SessionWriteExecutor`'s verb list and switch; `SessionCommandExecutor.WheelAsync` and
+`WheelCoreAsync`; the Gateway's `WheelTakeCommand` and `WheelHandBackCommand` and where the route maps
+a verb to them; and the two cross-pinning tests in `ApiModeConnectionThroughTheDirectorTests`.
+
+**Ran, on devlinux, one project at a time, filtered, after checking that no other test run was going
+(two other sessions were running the Gateway unit tests when I started; I waited for them):**
+
+| Run | Result |
+|---|---|
+| `CcDirector.Core.Tests`, filtered to `GatewayDisplayStateSignalTests` (the new case included) | 7 passed, 0 failed |
+| `CcDirector.Avalonia.Tests`, filtered to `TerminalWheelPresenterTests` | 22 passed, 0 failed |
+| `CcDirector.Gateway.UnitTests`, filtered to `SessionCommandExecutorTests`, `GatewayClientWheelTests`, `ApiModeWheelOnTheDisplayPushTests`, `ApiModeConnectionThroughTheDirectorTests` | 96 passed, 0 failed |
+| client-core vitest: `wheelAction.test.ts`, `TerminalWheelButton.test.tsx`, `wheel.test.ts` | 31 passed, 0 failed |
+| Cockpit vitest: `terminalWheelMount.test.tsx` | 3 passed, 0 failed |
+| Phone vitest: `terminalWheelMount.test.tsx`, `stopSessionSheet.test.tsx` | 12 passed, 0 failed |
+
+The three .NET test projects were built fresh in the review worktree with the .NET 10.0.301 toolkit at
+`~/.dotnet` and Node 22 at `~/.local/share/node/bin`; the web dependencies were installed fresh there.
+Not run, as in round 1: the Windows gate script, a press against a real Gateway and Director, and any
+rendered layout.
+
+### The five checks the brief asked for
+
+**(1) Did dropping the Gateway-side duplicates lose anything that #4184 did not bring?** No.
+
+The round-1 branch touched seven files outside its own 29: `SetDisplayStateRequest.cs`,
+`DisplayFold.cs`, `FleetDisplayStateObserver.cs`, `GatewayHost.cs`, `DirectorHub.cs`,
+`ApiModeWheelOnTheDisplayPushTests.cs` and `PushApiModeEventsHubTests.cs`. Every one of those changes
+arrived on the branch through its merge of `origin/api-mode-wheel-action-live` (commit 3be34b82c); the
+branch's own first-parent commits touched none of them. On 37ce89db4 all seven files are byte-for-byte
+identical to origin/main (`git diff origin/main 37ce89db4` over those paths is empty). The only lines the
+round-1 branch had in those files that main no longer has are four lines of `GatewayHost.cs` that main's
+own later commits replaced (the license approver wiring and the shared clock), not anything this branch
+wrote. The conflict file, `ApiModeWheelOnTheDisplayPushTests.cs`, was taken from main, and main's
+version is the round-1 branch's plus three lines: a fixed instant replacing the two reads of the machine
+clock, which is the test standard. Nothing was lost; one thing was gained.
+
+**(2) The value comparison of the verdict.** Every field is compared, any one changing raises the
+change, and no change raises nothing.
+
+The comparison serialises the verdict with `System.Text.Json` and compares the text ordinally with the
+stored text. `ApiModeSessionDisplay` has fourteen public read-write properties, including the nested
+`ApiModeWheelAction` with its four, and the contract file carries no serialisation attribute, so every
+field is in the text and a change to any of them, including a null reason becoming a sentence, changes
+it. Serialisation of the same values is deterministic, so a new object carrying the same verdict compares
+equal. A null verdict serialises to `null`, which is the field's initial value, so a terminal-mode
+session, or a Director under an older Gateway that does not send the field, never sees a spurious change
+on its first push. The stored copy is deserialised from the same text, so round 1's guarantee that a
+later change to the caller's object cannot reach the screen is kept, and the renamed presenter test still
+proves it. The new test `TheWheelActionChangingAlone_RaisesTheChange_AndIsCached` covers the three
+cases that matter: the verb and label changing with every other field equal raises exactly once, the
+same verdict again as a new object raises nothing, and a null after a verdict raises again and clears
+the stored copy. `AnyFieldChanging_RaisesTheChange` still covers the older fields.
+
+**(3) Removing `ApplyGatewayApiMode`.** No caller or ordering it served is broken.
+
+There is no remaining reference to the removed method anywhere in the tree, in source, tests or
+documents. Its one production caller was `FleetDisplayStateExecutor.SetDisplayState`, which now passes
+`request.ApiMode` as the last argument of the one `ApplyGatewayDisplayState` call; every other caller
+of that method passes the older arguments and takes the new default of null, which, for a Director
+whose Gateway sends no verdict, is the same `null` it stored before. Ordering: the verdict and the
+display fields were already delivered in one `set-display-state` command, and the old code stored them
+in two steps with two change events; now one store, one event. The three readers are unaffected. The
+rail (`SessionViewModel`) re-projects the fold on the event and reads none of the verdict, so a
+wheel-only change now costs it one repaint, which the old code also caused through the second event.
+The Terminal tab (`TerminalWheelPresenter`) keeps its own signature gate on the wheel action, so a push
+that changes only rail fields still does not redraw the button, and a push that changes only the button
+redraws it once. The session row (`ControlEndpoints.Map`) echoes `GatewayApiMode` as before. The
+ten presenter tests that stamped through the removed method now stamp through the display-state call
+with every other field null, which is exactly how the executor delivers it.
+
+**(4) Rule 7 on every surface.** Still holds.
+
+None of the 29 wheel files on the desktop, in client-core, the Cockpit or the phone changed between
+round 1 and round 2 except the two Director-side files above and the tests, so round 1's reading
+stands. The two source-pinning tests (`wheelAction.test.ts` and
+`WheelButtonSource_ReadsNeitherWheelHolderNorConnectionMode`) ran green on the merged tree. The new
+storage code in `Session` rules nothing either: it stores the verdict verbatim and reads only the wheel
+fields for its log line.
+
+**(5) A press reaches #4094's executor.** It does; "unknown verb" is closed.
+
+The Gateway's route maps `TakeWheel` to `WheelTakeCommand` (`wheel-take`) and `HandBackWheel` to
+`WheelHandBackCommand` (`wheel-hand-back`). On this branch `SessionWriteExecutor.Verbs` lists both
+names, its switch sends them to `SessionCommandExecutor.WheelAsync` with `take` true or false, and the
+verb-to-area map is built from the areas' declared lists, so the dispatcher routes them to that area
+rather than answering `BadRequest`. The Director's tunnel handler in `ControlApiHost` calls
+`SessionCommandExecutor.DispatchAsync`, which is the map. The branch carries the test
+`Verbs_SessionWriteArea_HandlesTheGatewaysWheelCommands`, which reads the two constants from the
+Gateway's own class and asserts the Director's list contains them, so the two names cannot drift
+apart without a red test; it is one of the 96 that passed. `WheelCoreAsync` is the contract round 1
+asked #4094's reviewer to check: it switches, pushes the new row through the Gateway stream and only
+then replies, and it refuses in its own words when there is no stream.
+
+### Observations (no harm proven)
+
+1. Round 1's observation 1 (one redraw reading two verdicts) is narrower now: the verdict is still
+   swapped on the executor's thread while the screen thread reads it, but the swap happens inside the
+   same store as the other fields, so the frame it could mix is the same frame the rail already
+   tolerates. Still not a finding.
+2. The log line in `ApplyGatewayDisplayState` now carries the wheel fields; the executor's own log line
+   carries the verb too, so each push is written twice at that level. Noise, not harm.
