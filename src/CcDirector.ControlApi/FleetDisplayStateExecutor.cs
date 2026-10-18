@@ -67,11 +67,11 @@ internal sealed class FleetDisplayStateExecutor : ISessionCommandArea
             request.NeedsYouSince,
             request.SnoozeUntil,
             request.SnoozeExpired,
-            request.InboxLine);
-
-        // The API-mode verdict, the Terminal tab's wheel button inside it (mission #4070, phase 4), stored verbatim. Null
-        // clears it: no verdict and no button, which is also what an older Gateway that does not send the field means.
-        session.ApplyGatewayApiMode(request.ApiMode);
+            request.InboxLine,
+            // The API-mode verdict, the Terminal tab's wheel button inside it (mission #4070, phase 4), stored verbatim.
+            // Null clears it: no verdict and no button, which is also what an older Gateway that does not send the field
+            // means.
+            request.ApiMode);
 
         // Reconcile the raw hold mirror on THIS reliable, change-gated channel - not only on the one-shot
         // hold mirror the Gateway fires alongside its own edges. The Gateway folds a real HoldState every

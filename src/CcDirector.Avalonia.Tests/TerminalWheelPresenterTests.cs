@@ -44,10 +44,14 @@ public sealed class TerminalWheelPresenterTests
         }
     }
 
+    /// <summary>The Gateway's push as the Director receives it: a display state carrying the API-mode verdict.</summary>
+    private static void Stamp(Session session, ApiModeSessionDisplay? verdict) =>
+        session.ApplyGatewayDisplayState(null, null, null, null, null, false, apiMode: verdict);
+
     private static Session NewSession(ApiModeWheelAction? action)
     {
         var session = new Session(Guid.NewGuid(), "/test/repo", "/test/repo", null, new InertBackend(), SessionBackendType.ConPty);
-        session.ApplyGatewayApiMode(Verdict(action));
+        Stamp(session, Verdict(action));
         return session;
     }
 
@@ -245,7 +249,7 @@ public sealed class TerminalWheelPresenterTests
         presenter.Changed += () => changes++;
 
         // Act - the Gateway's next push turns the button into its other half.
-        session.ApplyGatewayApiMode(Verdict(Take));
+        Stamp(session, Verdict(Take));
 
         // Assert
         Assert.Equal(1, changes);
@@ -265,7 +269,7 @@ public sealed class TerminalWheelPresenterTests
         presenter.Changed += () => changes++;
 
         // Act
-        session.ApplyGatewayApiMode(Verdict(HandBack));
+        Stamp(session, Verdict(HandBack));
 
         // Assert - nothing redrawn until the screen thread runs the posted work.
         Assert.Equal(0, changes);
@@ -285,7 +289,7 @@ public sealed class TerminalWheelPresenterTests
         presenter.Changed += () => changes++;
 
         // Act
-        first.ApplyGatewayApiMode(Verdict(HandBack));
+        Stamp(first, Verdict(HandBack));
 
         // Assert
         Assert.Equal(0, changes);
@@ -293,7 +297,7 @@ public sealed class TerminalWheelPresenterTests
     }
 
     [Fact]
-    public void ApplyGatewayApiMode_SameVerdictAgain_DoesNotRaise()
+    public void ApplyGatewayDisplayState_SameVerdictAgain_DoesNotRaise()
     {
         // Arrange
         var session = NewSession(Take);
@@ -301,14 +305,14 @@ public sealed class TerminalWheelPresenterTests
         session.OnGatewayDisplayStateChanged += () => raised++;
 
         // Act
-        session.ApplyGatewayApiMode(Verdict(Wheel(ApiModeWheelVerbs.TakeTheWheel, "Take the wheel")));
+        Stamp(session, Verdict(Wheel(ApiModeWheelVerbs.TakeTheWheel, "Take the wheel")));
 
         // Assert
         Assert.Equal(0, raised);
     }
 
     [Fact]
-    public void ApplyGatewayApiMode_NewVerdictThenClear_RaisesEachTime()
+    public void ApplyGatewayDisplayState_NewVerdictThenClear_RaisesEachTime()
     {
         // Arrange
         var session = NewSession(Take);
@@ -316,8 +320,8 @@ public sealed class TerminalWheelPresenterTests
         session.OnGatewayDisplayStateChanged += () => raised++;
 
         // Act
-        session.ApplyGatewayApiMode(Verdict(HandBack));
-        session.ApplyGatewayApiMode(Verdict(null));
+        Stamp(session, Verdict(HandBack));
+        Stamp(session, Verdict(null));
 
         // Assert
         Assert.Equal(2, raised);
@@ -372,7 +376,7 @@ public sealed class TerminalWheelPresenterTests
     }
 
     [Fact]
-    public void ApplyGatewayApiMode_CallerChangesItsObjectAfterwards_DoesNotReachTheSession()
+    public void ApplyGatewayDisplayState_CallerChangesItsObjectAfterwards_DoesNotReachTheSession()
     {
         // Arrange
         var sent = Take;
