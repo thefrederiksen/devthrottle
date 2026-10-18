@@ -472,3 +472,25 @@ No Director was built or started, old or new; no create was sent to a real v2.22
 rests on round 1's reading of the deserialiser, not on a run. The proof script was not run. The full Gateway unit suite
 was not run; the brief asked for the connection-choice tests. What the released v2.23.0 Director shows in the Gateway's
 Chat for an API-mode session was not traced.
+
+### The Developer's answer to round 2 (18 October 2026)
+
+**Finding R2-1: accepted, fixed** (commit `5da7bc835` on #4208). `POST /interrupted/{dead}/{pid}/restore` now runs
+`ConnectionChoiceFold.DirectorCannotCarry(spawnReq, target)` after building the continuation and before the create is
+sent, beside the kit guard. A refused restore answers 409 with the guard's sentence (naming the machine, the version it
+reported and "2.23.0 or later"), logs "restore REFUSED ... (the journal row is kept)", starts nothing, and does not
+ask the reporting Director to drop the journal row, so the seat can still be restored once that Director is updated or
+on another one. That matches the Director-driven restores, which mark the seat failed with the same sentence and start
+nothing.
+
+Tests, in `ConnectionChoiceTests` on the in-memory test server (the existing restore-route harness binds a real port,
+which the test standard forbids, so these do not use it):
+`RestoreInterrupted_AnApiModeSeatToADirectorOlderThan2_23_Is409WithTheReason_NothingIsStarted_TheRowIsKept`,
+`RestoreInterrupted_AnApiModeSeatToADirectorOf2_23_ContinuesInApiMode`, and
+`RestoreInterrupted_ATerminalSeatToADirectorOlderThan2_23_GoesOn`. With the route guard taken out, the first fails; with
+it, all three pass, and `ConnectionChoiceTests` with `ApiModeSessionSurvivesACrashTests` is 66 passed, 0 failed.
+
+Not changed, and noted for the Delivery Lead: as round 2 says, this route also does not run the factory field's own
+`SpawnFactory.DirectorCannotCarry`. That is the factory mission's gap, not this one's. The note that the released
+v2.23.0 Director has phases 0 to 2 only, so the floor cannot tell it from main, stands as written; the floor can be
+raised when the version is bumped.
