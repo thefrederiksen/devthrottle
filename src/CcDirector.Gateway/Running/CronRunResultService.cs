@@ -44,6 +44,7 @@ public sealed class CronRunResultService
     private readonly Factory.Triggers.TriggerStore _triggers;
     private readonly Func<TenantId, string, string, IReadOnlyList<string>> _scheduleSessionsByName;
     private readonly Func<string, DateTime, string, bool> _settleLastStatus;
+    private readonly MailDesk.MailDeskProblemSource _mailDesk;
 
     /// <summary>
     /// The least time a start whose outcome was not known is given for its session to appear, however near the end of
@@ -69,6 +70,9 @@ public sealed class CronRunResultService
     /// leaving every such run unknown and its session's report refused.</param>
     /// <param name="settleLastStatus">Correct a schedule's last status, in the ambient account, when it is still the
     /// last fire at that time (<see cref="CronJobStore.SettleLastStatus"/>).</param>
+    /// <param name="mailDesk">The Mail Desk's mailboxes and spend, the problems list's third source (Mail Desk mission,
+    /// phase 3, section 6.2). REQUIRED, so a wiring line that forgot it fails to compile rather than leaving every failed
+    /// mailbox off the Open problems card and the 08:00 email.</param>
     public CronRunResultService(
         CronRunHistoryStore runs,
         Func<string, CronJobDto?> jobById,
@@ -79,8 +83,10 @@ public sealed class CronRunResultService
         Func<DateTime> nowUtc,
         Factory.Triggers.TriggerStore triggers,
         Func<TenantId, string, string, IReadOnlyList<string>> scheduleSessionsByName,
-        Func<string, DateTime, string, bool> settleLastStatus)
+        Func<string, DateTime, string, bool> settleLastStatus,
+        MailDesk.MailDeskProblemSource mailDesk)
     {
+        _mailDesk = mailDesk ?? throw new ArgumentNullException(nameof(mailDesk));
         _scheduleSessionsByName = scheduleSessionsByName ?? throw new ArgumentNullException(nameof(scheduleSessionsByName));
         _settleLastStatus = settleLastStatus ?? throw new ArgumentNullException(nameof(settleLastStatus));
         _triggers = triggers ?? throw new ArgumentNullException(nameof(triggers));
@@ -428,6 +434,13 @@ public sealed class CronRunResultService
             // The problems list's second source: a definition trigger's failed check is resolved by its check's id.
             if (_triggers.FindRun(tenant, id) is { } check)
                 return ResolveTriggerCheck(tenant, id, check.Run, check.Trigger, resolvedBy, reason!.Trim());
+            // The third source: a mailbox's failed checks are resolved by the first failed check's id, and the spend
+            // problem is cleared only by raising the limit.
+            if (_mailDesk.Checks.Find(tenant, id) is { } mailboxCheck)
+                return ResolveMailboxCheck(tenant, id, mailboxCheck, resolvedBy, reason!.Trim());
+            if (MailDesk.MailDeskProblems.SpendProblem(_mailDesk.Facts(tenant).Spend, _zoneOf(tenant), _nowUtc()) is { } spend
+                && spend.RunId == id.ToString("D"))
+                return CronRunResultOutcome<CronRunProblemDto>.Refused(MailDesk.MailDeskProblems.SpendNotResolvableSentence, 409);
             return CronRunResultOutcome<CronRunProblemDto>.Refused(
                 $"There is no run {id} in this account. Copy the run id from cc-devthrottle run problems.", 404);
         }
@@ -482,6 +495,39 @@ public sealed class CronRunResultService
         return CronRunResultOutcome<CronRunProblemDto>.Ok(TriggerProblemOf(tenant, trigger, id)!);
     }
 
+    /// <summary>
+    /// Resolve the problem a Mail Desk mailbox's failed checks raised (Mail Desk mission, phase 3, section 6.2). As for a
+    /// trigger's checks, a run of failures is one problem named by its FIRST failed check, so only that id resolves it.
+    /// </summary>
+    private CronRunResultOutcome<CronRunProblemDto> ResolveMailboxCheck(TenantId tenant, Guid id,
+        Data.Entities.MailDeskChannelCheckEntity check, string resolvedBy, string reason)
+    {
+        if (check.Ok)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id} read its mailbox, so it has no problem to resolve. Copy the run id from cc-devthrottle run problems.", 409);
+        var problem = MailboxProblemOf(tenant, check.ChannelId, id);
+        if (problem is null)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id} failed as part of a mailbox problem raised by an earlier check of the same run of failures, or of a mailbox that is removed or switched off. Copy the run id from cc-devthrottle run problems.", 409);
+        if (problem.State == CronRunProblemStates.Cleared)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id}'s problem is already cleared: check {problem.ClearedByRunId}, the next check of {problem.JobName}, read it.", 409);
+        if (!_mailDesk.Checks.Resolve(tenant, id, resolvedBy, reason, _nowUtc()))
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Check {id}'s problem is already resolved - {problem.StateText}.", 409);
+
+        FileLog.Write($"[CronRunResultService] Resolve: mailbox check={id}, channel={check.ChannelId}, by={resolvedBy}");
+        return CronRunResultOutcome<CronRunProblemDto>.Ok(MailboxProblemOf(tenant, check.ChannelId, id)!);
+    }
+
+    private CronRunProblemDto? MailboxProblemOf(TenantId tenant, Guid channelId, Guid headId)
+    {
+        var mailbox = _mailDesk.Facts(tenant).Channels.FirstOrDefault(c => c.Channel.Id == channelId);
+        if (mailbox.Channel is null) return null;
+        return MailDesk.MailDeskProblems.MailboxProblems(mailbox.Channel, mailbox.Checks, _zoneOf(tenant), _nowUtc())
+            .FirstOrDefault(p => p.RunId == headId.ToString("D"));
+    }
+
     private CronRunProblemDto? TriggerProblemOf(TenantId tenant, Data.Entities.TriggerEntity trigger, Guid headId)
     {
         var runs = _triggers.DefinitionTriggerRuns(tenant).FirstOrDefault(t => t.Trigger.Id == trigger.Id).Runs
@@ -500,7 +546,7 @@ public sealed class CronRunResultService
         var jobs = _allJobs().ToDictionary(j => j.Id, StringComparer.Ordinal);
         var asOf = asOfUtc ?? _nowUtc();
         var dto = CronRunResultFold.Problems(_runs.AllByJob(tenant), jobs, _zoneOf(tenant), factory, includeClosed, asOf,
-            _triggers.DefinitionTriggerRuns(tenant));
+            _triggers.DefinitionTriggerRuns(tenant), _mailDesk.Facts(tenant));
         FileLog.Write($"[CronRunResultService] Problems: tenant={tenant.ToLogString()}, factory={factory ?? "-"}, state={dto.State}, asOf={asOf:O}, count={dto.Count}");
         return dto;
     }
@@ -521,7 +567,7 @@ public sealed class CronRunResultService
         // Read once, so the problem list and the day table count the same interval checks.
         var triggerRuns = _triggers.DefinitionTriggerRuns(tenant);
         var problems = CronRunResultFold.Problems(runsByJob, jobs, _zoneOf(tenant), factory: null, includeClosed: false, asOfUtc,
-            triggerRuns);
+            triggerRuns, _mailDesk.Facts(tenant));
 
         var sessionIds = runsByJob.Values.SelectMany(r => r).Select(r => r.SessionId)
             .Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!).Distinct(StringComparer.Ordinal).ToList();
@@ -544,7 +590,7 @@ public sealed class CronRunResultService
             : new Dictionary<string, CronJobDto>(StringComparer.Ordinal) { [jobId] = job };
         var folded = CronRunResultFold.Problems(new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal) { [jobId] = runs },
             jobs, _zoneOf(tenant), factory: null, includeClosed: true, _nowUtc(),
-            Array.Empty<(Data.Entities.TriggerEntity, IReadOnlyList<Data.Entities.TriggerRunEntity>)>());
+            Array.Empty<(Data.Entities.TriggerEntity, IReadOnlyList<Data.Entities.TriggerRunEntity>)>(), MailDesk.MailDeskProblemFacts.None);
         return folded.Problems.Single(p => p.RunId == runId.ToString("D"));
     }
 
