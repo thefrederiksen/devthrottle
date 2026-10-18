@@ -14,6 +14,13 @@
 .PARAMETER Configuration
     Build configuration. Defaults to Release.
 
+.PARAMETER NoRuleHook
+    Build a Director that carries no Session Rules hook. The Director normally CARRIES cc-rule-hook,
+    compiled to native code and embedded in its own executable (Session Rules part 2, phase 1, ruling
+    P16; the EmbedRuleHook target in CcDirector.Avalonia.csproj). Native compilation on Windows needs the
+    Visual Studio "Desktop development with C++" build tools; without them the build fails and says so.
+    With -NoRuleHook its sessions evaluate no rules, on purpose.
+
 .EXAMPLE
     .\scripts\local-build-avalonia.ps1
     .\scripts\local-build-avalonia.ps1 -SelfContained
@@ -22,7 +29,8 @@ param(
     [switch]$SelfContained,
     [string]$Configuration = "Release",
     [string]$Slot = "",
-    [string]$OutputDir = ""
+    [string]$OutputDir = "",
+    [switch]$NoRuleHook
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,10 +85,20 @@ if ($LASTEXITCODE -ne 0) {
 
 # Step 2: Build Avalonia project with RID
 Write-Host "  Building Avalonia project..." -ForegroundColor Gray
-& dotnet build $projectPath -c $Configuration -r win-x64 --self-contained $selfContainedFlag --nologo -v q
+$embedRuleHook = if ($NoRuleHook) { "false" } else { "true" }
+& dotnet build $projectPath -c $Configuration -r win-x64 --self-contained $selfContainedFlag "-p:EmbedRuleHook=$embedRuleHook" --nologo -v q
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Avalonia build failed with exit code $LASTEXITCODE"
     exit 1
+}
+
+# The Session Rules hook. The presence check is in the build itself (VerifyRuleHookEmbedded in
+# CcDirector.Avalonia.csproj): it reads the compiled assembly's managed resources and fails the build above
+# unless one holds the evaluator's exact bytes. Reaching this line with the hook on means that check passed.
+if ($NoRuleHook) {
+    Write-Host "  Session Rules hook: NOT embedded (-NoRuleHook) - this Director's sessions evaluate no rules" -ForegroundColor Yellow
+} else {
+    Write-Host "  Session Rules hook: embedded (verified in the assembly's managed resources by the build)" -ForegroundColor Gray
 }
 
 # Step 3: Publish

@@ -36,6 +36,17 @@ namespace CcDirector.Core.Claude;
 /// The hook command is per-platform: PowerShell on Windows, POSIX shell on macOS/Linux (where
 /// PowerShell does not exist, which used to silently disable transcript tracking and leave
 /// session history permanently empty on those platforms).
+///
+/// SESSION RULES (part 2, phase 1, rulings P9, P12 and P16): the same settings also register a
+/// PreToolUse hook for Claude Code's shell tools (<c>Bash</c>, and <c>PowerShell</c> on Windows) that
+/// runs <c>cc-rule-hook</c>, the native rule evaluator. The Director CARRIES that executable inside
+/// itself (<see cref="RuleHookBinary"/>), and this installer writes it into the same folder as the hook
+/// scripts - so whichever Director build is running brings the hook that matches it, through install,
+/// update, roll back and every slot, with nothing else to ship. It is registered for EVERY session,
+/// because Claude Code reads its hooks at launch and rules arrive mid-session - but only when this build
+/// carries one, because a hook pointed at a missing file errors on every shell command. It is a native
+/// executable, not a script, because it runs before every shell command and PowerShell's start-up cost
+/// (above) cannot be paid that often.
 /// </summary>
 public static class ClaudeHookInstaller
 {
@@ -106,6 +117,20 @@ public static class ClaudeHookInstaller
         "fi\n" +
         "exit 0\n";
 
+    /// <summary>Claude Code's shell tools, as its PreToolUse matcher names them. Claude Code 2.1.302 lists
+    /// exactly these two as shell tools; PowerShell exists on Windows only, so naming it costs nothing
+    /// elsewhere. Anchored, so no other tool whose name merely CONTAINS one of the two ever runs the
+    /// evaluator: a live run on 2.1.302 showed this anchored form fires on Bash, and that the matcher is
+    /// read as a regular expression (<c>^(Bas)$</c> did not fire).</summary>
+    public const string ShellToolMatcher = "^(Bash|PowerShell)$";
+
+    /// <summary>The rule evaluator's file name on each platform.</summary>
+    public static string RuleHookExecutableName(bool forWindows) => forWindows ? "cc-rule-hook.exe" : "cc-rule-hook";
+
+    /// <summary>Where the installer writes the rule evaluator: beside the hook scripts in <paramref name="directory"/>.</summary>
+    public static string RuleHookPathIn(string directory, bool forWindows)
+        => Path.Combine(directory, RuleHookExecutableName(forWindows));
+
     /// <summary>The hook event sources we register a SessionStart hook for. These are the
     /// moments Claude can switch to a new session id / transcript file.</summary>
     private static readonly string[] SessionStartMatchers = { "startup", "resume", "clear", "compact" };
@@ -127,6 +152,19 @@ public static class ClaudeHookInstaller
     /// can never run on macOS/Linux, which silently killed transcript tracking there).
     /// </summary>
     public static string? EnsureInstalled(string directory, bool forWindows)
+        => EnsureInstalled(directory, forWindows, RuleHookBinary.Carried());
+
+    /// <summary>
+    /// Testable overload that also takes the rule evaluator's bytes - what this Director build carries, or
+    /// null when it carries none. The PreToolUse hook is registered only when the evaluator is on disk
+    /// afterwards.
+    /// </summary>
+    public static string? EnsureInstalled(string directory, bool forWindows, byte[]? ruleHook)
+        => EnsureInstalled(directory, forWindows, ruleHook, ReplaceFile);
+
+    /// <summary>Testable overload whose final replace of the evaluator can be made to fail, the way Windows
+    /// refuses to replace an executable that is running.</summary>
+    internal static string? EnsureInstalled(string directory, bool forWindows, byte[]? ruleHook, Action<string, string> replace)
     {
         try
         {
@@ -136,7 +174,8 @@ public static class ClaudeHookInstaller
             File.WriteAllText(scriptPath, forWindows ? PowerShellScriptContent : ShellScriptContent);
 
             var settingsPath = Path.Combine(directory, SharedSettingsFileName);
-            File.WriteAllText(settingsPath, BuildSettingsJson(scriptPath, forWindows));
+            var ruleHookPath = InstallRuleHook(directory, forWindows, ruleHook, replace);
+            File.WriteAllText(settingsPath, BuildSettingsJson(scriptPath, forWindows, ruleHookPath));
 
             return settingsPath;
         }
@@ -168,12 +207,23 @@ public static class ClaudeHookInstaller
     /// without them.
     /// </summary>
     public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions)
+        => WriteSessionSettings(kitDirectory, hooksDirectory, forWindows, permissions, RuleHookBinary.Carried());
+
+    /// <summary>Testable overload of <see cref="WriteSessionSettings(string, string, bool, JsonObject)"/> that says
+    /// whether this Director build carries the rule evaluator. The seat's file registers it exactly when the shared
+    /// file does: the build carries one AND <see cref="EnsureInstalled(string, bool)"/> left it on disk.</summary>
+    public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions, byte[]? ruleHook)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(kitDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(hooksDirectory);
         ArgumentNullException.ThrowIfNull(permissions);
 
-        var settings = JsonSerializer.SerializeToNode(BuildSettings(ScriptPathIn(hooksDirectory, forWindows), forWindows))!.AsObject();
+        // The seat's file is written BEFORE the shared install in the Director's launch order
+        // (PrepareFactoryKitLaunch runs first), so on a fresh instance nothing has written the evaluator yet.
+        // It installs it itself - the same compare-before-write, so the shared install after it is a no-op.
+        var ruleHookPath = InstallRuleHook(hooksDirectory, forWindows, ruleHook, ReplaceFile);
+
+        var settings = JsonSerializer.SerializeToNode(BuildSettings(ScriptPathIn(hooksDirectory, forWindows), forWindows, ruleHookPath))!.AsObject();
         settings["permissions"] = permissions.DeepClone();
 
         var path = Path.Combine(kitDirectory, SessionSettingsFileName);
@@ -191,13 +241,13 @@ public static class ClaudeHookInstaller
 
     private static readonly JsonSerializerOptions SettingsJsonOptions = new() { WriteIndented = true };
 
-    private static string BuildSettingsJson(string scriptPath, bool forWindows)
-        => JsonSerializer.Serialize(BuildSettings(scriptPath, forWindows), SettingsJsonOptions);
+    private static string BuildSettingsJson(string scriptPath, bool forWindows, string? ruleHookPath)
+        => JsonSerializer.Serialize(BuildSettings(scriptPath, forWindows, ruleHookPath), SettingsJsonOptions);
 
     // THE ONE BUILDER of the hooks content: the shared file is it serialized, and a seat's own file is it plus the
     // seat's permissions (WriteSessionSettings). Two builders would drift, and a seat would lose the pointer tracking
     // and the preamble every other session has.
-    private static object BuildSettings(string scriptPath, bool forWindows)
+    private static object BuildSettings(string scriptPath, bool forWindows, string? ruleHookPath)
     {
         // Shell form (single command string), which works whether Claude runs hooks through
         // cmd.exe or sh. The script path is quoted (per-user data dirs contain spaces, e.g.
@@ -212,12 +262,92 @@ public static class ClaudeHookInstaller
         for (var i = 0; i < SessionStartMatchers.Length; i++)
             sessionStart[i] = new { matcher = SessionStartMatchers[i], hooks = new[] { hook } };
 
-        return new
+        var hooks = new Dictionary<string, object[]>
         {
-            hooks = new Dictionary<string, object[]>
-            {
-                ["SessionStart"] = sessionStart,
-            },
+            ["SessionStart"] = sessionStart,
         };
+
+        // The rule evaluator is run directly - it is a native executable, so there is no interpreter in
+        // front of it - by its absolute path, quoted for the spaces in per-user folders. Null means there
+        // is no evaluator on disk to run (InstallRuleHook has already said why, loudly).
+        if (ruleHookPath is not null)
+        {
+            var ruleHook = new { type = "command", command = $"\"{ruleHookPath}\"", timeout = 10 };
+            hooks["PreToolUse"] = [new { matcher = ShellToolMatcher, hooks = new[] { ruleHook } }];
+        }
+
+        return new { hooks };
+    }
+
+    private static void ReplaceFile(string source, string destination) => File.Move(source, destination, overwrite: true);
+
+    /// <summary>
+    /// Write the evaluator this build carries into <paramref name="directory"/> and return the path to
+    /// register, or null when there is nothing on disk to run.
+    ///
+    /// Compare before write, so a launch with the same build touches nothing. Otherwise written to a sibling
+    /// temporary file, made executable on Linux and macOS, and moved over the old one in one step, so a hook
+    /// starting at that moment runs either the old evaluator or the new one, never half of one. Windows
+    /// refuses to replace an executable that is running - another session's hook may be - and that is
+    /// never fatal (ruling P16): it is logged, the replace is tried again at the next session launch, and
+    /// meanwhile the evaluator already there, from the previous build, is a working hook and stays
+    /// registered.
+    ///
+    /// NOTHING here may throw. The evaluator is optional and the SessionStart hooks written beside it are
+    /// not: an exception escaping to <see cref="EnsureInstalled(string, bool)"/>'s catch would launch the
+    /// session with no --settings at all, losing the session pointer and the preamble that worked before
+    /// the rule hook existed. Every failure resolves to "register the evaluator already on disk" or
+    /// "register none", and says which in the log.
+    /// </summary>
+    private static string? InstallRuleHook(string directory, bool forWindows, byte[]? ruleHook, Action<string, string> replace)
+    {
+        if (ruleHook is null)
+        {
+            FileLog.Write("[ClaudeHookInstaller] InstallRuleHook: RULE HOOK MISSING - this Director build carries no cc-rule-hook " +
+                "(it was built without the native compiler, or for a platform that does not get one yet), so NO session rule is " +
+                "evaluated before shell commands in sessions started now.");
+            return null;
+        }
+
+        var path = RuleHookPathIn(directory, forWindows);
+        var tmp = $"{path}.{Environment.ProcessId}.tmp";
+        try
+        {
+            if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(ruleHook))
+                return path;
+
+            Directory.CreateDirectory(directory);
+            File.WriteAllBytes(tmp, ruleHook);
+            if (!OperatingSystem.IsWindows())
+                File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                    | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            replace(tmp, path);
+            FileLog.Write($"[ClaudeHookInstaller] InstallRuleHook: wrote {path} ({ruleHook.Length} bytes)");
+            return path;
+        }
+        catch (Exception ex)
+        {
+            RemoveTemporary(tmp);
+            var kept = File.Exists(path);
+            FileLog.Write($"[ClaudeHookInstaller] InstallRuleHook: could not check or replace {path} ({ex.GetType().Name}: {ex.Message}); it is tried again at the next " +
+                (kept
+                    ? "session launch, and the evaluator already there, from an earlier build, stays registered meanwhile."
+                    : "session launch. There is NO evaluator on disk, so NO session rule is evaluated in sessions started now."));
+            return kept ? path : null;
+        }
+    }
+
+    // A failed delete is logged and left: a stray temporary file is harmless, and it must not turn a
+    // handled failure back into one that costs the session its hooks.
+    private static void RemoveTemporary(string tmp)
+    {
+        try
+        {
+            File.Delete(tmp);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ClaudeHookInstaller] RemoveTemporary: could not delete {tmp}: {ex.Message}");
+        }
     }
 }

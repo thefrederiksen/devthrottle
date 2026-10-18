@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- THE SESSION RULES HOOK EVALUATOR (Session Rules part 2, phase 1, rulings P10 and P11).
+       Claude Code runs this before EVERY shell command of every Director session, so its start-up time
+       is paid on every command. That is why it is its own tiny project:
+       - NO project references. Referencing Core would drag in the whole Director to read one file.
+       - Source-generated JSON only, so it can be compiled ahead of time to native code.
+       - Published with Native AOT (PublishAot), which removes the .NET runtime start-up from every call.
+       It never blocks a command: it always exits 0 and never writes to standard output (P10). -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>cc-rule-hook</AssemblyName>
+    <RootNamespace>CcDirector.RuleHook</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CcDirector.RuleHook.Tests" />
+  </ItemGroup>
+
+</Project>
