@@ -40,7 +40,8 @@ All of these are true at the end, and the Delivery Lead's final QA report shows 
 1. The Mail Desk is merged to main and **deployed to the hosted Gateway**, switched on for the owner's account only.
    Every other account sees no change: the switch is off by default.
 2. The screening check runs **every 5 minutes** on a Director (devlinux, see question 2) against
-   **email@devthrottle.com**, signed in through cc-outlook's sign-in, and the run history shows it.
+   **email@devthrottle.com** and **the owner's second Outlook address** (D19), each signed in through cc-outlook's sign-in,
+   and the run history shows it.
 3. In **observe mode** it records, for every new email, the decision it would take (which layer decided, the route or
    the filing, and the reason) - and **changes nothing in the mailbox and starts no session**.
 4. The **existing inbox** has been screened: the QA report lists the decision for each of the most recent emails
@@ -52,6 +53,8 @@ All of these are true at the end, and the Delivery Lead's final QA report shows 
 6. The **allow-list and block list** exist on the Gateway, can be changed by the owner and by agent sessions, and
    every change is recorded with who made it and why.
 7. The QA report covers the **failure cases** as well as the flow (section 7).
+8. The **Mail Desk page** in the Cockpit and the mobile app lists every supported address with its provider, mode,
+   machine, signed-in state, last check and today's counts (D21).
 
 ## 4. Decisions
 
@@ -133,6 +136,26 @@ Every answer the owner gave, in his words where he gave words. Dictated text is 
   for model calls; devlinux runs the check, SOREN_NORTH is the backup; the citizenship rule is data the owner supplies
   when he likes; `devthrottle/wingman-fast` is the model; the most recent 200 emails or the last 30 days, whichever is
   fewer, are screened.
+
+### Added after approval (18 October 2026, the owner, in the Delivery Lead's session)
+
+- **D19. A second mailbox: the owner's second Outlook address.** On being told that several addresses are supported, each
+  signed in with cc-outlook: "I would like you to also add that into the mail desk." So the
+  owner's **second Outlook address** is a second channel, in observe mode, checked on devlinux (its cc-outlook sign-in
+  already exists there). The address is named in the Gateway's channel row and the owner's own QA report, never here:
+  this repository is public. The owner was told first that screening sends each email's sender, subject and first 200
+  characters to the model on DeepInfra, and that this mailbox holds another organisation's mail. No sender, subject or
+  body text from it is ever committed to a repository.
+- **D20. Gmail: the next mission, not this one.** The owner: "we'll have to support Gmail as well", then chose
+  "Next mission" (recommended). So every channel carries a **provider** (`outlook` now, `gmail` next) and nothing in
+  this mission may assume Outlook beyond the reader in `checks/screen.py`; Gmail is a new reader on the existing
+  cc-gmail sign-in, not a redesign.
+- **D21. A Mail Desk page showing the supported addresses.** The owner: "We really need a place also on the mail desk
+  where we show the supported email addresses", then chose "Cockpit and phone page" (recommended). A Mail Desk page in
+  the Cockpit and the mobile app lists each channel - address, provider, mode, machine, signed-in state, last check,
+  today's counts by decision. Every value on it is folded on the Gateway and rendered verbatim (repository rule 7); the
+  page is shared client code mounted by both shells, like Settings (rule 8). It ships in the Gateway image, so it is
+  inside D16's deploy grant, and it is hidden when the account's switch is off.
 
 ### Overrides of the method
 
@@ -239,7 +262,8 @@ It reads; in live mode it also files what the Gateway queued. It never decides.
 
 New tables (SQLite and PostgreSQL, the usual migration pair; tenant-scoped like every other table):
 
-- **`mail_desk_channels`** - one row per channel: kind (`email`), address, the account's `mail-desk` factory and its
+- **`mail_desk_channels`** - one row per channel: kind (`email`), provider (`outlook`; `gmail` next - D20), address,
+  the machine or machines that check it, the account's `mail-desk` factory and its
   start, **mode** (`observe` | `live`, default `observe`), created and changed by whom.
 - **`mail_desk_rules`** - the rules file, **versioned** (every save a new version, nothing overwritten): fixed rules,
   the allow-list, the block list and the routes, in one document per account (shape below).
@@ -321,6 +345,7 @@ applies to `--json`, an unknown flag fails, no id cut short, an empty result say
 | Command | Who | What |
 |---|---|---|
 | `maildesk status` | anyone in the account | channels, mode, last check, today's counts by decision |
+| `maildesk channel list`, `channel add <address> --provider outlook --machine <machine> --why <text>`, `channel remove <address> --why <text>` | list: anyone; add and remove: **person only**, or a session in no factory that the owner told to (the 6c rule) | the supported addresses (D19, D21). A new channel always starts in `observe`; removal keeps its decisions |
 | `maildesk decisions [--since] [--layer] [--decision] [-n]` | anyone | the decision rows, newest first: what the owner reviews |
 | `maildesk rules show [--version]`, `rules history` | anyone | the rules document and every change with who and why |
 | `maildesk allow add <pattern> --what <text> --do <archive\|keep-for-owner\|route:factory/seat> --why <text>` | person or session | add to the allow-list (D6, D7) |
@@ -351,13 +376,14 @@ per-account switch belongs and records it). This is what keeps the deploy inside
 
 ### 5.11 In, and out
 
-**In:** everything above, for email, for one mailbox (email@devthrottle.com) end to end, with more mailboxes being
-another channel row and another sign-in.
+**In:** everything above, for email, for two Outlook mailboxes (email@devthrottle.com, and
+the owner's second Outlook address - D19) end to end, with more mailboxes being another channel row and another sign-in;
+the Mail Desk page in the Cockpit and the mobile app (D21).
 
 **Out (later missions):** Teams, Slack and other channels, and the study of how OpenClaw and others connect channels
-(the owner named OpenClaw; that study comes back to him as its own report before any channel is built); a Cockpit
-Mail Desk page (the commands and the 08:00 section are the surfaces for now); a dedicated cheaper model name (needs a
-website proxy deploy); Gmail; sending email; switching any channel to live mode in production (the owner's approval,
+(the owner named OpenClaw; that study comes back to him as its own report before any channel is built); editing
+the lists from the Mail Desk page (it lists; the commands change); a dedicated cheaper model name (needs a
+website proxy deploy); Gmail (the next mission - D20); sending email; switching any channel to live mode in production (the owner's approval,
 D17).
 
 ---
@@ -370,12 +396,13 @@ Developer's code and each finished phase is reviewed by a different agent family
 | Phase | What | Tech Lead | Runs alongside |
 |---|---|---|---|
 | **0. Proofs** (about a day, no product code) | **(a)** The owner signs email@devthrottle.com in with cc-outlook on devlinux. A throwaway definition check, run by devlinux's real Director (2.22.0) from a published version on a **throwaway** Gateway, finds that saved sign-in with every `CC_` variable stripped, gets a `Mail.ReadWrite`-only token silently, and the renewed cache is written back. If this fails, stop and report to the owner: 5.4 depends on it. **(b)** Read-only against the real mailbox, by hand: Inbox and Sent paging, message size, the real number of messages per 8 KB `context`. **(c)** The model on a sample: 50 recent Inbox emails (sender, subject, 200 characters) through `devthrottle/wingman-fast` with both questions, results and cost written up; the confidence threshold proposed from it. **(d)** Where an account-level switch belongs. Proofs are committed scripts and output under `docs/qa/mail-desk/phase-0/`, with no email address other than ours and no body text in the committed output. | Yes | - |
-| **1. The Gateway store and commands** | 5.6 tables (both databases), the rules document and its validation, `maildesk` commands for status, rules, lists, decisions and mode, the change record, the switch (5.10). Unit tests for every command, including refusals: a factory session switching mode, a change without `--why`, an unknown flag. | Yes | 2 |
+| **1. The Gateway store and commands** | 5.6 tables (both databases), the rules document and its validation, `maildesk` commands for status, channels (D19), rules, lists, decisions and mode, the change record, the switch (5.10). Unit tests for every command, including refusals: a factory session switching mode, a change without `--why`, an unknown flag. | Yes | 2 |
 | **2. The screening check** | `checks/screen.py` and its tests against the fake Graph (extend the phase 5b rig's), the template factory (5.3) and its offer as a draft. Tests prove: no call other than GET and the two moves; no move in observe mode even with a filing queue present; batches fit the budget; the cursor never advances past what was reported; a failed sign-in is a failed check naming the fix. | Yes | 1 |
 | **3. Screening on the Gateway, observe mode** | `MailDeskService`, the `screened` outcome, the four layers, the model call with its tag and the spend limit, decision rows, the 08:00 section. Tests for each layer, the order, `unsure`, a model failure (recorded as a failed screening for that email, retried next run, never guessed), and observe mode starting nothing. | Yes | 5 |
 | **4. Live mode** | The filing queue, starting seats in any factory, `mail_desk_routed`, `done`, `return`, the second return to the owner, re-routing an orphaned `open` row. **Proven only on a throwaway Gateway with a slot 5+ test Director (repository rule 0b) and the fake Graph.** Production stays in observe. | Yes | 5 |
 | **5. Backup machines** | 5.9, with tests for handover and hand-back. | Developer under the phase 3 Tech Lead | 3, 4 |
-| **6. Deploy and production QA** | Merge; deploy with `deploy-hosted-gateway`; turn the switch on for the owner's account; the owner publishes the `mail-desk` factory; the channel in observe mode on devlinux; screen the existing Inbox (question 5) by letting the check catch up from its first-run look-back (or a one-off 1-minute interval until caught up, then back to 5 minutes); the QA report (section 7). | No - the Delivery Lead | - |
+| **6. Deploy and production QA** | Merge; deploy with `deploy-hosted-gateway`; turn the switch on for the owner's account; the owner publishes the `mail-desk` factory; the channel in observe mode on devlinux; screen the existing Inbox (question 5) by letting the check catch up from its first-run look-back (or a one-off 1-minute interval until caught up, then back to 5 minutes); both channels (D19); the QA report (section 7). | No - the Delivery Lead | - |
+| **7. The Mail Desk page** (D21) | One page in shared client code, mounted by the Cockpit and the mobile app; a Gateway route returning the folded channel rows; hidden with the switch off. Proof: the client tests, and a QA report of screenshots at desktop and phone width (the `web-qa` skill) with the switch on and off. Complies with `docs/VisualStyle.md`. | Yes | 3, 4 (after 1) |
 
 Merges happen at the end of each phase, behind the switch.
 
@@ -443,8 +470,9 @@ A deploy of the Gateway between phases is allowed (D16) but not needed before ph
 ## 9. Where it ends
 
 **In production, in observe mode.** Merged to main; deployed to the hosted Gateway (D16); the switch on for the
-owner's account only; the `mail-desk` factory published by the owner; email@devthrottle.com screened every 5 minutes
-on devlinux in observe mode; the existing Inbox screened; the QA report published to the owner. **Live mode is built,
+owner's account only; the `mail-desk` factory published by the owner; email@devthrottle.com and
+the owner's second Outlook address screened every 5 minutes on devlinux in observe mode; each existing Inbox screened; the
+Mail Desk page listing both; the QA report published to the owner. **Live mode is built,
 proven on the rig and switched off.** Turning it on is the owner's decision after he has read the decisions - and it
 is the next step, not part of this mission.
 
