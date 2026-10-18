@@ -55,6 +55,18 @@ public sealed class RuleHookSourceGuardTests
             Assert.False(text.Contains(forbidden, StringComparison.Ordinal), $"{name} contains {forbidden}");
     }
 
+    /// <summary>
+    /// The cryptographic random generator loads OpenSSL on Linux (libssl, libcrypto and openssl.cnf),
+    /// which measured at about ten milliseconds on every command a rule matched - for eight characters
+    /// whose only job is to keep two decisions in the same tick apart. Nothing in the hook is a secret.
+    /// </summary>
+    [Fact]
+    public void RuleHookSource_NeverLoadsTheCryptographyLibrary()
+    {
+        foreach (var (name, text) in Sources())
+            Assert.False(text.Contains("System.Security.Cryptography", StringComparison.Ordinal), $"{name} uses System.Security.Cryptography");
+    }
+
     [Fact]
     public void RuleHookProject_HasNoProjectReferencesAndIsPublishedAheadOfTime()
     {

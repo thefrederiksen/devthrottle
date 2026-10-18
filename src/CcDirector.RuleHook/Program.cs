@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+using System.Globalization;
 using System.Text;
 
 namespace CcDirector.RuleHook;
@@ -17,5 +17,9 @@ internal static class Program
         return new HookRunner(Environment.GetEnvironmentVariable, () => DateTime.UtcNow, RandomHex).Run(standardInput);
     }
 
-    private static string RandomHex() => Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant();
+    // Not the cryptographic generator, on purpose: these eight characters only keep two decisions made in
+    // the same tick apart, and are no secret. The cryptographic generator loads OpenSSL on Linux, which
+    // measured at about ten milliseconds on every command a rule matched. The shared generator is seeded
+    // from the operating system's random source, so separate hook processes do not repeat each other.
+    private static string RandomHex() => Random.Shared.NextInt64(0, 1L << 32).ToString("x8", CultureInfo.InvariantCulture);
 }
