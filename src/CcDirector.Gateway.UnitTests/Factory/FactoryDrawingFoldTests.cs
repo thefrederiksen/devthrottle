@@ -357,4 +357,21 @@ public sealed class FactoryDrawingFoldTests
 
         Assert.Equal("Ghost is not in the published definition, so only how it starts is drawn.", view.Lanes.Single(l => l.SeatId == "ghost").Note);
     }
+
+    [Fact]
+    public void View_DecisionThatEndsARow_PutsItsAnswerBetweenTheRows_ClearOfTheShapeAndInsideTheDrawing()
+    {
+        var steps = string.Join("\n", Enumerable.Range(1, 4).Select(i => $"  - name: Step {i}"))
+            + "\n  - name: Safe?\n    decision: only benign requests\n    continueWhen: RED, or any doubt at all\n"
+            + string.Join("\n", Enumerable.Range(6, 3).Select(i => $"  - name: Step {i}"));
+        var view = Draw(Definition($"seat: writer\nname: Writer\nrole: Writer\nbrief: Write the posts.\nsteps:\n{steps}\n"), Runs());
+
+        var decision = view.Nodes.Single(n => n.Id == "writer/5");
+        var arrow = view.Arrows.Single(a => a.From == "writer/5");
+        var next = view.Nodes.Single(n => n.Id == arrow.To);
+        Assert.True(next.Y > decision.Y + decision.Height, "the row wraps after the decision");
+        Assert.True(arrow.LabelY > decision.Y + decision.Height, "the answer is drawn over the decision");
+        var half = arrow.Label!.Length * 5.6 / 2;
+        Assert.True(arrow.LabelX + half <= view.Width && arrow.LabelX - half >= 0, "the answer runs out of the drawing");
+    }
 }

@@ -227,7 +227,8 @@ public static class FactoryDrawingFold
                 var channel = rowTops[ar] + rowHeights[ar] + RowGap / 2;
                 points = Polyline(new[] { ab.Right, ab.Cy }, new[] { outX, ab.Cy }, new[] { outX, channel },
                     new[] { bb.Cx, channel }, new[] { bb.Cx, bb.Y });
-                (lx, ly) = (outX + 6, ab.Cy - 8);
+                // Its label sits on the long run between the rows, where there is room for it, never beside the shape.
+                (lx, ly) = ((outX + bb.Cx) / 2, channel - 5);
             }
             Arrow(view, a.Id, b.Id, points, label, lx, ly,
                 fromStart ? startTone : FactoryTone.Neutral, dashed: fromStart && !run.Started);
