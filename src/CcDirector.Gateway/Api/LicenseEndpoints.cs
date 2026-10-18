@@ -191,7 +191,11 @@ public static class LicenseEndpoints
 
             // The names as they were before, so its row is labelled as the log labels it.
             var names = store.ListMachineNames(tenant);
-            var result = store.ForgetMachine(tenant, machineId, machine.Label, now);
+            // The approvers on this machine go with it (the review of pull request 4183, finding 3). They live in the
+            // tenant's settings, not in the store's tables, so they are removed AFTER the store's save: a refusal there
+            // leaves them in place, and the row written says which ones go.
+            var approving = approvers.AccountsApprovedBy(tenant, machine.MachineName, machine.OsUser);
+            var result = store.ForgetMachine(tenant, machineId, machine.Label, now, approving);
             if (result.Row is not { } row)
             {
                 var code = result.RefusedBecause ?? throw new InvalidOperationException("Forgetting a machine wrote nothing and gave no reason.");
@@ -199,7 +203,9 @@ public static class LicenseEndpoints
                 return Refuse(code == LicenseForgetRefusals.NotFound ? StatusCodes.Status404NotFound : StatusCodes.Status409Conflict,
                     code, LicenseDisplayFold.ForgetRefused(code, machine.Label));
             }
-            FileLog.Write($"[LicenseEndpoints] POST forget machine: tenant={tenant.ToLogString()}, machine={id} forgotten");
+            if (approving.Count > 0)
+                approvers.RemoveForMachine(tenant, machine.MachineName, machine.OsUser, now);
+            FileLog.Write($"[LicenseEndpoints] POST forget machine: tenant={tenant.ToLogString()}, machine={id} forgotten, approvers removed={approving.Count}");
             return Results.Json(LicenseDisplayFold.ForgetAccepted(row, names));
         }
         catch (Exception ex)

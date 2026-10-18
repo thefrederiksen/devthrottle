@@ -485,7 +485,8 @@ public static class LicenseDisplayFold
     /// the finished overview, after <see cref="LicenseSignInFold.Apply"/>, because a sign-in under way is one reason it is
     /// not offered. The route asks the same question of the same folded overview, so the button and the route agree.
     /// Offered only for a machine that has stopped reporting or whose reports are refused - a machine that is gone or
-    /// renamed looks like that - and never while a switch or a sign-in on it is under way.
+    /// renamed looks like that - and never while a sign-in on it is under way. A switch recorded on such a machine is
+    /// no reason: a machine that is gone never answers it, so it would never end; forgetting ends it.
     /// </summary>
     public static void ApplyForget(LicenseOverviewResponse response)
     {
@@ -503,8 +504,7 @@ public static class LicenseDisplayFold
     public static (bool CanForget, string Text, string? RefusalCode) ForgetVerdict(LicenseMachineDto machine)
     {
         ArgumentNullException.ThrowIfNull(machine);
-        var refusal = machine.SwitchInProgress is not null ? LicenseForgetRefusals.SwitchOpen
-            : machine.SignInsInProgress.Count > 0 ? LicenseForgetRefusals.SignInOpen
+        var refusal = machine.SignInsInProgress.Count > 0 ? LicenseForgetRefusals.SignInOpen
             : machine.Status is LicenseMachineStatuses.ReportRefused or LicenseMachineStatuses.NotReporting ? null
             : LicenseForgetRefusals.NotOffered;
         return refusal is null
@@ -517,7 +517,6 @@ public static class LicenseDisplayFold
     public static string ForgetRefused(string code, string label) => code switch
     {
         LicenseForgetRefusals.NotFound => "That machine is not on the Licenses page of this account; load the page again.",
-        LicenseForgetRefusals.SwitchOpen => $"{label} is in the middle of a switch; it can be forgotten once the switch is over.",
         LicenseForgetRefusals.SignInOpen => $"A sign-in on {label} has not finished; it can be forgotten once it has.",
         LicenseForgetRefusals.NotOffered => $"{label} is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.",
         _ => throw new ArgumentOutOfRangeException(nameof(code), code, "Not a reason a machine is not forgotten."),

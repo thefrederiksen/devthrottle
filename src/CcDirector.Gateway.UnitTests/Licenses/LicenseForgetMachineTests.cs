@@ -152,22 +152,78 @@ public sealed class LicenseForgetMachineTests : IDisposable
         Assert.Equal(1, Machines(TenantOne).GetArrayLength());
     }
 
+    private LicenseSwitchService Switches() => new(_store, _snapshots,
+        (_, _, _) => Task.FromResult<DirectorCommandResult?>(null),
+        (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
+        () => _now);
+
     [Fact]
-    public void ASilentMachineInTheMiddleOfASwitch_IsNotOffered_AndTheStoreRefusesItToo()
+    public async Task AMachineThatDiedWithASwitchUnanswered_IsOffered_AndForgettingEndsTheSwitchAsFailed()
     {
+        // The review of pull request 4183, finding 1: the switch was sent, no answer came, and the machine never
+        // reported again. The minute check settles such a switch only from a later report, so it stays open for ever.
         var id = Apply(TenantOne, Good());
-        _store.CreatePendingSwitch(TenantOne, id, A, B, LicenseSwitchReasons.Manual, T0);
+        var row = _store.CreatePendingSwitch(TenantOne, id, A, B, LicenseSwitchReasons.Manual, T0)!;
+        Assert.True(_store.TryMark(TenantOne, row.SwitchId!, LicenseLogStates.Unknown, null, "Sent; no answer came back.", T0));
+        var switches = Switches();
+        for (var day = 1; day <= 3; day++)
+        {
+            _now = T0.AddDays(day);
+            await switches.TickAsync(TenantOne, CancellationToken.None);
+        }
+        Assert.True(LicenseLogStates.IsOpen(_store.FindSwitch(TenantOne, row.SwitchId!)!.State));
+
+        var machine = Machines(TenantOne)[0];
+        Assert.Equal("not-reporting", machine.GetProperty("status").GetString());
+        Assert.True(machine.GetProperty("canForget").GetBoolean());
+        Assert.Equal(200, Forget(TenantOne, id.ToString("N")).Status);
+
+        var ended = _store.FindSwitch(TenantOne, row.SwitchId!)!;
+        Assert.Equal((LicenseLogStates.Failed, LicenseGatewayReasonCodes.MachineForgotten), (ended.State, ended.ReasonCode));
+        Assert.Equal("Ended without an answer: machine-a was forgotten before this switch was over.", ended.Message);
+        Assert.NotNull(ended.FinishedAtUtc);
+        // No open row names the machine row that is gone, so the minute check goes on without a word.
+        await switches.TickAsync(TenantOne, CancellationToken.None);
+        Assert.Equal(0, Machines(TenantOne).GetArrayLength());
+    }
+
+    [Fact]
+    public void AMachineThatDiedReportingASwitchInProgress_IsOffered_AndForgotten()
+    {
+        // The review of pull request 4183, finding 1: its last accepted report said a switch was running, and no
+        // later report can ever clear that.
+        var report = Good();
+        report.SwitchInProgressId = "6f1c2a9e4b7d4e0f9a3c5b8d2e1f7a40";
+        var id = Apply(TenantOne, report);
         _now = Silent;
 
         var machine = Machines(TenantOne)[0];
-        Assert.False(machine.GetProperty("canForget").GetBoolean());
-        Assert.Equal("machine-a is in the middle of a switch; it can be forgotten once the switch is over.", machine.GetProperty("forgetText").GetString());
-        Assert.Equal(409, Forget(TenantOne, id.ToString("N")).Status);
+        Assert.Equal(JsonValueKind.Object, machine.GetProperty("switchInProgress").ValueKind);
+        Assert.True(machine.GetProperty("canForget").GetBoolean());
 
-        // The store is the last word: a switch written after the page was folded still stops it, and nothing changes.
-        var result = _store.ForgetMachine(TenantOne, id, "machine-a", _now);
-        Assert.Equal((null, LicenseForgetRefusals.SwitchOpen), (result.Row, result.RefusedBecause));
-        Assert.Equal(1, Machines(TenantOne).GetArrayLength());
+        Assert.Equal(200, Forget(TenantOne, id.ToString("N")).Status);
+        Assert.Equal(0, Machines(TenantOne).GetArrayLength());
+    }
+
+    [Fact]
+    public void AMachineThatApprovesSignIns_TakesItsApproversWithIt_AndSaysSo()
+    {
+        // The review of pull request 4183, finding 3: the approver record named the machine and outlived it.
+        var id = Apply(TenantOne, Good());
+        Assert.True(Approvers().Set(TenantOne, A, "machine-a", "owner", "profile-a", T0).Accepted);
+        Assert.True(Approvers().Set(TenantOne, B, "machine-b", "owner", "profile-b", T0).Accepted);
+        _now = Silent;
+
+        var (status, json) = Forget(TenantOne, id.ToString("N"));
+
+        Assert.Equal(200, status);
+        Assert.Equal("machine-a was forgotten: it is off the Licenses page, with what it held, and its open problems are over. "
+                     + "It approved the sign-ins of account-a@example.com; that approver is removed too. If it reports again, it comes back.",
+            json.GetProperty("text").GetString());
+        // Only the approver on that machine goes, and it leaves no removal record: a machine that comes back may
+        // register it again.
+        Assert.Equal(new[] { B }, Approvers().List(TenantOne).Select(a => a.AccountEmail));
+        Assert.Empty(Approvers().ListRemovals(TenantOne));
     }
 
     [Fact]
