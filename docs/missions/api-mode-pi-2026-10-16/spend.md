@@ -41,6 +41,8 @@ and 500 output tokens (more than one to two seconds of streaming can produce).
 | 2026-10-16 | Developer, phase 0 | Fixture recording 3: exit before acknowledgement (Pi killed before it reached the model) | 0 | 0 | 0 | 0 | 0.0000 |
 | 2026-10-16 | Developer, phase 1 integration | Preamble proof, run 1 (one prompt through the API-mode host; the same as run 2 without get_commands) | 3 | 6 | 0 | 4,842 | 0.0245 |
 | 2026-10-16 | Developer, phase 1 integration | Preamble proof, run 2, the one recorded in preamble-proof.md (get_commands made no model call) | 3 | 6 | 0 | 4,836 | 0.0244 |
+| 2026-10-18 | Developer, phase 6 | Dry run by hand, devlinux, before the script (PONG, tool, Stop, OTTER-58 in the terminal, code word, QUEUED-OK, a long terminal turn); one reply cut off by Stop, estimated | 5,799 | 873 | 35,262 | 5,966 | 0.1114 |
+| 2026-10-18 | Developer, phase 6 | Proof script dry run, devlinux (proofs/phase-6/linux-dry-run-20261018-121310); one reply cut off by Stop, estimated | 5,727 | 616 | 28,974 | 5,900 | 0.0973 |
 
 Recording 1 was discarded and recorded again because its fixtures carried text that this public
 repository should not publish (the fleet's skill descriptions and the user name inside Pi's session
@@ -52,5 +54,6 @@ folder name). Recording 2 is what is committed, plus recording 3, the exit befor
 |---|---|
 | Phase 0 (both recordings) | 0.29 |
 | Phase 1 integration (the two preamble proof runs) | 0.05 |
-| Mission so far, including the Architect's posted run | 0.37 |
-| Left of the 10 dollar grant | 9.63 |
+| Phase 6 (proof runs; its share is capped at 2 dollars) | 0.21 |
+| Mission so far, including the Architect's posted run | 0.58 |
+| Left of the 10 dollar grant | 9.42 |
