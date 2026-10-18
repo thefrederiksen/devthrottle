@@ -37,6 +37,11 @@ public sealed class DirectorCrashJournalSession
     /// <summary>The model the create asked for, or null (Factory Definition mission, phase 5), so a continuation
     /// relaunches on the same model.</summary>
     public string? LaunchModel { get; set; }
+
+    /// <summary>How the Director drove the agent (API mode mission, issue #4070): <c>api</c>, or null for terminal - which
+    /// is also how a journal written before the field existed reads. Recorded so a session continued from the Interrupted
+    /// list after this Director crashes comes back in API mode rather than as a terminal session.</summary>
+    public string? ConnectionMode { get; set; }
 }
 
 /// <summary>The on-disk shape of a Director crash journal.</summary>

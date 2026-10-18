@@ -25,6 +25,9 @@ public sealed class CrashJournalSessionDto
     public string? FactoryKit { get; set; }
     /// <summary>The model the create asked for, or null (Factory Definition mission, phase 5).</summary>
     public string? LaunchModel { get; set; }
+    /// <summary>How the Director drove the agent: <c>api</c> (<see cref="ConnectionModes.Api"/>), or null for terminal,
+    /// which is also what a journal written before the field existed says (API mode mission, issue #4070).</summary>
+    public string? ConnectionMode { get; set; }
 }
 
 /// <summary>
@@ -68,6 +71,10 @@ public sealed class InterruptedSessionDto
     public string? FactoryKit { get; set; }
     /// <summary>The model the create asked for, or null (Factory Definition mission, phase 5).</summary>
     public string? LaunchModel { get; set; }
+
+    /// <summary>How the Director drove the agent, from the dead Director's journal: <c>api</c>, or null for terminal (API
+    /// mode mission, issue #4070). A continuation is created in the same mode.</summary>
+    public string? ConnectionMode { get; set; }
 
     /// <summary>The Director that died holding this session.</summary>
     public string DeadDirectorId { get; set; } = "";
