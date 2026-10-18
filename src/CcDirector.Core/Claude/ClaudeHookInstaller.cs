@@ -329,7 +329,7 @@ public static class ClaudeHookInstaller
         {
             RemoveTemporary(tmp);
             var kept = File.Exists(path);
-            FileLog.Write($"[ClaudeHookInstaller] InstallRuleHook: could not check or replace {path} ({ex.GetType().Name}: {ex.Message}); it is tried again at the next " +
+            FileLog.Write($"[ClaudeHookInstaller] InstallRuleHook FAILED: could not check or replace {path} ({ex.GetType().Name}: {ex.Message}); it is tried again at the next " +
                 (kept
                     ? "session launch, and the evaluator already there, from an earlier build, stays registered meanwhile."
                     : "session launch. There is NO evaluator on disk, so NO session rule is evaluated in sessions started now."));
@@ -347,6 +347,7 @@ public static class ClaudeHookInstaller
         }
         catch (Exception ex)
         {
+            // not-an-error: a stray temporary file beside the evaluator is harmless, and the failure that led here is already reported
             FileLog.Write($"[ClaudeHookInstaller] RemoveTemporary: could not delete {tmp}: {ex.Message}");
         }
     }

@@ -7,7 +7,7 @@
     Claude Code runs cc-rule-hook before EVERY shell command of every Director session (Session Rules
     part 2, phase 1, ruling P9), so its cost is paid per command. This script runs the EXACT command the
     Director registers - the quoted absolute path, handed to the system shell as one command string
-    (cmd.exe on Windows, /bin/sh elsewhere) - with a real Claude Code PreToolUse event on standard input,
+    (Git Bash on Windows, /bin/sh elsewhere) - with a real Claude Code PreToolUse event on standard input,
     many times, and prints the median and the 95th percentile for:
 
       baseline        a plain shell command - what any hook costs before it does anything
@@ -21,9 +21,11 @@
     cost of starting a process from PowerShell is in every row, the baseline included, and cancels out of
     the difference. Everything is written under a scratch folder deleted at the end.
 
-    NOT PROVEN: that Claude Code on Windows runs a hook command string through cmd.exe. If it uses Git
-    Bash or PowerShell instead, the baseline row is the one that changes; the hook rows still measure the
-    hook.
+    On Windows the command string goes through Git Bash, because that is what Claude Code does: checked
+    on Claude Code 2.1.302 on SOREN_NORTH with a hook that recorded its own shell ($0 was /usr/bin/bash,
+    BASH_VERSION 5.2.37, %COMSPEC% left unexpanded), with and without SHELL set in the environment.
+    Git Bash is found as Claude Code finds it: CLAUDE_CODE_GIT_BASH_PATH when set, otherwise the
+    bash.exe of the Git for Windows that provides git on the PATH. Neither present is an error.
 
 .PARAMETER Hook
     The cc-rule-hook executable. Defaults to the Release publish output, publishing it first if absent.
@@ -45,7 +47,9 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $EventFile) {
-    $EventFile = Join-Path $repoRoot "src/CcDirector.RuleHook.Tests/Fixtures/claude-code-2.1.302-pretooluse-bash.json"
+    # The real event for this platform, captured from the installed Claude Code.
+    $fixture = if ($IsWindows) { "claude-code-2.1.302-windows-pretooluse-bash.json" } else { "claude-code-2.1.302-pretooluse-bash.json" }
+    $EventFile = Join-Path $repoRoot "src/CcDirector.RuleHook.Tests/Fixtures/$fixture"
 }
 if (-not (Test-Path -LiteralPath $EventFile)) { throw "No event file at $EventFile" }
 $eventText = [System.IO.File]::ReadAllText($EventFile)
@@ -75,6 +79,24 @@ New-Item -ItemType Directory -Path $rulesDir, $decisionDir | Out-Null
 # The command string the Director registers (ClaudeHookInstaller): the absolute path, quoted.
 $hookCommand = '"' + $Hook + '"'
 
+# The shell Claude Code hands a hook command string to on Windows: Git Bash, never cmd.exe.
+$gitBash = $null
+if ($IsWindows) {
+    if ($env:CLAUDE_CODE_GIT_BASH_PATH) {
+        $gitBash = $env:CLAUDE_CODE_GIT_BASH_PATH
+    } else {
+        $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $git) { throw "git.exe is not on the PATH, so Git Bash cannot be found. Install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH to its bash.exe." }
+        # git.exe may be <Git>\cmd, <Git>\bin or <Git>\mingw64\bin depending on the PATH; its exec path is always
+        # <Git>/mingw64/libexec/git-core, three levels below the install, and bash.exe is <Git>\bin\bash.exe.
+        $execPath = (& $git.Source --exec-path).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "git --exec-path failed with exit code $LASTEXITCODE" }
+        $gitRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $execPath))
+        $gitBash = Join-Path $gitRoot "bin\bash.exe"
+    }
+    if (-not (Test-Path -LiteralPath $gitBash)) { throw "No Git Bash at $gitBash. Install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH to its bash.exe." }
+}
+
 function Write-Rules([int]$count, [string]$path) {
     $rules = for ($i = 1; $i -le $count; $i++) {
         # The LAST rule matches the event's command (echo RULE-PROBE).
@@ -92,9 +114,8 @@ function Write-Rules([int]$count, [string]$path) {
 function Invoke-Once([string]$commandString, [hashtable]$environment) {
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     if ($IsWindows) {
-        $psi.FileName = "cmd.exe"
-        $psi.ArgumentList.Add("/d"); $psi.ArgumentList.Add("/s"); $psi.ArgumentList.Add("/c")
-        $psi.ArgumentList.Add($commandString)
+        $psi.FileName = $gitBash
+        $psi.ArgumentList.Add("-c"); $psi.ArgumentList.Add($commandString)
     } else {
         $psi.FileName = "/bin/sh"
         $psi.ArgumentList.Add("-c"); $psi.ArgumentList.Add($commandString)
@@ -136,10 +157,12 @@ function Session([string]$rulesFile) { @{ CC_SESSION_RULES_FILE = $rulesFile; CC
 try {
     Write-Host "cc-rule-hook: $Hook ($((Get-Item -LiteralPath $Hook).Length) bytes)"
     Write-Host "event: $EventFile"
+    if ($IsWindows) { Write-Host "shell: $gitBash -c" }
     Write-Host "runs per row: $Runs, on $([Environment]::MachineName), $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription), $([Environment]::ProcessorCount) processors"
     Write-Host ""
 
-    $baseline = if ($IsWindows) { "rem" } else { "true" }
+    # The baseline starts a real program, as every hook row does, so the difference is the hook's own work.
+    $baseline = if ($IsWindows) { "/usr/bin/true" } else { "true" }
     Measure-Row "baseline" $baseline @{}
     Measure-Row "no-session" $hookCommand @{}
     Measure-Row "no-rules-file" $hookCommand (Session (Join-Path $rulesDir "absent.json"))
