@@ -395,6 +395,7 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
             }
             catch (OperationCanceledException) when (bound.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
+                // not-an-error: Pi answers an abort only once idle, so the bounded wait running out is expected; the turn is still stopped by closing Pi's input and the kill after the grace
                 FileLog.Write($"[ApiModeSessionHost] SuspendAsync: session={_sessionId}, Pi did not confirm its abort within {grace.TotalMilliseconds}ms; its process is closed under the turn");
                 abortUnconfirmed = true;
             }
