@@ -20,8 +20,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class SessionRuleKindsPostgresTests
 {
-    private const string MigrationBefore = "20261018015844_AddApiModeReceiptPromptText";
-    private const string MigrationUnderTest = "20261018161303_AddSessionRuleKindsAndHookFirings";
+    private const string MigrationBefore = "20261018153213_AddMailDesk";
+    private const string MigrationUnderTest = "20261018230534_AddSessionRuleKindsAndHookFirings";
 
     private static string Connection => PostgresProofDatabase.Connection;
 
