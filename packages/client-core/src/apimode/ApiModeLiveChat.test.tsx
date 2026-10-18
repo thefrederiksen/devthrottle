@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiModeLiveChat } from "./ApiModeLiveChat";
 import {
   connectionItem, fakeLiveNetwork, receiptItem, replyDelta, replyFinal, settle, toolCard, turnEndedItem, workingDisplay,
@@ -8,7 +8,10 @@ import {
 // The shared live Chat, fed by a fake stream. Every word asserted here is a word the fake Gateway sent: the view's
 // only job is to put each one in the right place.
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 async function mount(display = workingDisplay(2)) {
   const net = fakeLiveNetwork();
@@ -154,13 +157,15 @@ describe("ApiModeLiveChat", () => {
 
     // Act: the prompt ahead is delivered, so this one moves up, then it is delivered itself.
     await send(() => conn().items("g1:5", [receiptItem("p4", "Queued, 1st in line: a turn is running", "neutral", 5, undefined, "Fourth")]));
-    const movedUp = screen.getByText("Queued, 1st in line: a turn is running");
+    const log = screen.getByRole("log", { name: "Live conversation" });
+    const receiptWords = () => log.querySelector("[data-item-id='receipt:p4'] .live-chat-receipt")?.textContent;
+    expect(receiptWords()).toBe("Queued, 1st in line: a turn is running");
+    expect(screen.queryByText("Queued, 2nd in line: a turn is running")).toBeNull();
     await send(() => conn().items("g1:8", [receiptItem("p4", "Delivered", "green", 8, undefined, "Fourth")]));
 
     // Assert: one prompt, one receipt, in the same place each time.
-    expect(movedUp).toBeTruthy();
+    expect(receiptWords()).toBe("Delivered");
     expect(screen.queryByText(/^Queued/)).toBeNull();
-    const log = screen.getByRole("log", { name: "Live conversation" });
     expect(log.querySelectorAll("[data-item-id='receipt:p4']")).toHaveLength(1);
     expect(within(log).getAllByText("Fourth")).toHaveLength(1);
     expect(within(log).getByText("Delivered")).toBeTruthy();
@@ -197,30 +202,46 @@ describe("ApiModeLiveChat", () => {
   it("ApiModeLiveChat_ResetThenStoredReceipts_ShowsEachPromptFromItsReceiptAgain", async () => {
     // Arrange
     const { conn } = await mount();
-    await send(() => conn().items("g1:1", [receiptItem("p7", "Delivered", "green", 1, undefined, "Before the restart")]));
+    await send(() => {
+      conn().items("g1:1", [receiptItem("p7", "Delivered", "green", 1, undefined, "Before the restart")]);
+      conn().items("g1:2", [replyFinal("m7", "t7", "A reply the stored receipts do not carry", 2)]);
+    });
 
-    // Act: the Director restarted; the Gateway resets the view and sends the stored receipts first.
+    // Act: the Director restarted; the Gateway resets the view and sends the stored receipts first - and only them.
     await send(() => {
       conn().reset({ code: "new_generation", message: "The Director restarted.", rebuildFrom: ["/sessions/s1/receipts"] });
       conn().items("g2:1", [receiptItem("p7", "Delivered", "green", 1, undefined, "Before the restart")]);
     });
 
     // Assert
+    // The reply is gone (a view that did not let go would still hold it), and the prompt is back from its receipt.
     const log = screen.getByRole("log", { name: "Live conversation" });
+    expect(within(log).queryByText("A reply the stored receipts do not carry")).toBeNull();
+    expect(log.querySelectorAll("[data-item-id]")).toHaveLength(1);
     expect(within(log).getAllByText("Before the restart")).toHaveLength(1);
     expect(screen.getByText("The Director restarted.")).toBeTruthy();
   });
 
   it("ApiModeLiveChat_Opened_AsksOnlyForTheLiveStreamAndNeverForHistory", async () => {
+    // Arrange: every other way the real component could reach the network - the global fetch every client-core read
+    // goes through (getSessionHistory among them), a WebSocket, an EventSource - is watched, not only the stream seam.
+    const requested: string[] = [];
+    const record = (url: unknown) => requested.push(String(url instanceof Request ? url.url : url));
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) => {
+      record(url);
+      return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+    vi.stubGlobal("WebSocket", vi.fn((url: unknown) => { record(url); }));
+    vi.stubGlobal("EventSource", vi.fn((url: unknown) => { record(url); }));
+
     // Act
-    const { net } = await mount();
+    const { net, conn } = await mount();
+    await send(() => conn().items("g1:1", [receiptItem("p8", "Delivered", "green", 1, undefined, "Hello")]));
 
     // Assert: the conversation is the stream alone - the prompt's words come from its receipt, never from /history.
+    expect(requested).toEqual([]);
     expect(net.connections.length).toBeGreaterThan(0);
-    for (const c of net.connections) {
-      expect(c.url).toMatch(/\/sessions\/s1\/live(\?|$)/);
-      expect(c.url).not.toContain("/history");
-    }
+    for (const c of net.connections) expect(c.url).toMatch(/\/sessions\/s1\/live(\?|$)/);
   });
 
   it("ApiModeLiveChat_FailedTurn_ShowsTheFailureBesideDeliveredAndTheTurnLine", async () => {
