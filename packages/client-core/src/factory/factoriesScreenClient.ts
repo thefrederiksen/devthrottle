@@ -704,6 +704,88 @@ export interface FactoryFloorView {
   notes: string[];
 }
 
+// What a factory does, drawn (owner, 18 October 2026), mirroring FactoryDrawingDtos.cs: a lane per seat, from how it
+// starts through its steps to how it ends. Every position, word and tone is the Gateway's; the Cockpit only draws it.
+export type FactoryDrawingKind =
+  | "start-clock"
+  | "start-every"
+  | "start-talk"
+  | "task"
+  | "decision"
+  | "end-done"
+  | "end-stop"
+  | "tone";
+
+export interface FactoryDrawingStatus {
+  text: string;
+  sub: string | null;
+  tone: FactoryTone;
+}
+
+export interface FactoryDrawingLane {
+  seatId: string;
+  title: string;
+  sub: string;
+  href: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FactoryDrawingPanel {
+  heading: string;
+  lines: string[];
+  runs: string | null;
+}
+
+export interface FactoryDrawingNode {
+  id: string;
+  seatId: string;
+  kind: FactoryDrawingKind;
+  title: string;
+  sub: string | null;
+  tone: FactoryTone;
+  repeats: boolean;
+  dashed: boolean;
+  panel: FactoryDrawingPanel | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FactoryDrawingArrow {
+  from: string;
+  to: string;
+  path: string;
+  head: string;
+  label: string | null;
+  labelX: number;
+  labelY: number;
+  tone: FactoryTone;
+  dashed: boolean;
+}
+
+export interface FactoryDrawingLegend {
+  kind: FactoryDrawingKind;
+  tone: FactoryTone;
+  text: string;
+}
+
+export interface FactoryDrawingView {
+  factoryId: string;
+  title: string;
+  width: number;
+  height: number;
+  status: FactoryDrawingStatus | null;
+  lanes: FactoryDrawingLane[];
+  nodes: FactoryDrawingNode[];
+  arrows: FactoryDrawingArrow[];
+  legend: FactoryDrawingLegend[];
+  notes: string[];
+}
+
 const PREFIX = "/gateway/factories";
 const TALK_PREFIX = "/gateway/factory-agents/factories";
 
@@ -784,6 +866,11 @@ export async function takeScheduleOffSeat(jobId: string, signal?: AbortSignal): 
 /** The factory's floor: its production lines, bays, arrows and the owner's desk, laid out by the Gateway. */
 export function getFactoryFloor(factory: string, signal?: AbortSignal): Promise<FactoryFloorView> {
   return getJson<FactoryFloorView>(`${PREFIX}/${encodeURIComponent(factory)}/floor`, "load this factory's floor", signal);
+}
+
+/** What a factory does, drawn: GET /gateway/factories/{factory}/drawing. */
+export function getFactoryDrawing(factory: string, signal?: AbortSignal): Promise<FactoryDrawingView> {
+  return getJson<FactoryDrawingView>(`${PREFIX}/${encodeURIComponent(factory)}/drawing`, "load what this factory does", signal);
 }
 
 /**

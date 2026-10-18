@@ -105,6 +105,87 @@
         }
       }
     },
+    "steps": {
+      "description": "What the seat does, step by step, in order: what the factory page draws. It does not change what the seat is told - the brief does that.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "title": "a step",
+        "description": "One step the seat takes. A step with a decision is drawn as a question; its branch is the way off the main line.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "description": "The step in a few words, such as \"Worktree sweep\" or \"Safe?\". Must not be blank.",
+            "type": "string",
+            "pattern": "\\S",
+            "maxLength": 40
+          },
+          "detail": {
+            "description": "One line under the name, such as what it sweeps. Must not be blank.",
+            "type": "string",
+            "pattern": "\\S",
+            "maxLength": 200
+          },
+          "runs": {
+            "description": "The command the step runs, exactly as the brief gives it, shown when the step is opened. Must not be blank.",
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "repeats": {
+            "description": "When the step repeats, in words, such as \"until it says DONE, at most 12 times\". Must not be blank.",
+            "type": "string",
+            "pattern": "\\S",
+            "maxLength": 120
+          },
+          "decision": {
+            "description": "Makes the step a question: what is decided, such as \"a failure, an ALERT, or under 60 GB free\". Must not be blank.",
+            "type": "string",
+            "pattern": "\\S",
+            "maxLength": 200
+          },
+          "continueWhen": {
+            "description": "On a decision: the answer that stays on the main line, such as \"no\" or \"GREEN\". Must not be blank.",
+            "type": "string",
+            "pattern": "\\S",
+            "maxLength": 40
+          },
+          "branch": {
+            "title": "a decision's branch",
+            "description": "On a decision: the one step taken off the main line, and how the seat ends after it.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "name", "ends"],
+            "properties": {
+              "when": {
+                "description": "The answer that takes the branch, such as \"yes\" or \"RED, or any doubt\". Must not be blank.",
+                "type": "string",
+                "pattern": "\\S",
+                "maxLength": 40
+              },
+              "name": {
+                "description": "The branch's step in a few words, such as \"Email the owner\". Must not be blank.",
+                "type": "string",
+                "pattern": "\\S",
+                "maxLength": 40
+              },
+              "detail": {
+                "description": "One line under the branch's name. Must not be blank.",
+                "type": "string",
+                "pattern": "\\S",
+                "maxLength": 200
+              },
+              "ends": {
+                "description": "How the seat ends after the branch: done (it finishes) or stop (it stops and waits for a person).",
+                "type": "string",
+                "enum": ["done", "stop"]
+              }
+            }
+          }
+        }
+      }
+    },
     "grants": {
       "description": "The grants the seat uses, by id in grants.yaml, each once.",
       "type": "array",

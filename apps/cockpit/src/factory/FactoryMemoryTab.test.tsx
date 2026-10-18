@@ -29,7 +29,7 @@ vi.mock("@devthrottle/client-core/factory/factoryMemoryClient", async (importOri
   return { ...real, ...client };
 });
 
-const pageClient = vi.hoisted(() => ({ getFactoryPage: vi.fn(), getFactorySeats: vi.fn(), getFactoryFloor: vi.fn(() => new Promise(() => {})), startFactoryTalk: vi.fn() }));
+const pageClient = vi.hoisted(() => ({ getFactoryPage: vi.fn(), getFactorySeats: vi.fn(), getFactoryFloor: vi.fn(() => new Promise(() => {})), getFactoryDrawing: vi.fn(() => new Promise(() => {})), startFactoryTalk: vi.fn() }));
 vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => pageClient);
 
 // The real describeAndReport formats the sentence; only the report it makes is captured.
