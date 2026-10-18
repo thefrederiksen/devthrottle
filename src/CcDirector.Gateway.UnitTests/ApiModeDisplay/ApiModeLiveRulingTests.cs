@@ -669,19 +669,36 @@ public sealed class ApiModeLiveRulingTests
     }
 
     [Fact]
-    public void Rule_NoTurnRuledLostThenItsRealTurnStarted_ReplacesTheLostEnding()
+    public void Rule_NoTurnRuledLostThenItsOlderRealTurnStarted_LinksItAndKeepsTheLostEnding()
     {
         // Arrange: ruled lost at generation B's ConnectionReady.
         var ruling = RulingWithADeliveredPromptAndNoTurn();
         ruling.Rule(HeldB(Ready(1)));
 
-        // Act: the TurnStarted that carried p1, of generation A, arrives after all.
+        // Act: the TurnStarted that carried p1, of generation A, arrives after all - older than the ruling, so it is an
+        // earlier turn the proof already showed over (re-review of pull request #4179, finding 1).
         var items = ruling.Rule(HeldA(Started(4, "t1", "p1")));
 
         // Assert
         var receipt = Assert.Single(items, i => i.ItemId == "receipt:p1");
-        Assert.Equal("Delivered", receipt.Text);
+        Assert.Equal(ApiModeLiveRuling.LostWords, receipt.Text);
         Assert.Equal("t1", receipt.TurnId);
+    }
+
+    [Fact]
+    public void Rule_NoTurnRuledLostThenItsOlderRealTurnStartedAndEnded_ShowsTheRealOutcome()
+    {
+        // Arrange: ruled lost at generation B; the TurnStarted naming p1 arrives late, older than the ruling.
+        var ruling = RulingWithADeliveredPromptAndNoTurn();
+        ruling.Rule(HeldB(Ready(1)));
+        ruling.Rule(HeldA(Started(4, "t1", "p1")));
+
+        // Act: the turn's real TurnEnded follows it. The store's twin is
+        // RecordTurnEnded_AfterAnOlderRealStartLinkedALostReceiptWithNoTurn_TheRealEndReplacesTheLostEnding.
+        var items = ruling.Rule(HeldA(Ended(5, "t1", TurnOutcome.Failed, "the model errored", null)));
+
+        // Assert
+        Assert.Equal(new[] { "Delivered - the turn failed: the model errored" }, ReceiptWordsOf(items, "p1"));
     }
 
     [Fact]

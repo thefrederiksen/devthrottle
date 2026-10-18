@@ -204,8 +204,9 @@ public sealed class ApiModeReceiptStore
     /// A turn began with these prompts (<c>TurnStarted</c>): each delivered prompt it names is linked to the turn, so the
     /// turn's end can be shown beside its receipt. A prompt with no receipt, not delivered, or already carried by
     /// another turn is a Director defect: logged, and that prompt is left as it was. A prompt ruled lost with no turn (its
-    /// turn's start fell in the hole too, <see cref="ApiModeLostTurnEnd"/>) is linked whatever this event's position, and
-    /// the lost ending is cleared: the turn's real start replaces it. Answers how many receipts changed.
+    /// turn's start fell in the hole too, <see cref="ApiModeLostTurnEnd"/>) is linked whatever this event's position, so
+    /// the turn's real end can replace the lost ending; the lost ending itself is cleared only when this event is newer
+    /// than the row's last position. Answers how many receipts changed.
     /// </summary>
     public int RecordTurnStarted(string directorId, string sessionId, string turnId, IReadOnlyList<string> promptIds, ApiModeEventPosition position)
     {
@@ -230,15 +231,23 @@ public sealed class ApiModeReceiptStore
                 }
                 if (row.TurnId is null && row.TurnOutcome == ApiModeLostTurnEnd.Outcome)
                 {
-                    // THE REAL START REPLACES THE LOST ENDING, WHATEVER ITS POSITION (ApiModeLostTurnEnd): the receipt was
-                    // ruled lost because its turn's start fell in the hole too, and here that turn is after all. The
-                    // position still never moves backwards.
-                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} was ruled {ApiModeLostTurnEnd.Outcome} with no turn; its turn's real start replaces the lost ending");
+                    // THE REAL START LINKS THE LOST RECEIPT, WHATEVER ITS POSITION (ApiModeLostTurnEnd): the receipt was
+                    // ruled lost because its turn's start fell in the hole too, and here that turn is after all. Linked,
+                    // its real TurnEnded can replace the lost ending. Only a start newer than the row's last position
+                    // clears it: an older one is an earlier turn arriving out of order, already proven over, and
+                    // re-opening it would leave the real TurnEnded to the forward-only rule, which drops it. The position
+                    // never moves backwards.
                     row.TurnId = turnId;
-                    EndTurn(row, null, null, null);
-                    if (IsNewer(position, row)) Touch(row, position);
-                    else row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
-                    return "carried by turn " + turnId + ", replacing the lost ending";
+                    if (IsNewer(position, row))
+                    {
+                        FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} was ruled {ApiModeLostTurnEnd.Outcome} with no turn; its turn's real start, newer than the ruling, replaces the lost ending");
+                        EndTurn(row, null, null, null);
+                        Touch(row, position);
+                        return "carried by turn " + turnId + ", replacing the lost ending";
+                    }
+                    FileLog.Write($"[ApiModeReceiptStore] RecordTurnStarted session={sessionId} turn={turnId} at={position}: prompt={promptId} was ruled {ApiModeLostTurnEnd.Outcome} with no turn; its turn's real start is older than the ruling, so it is linked and stays {ApiModeLostTurnEnd.Outcome} until the turn's real end");
+                    row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
+                    return "carried by turn " + turnId + ", still " + ApiModeLostTurnEnd.Outcome;
                 }
                 if (!IsNewer(position, row)) return null;
                 if (row.State != nameof(ApiModeReceiptState.Delivered))

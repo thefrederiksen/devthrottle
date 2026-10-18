@@ -411,11 +411,16 @@ public sealed class ApiModeLiveRuling
     /// event (it touches a row only for a newer event, and a real ending that replaces a lost one may be older).</summary>
     private void TouchForward(string promptId, ApiModeEventPosition? position)
     {
-        if (position is { } at && _lastPositions.TryGetValue(promptId, out var last)
-            && !at.IsAfter(last.Generation, last.GenerationStartedUtc, last.Sequence))
-            return;
+        if (!IsNewerThanLast(promptId, position)) return;
         Touch(promptId, position);
     }
+
+    /// <summary>Whether an event at <paramref name="position"/> comes after the last one applied to the receipt, as the
+    /// store's forward-only rule asks it of the row. An event handed without a position, or a receipt with no last
+    /// position, counts as newer.</summary>
+    private bool IsNewerThanLast(string promptId, ApiModeEventPosition? position)
+        => position is not { } at || !_lastPositions.TryGetValue(promptId, out var last)
+            || at.IsAfter(last.Generation, last.GenerationStartedUtc, last.Sequence);
 
     private static string PromptIdOf(SessionEvent e) => e switch
     {
@@ -473,6 +478,7 @@ public sealed class ApiModeLiveRuling
     {
         var prompts = PromptsOf(s.TurnId);
         var replaced = new List<ApiModeReceiptDto>();
+        var relinked = new List<ApiModeReceiptDto>();
         foreach (var promptId in s.PromptIds)
         {
             if (!prompts.Contains(promptId, StringComparer.Ordinal)) prompts.Add(promptId);
@@ -480,14 +486,24 @@ public sealed class ApiModeLiveRuling
             {
                 if (receipt.TurnId is null && receipt.TurnOutcome == ApiModeLostTurnEnd.Outcome)
                 {
-                    // The receipt store's rule: the turn's real start replaces a lost ending ruled with no turn, whatever
-                    // its position (ApiModeLostTurnEnd).
-                    FileLog.Write($"[ApiModeLiveRuling] Rule: session={s.SessionId} prompt={promptId} turn={s.TurnId} sequence={s.Sequence}: the prompt was ruled {ApiModeLostTurnEnd.Outcome} with no turn; its turn's real start replaces the lost ending");
+                    // The receipt store's rule (ApiModeLostTurnEnd): the turn's real start links a lost receipt ruled
+                    // with no turn whatever its position, and clears the lost ending only when it is newer than the
+                    // receipt's last position. An older one keeps it lost, so the real TurnEnded replaces it here and in
+                    // the store alike.
                     receipt.TurnId = s.TurnId;
-                    receipt.TurnOutcome = null;
-                    receipt.TurnOutcomeReason = null;
-                    TouchForward(promptId, position);
-                    replaced.Add(receipt);
+                    if (IsNewerThanLast(promptId, position))
+                    {
+                        FileLog.Write($"[ApiModeLiveRuling] Rule: session={s.SessionId} prompt={promptId} turn={s.TurnId} sequence={s.Sequence}: the prompt was ruled {ApiModeLostTurnEnd.Outcome} with no turn; its turn's real start, newer than the ruling, replaces the lost ending");
+                        receipt.TurnOutcome = null;
+                        receipt.TurnOutcomeReason = null;
+                        Touch(promptId, position);
+                        replaced.Add(receipt);
+                    }
+                    else
+                    {
+                        FileLog.Write($"[ApiModeLiveRuling] Rule: session={s.SessionId} prompt={promptId} turn={s.TurnId} sequence={s.Sequence}: the prompt was ruled {ApiModeLostTurnEnd.Outcome} with no turn; its turn's real start is older than the ruling, so it is linked and stays {ApiModeLostTurnEnd.Outcome} until the turn's real end");
+                        relinked.Add(receipt);
+                    }
                     continue;
                 }
                 receipt.TurnId = s.TurnId;
@@ -495,8 +511,10 @@ public sealed class ApiModeLiveRuling
             }
         }
         // It changes no receipt's words, unless it replaced a lost ending or is the first event of a newer generation to
-        // reach a receipt.
+        // reach a receipt. A lost receipt it linked keeps its words but now carries its turn, as the store's row does, so
+        // that receipt is sent again.
         var items = replaced.SelectMany(r => ReceiptIfChanged(r, s.Sequence)).ToList();
+        items.AddRange(relinked.Select(r => ReceiptItem(r, s.Sequence)));
         items.AddRange(WaitingIfMoved(s.Sequence, null));
         return items;
     }
