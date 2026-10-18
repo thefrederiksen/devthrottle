@@ -38,7 +38,7 @@ const SID = "7d2f9c10-0000-4000-8000-000000000002";
 const OTHER = "7d2f9c10-0000-4000-8000-000000000003";
 
 function row(sessionId: string): SessionDto {
-  return { sessionId, apiMode: { kind: "idle", terminalWheel: { kind: "take", label: "Take the wheel", enabled: true } } } as unknown as SessionDto;
+  return { sessionId, apiMode: { kind: "idle", wheelAction: { verb: "takeTheWheel", label: "Take the wheel", enabled: true } } } as unknown as SessionDto;
 }
 
 afterEach(() => {

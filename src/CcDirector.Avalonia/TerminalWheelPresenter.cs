@@ -1,7 +1,7 @@
 using CcDirector.ControlApi;
-using CcDirector.Core.ApiMode;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Avalonia;
 
@@ -12,9 +12,10 @@ namespace CcDirector.Avalonia;
 /// with fakes and the window only copies the values onto controls.
 ///
 /// IT RENDERS THE GATEWAY'S VERDICT AND NOTHING ELSE (CLAUDE.md rule 7): the button, its words, whether it can be
-/// pressed and why not come from <see cref="Session.GatewayWheelAction"/>, which the Gateway stamps down. A terminal
-/// session shows nothing because that verdict says there is no button - this class never reads the connection mode or
-/// the wheel holder. Pressing it calls the GATEWAY's verb through <see cref="IGatewayWheel"/>, never the session's own
+/// pressed and why not come from <see cref="Session.GatewayWheelAction"/> - the Gateway's
+/// <see cref="ApiModeWheelAction"/>, stamped down with the display state. A terminal session shows nothing because the
+/// Gateway sent no button - this class never reads the connection mode or the wheel holder. A verb this build does not
+/// know is a broken contract, so it shows that problem and no button, never a guessed one. Pressing it calls the GATEWAY's verb through <see cref="IGatewayWheel"/>, never the session's own
 /// switch, so the Gateway's ruling and its refusal sentences reach the desktop exactly as they reach the browser.
 /// </summary>
 public sealed class TerminalWheelPresenter
@@ -22,7 +23,16 @@ public sealed class TerminalWheelPresenter
     private readonly Func<IGatewayWheel?> _wheel;
     private readonly Action<Action> _post;
     private Session? _session;
-    private GatewayWheelAction? _shownAction;
+    private string _shownAction = "";
+
+    /// <summary>The Gateway's verbs (<see cref="ApiModeWheelVerbs"/>) and the seam call each one makes. The only
+    /// mapping the desktop does: verb to route.</summary>
+    private static readonly IReadOnlyDictionary<string, Func<IGatewayWheel, string, Task>> Calls =
+        new Dictionary<string, Func<IGatewayWheel, string, Task>>(StringComparer.Ordinal)
+        {
+            [ApiModeWheelVerbs.TakeTheWheel] = (wheel, sid) => wheel.TakeWheelAsync(sid),
+            [ApiModeWheelVerbs.HandBack] = (wheel, sid) => wheel.HandBackWheelAsync(sid),
+        };
 
     /// <param name="wheel">Reads the Gateway seam at press time, so a Gateway client created after the window is
     /// still the one used. Null when no Gateway is configured.</param>
@@ -37,8 +47,13 @@ public sealed class TerminalWheelPresenter
     /// <summary>Raised on the screen thread whenever anything the button shows changes.</summary>
     public event Action? Changed;
 
-    /// <summary>The Gateway's button for the attached session, or null when there is none.</summary>
-    public GatewayWheelAction? Action => _session?.GatewayWheelAction;
+    /// <summary>The Gateway's button for the attached session, or null when there is none or this build cannot read
+    /// it (see <see cref="Problem"/>).</summary>
+    public ApiModeWheelAction? Action => Problem is null ? _session?.GatewayWheelAction : null;
+
+    /// <summary>Why the Gateway's button cannot be drawn: a verb this build does not know, or a button with no words.
+    /// Null when there is no button or it is readable.</summary>
+    public string? Problem => ProblemWith(_session?.GatewayWheelAction);
 
     /// <summary>True when there is a button to draw.</summary>
     public bool IsVisible => Action is not null;
@@ -58,8 +73,9 @@ public sealed class TerminalWheelPresenter
     /// <summary>The Gateway's sentence for the last refused press, verbatim; null when there is none.</summary>
     public string? Refusal { get; private set; }
 
-    /// <summary>The line beside the button: a refusal wins over the disabled reason, because it is newer.</summary>
-    public string? Note => Refusal ?? DisabledReason;
+    /// <summary>The line beside the button: an unreadable button first (there is no button then), then a refusal,
+    /// which wins over the disabled reason because it is newer.</summary>
+    public string? Note => Problem ?? Refusal ?? DisabledReason;
 
     /// <summary>
     /// Follow this session (null for none). Called by the window whenever the active session changes. A new session
@@ -71,10 +87,11 @@ public sealed class TerminalWheelPresenter
         FileLog.Write($"[TerminalWheelPresenter] Attach: session={session?.Id.ToString() ?? "(none)"}");
         if (_session is not null) _session.OnGatewayDisplayStateChanged -= OnDisplayStateChanged;
         _session = session;
-        _shownAction = session?.GatewayWheelAction;
+        _shownAction = Signature(session?.GatewayWheelAction);
         IsPending = false;
         Refusal = null;
         if (session is not null) session.OnGatewayDisplayStateChanged += OnDisplayStateChanged;
+        LogProblem();
         RaiseChanged();
     }
 
@@ -92,7 +109,7 @@ public sealed class TerminalWheelPresenter
         if (session is null || action is null || !IsEnabled)
         {
             FileLog.Write($"[TerminalWheelPresenter] PressAsync: ignored (session={session?.Id.ToString() ?? "(none)"}, "
-                + $"action={action?.Verb.ToString() ?? "(none)"}, enabled={IsEnabled})");
+                + $"action={action?.Verb ?? "(none)"}, enabled={IsEnabled})");
             return;
         }
 
@@ -107,10 +124,7 @@ public sealed class TerminalWheelPresenter
         {
             var wheel = _wheel() ?? throw new InvalidOperationException(
                 "This Director is not connected to a Gateway, so the wheel cannot be taken or handed back from here.");
-            if (action.Verb == WheelVerb.Take)
-                await wheel.TakeWheelAsync(sid);
-            else
-                await wheel.HandBackWheelAsync(sid);
+            await Calls[action.Verb](wheel, sid);
             FileLog.Write($"[TerminalWheelPresenter] PressAsync: session={sid}, verb={action.Verb} accepted");
         }
         catch (Exception ex)
@@ -130,11 +144,32 @@ public sealed class TerminalWheelPresenter
 
     private void ApplyDisplayState()
     {
-        var now = _session?.GatewayWheelAction;
+        var now = Signature(_session?.GatewayWheelAction);
         // A new verdict is a new button: an old refusal no longer describes it.
-        if (!Equals(now, _shownAction)) Refusal = null;
+        if (now != _shownAction) Refusal = null;
         _shownAction = now;
+        LogProblem();
         RaiseChanged();
+    }
+
+    private void LogProblem()
+    {
+        if (Problem is { } problem)
+            FileLog.Write($"[TerminalWheelPresenter] unreadable wheel button: session={_session?.Id.ToString() ?? "(none)"}: {problem}");
+    }
+
+    private static string Signature(ApiModeWheelAction? a) =>
+        a is null ? "" : $"{a.Verb}/{a.Label}/{a.Enabled}/{a.DisabledReason}";
+
+    private static string? ProblemWith(ApiModeWheelAction? a)
+    {
+        if (a is null) return null;
+        if (!Calls.ContainsKey(a.Verb))
+            return $"The Gateway sent a Terminal tab wheel button this Director does not know (\"{a.Verb}\"), so no button "
+                + "is shown. Update the Director or the Gateway so they agree.";
+        if (string.IsNullOrWhiteSpace(a.Label))
+            return "The Gateway sent a Terminal tab wheel button with no words on it, so no button is shown.";
+        return null;
     }
 
     private void RaiseChanged()

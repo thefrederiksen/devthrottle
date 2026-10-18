@@ -26,14 +26,14 @@ export interface TerminalWheelButtonProps {
 }
 
 const CALLS: Readonly<Record<WheelVerb, (sessionId: string) => Promise<void>>> = {
-  take: (sid) => takeWheel(sid),
+  takeTheWheel: (sid) => takeWheel(sid),
   handBack: (sid) => handBackWheel(sid),
 };
 
 const SURFACE = "terminal-wheel-button";
 
 const WHAT: Readonly<Record<WheelVerb, string>> = {
-  take: "take the wheel",
+  takeTheWheel: "take the wheel",
   handBack: "hand the wheel back",
 };
 
@@ -114,7 +114,7 @@ export function TerminalWheelButton({ session, onChanged }: TerminalWheelButtonP
     <span className="twb-root">
       <button
         type="button"
-        className={`twb-button twb-${verb === "take" ? "take" : "handback"}`}
+        className={`twb-button twb-${verb === "takeTheWheel" ? "take" : "handback"}`}
         disabled={!action.enabled || pending}
         aria-busy={pending}
         aria-describedby={shownReason ? reasonId : undefined}

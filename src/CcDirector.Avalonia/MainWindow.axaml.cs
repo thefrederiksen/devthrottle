@@ -3385,24 +3385,29 @@ public partial class MainWindow : Window
     /// <summary>
     /// Draw the Terminal tab's wheel button from <see cref="_wheelPresenter"/>: shown only on the Terminal tab, and only
     /// when the Gateway's verdict has a button. Words, enabled state and the reason line are the presenter's, verbatim;
-    /// the colour follows docs/VisualStyle.md (taking the wheel is the primary action, handing back the secondary one).
+    /// the colours are the two styles in MainWindow.axaml, from docs/VisualStyle.md (taking the wheel is the primary
+    /// action, handing back the secondary one).
     /// </summary>
     private void UpdateWheelBar()
     {
-        var shown = _activeLeftTab == "Terminal" && _activeSession != null && _wheelPresenter.IsVisible;
+        var onTerminal = _activeLeftTab == "Terminal" && _activeSession != null;
+        var shown = onTerminal && _wheelPresenter.IsVisible;
         TabBarWheelButton.IsVisible = shown;
-        TabBarWheelNote.IsVisible = shown && _wheelPresenter.Note is not null;
+        // The note also carries a button this build could not read, which shows with no button beside it.
+        TabBarWheelNote.IsVisible = onTerminal && _wheelPresenter.Note is not null;
+        TabBarWheelNote.Text = _wheelPresenter.Note ?? "";
+        TabBarWheelNote.Foreground = new SolidColorBrush(Color.Parse(
+            _wheelPresenter.Refusal is not null || _wheelPresenter.Problem is not null ? "#F48771" : "#9D9D9D"));
+        ToolTip.SetTip(TabBarWheelNote, _wheelPresenter.Note);
         if (!shown) return;
 
         TabBarWheelButton.Content = _wheelPresenter.IsPending ? $"{_wheelPresenter.Label}..." : _wheelPresenter.Label;
         TabBarWheelButton.IsEnabled = _wheelPresenter.IsEnabled;
-        TabBarWheelButton.Background = _wheelPresenter.Action?.Verb == Core.ApiMode.WheelVerb.HandBack
-            ? new SolidColorBrush(Color.Parse("#3C3C3C"))
-            : (IBrush?)this.FindResource("AccentBrush") ?? new SolidColorBrush(Color.Parse("#007ACC"));
+        // Layout only: which of the two styles in MainWindow.axaml the Gateway's verb is drawn with.
+        var handBack = _wheelPresenter.Action?.Verb == Gateway.Contracts.ApiModeWheelVerbs.HandBack;
+        TabBarWheelButton.Classes.Set("handback", handBack);
+        TabBarWheelButton.Classes.Set("take", !handBack);
         ToolTip.SetTip(TabBarWheelButton, _wheelPresenter.DisabledReason);
-        TabBarWheelNote.Text = _wheelPresenter.Note ?? "";
-        TabBarWheelNote.Foreground = new SolidColorBrush(Color.Parse(_wheelPresenter.Refusal is not null ? "#F48771" : "#9D9D9D"));
-        ToolTip.SetTip(TabBarWheelNote, _wheelPresenter.Note);
     }
 
     /// <summary>The Terminal tab's wheel button: take the wheel or hand it back, through the Gateway.</summary>
