@@ -140,6 +140,14 @@ byte for byte; no channel for this machine; the size refusal.
 - A per-call deadline of **15 seconds**, and a deadline of **4 minutes** for one whole screening; a question not asked
   by then is a failure of that email (retried next run).
 - Result: `{ label | off-labels | failed, confidence, costUsd, inputTokens, outputTokens, errorKind }`.
+- **The plan's gate.** The factory asks the tenant AI gate with `EntitlementScopes.Wingman`, as every other internal
+  feature on the Wingman endpoint does (the dictionary suggestions, the Mentor). A tenant the gate refuses gets a model
+  whose every question fails with the gate's own sentence. A self-hosted Gateway is not gated. (Decided by the Tech
+  Lead on the model-call Developer's evidence, 18 October 2026.)
+- **Strict answers.** `a` and `A.` are off the labels, unlike phase 0's script. Phase 6 measures how often the real
+  model answers that way; loosening it is a change to this contract, not a quiet fix.
+- **A failed call's cost is not known**, so it is recorded as none. A call that timed out may still have been billed,
+  so the spend counted can be lower than the spend made by those calls (about $0.0001 each).
 - No key in the vault, or no hosted endpoint (a self-hosted Gateway): every model question fails with "the Gateway
   holds no key for the hosted model", so rules and lists still decide and model questions are `failed`.
 
