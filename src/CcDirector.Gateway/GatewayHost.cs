@@ -290,6 +290,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <inheritdoc cref="MailDeskChannels"/>
     internal MailDesk.MailDeskSettingsStore MailDeskSettings { get; }
 
+    /// <summary>Each mailbox's kept checks (Mail Desk phase 3, section 6.2): the mailbox problems and the channel row's
+    /// <c>signedIn</c> are folded from them, and the screening writes them.</summary>
+    internal MailDesk.MailDeskChannelCheckStore MailDeskChannelChecks { get; }
+
+    /// <summary>The account's Mail Desk spend, the one value the spend problem and the 08:00 email's spend line read.</summary>
+    internal Func<TenantId, MailDesk.MailDeskSpend> MailDeskSpendOf { get; }
+
     /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
     /// database shape does not depend on it; only the routes do.</summary>
     public Factory.FactoryActivityRecord FactoryActivity { get; }
@@ -2511,6 +2518,12 @@ public sealed class GatewayHost : IAsyncDisposable
         MailDeskRules = new MailDesk.MailDeskRulesStore(_gatewayDb);
         MailDeskDecisions = new MailDesk.MailDeskDecisionStore(_gatewayDb);
         MailDeskSettings = new MailDesk.MailDeskSettingsStore(_gatewayDb);
+        MailDeskChannelChecks = new MailDesk.MailDeskChannelCheckStore(_gatewayDb);
+        // The account's spend (phase 3, section 7): what its decision rows cost, against the account's own spend limit
+        // (mail_desk_spend_limit_usd, 5.00 dollars when unset). No call has been stopped until the screening stops one
+        // and says when (phase 3, task F).
+        MailDeskSpendOf = tenant => new MailDesk.MailDeskSpend(MailDeskDecisions.SpentMicros(tenant),
+            MailDesk.MailDeskMoney.Micros(MailDeskSettings.Read(tenant).SpendLimitUsd), StoppedUtc: null);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
@@ -2729,7 +2742,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Director reports. Assigned further down this constructor, before the first sweep or request can call this.
             scheduleSessionsByName: (tenant, directorId, name) =>
                 Api.GatewayEndpoints.LastKnownScheduleSessionsByName(PushedSessions, tenant, directorId, name),
-            settleLastStatus: (jobId, firedUtc, status) => _cronJobs.SettleLastStatus(jobId, firedUtc, status));
+            settleLastStatus: (jobId, firedUtc, status) => _cronJobs.SettleLastStatus(jobId, firedUtc, status),
+            // The third source (Mail Desk phase 3, section 6.2): a mailbox that could not be checked, and the spend limit.
+            mailDesk: new MailDesk.MailDeskProblemSource(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskChannelChecks, MailDeskSpendOf));
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check
         // when its check counts work (phase 5b), so a checked run is given exactly what a scheduled run is.
@@ -2784,7 +2799,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 StringComparer.OrdinalIgnoreCase),
             baseUrl: () => GatewayPublicUrl.ResolveBase(Hosted),
             store: FactoryEmailReports,
-            sender: factoryEmailSender);
+            sender: factoryEmailSender,
+            mailDesk: new MailDesk.MailDeskEmailFold(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskDecisions, MailDeskRules, MailDeskSpendOf).Section);
 
         _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine,
             sweepResults: () =>
@@ -5609,7 +5625,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 MailDeskRules,
                 MailDeskDecisions,
                 MailDeskSettings,
-                new MailDesk.MailDeskChannelFold(Triggers.Store.List, _tenantSettingsResolver.TimeZone, MailDeskDecisions),
+                new MailDesk.MailDeskChannelFold(Triggers.Store.List, _tenantSettingsResolver.TimeZone, MailDeskDecisions, MailDeskChannelChecks),
                 _sessionHistory.FactoryOf,
                 KnownMachinesOf,
                 () => DateTime.UtcNow));

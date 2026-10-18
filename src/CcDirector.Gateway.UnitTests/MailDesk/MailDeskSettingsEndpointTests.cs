@@ -78,7 +78,7 @@ public sealed class MailDeskSettingsEndpointTests : IAsyncLifetime
             await next();
         });
         var parts = new MailDeskEndpoints.Parts(_channels, _rules, _decisions, _settings,
-            new MailDeskChannelFold(_ => new List<TriggerEntity>(), _ => "UTC", _decisions),
+            new MailDeskChannelFold(_ => new List<TriggerEntity>(), _ => "UTC", _decisions, new MailDeskChannelCheckStore(_db)),
             FactoryOf, _ => new List<string>(), () => _now);
         MailDeskEndpoints.Map(MailDeskGate.Group(app, _switch, Resolve), Resolve, parts);
         await app.StartAsync();

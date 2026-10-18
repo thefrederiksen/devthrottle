@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.MailDesk;
 using CcDirector.Gateway.Running;
 
 namespace CcDirector.Gateway.Factory.Email;
@@ -17,13 +18,16 @@ public sealed record FactoryEmailFactory(string Title, IReadOnlyDictionary<strin
 /// <param name="Days">Each factory's last day, from the same fold.</param>
 /// <param name="Factories">The account's factories by id, for titles and seat names.</param>
 /// <param name="BaseUrl">This Gateway's public base address, or null when it has no remotely reachable one.</param>
+/// <param name="MailDesk">The 08:00 email's Mail Desk section, folded on the Gateway (<see cref="MailDeskEmailFold"/>),
+/// or null when the account's Mail Desk is off or has no mailbox - and then the email is exactly as it was before.</param>
 public sealed record FactoryEmailInput(
     FactoryEmailSlot Slot,
     TimeZoneInfo Zone,
     IReadOnlyList<CronRunProblemDto> Problems,
     IReadOnlyList<CronFactoryDayDto> Days,
     IReadOnlyDictionary<string, FactoryEmailFactory> Factories,
-    string? BaseUrl);
+    string? BaseUrl,
+    MailDeskEmailSection? MailDesk = null);
 
 /// <summary>A composed factory email, or the reason none is sent at this slot.</summary>
 /// <param name="Send">True when this slot sends an email.</param>
@@ -49,6 +53,8 @@ public sealed record FactoryEmail(bool Send, string? NotSentReason, string Subje
 ///     Older open problems are one line pointing to the earlier email, never repeated.
 ///   - Read-only: no buttons. Each factory with a problem links to its factory page, where the problem is handled.
 ///   - Role words only - a seat is named by its role, never a person.
+///   - The Mail Desk section (Mail Desk mission, phase 3, section 9) is in the 08:00 email only, after the factories,
+///     and only when the Gateway handed one in: every count, every junked email, every change, the spend.
 /// </summary>
 public static class FactoryEmailComposer
 {
@@ -80,7 +86,7 @@ public static class FactoryEmailComposer
     {
         var problems = input.Problems.Where(p => p.State == CronRunProblemStates.Open).ToList();
         var days = input.Days;
-        if (problems.Count == 0 && days.Count == 0)
+        if (problems.Count == 0 && days.Count == 0 && input.MailDesk is null)
             return NotSent("this account has no factory schedules and no open problems, so there is nothing to report");
 
         var local = Local(input.Slot.BoundaryUtc, input.Zone);
@@ -121,6 +127,9 @@ public static class FactoryEmailComposer
             FactoryTable(html, input, days);
         }
 
+        if (input.MailDesk is { } mailDesk)
+            MailDeskSection(html, mailDesk);
+
         var footer = new StringBuilder();
         footer.Append("This email only reports. Each problem is handled on its factory page - ");
         footer.Append(input.BaseUrl is null ? "open DevThrottle, Factories. " : "open the factory name above. ");
@@ -151,10 +160,103 @@ public static class FactoryEmailComposer
                 text.AppendLine($"{TitleOf(input, d.Factory)}: {string.Join(" / ", columns.Select(c => c.Of(d)))}");
             text.AppendLine();
         }
+        if (input.MailDesk is { } mailDeskText)
+            TextMailDesk(text, mailDeskText);
         text.AppendLine(footer.ToString());
 
-        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count, Covered(problems, days));
+        var covered = Covered(problems, days);
+        if (input.MailDesk is { } named && !covered.Contains(named.Factory, StringComparer.OrdinalIgnoreCase))
+            covered = covered.Append(named.Factory).OrderBy(f => f, StringComparer.Ordinal).ToList();
+        return new FactoryEmail(true, null, subject, html.ToString(), text.ToString(), problems.Count, covered);
     }
+
+    // ------------------------------------------------------------------------------------------------------------
+    // 08:00: the Mail Desk section, laid out exactly as the Gateway folded it
+
+    private static void MailDeskSection(StringBuilder html, MailDeskEmailSection md)
+    {
+        SectionHeading(html, MailDeskEmailFold.Heading, "20px 18px 4px");
+        html.Append($"<tr><td style=\"padding:0 18px 6px;{Font}\">\n");
+        foreach (var box in md.Mailboxes)
+            html.Append(CountsBlock(box.Address, box.Counts));
+        html.Append(CountsBlock("All mailboxes", md.Total));
+
+        MessageList(html, "Junked", md.Junked, m => $"{m.Mailbox} - {m.Layer}: {m.Reason}");
+        MessageList(html, "Kept for you", md.KeptForOwner, m => m.Mailbox);
+        MessageList(html, "Could not be screened", md.NotScreened, m => $"{m.Mailbox} - {m.Reason}");
+
+        SubHeading(html, $"Changes to the Mail Desk ({md.Changes.Count.ToString(CultureInfo.InvariantCulture)})");
+        if (md.Changes.Count == 0) None(html);
+        foreach (var c in md.Changes)
+            Item(html, $"{c.AtText} {c.What}", $"by {c.Who}: {c.Why}");
+
+        SubHeading(html, "Spend");
+        html.Append($"<div style=\"font-size:13.5px;color:{Ink};padding-top:3px;\">{E(md.SpendLine)}</div>\n");
+        if (md.SpendStoppedSentence is not null)
+            html.Append($"<div style=\"font-size:13.5px;color:{Bad};padding-top:3px;font-weight:600;\">{E(md.SpendStoppedSentence)}</div>\n");
+        if (md.ObserveLine is not null)
+            html.Append($"<div style=\"font-size:13.5px;color:{Muted};padding-top:10px;\">{E(md.ObserveLine)}</div>\n");
+        html.Append("</td></tr>\n");
+    }
+
+    private static string CountsBlock(string name, MailDeskEmailCounts counts) =>
+        $"<div style=\"font-size:14px;color:{Ink};padding-top:8px;font-weight:600;\">{E(name)}: {counts.Total.ToString(CultureInfo.InvariantCulture)}</div>\n" +
+        $"<div style=\"font-size:12.5px;color:{Muted};padding-top:2px;\">{E(CountsLine(counts))}</div>\n";
+
+    private static string CountsLine(MailDeskEmailCounts counts) =>
+        string.Join(" - ", counts.ByDecision.Select(c => $"{c.Label} {c.Count.ToString(CultureInfo.InvariantCulture)}"));
+
+    private static void MessageList(StringBuilder html, string title, IReadOnlyList<MailDeskEmailMessage> messages,
+        Func<MailDeskEmailMessage, string> second)
+    {
+        SubHeading(html, $"{title} ({messages.Count.ToString(CultureInfo.InvariantCulture)})");
+        if (messages.Count == 0) None(html);
+        foreach (var m in messages)
+            Item(html, $"{m.Sender} - {m.Subject}", second(m));
+    }
+
+    private static void SubHeading(StringBuilder html, string text) =>
+        html.Append($"<div style=\"font-size:13.5px;color:{Ink};padding-top:14px;font-weight:700;\">{E(text)}</div>\n");
+
+    private static void None(StringBuilder html) =>
+        html.Append($"<div style=\"font-size:13px;color:{Faint};padding-top:3px;\">None.</div>\n");
+
+    private static void Item(StringBuilder html, string first, string second)
+    {
+        html.Append($"<div style=\"font-size:13.5px;color:{Ink};padding-top:5px;\">{E(first)}</div>\n");
+        html.Append($"<div style=\"font-size:12.5px;color:{Muted};\">{E(second)}</div>\n");
+    }
+
+    private static void TextMailDesk(StringBuilder text, MailDeskEmailSection md)
+    {
+        text.AppendLine(MailDeskEmailFold.Heading.ToUpperInvariant());
+        foreach (var box in md.Mailboxes)
+            text.AppendLine($"{box.Address}: {box.Counts.Total.ToString(CultureInfo.InvariantCulture)} ({CountsLine(box.Counts)})");
+        text.AppendLine($"All mailboxes: {md.Total.Total.ToString(CultureInfo.InvariantCulture)} ({CountsLine(md.Total)})");
+        TextMessages(text, "Junked", md.Junked, m => $"{m.Mailbox} - {m.Layer}: {m.Reason}");
+        TextMessages(text, "Kept for you", md.KeptForOwner, m => m.Mailbox);
+        TextMessages(text, "Could not be screened", md.NotScreened, m => $"{m.Mailbox} - {m.Reason}");
+        text.AppendLine($"Changes to the Mail Desk ({md.Changes.Count.ToString(CultureInfo.InvariantCulture)}):");
+        if (md.Changes.Count == 0) text.AppendLine("  None.");
+        foreach (var c in md.Changes)
+            text.AppendLine($"- {c.AtText} {c.What}").AppendLine($"  by {c.Who}: {c.Why}");
+        text.AppendLine($"Spend: {md.SpendLine}");
+        if (md.SpendStoppedSentence is not null) text.AppendLine(md.SpendStoppedSentence);
+        if (md.ObserveLine is not null) text.AppendLine(md.ObserveLine);
+        text.AppendLine();
+    }
+
+    private static void TextMessages(StringBuilder text, string title, IReadOnlyList<MailDeskEmailMessage> messages,
+        Func<MailDeskEmailMessage, string> second)
+    {
+        text.AppendLine($"{title} ({messages.Count.ToString(CultureInfo.InvariantCulture)}):");
+        if (messages.Count == 0) text.AppendLine("  None.");
+        foreach (var m in messages)
+            text.AppendLine($"- {OneLine(m.Sender)} - {OneLine(m.Subject)}").AppendLine($"  {OneLine(second(m))}");
+    }
+
+    // A sender's text on one line of the plain-text body: a line break in a subject cannot start a line of its own.
+    private static string OneLine(string s) => new(s.Select(c => char.IsControl(c) ? ' ' : c).ToArray());
 
     // ------------------------------------------------------------------------------------------------------------
     // 16:00 and midnight

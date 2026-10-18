@@ -235,7 +235,7 @@ public sealed class MailDeskSwitchTests : IDisposable
         var decisions = new MailDeskDecisionStore(Db);
         CcDirector.Gateway.Api.MailDeskEndpoints.Map(MailDeskGate.Group(app, mailDesk, Resolve), Resolve, new CcDirector.Gateway.Api.MailDeskEndpoints.Parts(
             new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), decisions, new MailDeskSettingsStore(Db),
-            new MailDeskChannelFold(_ => Array.Empty<TriggerEntity>(), _ => "UTC", decisions),
+            new MailDeskChannelFold(_ => Array.Empty<TriggerEntity>(), _ => "UTC", decisions, new MailDeskChannelCheckStore(Db)),
             _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, _ => Array.Empty<string>(), () => _now));
 
         FactoryAgentsGate.Group(app, factory, Resolve).MapGet("/gateway/factory/placeholder", () => Results.Ok());
