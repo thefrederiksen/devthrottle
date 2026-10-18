@@ -54,8 +54,8 @@ CHANGE = {
     "atUtc": "2026-10-18T09:00:00Z",
     "kind": "allow",
     "action": "add",
-    "subject": "*@github.com",
-    "detail": {"from": "*@github.com"},
+    "subject": "*@notifications.example.com",
+    "detail": {"from": "*@notifications.example.com"},
     "versionBefore": 1,
     "versionAfter": 2,
     "who": {"kind": "person", "id": "email@devthrottle.com", "name": None},
@@ -135,7 +135,7 @@ def _only_call(gw):
     return gw.calls[0]
 
 
-def _rules_answer(kind="allow", action="add", subject="*@github.com"):
+def _rules_answer(kind="allow", action="add", subject="*@notifications.example.com"):
     return {"version": 2, "change": dict(CHANGE, kind=kind, action=action, subject=subject)}
 
 
@@ -263,7 +263,7 @@ def test_rules_show_PrintsEveryListOfTheDocument(fake_gateway):
     document = {
         "rules": [{"name": "citizenship", "when": {"subjectContains": ["citizen"], "fromAny": ["a@example.com"]},
                    "route": {"factory": "citizenship", "seat": "intake"}}],
-        "allow": [{"from": "*@github.com", "what": "GitHub notifications", "do": "archive"},
+        "allow": [{"from": "*@notifications.example.com", "what": "Notifications", "do": "archive"},
                   {"from": "billing@example.net", "what": "invoices",
                    "do": {"route": {"factory": "books", "seat": "clerk"}}}],
         "block": [{"from": "*@spammy-domain.example", "why": "cold sales, never answered"}],
@@ -411,15 +411,15 @@ def test_allow_add_PostsTheEntryWithDoParsed(fake_gateway, do, sent):
     fake_gateway.answer("POST", "/rules/allow/add", 200, _rules_answer())
 
     # Act
-    result = runner.invoke(app, ["maildesk", "allow", "add", "*@github.com", "--what", "GitHub notifications",
+    result = runner.invoke(app, ["maildesk", "allow", "add", "*@notifications.example.com", "--what", "Notifications",
                                  "--do", do, "--why", WHY])
 
     # Assert
     assert result.exit_code == 0, result.output
     call = _only_call(fake_gateway)
     assert (call["method"], call["path"]) == ("POST", "/gateway/mail-desk/rules/allow/add")
-    assert call["body"] == {"from": "*@github.com", "what": "GitHub notifications", "do": sent, "why": WHY}
-    assert "Saved rules version 2: allow add *@github.com." in result.stdout
+    assert call["body"] == {"from": "*@notifications.example.com", "what": "Notifications", "do": sent, "why": WHY}
+    assert "Saved rules version 2: allow add *@notifications.example.com." in result.stdout
 
 
 def test_block_add_SendsTheWhyAsTheEntrysOwnReason(fake_gateway):
@@ -474,7 +474,7 @@ def test_route_add_PostsFactorySeatHandlesAndWhy(fake_gateway):
 
 
 @pytest.mark.parametrize("group, key", [
-    ("allow", "*@github.com"),
+    ("allow", "*@notifications.example.com"),
     ("block", "*@spammy-domain.example"),
     ("rule", "citizenship"),
     ("route", "devthrottle/mail-desk"),
@@ -500,8 +500,8 @@ _CHANGES_WITHOUT_WHY = [
     ["channel", "add", LONG_ADDRESS, "--provider", "outlook", "--machine", "devlinux"],
     ["channel", "remove", LONG_ADDRESS],
     ["mode", LONG_ADDRESS, "live"],
-    ["allow", "add", "*@github.com", "--what", "GitHub", "--do", "archive"],
-    ["allow", "remove", "*@github.com"],
+    ["allow", "add", "*@notifications.example.com", "--what", "Notifications", "--do", "archive"],
+    ["allow", "remove", "*@notifications.example.com"],
     ["block", "add", "*@spammy-domain.example"],
     ["block", "remove", "*@spammy-domain.example"],
     ["rule", "add", "citizenship", "--subject-contains", "citizen", "--route", "citizenship/intake"],
@@ -534,9 +534,9 @@ def test_change_WithBlankWhy_ExitsTwoAndSendsNothing(fake_gateway, args):
 
 
 @pytest.mark.parametrize("args, expected", [
-    (["allow", "add", "*@github.com", "--what", "x", "--do", "route:books", "--why", WHY], "<factory>/<seat>"),
-    (["allow", "add", "*@github.com", "--what", "x", "--do", "route:/clerk", "--why", WHY], "<factory>/<seat>"),
-    (["allow", "add", "*@github.com", "--what", "x", "--do", "forward", "--why", WHY],
+    (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "route:books", "--why", WHY], "<factory>/<seat>"),
+    (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "route:/clerk", "--why", WHY], "<factory>/<seat>"),
+    (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "forward", "--why", WHY],
      "archive, keep-for-owner, route:<factory>/<seat>"),
     (["rule", "add", "r", "--from", "a@example.com", "--route", "a/b/c", "--why", WHY], "<factory>/<seat>"),
     (["route", "add", "devthrottle", "--handles", "x", "--why", WHY], "<factory>/<seat>"),
@@ -600,7 +600,7 @@ def test_count_BelowOne_ExitsTwoAndSendsNothing(fake_gateway):
     (["status"], "GET", "/status"),
     (["channel", "list"], "GET", "/channels"),
     (["decisions", "--json"], "GET", "/decisions"),
-    (["allow", "remove", "*@github.com", "--why", WHY], "POST", "/rules/allow/remove"),
+    (["allow", "remove", "*@notifications.example.com", "--why", WHY], "POST", "/rules/allow/remove"),
 ])
 def test_switchOff_404WithNoBody_SaysMailDeskIsNotSwitchedOnAndExitsOne(fake_gateway, args, method, path):
     # Arrange
@@ -646,11 +646,11 @@ def test_403Refusal_PrintsTheGatewaysErrorAndDetailVerbatim(fake_gateway):
 
 def test_400Refusal_PrintsTheValidatorsSentence(fake_gateway):
     # Arrange
-    sentence = "allow[0].from: 'github' is not an address or *@domain; write it as *@github.com."
+    sentence = "allow[0].from: 'notifications' is not an address or *@domain; write it as *@notifications.example.com."
     fake_gateway.answer("POST", "/rules/allow/add", 400, {"error": sentence})
 
     # Act
-    result = runner.invoke(app, ["maildesk", "allow", "add", "github", "--what", "x", "--do", "archive",
+    result = runner.invoke(app, ["maildesk", "allow", "add", "notifications", "--what", "x", "--do", "archive",
                                  "--why", WHY])
 
     # Assert
