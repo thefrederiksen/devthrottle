@@ -1,0 +1,12 @@
+Question: is this a real person writing to us, or spam?
+
+Labels:
+A. person - a real person, or a real organisation we deal with, writing to us for a real reason (this includes genuine automated notices from a service we use)
+B. spam - unsolicited marketing, cold sales outreach, phishing, scams, or bulk mail we never asked for
+
+Email:
+From: {sender_name} <{sender_address}>
+Subject: {subject}
+Start of the body: {preview}
+
+Answer with one letter: A or B.
