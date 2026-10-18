@@ -11,7 +11,7 @@ P16), are in `phase-1-hook-questions.md`.
 |---|---|---|
 | `cc-rule-hook`, the evaluator: reads the PreToolUse event and the rules file, decides, drops the decision, logs every evaluation, always exits 0 and prints nothing | `src/CcDirector.RuleHook` (no project references, source-generated JSON, Native AOT) | P1, P2, P3, P10, P11, P12, P13, P14, W2, W3, W4 |
 | Its tests | `src/CcDirector.RuleHook.Tests` (in the solution and in `scripts/test-local.ps1`'s default list) | |
-| The PreToolUse registration for `Bash|PowerShell`, in the installer's one settings builder beside the SessionStart hooks | `ClaudeHookInstaller.BuildSettings` | P9, P12 |
+| The PreToolUse registration for `^(Bash|PowerShell)$`, in the installer's one settings builder beside the SessionStart hooks | `ClaudeHookInstaller.BuildSettings` | P9, P12 |
 | The Director carries the evaluator and the installer writes it beside the hook scripts: compare before write, executable bit, atomic replace, a refused replace logged and retried, no registration when the build carries none | `ClaudeHookInstaller.InstallRuleHook`, `RuleHookBinary`, the `EmbedRuleHook` target in `CcDirector.Avalonia.csproj` | P16 |
 | Both local build scripts: embedded by default, an explicit opt-out, and a presence check | `scripts/local-build-linux.sh --no-rule-hook`, `scripts/local-build-avalonia.ps1 -NoRuleHook` | P16 |
 | Timing scripts | `scripts/measure-rule-hook.sh`, `scripts/measure-rule-hook.ps1` | P9 |
@@ -64,18 +64,21 @@ refused replace dropping the old hook (1 failed), no executable bit (1 failed).
 
 ## Timing (Linux, devlinux, 32 processors, 300 runs a row)
 
-`scripts/measure-rule-hook.sh`, the exact registered command through `/bin/sh -c` with the real event on
-standard input. The machine was busy - load average 24 to 30 during the run - so every row carries
-contention; the added time is the row minus the baseline.
+`scripts/measure-rule-hook.sh`, the exact registered command through `/bin/sh -c` - which is how Claude
+Code 2.1.302 runs a hook command string, checked live - with the real event on standard input. Re-run after
+review (finding 3, note N3): the baseline now starts a real program (`/bin/sh -c /bin/true`) as every hook
+row does, and the no-session row runs with both session variables removed. The machine was busy - load
+average 10 to 16 during the run - so every row carries contention; the added time is the row minus the
+baseline.
 
 | Row | Median | 95th percentile | Added (median) |
 |---|---|---|---|
-| baseline, `/bin/sh -c true` | 1.78 ms | 2.19 ms | - |
-| outside a Director session | 6.11 ms | 7.38 ms | 4.3 ms |
-| rules file not there | 7.09 ms | 8.81 ms | 5.3 ms |
-| 0 rules | 7.58 ms | 9.16 ms | 5.8 ms |
-| 1 rule, matching (decision written) | 7.28 ms | 9.90 ms | 5.5 ms |
-| 50 rules, last matching (decision written) | 7.34 ms | 10.33 ms | 5.6 ms |
+| baseline, `/bin/sh -c /bin/true` | 2.33 ms | 2.94 ms | - |
+| outside a Director session | 6.20 ms | 7.97 ms | 3.9 ms |
+| rules file not there | 6.54 ms | 8.22 ms | 4.2 ms |
+| 0 rules | 6.17 ms | 8.58 ms | 3.8 ms |
+| 1 rule, matching (decision written) | 7.59 ms | 9.18 ms | 5.3 ms |
+| 50 rules, last matching (decision written) | 7.18 ms | 9.46 ms | 4.9 ms |
 
 Most of the added time is the process starting (the "outside a session" row does nothing else). Fifty
 rules cost no more than one. One defect found by measuring and fixed: the first version used the
@@ -96,3 +99,9 @@ off the background garbage collector was tried and changed nothing measurable.
   rules file and the two environment variables come from Developer C's work and are not on this branch.
 - **The release workflow** was not run; that it needs no change rests on the runners having the native
   toolchains.
+
+## After review (2026-10-18)
+
+The review is `reviews/phase-1-hook-review.md` on `mission/session-rules-hooks-p1`; every finding and note
+is answered in `reviews/phase-1-hook-answers.md` on this branch. Tables above are updated; the test counts
+after the fixes are in the answers file.

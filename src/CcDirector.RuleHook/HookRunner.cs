@@ -107,6 +107,9 @@ internal sealed class HookRunner
         var command = hookEvent.ToolInput?.Command
             ?? throw new InvalidOperationException($"the {agentTool} event has no command");
 
+        // File.Exists is false for a directory too, and no_rules_file means "not written yet" (W4).
+        if (Directory.Exists(rulesFile))
+            throw new RulesFileException("the rules file path is a directory");
         if (!File.Exists(rulesFile))
             return "no_rules_file";
         var file = JsonSerializer.Deserialize(File.ReadAllText(rulesFile), RuleHookJson.Default.RulesFile)

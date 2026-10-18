@@ -127,6 +127,20 @@ public sealed class HookRunnerTests : IDisposable
         Assert.Empty(Decisions());
     }
 
+    /// <summary>no_rules_file means "not written yet" (W4). A directory where the file should be is a
+    /// Director defect, and must read as one.</summary>
+    [Fact]
+    public void Run_RulesPathIsADirectory_LogsAnErrorNotNoRulesFile()
+    {
+        Directory.CreateDirectory(_rulesFile);
+
+        var exit = Run(EventFor("echo RULE-PROBE"));
+
+        Assert.Equal(0, exit);
+        var line = Assert.Single(File.ReadAllLines(Path.Combine(Path.GetDirectoryName(_rulesFile)!, SessionId + ".eval.log")));
+        Assert.Contains("\terror: the rules file path is a directory", line);
+    }
+
     [Fact]
     public void Run_EmptyRulesList_LogsNoMatchAndDropsNothing()
     {

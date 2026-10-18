@@ -92,16 +92,13 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# The Session Rules hook: a presence check, not an absence of errors. The resource name is in the
-# Director's own assembly only when the hook was embedded; checked before it disappears into the bundle.
-$directorDll = Join-Path $repoRoot "src\CcDirector.Avalonia\obj\$Configuration\net10.0\win-x64\cc-director.dll"
+# The Session Rules hook. The presence check is in the build itself (VerifyRuleHookEmbedded in
+# CcDirector.Avalonia.csproj): it reads the compiled assembly's managed resources and fails the build above
+# unless one holds the evaluator's exact bytes. Reaching this line with the hook on means that check passed.
 if ($NoRuleHook) {
     Write-Host "  Session Rules hook: NOT embedded (-NoRuleHook) - this Director's sessions evaluate no rules" -ForegroundColor Yellow
-} elseif (-not [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($directorDll)).Contains("cc-rule-hook")) {
-    Write-Error "The Director was built without the Session Rules hook ($directorDll carries no cc-rule-hook)."
-    exit 1
 } else {
-    Write-Host "  Session Rules hook: embedded" -ForegroundColor Gray
+    Write-Host "  Session Rules hook: embedded (verified in the assembly's managed resources by the build)" -ForegroundColor Gray
 }
 
 # Step 3: Publish

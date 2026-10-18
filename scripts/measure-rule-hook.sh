@@ -4,11 +4,13 @@
 #
 # Claude Code runs cc-rule-hook before EVERY shell command of every Director session (Session Rules part
 # 2, phase 1, ruling P9), so its cost is paid per command. This script runs the EXACT command the
-# Director registers - the quoted absolute path, through /bin/sh -c the way a hook command string is run -
-# with a real Claude Code PreToolUse event on standard input, many times, and prints the median and the
-# 95th percentile for:
+# Director registers - the quoted absolute path, through /bin/sh -c, which is how Claude Code 2.1.302 runs
+# a hook command string on Linux (checked 2026-10-18: a hook recording $0 and its own command line showed
+# "/bin/sh -c <command>" with Claude Code as its parent) - with a real Claude Code PreToolUse event on
+# standard input, many times, and prints the median and the 95th percentile for:
 #
-#   baseline        a plain shell command (/bin/sh -c true) - what any hook costs before it does anything
+#   baseline        a plain program through the shell (/bin/sh -c /bin/true) - what any hook costs before
+#                   it does anything, including starting one program, as every hook row does
 #   no-session      the hook outside a Director session (no CC_SESSION_RULES_FILE): it does nothing
 #   no-rules-file   a Director session whose rules file is not there yet
 #   0 rules         a rules file with an empty rules list
@@ -16,7 +18,9 @@
 #   50 rules        fifty rules; the last matches, so all fifty are checked and a decision is written
 #
 # The hook's ADDED time is its row minus the baseline row. Everything is written under a scratch folder
-# that is deleted at the end; nothing touches a real session.
+# that is deleted at the end; nothing touches a real session. Run from inside a Director session, the
+# session's own two variables are removed for every row, and the script fails if that session's evaluation
+# log or decision drop changed.
 #
 # Usage:
 #   scripts/measure-rule-hook.sh                       # publishes the hook first if it is not built
@@ -115,13 +119,25 @@ measure() {
         "$(awk "BEGIN { print $median / 1000 }")" "$(awk "BEGIN { print $p95 / 1000 }")"
 }
 
+# Outside a Director session: BOTH session variables removed, whatever the operator's shell carries.
 run_hook() {
-    /bin/sh -c "$HOOK_COMMAND"
+    env -u CC_SESSION_RULES_FILE -u CC_SESSION_DECISION_DIR /bin/sh -c "$HOOK_COMMAND"
 }
 
 run_hook_with() {
     CC_SESSION_RULES_FILE="$1" CC_SESSION_DECISION_DIR="$SCRATCH/decisions" /bin/sh -c "$HOOK_COMMAND"
 }
+
+# The operator's own session, if this runs inside one: what it holds now, to prove afterwards that the
+# measurement never wrote into it.
+OWN_LOG=""; OWN_LOG_BEFORE=0; OWN_DROP_BEFORE=0
+if [[ -n "${CC_SESSION_RULES_FILE:-}" ]]; then
+    OWN_LOG="${CC_SESSION_RULES_FILE%.json}.eval.log"
+    [[ -f "$OWN_LOG" ]] && OWN_LOG_BEFORE="$(wc -l < "$OWN_LOG")"
+fi
+if [[ -n "${CC_SESSION_DECISION_DIR:-}" && -d "${CC_SESSION_DECISION_DIR}" ]]; then
+    OWN_DROP_BEFORE="$(find "$CC_SESSION_DECISION_DIR" -maxdepth 1 -name '*.json' | wc -l)"
+fi
 
 echo "cc-rule-hook: $HOOK ($(stat -c%s "$HOOK") bytes)"
 echo "event: $EVENT"
@@ -130,7 +146,7 @@ echo "runs per row: $RUNS, on $(hostname), $(uname -sr), $(nproc) processors"
 echo "load average at start: $(cut -d' ' -f1-3 /proc/loadavg)"
 echo ""
 
-measure "baseline" /bin/sh -c true
+measure "baseline" /bin/sh -c /bin/true
 measure "no-session" run_hook
 measure "no-rules-file" run_hook_with "$SCRATCH/session-rules/absent.json"
 write_rules 0 "$SCRATCH/session-rules/zero.json"
@@ -154,4 +170,18 @@ done
 if (( decisions != expected )); then
     echo "ERROR: the hook did not record what it was measured doing." >&2
     exit 1
+fi
+if [[ -n "$OWN_LOG" ]]; then
+    own_log_after=0
+    [[ -f "$OWN_LOG" ]] && own_log_after="$(wc -l < "$OWN_LOG")"
+    own_drop_after=0
+    [[ -n "${CC_SESSION_DECISION_DIR:-}" && -d "$CC_SESSION_DECISION_DIR" ]] \
+        && own_drop_after="$(find "$CC_SESSION_DECISION_DIR" -maxdepth 1 -name '*.json' | wc -l)"
+    echo "this session's own evaluation log: $OWN_LOG_BEFORE lines before, $own_log_after after; its decision drop: $OWN_DROP_BEFORE files before, $own_drop_after after"
+    # Other shell commands of this session can add lines while the script runs, but only a handful; the
+    # measurement would add hundreds.
+    if (( own_log_after - OWN_LOG_BEFORE > 20 || own_drop_after - OWN_DROP_BEFORE > 20 )); then
+        echo "ERROR: the measurement wrote into this session's own evaluation log or decision drop." >&2
+        exit 1
+    fi
 fi

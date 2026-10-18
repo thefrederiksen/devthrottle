@@ -154,17 +154,13 @@ if [[ ! -f "$EXE_PATH" ]]; then
 fi
 
 # ----------------------------------------------------------------------------
-# The Session Rules hook: a presence check, not an absence of errors
+# The Session Rules hook
 # ----------------------------------------------------------------------------
-# The resource name is in the Director's own assembly only when the hook was embedded. Checked on the
-# compiled assembly, before it disappears into the single-file bundle.
-DIRECTOR_DLL="$REPO_ROOT/src/CcDirector.Avalonia/obj/$CONFIGURATION/net10.0/$RID/cc-director.dll"
+# The presence check is in the build itself (VerifyRuleHookEmbedded in CcDirector.Avalonia.csproj): it reads
+# the compiled assembly's managed resources and fails the publish above unless one holds the evaluator's
+# exact bytes. Reaching this line with the hook on means that check passed.
 if [[ "$EMBED_RULE_HOOK" == true ]]; then
-    if ! grep -qa "cc-rule-hook" "$DIRECTOR_DLL"; then
-        echo "ERROR: the Director was built without the Session Rules hook ($DIRECTOR_DLL carries no cc-rule-hook)." >&2
-        exit 1
-    fi
-    echo "  Session Rules hook: embedded"
+    echo "  Session Rules hook: embedded (verified in the assembly's managed resources by the build)"
 else
     echo "  Session Rules hook: NOT embedded (--no-rule-hook) - this Director's sessions evaluate no rules"
 fi
