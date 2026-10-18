@@ -218,6 +218,48 @@ public sealed class LicenseForgetMachineTests : IDisposable
         Assert.Empty(_store.ListOpenMachineHealth(TenantOne));
     }
 
+    private (LicenseMachineHealthAlarm Alarm, LicenseAlarmService Alarms) HealthAlarm()
+    {
+        var alarms = new LicenseAlarmService(_db,
+            (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
+            (_, _, _) => Task.CompletedTask,
+            () => _now);
+        return (new LicenseMachineHealthAlarm(_store, new LicenseReadModel(_store), alarms, () => _now), alarms);
+    }
+
+    [Fact]
+    public async Task ForgettingASilentMachine_ClosesItsAlarm_OnTheNextRaise()
+    {
+        // The reason this exists (the review of pull request 4172, finding 3): a machine that is gone kept its
+        // "Machine stopped reporting" alarm for ever.
+        var (alarm, alarms) = HealthAlarm();
+        var id = Apply(TenantOne, Good());
+        _now = Silent;
+        _store.OpenSilence(TenantOne, View(TenantOne, id), _now);
+        await alarm.RaiseAsync(TenantOne, CancellationToken.None);
+        Assert.Single(alarms.ListOpen(TenantOne), a => a.Kind == LicenseMachineHealthAlarm.Silent.Key);
+
+        Assert.Equal(200, Forget(TenantOne, id.ToString("N")).Status);
+        await alarm.RaiseAsync(TenantOne, CancellationToken.None);
+
+        Assert.Empty(alarms.ListOpen(TenantOne));
+    }
+
+    [Fact]
+    public async Task ForgettingARefusedMachineThatNeverReportedWell_ClosesItsAlarm_OnTheNextRaise()
+    {
+        var (alarm, alarms) = HealthAlarm();
+        Assert.Equal(LicenseIngestOutcome.Malformed,
+            _ingest.Ingest(TenantOne, "dir-1", "conn-1", ++_sequence, Report("machine-a", Holding(A, true), Holding(A, false)), _now));
+        await alarm.RaiseAsync(TenantOne, CancellationToken.None);
+        Assert.Single(alarms.ListOpen(TenantOne), a => a.Kind == LicenseMachineHealthAlarm.Refused.Key);
+
+        Assert.Equal(200, Forget(TenantOne, Machines(TenantOne)[0].GetProperty("machineId").GetString()).Status);
+        await alarm.RaiseAsync(TenantOne, CancellationToken.None);
+
+        Assert.Empty(alarms.ListOpen(TenantOne));
+    }
+
     [Fact]
     public void OneAccount_CannotForgetAnotherAccountsMachine()
     {
