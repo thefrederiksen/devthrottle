@@ -96,7 +96,7 @@ def _default_answers():
         ("DELETE", f"sessions/{SID}/request-deletion"): {"pendingDeletion": False},
         ("POST", f"sessions/{SID}/stop"): STOP_ANSWER,
         ("POST", f"directors/{DIRECTOR}/sessions"): {"sessionId": NEW, "name": "spawned"},
-        ("GET", f"sessions/{NEW}/buffer"): {"text": "Reading the diff - Working (2s - esc to interrupt)"},
+        ("GET", f"sessions/{NEW}"): {"sessionId": NEW, "activityState": "Working"},
         ("POST", f"sessions/{SID}/mission"): lambda body: {
             "session": {"sessionId": SID, "missionId": body.get("missionId")},
             "previousMissionId": OTHER_MID, "previousMissionName": "AXI two",
