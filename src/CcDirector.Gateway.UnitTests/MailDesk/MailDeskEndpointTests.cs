@@ -911,6 +911,32 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Status_AChannelRemovedToday_StillCountsItsDecisionsInTheDayAndAgreesWithDecisions()
+    {
+        // Arrange - the support mailbox junks one email and archives one this morning, then is removed; the other
+        // mailbox, still active, archives one. Removing a channel keeps its decisions, so the day keeps them too.
+        var support = Channel();
+        var other = Channel(OtherMailbox);
+        Decide(support, "junked", _now.AddHours(-3), MailDeskWords.Layers.Block, MailDeskWords.Decisions.Junk);
+        Decide(support, "archived", _now.AddHours(-2));
+        Decide(other, "still-active", _now.AddHours(-1));
+        var (removedStatus, _) = await Post(P + "/channels/remove", new { address = Mailbox, why = "the mailbox was closed" });
+        Assert.Equal(HttpStatusCode.OK, removedStatus);
+
+        // Act
+        var status = (await Get(P + "/status")).Body;
+        var decisions = (await Get(P + "/decisions?since=2026-10-18T00:00:00Z")).Body;
+
+        // Assert - the channel list is the active one, the day is the account's.
+        Assert.Equal(OtherMailbox, status.GetProperty("channels").EnumerateArray().Single().GetProperty("address").GetString());
+        var today = status.GetProperty("today");
+        Assert.Equal(3, today.GetProperty("total").GetInt32());
+        Assert.Equal((1, 2), (today.GetProperty("byDecision").GetProperty("junk").GetInt32(), today.GetProperty("byDecision").GetProperty("archive").GetInt32()));
+        Assert.Equal(decisions.GetProperty("total").GetInt32(), today.GetProperty("total").GetInt32());
+        Assert.Equal(decisions.GetProperty("byDecision").GetProperty("junk").GetInt32(), today.GetProperty("byDecision").GetProperty("junk").GetInt32());
+    }
+
+    [Fact]
     public void Today_JustBeforeAndAfterLocalMidnight_IsTheLocalDate()
     {
         // 21:59 UTC on the 17th is 23:59 in Copenhagen; 22:00 UTC is midnight, the 18th.

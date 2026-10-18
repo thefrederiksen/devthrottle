@@ -17,6 +17,10 @@ namespace CcDirector.Gateway.MailDesk;
 ///   with no check yet means nothing is known.
 /// - <c>today</c>: the channel's decisions since local midnight in the account's own time zone (the setting behind
 ///   <c>/gateway/time-zone</c>), every decision word listed with zeros.
+/// - The account's day: every decision of the account since local midnight, over EVERY channel, removed ones
+///   included - not the sum of the rows folded. Removing a channel keeps its decisions (mission section 5.8), so a
+///   channel removed at noon still counts in that day's total, and <c>GET /status</c> agrees with
+///   <c>GET /decisions</c> about how many emails were decided today (review of pull request 4231, finding F1).
 ///
 /// Phase 2 may refine what the check reports (a sign-in failure says which machine and the command that fixes it);
 /// the check's own reason is quoted, so a refined reason reaches the row with no change here.
@@ -67,7 +71,7 @@ public sealed class MailDeskChannelFold
 
     /// <summary>
     /// Fold <paramref name="channels"/> into the rows a client shows, and the account's day: its local date, its time
-    /// zone and the counts by decision of the channels folded.
+    /// zone and the counts by decision of every channel of the account, whether or not it is among those folded.
     /// </summary>
     public MailDeskFolded Fold(TenantId tenant, IReadOnlyList<MailDeskChannelEntity> channels, DateTime nowUtc)
     {
@@ -78,7 +82,8 @@ public sealed class MailDeskChannelFold
 
         var rows = channels.Select(c => Row(c, lastCheck,
             counts.TryGetValue(c.Id, out var count) ? count : MailDeskDecisionCounts.Zero)).ToList();
-        var total = MailDeskDecisionCounts.Sum(rows.Select(r => new MailDeskDecisionCounts(r.Today.Total, r.Today.ByDecision)));
+        // The day counts every channel the store has for the account, removed ones too, not only the rows folded.
+        var total = MailDeskDecisionCounts.Sum(counts.Values);
         return new MailDeskFolded(rows, new MailDeskDay(day.Date, day.ZoneId, total.Total, total.ByDecision));
     }
 
@@ -172,7 +177,8 @@ public sealed class MailDeskChannelFold
 /// <summary>The fold's answer: the rows, and the account's day across them.</summary>
 public sealed record MailDeskFolded(IReadOnlyList<MailDeskChannelRow> Channels, MailDeskDay Today);
 
-/// <summary>The account's day: its local date, its time zone, and the counts by decision of every channel folded.</summary>
+/// <summary>The account's day: its local date, its time zone, and the counts by decision of every channel of the account,
+/// removed ones included.</summary>
 public sealed record MailDeskDay(string Date, string TimeZone, int Total, IReadOnlyDictionary<string, int> ByDecision);
 
 /// <summary>One channel as a client shows it (contract section 5). Every value is decided by <see cref="MailDeskChannelFold"/>.</summary>
