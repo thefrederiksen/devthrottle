@@ -715,7 +715,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task Stream_AQueuedPromptALaterTurnCarries_IsSentDeliveredAsTheReceiptsEndpointSaysIt()
+    public async Task Stream_AQueuedPromptALaterTurnCarries_IsSentUnknownInItsCarriedWordsAsTheReceiptsEndpointSaysIt()
     {
         // Item 9: p1 queued in generation A; its delivery fell in the hole, generation B opens with the turn that carries
         // it, and the user queues p2 behind that turn.
@@ -733,7 +733,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         var streamed = Items(receipts!).Where(i => i.PromptId is not null).ToDictionary(i => i.PromptId!, i => (i.Text, i.Tone));
         var served = JsonSerializer.Deserialize<SessionReceiptsDto>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!
             .Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone));
-        Assert.Equal(("Delivered", "green"), streamed["p1"]);
+        Assert.Equal((ApiModeLostQueuedPrompt.CarriedWords, "neutral"), streamed["p1"]);
         Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), streamed["p2"]);
         Assert.Equal(streamed.OrderBy(kv => kv.Key, StringComparer.Ordinal), served.OrderBy(kv => kv.Key, StringComparer.Ordinal));
     }

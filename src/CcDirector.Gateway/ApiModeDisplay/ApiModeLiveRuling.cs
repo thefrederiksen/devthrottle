@@ -134,22 +134,13 @@ public sealed class ApiModeLiveRuling
             PromptQueued q => ReceiptChange(q, position, r =>
             {
                 if (r.State is not (ApiModeReceiptState.Queued or ApiModeReceiptState.Unknown) && !Supersedes(r, q)) return;
+                if (r.State == ApiModeReceiptState.Unknown) Unlink(r);
                 r.State = ApiModeReceiptState.Queued;
                 KeepPromptText(r, q.PromptText);
                 r.QueueReason = Word(q.Reason);
             }),
             PromptDelivered d => ReceiptChange(d, position, r =>
             {
-                if (ApiModeLostQueuedPrompt.IsInferredDelivery(r.State, r.Disposition))
-                {
-                    // The delivery's own event, after the Gateway inferred it from a later turn that carried the prompt:
-                    // it replaces how the agent took it and its acknowledgement, as the store replaces them; the turn
-                    // and its outcome stay.
-                    KeepPromptText(r, d.PromptText);
-                    r.Disposition = Word(d.Disposition);
-                    r.Acknowledgement = d.Acknowledgement;
-                    return;
-                }
                 if (r.State is not (ApiModeReceiptState.Queued or ApiModeReceiptState.Unknown) && !Supersedes(r, d)) return;
                 KeepPromptText(r, d.PromptText);
                 r.State = ApiModeReceiptState.Delivered;
@@ -159,6 +150,7 @@ public sealed class ApiModeLiveRuling
             PromptRefused f => ReceiptChange(f, position, r =>
             {
                 if (r.State is not (ApiModeReceiptState.Queued or ApiModeReceiptState.Unknown) && !Supersedes(r, f)) return;
+                if (r.State == ApiModeReceiptState.Unknown) Unlink(r);
                 KeepPromptText(r, f.PromptText);
                 r.State = ApiModeReceiptState.Refused;
                 r.RefusalReason = f.Reason;
@@ -235,10 +227,11 @@ public sealed class ApiModeLiveRuling
     /// <see cref="ApiModeReceiptDto.QueuePosition"/>; <c>Queued: &lt;why&gt;</c> when no place is known, never a guessed
     /// one), <c>Delivered</c>, <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>,
     /// <c>Delivered - the turn's end was lost when the Director reconnected</c> (the Gateway's ruling for a turn whose
-    /// end fell in a hole, <see cref="ApiModeLostTurnEnd"/>), <c>Refused: &lt;reason&gt;</c>, or
-    /// <see cref="ApiModeLostQueuedPrompt.Words"/> for an <see cref="ApiModeReceiptState.Unknown"/> receipt (the
-    /// Gateway's ruling for a queued prompt whose ending was lost). The reason is the agent's (or the Director's) own
-    /// words, verbatim.
+    /// end fell in a hole, <see cref="ApiModeLostTurnEnd"/>), <c>Refused: &lt;reason&gt;</c>, or for an
+    /// <see cref="ApiModeReceiptState.Unknown"/> receipt (the Gateway's ruling for a queued prompt whose ending was lost)
+    /// <see cref="ApiModeLostQueuedPrompt.CarriedWords"/> when a later turn carried it - the receipt is linked to that
+    /// turn (<see cref="ApiModeLostQueuedPrompt.IsCarried"/>) - and <see cref="ApiModeLostQueuedPrompt.Words"/> otherwise.
+    /// The reason is the agent's (or the Director's) own words, verbatim.
     /// </summary>
     public static string ReceiptWords(ApiModeReceiptDto receipt)
     {
@@ -249,7 +242,9 @@ public sealed class ApiModeLiveRuling
                 ? $"Queued, {Ordinal(place)} in line: {QueueReasonWords(receipt.QueueReason)}"
                 : "Queued: " + QueueReasonWords(receipt.QueueReason),
             ApiModeReceiptState.Refused => "Refused: " + (receipt.RefusalReason ?? "no reason was given"),
-            ApiModeReceiptState.Unknown => ApiModeLostQueuedPrompt.Words,
+            ApiModeReceiptState.Unknown => ApiModeLostQueuedPrompt.IsCarried(receipt.State, receipt.TurnId)
+                ? ApiModeLostQueuedPrompt.CarriedWords
+                : ApiModeLostQueuedPrompt.Words,
             ApiModeReceiptState.Delivered => receipt.TurnOutcome switch
             {
                 "failed" => "Delivered - the turn failed: " + (receipt.TurnOutcomeReason ?? "no reason was given"),
@@ -376,23 +371,19 @@ public sealed class ApiModeLiveRuling
     private IReadOnlyList<ApiModeLiveItem> ReceiptChange(SessionEvent e, ApiModeEventPosition? position, Action<ApiModeReceiptDto> change)
     {
         var promptId = PromptIdOf(e);
-        // THE REAL EVENT REPLACES THE GATEWAY'S RULING, WHATEVER ITS SEQUENCE (ApiModeLostQueuedPrompt), as the store
-        // replaces it: neither guard below applies to it. The ruling is an Unknown receipt, or, for the prompt's own
-        // PromptDelivered, a delivery the Gateway inferred. An event of an older generation than the ruling is a replay.
+        // THE REAL EVENT REPLACES THE UNKNOWN RULING, WHATEVER ITS SEQUENCE (ApiModeLostQueuedPrompt), as the store
+        // replaces it: neither guard below applies to it. An event of an older generation than the ruling is a replay.
         var replacesUnknown = false;
-        if (_receipts.TryGetValue(promptId, out var known)
-            && (known.State == ApiModeReceiptState.Unknown
-                || (e is PromptDelivered && ApiModeLostQueuedPrompt.IsInferredDelivery(known.State, known.Disposition))))
+        if (_receipts.TryGetValue(promptId, out var known) && known.State == ApiModeReceiptState.Unknown)
         {
-            var ruling = known.State == ApiModeReceiptState.Unknown ? nameof(ApiModeReceiptState.Unknown) : "inferred delivery";
             replacesUnknown = position is not { } p || !_lastPositions.TryGetValue(promptId, out var ruledAt)
                 || ApiModeLostQueuedPrompt.IsReplacedBy(p, ruledAt.Generation, ruledAt.GenerationStartedUtc);
             if (!replacesUnknown)
             {
-                FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: {e.GetType().Name} is of a generation older than the Gateway's {ruling} ruling, a replay; it changes nothing");
+                FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: {e.GetType().Name} is of a generation older than the {nameof(ApiModeReceiptState.Unknown)} ruling, a replay; it changes nothing");
                 return Array.Empty<ApiModeLiveItem>();
             }
-            FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: the prompt's real {e.GetType().Name} arrived after the Gateway's {ruling} ruling; it replaces the ruling");
+            FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId} sequence={e.Sequence}: the prompt's real {e.GetType().Name} arrived after the Gateway ruled it {nameof(ApiModeReceiptState.Unknown)}; it replaces the ruling");
         }
         if (!replacesUnknown && _storedPositions.TryGetValue(promptId, out var stored))
         {
@@ -517,6 +508,17 @@ public sealed class ApiModeLiveRuling
         return false;
     }
 
+    /// <summary>Drops the turn a later turn's start linked to an Unknown receipt (<see cref="ApiModeLostQueuedPrompt.IsCarried"/>)
+    /// when the prompt's real Queued or Refused replaces the ruling, as the store drops it.</summary>
+    private void Unlink(ApiModeReceiptDto receipt)
+    {
+        if (receipt.TurnId is { } turn && _turnPrompts.TryGetValue(turn, out var prompts))
+            prompts.Remove(receipt.PromptId);
+        receipt.TurnId = null;
+        receipt.TurnOutcome = null;
+        receipt.TurnOutcomeReason = null;
+    }
+
     private IReadOnlyList<ApiModeLiveItem> TurnStart(TurnStarted s, ApiModeEventPosition? position)
     {
         var prompts = PromptsOf(s.TurnId);
@@ -602,8 +604,8 @@ public sealed class ApiModeLiveRuling
     /// <paramref name="e"/> comes after every re-announcement of its generation, and a Queued receipt other than the one
     /// the event itself names was last changed in an older generation. That last position is the one the store keeps on
     /// the row, as for the lost turn ending (<see cref="LostTurnEnds"/>). A still-queued prompt a <c>TurnStarted</c>
-    /// carries was delivered: it is ruled Delivered with <see cref="ApiModeLostQueuedPrompt.LostDisposition"/>, linked to
-    /// that turn, and moves to the proof's position, as the store rules it (<see cref="ApiModeLostQueuedPrompt.IsCarriedBy"/>).
+    /// carries is ruled Unknown too, linked to that turn, and moves to the proof's position, as the store rules it
+    /// (<see cref="ApiModeLostQueuedPrompt.IsCarriedBy"/>).
     /// Either way it leaves the line, and the places in line that moved are sent again.
     /// </summary>
     private IReadOnlyList<ApiModeLiveItem> QueuesLeft(SessionEvent e, IReadOnlyCollection<string> ownPromptIds, ApiModeEventPosition? position)
@@ -622,10 +624,8 @@ public sealed class ApiModeLiveRuling
             if (ApiModeLostQueuedPrompt.IsCarriedBy(e, at, promptId, receipt.State, last.Generation, last.GenerationStartedUtc))
             {
                 var turnId = ((TurnStarted)e).TurnId;
-                FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId}: it was queued at {last} and {ApiModeLostQueuedPrompt.Describe(e, at)} carries it; a turn carries only a prompt whose delivery was published, so the receipt is ruled {nameof(ApiModeReceiptState.Delivered)} (disposition {ApiModeLostQueuedPrompt.LostDisposition}), carried by turn {turnId}");
-                receipt.State = ApiModeReceiptState.Delivered;
-                receipt.Disposition = ApiModeLostQueuedPrompt.LostDisposition;
-                receipt.Acknowledgement = null;
+                FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId}: it was queued at {last} and {ApiModeLostQueuedPrompt.Describe(e, at)} carries it; its PromptDelivered was lost and the Gateway holds no acknowledgement, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}, carried by turn {turnId}");
+                receipt.State = ApiModeReceiptState.Unknown;
                 receipt.TurnId = turnId;
                 Touch(promptId, at);
                 items.AddRange(ReceiptIfChanged(receipt, e.Sequence));
@@ -717,8 +717,11 @@ public sealed class ApiModeLiveRuling
         // only; phase 2 review, observation C).
         if (_turnPrompts.Remove(t.TurnId, out var prompts))
         {
+            // A receipt a later turn carried (ApiModeLostQueuedPrompt.IsCarried) takes its turn's ending as a delivered one
+            // does, as the store writes it on every receipt of the turn; its words do not change with it.
             var delivered = prompts
-                .Select(p => _receipts.TryGetValue(p, out var r) && r.State == ApiModeReceiptState.Delivered ? r : null)
+                .Select(p => _receipts.TryGetValue(p, out var r)
+                    && (r.State == ApiModeReceiptState.Delivered || ApiModeLostQueuedPrompt.IsCarried(r.State, r.TurnId)) ? r : null)
                 .OfType<ApiModeReceiptDto>()
                 .ToList();
             var open = delivered.Where(r => r.TurnOutcome is null).ToList();

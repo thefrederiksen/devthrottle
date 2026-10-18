@@ -344,10 +344,10 @@ public sealed class ApiModeEventIngestTests : IDisposable
     }
 
     [Fact]
-    public void Accept_TheLaterGenerationOpensWithTheTurnThatCarriesTheQueuedPrompt_ItIsRuledDeliveredAndCarriedByThatTurn()
+    public void Accept_TheLaterGenerationOpensWithTheTurnThatCarriesTheQueuedPrompt_ItIsRuledUnknownAndCarriedByThatTurn()
     {
-        // Arrange: p1 queued in generation A; its delivery fell in the hole (check of the review fixes on pull request
-        // #4209: a turn carries only a prompt whose delivery was published).
+        // Arrange: p1 queued in generation A; its delivery fell in the hole. The Gateway holds no acknowledgement, so it
+        // may not rule it Delivered (the Delivery Lead's ruling on pull request #4209).
         Push(A(Ready(1), Queued(2, "p1")));
 
         // Act: generation B opens with the turn that carries p1, then a tool runs in it.
@@ -355,8 +355,9 @@ public sealed class ApiModeEventIngestTests : IDisposable
 
         // Assert
         var receipt = Receipt("p1");
-        Assert.Equal((ApiModeReceiptState.Delivered, ApiModeLostQueuedPrompt.LostDisposition, (string?)null, "t1"),
+        Assert.Equal((ApiModeReceiptState.Unknown, (string?)null, (string?)null, "t1"),
             (receipt.State, receipt.Disposition, receipt.Acknowledgement, receipt.TurnId));
+        Assert.Equal(ApiModeLostQueuedPrompt.CarriedWords, ApiModeLiveRuling.ReceiptWords(receipt));
     }
 
     [Fact]
@@ -372,8 +373,8 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Push(Batch("gen-c", GenBStarted.AddHours(1), Queued(1, "p2"), Tool(2)));
         var afterC = WordsNow();
 
-        // Assert: p1 is Delivered and out of the line, so p2 is 1st, in both generations; nothing reads Unknown.
-        Assert.Equal("Delivered", afterB["p1"]);
+        // Assert: p1 is Unknown in its carried words and out of the line, so p2 is 1st, in both generations.
+        Assert.Equal(ApiModeLostQueuedPrompt.CarriedWords, afterB["p1"]);
         Assert.Equal("Queued, 1st in line: a turn is running", afterB["p2"]);
         Assert.Equal(afterB, afterC);
     }

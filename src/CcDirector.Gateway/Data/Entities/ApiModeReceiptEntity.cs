@@ -40,9 +40,7 @@ public sealed class ApiModeReceiptEntity : TenantScopedEntity
     /// <c>agentStarting</c>). Kept after delivery as the record of why it waited.</summary>
     public string? QueueReason { get; set; }
 
-    /// <summary>How the agent took a delivered prompt (<c>started</c>, <c>queuedByAgent</c>, <c>handled</c>), or <c>lost</c>
-    /// when the Gateway inferred the delivery from a later turn that carried the prompt and the acknowledgement is not
-    /// known (<see cref="Receipts.ApiModeLostQueuedPrompt.LostDisposition"/>).</summary>
+    /// <summary>How the agent took a delivered prompt (<c>started</c>, <c>queuedByAgent</c>, <c>handled</c>).</summary>
     public string? Disposition { get; set; }
 
     /// <summary>The agent's own acknowledgement, verbatim. The proof of Delivered.</summary>
