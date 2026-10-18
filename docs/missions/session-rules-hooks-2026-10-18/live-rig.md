@@ -91,12 +91,11 @@ ran `up`; `up` and `status` print their process ids, and they log to `<rig>/logs
     scripts/session-rules-rig.sh down
     scripts/session-rules-rig.sh reset                      # down, then delete the rig folder
 
-**The hook-rule field names in `create-hook-probe` come from this phase's plan, not from built code.** On
-2026-10-18 Developer A had pushed only `GitRemoteIdentity`, so the write shape was not on any branch.
-`create-hook-probe` sends `kind`, `appliesTo` (P4), `event`, `tool`, `handler`, `match` and `result`
-(P2, P7) with an `instruction`. If the merged Gateway names a field differently it refuses the write with
-its own reason (the current branch refuses it, naming the missing `checks`), and `hook_probe_body` in the
-script is the one place to change. `rules create <body.json>` sends any body unchanged.
+**The hook-rule field names** in `create-hook-probe` - `kind`, `appliesTo` (P4), `event`, `tool`,
+`handler`, `match`, `result` and `instruction` - were first taken from the plan, before the Gateway piece
+existed, and were then checked against the merged `SessionRuleWire.CreateFromBody`: they are the names it
+reads. `hook_probe_body` in the script is the one place to change if they ever move. `rules create
+<body.json>` sends any body unchanged.
 
 ---
 
@@ -240,15 +239,25 @@ records that the model could not be asked.
 
 The firing must say `decision` `act` with the understanding and reason, and `dry run: nothing was typed.
 It would have typed: /usage-credits`. On the merged branch every existing screen rule is `everywhere`
-(P4) and a screen rule may not be anything else; if the create route there needs `"kind": "screen"`
-said out loud, add it to `usage_limit_body` in the script.
+(P4) and a screen rule may not be anything else. Checked on the merged branch: the September body is
+accepted unchanged and stored as `kind` `screen`, `appliesTo` `everywhere`.
 
 ---
 
 ## 6. What was proven on 2026-10-18, and what was not
 
-Run on branch `mission/session-rules-hooks-p1-rig` at `5910331ba` (the plan commits; none of A, B or C
-merged yet), on devlinux.
+### On the merged mission branch (`mission/session-rules-hooks-p1` at `4f21e04a7`, rig commit `162f35a7f`)
+
+| Step | Result |
+|---|---|
+| `build` | PASS, exit 0. The Director build printed `Session Rules hook: embedded (verified in the assembly's managed resources by the build)`. |
+| Hook rules through `rules create-hook-probe` | PASS. A repo rule given as `https://github.com/Session-Rules-Rig/repo-a.git` was stored as `github.com/session-rules-rig/repo-a` (P6 at write time). The SOREN_NORTH and devlinux machine rules were stored. `--result block` was refused with the Gateway's own reason. |
+| W1 through `rules effective` | PASS, by named rule. devlinux + repo A: the repo-A rule (rank 3) and the devlinux rule (rank 2), and NOT the SOREN_NORTH rule. devlinux + repo B: the devlinux rule only. SOREN_NORTH + repo A: the repo-A rule and the SOREN_NORTH rule, and NOT the devlinux rule. |
+| The September body through `rules create-usage-limit` | PASS. Accepted unchanged and stored as `kind` `screen`, `appliesTo` `everywhere`. |
+| Gateway stop | PASS. Terminate signal; nothing ran from the rig afterwards. |
+| Director up, a Claude Code session answering, rows 1 and 2 | NOT RUN. The inotify limit was still 128 (section 2, item 3). The `sudo` command is waiting for the owner. |
+
+### Earlier, on the rig branch before the merge (`5910331ba`)
 
 | Step | Result |
 |---|---|
