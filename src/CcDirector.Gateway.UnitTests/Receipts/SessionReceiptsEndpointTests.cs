@@ -390,7 +390,7 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
         Assert.Equal(served.OrderBy(kv => kv.Key, StringComparer.Ordinal), rebuilt.OrderBy(kv => kv.Key, StringComparer.Ordinal));
     }
     [Fact]
-    public void Read_AQueuedPromptALaterTurnCarries_IsDeliveredAndOutOfTheLineAsTheLiveStreamSaysIt()
+    public void Read_AQueuedPromptALaterTurnCarries_IsUnknownInItsCarriedWordsAndOutOfTheLineAsTheLiveStreamSaysIt()
     {
         // Arrange: p1 queued in generation A; its delivery fell in the hole, and generation B opens with the turn that
         // carries it. The turn ends and the user queues p2. A live reader rebuilt from the store when generation B began.
@@ -426,7 +426,7 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
         var rebuilt = stored.ToDictionary(r => r.Receipt.PromptId, r => { var i = ApiModeLiveRuling.ReceiptItem(r.Receipt, 0); return (i.Text, i.Tone); });
 
         // Assert
-        Assert.Equal(("Delivered", "green"), served["p1"]);
+        Assert.Equal((ApiModeLostQueuedPrompt.CarriedWords, "neutral"), served["p1"]);
         Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), served["p2"]);
         Assert.Equal(served["p1"], shown["p1"]);
         Assert.Equal(served["p2"], shown["p2"]);

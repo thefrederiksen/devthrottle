@@ -32,22 +32,23 @@ namespace CcDirector.Gateway.Receipts;
 /// or <c>PromptRefused</c> ends its own prompt by its own change. A <c>TurnStarted</c> names the prompts its turn
 /// carries: the Director says it sent them, even when their <c>PromptDelivered</c> fell in the hole.</para>
 ///
-/// <para><b>A prompt a later turn carries was delivered (<see cref="IsCarriedBy"/>).</b> In the Director's own events a
-/// prompt id enters <c>TurnStarted.PromptIds</c> only after its <c>PromptDelivered</c> was published (<c>PiDialect</c>
-/// fills the set it starts a turn from in the <c>started</c> disposition of that event). So a <c>TurnStarted</c> of a
-/// later generation that carries a prompt the Gateway still holds as Queued proves the delivery happened and its event
-/// fell in the hole - the same strength of proof as the one this whole rule rests on. The receipt is ruled
-/// <see cref="ApiModeReceiptState.Delivered"/> and linked to that turn by the same event, so the turn's outcome lands
-/// on it by the ordinary rules. It is NOT kept Queued: the Director's own line dropped the prompt at its delivery, so a
-/// Queued receipt would show a place in line the Director does not hold and count one prompt too many ahead of every
-/// prompt behind it. How the agent took the prompt and its acknowledgement are not known: the acknowledgement is left
-/// empty, the disposition is <see cref="LostDisposition"/> (the mark that the delivery is the Gateway's inference), and
-/// the prompt's real <c>PromptDelivered</c>, should one arrive in a generation not older than the ruling, replaces both
-/// (<see cref="IsInferredDelivery"/>). The receipt reads plain Delivered (or its turn's outcome) like any delivered
-/// prompt: the words never read the disposition or the acknowledgement.</para>
+/// <para><b>A prompt a later turn carries is ruled Unknown, linked to that turn (<see cref="IsCarriedBy"/>).</b> In the
+/// Director's own events a prompt id enters <c>TurnStarted.PromptIds</c> only after its <c>PromptDelivered</c> was
+/// published (<c>PiDialect</c> fills the set it starts a turn from in the <c>started</c> disposition of that event), so
+/// its <c>PromptDelivered</c> fell in the hole. It is NOT kept Queued: the Director's own line dropped the prompt at its
+/// delivery, so a Queued receipt would show a place in line the Director does not hold and count one prompt too many
+/// ahead of every prompt behind it. It is NOT ruled Delivered either: the mission defines Delivered as the agent's own
+/// acknowledgement, and the Gateway does not hold one (the Delivery Lead's ruling on pull request #4209). So the receipt
+/// is ruled <see cref="ApiModeReceiptState.Unknown"/> and linked to that turn by the same event, out of the line, and
+/// its words (<see cref="CarriedWords"/>) say what the Gateway knows - the record of its delivery was lost and a turn
+/// carrying it started - and nothing more. A turn link is what tells it from the other Unknown rulings, which are made
+/// only on Queued receipts and so never carry one (<see cref="IsCarried"/>). The turn's outcome lands on it by the
+/// ordinary rules, so the session's turns stay counted, but its words do not change with it. The prompt's real
+/// <c>PromptDelivered</c>, should one arrive in a generation not older than the ruling, replaces the ruling with a true
+/// Delivered, as for every Unknown receipt.</para>
 ///
 /// <para><b>Once per generation.</b> After the first proof of a generation no Queued receipt of an older generation is
-/// left (each was ruled, moved to this generation by its re-announcement, or delivered by its <c>TurnStarted</c>), and none can
+/// left (each was ruled, or moved to this generation by its re-announcement), and none can
 /// appear (the Gateway accepts no older generation after a newer one). So the ingest makes the proof once per session
 /// generation and skips it after; a Gateway restart forgets that, and the next event proves once more, which changes
 /// nothing already ruled.</para>
@@ -89,15 +90,9 @@ public static class ApiModeLostQueuedPrompt
     /// gone wrong.</summary>
     public const string Words = "Not known - the Director reconnected without this prompt in its queue or any record of sending it";
 
-    /// <summary>
-    /// The disposition of a receipt the Gateway ruled Delivered because a later turn carried it (<see cref="IsCarriedBy"/>).
-    /// <c>lost</c>, the word the Gateway already gives a turn whose ending it inferred (<see cref="ApiModeLostTurnEnd.Outcome"/>),
-    /// and for the same reason: the event that would have said it fell in a hole. It is not one of the agent's
-    /// dispositions (<c>started</c>, <c>queuedByAgent</c>, <c>handled</c>), so the row can never be read as the agent's
-    /// own acknowledgement, and it marks the ruling as an inference a real <c>PromptDelivered</c> replaces. Left empty, the
-    /// row could not be told from a delivery recorded with no disposition at all.
-    /// </summary>
-    public const string LostDisposition = "lost";
+    /// <summary>The words of a receipt ruled <see cref="ApiModeReceiptState.Unknown"/> because a later turn carried it
+    /// (<see cref="IsCarriedBy"/>). Neutral, and they claim no delivery: the Gateway holds no acknowledgement.</summary>
+    public const string CarriedWords = "Not known - the record of its delivery was lost when the Director reconnected; a turn carrying it started";
 
     /// <summary>
     /// Whether <paramref name="e"/> comes after every re-announcement of its generation (see the class summary): any
@@ -144,9 +139,8 @@ public static class ApiModeLostQueuedPrompt
 
     /// <summary>
     /// Whether the proving event <paramref name="e"/> at <paramref name="proof"/> is a <c>TurnStarted</c> that carries the
-    /// Queued receipt of <paramref name="promptId"/>, last changed in an older generation: the event proves the prompt was
-    /// delivered, so it is ruled Delivered with <see cref="LostDisposition"/>, linked to that turn, and its position moves
-    /// to the proof (see the class summary).
+    /// Queued receipt of <paramref name="promptId"/>, last changed in an older generation: the receipt is ruled Unknown,
+    /// linked to that turn, and its position moves to the proof (see the class summary).
     /// </summary>
     public static bool IsCarriedBy(
         SessionEvent e, ApiModeEventPosition proof, string promptId, ApiModeReceiptState state,
@@ -156,17 +150,16 @@ public static class ApiModeLostQueuedPrompt
            && Names(t.PromptIds, promptId)
            && proof.IsLaterGenerationThan(lastGeneration, lastGenerationStartedUtc);
 
-    /// <summary>Whether a receipt is a delivery the Gateway inferred (<see cref="IsCarriedBy"/>), whose disposition and
-    /// acknowledgement a real <c>PromptDelivered</c> replaces under <see cref="IsReplacedBy"/>.</summary>
-    public static bool IsInferredDelivery(ApiModeReceiptState state, string? disposition)
-        => state == ApiModeReceiptState.Delivered && string.Equals(disposition, LostDisposition, StringComparison.Ordinal);
+    /// <summary>Whether a receipt is one a later turn carried (<see cref="IsCarriedBy"/>): Unknown and linked to a turn.
+    /// Its words are <see cref="CarriedWords"/>, and its turn is kept like a delivered receipt's.</summary>
+    public static bool IsCarried(ApiModeReceiptState state, string? turnId)
+        => state == ApiModeReceiptState.Unknown && turnId is not null;
 
     private static bool Names(IReadOnlyCollection<string> promptIds, string promptId)
         => promptIds.Contains(promptId, StringComparer.Ordinal);
 
     /// <summary>
-    /// Whether a real receipt event at <paramref name="position"/> replaces the Unknown ending (or, for its
-    /// <c>PromptDelivered</c>, the inferred delivery, <see cref="IsInferredDelivery"/>) of a receipt last changed at
+    /// Whether a real receipt event at <paramref name="position"/> replaces the Unknown ending of a receipt last changed at
     /// (<paramref name="lastGeneration"/>, <paramref name="lastGenerationStartedUtc"/>): it does whatever its sequence,
     /// unless it is of an older generation, which can only be a replay (see the class summary).
     /// </summary>

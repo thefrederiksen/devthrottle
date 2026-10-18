@@ -75,7 +75,8 @@ public static class ApiModeLostTurnEnd
 
     /// <summary>
     /// Whether a proof at <paramref name="proof"/> rules the lost ending onto the receipt of <paramref name="promptId"/>:
-    /// it is Delivered, its turn has no outcome yet, the proof is of a later generation than the last event applied to the
+    /// it is Delivered (or Unknown and linked to the turn that carried it, <see cref="ApiModeLostQueuedPrompt.IsCarried"/>),
+    /// its turn has no outcome yet, the proof is of a later generation than the last event applied to the
     /// receipt (<paramref name="lastGeneration"/>, <paramref name="lastGenerationStartedUtc"/>), and the proof does not
     /// belong to the receipt's own turn - a turn other than <paramref name="continuing"/>'s when the receipt has its turn
     /// id, and, when that turn's start was lost too (no turn id), a proving turn that does not name the prompt.
@@ -87,10 +88,10 @@ public static class ApiModeLostTurnEnd
         => IsOpenOutside(continuing, promptId, state, turnId, turnOutcome)
            && proof.IsLaterGenerationThan(lastGeneration, lastGenerationStartedUtc);
 
-    /// <summary><see cref="Applies"/> without the generation: the receipt is Delivered, its turn has no outcome, and the
-    /// proof does not belong to that turn.</summary>
+    /// <summary><see cref="Applies"/> without the generation: the receipt is Delivered or carried by a turn, its turn has no
+    /// outcome, and the proof does not belong to that turn.</summary>
     public static bool IsOpenOutside(Continuing continuing, string promptId, ApiModeReceiptState state, string? turnId, string? turnOutcome)
-        => state == ApiModeReceiptState.Delivered
+        => (state == ApiModeReceiptState.Delivered || ApiModeLostQueuedPrompt.IsCarried(state, turnId))
            && turnOutcome is null
            && (turnId is not null
                ? !string.Equals(turnId, continuing.TurnId, StringComparison.Ordinal)

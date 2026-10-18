@@ -530,3 +530,38 @@ Director's and stays so across the next hole. The receipts endpoint, the live re
 real-delivery replacement and the older-generation replay are each tested in the store and the ruling.
 
 Nothing else changed. Approved.
+
+## Delivery Lead's ruling
+
+**The ruling (binding):** the mission defines Delivered as the agent's own acknowledgement, so the Gateway may show
+Delivered only when it holds that acknowledgement - a `PromptDelivered` for that prompt id, in any generation. The
+carried-prompt fix ruled a still-Queued prompt that a later generation's `TurnStarted` carries Delivered, with
+disposition `lost` and no acknowledgement. That is withdrawn.
+
+**The Developer's answer.** A carried prompt is now ruled **Unknown**, the same state as the other item 9 cases, in
+both readers (`ApiModeReceiptStore.ProveQueueLeftOnce` and `ApiModeLiveRuling.QueuesLeft`, under the same
+`ApiModeLostQueuedPrompt.IsCarriedBy`). It is linked to the turn by the same event, out of the place in line, keeps its
+queue reason and prompt text, and has no disposition and no acknowledgement. Its words say only what the Gateway knows:
+"Not known - the record of its delivery was lost when the Director reconnected; a turn carrying it started", tone
+neutral (`ApiModeLostQueuedPrompt.CarriedWords`). `ReceiptWords` picks them from the receipt's own fields - Unknown with
+a turn id (`ApiModeLostQueuedPrompt.IsCarried`); the other Unknown rulings are made only on Queued receipts and carry
+no turn - so the receipts endpoint, the live stream and the stream's opening agree, with no new wire field. The `lost`
+disposition, its constant and the inferred-delivery branches are removed; the receipt contract and entity notes are
+back to the agent's three dispositions.
+
+A real `PromptDelivered` of a generation not older than the ruling replaces it with a true Delivered through the
+existing Unknown path in both readers; the receipt keeps its turn and that turn's outcome. Two things the turn link
+needed, so the session's turns stay counted as they were: the turn's ending lands on a carried receipt (the store
+already wrote it on every receipt of the turn; the live ruling now does too), without changing its words; and a lost
+turn ending is ruled on it as on a delivered receipt (`ApiModeLostTurnEnd.IsOpenOutside`, and the store's candidates),
+so a carried prompt whose turn's end also fell in a hole does not leave the session reading as working for ever. A real
+`PromptQueued` or `PromptRefused` that replaces the ruling drops the turn link, in both readers.
+
+**Tests.** Every test that asserted Delivered for a carried prompt now asserts Unknown in the carried words (store,
+ruling, ingest, the pusher's third test through the real stream, the receipts endpoint, the live stream). Kept and
+rewritten: a real `PromptDelivered` afterwards turns it Delivered (store and ruling; the ruling's shows the failed turn's
+outcome), and one of an older generation is a replay. Added in the store: a carried receipt's turn is ruled lost by a
+later connection event and keeps its words, and a real re-announcement turns it Queued and drops the turn. Run one at a
+time, Debug, after checking no other test host was up: ApiModeLiveRulingTests 120, ApiModeReceiptStoreTests 86,
+SessionReceiptsEndpointTests 18, ApiModeEventIngestTests 40, SessionLiveEndpointTests 58, ApiModeEventPusherQueueTests
+10, ApiModeReceiptPromptTextTests 31 - **363 passed, 0 failed, 0 skipped**; ApiModeSessionFoldTests 25 passed as well.
