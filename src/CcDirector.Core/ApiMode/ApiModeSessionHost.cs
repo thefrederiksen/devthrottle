@@ -826,19 +826,32 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Write one prompt. When it cannot be written, Pi's process has already ended (a write fails only then), and no
+    /// restart can follow: a restart needs a prompt Pi acknowledged and never started, which is still in flight, and no
+    /// prompt is written while one is. So the prompt is refused here, with how the process ended, and gets its one receipt
+    /// at once - it is not queued again, which would report it waiting for a Pi that will never take it.
+    /// </summary>
     private async Task<bool> WritePromptLocked(Connection connection, QueuedPrompt prompt)
     {
         var command = connection.Dialect.BuildPrompt(prompt.PromptId, prompt.Text);
-        if (await WriteCommandLocked(connection, command).ConfigureAwait(false))
+        if (await TryWriteCommandLocked(connection, command).ConfigureAwait(false) is not { } ended)
             return true;
 
-        // Not written: the process is gone. It goes back to the head of the queue, and the end settles it.
-        _queue.Insert(0, prompt);
+        // Standard error first, as at the end of the process, so a stop reason it holds is the reason given.
+        FeedErrorLinesLocked(connection);
+        var why = connection.Dialect.StopReason ?? $"Pi exited ({ended.Describe()})";
+        TakeEventsLocked([RefusedByDirector(prompt.PromptId, prompt.Text, $"{ExitedBeforeWritingReason}: {why}")]);
         return false;
     }
 
     /// <summary>Write one command and tell the dialect. False when Pi's process had already ended, so nothing was written.</summary>
-    private async Task<bool> WriteCommandLocked(Connection connection, PiCommand command)
+    private async Task<bool> WriteCommandLocked(Connection connection, PiCommand command) =>
+        await TryWriteCommandLocked(connection, command).ConfigureAwait(false) is null;
+
+    /// <summary>Write one command and tell the dialect. Null when it was written; how Pi's process ended when it had
+    /// already ended, so nothing was written.</summary>
+    private async Task<ApiModeProcessEnded?> TryWriteCommandLocked(Connection connection, PiCommand command)
     {
         var line = JsonNode.Parse(command.Line) as JsonObject
             ?? throw new InvalidOperationException($"The dialect built a command that is not a JSON object: {command.Type}");
@@ -848,12 +861,13 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
         }
         catch (ApiModeConnectionEndedException ex)
         {
-            // not-an-error: Pi ended first; the end of the process, which follows, settles everything waiting
+            // The caller settles what it wrote, and the end of the process, which follows, settles everything else waiting.
+            // not-an-error: Pi ended first, so this command was never written
             FileLog.Write($"[ApiModeSessionHost] WriteCommand: session={_sessionId}, {command.Type} {command.Id} not written: {ex.Message}");
-            return false;
+            return ex.Ended;
         }
         await TakeStepLocked(connection, connection.Dialect.OnCommandWritten(command)).ConfigureAwait(false);
-        return true;
+        return null;
     }
 
     // ---------------------------------------------------------------- prompt ids

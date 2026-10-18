@@ -278,6 +278,20 @@ internal sealed class RecordingSink : ISessionEventSink
     private readonly object _gate = new();
     private readonly List<SessionEventBatch> _batches = [];
     private readonly List<(Func<SessionEvent, bool> Match, TaskCompletionSource<SessionEvent> Done)> _waiters = [];
+    private readonly Dictionary<SessionEvent, string?> _publishedFrom = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// A name for the call that is publishing, set by a test before it calls the host. It flows with that call, so an
+    /// event published on the call itself carries the name, and one published by the host's own event loop - started
+    /// before the name was set - carries none (<see cref="PublishedFrom"/>).
+    /// </summary>
+    public AsyncLocal<string?> Caller { get; } = new();
+
+    /// <summary>The <see cref="Caller"/> that was publishing when <paramref name="e"/> was published.</summary>
+    public string? PublishedFrom(SessionEvent e)
+    {
+        lock (_gate) return _publishedFrom[e];
+    }
 
     public IReadOnlyList<SessionEventBatch> Batches
     {
@@ -333,6 +347,7 @@ internal sealed class RecordingSink : ISessionEventSink
             _batches.Add(batch);
             foreach (var e in batch.Events)
             {
+                _publishedFrom[e] = Caller.Value;
                 foreach (var waiter in _waiters.ToList())
                 {
                     if (waiter.Match(e))
