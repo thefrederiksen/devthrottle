@@ -342,6 +342,54 @@ public sealed class SessionCommandExecutorTests
         finally { sm.Dispose(); }
     }
 
+    // ---------- set-display-state carries the wheel button (mission #4070, phase 4) ----------
+
+    [Fact]
+    public async Task DispatchAsync_SetDisplayState_StoresTheWheelActionVerbatim_AndALaterStampWithoutOneClearsIt()
+    {
+        // The desktop's Terminal tab draws its wheel button from Session.GatewayWheelAction, never from the wheel holder.
+        // The Gateway's four fields must land on the session as sent, and a stamp without them means no button.
+        var (sm, session, _) = NewSession();
+        try
+        {
+            async Task Stamp(ApiModeWheelAction? wheel)
+            {
+                var command = new DirectorCommand
+                {
+                    Verb = "set-display-state",
+                    SessionId = session.Id.ToString(),
+                    PayloadJson = JsonSerializer.Serialize(new SetDisplayStateRequest
+                    {
+                        EffectiveColor = "blue",
+                        StateLabel = "Working",
+                        TriageBucket = "active",
+                        WheelAction = wheel,
+                    }, Json),
+                };
+                var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
+                Assert.Equal(DirectorCommandStatus.Ok, result.Status);
+            }
+
+            await Stamp(new ApiModeWheelAction
+            {
+                Verb = ApiModeWheelVerbs.TakeTheWheel,
+                Label = "Take the wheel",
+                Enabled = false,
+                DisabledReason = "A turn is running.",
+            });
+            var stored = session.GatewayWheelAction;
+            Assert.NotNull(stored);
+            Assert.Equal(ApiModeWheelVerbs.TakeTheWheel, stored!.Verb);
+            Assert.Equal("Take the wheel", stored.Label);
+            Assert.False(stored.Enabled);
+            Assert.Equal("A turn is running.", stored.DisabledReason);
+
+            await Stamp(null);
+            Assert.Null(session.GatewayWheelAction);
+        }
+        finally { sm.Dispose(); }
+    }
+
     // ---------- set-display-state reconciles the raw hold mirror (inspection finding 3) ----------
 
     [Fact]
