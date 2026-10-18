@@ -155,7 +155,7 @@ public static class ToolHealthProbe
                 var results = await runner.RunAllForToolAsync(descriptor, ct);
                 var firstFailure = results.FirstOrDefault(r => !r.Passed);
                 var pathGap = firstFailure is null
-                    ? PathGapReason(descriptor, OperatingSystem.IsWindows(), Environment.GetEnvironmentVariable("PATH"))
+                    ? PathGapReason(descriptor, OperatingSystem.IsWindows(), Environment.GetEnvironmentVariable("PATH"), ToolShimPath.MachineShimDir)
                     : null;
                 if (pathGap is not null)
                 {
@@ -195,14 +195,16 @@ public static class ToolHealthProbe
     /// The reason a tool that passed every check is still not usable, or null when it is. On macOS and
     /// Linux a tool found in its install (<c>pyenv/bin</c>) but not on the Director's PATH runs for this
     /// probe and for nobody else: sessions find tools by PATH. The two causes are told apart, because they
-    /// have different remedies: <c>~/.local/bin</c> is not on PATH at all, or it is, and the tool's link in
+    /// have different remedies: the shim directory is not on PATH at all, or it is, and the tool's link in
     /// it is missing (the installer logs a failed link and goes on). Windows is left out because its tools
     /// are found through the managed bin directory the installer puts on PATH, which this does not model.
     /// </summary>
-    internal static string? PathGapReason(ToolDescriptor descriptor, bool isWindows, string? searchPath)
+    /// <param name="shimDir">Where this machine root's links are written, <see cref="ToolShimPath.MachineShimDir"/>:
+    /// <c>~/.local/bin</c> for the default root, the root's own <c>bin</c> for any other. Naming a link
+    /// anywhere else names a remedy the repair can never make true.</param>
+    internal static string? PathGapReason(ToolDescriptor descriptor, bool isWindows, string? searchPath, string shimDir)
     {
         if (isWindows || !descriptor.IsBuilt || descriptor.IsOnPath) return null;
-        var shimDir = ToolShimPath.UnixShimDir;
         return ToolShimPath.Contains(searchPath, shimDir)
             ? $"installed, but its link {Path.Combine(shimDir, descriptor.Name)} is missing; cc-devthrottle setup repair writes it"
             : $"installed, but the Director's PATH is missing {shimDir}";

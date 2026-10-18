@@ -56,8 +56,8 @@ public static class MacFileOwnership
             layout.MacAppsDir,
             Path.GetDirectoryName(launchAgentPlistPath)!,
             // The cc-* command links: the Python tools step creates this folder and replaces links in it.
-            Path.GetDirectoryName(layout.MacUserBinDir)!,
-            layout.MacUserBinDir,
+            Path.GetDirectoryName(layout.ToolShimDir)!,
+            layout.ToolShimDir,
         ]);
 
     /// <summary>What the install says, and does, when it is run as root on macOS.</summary>

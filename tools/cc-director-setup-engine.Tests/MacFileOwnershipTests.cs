@@ -290,7 +290,7 @@ public class MacFileOwnershipTests : IDisposable
         Assert.Contains(Path.Combine(layout.MacAppsDir, MacFileOwnership.SetupAppName), targets.Trees);
         Assert.Contains(Path.Combine(Path.GetDirectoryName(layout.MacAppsDir)!, ".zshrc"), targets.Trees);
         Assert.Contains(Path.Combine(Path.GetDirectoryName(layout.MacAppsDir)!, ".bash_profile"), targets.Trees);
-        Assert.Equal([layout.MacAppsDir, _agents, Path.GetDirectoryName(layout.MacUserBinDir)!, layout.MacUserBinDir], targets.Folders);
+        Assert.Equal([layout.MacAppsDir, _agents, Path.GetDirectoryName(layout.ToolShimDir)!, layout.ToolShimDir], targets.Folders);
     }
 
     [Fact]

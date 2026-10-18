@@ -356,5 +356,5 @@ public sealed class ToolReconciler
     private string ManagedShimPath(string name) =>
         OperatingSystem.IsWindows()
             ? Path.Combine(_layout.BinDir, name + ".cmd")
-            : Path.Combine(_layout.MacUserBinDir, name);
+            : Path.Combine(_layout.ToolShimDir, name);
 }
