@@ -23,7 +23,7 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddTriggerBackupMachinesPostgresTests
 {
     private const string RuntimeConnectionEnvVar = "CC_GATEWAY_DB_CONNECTION";
-    private const string MigrationBefore = "20261018015844_AddApiModeReceiptPromptText";
+    private const string MigrationBefore = "20261018153213_AddMailDesk";
     private const string MigrationUnderTest = "20261018182501_AddTriggerBackupMachines";
     private const string Held = "11111111-1111-1111-1111-111111111111";
 
