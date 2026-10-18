@@ -94,6 +94,7 @@ $root = Join-Path $rig 'root'
 $work = Join-Path $rig 'work'
 $logs = Join-Path $rig 'logs'
 $importRoot = Join-Path $rig 'tool-import'
+$directorHome = Join-Path $rig 'home'
 $gatewayUrl = "http://127.0.0.1:$GatewayPort"
 
 # The cases a real run does not provoke, and the unit tests that prove them (section 7, item 3).
@@ -391,10 +392,18 @@ function Start-TestDirector([string]$PiPath) {
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
     } else {
+        # A HOME of its own. A Director on a fresh root repairs its cc-* tools at start-up, and on Linux and macOS
+        # the repair links them into ~/.local/bin - the user's real tools folder, whatever CC_DIRECTOR_ROOT says.
+        # The first dry run did exactly that and pointed the machine's cc-devthrottle at a folder this script then
+        # deleted. Pi is pointed back at the user's own agent folder, where its model and sign-in live.
         $piDir = Split-Path $PiPath
         $null = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru `
             -RedirectStandardOutput (Join-Path $logs 'director.out') -RedirectStandardError (Join-Path $logs 'director.err') `
-            -Environment @{ CC_DIRECTOR_ROOT = $root; PATH = "$piDir$([IO.Path]::PathSeparator)$env:PATH" }
+            -Environment @{
+                CC_DIRECTOR_ROOT = $root; HOME = $directorHome
+                PI_CODING_AGENT_DIR = (Join-Path $HOME '.pi/agent')
+                PATH = "$piDir$([IO.Path]::PathSeparator)$env:PATH"
+            }
     }
     # Readiness is the instance registration the running Director writes, whose Pid is the process.
     $regDir = Join-Path $root 'instances/default/config/director/instances'
@@ -447,6 +456,14 @@ function Stop-TestGateway {
         & /bin/kill -TERM $gatewayProcess.Id
     }
     $null = Wait-For { $gatewayProcess.HasExited } 30
+}
+
+# Where every link in the user's ~/.local/bin points (Linux and macOS), so the run can prove it changed none.
+function Get-UserBinLinks {
+    if ($IsWindows) { return '' }
+    $dir = Join-Path $HOME '.local/bin'
+    if (-not (Test-Path $dir)) { return '' }
+    (Get-ChildItem $dir | Where-Object { $_.LinkTarget } | Sort-Object Name | ForEach-Object { "$($_.Name) -> $($_.LinkTarget)" }) -join "`n"
 }
 
 # ------------------------------------------------------------------------------------------------- spend --
@@ -584,7 +601,8 @@ function Invoke-MissingExecutable([string]$PiPath) {
 
 $exitCode = 0
 try {
-    New-Item -ItemType Directory -Force -Path $rig, $root, $work, $logs, $importRoot, $OutDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $rig, $root, $work, $logs, $importRoot, $directorHome, $OutDir | Out-Null
+    $userBinBefore = Get-UserBinLinks
     Say "rig: $rig"
     Say "evidence: $OutDir"
     Assert-SwitchOn
@@ -606,6 +624,12 @@ try {
     foreach ($sid in $sessionsToStop) { $null = Invoke-Tool @('session', 'stop', $sid, '--reason', 'API mode proof finished') }
     Stop-TestDirector
     Stop-TestGateway
+    if (-not $IsWindows -and $null -ne $userBinBefore) {
+        $userBinAfter = Get-UserBinLinks
+        $changed = @(Compare-Object @($userBinBefore -split "`n") @($userBinAfter -split "`n") | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+        Add-Result "Teardown: the user's ~/.local/bin links are unchanged" ($changed.Count -eq 0 -and $userBinBefore.Length -gt 0) `
+            $(if ($changed.Count -eq 0) { "$(@($userBinBefore -split "`n").Count) links, all as before" } else { "CHANGED: $($changed -join '; ')" })
+    }
 
     $spend = Measure-Spend
     $directorLog = Get-ChildItem (Join-Path $root 'instances/default/logs/director') -Filter *.log -ErrorAction SilentlyContinue |

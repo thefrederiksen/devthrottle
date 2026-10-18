@@ -1,0 +1,380 @@
+2026-10-18 08:20:36.015 [ApiModeEventPusher] Created: batch=500 events or 4000000 characters, held per session=20000 events or 50000000 characters
+2026-10-18 08:20:36.118 [ApiModeEventPusher] Start: sweep every 60s
+2026-10-18 08:20:36.222 [ApiModeEventPusher] NewConnection: the next answered Hello resends every held event
+2026-10-18 08:20:37.427 [ApiModeSessionBackend] Start: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, executable=~/.local/share/node/bin/pi, args=--session-id 8b4074fd-7daa-4b4c-90da-008fd2ae22a3 --append-system-prompt "<rig>/root/instances/default/pi-preamble/ae6c6e32-65bc-4f69-874f-de1a5bff7a1f.txt", workingDir=<rig>/work
+2026-10-18 08:20:37.428 [ApiModeConversationClaims] Claim: <rig>/work|8b4074fd-7daa-4b4c-90da-008fd2ae22a3 -> ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+2026-10-18 08:20:37.429 [ApiModeSessionHost] Created: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, agentSession=8b4074fd-7daa-4b4c-90da-008fd2ae22a3, resuming=False, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85
+2026-10-18 08:20:37.430 [ApiModeSessionHost] Start: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, executable=~/.local/share/node/bin/pi, arguments=[--mode rpc --session-id 8b4074fd-7daa-4b4c-90da-008fd2ae22a3 --append-system-prompt <rig>/root/instances/default/pi-preamble/ae6c6e32-65bc-4f69-874f-de1a5bff7a1f.txt], workingDirectory=<rig>/work
+2026-10-18 08:20:37.430 [PiDialect] Created: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, agentSession=8b4074fd-7daa-4b4c-90da-008fd2ae22a3, resuming=False
+2026-10-18 08:20:37.431 [ApiModeTransport] Start: executable=~/.local/share/node/bin/pi, arguments=[--mode rpc --session-id 8b4074fd-7daa-4b4c-90da-008fd2ae22a3 --append-system-prompt <rig>/root/instances/default/pi-preamble/ae6c6e32-65bc-4f69-874f-de1a5bff7a1f.txt], workingDirectory=<rig>/work
+2026-10-18 08:20:37.433 [ApiModeExecutableResolver] Resolve: executable=~/.local/share/node/bin/pi
+2026-10-18 08:20:37.433 [ApiModeExecutableResolver] Resolve: ~/.local/share/node/bin/pi -> ~/.local/share/node/bin/pi
+2026-10-18 08:20:37.434 [ApiModeEnvironment] Build: 33 inherited, 35 given, 5 set
+2026-10-18 08:20:37.435 [ApiModeTransport] Start: process 1948903 running
+2026-10-18 08:20:37.436 [ApiModeSessionHost] StartConnection: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi running as process 1948903, resuming=False
+2026-10-18 08:20:37.440 [PiDialect] Build: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=get_state, command=dt-1
+2026-10-18 08:20:37.443 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-18 08:20:37.447 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=get_state, command=dt-1, prompt=
+2026-10-18 08:20:37.716 [ApiModeTransport] process 1948903 standard error: Warning: No project session found with id '8b4074fd-7daa-4b4c-90da-008fd2ae22a3'; creating a new session with that id.
+2026-10-18 08:20:37.829 [ApiModeTransport] ErrorLinesSince: marker=1, lines=1, noLongerHeld=0
+2026-10-18 08:20:37.830 [PiDialect] OnStderrLine: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, line=Warning: No project session found with id '8b4074fd-7daa-4b4c-90da-008fd2ae22a3'; creating a new session with that id.
+2026-10-18 08:20:37.830 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:20:37.832 [PiDialect] Response: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, command=dt-1, type=get_state, success=True
+2026-10-18 08:20:37.832 [PiDialect] State: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, agentSession=8b4074fd-7daa-4b4c-90da-008fd2ae22a3, model=gpt-5.6-sol, messages=0
+2026-10-18 08:20:38.272 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 1..1, watermark 1, 1 acknowledged
+2026-10-18 08:20:38.940 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, length=32, gatewayPromptId=41be2137e3934c04ae95a06d0c37d873
+2026-10-18 08:20:38.942 [PiDialect] BuildPrompt: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=41be2137e3934c04ae95a06d0c37d873, command=dt-2, length=32
+2026-10-18 08:20:38.942 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-18 08:20:38.943 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=prompt, command=dt-2, prompt=41be2137e3934c04ae95a06d0c37d873
+2026-10-18 08:20:38.948 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:38.948 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:20:38.949 [PiDialect] Delivered: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=41be2137e3934c04ae95a06d0c37d873, disposition=started
+2026-10-18 08:20:38.953 [ApiModeSessionHost] Turn-start bound armed: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompts=41be2137e3934c04ae95a06d0c37d873, bound=60s
+2026-10-18 08:20:38.954 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:38.954 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_start
+2026-10-18 08:20:38.954 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=41be2137e3934c04ae95a06d0c37d873, delivered
+2026-10-18 08:20:38.954 [PiDialect] TurnStarted: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-1, prompts=41be2137e3934c04ae95a06d0c37d873
+2026-10-18 08:20:38.956 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:38.956 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_start
+2026-10-18 08:20:38.956 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:38.956 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:38.956 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:38.956 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:38.957 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:38.958 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:38.958 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:38.958 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:39.061 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 2..2, watermark 2, 1 acknowledged
+2026-10-18 08:20:39.075 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 3..3, watermark 3, 1 acknowledged
+2026-10-18 08:20:40.944 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:40.944 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:40.976 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 4..4, watermark 4, 1 acknowledged
+2026-10-18 08:20:40.985 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 5..5, watermark 5, 1 acknowledged
+2026-10-18 08:20:41.349 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 6..6, watermark 6, 1 acknowledged
+2026-10-18 08:20:41.362 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:41.362 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:41.363 [PiDialect] Message ended: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-1, message=turn-1-message-1, stopReason=stop
+2026-10-18 08:20:41.363 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:41.363 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_end
+2026-10-18 08:20:41.375 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:41.375 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_end
+2026-10-18 08:20:41.375 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:41.375 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_settled
+2026-10-18 08:20:41.379 [PiDialect] TurnEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-1, outcome=Done, reason=, stopReason=stop
+2026-10-18 08:20:41.412 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 7..7, watermark 7, 1 acknowledged
+2026-10-18 08:20:42.888 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, length=70, gatewayPromptId=110da7a24d724a53b721f3af89c7d0c0
+2026-10-18 08:20:42.888 [PiDialect] BuildPrompt: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=110da7a24d724a53b721f3af89c7d0c0, command=dt-3, length=70
+2026-10-18 08:20:42.888 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-18 08:20:42.888 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=prompt, command=dt-3, prompt=110da7a24d724a53b721f3af89c7d0c0
+2026-10-18 08:20:42.890 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:42.890 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:20:42.890 [PiDialect] Delivered: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=110da7a24d724a53b721f3af89c7d0c0, disposition=started
+2026-10-18 08:20:42.890 [ApiModeSessionHost] Turn-start bound armed: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompts=110da7a24d724a53b721f3af89c7d0c0, bound=60s
+2026-10-18 08:20:42.890 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=110da7a24d724a53b721f3af89c7d0c0, delivered
+2026-10-18 08:20:42.890 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:42.890 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_start
+2026-10-18 08:20:42.890 [PiDialect] TurnStarted: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-2, prompts=110da7a24d724a53b721f3af89c7d0c0
+2026-10-18 08:20:42.891 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:42.891 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_start
+2026-10-18 08:20:42.891 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:42.891 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:42.891 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:42.891 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:42.902 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 8..8, watermark 8, 1 acknowledged
+2026-10-18 08:20:42.914 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 9..9, watermark 9, 1 acknowledged
+2026-10-18 08:20:44.110 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.110 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:44.583 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.583 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:44.583 [PiDialect] Message ended: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-2, message=turn-2-message-1, stopReason=toolUse
+2026-10-18 08:20:44.584 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.584 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=tool_execution_start
+2026-10-18 08:20:44.586 [PiDialect] ToolCallStarted: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-2, tool=bash, call=call_6HBKATkW9DcZdltLzVLwYjmB|fc_0dfac3ad6baab632016ad4b99c15448195b3be481df36603d2
+2026-10-18 08:20:44.593 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.593 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=tool_execution_update
+2026-10-18 08:20:44.598 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 10..10, watermark 10, 1 acknowledged
+2026-10-18 08:20:44.603 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.603 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=tool_execution_update
+2026-10-18 08:20:44.607 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.607 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=tool_execution_end
+2026-10-18 08:20:44.612 [PiDialect] ToolCallFinished: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-2, call=call_6HBKATkW9DcZdltLzVLwYjmB|fc_0dfac3ad6baab632016ad4b99c15448195b3be481df36603d2, isError=False
+2026-10-18 08:20:44.616 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.616 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:44.616 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.616 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:44.616 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.616 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_end
+2026-10-18 08:20:44.616 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:44.616 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_start
+2026-10-18 08:20:44.622 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 11..11, watermark 11, 1 acknowledged
+2026-10-18 08:20:45.665 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:45.665 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:45.743 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 12..12, watermark 12, 1 acknowledged
+2026-10-18 08:20:45.952 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 13..13, watermark 13, 1 acknowledged
+2026-10-18 08:20:45.954 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:45.954 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:45.954 [PiDialect] Message ended: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-2, message=turn-2-message-2, stopReason=stop
+2026-10-18 08:20:45.954 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:45.954 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_end
+2026-10-18 08:20:45.954 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:45.954 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_end
+2026-10-18 08:20:45.954 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:45.954 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_settled
+2026-10-18 08:20:45.954 [PiDialect] TurnEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-2, outcome=Done, reason=, stopReason=stop
+2026-10-18 08:20:45.966 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 14..14, watermark 14, 1 acknowledged
+2026-10-18 08:20:46.609 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, length=66, gatewayPromptId=09e671e8168e4866b5b738385c477f53
+2026-10-18 08:20:46.609 [PiDialect] BuildPrompt: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=09e671e8168e4866b5b738385c477f53, command=dt-4, length=66
+2026-10-18 08:20:46.609 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-18 08:20:46.609 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=prompt, command=dt-4, prompt=09e671e8168e4866b5b738385c477f53
+2026-10-18 08:20:46.612 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:46.612 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:20:46.612 [PiDialect] Delivered: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=09e671e8168e4866b5b738385c477f53, disposition=started
+2026-10-18 08:20:46.612 [ApiModeSessionHost] Turn-start bound armed: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompts=09e671e8168e4866b5b738385c477f53, bound=60s
+2026-10-18 08:20:46.612 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=09e671e8168e4866b5b738385c477f53, delivered
+2026-10-18 08:20:46.612 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:46.612 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_start
+2026-10-18 08:20:46.612 [PiDialect] TurnStarted: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-3, prompts=09e671e8168e4866b5b738385c477f53
+2026-10-18 08:20:46.612 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:46.612 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_start
+2026-10-18 08:20:46.613 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:46.613 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:46.613 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:46.613 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:46.630 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 15..15, watermark 15, 1 acknowledged
+2026-10-18 08:20:46.642 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 16..16, watermark 16, 1 acknowledged
+2026-10-18 08:20:47.448 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:47.448 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:20:47.987 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 17..17, watermark 17, 1 acknowledged
+2026-10-18 08:20:47.996 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 18..18, watermark 18, 1 acknowledged
+2026-10-18 08:20:48.001 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 19..19, watermark 19, 1 acknowledged
+2026-10-18 08:20:48.004 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 20..20, watermark 20, 1 acknowledged
+2026-10-18 08:20:48.007 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 21..21, watermark 21, 1 acknowledged
+2026-10-18 08:20:48.013 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 22..22, watermark 22, 1 acknowledged
+2026-10-18 08:20:48.015 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 23..23, watermark 23, 1 acknowledged
+2026-10-18 08:20:48.020 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 24..24, watermark 24, 1 acknowledged
+2026-10-18 08:20:48.022 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 25..25, watermark 25, 1 acknowledged
+2026-10-18 08:20:48.025 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 26..26, watermark 26, 1 acknowledged
+2026-10-18 08:20:48.037 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 27..27, watermark 27, 1 acknowledged
+2026-10-18 08:20:48.039 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 28..28, watermark 28, 1 acknowledged
+2026-10-18 08:20:48.041 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 29..29, watermark 29, 1 acknowledged
+2026-10-18 08:20:48.044 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 30..30, watermark 30, 1 acknowledged
+2026-10-18 08:20:48.049 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 31..31, watermark 31, 1 acknowledged
+2026-10-18 08:20:48.052 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 32..32, watermark 32, 1 acknowledged
+2026-10-18 08:20:48.057 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 33..33, watermark 33, 1 acknowledged
+2026-10-18 08:20:48.060 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 34..34, watermark 34, 1 acknowledged
+2026-10-18 08:20:48.064 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 35..35, watermark 35, 1 acknowledged
+2026-10-18 08:20:48.069 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 36..36, watermark 36, 1 acknowledged
+2026-10-18 08:20:48.075 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 37..37, watermark 37, 1 acknowledged
+2026-10-18 08:20:48.081 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 38..38, watermark 38, 1 acknowledged
+2026-10-18 08:20:48.085 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 39..39, watermark 39, 1 acknowledged
+2026-10-18 08:20:48.088 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 40..40, watermark 40, 1 acknowledged
+2026-10-18 08:20:48.092 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 41..41, watermark 41, 1 acknowledged
+2026-10-18 08:20:48.102 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 42..42, watermark 42, 1 acknowledged
+2026-10-18 08:20:48.107 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 43..43, watermark 43, 1 acknowledged
+2026-10-18 08:20:48.250 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 44..44, watermark 44, 1 acknowledged
+2026-10-18 08:20:48.256 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 45..56, watermark 56, 12 acknowledged
+2026-10-18 08:20:48.258 [ApiModeSessionBackend] StopTurnAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=Protocol
+2026-10-18 08:20:48.260 [ApiModeSessionHost] StopAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+2026-10-18 08:20:48.260 [PiDialect] Build: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=abort, command=dt-5
+2026-10-18 08:20:48.260 [ApiModeTransport] WriteRecordAsync: record=abort
+2026-10-18 08:20:48.260 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=abort, command=dt-5, prompt=
+2026-10-18 08:20:48.270 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:48.270 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:20:48.270 [PiDialect] Message ended: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-3, message=turn-3-message-1, stopReason=aborted
+2026-10-18 08:20:48.270 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:48.270 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_end
+2026-10-18 08:20:48.270 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:48.270 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_end
+2026-10-18 08:20:48.270 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:48.270 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_settled
+2026-10-18 08:20:48.270 [PiDialect] TurnEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-3, outcome=Cancelled, reason=stopped by the user, stopReason=aborted
+2026-10-18 08:20:48.271 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:48.271 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:20:48.271 [PiDialect] Response: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, command=dt-5, type=abort, success=True
+2026-10-18 08:20:48.272 [ApiModeSessionHost] StopAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-3, outcome=Cancelled
+2026-10-18 08:20:48.273 [ApiModeSessionBackend] StopTurnAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi confirmed the stop, turn=turn-3
+2026-10-18 08:20:48.273 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 57..57, watermark 57, 1 acknowledged
+2026-10-18 08:20:48.594 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 58..58, watermark 58, 1 acknowledged
+2026-10-18 08:20:48.614 [ApiModeSessionBackend] TakeWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=Protocol
+2026-10-18 08:20:48.616 [ApiModeSessionHost] SuspendAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, grace=5000ms
+2026-10-18 08:20:48.618 [ApiModeTransport] ShutdownAsync: process 1948903, grace=5000ms
+2026-10-18 08:20:48.641 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 107 records
+2026-10-18 08:20:48.642 [ApiModeTransport] WatchForExitAsync: process 1948903 exited with code 0
+2026-10-18 08:20:48.644 [ApiModeTransport] Complete: process 1948903 ended, exit code 0, 0 requests unanswered
+2026-10-18 08:20:48.645 [ApiModeTransport] ErrorLinesSince: marker=2, lines=0, noLongerHeld=0
+2026-10-18 08:20:48.645 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-18 08:20:48.647 [PiDialect] OnProcessExited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, exitCode=0, turn=, inFlight=0
+2026-10-18 08:20:48.647 [PiDialect] OnProcessExited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, reason=Pi exited (exit code 0), failure=False
+2026-10-18 08:20:48.651 [ApiModeSessionHost] OnProcessEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, The user took the wheel: Pi's conversation is open in its terminal, restart=False, wheelTaken=True
+2026-10-18 08:20:48.651 [ApiModeSessionHost] SuspendAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi's process has ended; the user may take the conversation
+2026-10-18 08:20:48.652 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 59..59, watermark 59, 1 acknowledged
+2026-10-18 08:20:48.653 [ApiModeSessionBackend] TakeWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi's API process has exited; starting its terminal: ~/.local/share/node/bin/pi --session-id 8b4074fd-7daa-4b4c-90da-008fd2ae22a3 --append-system-prompt "<rig>/root/instances/default/pi-preamble/ae6c6e32-65bc-4f69-874f-de1a5bff7a1f.txt"
+2026-10-18 08:20:48.665 [ApiModeSessionBackend] TakeWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, the user has the wheel, terminal process 1949116
+2026-10-18 08:20:53.086 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:20:53.086 [ApiModeSessionBackend] hand back REFUSED: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-18 08:20:54.307 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:20:54.307 [ApiModeSessionBackend] hand back REFUSED: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-18 08:20:57.312 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:20:57.312 [ApiModeSessionBackend] hand back REFUSED: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-18 08:21:00.322 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:21:00.322 [ApiModeSessionBackend] hand back REFUSED: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-18 08:21:03.339 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:21:03.339 [ApiModeSessionBackend] hand back REFUSED: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-18 08:21:06.359 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:21:06.359 [ApiModeSessionBackend] hand back REFUSED: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f: Pi is in the middle of a turn in the terminal, so the wheel was not handed back: two processes may never hold one conversation. Wait for the turn to finish, or stop it in the terminal, then hand back.
+2026-10-18 08:21:09.374 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:21:09.375 [ApiModeSessionBackend] ending the user's terminal: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, process 1949116
+2026-10-18 08:21:09.463 [ApiModeSessionBackend] the user's terminal exited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, exitCode=0
+2026-10-18 08:21:09.472 [ApiModeSessionHost] ResumeAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+2026-10-18 08:21:09.472 [PiDialect] Created: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, agentSession=8b4074fd-7daa-4b4c-90da-008fd2ae22a3, resuming=False
+2026-10-18 08:21:09.472 [ApiModeTransport] Start: executable=~/.local/share/node/bin/pi, arguments=[--mode rpc --session-id 8b4074fd-7daa-4b4c-90da-008fd2ae22a3 --append-system-prompt <rig>/root/instances/default/pi-preamble/ae6c6e32-65bc-4f69-874f-de1a5bff7a1f.txt], workingDirectory=<rig>/work
+2026-10-18 08:21:09.472 [ApiModeExecutableResolver] Resolve: executable=~/.local/share/node/bin/pi
+2026-10-18 08:21:09.473 [ApiModeExecutableResolver] Resolve: ~/.local/share/node/bin/pi -> ~/.local/share/node/bin/pi
+2026-10-18 08:21:09.473 [ApiModeEnvironment] Build: 33 inherited, 35 given, 5 set
+2026-10-18 08:21:09.474 [ApiModeTransport] Start: process 1950186 running
+2026-10-18 08:21:09.474 [ApiModeSessionHost] StartConnection: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi running as process 1950186, resuming=False
+2026-10-18 08:21:09.474 [ApiModeSessionHost] ResumeAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi started again; 0 queued prompt(s) wait for it to name its conversation
+2026-10-18 08:21:09.474 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, the protocol holds the conversation again
+2026-10-18 08:21:09.474 [PiDialect] Build: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=get_state, command=dt-6
+2026-10-18 08:21:09.474 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-18 08:21:09.474 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=get_state, command=dt-6, prompt=
+2026-10-18 08:21:09.848 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:09.848 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:21:09.848 [PiDialect] Response: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, command=dt-6, type=get_state, success=True
+2026-10-18 08:21:09.848 [PiDialect] State: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, agentSession=8b4074fd-7daa-4b4c-90da-008fd2ae22a3, model=gpt-5.6-sol, messages=11
+2026-10-18 08:21:09.853 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 60..60, watermark 60, 1 acknowledged
+2026-10-18 08:21:12.595 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, length=77, gatewayPromptId=1188858a851b4227b734eef73be87bcb
+2026-10-18 08:21:12.595 [PiDialect] BuildPrompt: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=1188858a851b4227b734eef73be87bcb, command=dt-7, length=77
+2026-10-18 08:21:12.595 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-18 08:21:12.595 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=prompt, command=dt-7, prompt=1188858a851b4227b734eef73be87bcb
+2026-10-18 08:21:12.611 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:12.611 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:21:12.611 [PiDialect] Delivered: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=1188858a851b4227b734eef73be87bcb, disposition=started
+2026-10-18 08:21:12.612 [ApiModeSessionHost] Turn-start bound armed: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompts=1188858a851b4227b734eef73be87bcb, bound=60s
+2026-10-18 08:21:12.612 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:12.612 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_start
+2026-10-18 08:21:12.612 [PiDialect] TurnStarted: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-4, prompts=1188858a851b4227b734eef73be87bcb
+2026-10-18 08:21:12.612 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:12.612 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_start
+2026-10-18 08:21:12.612 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:12.612 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:21:12.612 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=1188858a851b4227b734eef73be87bcb, delivered
+2026-10-18 08:21:12.616 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:12.616 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:21:12.641 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 61..61, watermark 61, 1 acknowledged
+2026-10-18 08:21:12.670 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 62..62, watermark 62, 1 acknowledged
+2026-10-18 08:21:13.774 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:13.774 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:21:13.896 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 63..63, watermark 63, 1 acknowledged
+2026-10-18 08:21:13.902 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 64..64, watermark 64, 1 acknowledged
+2026-10-18 08:21:13.906 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 65..65, watermark 65, 1 acknowledged
+2026-10-18 08:21:13.913 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 66..66, watermark 66, 1 acknowledged
+2026-10-18 08:21:14.056 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 67..67, watermark 67, 1 acknowledged
+2026-10-18 08:21:14.066 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:14.066 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:21:14.066 [PiDialect] Message ended: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-4, message=turn-4-message-1, stopReason=stop
+2026-10-18 08:21:14.067 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:14.067 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_end
+2026-10-18 08:21:14.067 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:14.067 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_end
+2026-10-18 08:21:14.068 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:14.068 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_settled
+2026-10-18 08:21:14.068 [PiDialect] TurnEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-4, outcome=Done, reason=, stopReason=stop
+2026-10-18 08:21:14.080 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 68..68, watermark 68, 1 acknowledged
+2026-10-18 08:21:14.276 [ApiModeSessionBackend] TakeWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=Protocol
+2026-10-18 08:21:14.276 [ApiModeSessionHost] SuspendAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, grace=5000ms
+2026-10-18 08:21:14.276 [ApiModeTransport] ShutdownAsync: process 1950186, grace=5000ms
+2026-10-18 08:21:14.295 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 17 records
+2026-10-18 08:21:14.295 [ApiModeTransport] WatchForExitAsync: process 1950186 exited with code 0
+2026-10-18 08:21:14.295 [ApiModeTransport] Complete: process 1950186 ended, exit code 0, 0 requests unanswered
+2026-10-18 08:21:14.295 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:14.295 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-18 08:21:14.295 [PiDialect] OnProcessExited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, exitCode=0, turn=, inFlight=0
+2026-10-18 08:21:14.295 [PiDialect] OnProcessExited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, reason=Pi exited (exit code 0), failure=False
+2026-10-18 08:21:14.295 [ApiModeSessionHost] OnProcessEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, The user took the wheel: Pi's conversation is open in its terminal, restart=False, wheelTaken=True
+2026-10-18 08:21:14.295 [ApiModeSessionHost] SuspendAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi's process has ended; the user may take the conversation
+2026-10-18 08:21:14.296 [ApiModeSessionBackend] TakeWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi's API process has exited; starting its terminal: ~/.local/share/node/bin/pi --session-id 8b4074fd-7daa-4b4c-90da-008fd2ae22a3 --append-system-prompt "<rig>/root/instances/default/pi-preamble/ae6c6e32-65bc-4f69-874f-de1a5bff7a1f.txt"
+2026-10-18 08:21:14.297 [ApiModeSessionBackend] TakeWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, the user has the wheel, terminal process 1950286
+2026-10-18 08:21:14.298 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 69..69, watermark 69, 1 acknowledged
+2026-10-18 08:21:14.918 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, length=37, gatewayPromptId=61869727fbd246c29b1605a2ef4ff310
+2026-10-18 08:21:14.919 [ApiModeSessionHost] Queued: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=61869727fbd246c29b1605a2ef4ff310, reason=UserHasTheWheel, position=1
+2026-10-18 08:21:14.943 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 70..70, watermark 70, 1 acknowledged
+2026-10-18 08:21:35.180 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, holder=User
+2026-10-18 08:21:35.180 [ApiModeSessionBackend] ending the user's terminal: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, process 1950286
+2026-10-18 08:21:35.365 [ApiModeSessionBackend] the user's terminal exited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, exitCode=0
+2026-10-18 08:21:35.366 [ApiModeSessionHost] ResumeAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+2026-10-18 08:21:35.366 [PiDialect] Created: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, agentSession=8b4074fd-7daa-4b4c-90da-008fd2ae22a3, resuming=False
+2026-10-18 08:21:35.366 [ApiModeTransport] Start: executable=~/.local/share/node/bin/pi, arguments=[--mode rpc --session-id 8b4074fd-7daa-4b4c-90da-008fd2ae22a3 --append-system-prompt <rig>/root/instances/default/pi-preamble/ae6c6e32-65bc-4f69-874f-de1a5bff7a1f.txt], workingDirectory=<rig>/work
+2026-10-18 08:21:35.366 [ApiModeExecutableResolver] Resolve: executable=~/.local/share/node/bin/pi
+2026-10-18 08:21:35.366 [ApiModeExecutableResolver] Resolve: ~/.local/share/node/bin/pi -> ~/.local/share/node/bin/pi
+2026-10-18 08:21:35.369 [ApiModeEnvironment] Build: 33 inherited, 35 given, 5 set
+2026-10-18 08:21:35.371 [ApiModeTransport] Start: process 1950748 running
+2026-10-18 08:21:35.371 [ApiModeSessionHost] StartConnection: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi running as process 1950748, resuming=False
+2026-10-18 08:21:35.371 [ApiModeSessionHost] ResumeAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi started again; 1 queued prompt(s) wait for it to name its conversation
+2026-10-18 08:21:35.371 [ApiModeSessionBackend] HandBackWheelAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, the protocol holds the conversation again
+2026-10-18 08:21:35.372 [PiDialect] Build: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=get_state, command=dt-8
+2026-10-18 08:21:35.372 [ApiModeTransport] WriteRecordAsync: record=get_state
+2026-10-18 08:21:35.372 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=get_state, command=dt-8, prompt=
+2026-10-18 08:21:36.410 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:36.410 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:21:36.410 [PiDialect] Response: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, command=dt-8, type=get_state, success=True
+2026-10-18 08:21:36.410 [PiDialect] State: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, agentSession=8b4074fd-7daa-4b4c-90da-008fd2ae22a3, model=gpt-5.6-sol, messages=13
+2026-10-18 08:21:36.410 [PiDialect] BuildPrompt: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=61869727fbd246c29b1605a2ef4ff310, command=dt-9, length=37
+2026-10-18 08:21:36.410 [ApiModeTransport] WriteRecordAsync: record=prompt
+2026-10-18 08:21:36.410 [PiDialect] OnCommandWritten: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=prompt, command=dt-9, prompt=61869727fbd246c29b1605a2ef4ff310
+2026-10-18 08:21:36.416 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 71..71, watermark 71, 1 acknowledged
+2026-10-18 08:21:36.426 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:36.426 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=response
+2026-10-18 08:21:36.426 [PiDialect] Delivered: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=61869727fbd246c29b1605a2ef4ff310, disposition=started
+2026-10-18 08:21:36.431 [ApiModeSessionHost] Turn-start bound armed: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompts=61869727fbd246c29b1605a2ef4ff310, bound=60s
+2026-10-18 08:21:36.431 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:36.431 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_start
+2026-10-18 08:21:36.431 [PiDialect] TurnStarted: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-5, prompts=61869727fbd246c29b1605a2ef4ff310
+2026-10-18 08:21:36.431 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:36.431 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_start
+2026-10-18 08:21:36.431 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:36.431 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:21:36.431 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:36.431 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:21:36.431 [ApiModeSessionHost] SendPromptAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, prompt=61869727fbd246c29b1605a2ef4ff310, delivered
+2026-10-18 08:21:36.603 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 72..72, watermark 72, 1 acknowledged
+2026-10-18 08:21:36.684 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 73..73, watermark 73, 1 acknowledged
+2026-10-18 08:21:37.701 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:37.701 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_start
+2026-10-18 08:21:37.756 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 74..74, watermark 74, 1 acknowledged
+2026-10-18 08:21:37.764 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 75..75, watermark 75, 1 acknowledged
+2026-10-18 08:21:37.790 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 76..76, watermark 76, 1 acknowledged
+2026-10-18 08:21:37.803 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 77..77, watermark 77, 1 acknowledged
+2026-10-18 08:21:37.808 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 78..78, watermark 78, 1 acknowledged
+2026-10-18 08:21:38.052 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 79..79, watermark 79, 1 acknowledged
+2026-10-18 08:21:38.056 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:38.056 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=message_end
+2026-10-18 08:21:38.056 [PiDialect] Message ended: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-5, message=turn-5-message-1, stopReason=stop
+2026-10-18 08:21:38.057 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:38.057 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=turn_end
+2026-10-18 08:21:38.057 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:38.057 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_end
+2026-10-18 08:21:38.058 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:38.058 [PiDialect] OnStdoutRecord: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, type=agent_settled
+2026-10-18 08:21:38.058 [PiDialect] TurnEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, turn=turn-5, outcome=Done, reason=, stopReason=stop
+2026-10-18 08:21:38.082 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 80..80, watermark 80, 1 acknowledged
+2026-10-18 08:21:39.458 [ApiModeSessionBackend] Dispose: session=4350df32-7f6f-4def-a009-8e578db8e03e
+2026-10-18 08:21:41.121 [ApiModeSessionBackend] GracefulShutdownAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, timeout=1500ms, holder=Protocol
+2026-10-18 08:21:41.129 [ApiModeSessionHost] ShutdownAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, grace=1500ms
+2026-10-18 08:21:41.129 [ApiModeTransport] ShutdownAsync: process 1950748, grace=1500ms
+2026-10-18 08:21:41.184 [ApiModeTransport] ReadOutputLoopAsync: standard output ended after 18 records
+2026-10-18 08:21:41.184 [ApiModeTransport] WatchForExitAsync: process 1950748 exited with code 0
+2026-10-18 08:21:41.184 [ApiModeTransport] Complete: process 1950748 ended, exit code 0, 0 requests unanswered
+2026-10-18 08:21:41.184 [ApiModeTransport] ShutdownAsync: ended, exit code 0
+2026-10-18 08:21:41.185 [ApiModeTransport] ErrorLinesSince: marker=1, lines=0, noLongerHeld=0
+2026-10-18 08:21:41.186 [PiDialect] OnProcessExited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, exitCode=0, turn=, inFlight=0
+2026-10-18 08:21:41.186 [PiDialect] OnProcessExited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, reason=Pi exited (exit code 0), failure=False
+2026-10-18 08:21:41.186 [ApiModeSessionHost] OnProcessEnded: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, Pi exited (exit code 0), restart=False, wheelTaken=False
+2026-10-18 08:21:41.187 [ApiModeSessionBackend] Exited: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, exitCode=0, failure=False, reason=Pi exited (exit code 0)
+2026-10-18 08:21:41.187 [ApiModeConversationClaims] Release: <rig>/work|8b4074fd-7daa-4b4c-90da-008fd2ae22a3 by ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+2026-10-18 08:21:41.189 [ApiModeSessionHost] ShutdownAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, ended: Pi exited (exit code 0)
+2026-10-18 08:21:41.195 [ApiModeEventPusher] stored: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f, generation=41dadb4b-0ee9-4ecb-ba37-9e340cc69e85, sequences 81..81, watermark 81, 1 acknowledged
+2026-10-18 08:21:41.218 [ApiModeSessionBackend] Dispose: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+2026-10-18 08:21:41.226 [ApiModeSessionHost] DisposeAsync: session=ae6c6e32-65bc-4f69-874f-de1a5bff7a1f
+2026-10-18 08:21:41.227 [ApiModeTransport] DisposeAsync: process 1950748
+2026-10-18 08:21:42.152 [ApiModeEventPusher] DisposeAsync

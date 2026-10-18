@@ -10,12 +10,11 @@ user's name and the token are scrubbed.
 
 | Folder | Machine | What it is | Result |
 |---|---|---|---|
-| `linux-dry-run-20261018-121310` | devlinux, Pi 1.2.0 | Dry run, before phases 3 and 4 (#4186, #4200) were merged. Tree: origin/main at 880a68323 plus the switch (#4208). | Every step and every failure case passed; 0.10 dollars |
+| `linux-dry-run-20261018-122023` | devlinux, Pi 1.2.0 | Dry run, before phases 3 and 4 (#4186, #4200) were merged. Tree: origin/main at 880a68323 plus the switch (#4208) and this script as committed (the summary names the commit before the home-folder fix, which was in the working tree when it ran). | Every step and every failure case passed, and the user's `~/.local/bin` was unchanged; 0.08 dollars |
 
 The recorded run for the QA report is still to come on Linux, once #4186 and #4200 are on main, and on Windows
-(SOREN_NORTH), which the Delivery Lead arranges. The dry run used the script one revision before the committed
-one: since then step 4a also waits for the terminal's Pi process and asserts exactly one, and the script deletes
-its scratch folder at the end.
+(SOREN_NORTH), which the Delivery Lead arranges. Two earlier dry runs passed every step too; their evidence is
+not kept (one of them is the run that changed the user's tool links, below). All of them are in `spend.md`.
 
 ## Which Gateway
 
@@ -52,6 +51,20 @@ types through.
 | Pi refuses a prompt (`success:false`): the receipt shows the reason | Unit tests only: `PiFixtureIngestTests.Accept_TheRefusalRecording_TheSecondPromptIsRefusedByPiInItsOwnWords`, `ApiModeEventIngestTests.Accept_RefusedByTheAgent_TheReceiptCarriesPisOwnWords`. The Director queues instead of sending while Pi is busy, so a real run cannot make Pi refuse |
 
 ## Found along the way
+
+- **A test Director on a scratch root still writes into the user's home folder.** At start-up a Director whose
+  root has no cc-* tools installs them into the root and then links all twelve into `~/.local/bin`
+  (`PythonToolsInstaller`, through the start-up self-heal in `MainWindow`), whatever `CC_DIRECTOR_ROOT` says. The
+  first scripted dry run did this and then deleted its root, so `cc-devthrottle` and eleven other commands on
+  devlinux pointed at a deleted folder. I put the twelve links back to the user's own install
+  (`~/.local/share/cc-director/pyenv/bin`), checked the skill folders (unchanged: their markers name the hosted
+  Gateway and their files predate the run), and changed the script: on Linux and macOS the test Director gets a
+  HOME of its own inside the rig, Pi is pointed back at the user's agent folder with `PI_CODING_AGENT_DIR`, and the
+  run ends by checking that every link in `~/.local/bin` is as it was. On Windows the same repair writes only
+  under the root. The product behaviour itself is not changed here.
+- Because the test Director has its own HOME, Pi in these runs does not see the user's global skill folders, so its
+  first request is smaller (about 4,700 tokens against 5,900). The preamble and skills loading in API mode was
+  proven in phase 1 (`preamble-proof.md`); this proof is about delivery, the live view and the wheel.
 
 - `cc-devthrottle session prompt` answers a prompt that API mode queued because the user has the wheel with "Held:
   the prompt ... may already be in - the Director has not said yet ... Do not send it again." The receipt says
