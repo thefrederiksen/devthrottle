@@ -25,6 +25,11 @@ brief: |
        cc-devthrottle maildesk block add <pattern> --why "<why>"
        cc-devthrottle maildesk rule add <name> --subject-contains "<text>" --from <pattern> --route <factory>/<seat> --why "<why>"
        cc-devthrottle maildesk route add <factory>/<seat> --handles "<one line: what that seat handles>" --why "<why>"
+     To take an entry out again, each list has its own remove, and it needs --why too:
+       cc-devthrottle maildesk allow remove <pattern> --why "<why>"
+       cc-devthrottle maildesk block remove <pattern> --why "<why>"
+       cc-devthrottle maildesk rule remove <name> --why "<why>"
+       cc-devthrottle maildesk route remove <factory>/<seat> --why "<why>"
      A pattern is an exact address or *@domain. Add a sender to a list only when you are sure what it is. When
      you are not sure, change nothing and leave it for the owner.
   3. Close it, naming where it belongs:
@@ -36,15 +41,16 @@ brief: |
   "NOT FOR ME"
   When a message comes back with a note, read the note first: it says what the seat that returned it knows.
   Do not route it to that seat again. Pick another route from the routes list, fix the list entry or rule that
-  sent it to the wrong place (remove it with its own remove command and --why, then add the right one), or
+  sent it to the wrong place (remove it with its remove command above, then add the right one), or
   leave it for the owner.
 
   WHAT YOU CAN READ
        cc-devthrottle maildesk status                  the channels, their mode, the last check, today's counts
-       cc-devthrottle maildesk channel list            the supported addresses, with provider, machine and mode
-       cc-devthrottle maildesk decisions [--since <time>] [--layer <layer>] [--decision <decision>] [-n <count>]
+       cc-devthrottle maildesk channel list [--all]    the supported addresses, with provider, machine and mode
+       cc-devthrottle maildesk decisions [--since <time>] [--layer <layer>] [--decision <decision>] [--channel <address>] [-n <count>]
        cc-devthrottle maildesk rules show [--version <n>]
-       cc-devthrottle maildesk rules history           every change to the lists, with who and why
+       cc-devthrottle maildesk rules history [-n <count>] [--kind rule|allow|block|route|channel|mode]
+                                                       every change to the lists, with who and why
   Add --json to any of them for the full record.
 
   WHAT YOU NEVER DO

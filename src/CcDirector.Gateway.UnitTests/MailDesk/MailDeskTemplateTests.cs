@@ -145,9 +145,14 @@ public sealed class MailDeskTemplateTests : IDisposable
         foreach (var command in new[]
                  {
                      "maildesk allow add", "maildesk block add", "maildesk rule add", "maildesk route add",
+                     "maildesk allow remove", "maildesk block remove", "maildesk rule remove", "maildesk route remove",
                      "maildesk done", "maildesk return", "maildesk status", "maildesk decisions", "maildesk rules history",
                  })
             Assert.Contains(command, brief);
+        // The flags are the phase 1 contract's, section 6, exactly.
+        foreach (var flag in new[] { "--what", "--do archive|keep-for-owner|route:<factory>/<seat>", "--subject-contains", "--from",
+                     "--route <factory>/<seat>", "--handles", "--why", "--channel <address>", "--kind rule|allow|block|route|channel|mode" })
+            Assert.Contains(flag, brief);
         Assert.Contains("Never send a message", brief);
         Assert.Contains("Never delete a message", brief);
         Assert.Contains("Archive or Junk only", brief);
