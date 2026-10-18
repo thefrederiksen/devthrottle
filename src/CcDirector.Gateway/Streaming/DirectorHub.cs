@@ -92,8 +92,10 @@ public sealed class DirectorHub : Hub
         FactoryMachineQuestionCapabilityRegistry? factoryMachineQuestionCapabilities = null,
         FactoryKitCapabilityRegistry? factoryKitCapabilities = null,
         DefinitionCheckCapabilityRegistry? definitionChecks = null,
-        ApiModeEvents.ApiModeEventIngest? apiModeEvents = null)
+        ApiModeEvents.ApiModeEventIngest? apiModeEvents = null,
+        Licenses.LicenseApproverRegistration? licenseApproverRegistration = null)
     {
+        _licenseApproverRegistration = licenseApproverRegistration;
         _apiModeEvents = apiModeEvents;
         _factoryMachineQuestionCapabilities = factoryMachineQuestionCapabilities;
         _factoryKitCapabilities = factoryKitCapabilities;
@@ -202,6 +204,58 @@ public sealed class DirectorHub : Hub
     /// callers, tests that do not exercise it): Hello does not offer RequestLicenseApproval, and a request that arrives
     /// anyway is refused.</summary>
     private readonly Licenses.LicenseApprovalRelay? _licenseApprovals;
+
+    /// <summary>License Switching phase 6 (Track C): takes each Director's approver checks and answers which records name
+    /// its machine. Null (older callers, tests that do not exercise it): Hello offers neither method, and a call that
+    /// arrives anyway is refused.</summary>
+    private readonly Licenses.LicenseApproverRegistration? _licenseApproverRegistration;
+
+    /// <summary>
+    /// License Switching phase 6 (Track C): the approver records that name the bound Director's machine and operating
+    /// system user, which that Director checks daily. Refused before Hello; the tenant and the Director are the
+    /// connection's binding, and the machine and user are the Licenses read model's record of which machine this Director
+    /// last reported for - never anything the Director says. Empty when it reports for none.
+    /// </summary>
+    public LicenseApproverAssignments GetLicenseApproverAssignments()
+    {
+        var directorId = RequireBoundDirector();
+        var tenant = RequireBoundTenant();
+        using var tenantScope = EnterBoundTenantScope();
+        if (_licenseApproverRegistration is null)
+        {
+            FileLog.Write($"[DirectorHub] GetLicenseApproverAssignments: this Gateway keeps no approver registrations, refused: director={directorId}");
+            throw new HubException("This Gateway does not keep license approver registrations.");
+        }
+        return _licenseApproverRegistration.Assignments(tenant, directorId);
+    }
+
+    /// <summary>
+    /// License Switching phase 6 (Track C): the bound Director reports what its daily approver checks found. A profile
+    /// proven able to approve an account may become that account's approver record; a check of a profile a record names
+    /// updates that record's health. Who is asking is the connection's binding and the Gateway's own record of the
+    /// Director's machine, never the report. A report that is not one (missing, or more rows than allowed) fails this
+    /// call; each row is answered with what was done with it. The report is never logged.
+    /// </summary>
+    public LicenseApproverCheckAnswer ReportLicenseApproverChecks(LicenseApproverCheckReport report)
+    {
+        var directorId = RequireBoundDirector();
+        var tenant = RequireBoundTenant();
+        using var tenantScope = EnterBoundTenantScope();
+        if (_licenseApproverRegistration is null)
+        {
+            FileLog.Write($"[DirectorHub] ReportLicenseApproverChecks: this Gateway keeps no approver registrations, refused: director={directorId}");
+            throw new HubException("This Gateway does not keep license approver registrations.");
+        }
+        try
+        {
+            return _licenseApproverRegistration.Report(tenant, directorId, report);
+        }
+        catch (ArgumentException ex)
+        {
+            // The registration's own sentence, which quotes nothing of the report.
+            throw new HubException(ex.Message);
+        }
+    }
 
     /// <summary>
     /// License Switching (missions/license-switching/contract.md section 8.3): the bound Director asks to have a
@@ -527,6 +581,9 @@ public sealed class DirectorHub : Hub
         // sign-in that waits for one, so a Gateway that cannot relay must not offer it (contract section 6 rule 5).
         if (_licenseApprovals is null)
             methods = methods.Where(m => m != LicenseContract.RequestApprovalHubMethod).ToList();
+        // And for the approver registrations: a Director told it may report its checks must be reporting them somewhere.
+        if (_licenseApproverRegistration is null)
+            methods = methods.Where(m => m != LicenseApproverContract.GetAssignmentsHubMethod && m != LicenseApproverContract.ReportChecksHubMethod).ToList();
         // The same for API mode (mission #4070): a Director told it may push API-mode events must never be pushing them
         // into a Gateway that has nowhere to keep them.
         if (_apiModeEvents is null)

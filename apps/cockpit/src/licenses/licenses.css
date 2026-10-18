@@ -401,3 +401,24 @@
   font-size: 12px;
   color: var(--danger-text);
 }
+.lic-card-approver {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.lic-approver-profiles {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lic-approver-missing {
+  flex-basis: 100%;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--danger-text);
+}
+.lic-approver-todo {
+  font-weight: 600;
+}

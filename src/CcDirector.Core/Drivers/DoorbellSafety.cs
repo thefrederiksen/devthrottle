@@ -389,7 +389,16 @@ public static class DoorbellSafety
     private static (ComposerReading, string) ReadCodexComposer(ScreenFrame frame)
     {
         var rows = frame.Rows ?? [];
-        if (Bottom(rows).Any(IsMenuHint) || rows.Any(IsSelectedOption))
+        if (Bottom(rows).Any(IsMenuHint))
+            return (ComposerReading.MenuOpen, "");
+        // A SELECTED OPTION ABOVE THE LIVE COMPOSER IS A PAST PROMPT, NOT A MENU (review of pull request 4072, risk A).
+        // Codex draws a past prompt in its transcript as a '›' row, so a prompt that began "1. ..." stays on screen as
+        // "› 1. ..." - which the whole-screen rule read as a menu for a composer that was live and empty. Once a send
+        // refuses a menu, that reading would have refused every send until the row scrolled off. Codex draws a menu
+        // where its composer would be, so where the composer block can be located only rows from its prompt row down
+        // count; where it cannot, the old whole-screen rule stands.
+        var composerPrompt = CodexPromptRow(frame, rows);
+        if (rows.Skip(composerPrompt < 0 ? 0 : composerPrompt).Any(IsSelectedOption))
             return (ComposerReading.MenuOpen, "");
         if (!frame.CursorVisible || frame.CursorRow < 0 || frame.CursorRow >= rows.Count)
             return (ComposerReading.NotFound, "");
@@ -443,6 +452,19 @@ public static class DoorbellSafety
         }
         var joined = string.Join("\n", new[] { onPrompt }.Concat(continuation)).Trim();
         return (ComposerReading.HoldsText, joined);
+    }
+
+    /// <summary>The row of Codex's live composer prompt - the '›' row the visible cursor sits on, or the nearest one
+    /// above it with only continuation rows between - or -1 when no composer block can be located.</summary>
+    private static int CodexPromptRow(ScreenFrame frame, IReadOnlyList<string> rows)
+    {
+        if (!frame.CursorVisible || frame.CursorRow < 0 || frame.CursorRow >= rows.Count) return -1;
+        for (var row = frame.CursorRow; row >= 0; row--)
+        {
+            if (rows[row].StartsWith('›')) return row;
+            if (row != frame.CursorRow && !IsCodexContinuationRow(rows[row])) return -1;
+        }
+        return -1;
     }
 
     /// <summary>A row that can sit between Codex's '›' row and the cursor as part of one composer block: a

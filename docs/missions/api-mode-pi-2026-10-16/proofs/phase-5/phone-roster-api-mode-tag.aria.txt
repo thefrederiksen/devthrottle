@@ -1,0 +1,25 @@
+- banner:
+  - button "Open menu"
+  - heading "DevThrottle" [level=1]
+  - button "Filter sessions"
+- status:
+  - text: Get an app-icon dot when a session needs you.
+  - button "Enable notifications"
+- tablist "Roster view":
+  - tab "All" [selected]
+  - tab "Voice sessions"
+- link "New session":
+  - /url: /mobile/new
+- text: Order
+- group "Roster order":
+  - button "My order"
+  - button "Attention" [pressed]
+- button "What do the colours mean?"
+- heading "Working" [level=2]
+- list:
+  - listitem:
+    - link "101 Prompt Delivery - Pi in API mode Ready started 09:42 open 0m Pi API mode SOREN_NORTH devthrottle":
+      - /url: /mobile/session/aaaaaaaa-0000-4000-8000-000000000001
+  - listitem:
+    - link "102 Prompt Delivery - Pi in its terminal Ready started 09:42 open 0m Pi SOREN_NORTH devthrottle":
+      - /url: /mobile/session/aaaaaaaa-0000-4000-8000-000000000002

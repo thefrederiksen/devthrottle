@@ -29,9 +29,10 @@ namespace CcDirector.Gateway.Factory.Definition;
 /// older version adds a copy of its content as the newest version, already published, recording which version it
 /// copied.
 ///
-/// ONLY A PERSON PUBLISHES OR RESTORES. A person, or a session of the factory, may save a draft. Publishing and
-/// restoring decide what the factory is, so they are a person's acts, and that rule is enforced here rather than in
-/// each route.
+/// WHO PUBLISHES IS THE ROUTE'S TO DECIDE, AND THE STORE RECORDS IT (phase 6c, the owner's ruling of 16 October 2026,
+/// which replaced "only a person publishes"): a person, or a session in no factory, publishes and restores; a factory's
+/// own session saves drafts. Only the route knows which factory a session is in, so the route refuses, in the sentences
+/// below; every publish records who did it (<see cref="FactoryPublisher"/>).
 ///
 /// NO REGISTRATION IS REQUIRED. Unlike a brief, a definition may exist for a factory the registry does not hold:
 /// importing a definition is how a factory comes to exist (phase 3). The factory id is only folded to its one
@@ -70,16 +71,33 @@ public sealed class FactoryDefinitionStore
     /// <summary>The most versions one page of the history may hold.</summary>
     public const int MaxHistoryPage = 100;
 
-    /// <summary>The sentence a session's publish is refused with. Held here so the routes and the tests say the
-    /// same words.</summary>
-    public const string OnlyAPersonPublishes =
-        "Only a person publishes a factory's definition. A session of the factory may save a draft; " +
-        "the owner reads it and publishes it.";
+    // WHO PUBLISHES (the owner's ruling of 16 October 2026, which replaced "only a person publishes"): "Factories are
+    // created by agents as long as they have user approval." A person publishes, and so does a session in no factory -
+    // the session the owner tells what to make; his word in that session is the approval. A FACTORY'S OWN SESSION never
+    // publishes, restores or creates a factory (the teams-and-agents design, R7: "Factory agents can be written by large
+    // language models, but it's the user driving it"). Which factory a session is in is the route's to know, so the
+    // route refuses with these sentences; the store records whoever it is told published.
 
-    /// <summary>The sentence a session's restore is refused with.</summary>
-    public const string OnlyAPersonRestores =
-        "Only a person publishes a factory's definition, and restoring an older version publishes a copy of it. " +
-        "A session of the factory may save the content it wants as a new draft; the owner publishes it.";
+    /// <summary>What a factory's own session is told to do instead, the same in every refusal below.</summary>
+    private const string InsteadOfPublishing =
+        "A factory's own sessions save drafts; the owner publishes them, in the Cockpit or by telling a session that is " +
+        "in no factory to publish.";
+
+    /// <summary>The sentence a factory's own session's publish is refused with. Held here so the routes and the tests
+    /// say the same words.</summary>
+    public static string FactorySessionMayNotPublish(string sessionFactory) =>
+        $"A session of factory '{sessionFactory}' may not publish a factory's definition. {InsteadOfPublishing}";
+
+    /// <summary>The sentence a factory's own session's restore is refused with.</summary>
+    public static string FactorySessionMayNotRestore(string sessionFactory) =>
+        $"A session of factory '{sessionFactory}' may not restore a version of a factory's definition, because a restore " +
+        $"publishes a copy of it. Save the content you want as a new draft. {InsteadOfPublishing}";
+
+    /// <summary>The sentence a factory's own session is refused with when it would start a new factory's definition.</summary>
+    public static string FactorySessionMayNotCreate(string sessionFactory, string newFactory) =>
+        $"A session of factory '{sessionFactory}' may not create a new factory, and '{newFactory}' has no definition yet. " +
+        "The owner creates factories, in the Cockpit with New factory or by telling a session that is in no factory to " +
+        "create one.";
 
     /// <summary>A strict UTF-8 encoding: a text that cannot be written as UTF-8 (a lone surrogate) throws instead of
     /// being quietly replaced, so a file can never be stored as anything but exactly what was sent.</summary>
@@ -276,24 +294,19 @@ public sealed class FactoryDefinitionStore
         {
             using var ctx = _db.CreateContext(tenant);
             return Append(ctx, tenant, factory, files, expectedVersion ?? 0, published: false, restoredFrom: null,
-                authorKind, authorId, changeNote, nowUtc);
+                authorKind, authorId, authorName: null, changeNote, nowUtc);
         }
     }
 
     /// <summary>
-    /// Publish one version: from now on it is the factory's published definition. Only a person publishes. A
-    /// version older than the published one is refused, because publishing never goes backwards -
-    /// <see cref="Restore"/> is how an older definition is used again.
+    /// Publish one version: from now on it is the factory's published definition. The route decides who may publish
+    /// (a person, or a session in no factory); this records who did. A version older than the published one is
+    /// refused, because publishing never goes backwards - <see cref="Restore"/> is how an older definition is used again.
     /// </summary>
     public FactoryDefinitionWrite Publish(TenantId tenant, string factory, int version,
-        string authorKind, string? authorId, DateTime nowUtc)
+        string authorKind, string? authorId, DateTime nowUtc, string? authorName = null)
     {
         RequireAWriter(authorKind);
-        if (authorKind != FactoryMemoryAuthorKinds.Person)
-        {
-            FileLog.Write($"[FactoryDefinitionStore] {factory}: REFUSED a publish of version {version} by {authorKind} {authorId ?? "(unknown)"}");
-            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.OnlyAPersonPublishes, OnlyAPersonPublishes, null);
-        }
         if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
             return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadFactory, factoryRefusal!, null);
         lock (_gate)
@@ -301,10 +314,11 @@ public sealed class FactoryDefinitionStore
             using var ctx = _db.CreateContext(tenant);
             if (WhyNotPublish(ctx, factory, version) is { } refused) return refused;
 
-            var changed = MarkPublished(ctx, factory, version, authorId, nowUtc);
+            var by = new FactoryPublisher(authorKind, authorId, authorName);
+            var changed = MarkPublished(ctx, factory, version, by, nowUtc);
             var now = SummaryOf(ctx, factory, version);
             if (changed == 0) return PublishedFirstBySomebodyElse(factory, version, now);
-            FileLog.Write($"[FactoryDefinitionStore] {factory}: published version {version} by person {authorId ?? "(unknown)"}");
+            FileLog.Write($"[FactoryDefinitionStore] {factory}: published version {version} by {by.ForLog}");
             return FactoryDefinitionWrite.Published(now!);
         }
     }
@@ -374,19 +388,16 @@ public sealed class FactoryDefinitionStore
     /// <summary>
     /// Restore an older version: add a copy of its content as the NEWEST version, already published, authored by the
     /// person who restored it and recording which version it copied. It is not a rewind - the history keeps every
-    /// version in between. Only a person restores, because it publishes. <paramref name="expectedVersion"/> is the
-    /// newest version the person was looking at, so a restore can lose a race with a draft saved since; a caller
-    /// that states none is taken at its word and the copy goes after what is newest.
+    /// version in between. Whoever may publish may restore, because it publishes; the route decides who that is.
+    /// <paramref name="expectedVersion"/> is the newest version the writer was looking at, so a restore can lose a
+    /// race with a draft saved since; a caller that states none is taken at its word and the copy goes after what is
+    /// newest.
     /// </summary>
     public FactoryDefinitionWrite Restore(TenantId tenant, string factory, int version,
-        string authorKind, string? authorId, string? changeNote, DateTime nowUtc, int? expectedVersion = null)
+        string authorKind, string? authorId, string? changeNote, DateTime nowUtc, int? expectedVersion = null,
+        string? authorName = null)
     {
         RequireAWriter(authorKind);
-        if (authorKind != FactoryMemoryAuthorKinds.Person)
-        {
-            FileLog.Write($"[FactoryDefinitionStore] {factory}: REFUSED a restore of version {version} by {authorKind} {authorId ?? "(unknown)"}");
-            return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.OnlyAPersonPublishes, OnlyAPersonRestores, null);
-        }
         if (!FactoryNames.TryFactory(factory, out factory, out var factoryRefusal))
             return FactoryDefinitionWrite.Refused(FactoryDefinitionOutcome.BadFactory, factoryRefusal!, null);
         lock (_gate)
@@ -395,7 +406,7 @@ public sealed class FactoryDefinitionStore
             if (WhyNotRestore(ctx, factory, version, out var wanted) is { } refused) return refused;
 
             return Append(ctx, tenant, factory, wanted!.Files, ExpectedForRestore(ctx, factory, expectedVersion),
-                published: true, restoredFrom: version, authorKind, authorId, changeNote, nowUtc);
+                published: true, restoredFrom: version, authorKind, authorId, authorName, changeNote, nowUtc);
         }
     }
 
@@ -473,10 +484,10 @@ public sealed class FactoryDefinitionStore
 
     private static FactoryDefinitionWrite Append(GatewayDbContext ctx, TenantId tenant, string factory,
         IReadOnlyDictionary<string, string>? files, int expectedVersion, bool published, int? restoredFrom,
-        string authorKind, string? authorId, string? changeNote, DateTime nowUtc)
+        string authorKind, string? authorId, string? authorName, string? changeNote, DateTime nowUtc)
     {
         if (PrepareAppend(ctx, tenant, factory, files, expectedVersion, published, restoredFrom, authorKind, authorId,
-                changeNote, nowUtc, out var written) is { } refused)
+                authorName, changeNote, nowUtc, out var written) is { } refused)
             return refused;
 
         // THE KEY DOES THE ARBITRATION. A concurrent writer that got here first owns version current+1, and this
@@ -544,7 +555,8 @@ public sealed class FactoryDefinitionStore
     /// </summary>
     internal static FactoryDefinitionWrite? PrepareAppend(GatewayDbContext ctx, TenantId tenant, string factory,
         IReadOnlyDictionary<string, string>? files, int expectedVersion, bool published, int? restoredFrom,
-        string authorKind, string? authorId, string? changeNote, DateTime nowUtc, out FactoryDefinitionVersionEntity? written)
+        string authorKind, string? authorId, string? authorName, string? changeNote, DateTime nowUtc,
+        out FactoryDefinitionVersionEntity? written)
     {
         written = null;
         var head = Newest(ctx, factory);
@@ -585,6 +597,8 @@ public sealed class FactoryDefinitionStore
             WrittenAtUtc = nowUtc,
             PublishedAtUtc = published ? nowUtc : null,
             PublishedBy = published ? authorId : null,
+            PublishedByKind = published ? authorKind : null,
+            PublishedByName = published ? new FactoryPublisher(authorKind, authorId, authorName).RecordedName : null,
         };
 
         return null;
@@ -625,13 +639,15 @@ public sealed class FactoryDefinitionStore
     /// replica's update, so THIS condition is the guard. Returns how many rows it marked: 1, or 0 when the row was
     /// already published.
     /// </summary>
-    internal static int MarkPublished(GatewayDbContext ctx, string factory, int version, string? publishedBy, DateTime nowUtc)
+    internal static int MarkPublished(GatewayDbContext ctx, string factory, int version, FactoryPublisher by, DateTime nowUtc)
         => ctx.FactoryDefinitions
             .Where(v => v.Factory == factory && v.Version == version && v.State == FactoryDefinitionStates.Draft)
             .ExecuteUpdate(set => set
                 .SetProperty(v => v.State, FactoryDefinitionStates.Published)
                 .SetProperty(v => v.PublishedAtUtc, (DateTime?)nowUtc)
-                .SetProperty(v => v.PublishedBy, publishedBy));
+                .SetProperty(v => v.PublishedBy, by.Id)
+                .SetProperty(v => v.PublishedByKind, by.Kind)
+                .SetProperty(v => v.PublishedByName, by.RecordedName));
 
     /// <summary>
     /// Did a second writer really take this version? The head decides: an insert can fail for reasons that have no
@@ -670,11 +686,12 @@ public sealed class FactoryDefinitionStore
     /// <summary>Versions as summaries, projected in the query so the content is never read.</summary>
     private static IQueryable<FactoryDefinitionVersionSummary> Summaries(IQueryable<FactoryDefinitionVersionEntity> rows)
         => rows.Select(v => new FactoryDefinitionVersionSummary(v.Factory, v.Version, v.State, v.AuthorKind, v.AuthorId,
-            v.ChangeNote, v.RestoredFrom, v.WrittenAtUtc, v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount));
+            v.ChangeNote, v.RestoredFrom, v.WrittenAtUtc, v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount,
+            v.PublishedByKind, v.PublishedByName));
 
     private static FactoryDefinitionVersionSummary Summary(FactoryDefinitionVersionEntity v)
         => new(v.Factory, v.Version, v.State, v.AuthorKind, v.AuthorId, v.ChangeNote, v.RestoredFrom, v.WrittenAtUtc,
-            v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount);
+            v.PublishedAtUtc, v.PublishedBy, v.ContentBytes, v.FileCount, v.PublishedByKind, v.PublishedByName);
 
     internal static FactoryDefinitionVersionSummary? SummaryOf(GatewayDbContext ctx, string factory, int version)
         => Summaries(Versions(ctx, factory).Where(v => v.Version == version)).FirstOrDefault();
@@ -706,7 +723,11 @@ public sealed record FactoryDefinitionStanding(FactoryDefinitionVersionSummary? 
 /// </summary>
 public sealed record FactoryDefinitionVersionSummary(string Factory, int Version, string State, string AuthorKind,
     string? AuthorId, string? ChangeNote, int? RestoredFrom, DateTime WrittenAtUtc, DateTime? PublishedAtUtc,
-    string? PublishedBy, int ContentBytes, int FileCount);
+    string? PublishedBy, int ContentBytes, int FileCount, string? PublishedByKind = null, string? PublishedByName = null)
+{
+    /// <summary>Who published this version, in words (phase 6c), or null while it is a draft.</summary>
+    public string? PublishedByText => PublishedAtUtc is null ? null : FactoryPublisher.Words(PublishedByKind, PublishedBy, PublishedByName);
+}
 
 /// <summary>One version of a definition with the text of one file in it, or null when that version holds no such file.</summary>
 public sealed record FactoryDefinitionFileVersion(FactoryDefinitionVersionSummary Summary, string? Text);
@@ -756,8 +777,9 @@ public enum FactoryDefinitionOutcome
     AlreadyPublished,
     /// <summary>The version is older than the published one; publishing never goes backwards.</summary>
     OlderThanPublished,
-    /// <summary>A session asked to publish or to restore.</summary>
-    OnlyAPersonPublishes,
+    /// <summary>A factory's own session asked to publish, to restore, or to create a new factory (phase 6c). A person
+    /// and a session in no factory may do all three.</summary>
+    FactorySessionMayNotPublish,
     /// <summary>The write failed for its own reason, and no second writer holds the version it wanted. For a publish
     /// or a restore that drives the factory (phase 4): the transaction failed and changed nothing.</summary>
     WriteFailed,

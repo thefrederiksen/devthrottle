@@ -14,6 +14,10 @@ public static class LicenseLogKinds
     public const string SpareAdded = "spare-added";
     public const string SpareRemoved = "spare-removed";
 
+    /// <summary>The machine was switched by hand (contract section 2.6): an account signed in straight into its default
+    /// config while it also held it as a spare, and the stale spare moved to a backup. One row per report that says so.</summary>
+    public const string SwitchedByHand = "switched-by-hand";
+
     /// <summary>An exhaustion event: an account in use reached the threshold and no account had room, so nothing was
     /// switched. One row per event, open while its <c>FinishedAtUtc</c> is null.</summary>
     public const string NoRoom = "no-room";
@@ -22,6 +26,43 @@ public static class LicenseLogKinds
     /// renewal keeps failing. One row for each failure streak of each sign-in, open while its <c>FinishedAtUtc</c> is
     /// null. Written and read by <see cref="LicenseRenewalFailureLog"/> only.</summary>
     public const string RenewalFailed = "renewal-failed";
+
+    /// <summary>A license alarm opened (<see cref="LicenseAlarmService"/>): the problem and the one thing to do. Final
+    /// when written.</summary>
+    public const string AlarmOpened = "alarm-opened";
+
+    /// <summary>A license alarm closed by itself, because the check that raised it no longer finds it true. Final when
+    /// written.</summary>
+    public const string AlarmClosed = "alarm-closed";
+
+    /// <summary>A machine whose reports the Gateway refuses for what they say (<see cref="LicenseReportRefusal"/>). One
+    /// row for each run of the same refusal, open while it lasts: written by the first refused report, kept by every
+    /// one after it (<c>SendCount</c> and <c>LastSentAtUtc</c>), ended by a report with another refusal - which opens
+    /// the next row - or by a report that is accepted. It belongs to the machine and its user, whichever of their
+    /// Directors sent it (<see cref="LicenseStore.IsRefusalOf"/>). Written by <see cref="LicenseStore.RecordRefusal"/> only.</summary>
+    public const string ReportRefused = "report-refused";
+
+    /// <summary>A report from a machine whose reports were refused was accepted again. Final when written.</summary>
+    public const string ReportAccepted = "report-accepted";
+
+    /// <summary>A machine that reported and then sent nothing for longer than <see cref="LicenseStore.SilentAfter"/>.
+    /// Open while it is silent, ended by the minute check once a report from it has been accepted.
+    /// <c>LastSentAtUtc</c> is the last accepted report before the silence.</summary>
+    public const string MachineSilent = "machine-silent";
+
+    /// <summary>A silent machine is reporting again. Final when written.</summary>
+    public const string ReportingAgain = "reporting-again";
+
+    /// <summary>An approval the relay passed between machines (<see cref="LicenseApprovalLog"/>): who asked, for which
+    /// account, who was set to approve it, and whether it was approved. Final when written.</summary>
+    public const string Approval = "approval";
+
+    /// <summary>A machine's report started saying it cannot run a switch (contract section 12.1). Written once, when it
+    /// starts - never once per report.</summary>
+    public const string CannotSwitch = "cannot-switch";
+
+    /// <summary>A machine that said it cannot run a switch says it can again. Written once, when it stops.</summary>
+    public const string CanSwitchAgain = "can-switch-again";
 }
 
 /// <summary>Where a switch log row stands. <see cref="Pending"/> and <see cref="Unknown"/> are open; the rest are final.</summary>
@@ -73,6 +114,19 @@ public static class LicenseWindows
 {
     public const string FiveHour = "five-hour";
     public const string SevenDay = "seven-day";
+}
+
+/// <summary>What one refused report changed in the Licenses log.</summary>
+public enum LicenseRefusalChange
+{
+    /// <summary>The machine's reports were not being refused: a row was opened.</summary>
+    First,
+
+    /// <summary>They were, for another reason: that row was ended and a new one opened.</summary>
+    ReasonChanged,
+
+    /// <summary>The same refusal as the last: only counted on the open row.</summary>
+    Same,
 }
 
 /// <summary>What applying one accepted report changed: the accounts that appeared on and left the machine.</summary>
@@ -128,6 +182,7 @@ public sealed class LicenseStore
                 ctx.LicenseMachines.Add(machine);
             }
             var active = report.Holdings.FirstOrDefault(h => h.IsActive);
+            var previousActive = machine.ActiveAccountEmail;
             machine.MachineName = report.MachineName.Trim();
             machine.OsUser = report.OsUser.Trim();
             machine.DirectorId = directorId;
@@ -138,6 +193,8 @@ public sealed class LicenseStore
             machine.ActiveAccountEmail = active is null ? null : NormalizeEmail(active.AccountEmail);
             machine.SwitchInProgressId = string.IsNullOrWhiteSpace(report.SwitchInProgressId) ? null : report.SwitchInProgressId.Trim();
             machine.ClockSkewSeconds = readAtShift.TotalSeconds;
+            var couldNotSwitch = machine.CannotSwitchReason;
+            machine.CannotSwitchReason = CannotSwitchReasonOf(report);
 
             var previous = first
                 ? new List<LicenseHoldingEntity>()
@@ -161,6 +218,16 @@ public sealed class LicenseStore
 
             UpsertAccounts(ctx, report.Holdings, now);
 
+            // One row when the machine starts saying it cannot switch and one when it says it can again - never one per
+            // report. A Director that stops saying anything (an older one, after a downgrade) writes no row: it has not
+            // said it can.
+            if (couldNotSwitch is null && machine.CannotSwitchReason is { } reason)
+                ctx.LicenseSwitchLog.Add(SwitchReadinessRow(ctx, machine, directorId, LicenseLogKinds.CannotSwitch,
+                    $"{machine.MachineName} cannot be switched: {CannotSwitchSentence(reason)}.", now));
+            else if (couldNotSwitch is not null && machine.CannotSwitchReason is null && report.CanSwitch == true)
+                ctx.LicenseSwitchLog.Add(SwitchReadinessRow(ctx, machine, directorId, LicenseLogKinds.CanSwitchAgain,
+                    $"{machine.MachineName} can be switched again.", now));
+
             if (!first)
             {
                 foreach (var email in added)
@@ -168,6 +235,9 @@ public sealed class LicenseStore
                 foreach (var row in removed)
                     ctx.LicenseSwitchLog.Add(SpareRow(ctx, machine, directorId, LicenseLogKinds.SpareRemoved, row.AccountEmail, row.IsActive, now));
             }
+
+            if (report.SwitchedByHand is { } hand)
+                ctx.LicenseSwitchLog.Add(HandSwitchRow(ctx, machine, directorId, NormalizeEmail(hand.AccountEmail), previousActive, byEmail, now));
 
             ctx.SaveChanges();
             var removedEmails = removed.Select(r => r.AccountEmail).ToList();
@@ -271,6 +341,50 @@ public sealed class LicenseStore
         }
     }
 
+    /// <summary>
+    /// What is stored as a machine's cannot-switch reason when its Director said it cannot switch with a word this build
+    /// does not know, or with none. The word itself is never stored - it could be whatever a newer or a broken Director
+    /// sent - but that the machine CANNOT switch is kept, because that is what the decision engine acts on.
+    /// </summary>
+    public const string CannotSwitchReasonNotKnown = "not-known";
+
+    /// <summary>
+    /// The cannot-switch reason to store for one report (contract section 12.1): null when the report says a switch can
+    /// run, and null when it says nothing (<see cref="LicenseUsageReport.CanSwitch"/> null - a Director older than the
+    /// field), which keeps such a machine exactly as it was before the field existed.
+    /// </summary>
+    public static string? CannotSwitchReasonOf(LicenseUsageReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        if (report.CanSwitch != false) return null;
+        return report.CannotSwitchReason is { } word && LicenseCannotSwitchReasons.All.Contains(word) ? word : CannotSwitchReasonNotKnown;
+    }
+
+    /// <summary>The clause that says why a machine cannot switch, for the machine's status and the Licenses log.</summary>
+    public static string CannotSwitchSentence(string reason) => reason switch
+    {
+        LicenseCannotSwitchReasons.ToolMissing => "the DevThrottle tool is missing from its Python tool environment",
+        _ => "its Director says it cannot run a switch, for a reason this Gateway does not know",
+    };
+
+    private static LicenseSwitchLogEntity SwitchReadinessRow(GatewayDbContext ctx, LicenseMachineEntity machine, string directorId,
+        string kind, string message, DateTime now) => new()
+    {
+        Kind = kind,
+        MachineId = machine.Id,
+        MachineName = machine.MachineName,
+        OsUser = machine.OsUser,
+        DirectorId = directorId,
+        FromAccountEmail = "",
+        ToAccountEmail = "",
+        State = LicenseLogStates.Recorded,
+        ReasonCode = kind == LicenseLogKinds.CannotSwitch ? machine.CannotSwitchReason : null,
+        Message = message,
+        CreatedAtUtc = now,
+        FinishedAtUtc = now,
+        TenantId = ctx.ActiveTenant!,
+    };
+
     private static LicenseSwitchLogEntity SpareRow(GatewayDbContext ctx, LicenseMachineEntity machine, string directorId,
         string kind, string email, bool wasActive, DateTime now)
     {
@@ -289,6 +403,35 @@ public sealed class LicenseStore
             Message = added
                 ? $"The machine's report shows a new {what} for {email}."
                 : $"The machine's report no longer shows the {what} for {email}.",
+            CreatedAtUtc = now,
+            FinishedAtUtc = now,
+            TenantId = ctx.ActiveTenant!,
+        };
+    }
+
+    /// <summary>
+    /// The one log row for a report that says the machine was switched by hand (contract section 2.6). The account the
+    /// machine was on before is named as gone only when this Gateway can tell: the machine's previous report had it
+    /// active, and this report no longer holds it anywhere - its sign-in was overwritten by the hand sign-in.
+    /// </summary>
+    private static LicenseSwitchLogEntity HandSwitchRow(GatewayDbContext ctx, LicenseMachineEntity machine, string directorId,
+        string email, string? previousActive, IReadOnlyDictionary<string, LicenseHolding> held, DateTime now)
+    {
+        var lost = previousActive is not null && previousActive != email && !held.ContainsKey(previousActive);
+        var message = $"{machine.MachineName} was switched to {email} by hand; the old spare for {email} was moved to a backup on the machine."
+            + (lost ? $" The account it was on before, {previousActive}, is no longer held on the machine: the sign-in by hand overwrote it." : "");
+        FileLog.Write($"[LicenseStore] HandSwitchRow: machine={machine.Id}, account={email}, previous={previousActive ?? "(none)"}, previousLost={lost}");
+        return new LicenseSwitchLogEntity
+        {
+            Kind = LicenseLogKinds.SwitchedByHand,
+            MachineId = machine.Id,
+            MachineName = machine.MachineName,
+            OsUser = machine.OsUser,
+            DirectorId = directorId,
+            FromAccountEmail = lost ? previousActive! : "",
+            ToAccountEmail = email,
+            State = LicenseLogStates.Recorded,
+            Message = message,
             CreatedAtUtc = now,
             FinishedAtUtc = now,
             TenantId = ctx.ActiveTenant!,
@@ -810,6 +953,335 @@ public sealed class LicenseStore
 
     private static IQueryable<LicenseSwitchLogEntity> OpenNoRoomRows(GatewayDbContext ctx, string email)
         => ctx.LicenseSwitchLog.Where(r => r.Kind == LicenseLogKinds.NoRoom && r.FromAccountEmail == email && r.FinishedAtUtc == null);
+
+    // ---- A machine that is refused or silent (written by the ingest and the minute check) ----
+
+    /// <summary>
+    /// How long a machine that has reported may send nothing before the Licenses log says so, once: five report
+    /// intervals of two minutes. It is longer than the six minutes after which the page already calls the machine
+    /// "Not reporting", so a Director that is only restarting writes nothing; one that has stopped is in the log at
+    /// the first minute check after this has passed.
+    /// </summary>
+    public static readonly TimeSpan SilentAfter = TimeSpan.FromMinutes(10);
+
+    /// <summary>The sentence a machine's refused report shows, on the machine and in the log.</summary>
+    public static string RefusedMessage(LicenseReportRefusal refusal)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        return Cap($"{RefusedMessageStart}{refusal.Reason}{RefusedMessageEnd}", MaxMessageLength);
+    }
+
+    private const string RefusedMessageStart = "Its report was refused: ";
+    private const string RefusedMessageEnd = ". It is not switched until a report is accepted.";
+
+    /// <summary>The reason a refusal row was written for, as the clause <see cref="RefusedMessage"/> was made from
+    /// ("it holds alice@example.com twice (once in use and once as a spare)"); null when the row's sentence was cut at
+    /// <see cref="MaxMessageLength"/> and the whole clause is not on it.</summary>
+    public static string? RefusalReason(LicenseSwitchLogEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var message = row.Message ?? "";
+        return message.StartsWith(RefusedMessageStart, StringComparison.Ordinal) && message.EndsWith(RefusedMessageEnd, StringComparison.Ordinal)
+            ? message[RefusedMessageStart.Length..^RefusedMessageEnd.Length]
+            : null;
+    }
+
+    /// <summary>
+    /// Record one report the Gateway refused for what it says, from the Director <paramref name="directorId"/>. The
+    /// FIRST refusal opens a row of the log; the same refusal again only counts it on that row (how many, and the last
+    /// time), so a machine refused every two minutes for a day writes one row; a DIFFERENT refusal ends that row and
+    /// opens another.
+    ///
+    /// A REFUSAL BELONGS TO THE MACHINE, NOT TO THE DIRECTOR THAT SENT IT. Several Directors can run on one machine as
+    /// one user, and the one that holds the sign-ins - the only one that reports - changes when it stops (contract
+    /// section 2.4). So the refusal is named, matched and ended by the machine and its user
+    /// (<see cref="IsRefusalOf"/>): as the report names them when it can, else as the machine row this Director last
+    /// reported names them. Only a report that names no machine, from a Director none of whose reports was ever
+    /// accepted, is kept under the Director alone.
+    /// </summary>
+    /// <returns>Whether this refusal is new, a new reason, or the same as the last. While the row is open it is a
+    /// license alarm (<see cref="LicenseMachineHealthAlarm"/>).</returns>
+    public LicenseRefusalChange RecordRefusal(TenantId tenant, string directorId, LicenseUsageReport? report,
+        LicenseReportRefusal refusal, DateTime receivedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        var now = Utc(receivedAtUtc);
+        var message = RefusedMessage(refusal);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var named = NamesOf(report);
+            var machine = named is { } reported
+                ? MachineNamed(ctx, reported.Name, reported.User)
+                : ctx.LicenseMachines.AsNoTracking()
+                    .Where(m => m.DirectorId == directorId)
+                    .OrderByDescending(m => m.LastReportAtUtc)
+                    .FirstOrDefault();
+            var (name, user) = named ?? (machine is null ? ("", "") : (machine.MachineName, machine.OsUser));
+            var open = OpenRefusals(ctx).Where(r => IsRefusalOf(r, name, user, directorId)).ToList();
+            if (open.Count == 1 && open[0].ReasonCode == refusal.Code && open[0].Message == message)
+            {
+                open[0].SendCount++;
+                open[0].LastSentAtUtc = now;
+                // The Director that sends it now: the one a person would go and look at.
+                open[0].DirectorId = directorId;
+                ctx.SaveChanges();
+                FileLog.Write($"[LicenseStore] RecordRefusal: tenant={tenant.ToLogString()}, director={directorId}, reason={refusal.Code}, the same refusal again (refused {open[0].SendCount} times)");
+                return LicenseRefusalChange.Same;
+            }
+
+            foreach (var row in open)
+            {
+                row.State = LicenseLogStates.Ended;
+                row.FinishedAtUtc = now;
+            }
+            ctx.LicenseSwitchLog.Add(new LicenseSwitchLogEntity
+            {
+                Kind = LicenseLogKinds.ReportRefused,
+                MachineId = machine?.Id ?? Guid.Empty,
+                MachineName = name,
+                OsUser = user,
+                DirectorId = directorId,
+                State = LicenseLogStates.Open,
+                ReasonCode = refusal.Code,
+                Message = message,
+                CreatedAtUtc = now,
+                SendCount = 1,
+                LastSentAtUtc = now,
+                TenantId = ctx.ActiveTenant!,
+            });
+            ctx.SaveChanges();
+            var change = open.Count == 0 ? LicenseRefusalChange.First : LicenseRefusalChange.ReasonChanged;
+            FileLog.Write($"[LicenseStore] RecordRefusal: tenant={tenant.ToLogString()}, director={directorId}, reason={refusal.Code}, change={change}, "
+                          + $"machine={(machine is null ? "(none accepted yet)" : machine.Id.ToString())}");
+            return change;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] RecordRefusal FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// A report from <paramref name="directorId"/> was accepted. When its reports were being refused, the refusal
+    /// ends and one row says they are accepted again. True when it had been refused. Called for every accepted
+    /// report, so it writes no line when there was nothing to end.
+    /// </summary>
+    public bool RecordAccepted(TenantId tenant, string directorId, LicenseReportApplied applied, LicenseUsageReport report,
+        DateTime receivedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(applied);
+        ArgumentNullException.ThrowIfNull(report);
+        var now = Utc(receivedAtUtc);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            // Whichever Director sent the refused reports: an accepted report of this machine and user ends them.
+            var open = OpenRefusals(ctx).Where(r => IsRefusalOf(r, report.MachineName, report.OsUser, directorId)).ToList();
+            if (open.Count == 0)
+                return false;
+            foreach (var row in open)
+            {
+                row.State = LicenseLogStates.Ended;
+                row.FinishedAtUtc = now;
+            }
+            var refused = open.Sum(r => r.SendCount);
+            ctx.LicenseSwitchLog.Add(new LicenseSwitchLogEntity
+            {
+                Kind = LicenseLogKinds.ReportAccepted,
+                MachineId = applied.MachineId,
+                MachineName = report.MachineName.Trim(),
+                OsUser = report.OsUser.Trim(),
+                DirectorId = directorId,
+                State = LicenseLogStates.Recorded,
+                Message = $"Its reports are accepted again, after {Count(refused, "report")} refused since {Clock(open.Min(r => r.CreatedAtUtc))}.",
+                CreatedAtUtc = now,
+                FinishedAtUtc = now,
+                TenantId = ctx.ActiveTenant!,
+            });
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] RecordAccepted: tenant={tenant.ToLogString()}, director={directorId}, machine={applied.MachineId}, its reports are accepted again (refused {refused} times)");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] RecordAccepted FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The minute check found <paramref name="machine"/> silent for longer than <see cref="SilentAfter"/>: one row of
+    /// the log says so. Null when such a row is already open for it - one row for each silence.
+    /// </summary>
+    /// <returns>The row written, or null. While it is open it is a license alarm (<see cref="LicenseMachineHealthAlarm"/>).</returns>
+    public LicenseSwitchLogEntity? OpenSilence(TenantId tenant, LicenseMachineView machine, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        var now = Utc(nowUtc);
+        var last = Utc(machine.LastReportAtUtc);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            if (ctx.LicenseSwitchLog.AsNoTracking().Any(r => r.Kind == LicenseLogKinds.MachineSilent && r.MachineId == machine.MachineId
+                    && r.State == LicenseLogStates.Open && r.FinishedAtUtc == null))
+                return null;
+            var row = new LicenseSwitchLogEntity
+            {
+                Kind = LicenseLogKinds.MachineSilent,
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                OsUser = machine.OsUser,
+                DirectorId = machine.DirectorId,
+                State = LicenseLogStates.Open,
+                Message = $"No report has come from it since {Clock(last)}, for more than {Count((int)SilentAfter.TotalMinutes, "minute")}: "
+                          + "its Director may have stopped. It is not switched until it reports again.",
+                CreatedAtUtc = now,
+                LastSentAtUtc = last,
+                TenantId = ctx.ActiveTenant!,
+            };
+            ctx.LicenseSwitchLog.Add(row);
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] OpenSilence: tenant={tenant.ToLogString()}, machine={machine.MachineId}, lastReport={last:O}, row={row.Id}");
+            return row;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] OpenSilence FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// End an open <see cref="LicenseLogKinds.MachineSilent"/> row of a machine whose reports are now being refused: its
+    /// Director is sending again, so it is no longer silent, but no report was accepted, so it is not reporting again
+    /// either and no <see cref="LicenseLogKinds.ReportingAgain"/> row is written. The open refusal row says what is wrong
+    /// now. False when the row is not open.
+    /// </summary>
+    public bool EndSilenceForRefusal(TenantId tenant, Guid rowId, DateTime nowUtc)
+    {
+        var now = Utc(nowUtc);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.LicenseSwitchLog.FirstOrDefault(r => r.Id == rowId && r.Kind == LicenseLogKinds.MachineSilent && r.FinishedAtUtc == null);
+            if (row is null)
+            {
+                FileLog.Write($"[LicenseStore] EndSilenceForRefusal: tenant={tenant.ToLogString()}, row={rowId} is not open");
+                return false;
+            }
+            row.State = LicenseLogStates.Ended;
+            row.FinishedAtUtc = now;
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] EndSilenceForRefusal: tenant={tenant.ToLogString()}, machine={row.MachineId}, its reports are being refused");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] EndSilenceForRefusal FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>A silent machine's report was accepted: its silence row ends and one row says it is reporting again.
+    /// False when the row is not open.</summary>
+    public bool CloseSilence(TenantId tenant, Guid rowId, LicenseMachineView machine, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        var now = Utc(nowUtc);
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.LicenseSwitchLog.FirstOrDefault(r => r.Id == rowId && r.Kind == LicenseLogKinds.MachineSilent && r.FinishedAtUtc == null);
+            if (row is null)
+            {
+                FileLog.Write($"[LicenseStore] CloseSilence: tenant={tenant.ToLogString()}, row={rowId} is not open");
+                return false;
+            }
+            row.State = LicenseLogStates.Ended;
+            row.FinishedAtUtc = now;
+            var back = Utc(machine.LastReportAtUtc);
+            var before = row.LastSentAtUtc is { } sent ? Utc(sent) : Utc(row.CreatedAtUtc);
+            ctx.LicenseSwitchLog.Add(new LicenseSwitchLogEntity
+            {
+                Kind = LicenseLogKinds.ReportingAgain,
+                MachineId = machine.MachineId,
+                MachineName = machine.MachineName,
+                OsUser = machine.OsUser,
+                DirectorId = machine.DirectorId,
+                State = LicenseLogStates.Recorded,
+                Message = $"It is reporting again: a report was accepted at {Clock(back)}, {LicenseDisplayFold.Span(back - before)} after the one before it.",
+                CreatedAtUtc = now,
+                FinishedAtUtc = now,
+                TenantId = ctx.ActiveTenant!,
+            });
+            ctx.SaveChanges();
+            FileLog.Write($"[LicenseStore] CloseSilence: tenant={tenant.ToLogString()}, machine={machine.MachineId}, reporting again since {back:O}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] CloseSilence FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>Every refusal and every silence still open, oldest first.</summary>
+    /// <remarks>Quiet, like <see cref="ListOpenNoRoom"/>: the minute check and every read of the Licenses page ask
+    /// this. A failure is logged by the caller that asked.</remarks>
+    public IReadOnlyList<LicenseSwitchLogEntity> ListOpenMachineHealth(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.LicenseSwitchLog.AsNoTracking()
+            .Where(r => r.State == LicenseLogStates.Open && r.FinishedAtUtc == null
+                        && (r.Kind == LicenseLogKinds.ReportRefused || r.Kind == LicenseLogKinds.MachineSilent))
+            .ToList()
+            .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.Id).ToList();
+    }
+
+    /// <summary>
+    /// Whether the open refusal <paramref name="row"/> is about the machine <paramref name="machineName"/> and user
+    /// <paramref name="osUser"/>, reported by <paramref name="directorId"/>. A refusal that names its machine is about
+    /// that machine and user (compared as the store keys a machine), whichever Director sent it; one that names none is
+    /// about its Director's machine. The ONE rule every reader of a refusal uses: the store, the page, the decision
+    /// and the silence check.
+    /// </summary>
+    public static bool IsRefusalOf(LicenseSwitchLogEntity row, string machineName, string osUser, string directorId)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.MachineName.Length > 0
+            ? Key(row.MachineName) == Key(machineName) && Key(row.OsUser) == Key(osUser)
+            : string.Equals(row.DirectorId, directorId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string Key(string? name) => (name ?? "").Trim().ToLowerInvariant();
+
+    // Every open refusal of the account: few, so they are matched here rather than in the database, with exactly the
+    // comparison a machine is keyed by.
+    private static List<LicenseSwitchLogEntity> OpenRefusals(GatewayDbContext ctx)
+        => ctx.LicenseSwitchLog.Where(r => r.Kind == LicenseLogKinds.ReportRefused
+                                           && r.State == LicenseLogStates.Open && r.FinishedAtUtc == null).ToList();
+
+    private static LicenseMachineEntity? MachineNamed(GatewayDbContext ctx, string machineName, string osUser)
+    {
+        var machineKey = Key(machineName);
+        var userKey = Key(osUser);
+        return ctx.LicenseMachines.AsNoTracking().FirstOrDefault(m => m.MachineKey == machineKey && m.OsUserKey == userKey);
+    }
+
+    // The machine and the user a refused report names, when both can be stored as they are; null when the report is
+    // the reason they cannot be (it names no machine or no user, or they are too long).
+    private static (string Name, string User)? NamesOf(LicenseUsageReport? report)
+    {
+        var name = report?.MachineName?.Trim();
+        var user = report?.OsUser?.Trim();
+        return string.IsNullOrEmpty(name) || name.Length > 128 || user is null || user.Length > 128 ? null : (name, user);
+    }
+
+    private static string Clock(DateTime utc) => Utc(utc).ToString("yyyy-MM-dd HH:mm 'UTC'", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Count(int number, string unit) => number == 1 ? $"1 {unit}" : $"{number} {unit}s";
 
     // ---- Reads for the read model ----
 

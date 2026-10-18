@@ -672,7 +672,8 @@ function RosterRow({
     snoozeExpired(session) ||
     windingDown ||
     (attention && !!session.needsYouSince);
-  const hasDenseTags = model !== null || changes !== null || !!session.voiceMode || lastSeen.length > 0;
+  const hasDenseTags =
+    model !== null || changes !== null || !!session.voiceMode || !!session.connectionTag || lastSeen.length > 0;
   const hasTags = hasAlwaysTags || (withTags && hasDenseTags);
   return (
     <li className={`roster-li${isParent ? " roster-li-parent" : ""}`}>
@@ -754,6 +755,12 @@ function RosterRow({
               {model !== null && withTags && (
                 <span className={model.absent ? "roster-tag model absent" : "roster-tag model"} title={model.title}>
                   {model.text}
+                </span>
+              )}
+              {/* How the agent is connected, when it is not its terminal: the Gateway's words ("API mode"), verbatim. */}
+              {session.connectionTag && withTags && (
+                <span className="roster-tag connection" title="Connection">
+                  {session.connectionTag}
                 </span>
               )}
               {session.voiceMode && withTags && <span className="roster-tag voice">voice</span>}

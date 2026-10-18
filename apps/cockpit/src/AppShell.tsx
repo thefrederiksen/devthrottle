@@ -16,6 +16,7 @@ import "./teams/collaborator/collaborator.css";
 import { Button, LoadingState } from "./components";
 import { useMentorEntry } from "./mentor/useMentorEntry";
 import { useDemoMode } from "@devthrottle/client-core/demo/demoMode";
+import { LicenseAlarmBanner } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -362,6 +363,12 @@ function ShellFrame() {
         </nav>
 
         <main className="main-pane" aria-label="Main">
+          {/* THE LICENSE ALARM (License Switching phase 6): red, above the page, on EVERY page while one is open - in the
+              frame, never per page, so no page can be without it. Also while a team's pages are on screen: the alarm is
+              about the person's own machines, read with their own key, whichever team is being shown (review finding
+              2). Only while the shell is still learning which team is on screen does it wait. The words are the
+              Gateway's; it draws nothing when no alarm is open. */}
+          <LicenseAlarmBanner enabled={!team.resolving} href="/licenses" onOpen={() => navigate("/licenses")} />
           {team.resolving && team.status === "error" ? (
             <TeamUnreadable error={team.error} onOwnAccount={team.openOwnAccountForThisLoad} />
           ) : team.resolving ? (

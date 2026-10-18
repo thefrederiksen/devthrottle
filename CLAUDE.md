@@ -246,9 +246,12 @@ answer you already have locally was the single largest source of dead time in th
    - **Three suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound; about 10
      minutes as four concurrent processes), `Core.Tests` (far outside the budget), and `Gateway.UnitTests` (grew past
      the ceiling; issue #2824). Run them with `-Parked`.
-   - **`Gateway.UnitTests` being parked is the one most likely to surprise you**: a green default run
-     no longer says anything about the Gateway's 10,344 unit tests (2026-10-10). If you touched the Gateway, the
-     COVERAGE GAP line will say so - run `-Parked`.
+   - **The default run DOES run the parked tests your change can reach** (since 17 October 2026), in
+     `Gateway.UnitTests` and `Core.Tests`: `scripts\select-parked-tests.ps1` picks every test class whose
+     file names a type declared in a changed file, and they run after the default suites, with no
+     ceiling. It cannot see a test that reaches your code only through a shared helper; those are caught
+     by the full run on GitHub every two hours, and a red there is fixed at once. `Gateway.Tests` is
+     not selected - if your change reaches it, the COVERAGE GAP line says so - run `-Gateway`.
    - `-Fast` is a **no-op**, retained only for callers that still pass it. The default is the
      fast run. Do not claim a change was gated by `-Fast`; it means nothing.
    - It runs **no web tests and no Python tests** at all.
@@ -274,15 +277,26 @@ backstop into noise, and then nobody looks at it at all. Chase it the moment you
 
 **Chasing a red is not the same as waiting for a green.** Nothing is ever held open pending a
 check. But the web and Python jobs are the ONLY place those tests run at all, and since 30
-September 2026 CI no longer starts on its own - it runs nightly and when asked. So if you touched
+September 2026 CI no longer starts on its own - it runs every two hours when main has moved, and
+when asked. So if you touched
 the browser shells or the Python toolbelt, start it yourself right after merging
 (`gh workflow run CI --ref main`). Merge without waiting; come back for the answer.
 
-**Releasing is the one place the missing coverage bites, and it cannot be fixed forward.** The
-release workflow runs ZERO tests - it builds and publishes artifacts - and a pushed tag cannot be
-un-pushed. So a defect that the default gate never looked at ships, and "fix it forward" is not
-available to a release that is already out. **The release gate runs once, on the frozen candidate,
-and it is ONE command:**
+**A release is a tag on the LAST GOOD COMMIT, and it runs no tests (the owner, 17 October 2026).**
+The full suite - Release build, every suite including the parked ones - runs on main by itself in
+`.github/workflows/ci.yml`, every two hours when main has moved. Every commit it passes is a last good
+commit. `scripts\new-release.ps1 -Release` adds ONE commit on top of the newest of them, holding only the
+version in `Directory.Build.props` and the notes file, tags it, and merges it back to main with a merge
+commit. The release workflow's first job refuses a tag on anything else. Nothing is tested at release
+time, so nothing at release time can go red. **Why:** v2.23.0 took fifteen hours under the old flow,
+which made a new release commit, tested it from scratch, and cut a new candidate on every red - while
+GitHub's full run had already passed the code. The `release-manager` skill holds the steps.
+
+**So a red full run on main is an emergency.** It opens an issue; fix or revert the change at once,
+before other work. A main that stays red has no new last good commit, so nothing new can be released.
+
+The local `-Parked` run is still the way to run the three parked suites on your own machine before you
+merge a change that touches them:
 
     .\scripts\test-local.ps1 -Parked -Configuration Release
 
@@ -310,40 +324,26 @@ suites run by hand. The script names all three installer suites in its own proje
 already ran. Read the project list in `scripts\test-local.ps1` rather than a count written here.
 **If you are about to release, run the one command.**
 
-**The frozen candidate.** The version bump and the release notes merge in ONE pull request, and its
-merge commit is the candidate. The notes are never edited after that merge. The gate runs once on
-the candidate, `scripts\assert-gated.ps1 <candidate>` must accept it, and the tag goes on the
-candidate even when main has moved on. Work merged after the candidate waits for the next release.
-**A red candidate is never run again whole.** Re-run only its failed tests, once, on the same commit:
-`.\scripts\test-local.ps1 -RerunFailed <run folder>`. A test that fails again is a code defect: fix it on
-main and cut a new candidate. A test that passes alone failed on correct code: delete it on main (the
-rule above), then run `.\scripts\test-local.ps1 -ClearFlaky <candidate>` from a clean checkout of main.
-It clears the test as DELETED and the candidate is then tagged as it is. If instead the test shows a race
-in the product, which looks the same, that is a product fix and a new candidate, with no clearance.
-`assert-gated.ps1` accepts a FLAKY gate only with that clearance,
-made at a commit on origin/main, and only if it was the candidate's one release gate - never a re-roll.
-Tests tagged `[Trait("Gate", "Quarantine")]` never run in a gate; `-Quarantine` runs them without a
-verdict. THE FLAKY TEST RULE in the script's header has the whole rule. `scripts\new-release.ps1` freezes
-the candidate, and `scripts\new-release.ps1 -Tag <candidate>` tags it only once `assert-gated.ps1`
-accepts it. The `release-manager` skill holds the steps. **Why:** v2.18.0's notes were rewritten four times, because
-every notes edit was a new commit that voided the gate run under way, and every merge widened what
-the notes had to cover - a gate that takes hours cannot win that race.
+**The frozen candidate is retired (17 October 2026).** Releases no longer cut a candidate or run a
+release gate; see "A release is a tag on the LAST GOOD COMMIT" above. A local `-Parked` run that is red
+is still handled the same way: re-run only its failed tests, once (`.\scripts\test-local.ps1
+-RerunFailed <run folder>`). A test that fails again is a code defect: fix it on main. A test that passes
+alone failed on correct code: delete it on main (the rule above). Tests tagged
+`[Trait("Gate", "Quarantine")]` never run in a gate; `-Quarantine` runs them without a verdict. THE FLAKY
+TEST RULE in the script's header has the whole rule.
 
-**One seat runs the release gate - the release seat.** Every other session runs the default gate,
-and an early warning is the default run, never `-Parked`. Two release gates on one machine fight
-over the Gateway test lock and the loser executes nothing: 19 runs in three days gave up after 45
-minutes having run no test at all.
+**One release seat at a time, enforced.** `scripts\new-release.ps1 -Claim -Version <v>` creates the
+branch `release-claim` only if it does not exist, naming the version and the holder; a second session
+is refused and told who holds it, and only the holder can release - one release at a time, of any
+version. On 17 October two sessions fixed the same failure in parallel
+because nothing stopped a second release seat.
 
-An earlier run does not count: the version bump and anything merged since is untested by it, and a
-run against a pull-request head is not a run against the squashed commit that gets tagged. This is
-the release gate, it is local, and it replaces the old instruction to wait for a green continuous
-integration run rather than reintroducing it.
-
-A second `-Parked` or `-Gateway` run on one machine is REFUSED, not queued: the gate takes a
-release-gate lock before it builds and exits 6 within seconds naming the holder's process, session,
-commit and command (`scripts/gate-lock.ps1`). Wait for that run to finish, or if it is stuck end that
-process; do not start another gate beside it. Gateway.Tests no longer has an in-process lock of its own
-(removed October 2026): a hand-run `dotnet test` of it blocks nobody.
+**Gate runs in separate worktrees may run at the same time, limited only by the machine's memory
+and disk.** There is no gate lock: every test process keeps its files under its own temporary root
+and every host binds a port the operating system assigns, so two runs in two worktrees share nothing.
+The release-gate lock that once refused a second `-Parked` or `-Gateway` run with exit 6 was removed
+on 17 October 2026 by the owner's decision, after it starved independent gates for over an hour; the
+Gateway.Tests suite lock it was added to work around had already gone in October 2026 (#3888).
 
 **A one-off workflow is disabled by the pull request that finishes it.** A workflow added on a branch
 to rehearse or reproduce something stays registered and dispatchable after its file and branch are

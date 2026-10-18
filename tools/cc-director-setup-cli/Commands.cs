@@ -472,6 +472,13 @@ internal static class Commands
             }
         }
 
+        // Linux: a branch build left a launcher unit that runs bare "dotnet" and restarts every five seconds
+        // for ever (issue devthrottle_internal#2475). An install is also what `cc-devthrottle setup repair`
+        // runs, so this is where it is removed. First, before the release lookup, so a repair cleans it up
+        // even when the network is down; a dry run says what it would do and changes nothing.
+        if (installMode && OperatingSystem.IsLinux())
+            RepairStaleLauncherUnit(args.HasFlag("dry-run"), json);
+
         var (plan, release, components) = await ComputePlanAsync(args, layout);
 
         // Optionally narrow to one component.
@@ -691,6 +698,34 @@ internal static class Commands
         }
 
         return result.Failed > 0 ? Error : Ok;
+    }
+
+    /// <summary>Remove the broken launcher unit when it is provably the broken one, and print what was found and
+    /// done. A unit that could not be certified removed is printed with the command that removes it, and the
+    /// rest of the install goes on: this unit is not part of what the install places.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private static void RepairStaleLauncherUnit(bool dryRun, bool json)
+    {
+        UserUnitRepair repair;
+        try
+        {
+            repair = StaleLauncherUnit.Repair(StaleLauncherUnit.UnitName, StaleLauncherUnit.UnitPath, dryRun,
+                StaleLauncherUnit.RunReal);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            EngineLog.Write($"[Commands] RepairStaleLauncherUnit FAILED: {ex.Message}");
+            repair = new UserUnitRepair(false, true,
+                $"{StaleLauncherUnit.UnitName} could not be checked: {ex.Message}", Array.Empty<string>());
+        }
+
+        if (json)
+        {
+            Program.WriteJson(new { launcherUnit = new { removed = repair.Removed, stillBroken = repair.StillBroken, message = repair.Message, steps = repair.Steps } });
+            return;
+        }
+        Console.WriteLine($"Launcher unit: {repair.Message}");
+        foreach (var s in repair.Steps) Console.WriteLine($"  {s}");
     }
 
     /// <summary>

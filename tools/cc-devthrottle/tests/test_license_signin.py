@@ -232,8 +232,9 @@ def test_approve_ConsentPageNamesTheAccount_ReturnsTheCode(store):
 
 @pytest.mark.parametrize("result, kind", [
     ({"state": "wrong-account", "shown": ACCOUNT_C}, license_signin.WRONG_ACCOUNT),
-    ({"state": "not-signed-in", "url": "https://claude.ai/login"}, license_signin.NOT_SIGNED_IN),
-    ({"state": "no-account-shown"}, license_signin.APPROVAL_FAILED),
+    ({"state": "signed-out", "url": "https://claude.ai/login"}, license_signin.NOT_SIGNED_IN),
+    ({"state": "needs-fresh-sign-in", "shown": ACCOUNT_B}, license_signin.NEEDS_FRESH_SIGN_IN),
+    ({"state": "check-failed"}, license_signin.APPROVAL_FAILED),
     ({"state": "no-code"}, license_signin.APPROVAL_FAILED),
     ({"state": "code", "code": "short#x"}, license_signin.APPROVAL_FAILED),
 ])
@@ -301,9 +302,10 @@ def test_approve_HarnessPrintsNoResult_IsAFailure():
 
 
 def test_approveScript_ComparesTheShownAccountAndClosesItsTab():
-    # The browser step runs inside browser-harness; this pins the two things it must never lose.
-    script = license_signin._APPROVE_SCRIPT
-    assert "Logged in as" in script and "wrong-account" in script
+    # The browser step runs inside browser-harness; this pins the two things it must never lose. The page itself is
+    # judged by classify_page, proven against recorded pages in test_license_approver_check.py.
+    script = license_signin._page_script(license_signin._APPROVE_SCRIPT, URL, ACCOUNT_B)
+    assert "Logged in as" in script and 'if state != "can-approve"' in script
     assert "Target.closeTarget" in script and "finally:" in script
 
 

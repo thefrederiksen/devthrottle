@@ -114,6 +114,71 @@ public static class NamedInstanceRegistry
     }
 
     /// <summary>
+    /// Create a new named instance whose settings are copied from the instance <paramref name="sourceSlug"/>
+    /// (see <see cref="InstanceSettingsCopy"/> for exactly what is and is not copied). The new instance has a
+    /// data folder of its own and, once started, a Director id of its own: it is a second Director with the same
+    /// settings, never a second copy of the first.
+    /// </summary>
+    public static NamedInstance Clone(string sourceSlug, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+            throw new ArgumentException("Display name is required.", nameof(displayName));
+
+        FileLog.Write($"[NamedInstanceRegistry] Clone: from={sourceSlug}, displayName=\"{displayName}\"");
+        lock (WriteLock)
+        {
+            var instances = LoadRaw();
+            if (!instances.Any(i => i.IsDefault))
+                instances.Insert(0, BuildDefault());
+
+            var normalized = InstanceContext.Normalize(sourceSlug);
+            var source = instances.FirstOrDefault(i => string.Equals(i.Name, normalized, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"No instance named '{normalized}' to clone.");
+
+            var sourceHome = InstanceContext.InstanceHomeOf(InstanceContext.SharedRoot, source.Name);
+            var slug = UniqueSlug(Slugify(displayName), instances);
+            var targetHome = InstanceContext.InstanceHomeOf(InstanceContext.SharedRoot, slug);
+
+            // A folder already there - left by an instance whose registry row was removed by hand - can hold an old
+            // Director's id, sessions and crash journal, and the copy would leave them in place. Refuse it.
+            if (Directory.Exists(targetHome) && Directory.EnumerateFileSystemEntries(targetHome).Any())
+                throw new InvalidOperationException(
+                    $"The folder for '{slug}' already exists and is not empty: {targetHome}. Choose another name.");
+
+            var instance = new NamedInstance
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = slug,
+                DisplayName = displayName.Trim(),
+                // The registry's copy is for the picker; the default instance has none there, so read the source's own.
+                GatewayUrl = string.IsNullOrWhiteSpace(source.GatewayUrl) ? GatewayUrlIn(sourceHome) : source.GatewayUrl,
+                CreatedAt = DateTime.UtcNow.ToString("o"),
+            };
+
+            // Copy first and register last, so a copy that fails leaves no instance behind in any list (the
+            // registry has no delete): the half-made folder is removed and the error goes to the caller.
+            try
+            {
+                var copied = InstanceSettingsCopy.Copy(sourceHome, targetHome);
+                // A source with no config.json of its own still gives the clone the gateway block a new instance gets.
+                if (!copied.Contains(Path.Combine("config", "config.json")))
+                    ScaffoldInstanceHome(instance, "");
+            }
+            catch
+            {
+                if (Directory.Exists(targetHome)) Directory.Delete(targetHome, recursive: true);
+                throw;
+            }
+
+            instances.Add(instance);
+            SaveRaw(instances);
+
+            FileLog.Write($"[NamedInstanceRegistry] Cloned instance id={instance.Id}, slug={slug} from {source.Name}");
+            return instance;
+        }
+    }
+
+    /// <summary>
     /// Rename an instance's DISPLAY NAME only. The slug, id, home and gateway are
     /// untouched - nothing that identifies the instance moves.
     /// </summary>
@@ -207,6 +272,18 @@ public static class NamedInstanceRegistry
         var temp = Path.Combine(configDir, $".config.{Guid.NewGuid():N}.tmp");
         File.WriteAllText(temp, json);
         File.Move(temp, configPath, overwrite: true);
+    }
+
+    /// <summary>The <c>gateway.url</c> in an instance home's <c>config.json</c>, or empty when it has none.</summary>
+    private static string GatewayUrlIn(string home)
+    {
+        var path = Path.Combine(home, "config", "config.json");
+        if (!File.Exists(path)) return "";
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        return doc.RootElement.TryGetProperty("gateway", out var gw) && gw.ValueKind == JsonValueKind.Object
+               && gw.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String
+            ? url.GetString() ?? ""
+            : "";
     }
 
     private static string UniqueSlug(string baseSlug, List<NamedInstance> instances)

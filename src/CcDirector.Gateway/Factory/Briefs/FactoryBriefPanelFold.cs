@@ -154,7 +154,7 @@ public static class FactoryBriefPanelFold
                 Heading = PanelHeading,
                 State = FactorySeatBriefStates.Published,
                 Text = published.Text,
-                VersionText = $"Version {published.Version}, published by {Who(FactoryMemoryAuthorKinds.Person, published.PublishedBy)} " +
+                VersionText = $"Version {published.Version}, published by {PublishedBy(published)} " +
                               $"{When(published.PublishedAtUtc ?? published.WrittenAtUtc, zone, nowUtc)}.",
                 DraftText = newest.Version > published.Version
                     ? $"A newer draft, version {newest.Version}, was written by {Who(newest)} {When(newest.WrittenAtUtc, zone, nowUtc)}. " +
@@ -217,7 +217,7 @@ public static class FactoryBriefPanelFold
             Heading = PanelHeading,
             State = FactorySeatBriefStates.Published,
             Text = published.Text,
-            VersionText = $"Definition version {published.Version}, published by {Who(FactoryMemoryAuthorKinds.Person, published.PublishedBy)} " +
+            VersionText = $"Definition version {published.Version}, published by {PublishedBy(published)} " +
                           $"{When(published.PublishedAtUtc ?? published.WrittenAtUtc, zone, nowUtc)}.",
             DraftText = newest.Version > published.Version
                 ? $"A newer draft of the definition, version {newest.Version}, was written by {Who(newest)} {When(newest.WrittenAtUtc, zone, nowUtc)}. " +
@@ -501,7 +501,7 @@ public static class FactoryBriefPanelFold
             : brief.Published?.Version == version.Version ? "Published" : "Published earlier";
         var publishedBy = isDraft || version.PublishedAtUtc is not { } at
             ? ""
-            : $" Published by {Who(FactoryMemoryAuthorKinds.Person, version.PublishedBy)} {When(at, zone, nowUtc)}.";
+            : $" Published by {PublishedBy(version)} {When(at, zone, nowUtc)}.";
         return new FactoryBriefVersionViewDto
         {
             Version = version.Version,
@@ -542,6 +542,11 @@ public static class FactoryBriefPanelFold
         : $"It replaces version {published.Version}, which is kept. History can bring it back.";
 
     private static string Who(FactoryBriefVersionEntity v) => Who(v.AuthorKind, v.AuthorId);
+
+    /// <summary>Who published a version, in words. A stored brief was published by a person; a defined factory's brief
+    /// carries its definition version's publisher, which may be a session in no factory (phase 6c).</summary>
+    private static string PublishedBy(FactoryBriefVersionEntity v) =>
+        FactoryPublisher.Words(v.PublishedByKind ?? FactoryMemoryAuthorKinds.Person, v.PublishedBy, v.PublishedByName);
 
     /// <summary>Who wrote or published a version, as the Gateway recorded it. The identifier is never cut short.</summary>
     internal static string Who(string kind, string? id)

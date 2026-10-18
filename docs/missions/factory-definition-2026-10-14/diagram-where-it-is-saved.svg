@@ -10,7 +10,7 @@
 <text x="34.5" y="137" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:10.5px;font-weight:bold" fill="#ffffff" text-anchor="middle" xml:space="preserve">NEW</text>
 <text x="57" y="137" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">factory_definition_versions</text>
 <text x="20" y="152" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">One version is the whole factory. Saved as a draft;</text>
-<text x="20" y="167" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">only a person publishes; every version kept and</text>
+<text x="20" y="167" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">published on the owner's word; every version kept and</text>
 <text x="20" y="182" style="font-family:Segoe UI,Helvetica,Arial,sans-serif;font-size:12px;font-weight:normal" fill="#3d4450" text-anchor="start" xml:space="preserve">restorable; checked and shown before it goes live.</text>
 <text x="20" y="203" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">factory.yaml  id, title, purpose, goal, boss seat,</text>
 <text x="20" y="218" style="font-family:Consolas,Menlo,monospace;font-size:11.5px;font-weight:normal" fill="#1b1f24" text-anchor="start" xml:space="preserve">              defaults, repositories (0, 1, more)</text>

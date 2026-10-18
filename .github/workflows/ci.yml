@@ -9,9 +9,12 @@ name: CI
 #
 # So it runs in exactly two ways:
 #   - by hand:  gh workflow run CI --ref <branch>   (or "Run workflow" on the Actions page)
-#   - nightly on main, and ONLY when main's commit has no successful run yet. A red nightly opens
-#     an issue (the "Report a red nightly" job at the bottom), so a failing guard is still loud - once
-#     a day rather than once a push.
+#   - every two hours on main, and ONLY when main's commit has not been tested yet (the owner, 17
+#     October 2026: "On GitHub, every two hours, but only when main has moved"). A red run opens an
+#     issue (the "Report a red nightly" job at the bottom), so a failing guard is loud within two hours.
+#     Every commit this passes is a LAST GOOD COMMIT, and a release is a tag on the newest of them
+#     (scripts/new-release.ps1 -Release); the release itself runs no tests. Main tested only once a day
+#     meant a break sat unseen until the release found it - v2.23.0 lost fifteen hours that way.
 # Neither is a pull request, so the "What changed" job below runs EVERY job, every Python leg included.
 # Its pull-request classification is no longer reached by any trigger; it is kept, unchanged, so that
 # putting `pull_request:` back is a one-line decision rather than a rewrite.
@@ -22,7 +25,7 @@ name: CI
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 7 * * *"   # 07:17 UTC daily (03:17 Toronto); an odd minute, since :00 is when GitHub's scheduler is most delayed
+    - cron: "17 */2 * * *"   # every two hours at :17 UTC; an odd minute, since :00 is when GitHub's scheduler is most delayed
 
 # ONE run per branch, everywhere, and the newest commit always wins (owner's ruling, 16 September 2026).
 #
@@ -132,16 +135,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # THE NIGHTLY RUNS ONLY WHEN MAIN HAS MOVED. If this commit already has a SUCCESSFUL run of this
-          # workflow - by hand, or an earlier night - there is nothing new to learn: skip=true, every job
-          # below is skipped, and "CI result" is skipped too, so no green verdict is minted for a commit
-          # this run did not test. ONLY a success counts. A failed, cancelled or timed-out run is not an
-          # answer to stop asking: a red main is tested - and reported - again every night until it is
-          # green. A run started by hand always tests.
+          # THE SCHEDULED RUN TESTS ONLY WHEN MAIN HAS MOVED. If this commit already has a successful run,
+          # or a scheduled run that FAILED, there is nothing new to learn: skip=true, every job below is
+          # skipped, and "CI result" is skipped too, so no green verdict is minted for a commit this run
+          # did not test. A red commit is not retested every two hours - the same code gives the same
+          # answer, and its issue is already open; the next commit on main is tested. A cancelled or
+          # timed-out run is not an answer, so it does not count. A run started by hand always tests.
           if [ "$EVENT_NAME" = "schedule" ]; then
-            seen=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=success&per_page=100" --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID} and .conclusion == \"success\")] | length")
+            seen=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=100" --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID} and (.conclusion == \"success\" or (.conclusion == \"failure\" and .event == \"schedule\")))] | length")
             if [ "$seen" -gt 0 ]; then
-              echo "main is still at ${GITHUB_SHA}, which already has a successful CI run. Nothing to test tonight."
+              echo "main is still at ${GITHUB_SHA}, which already has a finished CI run. Nothing new to test."
               echo "skip=true" >> "$GITHUB_OUTPUT"
               echo "dotnet=false" >> "$GITHUB_OUTPUT"
               echo "web=false" >> "$GITHUB_OUTPUT"

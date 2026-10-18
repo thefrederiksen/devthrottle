@@ -21,6 +21,7 @@ import { RequireDeviceKey } from "./components/RequireDeviceKey";
 import { ConnectionBanner } from "./components/ConnectionBanner";
 import { VoiceModeBanner } from "./components/VoiceModeBanner";
 import { RecordingBanner } from "./components/RecordingBanner";
+import { LicenseAlarmBar } from "./components/LicenseAlarmBar";
 import { useVisibleViewportHeight } from "./hooks/useVisibleViewportHeight";
 import { useScreenWakeLock } from "./hooks/useScreenWakeLock";
 import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
@@ -88,6 +89,11 @@ function GatedLayout() {
           be on every screen too. Renders nothing while no recording is running, and nothing on the
           Recorder page itself. */}
       <RecordingBanner />
+      {/* The license alarm (License Switching phase 6) is mounted here for the same reason: a problem with licenses
+          must be on every screen until it is fixed. The words are the Gateway's; it renders nothing while no alarm
+          is open. The phone has no Licenses screen of its own, so the link opens the Cockpit's page, which the same
+          Gateway serves and which works at phone width. */}
+      <LicenseAlarmBar />
       <Outlet />
     </>
   );

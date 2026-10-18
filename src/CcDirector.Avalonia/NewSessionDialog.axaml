@@ -109,6 +109,33 @@
                                    IsVisible="False" />
                     </StackPanel>
 
+                    <!-- Connection row (API mode mission #4070, phase 5): Terminal | API mode, shown only for an
+                         agent offered both (NewSessionConnection.ShowsChoice - Pi, and only while the one switch
+                         ConnectionModes.ApiModeOffered is on). Terminal is checked on every open and never
+                         remembered. The radio words are set from ConnectionModes in code, one source for every
+                         surface. -->
+                    <StackPanel x:Name="ConnectionPanel" Orientation="Horizontal" Margin="0,0,0,12"
+                                IsVisible="False">
+                        <TextBlock Text="Connection:"
+                                   Foreground="#CCCCCC" FontSize="14"
+                                   VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <RadioButton x:Name="ConnectionTerminalRadio" GroupName="Connection"
+                                     IsChecked="True"
+                                     IsCheckedChanged="ConnectionRadio_CheckedChanged"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center" Margin="0,0,24,0" />
+                        <RadioButton x:Name="ConnectionApiRadio" GroupName="Connection"
+                                     IsCheckedChanged="ConnectionRadio_CheckedChanged"
+                                     Foreground="#CCCCCC" FontSize="14"
+                                     VerticalAlignment="Center" Margin="0,0,24,0" />
+                    </StackPanel>
+                    <!-- What the chosen connection means, in the words every surface shows
+                         (NewSessionConnection.DescriptionFor); shown only while API mode is chosen. -->
+                    <TextBlock x:Name="ConnectionDescriptionText"
+                               Foreground="#AAAAAA" FontSize="13"
+                               TextWrapping="Wrap" Margin="0,-4,0,12"
+                               IsVisible="False" />
+
                     <!-- Custom CLI panel (issue #333): shown only when "Custom CLI" agent is selected.
                          Command = executable path or bare command; Args = extra arguments. Both are
                          carried on the session and reported in GET /sessions as the Agent fact. -->

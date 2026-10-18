@@ -791,6 +791,38 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         return await hub.PushTurnsAsync(seq, batch, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Push one batch of an API-mode session's events (API mode mission, issue #4070) and return the Gateway's answer:
+    /// a watermark (stored), a watermark with an empty generation (refused for now), or null (refused for good). Throws
+    /// when the tunnel is not connected - the caller (<see cref="ApiModeEventPusher"/>) holds the events and sends them
+    /// again at the next trigger.
+    /// </summary>
+    public async Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        return await PushApiModeEventsAsync(batch, new HubConnectionCalls(conn), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <see cref="PushApiModeEventsAsync(ApiModeEventBatch, CancellationToken)"/> over a given hub. Refused, like a
+    /// disconnected tunnel, until this connection's session keys have been sent, for the reason the turn push gives
+    /// (<see cref="SessionIdsMayGoUp"/>): no session id goes up before its key.
+    /// </summary>
+    internal async Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, IDirectorHubCalls hub, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        FileLog.Write($"[GatewayStreamClient] PushApiModeEventsAsync: session={batch.SessionId}, generation={batch.Generation}, events={batch.Events.Count}");
+        if (!hub.IsConnected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        if (!SessionIdsMayGoUp)
+            throw new InvalidOperationException(
+                "the session keys have not been sent on this Gateway connection yet, so no session id may go up before them");
+        return await hub.PushApiModeEventsAsync(batch, ct).ConfigureAwait(false);
+    }
+
     /// <summary>The capability line already reported, so a ten-second reseed does not repeat it forever.</summary>
     private string _lastCapabilityReport = "";
 
@@ -1387,6 +1419,54 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         {
             // The tunnel boundary: whatever the hub call failed with, the sign-in waiting on it must hear one thing.
             throw new Core.Licenses.LicenseApprovalRelayException($"{ex.GetType().Name}: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// License Switching phase 6 (Track C): the daily approver check can run now - the tunnel is connected and the
+    /// Gateway on the other end has both <c>GetLicenseApproverAssignments</c> and <c>ReportLicenseApproverChecks</c>.
+    /// False against a Gateway that keeps no approver records, so nothing is checked (contract 6.5).
+    /// </summary>
+    public bool CanCheckLicenseApprovers
+    {
+        get
+        {
+            var conn = _connection;
+            return conn is not null && conn.State == HubConnectionState.Connected
+                && GatewaySupports(LicenseApproverContract.GetAssignmentsHubMethod)
+                && GatewaySupports(LicenseApproverContract.ReportChecksHubMethod);
+        }
+    }
+
+    /// <summary>License Switching phase 6 (Track C): the approver records that name this Director's machine and user.
+    /// Throws <see cref="Core.Licenses.LicenseApprovalRelayException"/> when the tunnel is not connected or the call fails.</summary>
+    public Task<LicenseApproverAssignments> GetLicenseApproverAssignmentsAsync(CancellationToken cancellationToken) =>
+        InvokeLicenseApproverAsync<LicenseApproverAssignments>(LicenseApproverContract.GetAssignmentsHubMethod, null, cancellationToken);
+
+    /// <summary>License Switching phase 6 (Track C): what the daily approver checks found. Never logged: the rows name
+    /// accounts. Throws <see cref="Core.Licenses.LicenseApprovalRelayException"/> when the tunnel is not connected or the
+    /// call fails.</summary>
+    public Task<LicenseApproverCheckAnswer> ReportLicenseApproverChecksAsync(LicenseApproverCheckReport report, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return InvokeLicenseApproverAsync<LicenseApproverCheckAnswer>(LicenseApproverContract.ReportChecksHubMethod, report, cancellationToken);
+    }
+
+    private async Task<T> InvokeLicenseApproverAsync<T>(string hubMethod, object? argument, CancellationToken cancellationToken)
+    {
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new Core.Licenses.LicenseApprovalRelayException("the Gateway stream is not connected");
+        try
+        {
+            return argument is null
+                ? await conn.InvokeAsync<T>(hubMethod, cancellationToken).ConfigureAwait(false)
+                : await conn.InvokeAsync<T>(hubMethod, argument, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The tunnel boundary: whatever the hub call failed with, the check hears one thing and tries again later.
+            throw new Core.Licenses.LicenseApprovalRelayException($"{hubMethod}: {ex.GetType().Name}: {ex.Message}", ex);
         }
     }
 

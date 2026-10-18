@@ -29,7 +29,8 @@ internal sealed record FactoriesScreenSources(
     Func<TenantId, IReadOnlyCollection<string>, DateTime, IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>>> ScheduleRuns,
     Func<TenantId, string, CronRunProblemsDto> Problems,
     Func<TenantId, string, FactoryEmailsDto> Emails,
-    Func<TenantId, IReadOnlyList<UnpublishedFactory>>? Unpublished = null);
+    Func<TenantId, IReadOnlyList<UnpublishedFactory>>? Unpublished = null,
+    Func<TenantId, bool>? SchedulerPaused = null);
 
 /// <summary>
 /// The Factories screen (Factories screen mission, phase B): every view folded once by
@@ -66,6 +67,11 @@ internal static class FactoriesScreenEndpoints
             FactoryAgentsViewEndpoints.OwnerOrSession(ctx, resolveTenant, "GET factories screen list", tenant =>
             {
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast24h, factory: null);
+                input = input with
+                {
+                    LastRunRows = OlderLastRunRows(sources, tenant, input),
+                    SchedulerPaused = sources.SchedulerPaused?.Invoke(tenant) ?? false,
+                };
                 var dto = FactoriesScreenFold.List(input);
                 // New factory, and the factories it made that are not published yet (Factory Definition, phase 6b).
                 dto.NewFactory = FactoryNewFold.NewFactoryAction();
@@ -406,6 +412,38 @@ internal static class FactoriesScreenEndpoints
             .Distinct(StringComparer.Ordinal).ToList();
         var runs = sources.ScheduleRuns(tenant, seatSchedules, now);
         return new FactoriesScreenInputs(registry, activity, sources.Schedules(tenant), latest, talks, runs);
+    }
+
+    /// <summary>How many of a seat's rows after its newest start are read to tell how that run ended.</summary>
+    internal const int LastRunRowLimit = 200;
+
+    /// <summary>
+    /// For the list's "Last run": each live seat's newest run when its newest start is older than the window - its
+    /// "started" row and that session's later rows - read whatever their age, as the last talk is. A seat whose newest
+    /// start is in the window is skipped: the window already holds that run. Two reads per such seat.
+    /// </summary>
+    internal static List<FactoryActivityDto> OlderLastRunRows(FactoriesScreenSources sources, TenantId tenant, FactoriesScreenInputs input)
+    {
+        var inWindow = input.Activity.WindowRows
+            .Where(r => r.Outcome == FactoryActivityOutcome.Started)
+            .Select(r => (r.Factory?.ToLowerInvariant(), r.FactoryAgent?.ToLowerInvariant()))
+            .ToHashSet();
+        var rows = new List<FactoryActivityDto>();
+        foreach (var f in input.Registry.Where(f => f.ArchivedAtUtc is null))
+        foreach (var seat in f.Seats)
+        {
+            if (inWindow.Contains((f.Factory.ToLowerInvariant(), seat.Id.ToLowerInvariant()))) continue;
+            var start = sources.Activity.Query(tenant,
+                new FactoryRecordQuery(f.Factory, seat.Id, FactoryActivityOutcome.Started, null, null, false, 0, 1)).Rows.FirstOrDefault();
+            if (start is null) continue;
+            rows.Add(start);
+            if (start.SessionId is null) continue;
+            var after = sources.Activity.Query(tenant,
+                new FactoryRecordQuery(f.Factory, seat.Id, null, start.OccurredUtc, null, true, 0, LastRunRowLimit)).Rows;
+            rows.AddRange(after.Where(r => r.Id != start.Id && r.SessionId == start.SessionId));
+        }
+        FileLog.Write($"[FactoriesScreenEndpoints] OlderLastRunRows: rows={rows.Count}");
+        return rows;
     }
 
     private static IResult NotRegistered(string factory) =>

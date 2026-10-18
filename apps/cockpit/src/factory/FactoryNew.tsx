@@ -9,6 +9,7 @@ import type { FactoriesListView } from "@devthrottle/client-core/factory/factori
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { Button, ErrorBanner } from "../components";
 import { Findings } from "./FactoryDefinitionTab";
+import { ToneChip } from "./FactoryParts";
 
 const SURFACE = "cockpit-factory-new";
 
@@ -77,20 +78,32 @@ export function NewFactoryButton({ view }: { view: FactoriesListView }) {
   );
 }
 
-/** The factories that are not published yet, each opening its page on the Definition tab. Nothing when there are none. */
+/**
+ * The factories that are not published yet, as cards beside the published ones (owner, 17 Oct 2026): the name opens
+ * its page on the Definition tab, the pill says DRAFT, and the line says what is in the draft. Every word is the
+ * Gateway's. Nothing when there are none.
+ */
 export function DraftFactories({ view }: { view: FactoriesListView }) {
   if (view.draftRows.length === 0) return null;
   return (
-    <section className="fa-drafts" aria-label={view.draftTitle} data-testid="fa-drafts">
-      <h3 className="fa-outside-title">{view.draftTitle}</h3>
-      {view.draftRows.map((row) => (
-        <div key={row.id} className="fa-draft-row" data-testid={`fa-draft-${row.id}`}>
-          <Link className="fa-link" to={row.href}>
-            {row.text}
-          </Link>
-          <span className="fa-dim">{row.lineText}</span>
-        </div>
-      ))}
+    <section className="fa-group fa-drafts" aria-label={view.draftTitle} data-testid="fa-drafts">
+      <h4 className="fa-group-heading fa-group-draft">
+        {view.draftTitle} <span className="fa-group-count">({view.draftRows.length})</span>
+      </h4>
+      <div className="fa-cards">
+        {view.draftRows.map((row) => (
+          <article key={row.id} className="fa-card fa-card-draft" data-testid={`fa-draft-${row.id}`}>
+            <div className="fa-card-top">
+              <Link className="fa-card-name" to={row.href} title={row.text}>
+                {row.title}
+              </Link>
+              <ToneChip word={row.stateWord} tone={row.stateTone} />
+            </div>
+            <p className="fa-card-fact">{row.seatCountText}</p>
+            <p className="fa-card-line">{row.lineText}</p>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }

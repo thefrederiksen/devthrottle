@@ -329,6 +329,14 @@ public static class TenantSettingKeys
     /// </summary>
     public const string LicenseApprovers = "license_approvers";
 
+    /// <summary>
+    /// THE REGISTERED APPROVERS THE OWNER REMOVED (License Switching phase 6, Track C), as one JSON list of account
+    /// email, machine name, operating system user, browser profile and when. A Director's check never registers a
+    /// removed one again; the owner setting an approver for that account clears its rows. Read and written only by
+    /// <c>Licenses.LicenseApproverStore</c>.
+    /// </summary>
+    public const string LicenseApproverRemovals = "license_approver_removals";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -350,6 +358,6 @@ public static class TenantSettingKeys
         GatewayInstanceId,
         DemoMode,
         FactoryEmailEnabled,
-        LicenseApprovers,
+        LicenseApprovers, LicenseApproverRemovals,
     };
 }

@@ -24,7 +24,12 @@ var NEEDS_YOU_TAG = 'devthrottle-needs-you';
 // the "needs you" dot. Tapping it opens the approval card (see notificationclick).
 var SECRET_TRANSFER_KIND = 'secret-transfer';
 
-function showSecretTransfer(payload) {
+// A license alarm that just opened (License Switching phase 6). The same shape as a secret transfer: the Gateway wrote
+// the title, the body (the machine's name and the kind of problem, never an account email address), the per-alarm tag
+// and the page to open - the Cockpit's Licenses page. It buzzes, and it never touches the "needs you" dot.
+var LICENSE_ALARM_KIND = 'license-alarm';
+
+function showGatewayNotification(payload) {
   return self.registration.showNotification(String(payload.title), {
     tag: String(payload.tag),
     body: String(payload.body),
@@ -42,8 +47,8 @@ self.addEventListener('push', function (event) {
   if (event.data) {
     try {
       var payload = event.data.json();
-      if (payload && payload.kind === SECRET_TRANSFER_KIND) {
-        event.waitUntil(showSecretTransfer(payload));
+      if (payload && (payload.kind === SECRET_TRANSFER_KIND || payload.kind === LICENSE_ALARM_KIND)) {
+        event.waitUntil(showGatewayNotification(payload));
         return;
       }
       count = Number(payload && payload.count) || 0;
@@ -128,7 +133,8 @@ self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   var data = event.notification.data || {};
   var url = data.url || '/mobile/';
-  // A notification that names a page (a secret transfer's approval card) steers an open app window to it; the
+  // A notification that names a page (a secret transfer's approval card, a license alarm's Licenses page) steers an
+  // open app window to it; the
   // "needs you" dot only brings the app forward, wherever it was.
   var steer = !!data.navigate;
   event.waitUntil(

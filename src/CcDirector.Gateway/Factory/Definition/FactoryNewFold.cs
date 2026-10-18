@@ -33,6 +33,9 @@ public static class FactoryNewFold
 
     public const string DraftTitle = "Not published yet";
 
+    /// <summary>The pill on a draft's card.</summary>
+    public const string DraftWord = "DRAFT";
+
     /// <summary>New factory: the button and what it does.</summary>
     public static FactoryNewFactoryActionDto NewFactoryAction() => new()
     {
@@ -68,6 +71,9 @@ public static class FactoryNewFold
                 LineText = $"{(d.Version == 1 ? "Version 1, a draft" : $"{FactoriesScreenFold.Count(d.Version, "draft")}, the newest version {d.Version}")}, " +
                            $"{FactoriesScreenFold.Count(d.FileCount, "file")}. Open it to read what changes and publish it.",
                 Href = FactoryDefinitionTabFold.TabHref(d.Factory),
+                StateWord = DraftWord,
+                StateTone = FactoryTone.Grey,
+                SeatCountText = FactoriesScreenFold.Count(d.SeatCount, "seat"),
             })
             .ToList();
     }
@@ -127,4 +133,25 @@ public static class FactoryNewFold
     public static string AlreadyDrafted(UnpublishedFactory d) =>
         $"This folder's factory.yaml names '{d.Factory}', and {d.Title} already has a draft that is not published yet. " +
         $"Open it under {DraftTitle} and import there, on its Definition tab. Nothing was imported.";
+
+    // ---------- the same refusals, for a factory created from the command line (phase 6c) ----------
+    // The same three cases as New factory on the Factories screen, said to a session that has no screen: what to run.
+
+    /// <summary>The id is a factory that is registered and live.</summary>
+    public static string CreateAlreadyRegistered(RegisteredFactoryDto f) =>
+        $"The folder's factory.yaml names '{f.Factory}', and that factory already exists: {f.Title}. Nothing was created. " +
+        $"To make the folder its next draft, run: cc-devthrottle factory import <folder>";
+
+    /// <summary>The id is a factory that is archived.</summary>
+    public static string CreateArchived(RegisteredFactoryDto f) =>
+        $"The folder's factory.yaml names '{f.Factory}', and {f.Title} is archived under that id. Nothing was created. " +
+        "A new factory needs a new id: change factory: in factory.yaml. Or the owner restores it under Show archived on " +
+        "the Factories screen, and the folder is imported then.";
+
+    /// <summary>The id already has a draft definition and was never published.</summary>
+    public static string CreateAlreadyDrafted(UnpublishedFactory d) =>
+        $"The folder's factory.yaml names '{d.Factory}', and {d.Title} already has a draft that is not published yet " +
+        $"(version {d.Version}). Nothing was created. To make the folder its next draft, run: cc-devthrottle factory " +
+        $"import <folder>. To publish the draft it has, run: cc-devthrottle factory definition publish {d.Factory} " +
+        $"--version {d.Version}";
 }

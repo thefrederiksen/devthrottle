@@ -112,6 +112,15 @@ public sealed class FactoryDraftRowDto
     /// <summary>"Version 1, a draft, 3 files. Open it to read what changes and publish it."</summary>
     public string LineText { get; set; } = "";
 
+    /// <summary>"DRAFT": the word on its card's pill, beside the published factories' status words.</summary>
+    public string StateWord { get; set; } = "";
+
+    /// <summary>The pill's tone.</summary>
+    public string StateTone { get; set; } = "";
+
+    /// <summary>"3 seats": how many seats its draft definition names.</summary>
+    public string SeatCountText { get; set; } = "";
+
     /// <summary>Its factory page, on the Definition tab.</summary>
     public string Href { get; set; } = "";
 }
@@ -272,6 +281,20 @@ public sealed class FactoryListRowDto
 
     /// <summary>Where the flag goes: the factory's Seats tab, where each seat shows its marker. Null with no flag.</summary>
     public string? LeftOpenHref { get; set; }
+
+    /// <summary>"4 seats": how many seats the registry lists for it.</summary>
+    public string SeatCountText { get; set; } = "";
+
+    /// <summary>"Next start today 07:00 (Scout)": the soonest due run of its switched-on seat schedules. Null when nothing
+    /// is due.</summary>
+    public string? NextStartText { get; set; }
+
+    /// <summary>"Last run: Scout, today 06:20 - succeeded": its seats' newest run and how it went, as the Seats tab tells
+    /// it. Null when no seat has run yet.</summary>
+    public string? LastRunText { get; set; }
+
+    /// <summary>The tone of <see cref="LastRunText"/>; null with it.</summary>
+    public string? LastRunTone { get; set; }
 }
 
 /// <summary><c>GET /gateway/factories/{factory}</c>: one factory's page - its header, tabs and Overview.</summary>

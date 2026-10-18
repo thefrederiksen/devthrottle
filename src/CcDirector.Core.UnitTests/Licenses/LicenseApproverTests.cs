@@ -51,9 +51,22 @@ public sealed class LicenseApproverTests
         Assert.Equal(FakeRemoteSignIn.ApprovalMarker, await _seal.OpenAsync(result.SealedApproval!, SignInId, CancellationToken.None));
     }
 
+    [Fact]
+    public void RenewalSentences_EveryWordTheContractNames_HasItsOwnSentence()
+    {
+        // A word the Director has no sentence for falls through to "a reason this Director does not recognise".
+        var unknown = LicenseRenewalSentences.For("a-later-reason");
+        var sentences = LicenseRenewalErrors.All.Select(LicenseRenewalSentences.For).ToList();
+
+        Assert.All(sentences, s => Assert.NotEqual(unknown, s));
+        Assert.Equal(sentences.Count, sentences.Distinct().Count());
+        Assert.Contains("asks for a fresh sign-in", LicenseRenewalSentences.For(LicenseRenewalErrors.NeedsFreshSignIn));
+    }
+
     [Theory]
     [InlineData(LicenseRenewalErrors.WrongAccount)]
     [InlineData(LicenseRenewalErrors.BrowserNotSignedIn)]
+    [InlineData(LicenseRenewalErrors.NeedsFreshSignIn)]
     [InlineData(LicenseRenewalErrors.ApprovalFailed)]
     public async Task ApproveAsync_ToolRefuses_AnswersItsReason_AndSealsNothing(string reason)
     {

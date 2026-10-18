@@ -64,9 +64,10 @@ public static class SessionReceiptsEndpoint
 
         // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE: its rows are partitioned by the context's ambient tenant,
         // and a read taken outside a scope would answer from whatever tenant happened to be ambient.
-        IReadOnlyList<ApiModeReceiptDto> stored;
+        IReadOnlyList<ApiModeStoredReceipt> withPositions;
         using (tenantBoundary?.EnterScope(tenant.Value))
-            stored = receipts.Read(sid);
+            withPositions = receipts.ReadWithPositions(sid);
+        var stored = withPositions.Select(r => r.Receipt).ToList();
 
         var known = stored.Count > 0
                     || pushedSessions.TryLocate(tenant.Value, sid, staleAfter) is not null
@@ -78,7 +79,9 @@ public static class SessionReceiptsEndpoint
         }
 
         // THE FINISHED WORDS, ruled here so a client never composes a receipt (the project rule 7). The live stream words
-        // its receipt items with the same function, so a receipt reads the same on both.
+        // its receipt items with the same functions, so a receipt reads the same on both. A queued receipt's place in line
+        // is derived now, from the receipts still queued ahead of it, never stored.
+        ApiModeDisplay.ApiModeLiveRuling.PlaceInLine(withPositions);
         foreach (var receipt in stored)
         {
             receipt.Words = ApiModeDisplay.ApiModeLiveRuling.ReceiptWords(receipt);
@@ -89,7 +92,7 @@ public static class SessionReceiptsEndpoint
         {
             SessionId = sid,
             Count = stored.Count,
-            Receipts = stored.ToList(),
+            Receipts = stored,
         });
     }
 }

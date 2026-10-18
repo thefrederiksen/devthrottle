@@ -309,16 +309,7 @@ public static class BrowserHarnessInstaller
 
     /// <summary>True when <paramref name="searchPath"/> already lists <paramref name="dir"/>, comparing
     /// the way the platform does (case-insensitively on Windows) and ignoring a trailing separator.</summary>
-    internal static bool PathContains(string? searchPath, string dir)
-    {
-        if (string.IsNullOrEmpty(searchPath) || string.IsNullOrWhiteSpace(dir)) return false;
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        var target = dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return searchPath
-            .Split(Path.PathSeparator)
-            .Select(p => p.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
-            .Any(p => p.Length > 0 && string.Equals(p, target, comparison));
-    }
+    internal static bool PathContains(string? searchPath, string dir) => Tools.ToolShimPath.Contains(searchPath, dir);
 
     /// <summary>The exit code reported when a bounded run was killed for exceeding its timeout.</summary>
     internal const int TimeoutExitCode = -3;

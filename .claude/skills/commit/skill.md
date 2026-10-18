@@ -148,7 +148,7 @@ commit (Step 4), drive it home:
 
    KNOW WHAT THE DEFAULT RUN DOES NOT COVER. It runs the suites that fit the two-minute budget,
    1,634 tests as measured on 2026-09-13. It does NOT run the three parked suites - Gateway.Tests
-   (host-bound, takes a machine-wide lock), Core.Tests, and Gateway.UnitTests (parked 2026-09-13 for
+   (host-bound), Core.Tests, and Gateway.UnitTests (parked 2026-09-13 for
    outgrowing the ceiling, issue #2824) - which need -Parked. The last of those is the one most
    likely to catch you out: a green default run no longer says anything about the Gateway's unit
    tests. It runs NO web tests and NO Python

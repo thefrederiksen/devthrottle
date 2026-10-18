@@ -572,6 +572,72 @@ public sealed class ApiModeWheelTests : IDisposable
     }
 
     [Fact]
+    public async Task TakeWheelAsync_PiStoppedOnPurposeUnderAnUnconfirmedAbort_ThenTheSessionEnds_ReadsCleanNeverFailed()
+    {
+        // Arrange: the take closes Pi under a running turn whose abort Pi never confirms - the dialect alone would call
+        // that end a failure (a turn in hand when Pi exited), but the Director ended Pi on purpose.
+        var pi = new ScriptedPi("abort") { AutoRespond = false };
+        var rig = StartSession(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        var sending = rig.Session.SendTextAsync("Count slowly to fifty", Door);
+        await pi.WaitForWrittenAsync("prompt");
+        pi.RespondToNext();
+        Assert.True((await ScriptedPi.WithinHangGuard(sending, "the prompt's receipt")).Confirmed);
+        await rig.Sink.WaitForAsync<TurnStarted>();
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Session.OnExited += code => exited.TrySetResult(code);
+
+        // Act: take the wheel past the unconfirmed abort, then the user stops the session while holding the wheel.
+        var taking = rig.Session.TakeWheelAsync();
+        await pi.WaitForWrittenAsync("abort");
+        rig.Clock.Advance(ApiModeSessionDefaults.ShutdownGrace);
+        var take = await ScriptedPi.WithinHangGuard(taking, "the take, past a Pi that never confirms its abort");
+        var statusWhileHeld = rig.Session.Status;
+        var crashedWhileHeld = rig.Session.Crashed;
+        await rig.Backend.GracefulShutdownAsync();
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: neither the take nor the end read as a failed or crashed session.
+        Assert.True(take.Done);
+        Assert.False(statusWhileHeld is SessionStatus.Exited or SessionStatus.Failed);
+        Assert.False(crashedWhileHeld);
+        Assert.False(rig.Backend.EndedInFailure);
+        Assert.Equal(SessionStatus.Exited, rig.Session.Status);
+        Assert.False(rig.Session.Crashed);
+        Assert.Equal(ApiModeSessionHost.UserTookTheWheelReason, rig.Session.EndReason);
+        Assert.DoesNotContain("failed", rig.Session.LastStatusReason ?? "");
+    }
+
+    [Fact]
+    public async Task HandBackWheelAsync_ThenPiFailsWhileTheProtocolHoldsTheWheel_TheSessionStillReadsFailed()
+    {
+        // Arrange: the Pi the hand back starts is the recording of one gone mid-reply, ending with code 0.
+        var rig = StartSession(new ScriptedPi("plain"), new ScriptedPi("exit") { ExitCode = 0 });
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        Assert.True((await rig.Session.TakeWheelAsync()).Done);
+        Assert.True((await rig.Session.HandBackWheelAsync()).Done);
+        await rig.Sink.WaitForAsync<ConnectionReady>(c => c.Sequence > 1);
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Session.OnExited += code => exited.TrySetResult(code);
+
+        // Act
+        await rig.Session.SendTextAsync("Write a long answer", Door);
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: the earlier take does not soften it - the failure reads failed, with the stream's reason.
+        var ended = rig.Sink.Events.OfType<ConnectionEnded>().Last();
+        Assert.StartsWith("Pi exited during the turn (exit code 0)", ended.Reason);
+        Assert.Equal(0, rig.Session.ExitCode);
+        Assert.True(rig.Backend.EndedInFailure);
+        Assert.Equal(SessionStatus.Failed, rig.Session.Status);
+        Assert.True(rig.Session.Crashed);
+        Assert.Equal(ended.Reason, rig.Session.EndReason);
+        Assert.Equal($"failed: {ended.Reason}", rig.Session.LastStatusReason);
+    }
+
+    [Fact]
     public async Task HandBackWheelAsync_PiNamesItsConversationBeforeTheHandBackFinishes_TheSessionEndsWaitingForInput()
     {
         // Arrange: the user has the wheel.

@@ -411,21 +411,23 @@ public sealed class LicenseDecisionEngineTests
     }
 
     [Fact]
-    public void Decide_MachineMissingTheSpare_BlocksThatTarget()
+    public void Decide_MachineMissingTheBestSpare_GoesToTheBestAccountItIsReadyFor()
     {
-        // B is the better account, but the Mac holds no spare for it; C is held by both.
+        // B is the better account, but the Mac holds no sign-in for it; C is held by both. A machine's missing sign-in
+        // no longer takes the best account away from the machines that hold it: windows goes to B, the Mac to C.
         var snapshot = Snapshot(
             [Reading(A, 97, 50, active: true), Reading(B, 5, 5), Reading(C, 30, 30)],
             [Machine("windows", A, B, C), Machine("mac", A, C)]);
 
         var result = LicenseDecisionEngine.Decide(snapshot);
 
-        Assert.Equal(2, result.Switches.Count);
-        Assert.All(result.Switches, s => Assert.Equal(C, s.TargetAccountEmail));
+        Assert.Equal(new[] { ("mac", C), ("windows", B) },
+            result.Switches.Select(s => (s.MachineName, s.TargetAccountEmail)).OrderBy(s => s.MachineName).ToArray());
+        Assert.Empty(result.Emails);
     }
 
     [Fact]
-    public void Decide_NoTargetHeldByEveryMachine_EmailsAndSwitchesNothing()
+    public void Decide_NoAccountHeldByEveryMachine_EachMachineMoves_AndNoOneIsToldThereIsNoRoom()
     {
         var snapshot = Snapshot(
             [Reading(A, 97, 50, active: true), Reading(B, 5, 5), Reading(C, 30, 30)],
@@ -433,10 +435,13 @@ public sealed class LicenseDecisionEngineTests
 
         var result = LicenseDecisionEngine.Decide(snapshot);
 
-        Assert.Empty(result.Switches);
-        var email = Assert.Single(result.Emails);
-        Assert.Contains($"{B} was not chosen: mac holds no usable spare for it", email.BodyText);
-        Assert.Contains($"{C} was not chosen: windows holds no usable spare for it", email.BodyText);
+        Assert.Equal(new[] { ("mac", C), ("windows", B) },
+            result.Switches.Select(s => (s.MachineName, s.TargetAccountEmail)).OrderBy(s => s.MachineName).ToArray());
+        Assert.Empty(result.Emails);
+        Assert.Empty(result.OpenedExhaustions);
+        Assert.All(result.Switches, s => Assert.Equal(
+            $"{A} reached 97% of its 5-hour window; windows switched to {B}, the account with the lowest weekly use that has room; "
+            + $"mac switched to {C}, the best account with room it holds a sign-in for.", s.Explanation));
     }
 
     [Theory]
@@ -456,7 +461,7 @@ public sealed class LicenseDecisionEngineTests
     }
 
     [Fact]
-    public void Decide_SpareSignInExpiringWithinTheCommandLifetime_IsNotChosen()
+    public void Decide_SpareSignInExpiringWithinTheCommandLifetime_IsNotChosenForThatMachine()
     {
         // B is the better account, but the Mac's sign-in for B expires exactly at now + 10 minutes (the
         // command's NotAfterUtc), so the switch could outlive it. C's spare expires a second later: allowed.
@@ -473,8 +478,8 @@ public sealed class LicenseDecisionEngineTests
 
         var result = LicenseDecisionEngine.Decide(snapshot);
 
-        Assert.Equal(2, result.Switches.Count);
-        Assert.All(result.Switches, s => Assert.Equal(C, s.TargetAccountEmail));
+        Assert.Equal(new[] { ("mac", C), ("windows", B) },
+            result.Switches.Select(s => (s.MachineName, s.TargetAccountEmail)).OrderBy(s => s.MachineName).ToArray());
     }
 
     [Fact]
@@ -494,7 +499,7 @@ public sealed class LicenseDecisionEngineTests
         => Machine(name, active, spares) with { OsUser = osUser };
 
     [Fact]
-    public void DecideManual_ARefusalThatNamesAMachine_SaysWhichUser_WhenTwoUsersShareTheComputer()
+    public void DecideManual_AMachineLeftOut_IsNamedWithItsUser_WhenTwoUsersShareTheComputer()
     {
         var snapshot = Snapshot(
             [Reading(A, 40, 40, active: true), Reading(B, 5, 5), Reading(C, 5, 5)],
@@ -502,46 +507,55 @@ public sealed class LicenseDecisionEngineTests
 
         var verdict = LicenseDecisionEngine.DecideManual(snapshot, A, C);
 
-        Assert.Equal((LicenseManualRefusals.TargetNotHeld, $"WINDOWS (second) holds no usable spare for {C}."), (verdict.RefusalCode, verdict.RefusalMessage));
+        Assert.True(verdict.Accepted);
+        Assert.Equal(new[] { "mac", "windows" }, verdict.Switches.Select(s => s.MachineName).OrderBy(n => n).ToArray());
+        var left = Assert.Single(verdict.Skipped);
+        Assert.Equal(("WINDOWS", "second", $"it holds no sign-in for {C}"), (left.MachineName, left.OsUser, left.Why));
+        Assert.All(verdict.Switches, s => Assert.Equal(
+            $"Switch now: from {A} to {C}; WINDOWS (second) holds no sign-in for {C}, so it stays on {A}.", s.Explanation));
     }
 
     [Fact]
     public void DecideManual_AnExpiringSpare_IsNamedWithItsUser_WhenTwoUsersShareTheComputer_AndByNameAloneOtherwise()
     {
         var expiring = MachineOf("second", "windows", A) with { Spares = [new LicenseSpare(B, null, Now.AddMinutes(5))] };
-        var shared = Snapshot([Reading(A, 40, 40, active: true), Reading(B, 5, 5)], [MachineOf("first", "windows", A, B), expiring]);
-        var alone = Snapshot([Reading(A, 40, 40, active: true), Reading(B, 5, 5)], [MachineOf("first", "mac", A, B), expiring]);
+        var shared = Snapshot([Reading(A, 40, 40, active: true), Reading(B, 5, 5)], [MachineOf("first", "windows", A), expiring]);
+        var alone = Snapshot([Reading(A, 40, 40, active: true), Reading(B, 5, 5)], [expiring]);
 
-        Assert.Equal($"windows (second)'s sign-in for {B} expires before a switch could finish.", LicenseDecisionEngine.DecideManual(shared, A, B).RefusalMessage);
-        Assert.Equal($"windows's sign-in for {B} expires before a switch could finish.", LicenseDecisionEngine.DecideManual(alone, A, B).RefusalMessage);
+        var sharedVerdict = LicenseDecisionEngine.DecideManual(shared, A, B);
+        Assert.Equal(LicenseManualRefusals.TargetNotHeld, sharedVerdict.RefusalCode);
+        Assert.Equal($"{B} has room; windows (first) holds no sign-in for it; "
+                     + "windows (second) holds a sign-in for it that expires at 2026-10-11 03:05 UTC, before a switch could finish.",
+            sharedVerdict.RefusalMessage);
+        Assert.Equal($"{B} has room; windows holds a sign-in for it that expires at 2026-10-11 03:05 UTC, before a switch could finish.",
+            LicenseDecisionEngine.DecideManual(alone, A, B).RefusalMessage);
     }
 
     [Fact]
-    public void Decide_NoTarget_TheEmailSaysWhichUserOfASharedComputer_InEverySentenceThatNamesAMachine()
+    public void Decide_NoAccountHasRoom_TheEmailSaysWhichUserOfASharedComputer()
     {
         var staleSecond = MachineOf("second", "windows", A, C) with { LastReportReceivedAtUtc = Now.AddMinutes(-7) };
-        var expiringThird = MachineOf("third", "windows", A, C) with { Spares = [new LicenseSpare(B, null, Now.AddMinutes(5)), new LicenseSpare(C, null)] };
         var snapshot = Snapshot(
-            [Reading(A, 97, 50, active: true), Reading(B, 5, 5), Reading(C, 98, 30)],
-            [MachineOf("first", "windows", A, B, C), expiringThird, staleSecond]);
+            [Reading(A, 97, 50, active: true), Reading(B, 98, 5), Reading(C, 98, 30)],
+            [MachineOf("first", "windows", A, B, C), MachineOf("third", "windows", A, C), staleSecond]);
 
         var email = Assert.Single(LicenseDecisionEngine.Decide(snapshot).Emails);
 
         Assert.Contains("Machines on it: windows (first), windows (third), windows (second) (not sent a switch: its last report is too old).", email.BodyText);
-        Assert.Contains($"{B} was not chosen: windows (third)'s sign-in for it expires before a switch could finish", email.BodyText);
     }
 
     [Fact]
-    public void Decide_NoTarget_TheEmailNamesAMachineWithNoSpare_WithItsUser_WhenTwoUsersShareTheComputer()
+    public void Decide_TwoUsersOfOneComputerGoingToDifferentAccounts_AreEachNamedWithTheirUser()
     {
         var snapshot = Snapshot(
             [Reading(A, 97, 50, active: true), Reading(B, 5, 5), Reading(C, 30, 30)],
             [MachineOf("first", "windows", A, B), MachineOf("second", "windows", A, C)]);
 
-        var email = Assert.Single(LicenseDecisionEngine.Decide(snapshot).Emails);
+        var result = LicenseDecisionEngine.Decide(snapshot);
 
-        Assert.Contains($"{B} was not chosen: windows (second) holds no usable spare for it", email.BodyText);
-        Assert.Contains($"{C} was not chosen: windows (first) holds no usable spare for it", email.BodyText);
+        Assert.Empty(result.Emails);
+        Assert.Equal($"{A} reached 97% of its 5-hour window; windows (first) switched to {B}, the account with the lowest weekly use that has room; "
+                     + $"windows (second) switched to {C}, the best account with room it holds a sign-in for.", result.Switches[0].Explanation);
     }
 
     // ----- staleness (contract 5.2) -----
@@ -693,11 +707,11 @@ public sealed class LicenseDecisionEngineTests
     [Theory]
     [InlineData(C, LicenseManualRefusals.TargetNotHeld)]
     [InlineData(A, LicenseManualRefusals.TargetIsSource)]
-    public void DecideManual_TargetNotHeldOrIsTheSource_IsRefused(string target, string code)
+    public void DecideManual_TargetNoMachineIsReadyForOrIsTheSource_IsRefused(string target, string code)
     {
         var snapshot = Snapshot(
             [Reading(A, 40, 40, active: true), Reading(B, 5, 30), Reading(C, 5, 10)],
-            [Machine("windows", A, B, C), Machine("mac", A, B)]);
+            [Machine("windows", A, B), Machine("mac", A, B)]);
 
         var verdict = LicenseDecisionEngine.DecideManual(snapshot, A, target);
 

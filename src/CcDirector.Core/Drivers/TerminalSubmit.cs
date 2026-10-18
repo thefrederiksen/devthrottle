@@ -192,7 +192,23 @@ public static class TerminalSubmit
         // prevent, reintroduced through a route the guard did not cover.
         //
         // Every route that writes new text is downstream of this line.
+        //
+        // LOOK BEFORE TYPING (the Prompt Delivery mission, 16 October 2026 - the owner's ruling: "never type unless the
+        // composer is drawn AND empty, and refuse with a plain reason otherwise"). Where the composer can be read, the send
+        // first checks it is DRAWN - not a question menu, a dialog or a full-screen view standing where it should be. On
+        // 15 October an owner's answer to a session showing Claude Code's question menu was typed into the menu, never
+        // echoed, and every later send was refused until a person closed the menu; the clear keys were pressed into the
+        // menu too. This runs BEFORE the retained-text step, so that step never presses its clear keys into a menu, and
+        // its mark is left standing for the send that comes once the menu is gone.
+        if (composerRegion is not null)
+            await RefuseUnlessComposerDrawnAsync(driverTag, composerRegion, screenSnapshot);
         await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot, clearKeysFor, composerHoldsNothing, clearRetainedUnconditionally, composerSeen, composerRegion);
+        // ...and then that it is EMPTY. Text the retained-text step could account for - this product's own earlier, unsent
+        // text - has been cleared by now. Anything still there is someone else's: the owner's unsent draft, which the
+        // send used to type onto the end of and submit as one prompt (measured in the delivery rig on 16 October: the
+        // agent received draft and prompt as one turn, and the Director reported it delivered).
+        if (composerRegion is not null)
+            await RefuseUnlessComposerEmptyAsync(driverTag, composerRegion, screenSnapshot);
 
         var textForCheck = text.TrimEnd('\r', '\n');
         if (ShouldUseInstructionFile(driverTag, textForCheck)
@@ -741,6 +757,30 @@ public static class TerminalSubmit
         // UNCONDITIONALLY only for the retry inside the same held-input send (issue #3290): nothing in the composer can
         // be the owner's then, and a partly echoed text does not read as "present", so the evidence rule would leave it
         // there and the retry would be appended to it.
+        // THE MARKED TEXT AND MORE IS NOT OURS ALONE (review of pull request 4072, risk B). A parked doorbell line, or a
+        // failed send's text, can have the owner's own words typed after it; the measured clear keys - End and a
+        // Backspace for every character and more - take those words off first. So where the region shows the marked
+        // text with anything else beside it, nothing is cleared and nothing typed, the mark stands, and the send is
+        // refused with what was read. Not for the retry inside one send, where nothing in the composer can be the
+        // owner's.
+        var regionHolds = ReadRegionText(composerRegion);
+        // Only where the WHOLE marked text is in view: a long one Codex scrolls shows only its tail, and then what else is
+        // there cannot be told apart from the part scrolled away.
+        if (!unconditionally && orphan == ComposerEvidence.Present && regionHolds is not null
+            && regionHolds.Contains(retainedNeedle, StringComparison.Ordinal)
+            && regionHolds.Replace(retainedNeedle, "", StringComparison.Ordinal).Length > 0)
+        {
+            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the composer holds the previous send's {retained.Length} " +
+                                      "characters AND other text - nothing is cleared and nothing typed, so words typed after " +
+                                      $"them are not erased. What it read: {RegionForTrail(composerRegion)}");
+            ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
+            throw new ComposerNotAcceptingInputException(
+                $"[{driverTag}] ResolveRetainedComposer: nothing was typed: the composer holds an earlier unsent text with " +
+                "more typed after it, and clearing it would erase those words too. Send or clear the composer on the " +
+                "session's screen, then send again.")
+            { TerminalReacted = false };
+        }
+
         if ((unconditionally && clearKeys is not null) || ComposerRetention.ShouldClearBeforeTyping(orphan))
         {
             SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send may have left {retained.Length} " +
@@ -820,6 +860,85 @@ public static class TerminalSubmit
             SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's text is provably gone from " +
                                       "this composer - not clearing, so nothing typed since is disturbed.");
         }
+    }
+
+    /// <summary>How many times the composer is read before a send refuses for what it shows, and the gap between reads:
+    /// about a second, so a frame caught mid-repaint is not taken for a menu or for text.</summary>
+    internal const int LookBeforeTypingLooks = 6;
+
+    internal static readonly TimeSpan LookBeforeTypingGap = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// Read the composer until a reading satisfies <paramref name="ready"/>, up to <see cref="LookBeforeTypingLooks"/>
+    /// times. Returns whether it was satisfied, with the reading that satisfied it or the last one read. A reader that
+    /// throws is not caught: a send that cannot look does not type.
+    /// </summary>
+    private static async Task<(bool Ready, ComposerReading Reading, string Text)> LookAtComposerAsync(
+        Func<(ComposerReading Reading, string Text)> composerRegion, Func<ComposerReading, string, bool> ready)
+    {
+        var (reading, text) = composerRegion();
+        for (var look = 1; look < LookBeforeTypingLooks && !ready(reading, text); look++)
+        {
+            await Task.Delay(LookBeforeTypingGap, Clock);
+            (reading, text) = composerRegion();
+        }
+        return (ready(reading, text), reading, text);
+    }
+
+    /// <summary>
+    /// A composer that is "not found" on a screen that rendered NOTHING is not evidence of anything: an empty capture is a
+    /// broken instrument, never a reading (the rule <see cref="ReadScreen"/> and <see cref="ObserveComposerAsync"/> already
+    /// keep). Such a send is not refused for what it cannot see - it goes on as it did before this check existed. Only a
+    /// screen that drew something without a composer on it, or a menu, refuses.
+    /// </summary>
+    private static bool NothingRendered(ComposerReading reading, string driverTag, Func<string[]>? screenSnapshot)
+    {
+        if (reading != ComposerReading.NotFound || screenSnapshot is null || ReadScreen(screenSnapshot) is not null) return false;
+        SendTrail.Step(driverTag, "LookBeforeTyping: the screen has rendered nothing, so the composer cannot be judged - not refusing on it");
+        return true;
+    }
+
+    /// <summary>
+    /// Refuse the send, typing nothing, unless the composer is drawn: a menu, a dialog, or a screen with no composer on it
+    /// is never typed into. The refusal says what to do, sets no mark, and lasts exactly as long as the screen shows it.
+    /// </summary>
+    private static async Task RefuseUnlessComposerDrawnAsync(
+        string driverTag, Func<(ComposerReading Reading, string Text)> composerRegion, Func<string[]>? screenSnapshot)
+    {
+        var look = await LookAtComposerAsync(composerRegion, (r, _) => r is ComposerReading.Empty or ComposerReading.HoldsText);
+        if (look.Ready || NothingRendered(look.Reading, driverTag, screenSnapshot)) return;
+        SendTrail.Step(driverTag, $"LookBeforeTyping: the composer is not drawn ({look.Reading}) after {LookBeforeTypingLooks} looks - " +
+                                  $"nothing is typed. {RegionForTrail(composerRegion)}");
+        var what = look.Reading == ComposerReading.MenuOpen
+            ? "the agent is showing a menu or a dialog where its composer should be - it may be asking a question"
+            : "the agent's composer is not on the screen - a full-screen view or a dialog may be open";
+        throw new ComposerNotAcceptingInputException(
+            $"[{driverTag}] LookBeforeTyping: nothing was typed: {what}. Answer or close it on the session's screen, then send " +
+            "again.")
+        { TerminalReacted = false };
+    }
+
+    /// <summary>
+    /// Refuse the send, typing nothing, while the composer holds text that is not this product's own: typing would send
+    /// the new text and that text as one prompt. The text is left exactly as it is.
+    /// </summary>
+    private static async Task RefuseUnlessComposerEmptyAsync(
+        string driverTag, Func<(ComposerReading Reading, string Text)> composerRegion, Func<string[]>? screenSnapshot)
+    {
+        var look = await LookAtComposerAsync(composerRegion, PromptArrival.ComposerHoldsNothing);
+        if (look.Ready || NothingRendered(look.Reading, driverTag, screenSnapshot)) return;
+        SendTrail.Step(driverTag, $"LookBeforeTyping: the composer holds text this send did not type ({look.Reading}) after " +
+                                  $"{LookBeforeTypingLooks} looks - nothing is typed and nothing is cleared. {RegionForTrail(composerRegion)}");
+        if (look.Reading is not (ComposerReading.Empty or ComposerReading.HoldsText))
+            throw new ComposerNotAcceptingInputException(
+                $"[{driverTag}] LookBeforeTyping: nothing was typed: the agent's composer stopped being readable ({look.Reading}). " +
+                "Look at the session's screen, then send again.")
+            { TerminalReacted = false };
+        throw new ComposerNotAcceptingInputException(
+            $"[{driverTag}] LookBeforeTyping: nothing was typed: the composer already holds {look.Text.Trim().Length} characters " +
+            "that were never sent, and typing now would send them and this prompt as one. Send or clear that text on the " +
+            "session's screen, then send again.")
+        { TerminalReacted = false };
     }
 
     /// <summary>

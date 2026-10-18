@@ -64,6 +64,17 @@ function renderAt(path: string) {
 
 const ZIP = new File(["PK"], "eric-factory.zip", { type: "application/zip" });
 
+const ERIC = {
+  id: "eric",
+  title: "Eric",
+  text: "Eric - draft, not published yet",
+  lineText: "l",
+  href: "/factories/eric/definition",
+  stateWord: "DRAFT (fixture)",
+  stateTone: "grey" as const,
+  seatCountText: "3 seats (fixture)",
+};
+
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -109,33 +120,49 @@ describe("New factory on the Factories screen", () => {
     expect(screen.getByTestId("where").textContent).toBe("/factories");
   });
 
-  it("shows the factories not published yet under the list, in the Gateway's words, each opening its page", async () => {
+  it("shows the factories not published yet as cards under the list, in the Gateway's words, each opening its page", async () => {
     screenClient.getFactoriesList.mockResolvedValue({
       ...FACTORY_LIST,
       draftTitle: "Not published yet",
-      draftRows: [
-        { id: "eric", title: "Eric", text: "Eric - draft, not published yet", lineText: "Version 1, a draft, 3 files. (fixture)", href: "/factories/eric/definition" },
-      ],
+      draftRows: [{ ...ERIC, lineText: "Version 1, a draft, 3 files. (fixture)" }],
     });
     renderAt("/factories");
 
     const drafts = await screen.findByTestId("fa-drafts");
     expect(within(drafts).getByText("Not published yet")).toBeTruthy();
-    expect(within(drafts).getByText("Version 1, a draft, 3 files. (fixture)")).toBeTruthy();
-    expect(within(drafts).getByText("Eric - draft, not published yet").getAttribute("href")).toBe("/factories/eric/definition");
+    const card = within(drafts).getByTestId("fa-draft-eric");
+    expect(within(card).getByText("Version 1, a draft, 3 files. (fixture)")).toBeTruthy();
+    expect(within(card).getByText("DRAFT (fixture)")).toBeTruthy();
+    expect(within(card).getByText("3 seats (fixture)")).toBeTruthy();
+    const name = within(card).getByText("Eric");
+    expect(name.getAttribute("href")).toBe("/factories/eric/definition");
+    expect(name.getAttribute("title")).toBe("Eric - draft, not published yet");
   });
 
-  it("shows the draft rows and New factory when no factory is registered yet", async () => {
+  it("leads with the drafts when nothing is published, the Gateway's empty sentence under them", async () => {
     screenClient.getFactoriesList.mockResolvedValue({
       ...FACTORY_LIST,
       rows: [],
       emptyText: "No factory yet (fixture).",
-      draftRows: [{ id: "eric", title: "Eric", text: "Eric - draft, not published yet", lineText: "l", href: "/factories/eric/definition" }],
+      draftRows: [ERIC],
     });
     renderAt("/factories");
 
     expect(await screen.findByTestId("fa-new-factory-button")).toBeTruthy();
-    expect(screen.getByTestId("fa-draft-eric")).toBeTruthy();
+    const draft = screen.getByTestId("fa-draft-eric");
+    const note = screen.getByTestId("fa-empty-note");
+    expect(note.textContent).toBe("No factory yet (fixture).");
+    // The drafts come first; the empty sentence, then the secondary part, follow.
+    expect(draft.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note.compareDocumentPosition(screen.getByTestId("fa-secondary")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the empty state itself when there is neither a factory nor a draft", async () => {
+    screenClient.getFactoriesList.mockResolvedValue({ ...FACTORY_LIST, rows: [], emptyText: "No factory yet (fixture).", draftRows: [] });
+    renderAt("/factories");
+
+    expect(await screen.findByText("No factory yet (fixture).")).toBeTruthy();
+    expect(screen.queryByTestId("fa-empty-note")).toBeNull();
   });
 
   it("shows no draft section when the Gateway sends no draft row", async () => {

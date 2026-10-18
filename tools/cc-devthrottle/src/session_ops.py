@@ -241,7 +241,14 @@ def resolve_target_or_current(target: Optional[str], command_name: str = "the co
 SESSION_STATES = ("needs-you", "working", "ready", "snoozed", "crashed")
 
 # Every field `session list --fields` accepts, and the four shown when it is not given.
-SESSION_LIST_FIELDS = ("id", "name", "state", "repo", "machine", "number", "model", "agent", "mission", "path")
+SESSION_LIST_FIELDS = (
+    "id", "name", "state", "repo", "machine", "number", "model", "agent", "mission", "path", "connection",
+)
+
+# How a session is connected (API mode mission, #4070): the words the Gateway's contract uses, which are also the
+# values of `session spawn --connection` and `session list --connection`. A row without the field is terminal - that
+# is all a Gateway or Director older than API mode ever does.
+CONNECTION_MODES = ("terminal", "api")
 SESSION_LIST_DEFAULT_FIELDS = ("id", "name", "state", "repo")
 
 # The roster's triage buckets this tool knows how to read (SessionOrdering on the Gateway).
@@ -309,7 +316,25 @@ def _session_record(s: Dict[str, Any], state: str) -> Dict[str, object]:
         "agent": gateway.field(s, "agent", "Agent") or None,
         "mission": gateway.field(s, "missionName", "MissionName") or None,
         "path": repo_path or None,
+        "connection": _connection_of(s),
     }
+
+
+def _connection_of(s: Dict[str, Any]) -> str:
+    """The row's connection mode word: terminal or api. Absent is terminal (an older Gateway sends none)."""
+    return gateway.field(s, "connectionMode", "ConnectionMode") or "terminal"
+
+
+def parse_connection(value: Optional[str], flag: str) -> Optional[str]:
+    """A `--connection` value, checked: terminal or api, else exit 2 naming the valid words. None stays None."""
+    if value is None:
+        return None
+    word = value.strip()
+    if word not in CONNECTION_MODES:
+        _usage_error(
+            f"unknown {flag} value '{axi_output.escape_ascii(value)}'. Valid values: {', '.join(CONNECTION_MODES)}"
+        )
+    return word
 
 
 _usage_error = usage_errors.usage_error
@@ -370,20 +395,22 @@ def list_sessions(
     repo: Optional[str] = None,
     machine: Optional[str] = None,
     fields: Optional[str] = None,
+    connection: Optional[str] = None,
 ) -> None:
-    """List every session running across the fleet, optionally narrowed by state, repository or machine."""
+    """List every session running across the fleet, optionally narrowed by state, repository, machine or connection."""
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
     if json_output and fields is not None:
         _usage_error(axi_cli.FIELDS_WITH_JSON)
     chosen_fields = usage_errors.parse_fields(fields, SESSION_LIST_FIELDS, SESSION_LIST_DEFAULT_FIELDS)
     wanted_states = _parse_states(state)
+    wanted_connection = parse_connection(connection, "--connection")
     for flag, value in (("--repo", repo), ("--machine", machine)):
         if value is not None and not value.strip():
             _usage_error(f"{flag} needs a value.")
 
     sessions, complete, reason, stale_caution = _get_fleet()
     caveat = _roster_caveat(complete, reason)
-    filtered = wanted_states is not None or repo is not None or machine is not None
+    filtered = wanted_states is not None or repo is not None or machine is not None or wanted_connection is not None
 
     # The state is folded only where it is needed, so an unfiltered --json never depends on the fold:
     # it prints exactly what the Gateway sent, as it always has.
@@ -397,6 +424,7 @@ def list_sessions(
         if (wanted_states is None or st in wanted_states)
         and (repo is None or _matches_repo(s, repo))
         and (machine is None or _matches_machine(s, machine))
+        and (wanted_connection is None or _connection_of(s) == wanted_connection)
     ]
 
     if json_output:
@@ -2047,8 +2075,11 @@ def spawn_session(
     # NOT named `director`: this module's Director-client is imported under that name and a parameter
     # would shadow it, breaking every gateway.post_json call in here.
     director_target: Optional[str] = None,
+    connection: Optional[str] = None,
 ) -> None:
     """Open a new session here, on another computer (--machine), or on one named Director (--director)."""
+    # Checked first, like every other usage error: an unknown word is the caller's to fix before anything starts.
+    connection_mode = parse_connection(connection, "--connection")
     if prompt:
         # Checked before anything is read or started: a first prompt is a message to the new session.
         secret_guard.refuse_if_it_carries_a_secret(prompt, "first prompt")
@@ -2204,6 +2235,11 @@ def spawn_session(
     # fetch its conduct at exactly that version. A mission spawn auto-seats without this flag.
     if workflow_run:
         body["workflowRunId"] = workflow_run
+    # How the agent is driven (API mode mission, #4070). Sent only when asked, so a plain spawn's request is unchanged.
+    # Whether API mode is offered, and whether this agent has it, is the Gateway's and the Director's to answer - each
+    # refuses in words, and that sentence is what the caller sees.
+    if connection_mode is not None:
+        body["connectionMode"] = connection_mode
 
     # "Start a session on some computer." Every spawn - including one on this very machine - goes to the
     # Gateway's POST /machines/{machine}/sessions, which picks a Director on that machine (auto-launching

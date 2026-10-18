@@ -49,7 +49,8 @@ Today one factory lives in six places (diagram 2). What that costs, each seen on
 
 True at the end, each shown in a QA report with the flow AND the failure cases:
 
-1. A factory's definition can be read, saved as a draft, published by a person, listed by version, compared between
+1. A factory's definition can be read, saved as a draft, published (by a person, or by a session in no factory that the
+   owner told to - the owner's ruling of 16 October 2026, phase 6c), listed by version, compared between
    two versions, and restored, from the command line and the Cockpit (desktop; the phone has no factory page today
    and gets none in this mission).
 2. A publish is checked as a whole first: an unknown key, a reference that does not resolve, or a secret name the
@@ -179,8 +180,16 @@ seat is named in `factory.yaml`).
   content is never edited; the only later change is the publish mark, set once.
 - **Caps** per file and per version, never on history. Starting values for phase 0 to confirm: 256 KB per file,
   4 MB per version.
-- **Who writes (R7, Factory Seats P3):** a person, or a session of that factory, saves a draft. Only a person publishes.
-  A session's publish is refused with the sentence briefs already use.
+- **Who writes (R7, and the owner's ruling of 16 October 2026, phase 6c):** a person, a session in no factory, or a
+  session of that factory saves a draft. A person, or a session in no factory, creates a factory, publishes and
+  restores. A factory's own session never publishes, restores or creates a factory, and is refused in words. The
+  ruling: "Factories are created by agents as long as they have user approval." The owner creates factories by telling
+  a session what to make, and his word in that session is the approval; the Gateway asks for nothing more. What R7
+  forbids is a factory's OWN seat doing it: "Factory agents can be written by large language models, but it's the user
+  driving it." This replaced the earlier reading here, "only a person publishes", which was never the owner's rule:
+  phases 1 to 6 shipped it as "the caller is a browser or a phone", and phase 6c removed it.
+- **Each publish records** who published it: the person, or the session's id and its name at that moment. The
+  Definition tab's history says it in words.
 - **Each version records** who wrote it (person, or which session), when, and a change note.
 - **Checked on save and on publish:** the schema; every reference resolves (each seat's grants, rule sets, skills,
   files and repository exist; the boss seat exists with the role Boss; a schedule names a seat; a machine is
@@ -353,8 +362,10 @@ it forgets everything between runs; and a time-of-day schedule cannot have one.
   08:00 email, the two places the owner reads; today a failed trigger check only turns the trigger red and writes an
   activity row.
 - **Who can make a check run.** A check is code that runs on a person's machine with that person's rights, so it runs
-  only from a PUBLISHED version, and only a person publishes (R7). A session may write a check into a draft; it never
-  runs until a person has published it, and "what changes" shows the check's full text difference.
+  only from a PUBLISHED version, and a factory's own session never publishes (R7, and the owner's ruling of 16 October
+  2026: the owner publishes, himself or through a session in no factory that he tells to). A factory's session may
+  write a check into a draft; it never runs until it is published, and "what changes" shows the check's full text
+  difference.
 - **A check decides, it does not act (A10).** It reads, counts and remembers. Sending, writing records or changing
   anything else is the agent's job, under the factory's rules and grants. A check that does the whole job is a
   different thing - a script with no agent at all - and is not in this mission.

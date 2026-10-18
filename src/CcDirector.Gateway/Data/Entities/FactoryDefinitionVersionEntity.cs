@@ -68,8 +68,17 @@ public sealed class FactoryDefinitionVersionEntity : TenantScopedEntity
     /// <summary>When this version was published (UTC), or null while it is a draft.</summary>
     public DateTime? PublishedAtUtc { get; set; }
 
-    /// <summary>The identifier of the person who published it, when it is known. Only a person publishes.</summary>
+    /// <summary>The identifier of whoever published it, when it is known: the person's identifier, or the publishing
+    /// session's id. A person, or a session in no factory, publishes (the owner's ruling of 16 October 2026).</summary>
     public string? PublishedBy { get; set; }
+
+    /// <summary>Who published it: <c>person</c> or <c>session</c> (<see cref="FactoryMemoryAuthorKinds"/>). Null while it
+    /// is a draft, and on a version published before this was recorded - every one of those was published by a person.</summary>
+    public string? PublishedByKind { get; set; }
+
+    /// <summary>The publishing session's name as it was at the moment of the publish, so the history says which session
+    /// it was in words. Null for a person, for a draft, and for a session that had no name.</summary>
+    public string? PublishedByName { get; set; }
 }
 
 /// <summary>The two states a version of a definition can be in.</summary>

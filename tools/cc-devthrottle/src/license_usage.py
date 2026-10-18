@@ -38,8 +38,25 @@ on are:
   does not extend it. A spare needs a new sign-in before then, so `signInExpiresAtUtc` is reported;
 - a spent refresh token answers 400 `invalid_grant`, and trying one did not harm the current one.
 
-It never refreshes the ACTIVE key: running Claude Code sessions own that key and renew it themselves
-under their own lock, and a second refresher would rotate it from under them (MISSION.md trap 2).
+ACTIVE REFRESH (phase 6). The ACTIVE key is renewed the same way, in place, but only when that cannot
+pull the key out from under a running Claude Code session. What Claude Code 2.1.302 does was read from
+its binary (missions/license-switching/phase-6/track-b/active-renewal.md has the evidence):
+
+- a session renews its key only on its way to an API call, when under 5 minutes are left, holding a lock
+  Claude Code takes on the config folder: the folder `<config>/.oauth_refresh.lock`, made with mkdir and
+  stale after 60 seconds, plus a legacy `<config>.lock` beside the folder;
+- after taking that lock, and again after any 401, it reads the stored key again and uses the newer one
+  if the stored key changed - so a key renewed under it is picked up, not fought over;
+- every running session registers itself as `<config>/sessions/<pid>.json` and removes it when it ends
+  (a session that is killed leaves its record behind, so a record counts only while its process lives).
+
+So `refresh_key` renews the active key when its access token has under REFRESH_MARGIN_SECONDS left
+AND no live session is registered in the default folder - or once the token has already expired, when no
+session can be using it. It holds the key store's lock and Claude Code's own two locks from reading the
+refresh token to writing the renewed key, so it never runs inside a session's renewal, and a session that
+wants to renew meanwhile waits for it and then finds the renewed key. A session that is running with time
+left renews its key itself; nothing is done for it. The key exists in one place throughout: it is read,
+renewed and rewritten where it lives.
 
 THE KEY ITSELF IS NEVER SHOWN. No access token or refresh token is printed, logged, put in an exception
 message, or sent anywhere but as the Bearer header to api.anthropic.com and the refresh token to the
@@ -96,6 +113,21 @@ READ_ERRORS = (UNAUTHORIZED, REFRESH_FAILED, RATE_LIMITED, NETWORK, UNEXPECTED_A
 #: Why a refresh did not happen, beyond the read-error codes.
 REFUSED_ACTIVE = "active"
 BUSY = "busy"
+#: The active key was not renewed because a Claude Code session is using it and its token is still alive:
+#: the session renews it itself. Not a failure.
+IN_USE = "in-use"
+
+#: Claude Code's own refresh lock (read from Claude Code 2.1.302): a folder made with mkdir inside the config
+#: folder, and a legacy one named `<config folder>.lock` beside it. Both are held while a key is renewed.
+CLAUDE_REFRESH_LOCK = ".oauth_refresh.lock"
+#: Claude Code treats its lock as abandoned when the folder was not touched for this long (its `stale`), and so
+#: does this module. A renewal here holds it for at most one HTTP call (HTTP_TIMEOUT_SECONDS), well inside it.
+CLAUDE_LOCK_STALE_SECONDS = 60
+#: Where every running Claude Code registers itself: `<config>/sessions/<pid>.json`.
+CLAUDE_SESSIONS_DIR = "sessions"
+#: A session record's `startedAt` is written just after its process started. A process that started later than
+#: this after it cannot be the one that wrote it - the number was used again by another process.
+SESSION_START_SLACK_SECONDS = 5
 
 ROLE_ACTIVE = "active"
 ROLE_SPARE = "spare"
@@ -295,6 +327,159 @@ def _millis_to_seconds(value: Any) -> Optional[float]:
 
 
 # ---------------------------------------------------------------------------------------------------
+# Is a Claude Code session using a config folder?
+# ---------------------------------------------------------------------------------------------------
+
+
+def process_started_at(pid: int) -> Optional[float]:
+    """When process `pid` started, in seconds since 1970; None when no such process is running. A process that
+    exists but whose start cannot be read (another user's) answers 0.0, so it still counts as running."""
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        return _windows_process_started_at(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        return 0.0
+    if Path("/proc/stat").is_file():
+        return _linux_process_started_at(pid, Path("/proc"))
+    import subprocess
+
+    answer = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=10,
+                            env={**os.environ, "LC_ALL": "C", "TZ": "UTC"})
+    if answer.returncode != 0 or not answer.stdout.strip():
+        return None
+    return datetime.strptime(" ".join(answer.stdout.split()), "%a %b %d %H:%M:%S %Y").replace(
+        tzinfo=timezone.utc).timestamp()
+
+
+def _linux_process_started_at(pid: int, proc_root: Path) -> Optional[float]:
+    """The Linux reader, from `proc_root` (the real one is /proc). A process that exits while it is being read
+    answers None, not running: its folder under `proc_root` goes with it, between any two reads."""
+    try:
+        line = (proc_root / str(pid) / "stat").read_text()
+    except FileNotFoundError:
+        return None
+    # Field 22 is the start in clock ticks after boot; the fields after the command name, which is in
+    # parentheses and may hold spaces, start at field 3.
+    ticks = int(line.rsplit(")", 1)[1].split()[19])
+    boot = next(float(row.split()[1]) for row in (proc_root / "stat").read_text().splitlines()
+                if row.startswith("btime "))
+    return boot + ticks / os.sysconf("SC_CLK_TCK")
+
+
+def _windows_process_started_at(pid: int) -> Optional[float]:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    process_query_limited_information, still_active, access_denied = 0x1000, 259, 5
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return 0.0 if ctypes.get_last_error() == access_denied else None
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != still_active:
+            return None
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return 0.0
+        created = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        return created / 10_000_000 - 11_644_473_600  # 100-nanosecond steps since 1601 -> seconds since 1970
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+ProcessStartedAt = Callable[[int], Optional[float]]
+
+
+def claude_sessions_in_use(folder: Path, started_at: ProcessStartedAt = process_started_at) -> List[int]:
+    """The process numbers of the Claude Code sessions registered in `<folder>/sessions/` that are running now.
+
+    A record counts while its process lives and started no later than the record says it did (plus
+    SESSION_START_SLACK_SECONDS); a record whose process is gone, or whose number another process took since, is
+    left from a session that was killed and does not count. A record that cannot be read counts as in use - not
+    knowing is never read as "no session"."""
+    sessions = folder / CLAUDE_SESSIONS_DIR
+    if not sessions.is_dir():
+        return []
+    live: List[int] = []
+    for record in sorted(sessions.glob("*.json")):
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+            pid, registered = int(data["pid"]), float(data["startedAt"]) / 1000.0
+        except (OSError, ValueError, KeyError, TypeError):
+            log.info("sessions: %s cannot be read, so it counts as a session in use", record.name)
+            live.append(-1)
+            continue
+        began = started_at(pid)
+        if began is not None and began <= registered + SESSION_START_SLACK_SECONDS:
+            live.append(pid)
+    return live
+
+
+# ---------------------------------------------------------------------------------------------------
+# Claude Code's own refresh lock
+# ---------------------------------------------------------------------------------------------------
+
+
+class ClaudeLockBusy(Exception):
+    """A Claude Code session holds its refresh lock on the config folder."""
+
+
+def _claude_lock_paths(folder: Path) -> List[Path]:
+    real = os.path.realpath(folder)
+    return [folder / CLAUDE_REFRESH_LOCK, Path(f"{real}.lock")]
+
+
+def _take_claude_lock(path: Path, now: Callable[[], float]) -> None:
+    try:
+        os.mkdir(path)
+        return
+    except FileExistsError:
+        pass
+    try:
+        age = now() - path.stat().st_mtime
+    except FileNotFoundError:
+        age = None  # released a moment ago
+    if age is not None and age <= CLAUDE_LOCK_STALE_SECONDS:
+        raise ClaudeLockBusy(f"a Claude Code session holds its refresh lock {path}")
+    if age is not None:
+        log.info("refresh: %s was left by a Claude Code session that ended (untouched for %d seconds); taking it",
+                 path, int(age))
+        try:
+            os.rmdir(path)
+        except FileNotFoundError:
+            pass
+    try:
+        os.mkdir(path)
+    except FileExistsError:
+        raise ClaudeLockBusy(f"a Claude Code session took its refresh lock {path}") from None
+
+
+@contextmanager
+def claude_refresh_lock(folder: Path, now: Callable[[], float] = time.time) -> Iterator[None]:
+    """Hold Claude Code's refresh lock on `folder` - the folder inside it and the legacy one beside it, taken in
+    Claude Code's order. Raises ClaudeLockBusy, holding nothing, when a session holds either."""
+    taken: List[Path] = []
+    try:
+        for path in _claude_lock_paths(folder):
+            _take_claude_lock(path, now)
+            taken.append(path)
+        yield
+    finally:
+        for path in reversed(taken):
+            try:
+                os.rmdir(path)
+            except FileNotFoundError:
+                pass
+
+
+# ---------------------------------------------------------------------------------------------------
 # Usage
 # ---------------------------------------------------------------------------------------------------
 
@@ -470,24 +655,25 @@ def read_usage(key: KeyHandle, http_get: HttpGet = _requests_get, now: Callable[
 
 def read_with_refresh(key: KeyHandle, http_get: HttpGet = _requests_get,
                       http_post_json: Optional[HttpPostJson] = None,
-                      now: Callable[[], float] = time.time) -> UsageReading:
-    """A spare's reading, after renewing its key when it is due. A renewal that fails is the reading's
-    `refresh-failed`; nothing is read with a key that could not be renewed. The active key is read as
-    it is - the sessions using it keep it fresh."""
-    if key.role == ROLE_SPARE:
-        try:
-            refresh_spare(key, http_post_json=http_post_json or _requests_post_json, now=now)
-        except RefreshError as ex:
-            if ex.kind == STORE_UNREADABLE:
-                return _failed(_new_reading(key), STORE_UNREADABLE, str(ex))
-            if ex.kind == BUSY:
-                # A switch is running: nothing was sent, so the key is as good as it was. It is read as it
-                # is and renewed on the next round. Calling it refresh-failed would bar a usable spare.
-                log.info("usage %s: refresh skipped, the key store is busy", key.account.lower())
-            elif ex.kind != REFUSED_ACTIVE:
-                # REFUSED_ACTIVE: a switch made this account active since the list was read; the sessions
-                # now keep it fresh, so it is simply read.
-                return _failed(_new_reading(key), REFRESH_FAILED, str(ex))
+                      now: Callable[[], float] = time.time,
+                      sessions_in_use: Callable[[Path], List[int]] = claude_sessions_in_use) -> UsageReading:
+    """A holding's reading, after renewing its key when it is due (`refresh_key`): a spare by `refresh_spare`'s
+    rule, the active key by the ACTIVE REFRESH rule at the top of this module. A renewal that fails is the
+    reading's `refresh-failed` - the account needs a new sign-in - and nothing is read with a key that could not
+    be renewed."""
+    try:
+        refresh_key(key, http_post_json=http_post_json or _requests_post_json, now=now,
+                    sessions_in_use=sessions_in_use)
+    except RefreshError as ex:
+        if ex.kind == STORE_UNREADABLE:
+            return _failed(_new_reading(key), STORE_UNREADABLE, str(ex))
+        if ex.kind == BUSY:
+            # A switch, or a Claude Code session's own renewal, is running: nothing was sent, so the key is as
+            # good as it was. It is read as it is and renewed on the next round. Calling it refresh-failed would
+            # bar a usable key.
+            log.info("usage %s: refresh skipped, %s", key.account.lower(), ex)
+        else:
+            return _failed(_new_reading(key), REFRESH_FAILED, str(ex))
     return read_usage(key, http_get, now)
 
 
@@ -546,6 +732,12 @@ def refresh_spare(
     account = key.account.lower()
     try:
         with key.exclusive():
+            if key.role != ROLE_SPARE:
+                raise RefreshError(
+                    REFUSED_ACTIVE,
+                    f"{account} is the ACTIVE account. It is renewed by the Director's usage read only when no "
+                    "Claude Code session is using it, never by this command.",
+                )
             return _refresh_holding_the_lock(key, account, force, http_post_json, now)
     except StoreBusy as ex:
         raise RefreshError(BUSY, f"The key store is busy, so {account} was not refreshed this time: {ex}") from None
@@ -553,14 +745,59 @@ def refresh_spare(
         raise RefreshError(STORE_UNREADABLE, str(ex)) from None
 
 
-def _refresh_holding_the_lock(key: KeyHandle, account: str, force: bool, http_post_json: HttpPostJson,
-                              now: Callable[[], float]) -> RefreshResult:
-    if key.role != ROLE_SPARE:
-        raise RefreshError(
-            REFUSED_ACTIVE,
-            f"{account} is the ACTIVE account. The Claude Code sessions using it renew its key themselves, "
-            "and a second renewal would rotate the key from under them.",
-        )
+def refresh_key(
+    key: KeyHandle,
+    *,
+    http_post_json: HttpPostJson = _requests_post_json,
+    now: Callable[[], float] = time.time,
+    sessions_in_use: Callable[[Path], List[int]] = claude_sessions_in_use,
+) -> RefreshResult:
+    """Renew `key` when it is due, by the rule for the role it has NOW (read under the key store's lock, so a
+    switch since the list was read is seen): a spare as `refresh_spare` does, the active key by the ACTIVE
+    REFRESH rule at the top of this module. Raises RefreshError."""
+    account = key.account.lower()
+    try:
+        with key.exclusive():
+            if key.role == ROLE_SPARE:
+                return _refresh_holding_the_lock(key, account, False, http_post_json, now)
+            return _refresh_active_holding_the_lock(key, account, http_post_json, now, sessions_in_use)
+    except StoreBusy as ex:
+        raise RefreshError(BUSY, f"The key store is busy, so {account} was not refreshed this time: {ex}") from None
+    except StoreUnreadable as ex:
+        raise RefreshError(STORE_UNREADABLE, str(ex)) from None
+
+
+def _refresh_active_holding_the_lock(key: KeyHandle, account: str, http_post_json: HttpPostJson,
+                                     now: Callable[[], float],
+                                     sessions_in_use: Callable[[Path], List[int]]) -> RefreshResult:
+    """The active key's renewal, holding the key store's lock. See ACTIVE REFRESH at the top of this module."""
+    oauth = _read_for_refresh(key, account)
+    expires = _millis_to_seconds(oauth.get("expiresAt"))
+    left = None if expires is None else expires - now()
+    if left is not None and left > REFRESH_MARGIN_SECONDS:
+        log.info("refresh %s (active): not needed (%d minutes left)", account, int(left // 60))
+        return _not_renewed(key, account, oauth, "not-needed")
+    if left is None or left > 0:
+        users = sessions_in_use(key.folder)
+        if users:
+            # The access token still works, so a session may be using it right now. It renews the key itself,
+            # under its own lock, before the token ends; a renewal from here would end that token mid-turn.
+            log.info("refresh %s (active): left to the %d Claude Code session(s) using it", account, len(users))
+            return _not_renewed(key, account, oauth, IN_USE)
+    try:
+        with claude_refresh_lock(key.folder, now):
+            # A session may have renewed the key between the read above and taking its lock: read again, as
+            # Claude Code itself does under this lock, and use what it wrote.
+            current = _read_for_refresh(key, account)
+            if current.get("accessToken") != oauth.get("accessToken"):
+                log.info("refresh %s (active): a Claude Code session renewed it first", account)
+                return _not_renewed(key, account, current, "renewed-by-a-session")
+            return _renew(key, account, current, "active-due", now, http_post_json, what="the active account")
+    except ClaudeLockBusy as ex:
+        raise RefreshError(BUSY, f"{account} was not renewed this time: {ex}") from None
+
+
+def _read_for_refresh(key: KeyHandle, account: str) -> Dict[str, Any]:
     try:
         oauth = key.read_oauth()
     except StoreUnreadable as ex:
@@ -568,14 +805,36 @@ def _refresh_holding_the_lock(key: KeyHandle, account: str, force: bool, http_po
     refresh_token = oauth.get("refreshToken")
     if not isinstance(refresh_token, str) or not refresh_token:
         raise RefreshError(STORE_UNREADABLE, f"The stored sign-in for {account} has no refresh token.")
+    return oauth
+
+
+def _not_renewed(key: KeyHandle, account: str, oauth: Dict[str, Any], reason: str) -> RefreshResult:
+    expires = _millis_to_seconds(oauth.get("expiresAt"))
     sign_in_ends = _millis_to_seconds(oauth.get("refreshTokenExpiresAt"))
+    return RefreshResult(account, str(key.folder), False, reason, None if expires is None else iso_utc(expires),
+                         sign_in_expires_at_utc=None if sign_in_ends is None else iso_utc(sign_in_ends))
+
+
+def _refresh_holding_the_lock(key: KeyHandle, account: str, force: bool, http_post_json: HttpPostJson,
+                              now: Callable[[], float]) -> RefreshResult:
+    """A spare's renewal, holding the key store's lock: when it is due, or always with `force`."""
+    oauth = _read_for_refresh(key, account)
     expires = _millis_to_seconds(oauth.get("expiresAt"))
     left = None if expires is None else expires - now()
     if not force and left is not None and left > REFRESH_MARGIN_SECONDS:
         log.info("refresh %s: not needed (%d minutes left)", account, int(left // 60))
-        return RefreshResult(account, str(key.folder), False, "not-needed", iso_utc(expires),
-                             sign_in_expires_at_utc=None if sign_in_ends is None else iso_utc(sign_in_ends))
+        return _not_renewed(key, account, oauth, "not-needed")
+    return _renew(key, account, oauth, "forced" if force else "due", now, http_post_json, what="this spare")
 
+
+def _renew(key: KeyHandle, account: str, oauth: Dict[str, Any], reason: str, now: Callable[[], float],
+           http_post_json: HttpPostJson, *, what: str) -> RefreshResult:
+    """Post the stored refresh token exactly as Claude Code does and write the answer back in the same place.
+    `what` names the holding in a failure ("this spare", "the active account")."""
+    refresh_token = oauth["refreshToken"]
+    sign_in_ends = _millis_to_seconds(oauth.get("refreshTokenExpiresAt"))
+    expires = _millis_to_seconds(oauth.get("expiresAt"))
+    left = None if expires is None else expires - now()
     scopes = oauth.get("scopes")
     payload: Dict[str, Any] = {
         "grant_type": "refresh_token",
@@ -596,7 +855,7 @@ def _refresh_holding_the_lock(key: KeyHandle, account: str, force: bool, http_po
         raise RefreshError(
             UNAUTHORIZED,
             f"The token endpoint refused the refresh token for {account} (HTTP {answer.status}"
-            f"{_oauth_error_code(answer.body)}); this spare needs a new sign-in.",
+            f"{_oauth_error_code(answer.body)}); {what} needs a new sign-in.",
         )
     if answer.status == 429:
         raise RefreshError(RATE_LIMITED, "The token endpoint asked for fewer requests (HTTP 429).")
@@ -637,11 +896,11 @@ def _refresh_holding_the_lock(key: KeyHandle, account: str, force: bool, http_po
         raise RefreshError(
             UNEXPECTED_ANSWER,
             f"The renewed key for {account} could not be written ({failure}); "
-            + ("the server rotated the refresh token, so this spare needs a new sign-in."
+            + (f"the server rotated the refresh token, so {what} needs a new sign-in."
                if rotated else "the stored key is unchanged."),
         ) from None
     log.info("refresh %s: renewed, expires %s, refresh token rotated: %s", account, iso_utc(new_expires), rotated)
-    return RefreshResult(account, str(key.folder), True, "forced" if force else "due", iso_utc(new_expires),
+    return RefreshResult(account, str(key.folder), True, reason, iso_utc(new_expires),
                          rotated, None if sign_in_ends is None else iso_utc(sign_in_ends))
 
 

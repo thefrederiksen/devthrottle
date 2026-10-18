@@ -11,6 +11,8 @@ import {
 } from "@devthrottle/client-core/api/client";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
+import ConnectionChoiceRow from "@devthrottle/client-core/sessions/ConnectionChoiceRow";
+import { connectionToSend, TERMINAL_CONNECTION } from "@devthrottle/client-core/sessions/connectionChoice";
 
 const SURFACE = "mobile-new-session";
 
@@ -92,6 +94,8 @@ export function NewSession() {
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [agentReload, setAgentReload] = useState(0);
   const [selectedAgentType, setSelectedAgentType] = useState<string | null>(null);
+  // How the session is connected (API mode mission #4070): terminal by default, every time, never remembered.
+  const [connection, setConnection] = useState<string>(TERMINAL_CONNECTION);
 
   const [knownRepositories, setKnownRepositories] = useState<RepoInfo[] | null>(null);
   const [knownRepositoriesError, setKnownRepositoriesError] = useState<string | null>(null);
@@ -296,6 +300,7 @@ export function NewSession() {
     try {
       const session = await createSession(selectedId, selectedRepository.path, {
         agent: selectedAgent.type,
+        connectionMode: connectionToSend(selectedAgent, connection),
       });
       if (!session.sessionId) throw new Error("The created session had no identifier.");
       navigate("/session/" + encodeURIComponent(session.sessionId));
@@ -304,7 +309,7 @@ export function NewSession() {
       setCreating(false);
       createInFlightRef.current = false;
     }
-  }, [navigate, selectedAgent, selectedDirector, selectedId, selectedRepository]);
+  }, [navigate, selectedAgent, selectedDirector, selectedId, selectedRepository, connection]);
 
   const canReview = selectedDirector !== null && selectedAgent !== null && selectedRepository !== null;
   const repositoryListSettled = knownRepositories !== null;
@@ -601,6 +606,14 @@ export function NewSession() {
                 </dd>
               </div>
             </dl>
+            {/* Connection: Terminal | API mode - the shared row, drawn only for an agent the Gateway offers both. */}
+            <ConnectionChoiceRow
+              agent={selectedAgent}
+              chosen={connection}
+              onChoose={setConnection}
+              idPrefix="newsession"
+              disabled={creating}
+            />
             {createError !== null && <div className="banner banner-error" role="alert">{createError}</div>}
           </section>
         )}

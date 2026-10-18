@@ -43,7 +43,7 @@ public sealed class LicenseSignInLog
         string message, DateTime nowUtc, DateTime? signedInBeforeUtc = null)
     {
         ArgumentNullException.ThrowIfNull(machine);
-        if (reason is not (LicenseSignInReasons.Manual or LicenseSignInReasons.Renewal))
+        if (!LicenseSignInReasons.IsKnown(reason))
             throw new ArgumentException($"'{reason}' is not a sign-in reason.", nameof(reason));
         var now = Utc(nowUtc);
         var email = LicenseStore.NormalizeEmail(accountEmail);
@@ -97,6 +97,20 @@ public sealed class LicenseSignInLog
             .Where(r => r.Kind == Kind && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown))
             .ToList()
             .OrderBy(r => r.CreatedAtUtc).ThenBy(r => r.SwitchId, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>Every sign-in row written at or after <paramref name="sinceUtc"/>, open or ended, newest first. The
+    /// readiness check derives each machine's retry wait from these (<see cref="LicenseReadinessFold"/>), so the wait
+    /// survives a Gateway restart with no store of its own.</summary>
+    /// <remarks>Quiet, like <see cref="ListOpen"/>: the minute check reads it for every tenant every minute.</remarks>
+    public IReadOnlyList<LicenseSwitchLogEntity> ListSince(TenantId tenant, DateTime sinceUtc)
+    {
+        var since = Utc(sinceUtc);
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.LicenseSwitchLog.AsNoTracking()
+            .Where(r => r.Kind == Kind && r.CreatedAtUtc >= since)
+            .ToList()
+            .OrderByDescending(r => r.CreatedAtUtc).ThenBy(r => r.SwitchId, StringComparer.Ordinal).ToList();
     }
 
     /// <summary>Record that the command of an OPEN sign-in went out. False when the row is no longer open.</summary>

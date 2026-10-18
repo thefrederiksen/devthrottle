@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using CcDirector.Core.ApiMode;
+using CcDirector.TestInfrastructure;
 using Microsoft.Extensions.Time.Testing;
 using Xunit;
 
@@ -22,16 +23,15 @@ public sealed class ApiModeTransportEndingTests
     private static JsonObject Prompt() => new() { ["type"] = "prompt", ["message"] = "Reply with exactly the word PONG" };
 
     /// <summary>
-    /// Advance the fake clock until <paramref name="done"/> is complete. The transport arms its drain-grace timer on a
-    /// pool thread after it sees the exit, so the test cannot know the moment; it advances in small steps and yields.
+    /// Wait until the transport has armed its drain-grace timer, then move the clock past it in one step. The timer is
+    /// armed on a pool thread once the transport sees the exit, so the test waits for the clock's own signal that it
+    /// was armed (<paramref name="graceArmed"/>, taken before the exit) rather than counting turns: a counted loop runs
+    /// out first when the pool thread is late, and the test then waits for ever on a timer nobody moves.
     /// </summary>
-    private static async Task AdvanceUntilAsync(FakeTimeProvider time, Task done)
+    internal static async Task RunPastTheDrainGraceAsync(VirtualClock clock, Task graceArmed)
     {
-        for (var turn = 0; turn < 100_000 && !done.IsCompleted; turn++)
-        {
-            time.Advance(TimeSpan.FromSeconds(1));
-            await Task.Yield();
-        }
+        await graceArmed;
+        clock.Advance(new ApiModeTransportOptions().DrainGrace);
     }
 
     [Fact]
@@ -92,15 +92,16 @@ public sealed class ApiModeTransportEndingTests
     public async Task SendRequestAsync_ProcessExitedButTheEndIsNotReportedYet_FailsWithConnectionEndedAndTheExitCode()
     {
         // Arrange: a grandchild holds the pipes, so the end waits for the drain grace after the exit.
-        var time = new FakeTimeProvider();
+        var clock = new VirtualClock(DateTimeOffset.UnixEpoch);
         var process = new FakeApiModeProcess { ExitEndsStreams = false };
-        await using var transport = new ApiModeTransport(process, time);
+        await using var transport = new ApiModeTransport(process, clock);
         transport.Start(PiStart());
+        var graceArmed = clock.NextWaitStarted;
         process.Exit(1);
 
         // Act
         var send = transport.SendRequestAsync(Prompt(), CancellationToken.None);
-        await AdvanceUntilAsync(time, send);
+        await RunPastTheDrainGraceAsync(clock, graceArmed);
         var ex = await Assert.ThrowsAsync<ApiModeConnectionEndedException>(() => send);
 
         // Assert
@@ -211,12 +212,13 @@ public sealed class ApiModeTransportEndingTests
     {
         // Arrange: after the drain grace the reads are stopped; a stopped read on a closed Windows handle fails with an
         // error rather than a cancellation, and that must not be taken for a transport failure.
-        var time = new FakeTimeProvider();
+        var clock = new VirtualClock(DateTimeOffset.UnixEpoch);
         var process = new FakeApiModeProcess { ExitEndsStreams = false, CancelledReadFailure = new ObjectDisposedException("pipe") };
-        var transport = new ApiModeTransport(process, time);
+        var transport = new ApiModeTransport(process, clock);
         transport.Start(PiStart());
+        var graceArmed = clock.NextWaitStarted;
         process.Exit(0);
-        await AdvanceUntilAsync(time, transport.Ended);
+        await RunPastTheDrainGraceAsync(clock, graceArmed);
         var ended = await transport.Ended;
 
         // Act

@@ -184,3 +184,20 @@ describe("mobile roster card row line", () => {
     expect(container.querySelector(".row-inbox")).toBeNull();
   });
 });
+
+describe("mobile roster card connection tag", () => {
+  // API mode mission #4070, phase 5: the Gateway's "API mode" beside the agent it describes, rendered verbatim.
+  it("shows the Gateway's connection tag on an API-mode session", () => {
+    renderRow(session({ connectionMode: "api", connectionTag: "API mode" } as Partial<SessionDto>));
+
+    const chip = screen.getByTitle("Connection");
+    expect(chip.textContent).toBe("API mode");
+    expect(chip.className).toContain("row-chip-connection");
+  });
+
+  it("shows no connection chip on a terminal session, nor on a row the Gateway did not stamp", () => {
+    renderRow(session({ connectionMode: "api" } as Partial<SessionDto>));
+
+    expect(screen.queryByTitle("Connection")).toBeNull();
+  });
+});

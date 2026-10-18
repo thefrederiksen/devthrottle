@@ -471,14 +471,15 @@ public sealed class SessionHistoryStore
             using var ctx = _db.CreateContext();
             var row = ctx.SessionHistory.AsNoTracking()
                 .Where(e => e.SessionId == sessionId)
-                .Select(e => new { e.Factory, e.FactorySeat, e.FactoryDefinitionVersion })
+                .Select(e => new { e.Factory, e.FactorySeat, e.FactoryDefinitionVersion, e.SessionName })
                 .FirstOrDefault();
             if (row is null) return SessionFactoryLookup.NotKnown;
             // The seat and its version come with the factory (Factory Definition mission, phase 5): read in the
             // same one query, from the same row, so a child's seat is settled from the same answer as its factory.
-            return string.IsNullOrWhiteSpace(row.Factory)
+            // The name rides along (phase 6c): a publish by a session records it beside the session's id.
+            return (string.IsNullOrWhiteSpace(row.Factory)
                 ? SessionFactoryLookup.InNoFactory
-                : SessionFactoryLookup.In(row.Factory!, row.FactorySeat, row.FactoryDefinitionVersion);
+                : SessionFactoryLookup.In(row.Factory!, row.FactorySeat, row.FactoryDefinitionVersion)) with { Name = row.SessionName };
         }
     }
 

@@ -119,8 +119,8 @@ internal static class FleetMachinesFold
                 $"This launcher (version {machine.LauncherVersion}) is older than remote updates. It still installs a "
                 + "downloaded update by itself once the Director is empty.")
             : busy > 0 ? NotOffered("Update when empty",
-                $"{Plural(busy, "session")} running. The update installs by itself once the Director is empty, so no "
-                + "session is interrupted.")
+                $"{Plural(busy, "session")} running. Smart Restart on that Director installs it now, with every session "
+                + "handed over first; otherwise it installs by itself once the Director is empty.")
             : Offered("Update now", "Nothing is running, so the Director restarts straight into the new version. If the "
                 + "new version does not start, the previous one is put back.");
 

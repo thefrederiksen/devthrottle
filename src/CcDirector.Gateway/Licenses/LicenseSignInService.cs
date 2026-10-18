@@ -118,12 +118,15 @@ public sealed class LicenseSignInService
     /// Start one sign-in and return at once.
     /// </summary>
     /// <param name="reason"><see cref="LicenseSignInReasons.Manual"/> for "Add a spare",
-    /// <see cref="LicenseSignInReasons.Renewal"/> for "Renew now".</param>
+    /// <see cref="LicenseSignInReasons.Renewal"/> for "Renew now", and their automatic twins
+    /// <see cref="LicenseSignInReasons.AutomaticSpare"/> and <see cref="LicenseSignInReasons.AutomaticRenewal"/> when the
+    /// readiness check starts one with no person asking. Each is refused exactly as its person-asked twin is.</param>
     /// <param name="machineId">The machine's identifier as the overview gives it.</param>
     public LicenseSignInStart Start(TenantId tenant, string? accountEmail, string? machineId, string reason)
     {
-        if (reason is not (LicenseSignInReasons.Manual or LicenseSignInReasons.Renewal))
+        if (!LicenseSignInReasons.IsKnown(reason))
             throw new ArgumentException($"'{reason}' is not a sign-in reason.", nameof(reason));
+        var renewal = LicenseSignInReasons.IsRenewal(reason);
         var email = LicenseStore.NormalizeEmail(accountEmail);
         // Nothing the caller sent is written to the log before it has been checked.
         FileLog.Write($"[LicenseSignInService] Start: tenant={tenant.ToLogString()}, reason={reason}");
@@ -150,9 +153,9 @@ public sealed class LicenseSignInService
 
                 var held = machine.Holdings.FirstOrDefault(h => h.AccountEmail == email);
                 var holds = held is not null;
-                if (reason == LicenseSignInReasons.Manual && holds)
+                if (!renewal && holds)
                     return Refuse(StatusCodes.Conflict, "already_held", LicenseSignInFold.AlreadyHeldText(label, email));
-                if (reason == LicenseSignInReasons.Renewal && !holds)
+                if (renewal && !holds)
                     return Refuse(StatusCodes.Conflict, "not_held", LicenseSignInFold.NotHeldText(label, email));
                 if (_log.ListOpen(tenant).Any(r => r.MachineId == machine.MachineId && r.ToAccountEmail == email))
                     return Refuse(StatusCodes.Conflict, "sign_in_running", LicenseSignInFold.AlreadyRunningText(label, email));
@@ -353,7 +356,7 @@ public sealed class LicenseSignInService
         }
 
         var holding = machine.Holdings.FirstOrDefault(h => h.AccountEmail == row.ToAccountEmail);
-        var isRenewal = row.Reason == LicenseSignInReasons.Renewal;
+        var isRenewal = LicenseSignInReasons.IsRenewal(row.Reason);
         // A renewal was made when the sign-in's own time is not the one the machine had reported before the ask
         // (kept on the row). Two times of the machine's own clock are compared, never one with the Gateway's.
         var made = isRenewal

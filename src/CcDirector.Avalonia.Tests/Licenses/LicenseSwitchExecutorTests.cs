@@ -93,6 +93,7 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
     /// <summary>Account A active, account B spare; a switch exchanges them.</summary>
     private sealed class OneSpareTool : ILicenseCommandLine
     {
+        public bool IsInstalled => true;
         private string _active = "account-a@example.com";
         public List<string> Switches { get; } = new();
 
@@ -127,7 +128,12 @@ public sealed class LicenseSwitchExecutorTests : IDisposable
         public Task<LicenseSignInStart> StartSignInAsync(string accountEmail, bool askAnotherMachineWhenNoBrowser, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches() => Array.Empty<LicenseHandSwitch>();
+
         public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 }

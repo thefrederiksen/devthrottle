@@ -8,8 +8,13 @@ the factory:
                                 version, `--version N` for one by its number, `--file <path>` for one file's text
 - `factory definition history`  one page of the versions, newest first, without their content
 - `factory definition save`     save every file under a folder as a new DRAFT version
-- `factory definition publish`  make one version the published definition - a person's act
-- `factory definition restore`  publish a copy of an older version as the newest - a person's act
+- `factory definition create`   create a NEW factory from a folder or a zip: its first draft, checked; never published
+- `factory definition publish`  make one version the published definition
+- `factory definition restore`  publish a copy of an older version as the newest
+
+WHO MAY PUBLISH (the owner's ruling of 16 October 2026): "Factories are created by agents as long as they have user
+approval." A person, or a session in no factory that the owner told what to make, creates, publishes and restores. A
+factory's own session saves drafts only; the Gateway refuses the rest in words, and this module prints them.
 - `factory definition diff`     what changes from one version to another, as the Gateway words it
 - `factory definition schemas`  the JSON Schemas the Gateway's check enforces, to check a folder without saving it
 
@@ -40,6 +45,7 @@ from __future__ import annotations
 
 import json
 import sys
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -211,6 +217,8 @@ def get_definition(factory: str, draft: bool, version: Optional[int], file: Opti
     lines = [f"{found.get('factory')}  version {v}  {found['state']}  written by {_by(found)}  "
              f"{axi_output.format_value(found.get('writtenAtUtc'))}  {found.get('fileCount')} files  "
              f"{found.get('contentBytes')} bytes"]
+    if found.get("publishedByText"):
+        lines.append(f"Published by {found['publishedByText']} {axi_output.format_value(found.get('publishedAtUtc'))}.")
     if found.get("changeNote"):
         lines.append(f"note: {found['changeNote']}")
     if isinstance(found.get("restoredFrom"), int):
@@ -256,7 +264,7 @@ def history(factory: str, json_output: bool, count: Optional[int] = None, before
     next_before = page.get("nextBefore")
     lines = [f"count: {len(versions)} of {total}. " + ("No version is published." if published is None
                                                       else f"Version {published} is the published definition."),
-             f"versions[{len(versions)}]{{version,state,written,by,files,bytes,note}}:"]
+             f"versions[{len(versions)}]{{version,state,written,by,files,bytes,note,publishedBy}}:"]
     for v in versions:
         mark = "published" if v.get("state") == "published" else "draft"
         if v.get("version") == published:
@@ -265,7 +273,8 @@ def history(factory: str, json_output: bool, count: Optional[int] = None, before
         if isinstance(v.get("restoredFrom"), int):
             note = (f"restored from version {v['restoredFrom']}. " + note).strip()
         lines.append(f"  v{v.get('version')},{mark},{axi_output.format_value(v.get('writtenAtUtc'))},{_by(v)},"
-                     f"{v.get('fileCount')},{v.get('contentBytes')},{json.dumps(note) if note else '-'}")
+                     f"{v.get('fileCount')},{v.get('contentBytes')},{json.dumps(note) if note else '-'},"
+                     f"{json.dumps(v['publishedByText']) if v.get('publishedByText') else '-'}")
     if isinstance(next_before, int):
         lines.append(f"Older versions follow, below version {next_before}.")
     axi_cli.write_lines(*lines)
@@ -346,7 +355,7 @@ def _with_replaces(body: Dict[str, Any], replaces: Optional[int]) -> Dict[str, A
 
 
 def publish(factory: str, version: int, json_output: bool, replaces: Optional[int] = None) -> None:
-    """Publish one version. A person's act: with a session's key the Gateway refuses it and says so."""
+    """Publish one version. A factory's own session is refused by the Gateway, which says so."""
     try:
         answer = gateway.post_json(_route(factory) + "/publish", _with_replaces({"version": version}, replaces))
     except gateway.GatewayError as exc:
@@ -356,7 +365,7 @@ def publish(factory: str, version: int, json_output: bool, replaces: Optional[in
 
 
 def restore(factory: str, version: int, expected_version: int, json_output: bool, replaces: Optional[int] = None) -> None:
-    """Publish a copy of an older version as the newest. A person's act, refused for a session's key."""
+    """Publish a copy of an older version as the newest. A factory's own session is refused by the Gateway."""
     try:
         answer = gateway.post_json(_route(factory) + "/restore",
                                    _with_replaces({"version": version, "expectedVersion": expected_version}, replaces))
@@ -367,9 +376,9 @@ def restore(factory: str, version: int, expected_version: int, json_output: bool
 
 
 def _after_refusal(exc: gateway.GatewayError, factory: str) -> List[str]:
-    """What to run after a refused publish or restore. A session is told to save a draft, because that is the one
-    thing it may do; everything else starts from the history."""
-    if _outcome(exc) == "OnlyAPersonPublishes":
+    """What to run after a refused publish or restore. A factory's own session is told to save a draft, because that
+    is the one thing it may do; everything else starts from the history."""
+    if _outcome(exc) == "FactorySessionMayNotPublish":
         return [f"{_TOOL} save {_f(factory)} --dir <folder> --expected-version <newest version>",
                 f"{_TOOL} history {_f(factory)}"]
     if _outcome(exc) == "Stale":
@@ -518,6 +527,71 @@ def export(factory: str, out: str, version: Optional[int], json_output: bool) ->
                      if isinstance(r, dict))
     axi_cli.write_lines(*lines)
     axi_cli.print_next([f"{_FACTORY_TOOL} import {root}", f"{_TOOL} schemas"])
+
+
+def read_zip(path: str, help_command: str) -> Dict[str, str]:
+    """Every file in a zip, by its path inside the zip with forward slashes, as UTF-8 text - read as the Factories
+    screen's New factory reads one: folders are skipped, nothing else is, and when every file sits under one top folder
+    (a zip of the folder itself) that folder is taken off the paths."""
+    read: List[tuple] = []
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for entry in archive.infolist():
+                name = entry.filename.replace("\\", "/")
+                if name.endswith("/"):
+                    continue
+                try:
+                    read.append((name, archive.read(entry).decode("utf-8", errors="strict")))
+                except UnicodeDecodeError:
+                    axi_cli.fail(f"the file {name} in the zip is not UTF-8 text. Every file in a definition is text.",
+                                 [help_command])
+    except (OSError, zipfile.BadZipFile) as exc:
+        axi_cli.fail(f"{path} is not a zip that can be read ({exc}). Compressing a folder makes one.", [help_command])
+    if not read:
+        axi_cli.fail(f"the zip {path} holds no files, so there is no definition to create.", [help_command])
+    tops = {name.split("/")[0] for name, _ in read}
+    one_folder = len(tops) == 1 and all("/" in name for name, _ in read)
+    return {(name.split("/", 1)[1] if one_folder else name): text for name, text in read}
+
+
+def create(source: str, note: Optional[str], json_output: bool) -> None:
+    """Create a NEW factory from a folder or a zip: the Gateway refuses an id that is already a factory or already has a
+    draft, checks the folder exactly as an import, and stores it as version 1, a draft. It never publishes; `publish`
+    does that next, by a person or by a session in no factory. A factory's own session is refused."""
+    help_command = f"{_TOOL} create --help"
+    path = Path(source)
+    if path.is_file() and path.suffix.lower() == ".zip":
+        content = read_zip(source, help_command)
+    else:
+        content = read_folder(source, "create", help_command)
+    body: Dict[str, Any] = {"content": content}
+    if note is not None:
+        body["note"] = note
+    try:
+        saved = gateway.post_json(f"{ROUTE}/create", body)
+    except gateway.GatewayError as exc:
+        if exc.status == 409 and _outcome(exc) == "FactoryExists":
+            axi_cli.fail(f"Not created: {exc}", [f"{_FACTORY_TOOL} import {source}", f"{_FACTORY_TOOL} list"])
+        if _outcome(exc) == "FactorySessionMayNotPublish":
+            axi_cli.fail(f"Not created: {exc}", [f"{_TOOL} save <your factory> --dir <folder> --expected-version <newest version>"])
+        _fail_gateway(exc, [f"{_TOOL} create {source}", f"{_TOOL} schemas"] if exc.status in (400, 409, 422) else None)
+        return
+    if not _is_version(saved):
+        axi_cli.fail("the Gateway answered without the version it stored, so this command cannot show the factory was "
+                     "created. Read it back before relying on it.", [f"{_TOOL} get <factory> --draft"])
+        return
+    if json_output:
+        print(json.dumps(saved, indent=2))
+        return
+    target = _f(str(saved.get("factory") or ""))
+    axi_cli.write_lines(
+        f"Created: version {saved['version']} of the definition of {saved.get('factory')} is a draft "
+        f"({saved.get('fileCount')} files, {saved.get('contentBytes')} bytes).",
+        "Nothing was published, so nothing runs yet. Read what publishing it would do, then publish it.",
+        *_findings_lines(saved.get("findings")),
+    )
+    axi_cli.print_next([f"{_TOOL} diff {target} --to {saved['version']}",
+                        f"{_TOOL} publish {target} --version {saved['version']} --replaces 0"])
 
 
 def import_folder(folder: str, note: Optional[str], json_output: bool) -> None:

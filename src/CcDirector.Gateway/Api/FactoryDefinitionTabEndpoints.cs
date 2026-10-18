@@ -25,7 +25,8 @@ namespace CcDirector.Gateway.Api;
 ///
 /// The owner's, like the Seats tab: a session key is refused here and by SessionKeyGuard. A session reads and writes the
 /// definition through <c>/factory-definitions</c> with the command line. Publish and restore are NOT here: the tab sends
-/// them to <see cref="FactoryDefinitionEndpoints"/>, where only a person may do either, and every refusal is worded.
+/// them to <see cref="FactoryDefinitionEndpoints"/>, where a factory's own session may do neither, and every refusal is
+/// worded.
 ///
 /// THE ZIP IS THE FOLDER. Export writes exactly the files <c>GET /factory-definitions/{factory}/export</c> answers, in
 /// path order with one fixed time on every entry, so two exports of one version are the same bytes. Import reads every
@@ -370,6 +371,19 @@ internal static class FactoryDefinitionTabEndpoints
         if (sources.Registry.Find(tenant, folded) is { } registered)
             return registered.ArchivedAtUtc is null ? FactoryNewFold.AlreadyRegistered(registered) : FactoryNewFold.Archived(registered);
         return FactoriesScreenEndpoints.UnpublishedOne(sources, tenant, folded) is { } draft ? FactoryNewFold.AlreadyDrafted(draft) : null;
+    }
+
+    /// <summary>
+    /// Why a folder cannot be a NEW factory created from the command line (phase 6c,
+    /// <see cref="FactoryDefinitionEndpoints.MapCreate"/>): the same three cases as <see cref="NewFactoryRefusal"/>, read
+    /// the same way, worded for a session that runs commands. Null when the id is free.
+    /// </summary>
+    internal static string? CreateRefusal(FactoriesScreenSources sources, TenantId tenant, IReadOnlyDictionary<string, string> content)
+    {
+        if (FactoryNamedIn(content) is not { } named || !FactoryNames.TryFactory(named, out var folded, out _)) return null;
+        if (sources.Registry.Find(tenant, folded) is { } registered)
+            return registered.ArchivedAtUtc is null ? FactoryNewFold.CreateAlreadyRegistered(registered) : FactoryNewFold.CreateArchived(registered);
+        return FactoriesScreenEndpoints.UnpublishedOne(sources, tenant, folded) is { } draft ? FactoryNewFold.CreateAlreadyDrafted(draft) : null;
     }
 
     private static string FactoryBriefPanelSize(int bytes) => $"{bytes / (1024 * 1024)} MB";

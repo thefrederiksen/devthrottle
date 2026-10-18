@@ -119,7 +119,7 @@ function noTargetChosen(): void {
 }
 
 describe("LicensesView: Switch now at the wire", () => {
-  it("sends one application/json POST naming the account and the target, and shows the Gateway's answer", async () => {
+  it("sends one application/json POST naming the account, with no target for the Gateway's own choice, and shows the Gateway's answer", async () => {
     answers[SWITCH_NOW] = () => json(200, SWITCH_NOW_ACCEPTED);
     render(<LicensesView />);
     const dialog = await openSwitchNow();
@@ -131,7 +131,8 @@ describe("LicensesView: Switch now at the wire", () => {
     expect(writes().length).toBe(1);
     expect(writes()[0].call).toBe(SWITCH_NOW);
     expect(writes()[0].contentType).toBe("application/json");
-    expect(writes()[0].body).toEqual({ accountEmail: ACCOUNT_A, targetAccountEmail: ACCOUNT_B });
+    // The Gateway's choice is sent as no target: the automatic moves the card's sentence describes.
+    expect(writes()[0].body).toEqual({ accountEmail: ACCOUNT_A, targetAccountEmail: null });
     // The whole outcome in the Gateway's one sentence, then the machine's row in the Gateway's words and tone.
     expect(within(answer).getByTestId("lic-switch-answer-text").textContent).toBe(SWITCH_NOW_ACCEPTED.text);
     // The WHOLE row is the Gateway's label, a space and the Gateway's sentence: the page adds no word anywhere in it.

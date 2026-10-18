@@ -18,6 +18,11 @@ public sealed class LicenseGuardTests
     [InlineData("HEAD", "/gateway/licenses", true)]
     [InlineData("GET", "/gateway/licenses/forecast", true)]
     [InlineData("GET", "/gateway/licenses/log", true)]
+    // The license alarms (phase 6): a read only. Nothing raises or clears an alarm over a route.
+    [InlineData("GET", "/gateway/licenses/alarms", true)]
+    [InlineData("POST", "/gateway/licenses/alarms", false)]
+    [InlineData("PUT", "/gateway/licenses/alarms", false)]
+    [InlineData("DELETE", "/gateway/licenses/alarms", false)]
     [InlineData("POST", "/gateway/licenses", false)]
     [InlineData("PUT", "/gateway/licenses", false)]
     [InlineData("DELETE", "/gateway/licenses", false)]

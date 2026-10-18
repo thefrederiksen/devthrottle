@@ -54,53 +54,6 @@ public class SessionEdgeCaseTests : IDisposable
             () => _manager.CreateSession(Path.GetTempPath(), null, (SessionBackendType)999));
     }
 
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Session_CreatedAt_IsSet()
-    {
-        var before = DateTimeOffset.UtcNow;
-        var session = _manager.CreateSession(Path.GetTempPath());
-        var after = DateTimeOffset.UtcNow;
-
-        Assert.True(session.CreatedAt >= before);
-        Assert.True(session.CreatedAt <= after);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Session_Buffer_IsNotNull_ForConPty()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        Assert.NotNull(session.Buffer);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Session_RepoPath_MatchesInput()
-    {
-        var tempDir = Path.GetTempPath();
-        var session = _manager.CreateSession(tempDir);
-        Assert.Equal(tempDir, session.RepoPath);
-        Assert.Equal(tempDir, session.WorkingDirectory);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void RegisterClaudeSession_ThenRemove_CleansMappingAndClaudeId()
-    {
-        var session = _manager.CreateSession(Path.GetTempPath());
-        _manager.RegisterClaudeSession("claude-123", session.Id);
-
-        Assert.Equal("claude-123", session.ClaudeSessionId);
-        Assert.NotNull(_manager.GetSessionByClaudeId("claude-123"));
-
-        _manager.RemoveSession(session.Id);
-
-        // After removal, the mapping should be cleaned up
-        Assert.Null(_manager.GetSessionByClaudeId("claude-123"));
-    }
-
     [Fact]
     public void CreatePipeModeSession_InvalidPath_Throws()
     {

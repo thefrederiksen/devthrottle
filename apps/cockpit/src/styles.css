@@ -322,6 +322,60 @@ body {
   padding: 24px 28px;
 }
 
+/* THE LICENSE ALARM BANNER (License Switching phase 6): red, on every page, above the routed page. The attention red is
+   the Cockpit's danger colour (docs/CockpitVisualStyle.md), drawn as the error banner draws it but solid enough to be
+   seen from across the room. */
+.license-alarm-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--attention);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: rgba(241, 76, 76, 0.16);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.license-alarm-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.license-alarm-banner-summary {
+  margin: 0 0 4px;
+  font-weight: 700;
+  color: var(--danger-text);
+}
+
+.license-alarm-banner-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.license-alarm-banner-lines li + li {
+  margin-top: 4px;
+}
+
+.license-alarm-banner-link {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--attention);
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.license-alarm-banner-link:hover {
+  filter: brightness(1.1);
+}
+
 .pane-title {
   margin: 0 0 8px;
   font-size: 22px;
@@ -1280,6 +1334,16 @@ body {
   background: rgba(245, 208, 96, 0.14);
   border-color: rgba(245, 208, 96, 0.5);
   color: #f5d060;
+}
+
+/* How the agent is connected, when it is not its terminal (API mode mission #4070): the Gateway's "API mode",
+   verbatim. Accent-edged so it reads as a fact about the session, not an alarm. Not uppercased: "API MODE" is not
+   the product's word. */
+.roster-tag.connection {
+  text-transform: none;
+  letter-spacing: 0;
+  border-color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* Which model this session is running (issue devthrottle_internal#1340). NOT uppercased and not

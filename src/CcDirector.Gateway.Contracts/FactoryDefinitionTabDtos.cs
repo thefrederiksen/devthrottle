@@ -150,7 +150,7 @@ public sealed class FactoryDefinitionTabViewDto
 
     public FactoryDefinitionImportActionDto Import { get; set; } = new();
 
-    /// <summary>The line under the tab: only a person publishes, and where a session's drafts come from.</summary>
+    /// <summary>The line under the tab: who publishes, and where a session's drafts come from.</summary>
     public string FootnoteText { get; set; } = "";
 }
 

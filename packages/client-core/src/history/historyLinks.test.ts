@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { extractLinks, tryConvertFileUrlToLocalPath } from "./historyLinks";
+import agreement from "./linkDetectorAgreement.json";
 
 // These mirror the applicable subset of the C# LinkDetectorTests
 // (src/CcDirector.Core.Tests/LinkDetectorTests.cs) - the cases the History browser call exercises:
@@ -222,5 +223,27 @@ describe("edge cases", () => {
   it("returns [] for null/undefined", () => {
     expect(extractLinks(null)).toEqual([]);
     expect(extractLinks(undefined)).toEqual([]);
+  });
+});
+
+// Issue #4085: the cases the Director's C# LinkDetector is held to as well (LinkDetectorAgreementTests in
+// CcDirector.Core.UnitTests reads the same file). A path the Chat links that the Director does not name is
+// refused when clicked, so neither detector may change without the other.
+describe("agreement with the Director's detector (linkDetectorAgreement.json)", () => {
+  it("has cases to check", () => {
+    expect(agreement.cases.length).toBeGreaterThan(10);
+  });
+
+  it.each(agreement.cases.map((c) => [c.line, c] as const))("%s", (_line, c) => {
+    const found = extractLinks(c.line);
+    expect(found.filter((l) => !l.isUrl).map((l) => l.text)).toEqual(c.paths);
+    expect(found.filter((l) => l.isUrl).map((l) => l.text)).toEqual(c.urls);
+  });
+
+  it.each([
+    ["file:///etc/hosts", "/etc/hosts"],
+    ["file:///home/soren/My%20Docs/a.md", "/home/soren/My Docs/a.md"],
+  ])("tryConvertFileUrlToLocalPath keeps a POSIX path: %s", (url, expected) => {
+    expect(tryConvertFileUrlToLocalPath(url)).toBe(expected);
   });
 });

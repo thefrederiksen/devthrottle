@@ -6,6 +6,7 @@ import {
   getLicenseForecast,
   getLicenseLog,
   getLicenseOverview,
+  listLicenseBrowserProfiles,
   removeLicenseApprover,
   renewLicenseSignIn,
   setLicenseApprover,
@@ -295,6 +296,37 @@ describe("who approves the sign-ins of an account", () => {
     stubFetch(200, { accountEmail: "account-b@example.com", removed: true });
 
     await expect(removeLicenseApprover("account-b@example.com")).rejects.toThrow(/'text'/);
+  });
+});
+
+describe("the browser profiles an approver is chosen from", () => {
+  it("reads them from the machine's own Director, and keeps only the identifier and the name", async () => {
+    const calls = stubFetch(200, {
+      browsers: [{ id: "work", name: "Work", port: 9310, status: "ready", userDataDir: "C:/somewhere" }],
+      harnessInstalled: true,
+    });
+
+    const profiles = await listLicenseBrowserProfiles("dir mac");
+
+    expect(calls.map((c) => c.url)).toEqual(["/directors/dir%20mac/browsers"]);
+    expect(calls[0].init?.method).toBe("GET");
+    expect(profiles).toEqual([{ id: "work", name: "Work" }]);
+  });
+
+  it("refuses an answer that has lost its list, rather than saying the machine has no profiles", async () => {
+    stubFetch(200, { harnessInstalled: true });
+
+    await expect(listLicenseBrowserProfiles("dir-mac")).rejects.toThrow("without a 'browsers' list");
+  });
+
+  it("throws the Gateway's own sentence when the Director cannot be reached", async () => {
+    const sentence = "The Director on machine-a is not connected right now, so the command was not delivered.";
+    stubFetch(502, { error: sentence });
+
+    const refusal = await listLicenseBrowserProfiles("dir-mac").catch((err: unknown) => err);
+
+    expect(refusal).toMatchObject({ status: 502, message: sentence });
+    expect(gatewayErrorMessage(refusal, "list the browser profiles")).toContain(sentence);
   });
 });
 

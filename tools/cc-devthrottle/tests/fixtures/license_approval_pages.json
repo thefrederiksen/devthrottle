@@ -1,0 +1,56 @@
+{
+  "_about": [
+    "Approval page shapes for license_signin.classify_page and the browser steps that use it.",
+    "Copied from pages recorded live during the License Switching mission, with every name replaced by a made-up one",
+    "(alice@example.com is the account being approved, bob@example.com is someone else) and the long cookie notice cut.",
+    "consent: the authorize page with the Authorize button; its opening lines were recorded on 13 October 2026 (the rest of its",
+    "  list was cut off in the recording) and its 'Logged in as' line is the one the approval tool reads on every approval.",
+    "signed-out: claude.ai's sign-in page, recorded on 14 October 2026 when an approver browser had no session.",
+    "reauth-on-authorize: the authorize page asking for a recent sign-in, recorded on 13 October 2026 in a browser",
+    "  whose claude.ai chat worked (the 16 October report, problem 12).",
+    "reauth-login: the same request seen as a redirect to claude.ai/login?reauth=1, recorded on 13 and 14 October 2026.",
+    "Each page has the address the browser was at, the text of the page, and whether an Authorize button was on screen."
+  ],
+  "pages": {
+    "consent": {
+      "address": "https://claude.ai/oauth/authorize?code=true&client_id=x&response_type=code&state=s1&login_hint=alice%40example.com",
+      "authorize": true,
+      "text": "Claude Code would like to connect to your Claude chat account\nYour account will be used to:\n\nAccess your Anthropic profile information\n\nContribute to your Claude subscription usage\nLogged in as alice@example.com\nSwitch account\nAuthorize"
+    },
+    "consent-before-account-line": {
+      "address": "https://claude.ai/oauth/authorize?code=true&client_id=x&response_type=code&state=s1&login_hint=alice%40example.com",
+      "authorize": true,
+      "text": "Claude Code would like to connect to your Claude chat account\nYour account will be used to:\nAuthorize"
+    },
+    "consent-other-account": {
+      "address": "https://claude.ai/oauth/authorize?code=true&client_id=x&response_type=code&state=s1&login_hint=alice%40example.com",
+      "authorize": true,
+      "text": "Claude Code would like to connect to your Claude chat account\nYour account will be used to:\n\nAccess your Anthropic profile information\nLogged in as bob@example.com\nSwitch account\nAuthorize"
+    },
+    "signed-out": {
+      "address": "https://claude.ai/login",
+      "authorize": false,
+      "text": "Log in\nContinue with your Claude.ai account to authenticate connections\nContinue with Google\n\nContinue with Apple\n\nOR\n\nContinue with email\nContinue with SSO\nCookie settings\n\nCustomize cookie settings\nReject all cookies\nAccept all cookies"
+    },
+    "reauth-on-authorize": {
+      "address": "https://claude.ai/oauth/authorize?code=true&client_id=x&response_type=code&state=s1&login_hint=alice%40example.com",
+      "authorize": false,
+      "text": "Sign in again to continue\nFor your security, granting this access requires a recent sign-in. Sign in again to continue.\nSign in again\nLogged in as alice@example.com\nSwitch account\nCookie settings\n\nCustomize cookie settings\nReject all cookies\nAccept all cookies"
+    },
+    "reauth-on-authorize-other-account": {
+      "address": "https://claude.ai/oauth/authorize?code=true&client_id=x&response_type=code&state=s1&login_hint=alice%40example.com",
+      "authorize": false,
+      "text": "Sign in again to continue\nFor your security, granting this access requires a recent sign-in. Sign in again to continue.\nSign in again\nLogged in as bob@example.com\nSwitch account"
+    },
+    "reauth-login": {
+      "address": "https://claude.ai/login?reauth=1&from=logout&email=alice%40example.com&returnTo=%2Foauth%2Fauthorize%3Fcode%3Dtrue%26login_hint%3Dalice%2540example.com",
+      "authorize": false,
+      "text": "Log in\nContinue with your Claude.ai account to authenticate connections\nContinue with Google\n\nContinue with Apple\n\nOR\n\nContinue with email\nContinue with SSO"
+    },
+    "unknown": {
+      "address": "https://claude.ai/oauth/authorize?code=true&client_id=x&response_type=code&state=s1&login_hint=alice%40example.com",
+      "authorize": false,
+      "text": "Something went wrong. Please try again later."
+    }
+  }
+}

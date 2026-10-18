@@ -214,6 +214,7 @@ public sealed class LicenseSignInExecutorTests : IDisposable
     /// <summary>Stands in for <c>cc-devthrottle license</c>: a browser profile for every account on this machine.</summary>
     private sealed class SignInTool : ILicenseCommandLine
     {
+        public bool IsInstalled => true;
         public List<string> SignIns { get; } = new();
 
         public List<(string Url, string Email, string Profile)> Approvals { get; } = new();
@@ -237,10 +238,15 @@ public sealed class LicenseSignInExecutorTests : IDisposable
             return Task.FromResult(new LicenseSignInStart { Finished = new LicenseSignInAnswer { Outcome = LicenseSignInOutcomes.Added, SignedInAtUtc = Now } });
         }
 
+        public IReadOnlyList<LicenseHandSwitch> TakeHandSwitches() => Array.Empty<LicenseHandSwitch>();
+
         public Task<LicenseApproveAnswer> ApproveAsync(string authorizeUrl, string accountEmail, string browserProfile, CancellationToken cancellationToken)
         {
             Approvals.Add((authorizeUrl, accountEmail, browserProfile));
             return Task.FromResult(new LicenseApproveAnswer { Approved = true, Approval = Approval });
         }
+
+        public Task<LicenseApproverToolAnswer> CheckApproverAsync(string browserProfile, string? accountEmail, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

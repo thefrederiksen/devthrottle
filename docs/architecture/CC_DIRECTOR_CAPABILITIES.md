@@ -203,6 +203,7 @@ Current code delta to implement this: `TerminalStateDetector` today uses a **10-
 This is the co-headline under feature 2.2, and the whole reason the Director is kept dumb: **a running agent session must survive.**
 
 - **Sessions persist across restarts and crashes.** A Director crash does not lose the roster; sessions can be recovered (the interrupted-sessions registry).
+- **A crashed Director comes back by itself on Windows and macOS.** The installed launcher starts it again when it dies without a clean shutdown, never after a quit, an update or a stop the launcher made, and gives up after five restarts in ten minutes (`DirectorCrashWatch`). Linux installs no launcher, so there it is the owner's own setup.
 - **Resume previously-running sessions** rather than starting from scratch.
 - **Safe self-update that never costs you a session.** The Director keeps itself current, but an update must never kill a running agent session. Because all the fast-moving smarts live in the Gateway/Cockpit, the Director changes rarely - and when it does (mainly the weekly agent-driver updates), the update path must preserve in-flight sessions.
 

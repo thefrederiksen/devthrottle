@@ -873,6 +873,12 @@ export function SessionRow({
             <span className="row-chip row-chip-agent" title="Agent tool">
               {agentTool}
             </span>
+            {/* How the agent is connected, when it is not its terminal: the Gateway's words ("API mode"), verbatim. */}
+            {session.connectionTag && (
+              <span className="row-chip row-chip-connection" title="Connection">
+                {session.connectionTag}
+              </span>
+            )}
             {machine && <span className="row-chip row-chip-machine">{machine}</span>}
             {repo && <span className="row-chip row-chip-repo">{repo}</span>}
           </span>

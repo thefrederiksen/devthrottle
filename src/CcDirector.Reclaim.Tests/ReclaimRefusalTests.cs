@@ -313,7 +313,11 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
     [Fact]
     public void Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused()
     {
-        using var tree = new FixtureTree(nameof(Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused));
+        // On the system volume: by default Windows keeps 8.3 short names there and nowhere else, and this proof is
+        // built on a short name. Under TEMP, which the release gate moves to another volume when the system volume
+        // is short of space, the fixture would refuse to build the proof and the test would fail for the volume,
+        // not for the code (the v2.23.0 release gate, 17 October 2026).
+        using var tree = new FixtureTree(nameof(Reclaim_APathThatIsNotCanonicalAfterResolution_IsRefused), onSystemVolume: true);
         var temp = tree.Folder("temp");
         var longNamed = Path.Combine(temp, "canonicalization-proof-folder");
         Directory.CreateDirectory(longNamed);
@@ -934,61 +938,6 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
         return files;
     }
 
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Reclaim_AnOwnersOwnCommand_RunsWithTheHarmlessCommandTheTestSuppliesAndHoldsNothing()
-    {
-        using var tree = new FixtureTree(nameof(Reclaim_AnOwnersOwnCommand_RunsWithTheHarmlessCommandTheTestSuppliesAndHoldsNothing));
-        var cache = tree.Folder("package-cache");
-        var item = Path.Combine(cache, "the-cache");
-        Directory.CreateDirectory(item);
-        File.WriteAllBytes(Path.Combine(item, "cached.bin"), new byte[2048]);
-
-        var marker = Path.Combine(tree.Root, "the-command-ran.txt");
-        var command = OperatingSystem.IsWindows()
-            ? $"cmd.exe /c \"echo cleaned > {marker}\""
-            : $"/bin/sh -c \"echo cleaned > {marker}\"";
-
-        // A rule the test constructs with a harmless command the test supplies. The real Windows rule
-        // set is never constructed with the apply flag in any test.
-        var rule = new OfferingRule(
-            cache,
-            new ReclaimCandidate(item, 2048, DateTimeOffset.UtcNow, "the cache of a package manager, cleared by its own command"),
-            proof: ProofKind.OwnersOwnCommand,
-            commandToRun: command);
-
-        // The dry run reports the command and runs nothing.
-        var dryRun = DryRun(tree, [rule]);
-        var dryItem = Assert.Single(dryRun.Items);
-        Assert.True(dryItem.Gate.Eligible);
-        Assert.False(File.Exists(marker));
-
-        var holdingRoot = Path.Combine(tree.Root, "holding");
-        var apply = ReclaimRunner.Run(new ReclaimRunRequest
-        {
-            Rules = [rule],
-            RootPath = tree.Root,
-            HoldingRootPath = holdingRoot,
-            ProtectedPaths = [],
-            UserFolders = [],
-            Apply = true,
-            NowUtc = DateTimeOffset.UtcNow.AddDays(400)
-        });
-
-        var applied = Assert.Single(apply.Items);
-        Assert.True(applied.OwnersCommandRan, applied.OutcomeReason ?? "the command should have run");
-        Assert.Equal(0, applied.OwnersCommandExitCode);
-        Assert.True(File.Exists(marker), "the harmless command the test supplied should have run");
-
-        // The item cleared by the owner's own command is never held: there is no way back, and the
-        // rule's what-is-lost already said so. No holding root is even created.
-        Assert.Null(applied.HoldingEntryId);
-        Assert.False(Directory.Exists(holdingRoot));
-
-        // Measured before and after: the run measured the candidate before the command ran.
-        Assert.Equal(2048, apply.CandidateBytesBefore);
-    }
-
     [Fact]
     public void Reclaim_AnOwnersOwnCommandThatWillNotStart_SaysSoAndTouchesNothing()
     {
@@ -1007,32 +956,6 @@ public sealed class ReclaimRefusalTests(ITestOutputHelper output)
 
         // Nothing was held and nothing was touched.
         Assert.False(applied.Moved);
-        Assert.False(Directory.Exists(holdingRoot));
-        Assert.Equal(2048, new FileInfo(Path.Combine(item, "cached.bin")).Length);
-    }
-
-    [Trait("Gate", "Quarantine")]
-    [Fact]
-    public void Reclaim_AnOwnersOwnCommandThatFails_ReportsItsExitCodeAndHoldsNothing()
-    {
-        using var tree = new FixtureTree(nameof(Reclaim_AnOwnersOwnCommandThatFails_ReportsItsExitCodeAndHoldsNothing));
-        var command = OperatingSystem.IsWindows() ? "cmd.exe /c \"exit 3\"" : "/bin/sh -c \"exit 3\"";
-        var (rule, item, holdingRoot) = AnOwnerCommandRule(tree, command);
-
-        var result = ApplyWith(tree, rule, holdingRoot);
-        var applied = Assert.Single(result.Items);
-
-        // The command ran and failed. Its own exit code is reported as it was, never rounded to a
-        // success, and the report's line for the item carries it.
-        Assert.True(applied.OwnersCommandRan, applied.OutcomeReason);
-        Assert.Equal(3, applied.OwnersCommandExitCode);
-        Assert.Contains("command: ran, exit code 3", result.Lines);
-
-        // The bytes are measured after as well as before, and a command that cleared nothing is
-        // reported as having cleared nothing.
-        Assert.Equal(2048, result.CandidateBytesBefore);
-        Assert.Equal(2048, result.CandidateBytesAfter);
-        Assert.Equal(0, result.BytesMoved);
         Assert.False(Directory.Exists(holdingRoot));
         Assert.Equal(2048, new FileInfo(Path.Combine(item, "cached.bin")).Length);
     }

@@ -33,6 +33,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseApproverStore _approvers;
     private readonly LicenseSignInLog _signIns;
+    private readonly LicenseReadinessService _readiness;
     private readonly LicenseStore _store;
     private readonly LicenseSnapshotSource _snapshots;
     private readonly LicenseSwitchService _service;
@@ -47,6 +48,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
         _store = new LicenseStore(db);
         _approvers = new LicenseApproverStore(new CcDirector.Gateway.Settings.TenantSettingsStore(db));
         _signIns = new LicenseSignInLog(db);
+        _readiness = LicenseReadinessTestKit.ForReading(db, _store, (_, _) => false, () => _now);
         _snapshots = new LicenseSnapshotSource(_store, new LicenseReadModel(_store));
         _director = request => Answer(request, LicenseSwitchOutcomes.Switched);
         _service = new LicenseSwitchService(_store, _snapshots,
@@ -118,7 +120,8 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     private JsonElement AccountOnThePage(TenantId tenant, string email)
     {
         var ctx = Context();
-        var result = LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now, _approvers, _signIns, (_, _) => false);
+        var result = LicenseEndpoints.Overview(ctx, _ => tenant, _snapshots, () => _now, _approvers, _signIns, (_, _) => false,
+            _readiness);
         result.ExecuteAsync(ctx).GetAwaiter().GetResult();
         var json = JsonDocument.Parse(Encoding.UTF8.GetString(((MemoryStream)ctx.Response.Body).ToArray())).RootElement.Clone();
         return json.GetProperty("accounts").EnumerateArray().Single(a => a.GetProperty("accountEmail").GetString() == email);
@@ -221,6 +224,23 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
             json.GetProperty("text").GetString());
     }
 
+    [Fact]
+    public void SwitchNow_WithNoTarget_ThatSendsMachinesToTwoAccounts_SaysWhereEachOneIs_AndNamesNoSingleTarget()
+    {
+        // The best account (B, ordinal tie-break) is held by the Windows machine only; the Mac holds only C. With no
+        // target the moves are the automatic ones, so the two machines go to two accounts - and the answer says so.
+        Reports(TenantOne, Windows, "dir-win", A, new[] { B, C });
+        Reports(TenantOne, Mac, "dir-mac", A, new[] { C });
+
+        var (status, _, json) = Post(TenantOne, Body(A));
+
+        Assert.Equal(200, status);
+        Assert.Equal(new[] { ("dir-mac", C), ("dir-win", B) },
+            _sent.Select(s => (s.DirectorId, s.Request.TargetAccountEmail)).OrderBy(s => s.DirectorId, StringComparer.Ordinal).ToArray());
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("targetAccountEmail").ValueKind);
+        Assert.Equal($"{Mac} is now on {C}. {Windows} is now on {B}.", json.GetProperty("text").GetString());
+    }
+
     // ---- refused: a status, a word, a finished sentence - and nothing written or sent ----
 
     [Fact]
@@ -235,7 +255,7 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
 
         Assert.Equal(409, status);
         Assert.Equal(new[] { "code", "error" }, Names(json));
-        Assert.Equal((LicenseManualRefusals.TargetNotHeld, $"{Windows} holds no usable spare for {C}."), Refusal(json));
+        Assert.Equal((LicenseManualRefusals.TargetNotHeld, $"{C} has room; {Windows} holds no sign-in for it."), Refusal(json));
         Assert.Equal(shown, json.GetProperty("error").GetString());
         Assert.Empty(_sent);
         Assert.Empty(Switches(TenantOne));
@@ -268,12 +288,14 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
             Assert.Contains(Refusal(json).Code, new[]
             {
                 LicenseManualRefusals.TargetIsSource, LicenseManualRefusals.TargetNotHeld, LicenseManualRefusals.NoMachineToSwitch,
+                // An account no machine reports is judged on its own first: no reading shows it has room.
+                LicenseManualRefusals.TargetStale,
             });
             codes.Add(Refusal(json).Code);
             Assert.EndsWith(".", Refusal(json).Error);
             Assert.DoesNotContain("  ", Refusal(json).Error);
         }
-        Assert.Equal(3, codes.Count);
+        Assert.Equal(4, codes.Count);
         Assert.Empty(_sent);
         Assert.Empty(Switches(TenantOne));
     }
@@ -448,13 +470,15 @@ public sealed class LicenseSwitchNowEndpointTests : IDisposable
     [Fact]
     public void TwoUsersOfOneComputer_AreNamedWithTheirUser_InARefusal_AndInAnAcceptedAnswer()
     {
-        Reports(TenantOne, Windows, "dir-first", A, new[] { B, C }, osUser: "first");
+        Reports(TenantOne, Windows, "dir-first", A, new[] { B }, osUser: "first");
         Reports(TenantOne, Windows, "dir-second", A, new[] { B }, osUser: "second");
+        Reports(TenantOne, Mac, "dir-mac", C, new[] { A });
 
         var refused = Post(TenantOne, Body(A, C));
         var accepted = Post(TenantOne, Body(A, B));
 
-        Assert.Equal((409, $"{Windows} (second) holds no usable spare for {C}."), (refused.Status, Refusal(refused.Json).Error));
+        Assert.Equal((409, $"{C} has room; {Windows} (first) holds no sign-in for it; {Windows} (second) holds no sign-in for it."),
+            (refused.Status, Refusal(refused.Json).Error));
         Assert.Equal(200, accepted.Status);
         Assert.Equal(new[] { $"{Windows} (first)", $"{Windows} (second)" },
             accepted.Json.GetProperty("switches").EnumerateArray().Select(s => s.GetProperty("label").GetString()).OrderBy(l => l, StringComparer.Ordinal));

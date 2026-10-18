@@ -1,0 +1,39 @@
+$ cc-devthrottle session spawn /tmp/x --name n --agent Pi --connection rpc
+Error: unknown --connection value 'rpc'. Valid values: terminal, api
+Usage: cc-devthrottle session spawn [OPTIONS] {repo}
+Valid options: --agent, --prompt, --name, --purpose, --command, --command-args, --args, --controlled-by, --why, --standalone, --role, --machine, --director, --mission, --workflow-run, --connection, --help
+help[1]:
+  cc-devthrottle session spawn --help
+exit: 2
+
+$ cc-devthrottle session list --connection API
+Error: unknown --connection value 'API'. Valid values: terminal, api
+Usage: cc-devthrottle session list [OPTIONS]
+Valid options: --json, -j, --state, --repo, --machine, --fields, --connection, --help
+help[1]:
+  cc-devthrottle session list --help
+exit: 2
+
+$ cc-devthrottle session list --connection api --fields number,name,agent,connection
+count: 0 of 45 total
+sessions[0]{number,name,agent,connection}:
+No session matches the filter.
+help[3]:
+  cc-devthrottle session list
+  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
+  cc-devthrottle session list --help
+exit: 0
+
+$ cc-devthrottle session list --connection terminal --fields number,agent,connection   (first lines)
+count: 45 of 45 total (needs-you 4, working 14, ready 5, snoozed 22)
+sessions[45]{number,agent,connection}:
+  138,ClaudeCode,terminal
+  118,ClaudeCode,terminal
+  131,ClaudeCode,terminal
+  119,ClaudeCode,terminal
+  151,ClaudeCode,terminal
+  148,ClaudeCode,terminal
+
+$ cc-devthrottle session list --connection api --json
+[]
+exit: 0

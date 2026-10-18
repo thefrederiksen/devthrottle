@@ -211,6 +211,38 @@ public sealed class FactorySeatRoutesTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task List_ARunOlderThanTheListsWindow_StillSaysHowItEnded()
+    {
+        // The list reads the last 24 hours; the Scout's newest run was three days ago and succeeded. The card must say
+        // so, not "never ran" or "- started" (review of the Factories screen cleanup, 17 Oct 2026).
+        await StartAsync();
+        Seed();
+        const string run = "aaaaaaaa-1111-4222-8333-444444444444";
+        _record.Append(T, new AppendFactoryActivityRequest
+        {
+            Factory = "warmforward", FactoryAgent = "scout", SessionId = run, Outcome = FactoryActivityOutcome.Started,
+            What = "scan started", OccurredUtc = Now.AddDays(-3),
+        }, "session:test");
+        _record.Append(T, new AppendFactoryActivityRequest
+        {
+            Factory = "warmforward", FactoryAgent = "scout", SessionId = run, Outcome = FactoryActivityOutcome.Done,
+            What = "scan done", OccurredUtc = Now.AddDays(-3).AddMinutes(20),
+        }, "session:test");
+        // Another session of the same seat, after that start, is not that run's ending.
+        _record.Append(T, new AppendFactoryActivityRequest
+        {
+            Factory = "warmforward", FactoryAgent = "scout", SessionId = "bbbbbbbb-1111-4222-8333-444444444444",
+            Outcome = FactoryActivityOutcome.Failed, What = "a stray failure", OccurredUtc = Now.AddDays(-2),
+        }, "session:test");
+
+        var list = (await _http.GetFromJsonAsync<FactoriesListViewDto>("gateway/factories", Web))!;
+
+        var row = Assert.Single(list.Rows);
+        Assert.Equal("Last run: Scout, 10 Oct 15:00 - succeeded", row.LastRunText);
+        Assert.Equal(FactoryTone.Ok, row.LastRunTone);
+    }
+
+    [Fact]
     public async Task SeatPage_ASeatTheFactoryDoesNotHave_Is404_NamingItsSeats()
     {
         await StartAsync();

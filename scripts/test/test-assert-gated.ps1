@@ -6,7 +6,7 @@
 
 .DESCRIPTION
     Builds a throwaway git repository with a candidate commit and a later "fix" commit, copies
-    assert-gated.ps1 into it beside a stand-in gate-lock.ps1 whose record directories point into that
+    assert-gated.ps1 into it beside a stand-in gate-records.ps1 whose record directories point into that
     throwaway folder, writes one set of records per case, and checks the exit code. Nothing on this
     machine's real gate record directory is read or written.
 
@@ -45,7 +45,7 @@ try {
     $fix = ([string] (Invoke-Git @("rev-parse", "HEAD"))).Trim()
 
     Copy-Item (Join-Path $scriptsDir "assert-gated.ps1") (Join-Path $repo "scripts\assert-gated.ps1")
-    Set-Content -Path (Join-Path $repo "scripts\gate-lock.ps1") -Encoding Ascii -Value @"
+    Set-Content -Path (Join-Path $repo "scripts\gate-records.ps1") -Encoding Ascii -Value @"
 function Get-GateRecordDirectory { return '$gatedDir' }
 function Get-GateClearanceDirectory { return '$clearDir' }
 "@

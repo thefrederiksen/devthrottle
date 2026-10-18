@@ -62,6 +62,14 @@ recorded on every session and every run participant.
   name of its own.** It is "the boss of Website Business"; the product says "Talk to the boss" and "Latest
   from the boss", and a manifest that names the boss seat anything but Boss is refused. Its role word is
   Boss as well, and a manifest that gives the boss any other role word is refused in the same way.
+- **Who makes a factory** - the owner, through a session. "Factories are created by agents as long as they
+  have user approval" (the owner, 16 October 2026). A session in no factory that the owner tells what to
+  make may create the factory from a folder (`cc-devthrottle factory definition create <folder>`), save
+  drafts of it, see what changes (`factory definition diff`), publish and restore it; the owner's word in
+  that session is the approval, and the Gateway asks for nothing more. A factory's OWN session never
+  publishes, restores or creates a factory: it saves drafts of its own factory, and the owner publishes
+  them - "Factory agents can be written by large language models, but it's the user driving it." Every
+  publish records who did it: the person, or the session's id and name.
 
 ## How sessions relate
 

@@ -83,7 +83,8 @@ public sealed class LauncherSelfUpdate
         Func<CancellationToken, Task<bool>> isHealthy,
         TimeSpan healthTimeout,
         CancellationToken ct = default,
-        Func<bool>? restartLauncher = null)
+        Func<bool>? restartLauncher = null,
+        Func<bool>? isLauncherRunning = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetExePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(stagedExePath);
@@ -94,6 +95,10 @@ public sealed class LauncherSelfUpdate
         if (order == LauncherSwapOrder.PlaceThenRestart && restartLauncher is null)
             throw new ArgumentNullException(nameof(restartLauncher),
                 "PlaceThenRestart has no meaning without a supervisor to ask; see LauncherSwapOrder.");
+        if (order == LauncherSwapOrder.StopThenPlaceThenStart && isLauncherRunning is null)
+            throw new ArgumentNullException(nameof(isLauncherRunning),
+                "StopThenPlaceThenStart must be able to tell whether a Launcher is still running when the file "
+                + "stays locked, or a failed swap can leave the machine with none (issue #4101).");
 
         var steps = new List<string>();
         var target = targetExePath;
@@ -106,11 +111,36 @@ public sealed class LauncherSelfUpdate
             steps.Add("stopped the running Launcher");
             if (!ConfirmStopped(target, stopped, steps, out var whyNot))
             {
-                // NOTHING IS STARTED HERE. Failing this check means the launcher did NOT go - the file
-                // is still locked, or processes are still running - so the old build is still serving
-                // the machine and starting one would give it a second launcher. Nothing has been
-                // replaced, so there is nothing to recover from either.
-                return Fail(steps, whyNot);
+                // A LOCKED FILE DOES NOT MEAN THE LAUNCHER IS STILL RUNNING. This used to start nothing
+                // here on the reasoning that the old build must still be serving the machine. On
+                // 16 October 2026 that was false: the Launcher had obeyed the stop and exited, the file
+                // stayed locked for twenty seconds anyway, the swap gave up - and the machine was left
+                // with no Launcher, and so no updates, for the rest of the day (issue #4101). So ask the
+                // question the old code assumed the answer to: is a Launcher still running?
+                if (WaitUntilLauncherGone(isLauncherRunning!))
+                {
+                    if (WaitUntilWritable(target))
+                    {
+                        // It was only slow to leave. Carry on with the swap.
+                        steps.Add("the Launcher exited after the first wait; the file is now free");
+                    }
+                    else
+                    {
+                        // Gone, and something else still holds the file. Nothing has been replaced, so the
+                        // old build is intact: start it, so the machine is never left without a Launcher.
+                        var restarted = startLauncher();
+                        steps.Add(restarted
+                            ? "no Launcher was running and the file is still locked; started the old build again"
+                            : "no Launcher was running and the file is still locked; starting the old build FAILED");
+                        return Fail(steps, whyNot + (restarted ? " The old build was started again." : " The old build could NOT be started again."));
+                    }
+                }
+                else
+                {
+                    // Still running: the old build is serving the machine, and starting one would give it a
+                    // second Launcher. Nothing has been replaced, so there is nothing to recover from.
+                    return Fail(steps, whyNot);
+                }
             }
         }
         // PlaceThenRestart stops nothing: see LauncherSwapOrder. The file is replaced underneath a
@@ -225,6 +255,18 @@ public sealed class LauncherSelfUpdate
             try { await Task.Delay(1000, ct); } catch (OperationCanceledException) { return false; }
         }
         return false;
+    }
+
+    /// <summary>Wait, as long as the unlock wait, for no Launcher to be running. True when none is.</summary>
+    private bool WaitUntilLauncherGone(Func<bool> isLauncherRunning)
+    {
+        var deadline = DateTime.UtcNow + _unlockTimeout;
+        while (isLauncherRunning())
+        {
+            if (DateTime.UtcNow >= deadline) return false;
+            Thread.Sleep(500);
+        }
+        return true;
     }
 
     /// <summary>Wait until the target exe can be opened for write (i.e. the old Launcher process exited and released it).</summary>

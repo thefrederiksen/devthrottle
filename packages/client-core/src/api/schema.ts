@@ -11953,6 +11953,13 @@ export interface components {
             lastTurnEnding?: null | string;
             agentConnected?: null | boolean;
             agentLabel?: string;
+            wheelAction?: null | components["schemas"]["ApiModeWheelAction"];
+        };
+        ApiModeWheelAction: {
+            verb?: string;
+            label?: string;
+            enabled?: boolean;
+            disabledReason?: null | string;
         };
         CompactContextRequest: {
             continuePrompt?: null | string;

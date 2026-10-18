@@ -40,6 +40,8 @@ export interface LicenseAccountCardProps {
   onSetRenewalDate: (accountEmail: string, renewsOn: string | null) => Promise<void>;
   /** Ask to renew the sign-in `holding` that `machine` holds. Nothing is sent until it is confirmed. */
   onRenewNow: (machine: LicenseMachine, holding: LicenseHolding) => void;
+  /** Open the approver form with this account chosen. */
+  onSetApprover: (accountEmail: string) => void;
 }
 
 /**
@@ -102,7 +104,15 @@ function RenewalDateEditor({
   );
 }
 
-export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, onSetRenewalDate, onRenewNow }: LicenseAccountCardProps) {
+export function LicenseAccountCard({
+  account,
+  machines,
+  forecast,
+  onSwitchNow,
+  onSetRenewalDate,
+  onRenewNow,
+  onSetApprover,
+}: LicenseAccountCardProps) {
   const held = heldOn(account.accountEmail, machines);
   const [editingRenewal, setEditingRenewal] = useState(false);
   return (
@@ -163,9 +173,14 @@ export function LicenseAccountCard({ account, machines, forecast, onSwitchNow, o
         </p>
       )}
       {/* Who approves a sign-in for this account, or that nobody is set to: the Gateway's sentence in its tone. */}
-      <p className={`lic-card-line ${toneClass(account.approverTone)}`} data-testid="lic-account-approver">
-        {account.approverText}
-      </p>
+      <div className="lic-card-approver">
+        <p className={`lic-card-line ${toneClass(account.approverTone)}`} data-testid="lic-account-approver">
+          {account.approverText}
+        </p>
+        <Button variant="ghost" onClick={() => onSetApprover(account.accountEmail)}>
+          Set the approver
+        </Button>
+      </div>
 
       {held.length > 0 && (
         <ul className="lic-holdings" aria-label={`Sign-ins for ${account.accountEmail}`}>

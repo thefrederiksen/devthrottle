@@ -48,7 +48,7 @@ internal static class DirectorUpdateViewFold
             "RolledBack" => ($"{v} did not start, so the previous version was put back.{why}", FleetTone.Bad),
             "Failed" => ($"The update to {v} failed.{why}", FleetTone.Bad),
             "NothingStaged" => ("Nothing to install: this machine has not downloaded a newer Director yet.", FleetTone.Idle),
-            "HeldBecauseBusy" => ("Not installed: sessions are running. It installs by itself once the Director is empty.", FleetTone.Warn),
+            "HeldBecauseBusy" => ("Not installed: sessions are running. Smart Restart on that Director installs it now, with every session handed over; otherwise it installs by itself once the Director is empty.", FleetTone.Warn),
             "HeldBecauseUnknown" => ($"Not installed: the launcher could not tell whether the Director is empty.{why}", FleetTone.Warn),
             "HeldBecauseAnotherSwapIsRunning" => ("Not installed: another update is already running on this machine.", FleetTone.Warn),
             "HeldBecauseDirectorNotRunning" => ("Not installed: the Director is not running. It installs the update the next time it starts.", FleetTone.Idle),

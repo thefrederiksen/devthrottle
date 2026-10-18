@@ -287,6 +287,168 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1, rig.Env.NarratorCalls);
     }
 
+    /// <summary>
+    /// ISSUE #4154. The same stop as above, but reached the way production reaches it: voice is switched on for a
+    /// session that is already waiting, nothing on the screen changes, and the only thing that comes past is the idle
+    /// voice sweep - which reads the screen first, decides whether the attempt would cost anything, and only then
+    /// generates. The stop's narration and its clip must still arrive, with no new turn.
+    /// </summary>
+    [Fact]
+    public async Task AStopReadBeforeVoiceWasOn_IsNarratedByTheIdleSweep_WithNoNewTurn()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        await HostTurnEndAsync(rig, route);
+        Assert.Equal(0, rig.Env.NarratorCalls);   // not a voice session yet: colour only
+
+        rig.Voice.Mark(Tenant, Sid);
+        var input = await rig.Voice.PrepareSweepGenerationAsync(Tenant, Sid, route);
+        var slots = 0;
+        await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: false,
+            onProviderReached: () => slots++, sweepInput: input);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, slots);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.EndsWith(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+    }
+
+    /// <summary>One idle-sweep pass over the rig's session, exactly as GatewayHost runs it. Returns the slots it spent.</summary>
+    private static async Task<int> SweepPassAsync(Rig rig, SessionVerbClient route)
+    {
+        var input = await rig.Voice.PrepareSweepGenerationAsync(Tenant, Sid, route);
+        var slots = 0;
+        await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: false,
+            onProviderReached: () => slots++, sweepInput: input);
+        await rig.Voice.WaitForNarrationCallsAsync();
+        return slots;
+    }
+
+    /// <summary>
+    /// ISSUE #4154, THE STARVATION. The sweep has three slots per cycle for every account on the Gateway, and visits voice
+    /// sessions in the same order every cycle. A stop whose late narration already failed can get no more words
+    /// automatically, so a pass over it plays nothing and costs nothing - and it must not spend a slot either, or a few
+    /// such sessions ahead in the order hold all three slots for ever and no other session is narrated again.
+    /// </summary>
+    [Fact]
+    public async Task AStopWhoseLateNarrationFailed_SpendsNoSweepSlotOnLaterPasses()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        await HostTurnEndAsync(rig, route);
+        rig.Voice.Mark(Tenant, Sid);
+
+        Assert.Equal(1, await SweepPassAsync(rig, route));   // the one automatic attempt is a real cost
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(1, rig.Env.NarratorCalls);
+    }
+
+    /// <summary>
+    /// The same starvation from a voice session's own reading: its narration call failed inside the reading, the reading is
+    /// stored with that failure and no words, and only a person asking buys another call. The sweep must spend no slot on it.
+    /// </summary>
+    [Fact]
+    public async Task AVoiceSessionsStopWhoseNarrationFailedInsideTheReading_SpendsNoSweepSlot()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        Assert.NotNull(rig.Env.Latest(Tenant, Sid)!.NarrationFailureReason);
+        var callsAfterTheReading = rig.Env.NarratorCalls;
+
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(callsAfterTheReading, rig.Env.NarratorCalls);
+    }
+
+    /// <summary>
+    /// The same starvation from a session with no reading at all (found in review): a brand-new session sitting at its
+    /// prompt is never read, so a pass over it asks nobody and stores nothing - and must not spend a slot on every cycle.
+    /// </summary>
+    [Fact]
+    public async Task ABrandNewVoiceSession_WithNoReading_SpendsNoSweepSlot()
+    {
+        var rig = Build();
+        rig.Env.Facts = sid => new SessionDto { SessionId = sid, ActivityState = "WaitingForInput", IsBrandNew = true };
+        var route = RouteServing("dir-1", () => Screen(Sid, "> "));
+        rig.Voice.Mark(Tenant, Sid);
+
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(0, rig.Env.JudgeCalls);
+        Assert.Null(rig.Env.Latest(Tenant, Sid));
+        // ...and the card still says what the skipped flight used to record: nothing to narrate, not a voice that never
+        // arrived (seen on production right after the first version of this fix shipped).
+        Assert.True(rig.Voice.NothingToNarrateFor(Tenant, Sid));
+    }
+
+    /// <summary>
+    /// The flight stands down on the plan before it reaches either arm, so a reading that HAS words and no clip is not
+    /// spoken while the plan cannot be read - and a pass over it must spend no slot (found in review). The control: once
+    /// the plan reads again, the same pass is a real cost and the clip is made.
+    /// </summary>
+    [Fact]
+    public async Task AReadingWithWordsButNoClip_OnAPlanThatStandsTheReadingDown_SpendsNoSweepSlot()
+    {
+        var rig = Build();
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        rig.Voice.Mark(Tenant, Sid);
+        await HostTurnEndAsync(rig, route);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        rig.Voice.Unmark(Tenant, Sid);   // the clip goes; the reading keeps its words
+        rig.Voice.Mark(Tenant, Sid);
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+
+        rig.Env.Plan = () => NarrationPlan.Unknown;
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+        Assert.False(rig.Voice.NothingToNarrateFor(Tenant, Sid));   // only a brand-new session's stand-down says that
+
+        rig.Env.Plan = () => NarrationPlan.Allowed;
+        Assert.Equal(1, await SweepPassAsync(rig, route));
+        Assert.True(rig.Voice.HasVoice(Tenant, Sid));
+    }
+
+    /// <summary>
+    /// ISSUE #4154, THE SWITCH. Switching voice on is a person asking for the stop in front of them. A late narration for this
+    /// same stop that failed during an EARLIER voice period - voice mode switched off, by hand or by auto-off - must not leave
+    /// the stop refused for good: switching voice on again gives the stop one more automatic attempt, and its words and clip
+    /// arrive with no new turn.
+    /// </summary>
+    [Fact]
+    public async Task SwitchingVoiceOnAgain_AfterTheStopsLateNarrationFailed_NarratesItWithNoNewTurn()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        await HostTurnEndAsync(rig, route);
+        rig.Voice.Mark(Tenant, Sid);
+        await SweepPassAsync(rig, route);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+
+        rig.Voice.Unmark(Tenant, Sid);
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
+        rig.Voice.Mark(Tenant, Sid);
+
+        Assert.Equal(1, await SweepPassAsync(rig, route));
+        Assert.Equal(2, rig.Env.NarratorCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        Assert.EndsWith(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+
+        // Marking a session that is ALREADY on voice is not a new request: it gives back nothing.
+        Assert.Equal(0, await SweepPassAsync(rig, route));
+        Assert.Equal(2, rig.Env.NarratorCalls);
+    }
+
     [Fact]
     public async Task ExplainOnAStopReadWithoutWords_ReturnsTheWordsInTheSameAnswer_WithOneNarrationCall()
     {

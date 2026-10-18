@@ -490,7 +490,7 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
         var (status, body) = await Send("POST", Boss + "/publish", AsASessionOfTheFactory, new { version = 2 });
 
         Assert.Equal(403, status);
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonPublishes, Text(body, "error"));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotPublish(TheFactory), Text(body, "error"));
         Assert.Equal(1, _definitions.Standing(A, TheFactory).Published!.Version);
     }
 
@@ -577,7 +577,7 @@ public sealed class FactoryBriefsThroughTheDefinitionTests : IDisposable
         var (personStatus, person) = await Send("POST", Boss + "/restore", AsAPerson, new { version = 1, expectedVersion = 2, replaces = 2 });
 
         Assert.Equal(403, sessionStatus);
-        Assert.Equal(FactoryDefinitionStore.OnlyAPersonRestores, Text(session, "error"));
+        Assert.Equal(FactoryDefinitionStore.FactorySessionMayNotRestore(TheFactory), Text(session, "error"));
         Assert.Equal(200, personStatus);
         var standing = _definitions.Standing(A, TheFactory);
         Assert.Equal(3, standing.Newest!.Version);

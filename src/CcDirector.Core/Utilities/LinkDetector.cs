@@ -43,6 +43,13 @@ public static class LinkDetector
     internal static readonly Regex AbsoluteUnixPathRegex =
         new(@"(?<![\w.~/\\:-])/[a-z]/[^\s""'`<>|*?()\[\]\u2500-\u257F]+", RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexTimeout);
 
+    // Absolute POSIX paths (e.g., /home/soren/report.pdf, /tmp/build/out.log), which are absolute only
+    // where the file system has them (Linux and macOS - see FindAllLinkMatches). At least two segments,
+    // so a slash command ("/help") or a lone "/x" in prose is never a path; the left guard keeps it
+    // from starting inside a longer word or path ("and/or", "src/a/b", "~/x/y", "http://...") (#4085).
+    internal static readonly Regex AbsolutePosixPathRegex =
+        new(@"(?<![\w.~/\\:@-])/[^\s""'`<>|*?()\[\]/\u2500-\u257F]+/[^\s""'`<>|*?()\[\]\u2500-\u257F]+", RegexOptions.Compiled, RegexTimeout);
+
     // Windows network paths (e.g., \\server\share\file.txt).
     internal static readonly Regex UncPathRegex =
         new(@"(?<![\w\\:])\\\\[A-Za-z0-9_.$\-]+\\[^\s""'`<>|*?\[\]\u2500-\u257F]+", RegexOptions.Compiled, RegexTimeout);
@@ -104,7 +111,15 @@ public static class LinkDetector
     /// home-folder paths and Git Bash drive paths are links only when it answers true; without it,
     /// relative paths, bare names and home paths are never links.
     /// </param>
-    public static List<LinkMatch> FindAllLinkMatches(string? lineText, string? repoPath, Func<string, bool>? pathExistsCheck)
+    public static List<LinkMatch> FindAllLinkMatches(string? lineText, string? repoPath, Func<string, bool>? pathExistsCheck) =>
+        FindAllLinkMatches(lineText, repoPath, pathExistsCheck, posixPaths: !OperatingSystem.IsWindows());
+
+    /// <summary>
+    /// <see cref="FindAllLinkMatches(string?, string?, Func{string, bool}?)"/> with the platform made explicit:
+    /// <paramref name="posixPaths"/> is true where "/home/x" is an absolute path (Linux, macOS) and false on
+    /// Windows, where it is relative to the current drive. Exposed so both answers are testable anywhere.
+    /// </summary>
+    internal static List<LinkMatch> FindAllLinkMatches(string? lineText, string? repoPath, Func<string, bool>? pathExistsCheck, bool posixPaths)
     {
         var matches = new List<LinkMatch>();
         if (string.IsNullOrWhiteSpace(lineText))
@@ -124,7 +139,7 @@ public static class LinkDetector
                 if (path.Length > 0)
                 {
                     // For relative paths, check existence
-                    if (IsRelativePath(path))
+                    if (IsRelativePath(path, posixPaths))
                     {
                         if (repoPath == null || pathExistsCheck == null || !pathExistsCheck(ResolvePath(path, repoPath)))
                             continue;
@@ -188,6 +203,12 @@ public static class LinkDetector
         // 4. Git Bash drive paths. "/r/programming" has the same shape as "/c/Users", so when existence
         // can be checked, only a path that exists is a link.
         AddAbsolutePaths(AbsoluteUnixPathRegex, lineText, pathExistsCheck, requireExists: pathExistsCheck != null, extendThroughSpaces: true, quoteOpenBefore, matches, claimedRanges);
+
+        // 4b. Absolute POSIX paths, where the file system has them. Like a Git Bash path, a link only when it
+        // exists if existence can be checked (the terminal); without a check (the Chat, the named-path set)
+        // every match counts, exactly as the Chat's detector (historyLinks.ts) counts it.
+        if (posixPaths)
+            AddAbsolutePaths(AbsolutePosixPathRegex, lineText, pathExistsCheck, requireExists: pathExistsCheck != null, extendThroughSpaces: true, quoteOpenBefore, matches, claimedRanges);
 
         // 5. Home-folder paths - only when they exist
         if (pathExistsCheck != null)
@@ -728,14 +749,14 @@ public static class LinkDetector
             || (c >= '\u2500' && c <= '\u257F');
     }
 
-    private static bool IsRelativePath(string path)
+    private static bool IsRelativePath(string path, bool posixPaths)
     {
         // Not an absolute Windows path, Git Bash drive path, network path or home-folder path
         if (path.Length >= 2 && path[1] == ':') return false;
         if (path.StartsWith("/") && path.Length >= 3 && path[2] == '/') return false;
         if (path.StartsWith(@"\\")) return false;
         if (path.StartsWith("~/") || path.StartsWith(@"~\")) return false;
-        if (!OperatingSystem.IsWindows() && path.StartsWith("/")) return false;
+        if (posixPaths && path.StartsWith("/")) return false;
         return true;
     }
 

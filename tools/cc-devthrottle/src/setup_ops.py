@@ -316,6 +316,73 @@ def _shim_dir(installer: DevThrottleInstaller) -> Path:
     return Path.home() / ".local" / "bin"
 
 
+# The per-user systemd units DevThrottle has ever written. devthrottle-launcher.service is no longer
+# written by any build on main, but a branch build left one on installed machines that runs bare
+# "dotnet" and restarts every five seconds for ever (devthrottle_internal#2475).
+USER_UNIT_NAMES = ["devthrottle-launcher.service", "devthrottle-gateway.service"]
+
+# From this many restarts a unit is called crash-looping; the same number as the setup engine's
+# UserUnitFinding.CrashLoopRestarts.
+CRASH_LOOP_RESTARTS = 10
+
+
+def _user_unit_dir() -> Path:
+    return Path.home() / ".config" / "systemd" / "user"
+
+
+def _parse_systemctl_show(output: str) -> dict[str, str]:
+    props = {}
+    for line in output.splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key:
+            props[key] = value
+    return props
+
+
+def _user_unit_status(name: str) -> Optional[dict]:
+    """What systemd says about one of our user units, or None when its unit file is not on disk.
+    systemd is asked only when the file exists, so a machine without the unit starts no process."""
+    unit_path = _user_unit_dir() / name
+    if not unit_path.exists():
+        return None
+    exec_start = next(
+        (line.strip()[len("ExecStart="):].strip()
+         for line in unit_path.read_text(encoding="utf-8", errors="replace").splitlines()
+         if line.strip().startswith("ExecStart=")),
+        None,
+    )
+    props: dict[str, str] = {}
+    try:
+        completed = subprocess.run(
+            ["systemctl", "--user", "show", name, "-p", "NRestarts", "-p", "ActiveState", "-p", "SubState"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if completed.returncode == 0:
+            props = _parse_systemctl_show(completed.stdout)
+    except (OSError, subprocess.SubprocessError):
+        props = {}
+    restarts_text = props.get("NRestarts", "")
+    restarts = int(restarts_text) if restarts_text.isdigit() else None
+    active = props.get("ActiveState") or None
+    sub = props.get("SubState") or None
+    crash_looping = sub == "auto-restart" or active == "failed" or (restarts or 0) >= CRASH_LOOP_RESTARTS
+    return {
+        "name": name,
+        "path": str(unit_path),
+        "execStart": exec_start,
+        "restarts": restarts,
+        "activeState": active,
+        "subState": sub,
+        "crashLooping": crash_looping,
+    }
+
+
+def _user_units() -> list[dict]:
+    if _is_windows() or sys.platform == "darwin":
+        return []
+    return [status for status in (_user_unit_status(name) for name in USER_UNIT_NAMES) if status]
+
+
 def doctor_data() -> dict:
     installer = DevThrottleInstaller()
     shim_dir = _shim_dir(installer)
@@ -339,6 +406,15 @@ def doctor_data() -> dict:
         problems.append("cc-devthrottle is not resolvable on PATH")
     if missing:
         problems.append(f"missing or incomplete tool shims: {', '.join(missing)}")
+    user_units = _user_units()
+    for unit in user_units:
+        if unit["crashLooping"]:
+            problems.append(
+                f"user unit {unit['name']} is crash-looping "
+                f"({unit['restarts'] if unit['restarts'] is not None else 'unknown'} restarts, "
+                f"{unit['activeState']}/{unit['subState']}, runs {unit['execStart']}); "
+                f"see: systemctl --user status {unit['name']}"
+            )
 
     return {
         "ok": not problems,
@@ -357,6 +433,7 @@ def doctor_data() -> dict:
         "commands": commands,
         "ccDevThrottlePath": cc_resolved,
         "legacyAliases": _legacy_alias_status(),
+        "userUnits": user_units,
         # No skill status here: the installer places no skill files (issue 995). Skills are held on
         # the Gateway, so "is the dev-throttle skill on this disk" is no longer a question about
         # whether setup worked - reporting it would read as a missing piece of a good install.
@@ -585,5 +662,24 @@ def update(role: str = "workstation", dry_run: bool = False, json_output: bool =
     _run_setup_command("update", role, dry_run, json_output)
 
 
+def _path_gap_notice() -> Optional[str]:
+    """The line repair prints when the tool shim directory is not on this shell's PATH. The setup
+    engine cannot change the PATH of a shell that is already running, so the gap is named with what
+    fixes it, rather than left for the reader to infer from a repair that said only "up to date"."""
+    shim_dir = _shim_dir(DevThrottleInstaller())
+    if _path_contains(shim_dir):
+        return None
+    if _is_windows():
+        return (f"PATH: {shim_dir} is not on this terminal's PATH. The installer adds it for new terminals; "
+                "open a new terminal to use the tools.")
+    return (f"PATH: {shim_dir} is not on this shell's PATH. The Director adds it for itself and its sessions "
+            f"when it starts; for this shell add it to your profile: export PATH=\"{shim_dir}:$PATH\"")
+
+
 def repair(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
     _run_setup_command("repair", role, dry_run, json_output)
+    # After the repair, never before it: a repair that fails exits above with its one "Error:" line
+    # first on standard error, which the command-line standard requires.
+    notice = _path_gap_notice()
+    if notice:
+        print(axi_cli.ascii_text(notice), file=sys.stderr)

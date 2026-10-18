@@ -75,6 +75,7 @@ public sealed class LicenseSignInCommandLineTests
     [Theory]
     [InlineData("{\"result\": \"failed\", \"reason\": \"no-approver\"}", LicenseRenewalErrors.NoApprover)]
     [InlineData("{\"result\": \"failed\", \"reason\": \"store-refused\"}", LicenseRenewalErrors.StoreRefused)]
+    [InlineData("{\"result\": \"failed\", \"reason\": \"needs-fresh-sign-in\"}", LicenseRenewalErrors.NeedsFreshSignIn)]
     [InlineData("{\"result\": \"failed\", \"reason\": \"TOOL-TEXT-MARKER-5e2a\"}", LicenseRenewalErrors.LoginFailed)]
     [InlineData("{\"result\": \"failed\"}", LicenseRenewalErrors.LoginFailed)]
     [InlineData("{\"result\": \"something-new\"}", LicenseRenewalErrors.LoginFailed)]
@@ -93,6 +94,7 @@ public sealed class LicenseSignInCommandLineTests
     [InlineData("{\"result\": \"approved\", \"code\": \"\"}", false, LicenseRenewalErrors.ApprovalFailed)]
     [InlineData("{\"result\": \"approved\"}", false, LicenseRenewalErrors.ApprovalFailed)]
     [InlineData("{\"result\": \"refused\", \"reason\": \"wrong-account\"}", false, LicenseRenewalErrors.WrongAccount)]
+    [InlineData("{\"result\": \"refused\", \"reason\": \"needs-fresh-sign-in\"}", false, LicenseRenewalErrors.NeedsFreshSignIn)]
     [InlineData("{\"result\": \"refused\", \"reason\": \"TOOL-TEXT-MARKER-5e2a\"}", false, LicenseRenewalErrors.ApprovalFailed)]
     [InlineData("abc#state", false, LicenseRenewalErrors.ApprovalFailed)]
     public void ReadApproveAnswer_OnlyAnApprovedAnswerWithItsApproval_IsApproved(string output, bool approved, string? reason)
@@ -102,6 +104,36 @@ public sealed class LicenseSignInCommandLineTests
         Assert.Equal(approved, answer.Approved);
         Assert.Equal(reason, answer.ReasonCode);
         Assert.Equal(approved ? "abc#state" : null, answer.Approval);
+    }
+
+    [Theory]
+    [InlineData("{\"browserProfile\": \"work-chrome\", \"accountEmail\": \"account-a@example.com\", \"shownAccount\": \"account-a@example.com\", \"state\": \"can-approve\", \"detail\": \"TOOL-TEXT-MARKER-5e2a\"}",
+        "account-a@example.com", "can-approve", "account-a@example.com", "account-a@example.com", true)]
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"shownAccount\": \"account-a@example.com\", \"state\": \"needs-fresh-sign-in\"}",
+        "account-a@example.com", "needs-fresh-sign-in", "account-a@example.com", "account-a@example.com", true)]
+    [InlineData("{\"accountEmail\": null, \"shownAccount\": null, \"state\": \"signed-out\"}",
+        null, "signed-out", null, null, true)]
+    [InlineData("{\"accountEmail\": \"Account-A@Example.com\", \"shownAccount\": null, \"state\": \"check-failed\"}",
+        null, "check-failed", "account-a@example.com", null, true)]
+    // Not answers: a state outside the contract, the tool's own not-checked word, a "can approve" naming nobody or
+    // someone else, an answer for another account than asked, and no JSON at all.
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"state\": \"TOOL-TEXT-MARKER-5e2a\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"state\": \"not-checked\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("{\"accountEmail\": null, \"state\": \"can-approve\"}",
+        null, "check-failed", null, null, false)]
+    [InlineData("{\"accountEmail\": \"account-a@example.com\", \"shownAccount\": \"account-c@example.com\", \"state\": \"can-approve\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("{\"accountEmail\": \"account-c@example.com\", \"state\": \"can-approve\", \"shownAccount\": \"account-c@example.com\"}",
+        "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    [InlineData("Error: browser-harness failed", "account-a@example.com", "check-failed", "account-a@example.com", null, false)]
+    public void ReadApproverCheck_OnlyTheContractsWordsForTheAccountAsked_AreAnAnswer(string output, string? asked,
+        string state, string? account, string? shown, bool answered)
+    {
+        var answer = CcDevthrottleLicenseCommandLine.ReadApproverCheck(output, asked);
+
+        Assert.Equal((state, account, shown, answered), (answer.State, answer.AccountEmail, answer.ShownAccount, answer.ToolAnswered));
     }
 
     [Fact]

@@ -6,10 +6,9 @@ import {
   ensureGatewayCookie,
   fetchSessionFileSize,
   fetchSessionFileText,
-  fetchSessionFolder,
   sessionFileUrl,
 } from "@devthrottle/client-core/api/client";
-import type { SessionFolderListing } from "@devthrottle/client-core/api/client";
+import { FolderListing } from "@devthrottle/client-core/history/FolderListing";
 import { isFolder as pathIsFolder, refusalSentence, usePathStatus } from "@devthrottle/client-core/history/usePathStatus";
 import { markdownToHtml } from "@devthrottle/client-core/history/historyMarkdown";
 import { Button } from "./Button";
@@ -150,7 +149,7 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
           ) : refusal !== null ? (
             <div className="file-viewer-error">{refusal}</div>
           ) : isFolder ? (
-            <FolderListing sessionId={sessionId} path={current} onOpen={openFromFolder} />
+            <FolderListing sessionId={sessionId} path={current} onOpen={openFromFolder} surface={SURFACE} />
           ) : (
             <FileViewerContent
               type={type}
@@ -164,64 +163,6 @@ export function FileViewerModal({ sessionId, path, onClose }: FileViewerModalPro
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-// Issue #4078: a folder this session may see, through the session folder browser. Every entry opens in the
-// viewer - a file renders, a folder lists - and the parent is offered only when the Director allows going up.
-function FolderListing({
-  sessionId,
-  path,
-  onOpen,
-}: {
-  sessionId: string;
-  path: string;
-  onOpen: (entryPath: string) => void;
-}) {
-  const [listing, setListing] = useState<SessionFolderListing | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setListing(null);
-    setError(null);
-    fetchSessionFolder(sessionId, path, controller.signal)
-      .then((result) => setListing(result))
-      .catch((err) => {
-        if (controller.signal.aborted) return;
-        setError(describeAndReport(SURFACE, "open the folder", err, { sessionId }));
-      });
-    return () => controller.abort();
-  }, [sessionId, path]);
-
-  if (error !== null) return <div className="file-viewer-error">{error}</div>;
-  if (listing === null) return <div className="file-viewer-loading">Loading...</div>;
-  return (
-    <div className="file-viewer-scroll">
-      <p className="file-viewer-folder-note">This is a folder. Choose a file to open it.</p>
-      <ul className="file-viewer-folder" aria-label="Folder contents">
-        {listing.parentPath !== null && (
-          <li>
-            <button type="button" className="file-viewer-folder-entry folder" onClick={() => onOpen(listing.parentPath!)}>
-              .. (up one folder)
-            </button>
-          </li>
-        )}
-        {listing.entries.map((entry) => (
-          <li key={entry.path}>
-            <button
-              type="button"
-              className={`file-viewer-folder-entry ${entry.isFile ? "file" : "folder"}`}
-              title={entry.path}
-              onClick={() => onOpen(entry.path)}
-            >
-              {entry.isFile ? entry.name : `${entry.name}/`}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {listing.entries.length === 0 && <p className="file-viewer-folder-note">This folder has no files to show.</p>}
     </div>
   );
 }

@@ -135,4 +135,44 @@ public sealed class ApiModeSessionDisplay
     /// <summary>The agent process in words: "Agent connected (model)", "Agent disconnected: ...", or the honest
     /// "Not known ..." sentence.</summary>
     public string AgentLabel { get; set; } = "";
+
+    /// <summary>The one wheel button the Terminal tab shows - which button, its words, and whether it can be pressed;
+    /// null when it shows no button.</summary>
+    public ApiModeWheelAction? WheelAction { get; set; }
+}
+
+/// <summary>
+/// THE WHEEL BUTTON ON AN API-MODE SESSION'S TERMINAL TAB (mission #4070, phase 2), ruled once by
+/// <c>ApiModeSessionFold</c> and rendered VERBATIM: the client shows <see cref="Label"/>, calls the route
+/// <see cref="Verb"/> names, and greys the button out with <see cref="DisabledReason"/> beside it when
+/// <see cref="Enabled"/> is false. It decides nothing (the project rule 7).
+/// </summary>
+public sealed class ApiModeWheelAction
+{
+    /// <summary>Which button, and so which route: one of <see cref="ApiModeWheelVerbs"/> -
+    /// <c>takeTheWheel</c> (<c>POST /sessions/{sid}/wheel/take</c>) or <c>handBack</c>
+    /// (<c>POST /sessions/{sid}/wheel/hand-back</c>).</summary>
+    public string Verb { get; set; } = "";
+
+    /// <summary>The button's words: "Take the wheel" or "Hand back".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>True when the button can be pressed.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>The sentence beside a disabled button, saying why it cannot be pressed; null whenever
+    /// <see cref="Enabled"/> is true.</summary>
+    public string? DisabledReason { get; set; }
+}
+
+/// <summary>The values of <see cref="ApiModeWheelAction.Verb"/>.</summary>
+public static class ApiModeWheelVerbs
+{
+    /// <summary>Take the wheel: the agent's real terminal takes the conversation from the protocol process.
+    /// <c>POST /sessions/{sid}/wheel/take</c>.</summary>
+    public const string TakeTheWheel = "takeTheWheel";
+
+    /// <summary>Hand back: the protocol process takes the conversation back from the terminal.
+    /// <c>POST /sessions/{sid}/wheel/hand-back</c>.</summary>
+    public const string HandBack = "handBack";
 }

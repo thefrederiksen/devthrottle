@@ -7,7 +7,7 @@
 //     /gateway/factories/{factory}/definition. Every word in them is the Gateway's (FactoryDefinitionTabFold); the
 //     tab draws them and decides nothing.
 //   * PUBLISH and RESTORE go to the definition's own routes under /factory-definitions/{factory}, the same ones the
-//     command line uses. Who is asking is read there from the device key, and only a person may do either. The answer
+//     command line uses. Who is asking is read there from the device key; a factory's own session may do neither. The answer
 //     carries what changed and what the Gateway applied; a refusal carries the Gateway's sentence and, when the check
 //     refused it, every finding by file and line.
 //   * EXPORT and IMPORT move a zip of the folder through /gateway/factories/{factory}/definition/export and /import.
@@ -334,7 +334,7 @@ export function getFactoryDefinitionVersion(
   return send<FactoryDefinitionVersionView>("GET", viewPath(factory, `versions/${version}`), undefined, signal);
 }
 
-/** Publish one version, as the confirm named it. A person's act; the answer says what the Gateway applied. */
+/** Publish one version, as the confirm named it. The answer says what the Gateway applied. */
 export function publishFactoryDefinition(
   factory: string,
   action: FactoryDefinitionAction,
@@ -348,7 +348,7 @@ export function publishFactoryDefinition(
   );
 }
 
-/** Restore an older version as a published copy, as the confirm named it. A person's act. */
+/** Restore an older version as a published copy, as the confirm named it. */
 export function restoreFactoryDefinition(
   factory: string,
   action: FactoryDefinitionAction,
