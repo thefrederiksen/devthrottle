@@ -59,6 +59,13 @@ public static class LicenseApproverCheckSentences
 /// <c>ReportLicenseApproverChecks</c>. An approver that cannot approve is then known within a day, rather than at the
 /// moment a sign-in needs it (the 16 October report, problems 9 and 12).
 ///
+/// CHECKED WITHIN MINUTES WHEN THE GATEWAY SAYS ONE IS DUE. Between daily runs, each ten-minute look asks the Gateway for
+/// the assignments again and checks at once every record it marks <see cref="LicenseApproverAssignment.CheckDue"/> - one
+/// the owner has just set, one stored before checks existed, one whose last check is too old. Such a record blocks the
+/// automatic sign-in until it is checked (the phase 6 review, finding 1), so it is never left for the daily run. A due
+/// record already checked since the last daily run is not checked again until the next one: a row the Gateway refused
+/// would otherwise open the browser every ten minutes.
+///
 /// What is checked: every record the Gateway says names this machine (<c>GetLicenseApproverAssignments</c>), with its
 /// account; and, when this machine offers its profiles as approvers (<see cref="Configuration.LicenseApproverOfferSetting"/>),
 /// every one of this Director's own profiles with no account, so the tool says who each is signed in as. A check that
@@ -70,9 +77,10 @@ public static class LicenseApproverCheckSentences
 /// </summary>
 public sealed class LicenseApproverCheck
 {
-    /// <summary>How often the job looks at whether a run is due, as the renewal does: a run itself happens once per
-    /// <see cref="RunInterval"/>, and a run the Gateway could not take is sent again at the next look.</summary>
-    public static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(10);
+    /// <summary>How often the job looks at whether a run is due, as the renewal does: a full run happens once per
+    /// <see cref="RunInterval"/>, a record the Gateway marks due is checked at the next look, and a run the Gateway could
+    /// not take is sent again at the next look. The Gateway's sentences promise the same figure.</summary>
+    public static readonly TimeSpan CheckInterval = LicenseApproverContract.DueCheckWithin;
 
     /// <summary>A run a day. The Gateway reads a record with no check in 26 hours as not checked.</summary>
     public static readonly TimeSpan RunInterval = TimeSpan.FromHours(24);
@@ -88,6 +96,10 @@ public sealed class LicenseApproverCheck
     private volatile ILicenseApproverChannel? _channel;
     private LicenseApproverCheckReport? _unsent;
     private DateTime _unsentStartedUtc;
+    // Whether the unsent report is a daily run's: only that one moves the time of the next daily run.
+    private bool _unsentIsDailyRun;
+    // The due records (account, profile) checked since the last daily run; cleared by each daily run.
+    private readonly HashSet<(string Account, string Profile)> _checkedWhenDue = new();
     private DateTime? _lastRunUtc;
     private string? _lastFailure;
     private BackgroundJob? _job;
@@ -147,8 +159,9 @@ public sealed class LicenseApproverCheck
     }
 
     /// <summary>
-    /// One step: when license switching is on, this Director is the key holder, the Gateway can be reached and a run is
-    /// due, check every profile there is to check and report it. Returns the report sent, or null when none was. Public
+    /// One step: when license switching is on, this Director is the key holder and the Gateway can be reached, check every
+    /// profile there is to check when the daily run is due, else every record the Gateway marks due that this run has not
+    /// checked yet, and report it. Returns the report sent, or null when none was. Public
     /// for tests; the scheduler is the only production caller.
     /// </summary>
     public async Task<LicenseApproverCheckReport?> TickAsync(CancellationToken cancellationToken)
@@ -174,7 +187,7 @@ public sealed class LicenseApproverCheck
             }
             if (_unsent is null)
             {
-                if (_lastRunUtc is { } last && _utcNow() - last < RunInterval) return null;
+                var dailyRunDue = _lastRunUtc is not { } last || _utcNow() - last >= RunInterval;
                 LicenseApproverAssignments assignments;
                 try
                 {
@@ -186,7 +199,18 @@ public sealed class LicenseApproverCheck
                     return null;
                 }
                 var startedUtc = _utcNow();
-                _unsent = await CheckAllAsync(assignments, cancellationToken);
+                if (dailyRunDue)
+                {
+                    _checkedWhenDue.Clear();
+                    _unsent = await CheckAllAsync(assignments, cancellationToken);
+                }
+                else
+                {
+                    var due = DueNotYetChecked(assignments);
+                    if (due.Count == 0) return null;
+                    _unsent = await CheckDueAsync(due, cancellationToken);
+                }
+                _unsentIsDailyRun = dailyRunDue;
                 _unsentStartedUtc = startedUtc;
             }
 
@@ -203,7 +227,8 @@ public sealed class LicenseApproverCheck
             }
             _unsent = null;
             _lastFailure = null;
-            _lastRunUtc = _unsentStartedUtc;
+            if (_unsentIsDailyRun)
+                _lastRunUtc = _unsentStartedUtc;
             return report;
         }
         finally
@@ -216,11 +241,44 @@ public sealed class LicenseApproverCheck
     private async Task<LicenseApproverCheckReport> CheckAllAsync(LicenseApproverAssignments assignments, CancellationToken cancellationToken)
     {
         var own = _profiles.List();
-        var names = own.GroupBy(p => p.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Name, StringComparer.Ordinal);
-        var work = assignments.Rows.Select(a => (Profile: a.BrowserProfile, Email: (string?)a.AccountEmail.Trim().ToLowerInvariant())).ToList();
+        var work = assignments.Rows.Select(a => (Profile: a.BrowserProfile, Email: (string?)Normalize(a.AccountEmail))).ToList();
         if (_offersApprovers)
             work.AddRange(own.Select(p => (Profile: p.Id, Email: (string?)null)));
+        var report = await CheckEachAsync(work, own, cancellationToken);
+        FileLog.Write($"[LicenseApproverCheck] run: assigned={assignments.Rows.Count}, ownProfilesChecked={(_offersApprovers ? own.Count : 0)}, rows={report.Rows.Count}, failed={report.Rows.Count(r => r.State == LicenseApproverStates.CheckFailed)}");
+        return report;
+    }
 
+    /// <summary>The records the Gateway marks due that have not been checked since the last daily run. A record no
+    /// longer assigned is forgotten, so one the owner sets again later is checked again.</summary>
+    private List<LicenseApproverAssignment> DueNotYetChecked(LicenseApproverAssignments assignments)
+    {
+        var assigned = assignments.Rows.Select(Key).ToHashSet();
+        _checkedWhenDue.IntersectWith(assigned);
+        return assignments.Rows.Where(a => a.CheckDue && !_checkedWhenDue.Contains(Key(a))).ToList();
+    }
+
+    /// <summary>Checks only the records the Gateway marks due, each with its account; this Director's own profiles wait
+    /// for the daily run.</summary>
+    private async Task<LicenseApproverCheckReport> CheckDueAsync(IReadOnlyList<LicenseApproverAssignment> due, CancellationToken cancellationToken)
+    {
+        foreach (var a in due)
+            _checkedWhenDue.Add(Key(a));
+        var work = due.Select(a => (Profile: a.BrowserProfile, Email: (string?)Normalize(a.AccountEmail))).ToList();
+        var report = await CheckEachAsync(work, _profiles.List(), cancellationToken);
+        FileLog.Write($"[LicenseApproverCheck] due run: the Gateway marked {due.Count} records not checked, rows={report.Rows.Count}, failed={report.Rows.Count(r => r.State == LicenseApproverStates.CheckFailed)}");
+        return report;
+    }
+
+    private static (string Account, string Profile) Key(LicenseApproverAssignment a) => (Normalize(a.AccountEmail), a.BrowserProfile);
+
+    private static string Normalize(string accountEmail) => accountEmail.Trim().ToLowerInvariant();
+
+    /// <summary>Runs one check per item, one at a time in the browser lane, and builds the report.</summary>
+    private async Task<LicenseApproverCheckReport> CheckEachAsync(List<(string Profile, string? Email)> work, IReadOnlyList<LicenseBrowserProfile> own,
+        CancellationToken cancellationToken)
+    {
+        var names = own.GroupBy(p => p.Id, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Name, StringComparer.Ordinal);
         var report = new LicenseApproverCheckReport { OffersApprovers = _offersApprovers };
         foreach (var (profile, email) in work)
         {
@@ -247,7 +305,6 @@ public sealed class LicenseApproverCheck
             });
             FileLog.Write($"[LicenseApproverCheck] checked profile={profile}, account={answer.AccountEmail ?? "-"}, state={answer.State}");
         }
-        FileLog.Write($"[LicenseApproverCheck] run: assigned={assignments.Rows.Count}, ownProfilesChecked={(_offersApprovers ? own.Count : 0)}, rows={report.Rows.Count}, failed={report.Rows.Count(r => r.State == LicenseApproverStates.CheckFailed)}");
         return report;
     }
 

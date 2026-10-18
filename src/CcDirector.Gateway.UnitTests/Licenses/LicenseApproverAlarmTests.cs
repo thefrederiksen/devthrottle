@@ -35,6 +35,8 @@ public sealed class LicenseApproverAlarmTests : IDisposable
     private readonly System.Collections.Concurrent.ConcurrentQueue<string> _logged = new();
     private DateTime _now = T0;
     private long _sequence;
+    // The Directors connected now, by identifier; none unless a test connects one.
+    private readonly HashSet<string> _connected = new();
 
     public LicenseApproverAlarmTests()
     {
@@ -42,7 +44,7 @@ public sealed class LicenseApproverAlarmTests : IDisposable
         _licenses = new LicenseStore(_db);
         _approvers = new LicenseApproverStore(new TenantSettingsStore(_db));
         _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
-        _alarm = new LicenseApproverAlarm(_approvers, new LicenseReadModel(_licenses), _alarms, _ => new NoScope(), () => _now,
+        _alarm = new LicenseApproverAlarm(_approvers, new LicenseReadModel(_licenses), _alarms, (_, directorId) => _connected.Contains(directorId), _ => new NoScope(), () => _now,
             CancellationToken.None, _logged.Enqueue);
         _licenses.ApplyReport(One, DirectorA, ++_sequence, Report(MachineA, _now, Holding(A, true)), _now, TimeSpan.Zero);
     }
@@ -148,7 +150,22 @@ public sealed class LicenseApproverAlarmTests : IDisposable
 
         var open = Assert.Single(_alarms.ListOpen(One));
         Assert.StartsWith("The approver for account-a@example.com (browser profile \"Work Chrome\" on machine-a) was last checked", open.Problem);
-        Assert.Equal("Make sure the Director on machine-a is running with license switching on; it checks its approvers once a day.", open.Action);
+        Assert.Equal("Start the Director on machine-a; it checks this approver within 10 minutes of connecting.", open.Action);
+    }
+
+    [Fact]
+    public async Task ANeverCheckedApprover_WhoseDirectorIsConnected_AlarmSaysTheCheckIsComing_NeverToStartTheDirector()
+    {
+        // The owner has just set the approver, and machine-a's Director is running and connected: the alarm is true (the
+        // record cannot approve yet) and its one thing to do is not to start a Director that is already running.
+        _connected.Add(DirectorA);
+        ApproverOfA(null, null);
+
+        await Raise();
+
+        var open = Assert.Single(_alarms.ListOpen(One));
+        Assert.EndsWith("has never been checked.", open.Problem);
+        Assert.Equal("Nothing to do: the Director on machine-a is connected and checks it within 10 minutes.", open.Action);
     }
 
     [Fact]

@@ -9,6 +9,23 @@ namespace CcDirector.Gateway.Licenses;
 /// thing the owner must do (null when there is nothing to do).</summary>
 public sealed record LicenseApproverHealthVerdict(string State, string HealthText, string? WhatToDo);
 
+/// <summary>Whether the Director of an approver's machine can check it now, which decides what a not-checked record's
+/// sentence tells the owner to do.</summary>
+public enum LicenseApproverReach
+{
+    /// <summary>No Director reports licenses for that machine and user: none ever has, or the one that did is connected
+    /// and has sent no report for <see cref="LicenseStore.SilentAfter"/> - license switching is off there now. Approving,
+    /// and the check, need license switching on.</summary>
+    NotReporting,
+
+    /// <summary>A Director reported for that machine, and it is not connected now.</summary>
+    NotConnected,
+
+    /// <summary>The Director that reports for that machine is connected and reporting: it checks a not-checked record within
+    /// <see cref="LicenseApproverContract.DueCheckWithin"/>, with nothing for the owner to do.</summary>
+    Connected,
+}
+
 /// <summary>
 /// CAN THIS ACCOUNT'S APPROVER APPROVE? (License Switching phase 6, Track C; CLAUDE.md rule 7: the Gateway folds every
 /// sentence.) The one place that turns an approver record's health into plain English, naming the account, the
@@ -23,12 +40,17 @@ public sealed class LicenseApproverReadiness
 {
     private readonly LicenseApproverStore _approvers;
     private readonly LicenseReadModel _reads;
+    private readonly Func<TenantId, string, bool> _isConnected;
     private readonly Func<DateTime> _nowUtc;
 
-    public LicenseApproverReadiness(LicenseApproverStore approvers, LicenseReadModel reads, Func<DateTime> nowUtc)
+    /// <param name="isConnected">Whether a Director of the tenant, by its identifier, is connected now: a record not yet
+    /// checked says "it is checked within minutes" only while its machine's Director is.</param>
+    public LicenseApproverReadiness(LicenseApproverStore approvers, LicenseReadModel reads, Func<TenantId, string, bool> isConnected,
+        Func<DateTime> nowUtc)
     {
         _approvers = approvers ?? throw new ArgumentNullException(nameof(approvers));
         _reads = reads ?? throw new ArgumentNullException(nameof(reads));
+        _isConnected = isConnected ?? throw new ArgumentNullException(nameof(isConnected));
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
     }
 
@@ -46,8 +68,15 @@ public sealed class LicenseApproverReadiness
             throw new ArgumentException("accountEmail is the email of a Claude account.", nameof(accountEmail));
         var now = _nowUtc();
         var approver = _approvers.Find(tenant, account);
-        var label = approver is null ? "" : LicenseSignInFold.Label(_reads.Read(tenant, now).Machines, approver.MachineName, approver.OsUser);
-        var why = Sentence(approver, account, label, now);
+        var label = "";
+        var reach = LicenseApproverReach.NotReporting;
+        if (approver is not null)
+        {
+            var machines = _reads.Read(tenant, now).Machines;
+            label = LicenseSignInFold.Label(machines, approver.MachineName, approver.OsUser);
+            reach = ReachOf(approver, machines, directorId => _isConnected(tenant, directorId), now);
+        }
+        var why = Sentence(approver, account, label, reach, now);
         FileLog.Write($"[LicenseApproverReadiness] WhyNotReady: tenant={tenant.ToLogString()}, account={account}, "
                       + $"state={(approver is null ? "no-approver" : LicenseApproverHealth.StateOf(approver, now))}, ready={why is null}");
         return why;
@@ -56,11 +85,12 @@ public sealed class LicenseApproverReadiness
     /// <summary>The readiness sentence for one account: null when <paramref name="approver"/> can approve at
     /// <paramref name="nowUtc"/>, else what is wrong and the one thing to do, as one text.</summary>
     /// <param name="label">What to call the approver's machine (<see cref="LicenseSignInFold.Label"/>).</param>
-    public static string? Sentence(LicenseApprover? approver, string accountEmail, string label, DateTime nowUtc)
+    /// <param name="reach">Whether the approver's machine's Director can check it now (<see cref="ReachOf"/>).</param>
+    public static string? Sentence(LicenseApprover? approver, string accountEmail, string label, LicenseApproverReach reach, DateTime nowUtc)
     {
         if (approver is null)
             return $"{NoApproverText(accountEmail)} {NoApproverWhatToDo(accountEmail)}";
-        var verdict = Verdict(approver, label, nowUtc);
+        var verdict = Verdict(approver, label, reach, nowUtc);
         return verdict.WhatToDo is null ? null : $"{verdict.HealthText} {verdict.WhatToDo}";
     }
 
@@ -71,7 +101,10 @@ public sealed class LicenseApproverReadiness
     /// <summary>One approver record's health at <paramref name="nowUtc"/>, as the state, the sentence and the one thing
     /// to do. <see cref="LicenseApproverHealthVerdict.WhatToDo"/> is null exactly when the record can approve.</summary>
     /// <param name="label">What to call the approver's machine (<see cref="LicenseSignInFold.Label"/>).</param>
-    public static LicenseApproverHealthVerdict Verdict(LicenseApprover approver, string label, DateTime nowUtc)
+    /// <param name="reach">Whether the approver's machine's Director can check it now (<see cref="ReachOf"/>). It changes
+    /// only what a not-checked record tells the owner to do: never "start the Director" while it is running and
+    /// connected.</param>
+    public static LicenseApproverHealthVerdict Verdict(LicenseApprover approver, string label, LicenseApproverReach reach, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(approver);
         var account = approver.AccountEmail;
@@ -92,8 +125,42 @@ public sealed class LicenseApproverReadiness
             LicenseApproverStates.NotChecked => new(state, approver.CheckedAtUtc is { } at
                     ? $"{who} was last checked {Clock(at)}, more than {LicenseApproverContract.NotCheckedAfter.TotalHours:0} hours ago."
                     : $"{who} has never been checked.",
-                $"Make sure the Director on {label} is running with license switching on; it checks its approvers once a day."),
+                NotCheckedWhatToDo(label, reach)),
             _ => throw new InvalidOperationException($"An approver record holds a state that is not a state word: {state}."),
+        };
+    }
+
+    /// <summary>Whether the Director of <paramref name="approver"/>'s machine can check it now: whether a Director
+    /// reports licenses for that machine and user, and whether that Director is connected. A connected Director that has
+    /// gone silent for longer than <see cref="LicenseStore.SilentAfter"/> has license switching off and runs no check,
+    /// so it is not reporting: "it checks it within minutes" is said only of a Director that will.</summary>
+    /// <param name="machines">Every machine of the account that has reported.</param>
+    /// <param name="isConnected">Whether a Director of the account, by its identifier, is connected now.</param>
+    public static LicenseApproverReach ReachOf(LicenseApprover approver, IReadOnlyList<LicenseMachineView> machines, Func<string, bool> isConnected,
+        DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(approver);
+        ArgumentNullException.ThrowIfNull(machines);
+        ArgumentNullException.ThrowIfNull(isConnected);
+        var machine = machines.FirstOrDefault(m => approver.NamesMachine(m.MachineName, m.OsUser));
+        if (machine is null)
+            return LicenseApproverReach.NotReporting;
+        if (!isConnected(machine.DirectorId))
+            return LicenseApproverReach.NotConnected;
+        return nowUtc - machine.LastReportAtUtc > LicenseStore.SilentAfter ? LicenseApproverReach.NotReporting : LicenseApproverReach.Connected;
+    }
+
+    // The check comes within minutes of the Director connecting (LicenseApproverAssignment.CheckDue), so the owner is told
+    // to start it only when it is not there, and told there is nothing to do when it is.
+    private static string NotCheckedWhatToDo(string label, LicenseApproverReach reach)
+    {
+        var within = $"{LicenseApproverContract.DueCheckWithin.TotalMinutes:0} minutes";
+        return reach switch
+        {
+            LicenseApproverReach.Connected => $"Nothing to do: the Director on {label} is connected and checks it within {within}.",
+            LicenseApproverReach.NotConnected => $"Start the Director on {label}; it checks this approver within {within} of connecting.",
+            LicenseApproverReach.NotReporting => $"Make sure the Director on {label} is running with license switching on, which approving needs; it checks this approver within {within} of connecting.",
+            _ => throw new InvalidOperationException($"An approver reach that is not one: {reach}."),
         };
     }
 

@@ -1074,7 +1074,7 @@ stay owner-only; no session key gains anything.
 
 | Method | Payload | Answer |
 |---|---|---|
-| `GetLicenseApproverAssignments()` | none | `{ rows: [{ accountEmail, browserProfile, source }] }` - the records that name the caller's machine and operating system user |
+| `GetLicenseApproverAssignments()` | none | `{ rows: [{ accountEmail, browserProfile, source, checkDue }] }` - the records that name the caller's machine and operating system user; `checkDue` is true for a record that reads `not-checked` now (10.4) |
 | `ReportLicenseApproverChecks(report)` | `{ offersApprovers, rows: [{ browserProfile, browserProfileName, accountEmail, shownAccount, state, checkedAtUtc, detail }] }` | `{ rows: [{ browserProfile, accountEmail, outcome, reason }] }`, one per row, in order |
 
 Both are refused before Hello and are listed in the Hello answer only by a Gateway that keeps registrations. The
@@ -1128,7 +1128,34 @@ the owner switched automation on, and the machine's offer setting is off by defa
 ### 10.4 The not-checked rule
 
 A record whose last check is older than 26 hours (`LicenseApproverContract.NotCheckedAfter`), or that was never
-checked, reads `not-checked`. An absence is never read as healthy.
+checked, reads `not-checked`. An absence is never read as healthy: readiness (section 11) starts no automatic sign-in
+through a `not-checked` approver, whatever the reason.
+
+**A not-checked record is checked within ten minutes, not a day.** The key holder runs a full check of every assigned
+record (and, when it offers them, of its own profiles) at start and then once a day. Between those runs it asks for its
+assignments at every ten-minute look (`LicenseApproverContract.DueCheckWithin`, the same figure as its scheduler's
+interval) and checks at once each record the Gateway marks `checkDue` - one the owner has just set, one stored before
+checks existed, one whose check is too old. A due record it has already checked since its last daily run is not checked
+again until the next one, so a row the Gateway refused never opens the browser every ten minutes; a record that leaves
+its assignments and comes back is checked again. A due check does not move the time of the next daily run. A Gateway
+that predates `checkDue` sends false, and the Director checks daily as before.
+
+**Approving needs license switching on, and so does the check.** That is the contract already, on both sides: the
+Gateway relays an approval only to a machine whose Director reports licenses (`LicenseApprovalRelay`), the approving
+Director refuses one with "License switching is turned off on this Director, so nothing was approved.", and only a
+reporting Director gets assignments. So the check runs only where switching is on, and the sentence says so when it is
+not.
+
+**What a not-checked record tells the owner to do** (`LicenseApproverReadiness.Verdict`, by `LicenseApproverReach`):
+
+| The approving machine's Director | The one thing to do |
+|---|---|
+| Connected, and reported within the last 10 minutes (`LicenseStore.SilentAfter`) | Nothing to do: the Director on machine-a is connected and checks it within 10 minutes. |
+| Reported before, not connected now | Start the Director on machine-a; it checks this approver within 10 minutes of connecting. |
+| Never reported, or connected and silent for more than 10 minutes (license switching off) | Make sure the Director on machine-a is running with license switching on, which approving needs; it checks this approver within 10 minutes of connecting. |
+
+The record still reads `not-checked` in every row: the approver alarm (10.6) stays open and readiness still waits, until
+the check is stored.
 
 ### 10.5 The owner's removal
 
