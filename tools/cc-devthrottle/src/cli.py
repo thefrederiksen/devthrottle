@@ -31,6 +31,7 @@ from . import license_ops
 from . import license_signin_ops
 from . import license_usage_ops
 from . import link_ops
+from . import maildesk_ops
 from . import mission_ops
 from . import schedule_ops
 from . import trigger_ops
@@ -230,6 +231,39 @@ trigger_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+maildesk_app = typer.Typer(
+    cls=AxiGroup,
+    help="The Mail Desk: the mailboxes it reads, its rules, and what it decided.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+maildesk_channel_app = typer.Typer(
+    cls=AxiGroup, help="The mailboxes the Mail Desk reads.", add_completion=False, no_args_is_help=True
+)
+maildesk_rules_app = typer.Typer(
+    cls=AxiGroup, help="The rules document and every change to it.", add_completion=False, no_args_is_help=True
+)
+maildesk_allow_app = typer.Typer(
+    cls=AxiGroup, help="Senders the Mail Desk lets through, and what it does with them.", add_completion=False,
+    no_args_is_help=True,
+)
+maildesk_block_app = typer.Typer(
+    cls=AxiGroup, help="Senders the Mail Desk junks.", add_completion=False, no_args_is_help=True
+)
+maildesk_rule_app = typer.Typer(
+    cls=AxiGroup, help="Named rules that route a message by its subject or sender.", add_completion=False,
+    no_args_is_help=True,
+)
+maildesk_route_app = typer.Typer(
+    cls=AxiGroup, help="The routes a message may be sent to, and what each handles.", add_completion=False,
+    no_args_is_help=True,
+)
+maildesk_app.add_typer(maildesk_channel_app, name="channel")
+maildesk_app.add_typer(maildesk_rules_app, name="rules")
+maildesk_app.add_typer(maildesk_allow_app, name="allow")
+maildesk_app.add_typer(maildesk_block_app, name="block")
+maildesk_app.add_typer(maildesk_rule_app, name="rule")
+maildesk_app.add_typer(maildesk_route_app, name="route")
 workflow_app = typer.Typer(
     cls=AxiGroup,
     help="Read and author the fleet's shared Workflows on the Gateway.",
@@ -314,6 +348,7 @@ app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(factory_app, name="factory")
 app.add_typer(trigger_app, name="trigger")
+app.add_typer(maildesk_app, name="maildesk")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(skill_app, name="skill")
 app.add_typer(setup_app, name="setup")
@@ -1445,6 +1480,118 @@ _ACTIONS = [
         "command": "cc-devthrottle trigger runs <name>",
         "mutatesState": False,
         "args": [{"name": "name", "required": True}],
+    },
+    {
+        "id": "maildesk-status",
+        "description": "Show the Mail Desk: its rules version, every channel, and today's decisions by kind.",
+        "command": "cc-devthrottle maildesk status",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "maildesk-channel-list",
+        "description": "List the mailboxes the Mail Desk reads, with the mode, sign-in and last check the Gateway decided.",
+        "command": "cc-devthrottle maildesk channel list [--all]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "maildesk-channel-add",
+        "description": "Add a mailbox for the Mail Desk to read; it starts in observe.",
+        "command": "cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "address", "required": True}, {"name": "provider", "required": True}, {"name": "machine", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-channel-remove",
+        "description": "Remove a Mail Desk channel; its decisions are kept.",
+        "command": "cc-devthrottle maildesk channel remove <address> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "address", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-mode",
+        "description": "Set a Mail Desk channel to observe (decides and records) or live (also acts).",
+        "command": "cc-devthrottle maildesk mode <address> observe|live --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "address", "required": True}, {"name": "mode", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-rules-show",
+        "description": "Show the Mail Desk rules document, the newest version or one by number.",
+        "command": "cc-devthrottle maildesk rules show [--version <N>]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "maildesk-rules-history",
+        "description": "Every change to the Mail Desk rules and channels, newest first, with who and why.",
+        "command": "cc-devthrottle maildesk rules history [-n <N>] [--kind <kind>]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "maildesk-allow-add",
+        "description": "Allow a sender on the Mail Desk and say what to do with its mail.",
+        "command": "cc-devthrottle maildesk allow add <pattern> --what \"<text>\" --do archive|keep-for-owner|route:<factory>/<seat> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "pattern", "required": True}, {"name": "what", "required": True}, {"name": "do", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-allow-remove",
+        "description": "Remove an allowed sender from the Mail Desk.",
+        "command": "cc-devthrottle maildesk allow remove <pattern> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "pattern", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-block-add",
+        "description": "Block a sender on the Mail Desk: its mail is junked.",
+        "command": "cc-devthrottle maildesk block add <pattern> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "pattern", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-block-remove",
+        "description": "Remove a blocked sender from the Mail Desk.",
+        "command": "cc-devthrottle maildesk block remove <pattern> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "pattern", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-rule-add",
+        "description": "Add a named Mail Desk rule that routes mail by its subject or sender.",
+        "command": "cc-devthrottle maildesk rule add <name> --subject-contains <text> --from <pattern> --route <factory>/<seat> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "name", "required": True}, {"name": "route", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-rule-remove",
+        "description": "Remove a named Mail Desk rule.",
+        "command": "cc-devthrottle maildesk rule remove <name> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "name", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-route-add",
+        "description": "Add a route the Mail Desk may send mail to, and what it handles.",
+        "command": "cc-devthrottle maildesk route add <factory>/<seat> --handles \"<text>\" --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "route", "required": True}, {"name": "handles", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-route-remove",
+        "description": "Remove a Mail Desk route.",
+        "command": "cc-devthrottle maildesk route remove <factory>/<seat> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "route", "required": True}, {"name": "why", "required": True}],
+    },
+    {
+        "id": "maildesk-decisions",
+        "description": "What the Mail Desk decided, newest first; every filter is applied on the Gateway.",
+        "command": "cc-devthrottle maildesk decisions [--since <time>] [--layer <layer>] [--decision <decision>] [--channel <address>] [-n <N>]",
+        "mutatesState": False,
+        "args": [],
     },
     {
         "id": "skill-list",
@@ -5161,6 +5308,183 @@ def trigger_runs(
 ) -> None:
     """Show a trigger's checks, newest first, whatever each came to."""
     trigger_ops.runs(name, count, json_output)
+
+
+# ---------- maildesk ----------
+
+_WHY_HELP = "Why this change is made. Required; it is recorded with the change."
+_ROUTE_HELP = "<factory>/<seat>"
+
+
+@maildesk_app.callback()
+def maildesk_main(
+    gateway: Optional[str] = typer.Option(None, "--gateway", help="Override the Gateway base URL."),
+) -> None:
+    """The Mail Desk: the mailboxes it reads, its rules, and what it decided."""
+    maildesk_ops.set_gateway_override(gateway)
+
+
+@maildesk_app.command("status")
+def maildesk_status(json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON.")) -> None:
+    """The rules version, every channel, and today's decisions by kind."""
+    maildesk_ops.status(json_output)
+
+
+@maildesk_app.command("mode")
+def maildesk_mode(
+    address: str = typer.Argument(..., help="The channel's address."),
+    mode: str = typer.Argument(..., help="observe (decides and records) or live (also acts)."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Set a channel to observe or live."""
+    maildesk_ops.mode(address, mode, why)
+
+
+@maildesk_app.command("decisions")
+def maildesk_decisions(
+    since: Optional[str] = typer.Option(None, "--since", help="Only decisions at or after this ISO time."),
+    layer: Optional[str] = typer.Option(
+        None, "--layer", help="rule, allow, block, sender-screen or route-model."
+    ),
+    decision: Optional[str] = typer.Option(
+        None, "--decision", help="route, archive, junk, keep-for-owner, mail-desk-agent or failed."
+    ),
+    channel: Optional[str] = typer.Option(None, "--channel", help="Only this channel's address."),
+    count: Optional[int] = typer.Option(None, "--count", "-n", help="Largest number to show (Gateway default 50)."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON. Filters still apply."),
+) -> None:
+    """What the Mail Desk decided, newest first."""
+    maildesk_ops.decisions(since, layer, decision, channel, count, json_output)
+
+
+@maildesk_channel_app.command("list")
+def maildesk_channel_list(
+    all_channels: bool = typer.Option(False, "--all", help="Also list removed channels."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """List the channels the Mail Desk reads."""
+    maildesk_ops.channel_list(all_channels, json_output)
+
+
+@maildesk_channel_app.command("add")
+def maildesk_channel_add(
+    address: str = typer.Argument(..., help="The mailbox address."),
+    provider: str = typer.Option(..., "--provider", help="The mail provider: outlook."),
+    machines: List[str] = typer.Option(
+        ..., "--machine", help="A machine that reads it; repeat for a backup, in order of preference."
+    ),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Add a mailbox for the Mail Desk to read. It starts in observe."""
+    maildesk_ops.channel_add(address, provider, machines, why)
+
+
+@maildesk_channel_app.command("remove")
+def maildesk_channel_remove(
+    address: str = typer.Argument(..., help="The channel's address."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Remove a channel. Its decisions are kept."""
+    maildesk_ops.channel_remove(address, why)
+
+
+@maildesk_rules_app.command("show")
+def maildesk_rules_show(
+    version: Optional[int] = typer.Option(None, "--version", help="One version by its number; default the newest."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+) -> None:
+    """Show the rules document."""
+    maildesk_ops.rules_show(version, json_output)
+
+
+@maildesk_rules_app.command("history")
+def maildesk_rules_history(
+    count: Optional[int] = typer.Option(None, "--count", "-n", help="Largest number to show (Gateway default 50)."),
+    kind: Optional[str] = typer.Option(None, "--kind", help="rule, allow, block, route, channel or mode."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON. Filters still apply."),
+) -> None:
+    """Every change to the rules and channels, newest first, with who and why."""
+    maildesk_ops.rules_history(count, kind, json_output)
+
+
+@maildesk_allow_app.command("add")
+def maildesk_allow_add(
+    pattern: str = typer.Argument(..., help="An exact address or *@domain."),
+    what: str = typer.Option(..., "--what", help="What this sender's mail is."),
+    do: str = typer.Option(..., "--do", help=f"archive, keep-for-owner, or route:{_ROUTE_HELP}."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Allow a sender, and say what to do with its mail."""
+    maildesk_ops.allow_add(pattern, what, do, why)
+
+
+@maildesk_allow_app.command("remove")
+def maildesk_allow_remove(
+    pattern: str = typer.Argument(..., help="The pattern as it was added."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Remove an allowed sender."""
+    maildesk_ops.rules_remove("allow", pattern, why)
+
+
+@maildesk_block_app.command("add")
+def maildesk_block_add(
+    pattern: str = typer.Argument(..., help="An exact address or *@domain."),
+    why: Optional[str] = typer.Option(
+        None, "--why", help="Why this sender is blocked. Required; it is the entry's own reason."
+    ),
+) -> None:
+    """Block a sender: its mail is junked."""
+    maildesk_ops.block_add(pattern, why)
+
+
+@maildesk_block_app.command("remove")
+def maildesk_block_remove(
+    pattern: str = typer.Argument(..., help="The pattern as it was added."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Remove a blocked sender."""
+    maildesk_ops.rules_remove("block", pattern, why)
+
+
+@maildesk_rule_app.command("add")
+def maildesk_rule_add(
+    name: str = typer.Argument(..., help="The rule's name, unique."),
+    subject_contains: List[str] = typer.Option([], "--subject-contains", help="Text the subject contains; repeatable."),
+    senders: List[str] = typer.Option([], "--from", help="A sender pattern; repeatable."),
+    route: str = typer.Option(..., "--route", help=_ROUTE_HELP),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Add a named rule that routes matching mail."""
+    maildesk_ops.rule_add(name, subject_contains, senders, route, why)
+
+
+@maildesk_rule_app.command("remove")
+def maildesk_rule_remove(
+    name: str = typer.Argument(..., help="The rule's name."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Remove a named rule."""
+    maildesk_ops.rules_remove("rule", name, why)
+
+
+@maildesk_route_app.command("add")
+def maildesk_route_add(
+    route: str = typer.Argument(..., help=_ROUTE_HELP),
+    handles: str = typer.Option(..., "--handles", help="What mail this route handles, in one line."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Add a route mail may be sent to."""
+    maildesk_ops.route_add(route, handles, why)
+
+
+@maildesk_route_app.command("remove")
+def maildesk_route_remove(
+    route: str = typer.Argument(..., help=_ROUTE_HELP),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Remove a route."""
+    maildesk_ops.route_remove(route, why)
 
 
 @setup_app.command("status")
