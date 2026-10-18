@@ -78,7 +78,15 @@ tests failed, and the other ten passed. With the check restored, all twelve pass
 
 ## The gate
 
-GATE_LINES_GO_HERE
+Run on commit `d8cf2d2f4`, on origin/main `16acc700b`, with TEMP and TMP on D:. The next commit changes only this
+file.
+
+- **Default run: GREEN**, tree clean. Every suite completed, including Core.UnitTests (2316) and the parked
+  Gateway.UnitTests tests this change reaches (972).
+- **`-Parked -Filter License`: GREEN**, tree clean. Gateway.UnitTests: 1091. Gateway.Tests: 26 (shard 3 of 4, with
+  the self-hosted write test). Core.UnitTests: 253. Avalonia.Tests: 32.
+- **Cockpit:** `vitest run src/licenses` passed 113 tests in 6 files, and `npm run typecheck --workspaces` is clean
+  in client-core, cc-assistant, the Cockpit and mobile.
 
 ## What the live proof should look for (after a deploy; this piece deploys nothing)
 
