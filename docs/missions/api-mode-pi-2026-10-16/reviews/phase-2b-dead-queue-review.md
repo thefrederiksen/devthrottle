@@ -492,3 +492,41 @@ The hub test conflict is resolved keeping main's `fleetDisplayState` parameter a
 this branch's `Hello(DateTime)` helper. Nothing else in the two item 9 commits changed beyond what the five answers
 describe. With the carried prompt ruled - Delivered as recommended, or Queued with its consequences recorded - and the
 nine classes green on that commit, I would approve.
+
+## Check of the carried-prompt fix
+
+Pull request #4209 checked at its head `017650fc6` (one commit on the previous check's head `f122a566f`). Reviewer seat,
+session bc725552, 18 October 2026 on devlinux.
+
+**Verdict: approve.** A still-Queued prompt that a later generation's `TurnStarted` carries is now ruled Delivered in
+both readers, as recommended and as the Tech Lead ruled, and nothing in the pull request is left open.
+
+**Read, in full:** the diff from `f122a566f` to `017650fc6` (`ApiModeLostQueuedPrompt.cs`, `ApiModeReceiptStore.cs`,
+`ApiModeLiveRuling.cs`, the receipt contract and entity notes, six test files, the Developer's answer in this file).
+**Ran, Debug, one run, after checking no other test host was up:** the nine affected classes of the previous check in
+one filter: **374 passed, 0 failed, 0 skipped**, 42 seconds.
+
+**The store** (`ProveQueueLeftOnce`): the carried row becomes Delivered with disposition `lost`, no acknowledgement, no
+delivery time, the `TurnStarted`'s turn id, and the proof's position; it counts as a change. I checked the two
+consequences the link depends on: `RecordTurnStarted` runs after the proof and asks `IsNewer` of a row that now sits
+at the very position of the event, so it answers null and logs nothing misleading; and `RecordTurnEnded` finds the row
+by that turn id as any delivered prompt, so the turn's outcome lands on it by the existing rules.
+**`RecordDelivered`**: the inferred-delivery branch sits after the Unknown branch and before the forward-only guard and
+the second-ending path, so a real `PromptDelivered` of the same or a later generation replaces the disposition and the
+acknowledgement, keeps the turn and its outcome, and is not logged as a second ending; one of an older generation is
+set aside as a replay. **The live ruling**: `QueuesLeft` makes the same change and re-sends the receipt ("Delivered",
+green, with its turn id); `ReceiptChange` lets the prompt's own `PromptDelivered` past both guards when the receipt is
+an inferred delivery, and the `PromptDelivered` change tests for that before the finality check, so the Delivered state
+does not stop it; `TurnStart` then finds the receipt Delivered and already linked and only touches it; `WaitingIfMoved`
+re-sends the places behind it. The disposition `lost` is not one of the agent's three, so the row can never be read as
+the agent's acknowledgement; no reader outside these files switches on the disposition, and no client reads it.
+
+**The tests pin what the previous check asked for.** The pusher's third test now asserts the word "Delivered" through
+the real stream, pusher, ingest and store.
+`Accept_ACarriedPromptThenAPromptQueuedBehindIt_ThePlacesInLineAreTheDirectorsAndStayAcrossTheNextHole` is my run 2
+scenario made permanent with the right answer: after B the carried prompt reads "Delivered" and the one prompt the
+Director holds reads "Queued, 1st in line: a turn is running", and after C the same, so the place in line is the
+Director's and stays so across the next hole. The receipts endpoint, the live reader and the stream agree on it, and the
+real-delivery replacement and the older-generation replay are each tested in the store and the ruling.
+
+Nothing else changed. Approved.
