@@ -235,6 +235,13 @@ public sealed class RuleEvaluator
         if (rules is null || rules.Count == 0)
             return Nothing(RulePassOutcomes.NoRules, "this account has no rules.");
 
+        // ONLY SCREEN RULES ARE EVALUATED AGAINST A SCREEN (Tech Lead ruling P8). A hook rule is decided by the
+        // hook on the session's own machine; reading a screen and paying for a model call on its behalf would
+        // be work for a rule that cannot act here. The free checks turn one down out loud as well.
+        if (!rules.Any(RuleCandidateFilter.ReadsTheScreen))
+            return Nothing(RulePassOutcomes.NoRules,
+                "this account has no screen rules - its rules are decided by the agent's hook, not by the screen.");
+
         var facts = _env.ReadSessionFacts(tenant, sessionId);
         if (facts is null)
             return Nothing(RulePassOutcomes.SessionNotFound,

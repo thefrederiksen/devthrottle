@@ -305,4 +305,27 @@ public sealed class RuleCandidateFilterTests
         Assert.Contains(chosen.Id, accountedFor);
         Assert.Contains(passedOver.Id, accountedFor);
     }
+    // ---- ruling P8: hook rules never reach the screen evaluator ---------------------------------------
+
+    [Fact]
+    public void Choose_HookRuleWhoseTextIsOnTheScreen_IsNotACandidateAndSaysWhy()
+    {
+        // Everything about this rule would make a screen rule a candidate: its words are on the screen, it is
+        // in scope and it has never acted. Only its kind is different.
+        var hook = Rule(triggerWords: new[] { "reached your" }) with
+        {
+            Kind = RuleKinds.Hook,
+            Hook = new HookRuleTrigger(HookRuleWords.BeforeCommand, HookRuleWords.Shell, HookRuleWords.Match,
+                new[] { "reached your" }, HookRuleWords.Deny),
+        };
+        var screen = Rule();
+
+        var result = RuleCandidateFilter.Choose(
+            new[] { hook, screen }, Facts(), TheNotice, previousScreenText: null, NoFirings, Now);
+
+        Assert.Equal(new[] { screen.Id }, result.Chosen.Select(r => r.Id));
+        var skipped = Assert.Single(result.Skipped);
+        Assert.Equal(hook.Id, skipped.RuleId);
+        Assert.Contains("hook", skipped.Reason, StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -48,6 +48,48 @@ public sealed class SessionRuleFiringEntity : GatewayMintedKeyEntity
     /// from a firing where the check never ran, and a record that cannot tell those apart is not evidence
     /// of either.</summary>
     public string Grounding { get; set; } = "";
+
+    // ---- Session Rules part 2, phase 1: hook firings (wire contract W5) ------------------------------
+
+    /// <summary>"screen" or "hook". Rows written before hook firings existed are "screen".</summary>
+    public string Kind { get; set; } = Rules.RuleKinds.Screen;
+
+    /// <summary>The hook's id for the decision, unique per account, so a retried post is recognised as the
+    /// same decision rather than written twice. Null for a screen firing.</summary>
+    public string? DecisionId { get; set; }
+
+    /// <summary>The hook event, e.g. "before_command". Empty for a screen firing.</summary>
+    public string HookEvent { get; set; } = "";
+
+    /// <summary>The tool, e.g. "shell". Empty for a screen firing.</summary>
+    public string HookTool { get; set; } = "";
+
+    /// <summary>The command text the rule matched, at most 4000 characters. Empty for a screen firing.</summary>
+    public string Subject { get; set; } = "";
+
+    /// <summary>The machine the hook ran on. Empty for a screen firing.</summary>
+    public string Machine { get; set; } = "";
+
+    /// <summary>The session's repository identity when the hook ran, possibly empty.</summary>
+    public string Repo { get; set; } = "";
+
+    /// <summary>The agent that ran the hook, e.g. "claude_code".</summary>
+    public string Agent { get; set; } = "";
+
+    /// <summary>The agent's own name for the event, e.g. "PreToolUse".</summary>
+    public string AgentEvent { get; set; } = "";
+
+    /// <summary>The agent's own name for the tool, e.g. "Bash".</summary>
+    public string AgentTool { get; set; } = "";
+
+    /// <summary>The less specific matching rules the deciding rule overrode (ruling P3).</summary>
+    public List<Guid> OverriddenRuleIds { get; set; } = new();
+
+    /// <summary>Every rule that matched the command, the deciding one included.</summary>
+    public List<Guid> MatchedRuleIds { get; set; } = new();
+
+    /// <summary>How long the hook took to decide, in microseconds.</summary>
+    public long EvaluationMicroseconds { get; set; }
 }
 
 /// <summary>One verified check that ran during a firing: which one, with what arguments, and what it

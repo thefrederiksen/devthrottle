@@ -44,21 +44,14 @@ internal static class SessionRuleEndpoints
                 : Results.Json(new { rule = SessionRuleWire.Project(rule) });
         });
 
-        // Write a rule. It is ALWAYS created in dry run - the store takes no state parameter at all.
+        // Write a rule. It is ALWAYS created in dry run - the store takes no state parameter at all. A body with
+        // no kind is a screen rule, read exactly as it always was; "kind": "hook" is a hook rule.
         app.MapPost("/gateway/rules", (JsonElement body) =>
         {
             try
             {
-                var rule = store.Create(
-                    RuleCallJson.Text(body, "instruction") ?? "",
-                    RuleCallJson.Text(body, "screenDescription") ?? "",
-                    SessionRuleWire.Strings(body, "triggerWords"),
-                    SessionRuleWire.Calls(body),
-                    SessionRuleWire.ReadScope(body),
-                    SessionRuleWire.Number(body, "cooldownSeconds"),
-                    SessionRuleWire.Number(body, "dailyCap"),
-                    DateTime.UtcNow);
-                FileLog.Write($"[SessionRuleEndpoints] POST /gateway/rules: stored {rule.Id} in dry run");
+                var rule = SessionRuleWire.CreateFromBody(store, body, DateTime.UtcNow);
+                FileLog.Write($"[SessionRuleEndpoints] POST /gateway/rules: stored {rule.Kind} rule {rule.Id} in dry run");
                 return Results.Json(new { rule = SessionRuleWire.Project(rule) });
             }
             catch (RuleRejectedException ex)
@@ -92,6 +85,49 @@ internal static class SessionRuleEndpoints
         // Delete a rule. Its firings are left alone - the record outlives the rule.
         app.MapDelete("/gateway/rules/{id:guid}", (Guid id) =>
             Results.Json(new { deleted = store.Delete(id) }));
+
+        // WIRE CONTRACT W1: the hook rules that reach one machine and one repository, each with its rank. The
+        // Director asks with its own credential to keep each session's rules file current; the hook decides from
+        // that file alone, so nothing on the decision path ever calls here.
+        app.MapGet("/gateway/rules/effective", (string? kind, string? machine, string? repo) =>
+        {
+            FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/effective: kind={kind} machine={machine} repo={repo}");
+            try
+            {
+                var (theMachine, theRepo) = SessionRuleWire.ReadEffectiveQuery(kind, machine, repo);
+                var effective = store.EffectiveHookRules(theMachine, theRepo);
+                return Results.Json(SessionRuleWire.ProjectEffective(theMachine, theRepo, effective));
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/effective REFUSED: {ex.Reason}");
+                return Results.Json(new { error = ex.Reason }, statusCode: StatusCodes.Status400BadRequest);
+            }
+        });
+
+        // WIRE CONTRACT W5: decisions the hook made, forwarded by the Director. Each accepted decision becomes a
+        // firing on its deciding rule; a decision already recorded is a duplicate, so a retried post is harmless.
+        // A decision that cannot be read or recorded is refused BY ITS ID with the reason, and the rest are
+        // still recorded - the answer is 200 whenever the body was a list of decisions at all.
+        app.MapPost("/gateway/rules/hook-firings", (JsonElement body) =>
+        {
+            try
+            {
+                var unreadable = new List<HookFiringRefusal>();
+                var decisions = SessionRuleWire.ReadHookDecisions(body, unreadable);
+                var recorded = store.RecordHookFirings(decisions);
+                var answer = recorded with { Refused = unreadable.Concat(recorded.Refused).ToList() };
+                FileLog.Write(
+                    $"[SessionRuleEndpoints] POST /gateway/rules/hook-firings: accepted={answer.Accepted} " +
+                    $"duplicates={answer.Duplicates} refused={answer.Refused.Count}");
+                return Results.Json(SessionRuleWire.ProjectHookFiringsAnswer(answer));
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleEndpoints] POST /gateway/rules/hook-firings REFUSED: {ex.Reason}");
+                return Results.Json(new { error = ex.Reason }, statusCode: StatusCodes.Status400BadRequest);
+            }
+        });
 
         // THE RECORD, which is the product: every firing of one rule, newest first.
         app.MapGet("/gateway/rules/{id:guid}/firings", (Guid id) =>

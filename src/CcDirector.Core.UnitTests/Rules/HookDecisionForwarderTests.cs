@@ -385,6 +385,14 @@ public sealed class HookDecisionForwarderTests : IDisposable
     }
 
     [Fact]
+    public void MaxBatch_IsTheOneSharedLimitTheGatewayHolds()
+    {
+        // Ruling P17: one constant, read by both ends. A Director batch larger than the Gateway's limit is a post
+        // refused whole on every sweep, for ever.
+        Assert.Equal(CcDirector.Gateway.Contracts.HookFiringLimits.MaxDecisionsPerPost, HookDecisionForwarder.MaxBatch);
+    }
+
+    [Fact]
     public async Task SweepAsync_MoreDecisionsThanOneBatch_PostsInBatchesAndDeliversThemAll()
     {
         // Arrange

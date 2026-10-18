@@ -960,4 +960,25 @@ public sealed class RuleEvaluatorTests
 
     private static string ScreenTextOf(RuleFiringDraft draft) =>
         draft.ScreenText.Split('\n').Select(l => l.TrimEnd()).Last(l => l.Contains("reached your"));
+    // ---- ruling P8: hook rules never reach the model call ---------------------------------------------
+
+    [Fact]
+    public async Task EvaluateAsync_AccountWithOnlyHookRules_NeverReadsTheScreenOrReachesTheModel()
+    {
+        var hook = Rule() with
+        {
+            Kind = RuleKinds.Hook,
+            Hook = new HookRuleTrigger(HookRuleWords.BeforeCommand, HookRuleWords.Shell, HookRuleWords.Match,
+                new[] { "reached your" }, HookRuleWords.Deny),
+        };
+        var env = EnvironmentWith(hook);
+
+        var pass = await Run(env);
+
+        Assert.Equal(RulePassOutcomes.NoRules, pass.What);
+        Assert.Contains("screen rules", pass.Detail, StringComparison.Ordinal);
+        Assert.Equal(0, env.ScreenReads);
+        Assert.Equal(0, env.AgentCalls);
+        Assert.Empty(env.Typed);
+    }
 }

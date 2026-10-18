@@ -3424,6 +3424,26 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.PrimitiveCollection<string>("AppliesToExceptMachines")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AppliesToKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("everywhere");
+
+                    b.PrimitiveCollection<string>("AppliesToMachines")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AppliesToRepo")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("CooldownSeconds")
                         .HasColumnType("INTEGER");
 
@@ -3433,9 +3453,40 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<int>("DailyCap")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("HookEvent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HookHandler")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("HookMatch")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HookResult")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HookTool")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Instruction")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("screen");
 
                     b.Property<string>("PromotedBy")
                         .IsRequired()
@@ -3488,12 +3539,60 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Agent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AgentEvent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AgentTool")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Decision")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("DecisionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("EvaluationMicroseconds")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Grounding")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HookEvent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("HookTool")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("screen");
+
+                    b.Property<string>("Machine")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.PrimitiveCollection<string>("MatchedRuleIds")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -3504,8 +3603,17 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.PrimitiveCollection<string>("OverriddenRuleIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Reason")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Repo")
+                        .IsRequired()
+                        .HasMaxLength(512)
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("RuleId")
@@ -3518,6 +3626,11 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TenantId")
@@ -3536,6 +3649,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "DecisionId")
+                        .IsUnique();
 
                     b.HasIndex("TenantId", "RuleId", "OccurredUtc");
 
