@@ -39,6 +39,12 @@ Every event carries: `sessionId` (the DevThrottle session), `sequence` (rising p
 client can order and de-duplicate), and `at` (time observed, from an injected clock). Events inside
 a turn also carry `turnId` (assigned by the Director; Pi has no turn id of its own).
 
+**Holes start a new generation.** The Director sends a generation to the Gateway under its own id only while it holds
+every event of it from sequence 1; when an event is lost before it was sent (the memory bound dropped it, it was too
+large for any batch, or it was published while the Gateway was turned off), the events after the hole go up as a new
+generation, a fresh id counted again from sequence 1, so a reader is told its earlier cursor is incomplete and folds
+again from the new generation. A receipt whose own event fell in the hole is not corrected by the Director.
+
 | Event | Fields | Meaning |
 |---|---|---|
 | `PromptQueued` | `promptId`, `reason` (`userHasTheWheel`, `turnRunning`, `agentStarting`), `position` | The Director is holding the prompt; it has not been written to the agent. |
