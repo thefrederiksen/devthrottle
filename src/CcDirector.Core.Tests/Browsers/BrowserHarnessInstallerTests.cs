@@ -85,6 +85,14 @@ public class BrowserHarnessInstallerTests
     }
 
     [Fact]
+    public void ShimDir_OnARootThatIsNotTheMachinesDefault_IsThatRootsOwnBin_OnEveryPlatform()
+    {
+        // A scratch root (a test Director's) must never link the user's global ~/.local/bin at a harness
+        // environment that is deleted along with the scratch root (mission #4070).
+        WithRootAndPath(root => Assert.Equal(Path.Combine(root, "bin"), BrowserHarnessInstaller.ShimDir));
+    }
+
+    [Fact]
     public void BundledPython_IsTheOneDevThrottleShips()
     {
         WithRootAndPath(root =>

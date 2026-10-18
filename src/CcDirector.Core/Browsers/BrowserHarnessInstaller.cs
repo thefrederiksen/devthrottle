@@ -94,13 +94,16 @@ public static class BrowserHarnessInstaller
         : Path.Combine(CcStorage.PythonRuntime(), "bin", "python3");
 
     /// <summary>
-    /// Where the shim goes so the harness is on PATH: the managed <c>bin</c> on Windows (every cc-* shim
-    /// lives there), and <c>~/.local/bin</c> on macOS (where the tool symlinks go and which the Director
-    /// .app launcher already prepends to PATH).
+    /// Where the shim goes so the harness is on PATH: wherever the cc-* tool shims of this machine root go
+    /// (<see cref="Tools.ToolShimPath.ShimDirFor"/>) - the managed <c>bin</c> on Windows, <c>~/.local/bin</c>
+    /// on macOS and Linux for the machine's default root, and the root's own <c>bin</c> for any other root,
+    /// so a scratch root never links the user's global bin at an environment that dies with it.
     /// </summary>
-    public static string ShimDir => OperatingSystem.IsWindows()
-        ? CcStorage.Bin()
-        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin");
+    public static string ShimDir => Tools.ToolShimPath.ShimDirFor(
+        CcStorage.MachineRoot(),
+        CcStorage.DefaultRoot(),
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        OperatingSystem.IsWindows());
 
     /// <summary>
     /// Install browser-harness, reporting each step. Idempotent: a machine that already has it (ours, or

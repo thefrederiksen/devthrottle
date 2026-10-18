@@ -89,7 +89,7 @@ foreach (var (start, length) in absences)
 var longest = absences.Count == 0 ? TimeSpan.Zero : absences.Max(a => a.Length);
 Console.WriteLine($"LONGEST ABSENCE: {longest.TotalMilliseconds:F3} ms");
 Console.WriteLine($"installed launcher says: {Run(launcher)}");
-var shim = OperatingSystem.IsWindows() ? Path.Combine(layout.BinDir, "cc-devthrottle.cmd") : Path.Combine(layout.MacUserBinDir, "cc-devthrottle");
+var shim = OperatingSystem.IsWindows() ? Path.Combine(layout.BinDir, "cc-devthrottle.cmd") : Path.Combine(layout.ToolShimDir, "cc-devthrottle");
 Console.WriteLine($"shim says:               {Run(shim)}");
 File.WriteAllText(Path.Combine(work, "engine.log"), log.ToString());
 Console.WriteLine($"engine log: {Path.Combine(work, "engine.log")}");

@@ -12,6 +12,67 @@ public sealed class ToolShimPathTests
     private static readonly string Sep = Path.PathSeparator.ToString();
     private static readonly string Dir = Path.Combine(Path.GetTempPath(), "home", ".local", "bin");
 
+    // --- Where the shims of an install go (mission #4070) -------------------------------------------
+
+    private static readonly string DefaultRoot = Path.Combine(Path.GetTempPath(), "fake-home", ".local", "share", "cc-director");
+    private static readonly string Home = Path.Combine(Path.GetTempPath(), "fake-home");
+    private static readonly string ScratchRoot = Path.Combine(Path.GetTempPath(), "scratch-root");
+
+    [Fact]
+    public void ShimDirFor_DefaultRootOnUnix_IsTheUsersLocalBin()
+    {
+        var dir = ToolShimPath.ShimDirFor(DefaultRoot, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(Home, ".local", "bin"), dir);
+    }
+
+    [Fact]
+    public void ShimDirFor_NonDefaultRootOnUnix_IsThatRootsOwnBin()
+    {
+        var dir = ToolShimPath.ShimDirFor(ScratchRoot, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(ScratchRoot, "bin"), dir);
+    }
+
+    [Fact]
+    public void ShimDirFor_DefaultRootWrittenWithATrailingSeparator_IsStillTheDefault()
+    {
+        var dir = ToolShimPath.ShimDirFor(DefaultRoot + Path.DirectorySeparatorChar, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(Home, ".local", "bin"), dir);
+    }
+
+    [Fact]
+    public void ShimDirFor_ARootInsideTheDefaultRoot_IsNotTheDefault()
+    {
+        var inside = Path.Combine(DefaultRoot, "rig");
+
+        var dir = ToolShimPath.ShimDirFor(inside, DefaultRoot, Home, isWindows: false);
+
+        Assert.Equal(Path.Combine(inside, "bin"), dir);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ShimDirFor_Windows_IsAlwaysTheRootsOwnBin(bool isDefault)
+    {
+        var root = isDefault ? DefaultRoot : ScratchRoot;
+
+        var dir = ToolShimPath.ShimDirFor(root, DefaultRoot, Home, isWindows: true);
+
+        Assert.Equal(Path.Combine(root, "bin"), dir);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void ShimDirFor_DefaultRootOnUnixWithNoHome_Throws(string? home)
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => ToolShimPath.ShimDirFor(DefaultRoot, DefaultRoot, home, isWindows: false));
+    }
+
     [Fact]
     public void WithDirectory_Missing_PrependsIt()
     {
