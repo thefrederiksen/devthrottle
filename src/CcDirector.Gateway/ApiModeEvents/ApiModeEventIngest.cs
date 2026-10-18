@@ -76,6 +76,22 @@ public sealed class ApiModeEventIngest
         return new ApiModeEventWatermark { SessionId = batch.SessionId, Generation = result.Generation, Sequence = result.HighestSequence };
     }
 
+    /// <summary>
+    /// The Director <paramref name="directorId"/>, bound to <paramref name="tenant"/>, said Hello as a process started at
+    /// <paramref name="processStartedUtc"/>: the receipts still queued by an earlier process of it are ruled Unknown
+    /// (<see cref="ApiModeLostQueuedPrompt"/>, the second proof). Answers how many receipts changed.
+    /// </summary>
+    public int ObserveDirectorProcess(TenantId tenant, string directorId, DateTime processStartedUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directorId);
+        int changed;
+        using (_boundary.EnterScope(tenant))
+            changed = _receipts.RecordDirectorProcessStarted(directorId, processStartedUtc);
+        if (changed > 0)
+            FileLog.Write($"[ApiModeEventIngest] ObserveDirectorProcess director={directorId}: the Director came back as a process started at {processStartedUtc.ToUniversalTime():O}; {changed} receipt(s) queued by its earlier process ruled {nameof(ApiModeReceiptState.Unknown)}");
+        return changed;
+    }
+
     /// <summary>The receipt-bearing events go to the receipt store; the rest are the buffer's only.</summary>
     private void FeedReceipts(string directorId, SessionEvent e, ApiModeEventPosition position)
     {

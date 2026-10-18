@@ -37,7 +37,8 @@ namespace CcDirector.Gateway.Receipts;
 ///    (<see cref="RecordTurnOverProven"/>), and the turn's real <c>TurnEnded</c>, should it still arrive, replaces that.
 ///  - A QUEUED PROMPT WHOSE ENDING WAS LOST (<see cref="ApiModeLostQueuedPrompt"/>). On proof that a later generation
 ///    did not re-announce it, the Gateway rules it <see cref="ApiModeReceiptState.Unknown"/>
-///    (<see cref="RecordQueueLeftProven"/>), and the prompt's next real event, whatever its sequence, replaces that.
+///    (<see cref="RecordQueueLeftProven"/>), and likewise when its Director comes back as a new process
+///    (<see cref="RecordDirectorProcessStarted"/>); the prompt's next real event, whatever its sequence, replaces that.
 ///  - VERBATIM. The acknowledgement and the reasons are stored as received, never shortened or reworded; an oversized
 ///    one is refused whole rather than cut (<see cref="MaxVerbatimLength"/>). The prompt's own text is kept the same
 ///    way (<see cref="MaxPromptTextLength"/>): the first event that carries it sets it, and no later event blanks or
@@ -506,6 +507,57 @@ public sealed class ApiModeReceiptStore
             FileLog.Write($"[ApiModeReceiptStore] RecordQueueLeftProven session={sessionId} prompt={row.PromptId}: it was queued at {row.LastGeneration}#{row.LastSequence} and {proof} comes after every re-announcement of its generation, which did not re-announce it; the event that took it out of the queue was lost, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}");
             row.State = nameof(ApiModeReceiptState.Unknown);
             Touch(row, position);
+            changed++;
+        }
+        ctx.SaveChanges();
+        tx.Commit();
+        return changed;
+    }
+
+    /// <summary>
+    /// The Director <paramref name="directorId"/> said Hello as a process that started at
+    /// <paramref name="processStartedUtc"/>: every Queued receipt it holds, in the ambient tenant, whose last generation
+    /// started before that process did was queued by a process that has ended, and is ruled
+    /// <see cref="ApiModeReceiptState.Unknown"/> under <see cref="ApiModeLostQueuedPrompt.AppliesToEndedProcess"/>. There
+    /// is no proving event, so the receipt keeps the position of its last event; its queue reason and its prompt's text
+    /// are kept. A default start time rules nothing. Answers how many receipts changed.
+    /// </summary>
+    public int RecordDirectorProcessStarted(string directorId, DateTime processStartedUtc)
+    {
+        RequireId(directorId, nameof(directorId));
+        if (processStartedUtc == default)
+        {
+            FileLog.Write($"[ApiModeReceiptStore] RecordDirectorProcessStarted director={directorId}: the Hello carried no process start time, so it proves nothing");
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            try { return ProveProcessEndedOnce(directorId, processStartedUtc); }
+            catch (DbUpdateException ex)
+            {
+                FileLog.Write($"[ApiModeReceiptStore] RecordDirectorProcessStarted director={directorId}: write lost a race with another writer ({ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
+                return ProveProcessEndedOnce(directorId, processStartedUtc);
+            }
+        }
+    }
+
+    private int ProveProcessEndedOnce(string directorId, DateTime processStartedUtc)
+    {
+        using var ctx = _db.CreateContext();
+        using var tx = ctx.Database.BeginTransaction();
+        var queued = nameof(ApiModeReceiptState.Queued);
+        var candidates = ctx.ApiModeReceipts
+            .Where(r => r.DirectorId == directorId && r.State == queued)
+            .ToList();
+        var changed = 0;
+        foreach (var row in candidates)
+        {
+            if (!ApiModeLostQueuedPrompt.AppliesToEndedProcess(processStartedUtc, ApiModeReceiptState.Queued, row.LastGenerationStartedUtc))
+                continue;
+            FileLog.Write($"[ApiModeReceiptStore] RecordDirectorProcessStarted director={directorId} session={row.SessionId} prompt={row.PromptId}: it was queued at {row.LastGeneration}#{row.LastSequence}, a generation started at {row.LastGenerationStartedUtc:O}, and the Director now runs as a process started at {processStartedUtc.ToUniversalTime():O}; the process that held its queue has ended, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}");
+            row.State = nameof(ApiModeReceiptState.Unknown);
+            row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
             changed++;
         }
         ctx.SaveChanges();

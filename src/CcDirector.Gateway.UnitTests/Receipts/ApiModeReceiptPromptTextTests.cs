@@ -476,4 +476,21 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
         Assert.Equal(ApiModeReceiptState.Delivered, r.State);
         Assert.Equal(Spoken, r.PromptText);
     }
+    [Fact]
+    public void RecordDirectorProcessStarted_AReceiptWithText_KeepsTheTextWhenRuledUnknown()
+    {
+        // Arrange: queued with text in generation A; the Director then came back as a process started an hour later.
+        var store = Store();
+        store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0, Spoken);
+
+        // Act
+        var changed = store.RecordDirectorProcessStarted(Director, GenAStarted.AddHours(1));
+
+        // Assert: Unknown, and the opening of a live stream shows the same text.
+        Assert.Equal(1, changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Unknown, r.State);
+        Assert.Equal(Spoken, r.PromptText);
+        Assert.Equal(Spoken, ApiModeLiveRuling.ReceiptItem(r, 0).PromptText);
+    }
 }
