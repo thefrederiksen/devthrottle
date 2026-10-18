@@ -52,9 +52,17 @@ namespace CcDirector.ControlApi;
 /// generation, a fresh id started one millisecond after the one it continues, counted again from sequence 1. That is a
 /// rule the Gateway already keeps: a later generation replaces the session's, and a reader whose cursor is of the earlier
 /// one is answered "not complete" and reads again. The session's own stream on the Director keeps its one generation;
-/// only what the Gateway is sent is re-labelled, and the change is logged with both ids. What it cannot do: an event in
-/// the hole never reaches the Gateway, so the durable receipt of a prompt whose own event fell in it keeps the state it
-/// had.
+/// only what the Gateway is sent is re-labelled, and the change is logged with both ids.
+///
+/// EVERY NEW GENERATION STARTS BY RE-ANNOUNCING THE QUEUE (the Delivery Lead's ruling on the review of pull request #4178,
+/// finding 1). The Gateway takes a generation as one Director queue: a receipt still queued from an older generation gets
+/// no place in line. But a hole does not end the Director's process, so its queue survives it. The new generation's first
+/// events are therefore one <see cref="PromptQueued"/> for each prompt still waiting for its receipt at the hole, oldest
+/// first, with its place in that line, its reason and its text (<see cref="QueuedPrompts.Reannounce"/>), and only then the
+/// events after the hole. The line is the session's own, carried on every batch (<see cref="SessionEventBatch.QueuedBefore"/>),
+/// so it is known even at a hole whose events never reached the pusher. Nothing queued, nothing re-announced. What it
+/// cannot do: the delivery or refusal of a prompt whose own event fell in the hole never reaches the Gateway, so that
+/// durable receipt keeps the state it had.
 ///
 /// Built on delegates, not on the stream client, so every branch is tested with a fake Gateway.
 /// </summary>
@@ -74,12 +82,23 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
     public const long DefaultMaxHeldCharactersPerSession = 50_000_000;
 
     /// <summary>One held event: the session's own (<see cref="Event"/>, of <see cref="SourceGeneration"/>), and what the
-    /// Gateway is sent for it - the generation, start and sequence it goes up under, and its JSON.</summary>
+    /// Gateway is sent for it - the generation, start and sequence it goes up under, and its JSON. <see cref="QueuedBefore"/>
+    /// is the session's line of queued prompts just before it. A re-announcement of a queued prompt at the start of a new
+    /// generation has an <see cref="Anchor"/>: the session's own sequence it stands before.</summary>
     private sealed record HeldEvent(SessionEvent Event, string SourceGeneration, string Generation, DateTime GenerationStartedUtc,
-        long Sequence, string Json);
+        long Sequence, string Json, QueuedPrompts QueuedBefore, long? Anchor)
+    {
+        /// <summary>The last of the session's own sequences this event accounts for: its own, or for a re-announcement,
+        /// the one before its anchor.</summary>
+        public long Through => Anchor is { } anchor ? anchor - 1 : Event.Sequence;
+
+        /// <summary>The session's line of queued prompts just after this event. A re-announcement changes nothing.</summary>
+        public QueuedPrompts QueuedAfter => Anchor is null ? QueuedBefore.After(Event) : QueuedBefore;
+    }
 
     /// <summary>How one of the session's generations is sent: under <see cref="Label"/>, with every sequence above
-    /// <see cref="Offset"/> counted again from 1. <see cref="LastSeen"/> is the last of the session's own sequences
+    /// <see cref="Offset"/> counted again from 1 (after a hole, the re-announced queued prompts take the first of those
+    /// numbers). <see cref="LastSeen"/> is the last of the session's own sequences
     /// handed to the pusher, so a hole in what is handed over is seen.</summary>
     private sealed class Segment
     {
@@ -191,12 +210,14 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
                     _states.TryRemove(new KeyValuePair<string, SessionState>(batch.SessionId, state));
                     continue;
                 }
+                var queued = batch.QueuedBefore;
                 foreach (var e in batch.Events)
                 {
-                    var segment = SegmentForLocked(batch.SessionId, state, batch.Generation, batch.GenerationStartedUtc, e.Sequence);
-                    var held = Hold(e, batch.Generation, segment);
+                    var segment = SegmentForLocked(batch.SessionId, state, batch.Generation, batch.GenerationStartedUtc, e.Sequence, queued);
+                    var held = Hold(e, batch.Generation, segment, queued);
                     state.Held.Add(held);
                     state.HeldCharacters += held.Json.Length;
+                    queued = queued.After(e);
                 }
                 EnforceBoundLocked(batch.SessionId, state);
             }
@@ -417,9 +438,16 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
             while (state.Held.Count > 0 && state.Held[0].Json.Length > _maxBatchCharacters)
             {
                 var tooLarge = state.Held[0];
-                FileLog.Write($"[ApiModeEventPusher] DROPPED: session={sessionId}, generation={tooLarge.SourceGeneration}, sequence {tooLarge.Event.Sequence}: its JSON is {tooLarge.Json.Length} characters, more than a batch may carry ({_maxBatchCharacters}); what follows it goes up as a new generation");
                 Remove(state, [tooLarge]);
-                AfterHoleLocked(sessionId, state, tooLarge.SourceGeneration, tooLarge.Event.Sequence, "an event too large for any batch was dropped");
+                if (tooLarge.Anchor is not null)
+                {
+                    // Its own PromptQueued was as large and was dropped the same way, so the Gateway never held this prompt's
+                    // receipt. Another new generation would re-announce it again and drop it again, for ever.
+                    FileLog.Write($"[ApiModeEventPusher] DROPPED: session={sessionId}, generation={tooLarge.SourceGeneration}: the re-announcement of queued prompt {((PromptQueued)tooLarge.Event).PromptId} is {tooLarge.Json.Length} characters, more than a batch may carry ({_maxBatchCharacters}); the Gateway is not told that prompt is queued");
+                    continue;
+                }
+                FileLog.Write($"[ApiModeEventPusher] DROPPED: session={sessionId}, generation={tooLarge.SourceGeneration}, sequence {tooLarge.Event.Sequence}: its JSON is {tooLarge.Json.Length} characters, more than a batch may carry ({_maxBatchCharacters}); what follows it goes up as a new generation");
+                AfterHoleLocked(sessionId, state, tooLarge, "an event too large for any batch was dropped");
             }
             if (state.Held.Count == 0)
                 return null;
@@ -479,15 +507,17 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
             FileLog.Write($"[ApiModeEventPusher] DROPPED UNACKNOWLEDGED EVENTS: session={sessionId}, generation={group.Key}, " +
                           $"sequences {group.First().Event.Sequence}..{group.Last().Event.Sequence} ({group.Count()} events): the Gateway has not acknowledged them " +
                           $"and the Director holds at most {_maxHeldEvents} events or {_maxHeldCharacters} characters per session; what follows them goes up as a new generation");
-            AfterHoleLocked(sessionId, state, group.Key, group.Last().Event.Sequence, "the memory bound dropped events");
+            AfterHoleLocked(sessionId, state, group.Last(), "the memory bound dropped events");
         }
     }
 
     // ---------------------------------------------------------------- generations as the Gateway is sent them
 
     /// <summary>The segment the session's event <paramref name="sequence"/> of <paramref name="generation"/> is sent
-    /// under. A sequence that does not follow the last one handed over is a hole: a new generation starts at it.</summary>
-    private static Segment SegmentForLocked(string sessionId, SessionState state, string generation, DateTime startedUtc, long sequence)
+    /// under. A sequence that does not follow the last one handed over is a hole: a new generation starts at it, with
+    /// <paramref name="queuedBefore"/>, the line just before the event, re-announced first.</summary>
+    private static Segment SegmentForLocked(string sessionId, SessionState state, string generation, DateTime startedUtc, long sequence,
+        QueuedPrompts queuedBefore)
     {
         if (!state.Segments.TryGetValue(generation, out var segment))
         {
@@ -499,58 +529,83 @@ public sealed class ApiModeEventPusher : ISessionEventSink, IAsyncDisposable
             var why = segment.LastSeen == 0
                 ? $"its sequences 1..{sequence - 1} never reached the pusher"
                 : $"its sequences {segment.LastSeen + 1}..{sequence - 1} never reached the pusher";
-            segment = NewSegmentLocked(sessionId, state, generation, sequence - 1, why);
+            segment = NewSegmentLocked(sessionId, state, generation, sequence - 1, queuedBefore, why);
         }
         segment.LastSeen = sequence;
         return segment;
     }
 
-    /// <summary>The session's events of <paramref name="generation"/> through <paramref name="holeThrough"/> will never
-    /// reach the Gateway. If the generation is still sent under a segment the hole would sit inside, what follows goes
-    /// up as a new one.</summary>
-    private static void AfterHoleLocked(string sessionId, SessionState state, string generation, long holeThrough, string why)
+    /// <summary><paramref name="lastDropped"/>, and every event of its generation before it that the Gateway does not
+    /// hold, will never reach the Gateway. If it was to go up under the segment its generation is sent under now, the hole
+    /// would sit inside that segment, so what follows goes up as a new one.</summary>
+    private static void AfterHoleLocked(string sessionId, SessionState state, HeldEvent lastDropped, string why)
     {
-        if (state.Segments.TryGetValue(generation, out var segment) && holeThrough > segment.Offset)
-            NewSegmentLocked(sessionId, state, generation, holeThrough, why);
+        if (state.Segments.TryGetValue(lastDropped.SourceGeneration, out var segment)
+            && string.Equals(lastDropped.Generation, segment.Label, StringComparison.Ordinal))
+            NewSegmentLocked(sessionId, state, lastDropped.SourceGeneration, lastDropped.Through, lastDropped.QueuedAfter, why);
     }
 
-    /// <summary>Send the session's events of <paramref name="generation"/> above <paramref name="holeThrough"/> as a new
-    /// generation from sequence 1, started a millisecond after the one it continues, and re-label those already held.</summary>
-    private static Segment NewSegmentLocked(string sessionId, SessionState state, string generation, long holeThrough, string why)
+    /// <summary>
+    /// Send the session's events of <paramref name="generation"/> above <paramref name="holeThrough"/> as a new generation,
+    /// started a millisecond after the one it continues: first one <see cref="PromptQueued"/> for each prompt of
+    /// <paramref name="queuedAtHole"/> (the line just after the hole) from sequence 1, then those events, counted on from
+    /// there. Those already held are re-labelled, and a re-announcement already held that stands after the hole is
+    /// replaced by this one.
+    /// </summary>
+    private static Segment NewSegmentLocked(string sessionId, SessionState state, string generation, long holeThrough,
+        QueuedPrompts queuedAtHole, string why)
     {
         var previous = state.Segments[generation];
         var segment = new Segment
         {
             Label = Guid.NewGuid().ToString(),
             StartedUtc = previous.StartedUtc.AddMilliseconds(1),
-            Offset = holeThrough,
+            // The re-announcements take the session's sequences just below the hole's end, so they go up as 1..N and the
+            // first event after the hole as N + 1.
+            Offset = holeThrough - queuedAtHole.Count,
             LastSeen = previous.LastSeen,
         };
         state.Segments[generation] = segment;
+
+        var replaced = state.Held.Where(e => e.SourceGeneration == generation && e.Anchor > holeThrough).ToList();
+        Remove(state, replaced);
+
         var relabelled = 0;
+        var insertAt = state.Held.Count;
         for (var i = 0; i < state.Held.Count; i++)
         {
             var e = state.Held[i];
-            if (e.SourceGeneration != generation || e.Event.Sequence <= holeThrough)
+            if (e.SourceGeneration != generation || e.Anchor is not null || e.Event.Sequence <= holeThrough)
                 continue;
-            var again = Hold(e.Event, generation, segment);
+            if (relabelled == 0)
+                insertAt = i;
+            var again = Hold(e.Event, generation, segment, e.QueuedBefore);
             state.HeldCharacters += again.Json.Length - e.Json.Length;
             state.Held[i] = again;
             relabelled++;
         }
+
+        var reannounced = queuedAtHole.Reannounce(holeThrough - queuedAtHole.Count + 1)
+            .Select(q => Hold(q, generation, segment, queuedAtHole, anchor: holeThrough + 1))
+            .ToList();
+        state.Held.InsertRange(insertAt, reannounced);
+        state.HeldCharacters += reannounced.Sum(e => (long)e.Json.Length);
+
         FileLog.Write($"[ApiModeEventPusher] A HOLE STARTS A NEW GENERATION: session={sessionId}, generation={generation} " +
                       $"(sent as {previous.Label}): {why}, so its events through sequence {holeThrough} that the Gateway does not hold " +
-                      $"never will. Its events from sequence {holeThrough + 1} go up as generation {segment.Label} " +
-                      $"(started {segment.StartedUtc:O}) from sequence 1, {relabelled} of them already held; the Gateway takes the later " +
+                      $"never will. Generation {segment.Label} (started {segment.StartedUtc:O}) re-announces the {reannounced.Count} " +
+                      $"prompt(s) still queued [{string.Join(", ", queuedAtHole.Prompts.Select(p => p.PromptId))}] as its sequences 1..{reannounced.Count}" +
+                      (replaced.Count > 0 ? $" (replacing {replaced.Count} re-announcement(s) not yet sent)" : "") +
+                      $", then the events from sequence {holeThrough + 1}, {relabelled} of them already held; the Gateway takes the later " +
                       "generation as a fresh start and answers a reader of the earlier one that its stream is not complete. " +
-                      "A receipt whose own event fell in the hole is not corrected.");
+                      "A delivery or refusal whose own event fell in the hole is not corrected.");
         return segment;
     }
 
-    private static HeldEvent Hold(SessionEvent e, string sourceGeneration, Segment segment)
+    private static HeldEvent Hold(SessionEvent e, string sourceGeneration, Segment segment, QueuedPrompts queuedBefore, long? anchor = null)
     {
         var sent = segment.Offset == 0 ? e : e with { Sequence = e.Sequence - segment.Offset };
         return new HeldEvent(e, sourceGeneration, segment.Label, segment.StartedUtc, sent.Sequence,
-            JsonSerializer.Serialize(sent, SessionEventJson.Options));
+            JsonSerializer.Serialize(sent, SessionEventJson.Options), queuedBefore, anchor);
     }
 }

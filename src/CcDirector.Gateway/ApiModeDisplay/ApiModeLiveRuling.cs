@@ -284,9 +284,11 @@ public sealed class ApiModeLiveRuling
     /// Director's queue order: it writes the oldest waiting prompt first). Null for every receipt not queued.
     ///
     /// <para>Only the newest Director generation among the receipts holds a queue: a Director restart starts a new one,
-    /// and the queue of the one before is gone with it. A receipt still queued from an older generation has no place
-    /// that can be known, so it gets none (its words stay <c>Queued: &lt;why&gt;</c>) and is not counted ahead of
-    /// anyone. On a fresh queue the place equals the Director's own <see cref="PromptQueued.Position"/>, which counts from
+    /// and the queue of the one before is gone with it. A hole in the Director's push also starts a new generation while
+    /// its queue survives, and so the Director opens every new generation by re-announcing each prompt still queued
+    /// (event model, "Every new generation starts by re-announcing the queue"), which keeps this rule true. A receipt
+    /// still queued from an older generation and not re-announced has no place that can be known, so it gets none (its
+    /// words stay <c>Queued: &lt;why&gt;</c>) and is not counted ahead of anyone. On a fresh queue the place equals the Director's own <see cref="PromptQueued.Position"/>, which counts from
     /// 1 the same way.</para>
     ///
     /// <para>The receipts read (<c>GET /sessions/{sid}/receipts</c>) and the live stream both call this over the stored
