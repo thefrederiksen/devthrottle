@@ -29,7 +29,9 @@
       - Pi's executable missing: spawn fails with a stated reason (its own step, after the flow; no model call).
     The other two failure cases are proven by unit tests, named in $UnitTestProven below and in the summary:
     Pi exiting mid-turn, and Pi refusing a prompt. A real run cannot provoke either without killing Pi from the
-    outside or racing Pi's own queue, and the recorded wire fixtures replay both exactly.
+    outside or racing Pi's own queue, and the recorded wire fixtures replay both exactly. Pi exiting mid-turn is held to
+    the Delivery Lead's ruling of 16 October 2026 in event-model.md, not to section 7's original wording: the receipt
+    stays Delivered (Pi acknowledged it) and shows the failed turn beside it.
 
     HOW IT TALKS TO THE GATEWAY. cc-devthrottle, run from THIS tree (tools/cc-devthrottle copied under its
     installed package name), spawns, prompts and stops sessions. cc-devthrottle has no command for receipts, the
@@ -98,11 +100,19 @@ $directorHome = Join-Path $rig 'home'
 $gatewayUrl = "http://127.0.0.1:$GatewayPort"
 
 # The cases a real run does not provoke, and the unit tests that prove them (section 7, item 3).
+#
+# Pi exiting mid-turn is held to the Delivery Lead's ruling of 16 October 2026 in event-model.md, which replaced
+# section 7's wording ("the prompt is not marked delivered"): Delivered means Pi acknowledged the prompt and stays
+# true; the turn ends failed with the reason, and the receipt shows that failed turn beside Delivered. Only a prompt
+# Pi never acknowledged is Refused, by the Director, "Pi exited before acknowledging".
 $UnitTestProven = [ordered]@{
-    'Pi exits mid-turn: the session shows failed with the reason, and the prompt is not marked delivered' = @(
+    'Pi exits mid-turn, after acknowledging (ruling of 16 October 2026, event-model.md): the session shows failed with the reason; the receipt stays Delivered with the failed turn beside it' = @(
         'CcDirector.Core.UnitTests ApiModeSessionCreationTests.CreateSession_ApiModePiEndsWithExitCodeZeroMidTurn_SessionFailsWithTheReason',
         'CcDirector.Core.UnitTests ApiModeSessionCreationTests.CreateSession_ApiModePiEndsMidTurn_ActivityGoesFromWorkingToExitedWithNoWaitBetween',
-        'CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheExitMidTurnRecording_TheReceiptShowsFailedBesideDelivered',
+        'CcDirector.Core.UnitTests PiDialectReplayTests.Replay_Exit_TurnFailsWithTheExitCodeAndThePromptStaysDelivered',
+        'CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheExitMidTurnRecording_TheReceiptShowsFailedBesideDelivered')
+    'Pi exits before acknowledging (the same ruling): the receipt is Refused by the Director, "Pi exited before acknowledging", with no turn' = @(
+        'CcDirector.Core.UnitTests PiDialectReplayTests.Replay_ExitBeforeAcknowledgement_RefusesThePromptAsTheDirector',
         'CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheExitBeforeAcknowledgementRecording_TheReceiptIsRefusedByTheDirector')
     'Pi refuses a prompt (success:false): the receipt shows the reason' = @(
         'CcDirector.Gateway.UnitTests PiFixtureIngestTests.Accept_TheRefusalRecording_TheSecondPromptIsRefusedByPiInItsOwnWords',
@@ -659,7 +669,10 @@ try {
 
     $summary = [System.Collections.Generic.List[string]]::new()
     $summary.Add("API mode proof on Pi (mission #4070, phase 6) - $osWord, $($started.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC")
-    $summary.Add("Tree: $(git -C $repo rev-parse --short HEAD) ($(git -C $repo rev-parse --abbrev-ref HEAD)); pi $piVersion; test Gateway from this tree on port $GatewayPort; slot-$Slot test Director")
+    # A run from a tree with uncommitted changes says so: its commit alone would name code that did not produce it.
+    $dirty = @(git -C $repo status --porcelain --untracked-files=no)
+    $treeWords = if ($dirty.Count -gt 0) { "PLUS UNCOMMITTED CHANGES to $($dirty.Count) file(s) - not evidence of this commit" } else { 'clean' }
+    $summary.Add("Tree: $(git -C $repo rev-parse --short HEAD) ($(git -C $repo rev-parse --abbrev-ref HEAD)), $treeWords; pi $piVersion; test Gateway from this tree on port $GatewayPort; slot-$Slot test Director")
     $summary.Add('')
     foreach ($r in $results) { $summary.Add("$($r.Result)  $($r.Step)"); $summary.Add("      $($r.Detail)") }
     $summary.Add('')
