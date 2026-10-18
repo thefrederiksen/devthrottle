@@ -226,3 +226,23 @@ Developer, and merges the branch into `mission/session-rules-hooks-p1`.
 - The September usage-limit screen rule still firing.
 
 Results go into `phase-1-proof.md` beside this file, each with its commit and exit code, or PENDING.
+
+---
+
+## Rulings added after seating (answers to the Developers' questions)
+
+**P12. The shell tool is `Bash` and `PowerShell`.** The installed Claude Code (2.1.302) lists both as
+shell tools; the hook matcher is `Bash|PowerShell`, both recorded as `tool` `shell` with `agentTool`
+holding the real name. That the PowerShell tool's input field is also `command` is NOT proven until the
+Windows run.
+
+**P13. "Overridden" means a matching rule that LOST.** `overriddenRuleIds` holds every other matching
+rule whose result differs from the decision. A matching rule that agrees is in `matchedRuleIds` only.
+
+**P14. The evaluation log line carries the agent's call id** (`tool_use_id` for Claude Code) as its
+last field, so a negative control is tied to one command without the log holding command text.
+
+**P15. cc-rule-hook ships with the Director**: a `rule-hook` app component in the setup engine placed
+beside the Director, the `release.yml` publish steps, and both local build scripts. And the installer
+registers the PreToolUse hook ONLY when the executable is present beside the Director, logging loudly
+when it is not: a hook pointed at a missing file errors on every shell command in every session.
