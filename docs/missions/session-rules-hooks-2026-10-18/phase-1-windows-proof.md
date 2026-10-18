@@ -50,6 +50,41 @@ rebasing onto `origin/mission/session-rules-hooks-p1` at `4f21e04a7` (Gateway, D
 | `dotnet test src\CcDirector.Core.UnitTests --filter "FullyQualifiedName~Hook\|FullyQualifiedName~SessionPointerDrop\|FullyQualifiedName~Rules"` | 163 passed, 0 failed, exit 0 |
 | `dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Rules"` | 562 passed, 0 failed, exit 0 |
 
+## 2a. The repository gate on Windows - green except one failure main has already fixed
+
+Asked for by the Tech Lead while the build tools are missing. All runs on this branch, Release.
+
+**Run 1, at `6a86311d8`:** `.\scripts	est-local.ps1 -Configuration Release`, exit 1. The script chose to
+run the parked `CcDirector.Gateway.UnitTests` and `CcDirector.Core.Tests` whole. Four failures:
+
+| Test | What it said | Whose |
+|---|---|---|
+| `CcStorageProtectedPathsTests.every_public_static_path_member_is_either_protected_or_explicitly_not_protected` (Core.Tests) | `CcStorage.SessionRules` is in neither list | the mission's (Director piece) |
+| `CatchLogLineScanTests.EveryLogLineInACatch_IsReportedOrSaysWhyNot` (Core.UnitTests) | `ClaudeHookInstaller.cs` lines 332 and 350 are in neither house form | the mission's (hook piece) |
+| `DefinitionFormatDocumentTests.Document_NamesEveryKeyTheSchemasTake` (Gateway.UnitTests) | `docs/factories/definition-format.md` does not name nine keys | NOT the mission's: the mission branch touches neither file; main fixed it in #4218 after the branch was cut from `7a365544b`; passes on `origin/main` at `3e47021cb` (1 passed, exit 0) |
+| `ApiModeSessionHostTests.TurnStartBound_PiAcknowledgesAndNeverStarts_...` (Core.UnitTests) | one extra event in a sequence | passed on the re-run (FLAKY by the script's rule); not in any code this mission touches |
+
+`-RerunFailed` on that run folder, exit 1: the first three failed again; the fourth passed.
+
+**Fixed on this branch, commit `64c41f86e`:** `SessionRules` is classified with `SessionPreambles`, as data the
+reclaim tool reports and never offers (the same life as the preamble file, W2); a failed evaluator install
+now logs `InstallRuleHook FAILED:`, so it reaches the Gateway as an error, and the leftover-temporary-file
+line is marked `// not-an-error` with its reason. Both tests were watched red in run 1 and are green after:
+`Core.UnitTests --filter CatchLogLineScanTests|Hook` 92 passed, `Core.Tests --filter
+CcStorageProtectedPathsTests|ClaudeHookInstaller` 9 passed, exit 0.
+
+**Run 2, at `64c41f86e`:** exit 1. Every suite `outcome=Completed` except `CcDirector.Gateway.UnitTests`, whose one
+failure is `Document_NamesEveryKeyTheSchemasTake` (main's, above); 14,537 of 14,538 passed. Core.UnitTests
+2,520, Core.Tests 4,540, RuleHook 70, Avalonia 1,093, setup engine 924, and the rest, all passed. Its COVERAGE
+GAP line named `CcDirector.Gateway.Tests`, so:
+
+**Run 3, at `64c41f86e`:** `.\scripts	est-local.ps1 -Configuration Release -Gateway`, exit 0, RESULT GREEN, tree
+clean. Shards: 412, 480, 418 of 421 (3 skipped), 469 - all passed. The run folder is deleted after a green run,
+so which three were skipped is not recorded.
+
+Verdict: green for this mission's code on Windows; the one remaining red clears when the mission branch takes
+main.
+
 ## 3. The installed Claude Code on Windows - proven
 
 Method: a scratch git repository, `claude -p` with `--settings` naming a settings file whose PreToolUse hook
@@ -131,4 +166,5 @@ after a 30-minute wait, the build tools were still not installed.
   registers it, and that a refused replace of a running hook is retried on the next launch.
 - Rows 1 and 2 of mission section 7 on a real Windows Director session: the `would_deny` firing on the
   Gateway, and both negative controls by `no_match` lines.
+- Which three `CcDirector.Gateway.Tests` were skipped in run 3, and why.
 - Behaviour on a Windows machine without Git for Windows (Claude Code itself requires it on Windows).
