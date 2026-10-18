@@ -269,6 +269,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     internal Factory.FactoryAgentsSwitch FactoryAgentsSwitch { get; }
 
+    /// <summary>
+    /// Whether Mail Desk is on FOR ONE ACCOUNT (the Mail Desk mission, issue #4213): only that account's own recorded
+    /// decision - there is no machine switch. Every Mail Desk route sits behind <see cref="Api.MailDeskGate"/>, and a
+    /// Mail Desk screening check reported for an account that is off is refused without being recorded.
+    /// </summary>
+    internal MailDesk.MailDeskSwitch MailDeskSwitch { get; }
+
     /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
     /// database shape does not depend on it; only the routes do.</summary>
     public Factory.FactoryActivityRecord FactoryActivity { get; }
@@ -2473,6 +2480,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // The factory agents switch per account: the machine switch, or the account's own recorded decision, which
         // lives in the per-tenant settings just built - so no new table, and the administrator route writes it.
         FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings);
+        // The Mail Desk switch per account, in the same per-tenant settings; no machine switch, so no config.json key.
+        MailDeskSwitch = new MailDesk.MailDeskSwitch(_tenantSettings);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
@@ -2779,7 +2788,9 @@ public sealed class GatewayHost : IAsyncDisposable
             directorRunsDefinitionChecks: _definitionCheckCapabilities.RunsDefinitionChecks,
             machineRunsDefinitionChecks: MachineRunsDefinitionChecks,
             // Phase 5b, brief D item 8: a definition trigger's session is a seat start built from the published version.
-            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory));
+            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
+            // Mail Desk phase 1: a Mail Desk screening check of an account Mail Desk is off for is refused, unrecorded.
+            mailDeskOn: MailDeskSwitch.IsOn);
         // A timed start's due check (phase 5b): handed out and reported through the same Director routes as a
         // trigger's, decided here, its session started through the schedule's own starter.
         DueChecks = new Factory.Triggers.DueCheckService(
@@ -2791,7 +2802,9 @@ public sealed class GatewayHost : IAsyncDisposable
             resultRecorded: (tenant, run) => _cronRunResults.WriteOwedActivityFor(tenant, run),
             // The clock the engine fires by and the result service reads by, so one row is never on two clocks.
             nowUtc: () => cronClock.UtcNow,
-            startLifetime: _triggerStartLifetime.Token);
+            startLifetime: _triggerStartLifetime.Token,
+            // Mail Desk phase 1: a timed start of the Mail Desk screening check is refused, unrecorded, while it is off.
+            mailDeskOn: MailDeskSwitch.IsOn);
 
         // The activity ledger's 30-day retention, on the same per-tenant worker seam.
         _activityRetentionSweep = new Activity.ActivityRetentionSweep(_tenantBoundary, TenantRegistry, _activityEvents);
@@ -5553,6 +5566,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
+        // Who Mail Desk is on for: the administrator route that switches ONE account on or off, recording who and why.
+        // Same admin service token; exact-match public in AuthMiddleware. The Mail Desk routes themselves are mapped
+        // into Api.MailDeskGate.Group(...), which answers 404 with no body for an account that is off.
+        Api.AdminMailDeskEndpoint.Map(_app, MailDeskSwitch, TenantRegistry);
 
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.
