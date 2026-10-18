@@ -220,6 +220,65 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Equal(new long[] { 1, 2 }, held.Events.Select(e => e.Event.Sequence));
     }
 
+    // ----- a Director older than promptText (the Gateway deploys before every Director updates) -----
+
+    public static TheoryData<string> PromptEventsWithoutText => new() { "PromptQueued", "PromptDelivered", "PromptRefused" };
+
+    [Theory]
+    [MemberData(nameof(PromptEventsWithoutText))]
+    public void Parse_APromptEventWithoutItsText_ReadsWithNullTextAndIsNotRefused(string type)
+    {
+        SessionEvent e = type switch
+        {
+            "PromptQueued" => Queued(1, "p1"),
+            "PromptDelivered" => Delivered(1, "p1", PlainAck),
+            _ => Refused(1, "p1", RefusalBusy, PromptRefusedBy.Agent),
+        };
+        var batch = A(e);
+        batch.Events[0] = JsonWithoutPromptText(e);
+        Assert.DoesNotContain("promptText", batch.Events[0]);
+
+        var read = Assert.Single(ApiModeEventIngest.Parse(batch)).Event;
+
+        Assert.Equal(type, read.GetType().Name);
+        Assert.Null(read switch
+        {
+            PromptQueued q => q.PromptText,
+            PromptDelivered d => d.PromptText,
+            PromptRefused r => r.PromptText,
+            _ => throw new Xunit.Sdk.XunitException($"read as {read.GetType().Name}"),
+        });
+    }
+
+    [Fact]
+    public void Accept_ABatchFromADirectorOlderThanPromptText_IsAcceptedWholeAndFeedsTheReceipts()
+    {
+        var events = new SessionEvent[]
+        {
+            Ready(1),
+            Queued(2, "p1", PromptQueuedReason.AgentStarting),
+            Delivered(3, "p1", RefusalFirstAck),
+            Started(4, "t1", "p1"),
+            Refused(5, "p2", RefusalBusy, PromptRefusedBy.Agent),
+            Ended(6, "t1", TurnOutcome.Done, null, "stop"),
+        };
+        var batch = AFromAnOlderDirector(events);
+        Assert.All(batch.Events, json => Assert.DoesNotContain("promptText", json));
+
+        var mark = Push(batch);
+
+        Assert.NotNull(mark);
+        Assert.Equal(6, mark.Sequence);
+        Assert.Equal(new long[] { 1, 2, 3, 4, 5, 6 }, HeldSequences());
+        var delivered = Receipt("p1");
+        Assert.Equal(ApiModeReceiptState.Delivered, delivered.State);
+        Assert.Equal(RefusalFirstAck, delivered.Acknowledgement);
+        Assert.Equal("done", delivered.TurnOutcome);
+        var refused = Receipt("p2");
+        Assert.Equal(ApiModeReceiptState.Refused, refused.State);
+        Assert.Equal(RefusalBusy, refused.RefusalReason);
+    }
+
     // ----- a malformed batch stores nothing -----
 
     public static TheoryData<string> Faults => new()

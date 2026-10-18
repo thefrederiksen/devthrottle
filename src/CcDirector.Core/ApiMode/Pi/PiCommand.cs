@@ -3,9 +3,10 @@ namespace CcDirector.Core.ApiMode.Pi;
 /// <summary>
 /// One command line for Pi's standard input. <see cref="Line"/> is the JSON to write, without the line
 /// feed (the transport adds it). <see cref="Id"/> is the id inside it, which Pi repeats on its response.
-/// <see cref="PromptId"/> is the Director's prompt id, set only for a <c>prompt</c> command.
+/// <see cref="PromptId"/> is the Director's prompt id and <see cref="PromptText"/> the prompt's text exactly as written in
+/// <see cref="Line"/>, both set only for a <c>prompt</c> command.
 /// </summary>
-public sealed record PiCommand(string Id, string Type, string Line, string? PromptId = null);
+public sealed record PiCommand(string Id, string Type, string Line, string? PromptId = null, string? PromptText = null);
 
 /// <summary>What Pi answered to a command that is not a prompt (<c>get_state</c>, <c>abort</c>, ...).
 /// <see cref="DataJson"/> is the response's <c>data</c> exactly as Pi wrote it, or null when it had none.</summary>

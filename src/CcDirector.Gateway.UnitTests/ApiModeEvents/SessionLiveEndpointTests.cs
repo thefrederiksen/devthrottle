@@ -924,7 +924,7 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     private static ConnectionReady Ready(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, AgentSessionId = "e173b676-b5d6-4605-bc6c-cdbc82fd42a7", Model = "gpt-5.6-sol" };
-    private static PromptDelivered Delivered(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Disposition = PromptDisposition.Started, Acknowledgement = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""" };
+    private static PromptDelivered Delivered(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, PromptText = $"text of {prompt}", Disposition = PromptDisposition.Started, Acknowledgement = """{"type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}""" };
     private static PromptQueued Queued(long seq, string prompt) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Reason = PromptQueuedReason.TurnRunning, Position = 1 };
     private static PromptRefused Refused(long seq, string prompt, string reason, PromptRefusedBy by) => new() { SessionId = ApiSession, Sequence = seq, At = T0, PromptId = prompt, Reason = reason, RefusedBy = by };
     private static TurnStarted Started(long seq) => new() { SessionId = ApiSession, Sequence = seq, At = T0, TurnId = "t1", PromptIds = new[] { "p1" } };
