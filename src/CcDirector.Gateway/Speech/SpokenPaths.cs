@@ -134,5 +134,12 @@ public static class SpokenPaths
             + "run, and the exact text to TYPE INTO A TERMINAL. Nothing it produces is spoken. The text it "
             + "yields is a keystroke, not prose, so translating it would change what is typed - the reply "
             + "is machine-read from end to end and an unreadable one is recorded as a refusal.",
+        ["MailDeskModel.BuildPersonOrSpamPrompt"] =
+            "Asks the Mail Desk whether an email's sender is a real person or spam and returns ONE letter from "
+            + "a fixed list, which code maps to a label. Nothing it produces is spoken or shown; translating it "
+            + "would change the prompt phase 0 measured.",
+        ["MailDeskModel.BuildRoutePrompt"] =
+            "Asks the Mail Desk which route should handle an email and returns ONE letter from a fixed list, "
+            + "which code maps to a route name. Nothing it produces is spoken or shown.",
     };
 }
