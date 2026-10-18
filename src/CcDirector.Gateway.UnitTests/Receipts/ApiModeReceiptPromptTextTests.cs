@@ -421,4 +421,58 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
 
         Assert.Equal(Spoken, item.PromptText);
     }
+    // ----- a queued prompt whose ending was lost keeps its prompt's text (item 9) -----
+    // The Unknown ruling (ApiModeLostQueuedPrompt) changes the receipt's state, never its prompt: in the store and in the
+    // live ruling, and a later real event without text does not blank it.
+
+    [Fact]
+    public void RecordQueueLeftProven_AReceiptWithText_KeepsTheTextWhenRuledUnknown()
+    {
+        // Arrange: queued with text in generation A.
+        var store = Store();
+        store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0, Spoken);
+
+        // Act: generation B's ConnectionReady comes after its re-announcements, and p1 was not one.
+        var changed = store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(1));
+
+        // Assert
+        Assert.Equal(1, changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Unknown, r.State);
+        Assert.Equal(Spoken, r.PromptText);
+    }
+
+    [Fact]
+    public void Rule_AStoredQueuedReceiptWithText_KeepsTheTextWhenRuledUnknownAsTheStoreDoes()
+    {
+        // Arrange
+        var store = Store();
+        store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0, Spoken);
+        var ruling = new ApiModeLiveRuling(store.ReadWithPositions(Sid));
+
+        // Act
+        var items = ruling.Rule(new ApiModeHeldEvent("gen-b", GenBStarted, Ready(1)));
+
+        // Assert
+        var receipt = Assert.Single(items, i => i.ItemId == "receipt:p1");
+        Assert.Equal(ApiModeLostQueuedPrompt.Words, receipt.Text);
+        Assert.Equal(Spoken, receipt.PromptText);
+    }
+
+    [Fact]
+    public void RecordDelivered_WithoutTextAfterTheUnknownRuling_KeepsTheStoredText()
+    {
+        // Arrange
+        var store = Store();
+        store.RecordQueued(Director, Sid, "p1", "turnRunning", At(1), T0, Spoken);
+        store.RecordQueueLeftProven(Director, Sid, null, "ConnectionReady", AfterRestart(3));
+
+        // Act: the real delivery replaces the ruling; it carries no text (an older Director).
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, AfterRestart(2), T0, null);
+
+        // Assert
+        var r = Only(store);
+        Assert.Equal(ApiModeReceiptState.Delivered, r.State);
+        Assert.Equal(Spoken, r.PromptText);
+    }
 }
