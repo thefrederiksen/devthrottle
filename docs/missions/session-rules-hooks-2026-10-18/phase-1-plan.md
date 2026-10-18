@@ -256,3 +256,10 @@ on Linux, atomic replace; a replace refused because the file is in use is logged
 launch, never fatal) and registers that path. No new release asset, and install, update, roll back and
 slots need no change. A build made without the native compiler carries no hook, and the installer then
 registers no PreToolUse hook and logs that loudly.
+
+**P17. One batch limit for W5, held in one place, and nothing is lost to it.** The most decisions one W5
+post may carry is ONE constant in `CcDirector.Gateway.Contracts` (100), read by the Director's forwarder
+for its batch size and by the Gateway for its limit - two copies would drift. A post over the limit is
+refused WHOLE with a 400 and a stated reason, never refused decision by decision: the Director deletes a
+decision refused by id, so a per-decision refusal for being past the limit would destroy real records. A
+whole refusal is a failed post, and the Director keeps every drop.
