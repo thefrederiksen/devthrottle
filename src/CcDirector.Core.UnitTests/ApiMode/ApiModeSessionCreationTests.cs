@@ -182,6 +182,25 @@ public sealed class ApiModeSessionCreationTests : IDisposable
     }
 
     [Fact]
+    public async Task SessionEventSink_ChangedAfterTheSessionStarted_ReceivesItsLaterEvents()
+    {
+        // Arrange: a session made while the Director's sink was the first one (a Gateway configured later, say).
+        var pi = new ScriptedPi("plain");
+        var (manager, session, first) = CreateApiModeSession(pi);
+        await first.WaitForAsync<ConnectionReady>();
+        var second = new RecordingSink();
+
+        // Act
+        manager.SessionEventSink = second;
+        await session.SendTextAsync("Reply with exactly the word PONG", Door);
+        await second.WaitForAsync<TurnEnded>();
+
+        // Assert: the running session's later events went where the Director's events go now.
+        Assert.Single(second.Events.OfType<PromptDelivered>());
+        Assert.Empty(first.Events.OfType<PromptDelivered>());
+    }
+
+    [Fact]
     public async Task CreateSession_ApiModePi_EverySessionMachineryReadsItWithoutATerminal()
     {
         // Arrange

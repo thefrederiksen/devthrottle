@@ -107,7 +107,32 @@ public sealed class PythonToolsInUseTests : IDisposable
     }
 
     [Fact]
-    public async Task InstallAsync_PipFailsAfterTheSwap_PutsThePreviousPythonVenvAndShimsBack()
+    public async Task InstallAsync_WhilePipRuns_TheInstalledToolAndItsShimAreStillThere()
+    {
+        // The 16 October 2026 failure: a license switch looked for cc-devthrottle in the venv 41 seconds into a
+        // tools update and found nothing, because the update set the live venv aside for the whole pip install.
+        // The new runtime is now built beside the live one, so at the moment pip is running the installed tool,
+        // its shim and the base Python are all exactly where they were.
+        GiveTheMachineWorkingTools();
+        bool? scriptThereDuringPip = null, shimThereDuringPip = null, pythonThereDuringPip = null;
+        var runs = new List<string>();
+        var installer = new PythonToolsInstaller(_layout, Runner(runs, pipSucceeds: true, onPip: () =>
+        {
+            scriptThereDuringPip = File.Exists(PreviousConsoleScript) && File.ReadAllText(PreviousConsoleScript) == "previous console script";
+            shimThereDuringPip = File.Exists(Shim);
+            pythonThereDuringPip = File.Exists(PythonSentinel);
+        }));
+
+        var result = await installer.InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource());
+
+        Assert.True(result.Success, result.Message);
+        Assert.True(scriptThereDuringPip, "the installed console script was gone while pip ran");
+        Assert.True(shimThereDuringPip, "the tool's shim was gone while pip ran");
+        Assert.True(pythonThereDuringPip, "the installed base Python was gone while pip ran");
+    }
+
+    [Fact]
+    public async Task InstallAsync_PipFails_LeavesTheInstalledToolsUntouched()
     {
         GiveTheMachineWorkingTools();
         var runs = new List<string>();
@@ -117,9 +142,9 @@ public sealed class PythonToolsInUseTests : IDisposable
 
         Assert.False(result.Success);
         Assert.False(result.HeldBecauseInUse);
-        // It really did get past the swap: a venv was created and pip ran before the failure.
+        // It really did get as far as pip: a venv was created and pip ran before the failure.
         Assert.Contains(runs, r => r.StartsWith("-m pip install", StringComparison.Ordinal));
-        Assert.Contains("put back", result.Message);
+        Assert.Contains("not touched", result.Message);
         AssertThePreviousToolsStillWork();
         Assert.Empty(SiblingsOf(_layout.PythonDir).Concat(SiblingsOf(_layout.PyenvDir)));
     }
@@ -140,7 +165,12 @@ public sealed class PythonToolsInUseTests : IDisposable
             .InstallAsync(StageRelease(NewVersion, Tool), new ReleaseSource());
 
         Assert.True(result.Success, result.Message);
-        Assert.Equal("new console script", File.ReadAllText(PreviousConsoleScript));
+        // The new console script is in place, and it names the venv where it now lives - not the staging folder
+        // it was built in, which no longer exists.
+        var installed = File.ReadAllText(PreviousConsoleScript);
+        Assert.EndsWith("new console script", installed);
+        Assert.StartsWith("#!" + Path.Combine(_layout.PyenvBinDir, "python.exe") + "\n", installed);
+        Assert.Contains("home = " + _layout.PythonDir + "\r\n", File.ReadAllText(Path.Combine(_layout.PyenvDir, "pyvenv.cfg")));
         Assert.True(File.Exists(Shim));
         Assert.False(File.Exists(PythonSentinel), "the previous Python was not replaced");
         Assert.Equal(NewVersion, InstalledManifest.Load(_layout).Get(PythonToolsInstaller.ComponentId));
@@ -150,10 +180,10 @@ public sealed class PythonToolsInUseTests : IDisposable
     }
 
     [Fact]
-    public async Task InstallAsync_AToolStartsInTheVenvAfterTheCheck_HoldsAndPutsTheShimsBack()
+    public async Task InstallAsync_AToolStartsInTheVenvAfterTheCheck_HoldsAndChangesNothing()
     {
         // The race the second hold covers: the check passes, then a tool opens a file in the venv before it is
-        // set aside. The shims have just been taken off, so they must come back.
+        // swapped out. The new runtime has been built by then, but the swap is refused and nothing live moved.
         GiveTheMachineWorkingTools();
         FileStream? lateTool = null;
         var runs = new List<string>();
@@ -165,8 +195,8 @@ public sealed class PythonToolsInUseTests : IDisposable
         finally { lateTool?.Dispose(); }
 
         Assert.True(result.HeldBecauseInUse, result.Message);
-        Assert.DoesNotContain(runs, r => r.StartsWith("-m venv", StringComparison.Ordinal));
         AssertThePreviousToolsStillWork();
+        Assert.Empty(SiblingsOf(_layout.PythonDir).Concat(SiblingsOf(_layout.PyenvDir)));
     }
 
     [Fact]
@@ -184,16 +214,15 @@ public sealed class PythonToolsInUseTests : IDisposable
         finally { lateTool?.Dispose(); }
 
         Assert.True(result.HeldBecauseInUse, result.Message);
-        Assert.DoesNotContain(runs, r => r.StartsWith("-m venv", StringComparison.Ordinal));
         AssertThePreviousToolsStillWork();
         Assert.Empty(SiblingsOf(_layout.PythonDir).Concat(SiblingsOf(_layout.PyenvDir)));
     }
 
     [Fact]
-    public async Task InstallAsync_AnExceptionMidInstall_PutsEverythingBackInsteadOfEscaping()
+    public async Task InstallAsync_AnExceptionMidInstall_FailsWithItInsteadOfEscaping()
     {
         // The 14 October failure was an EXCEPTION ("Access to the path '_rust.pyd' is denied"), not an exit code,
-        // and it escaped past every restore. Thrown from inside pip here, after the swap.
+        // and it escaped past every restore. Thrown from inside pip here, while the new runtime is being built.
         GiveTheMachineWorkingTools();
         var runs = new List<string>();
         var installer = new PythonToolsInstaller(_layout, Runner(runs, pipSucceeds: true, pipThrows: true));
@@ -202,7 +231,7 @@ public sealed class PythonToolsInUseTests : IDisposable
 
         Assert.False(result.Success);
         Assert.Contains("_rust.pyd", result.Message);
-        Assert.Contains("put back", result.Message);
+        Assert.Contains("not touched", result.Message);
         AssertThePreviousToolsStillWork();
         Assert.Empty(SiblingsOf(_layout.PythonDir).Concat(SiblingsOf(_layout.PyenvDir)));
     }
@@ -292,7 +321,8 @@ public sealed class PythonToolsInUseTests : IDisposable
     /// A runner that plays the interpreter: the standard-library probe passes, `-m venv` creates the venv's
     /// interpreter, and pip either writes the tool's console script or fails. Anything else fails the test.
     /// </summary>
-    private RunProcess Runner(List<string> runs, bool pipSucceeds, Action? onStagedPythonProbe = null, bool pipThrows = false) =>
+    private RunProcess Runner(List<string> runs, bool pipSucceeds, Action? onStagedPythonProbe = null, bool pipThrows = false,
+        Action? onPip = null) =>
         (exe, arguments, _, _) =>
     {
         runs.Add(arguments);
@@ -305,15 +335,22 @@ public sealed class PythonToolsInUseTests : IDisposable
         }
         if (arguments.StartsWith("-m venv", StringComparison.Ordinal))
         {
-            Directory.CreateDirectory(_layout.PyenvBinDir);
-            File.WriteAllText(Path.Combine(_layout.PyenvBinDir, "python.exe"), "new venv interpreter");
+            // The venv is made wherever the installer says, the way `python -m venv <folder>` does.
+            var venv = arguments["-m venv ".Length..].Trim('"');
+            var scripts = Path.Combine(venv, "Scripts");
+            Directory.CreateDirectory(scripts);
+            File.WriteAllText(Path.Combine(scripts, "python.exe"), "new venv interpreter");
+            File.WriteAllText(Path.Combine(venv, "pyvenv.cfg"), $"home = {Path.GetDirectoryName(exe)}\r\n");
             return (0, "");
         }
         if (arguments.StartsWith("-m pip install", StringComparison.Ordinal))
         {
+            onPip?.Invoke();
             if (pipThrows) throw new IOException("The process cannot access the file '_rust.pyd' (thrown by the test runner)");
             if (!pipSucceeds) return (1, "pip refused by the test runner");
-            File.WriteAllText(PythonToolsInstaller.ConsoleScriptPath(_layout, Tool), "new console script");
+            // pip writes each console script beside the interpreter that ran it, naming that interpreter on its
+            // first line - the absolute path a real venv bakes in.
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(exe)!, Tool + ".exe"), $"#!{exe}\nnew console script");
             return (0, "");
         }
         throw new InvalidOperationException($"unexpected run of {exe} {arguments}");

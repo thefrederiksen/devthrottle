@@ -246,18 +246,32 @@ public sealed class PythonToolsInstaller
                 return Held(steps, $"the cc-* tools are in use, so the update to bundle {manifest.BundleVersion} " +
                                    $"is held and nothing was changed: {inUseReason}");
 
-            // 3. Stage the new base Python and verify it is a COMPLETE, runnable interpreter (python.exe present
-            //    AND it can import its own standard library) BEFORE anything live is touched. The extract
-            //    happens on the staging copy, so a partial extract never reaches the live tree.
+            // 3. Build the WHOLE new runtime beside the live one - the base Python AND the venv - and only then
+            //    swap it in. The live tools keep working through every slow step (the extract, the venv create
+            //    and the pip install, which take a minute or more), because none of those steps touches them.
+            //
+            //    This used to set the live venv aside and build the new one at its real path, because a venv
+            //    bakes its own absolute path into every console script. That left the machine with NO
+            //    cc-devthrottle for the whole pip install: on 16 October 2026 a license switch arrived 41 seconds
+            //    into such a window and failed with "cc-devthrottle is not installed in this machine's Python
+            //    tool environment" (missions/license-switching/phase-6/track-b/tool-health.md). The baked-in
+            //    paths are now rewritten to the final location BEFORE the swap (VenvRelocation), so the venv can
+            //    be built in a staging folder like the Python is.
+            //
+            //    The extract happens on the staging copy, so a partial extract never reaches the live tree.
             Step("staging bundled Python");
-            var staged = _layout.PythonDir + ".staging-" + Guid.NewGuid().ToString("N");
             var suffix = Guid.NewGuid().ToString("N");
+            var staged = _layout.PythonDir + ".staging-" + suffix;
+            var stagedVenv = _layout.PyenvDir + ".staging-" + suffix;
             var pythonBackup = _layout.PythonDir + ".old-" + suffix;
             var venvBackup = _layout.PyenvDir + ".prev-" + suffix;
+            var stagedVenvPython = Path.Combine(VenvRelocation.ScriptsDirOf(stagedVenv), OperatingSystem.IsWindows() ? "python.exe" : "python3");
             // The scripts of the venv being replaced, so a rollback can put its shims back (issue #3150).
             var restoreScripts = PythonToolsState.LoadScripts(_layout);
             var pythonSetAside = false;
             var venvSetAside = false;
+            // Said on every failure BEFORE the swap: nothing installed was touched, so nothing needs putting back.
+            const string untouched = " The installed tools were not touched, so every tool that worked before this update still works.";
 
             // From the moment anything live is moved, every way out of this method other than success must
             // put the previous Python, the previous venv AND their shims back - so a failed update leaves the
@@ -319,47 +333,19 @@ public sealed class PythonToolsInstaller
                 if (!PythonRuntimeProbe.CanImportStdlib(stagedPythonExe, _run))
                     return Fail(steps, "staged Python is incomplete - it cannot import its standard library (a partial extract). The existing Python was left untouched.");
 
-                // 4. Set the live venv ASIDE (never delete it) and take its shims off, then move the live Python
-                //    aside and the verified one in. Every move is a whole-directory rename on one volume, so it
-                //    is atomic and cannot half-move. Shims come off before their targets move, so a shim never
-                //    outlives the target it points at (issue #577); they come back in step 8 or on rollback.
-                //    The venv cannot be staged beside and renamed in the way the Python is: a venv bakes
-                //    absolute paths into its console scripts, so it has to be built at its real path.
-                Step("setting the current tools environment aside");
-                RemoveManagedShims(manifest.Scripts);
-                if (!SetDirAside(_layout.PyenvDir, venvBackup, out var venvAsideError))
-                {
-                    // Nothing has moved: a tool started between the check above and here. Put the shims back
-                    // and hold, exactly as if the check had caught it.
-                    RestoreShims(restoreScripts);
-                    return Held(steps, $"a cc-* tool started using the tools environment, so the update to bundle " +
-                                       $"{manifest.BundleVersion} is held and nothing was changed: {venvAsideError}");
-                }
-                venvSetAside = Directory.Exists(venvBackup);
-
-                Step("swapping in the verified Python");
-                if (!SetDirAside(_layout.PythonDir, pythonBackup, out var pyAsideError))
-                    return FailAndRollBack($"a cc-* tool started using the base Python, so the update to bundle " +
-                                           $"{manifest.BundleVersion} is held: {pyAsideError}.", held: true);
-                pythonSetAside = Directory.Exists(pythonBackup);
-                Directory.Move(staged, _layout.PythonDir);
-
-                if (!File.Exists(pythonExe))
-                    return FailAndRollBack($"bundled python not found at {pythonExe} after the swap.");
-
-                // 5. Create the shared venv from the freshly swapped-in python, at its real path.
-                Step("creating the shared Python venv");
-                Directory.CreateDirectory(_layout.PyenvDir);
-                var (venvExit, venvOut) = _run(pythonExe, $"-m venv \"{_layout.PyenvDir}\"", null, VenvCreateTimeout);
-                if (venvExit != 0) return FailAndRollBack($"venv creation failed ({venvExit}): {Trim(venvOut)}.");
+                // 4. Create the new venv from the STAGED Python, in its own staging folder beside the live venv.
+                Step("creating the new Python venv beside the current one");
+                ResetDir(stagedVenv);
+                var (venvExit, venvOut) = _run(stagedPythonExe, $"-m venv \"{stagedVenv}\"", null, VenvCreateTimeout);
+                if (venvExit != 0) return Fail(steps, $"venv creation failed ({venvExit}): {Trim(venvOut)}." + untouched);
                 // Guard: even on a zero exit, the venv must actually have produced its python. A venv whose
                 // interpreter is missing means the create silently did nothing - fail loud now rather than throw
                 // a Win32 "file not found" when the pip step tries to run the missing interpreter.
-                if (!File.Exists(venvPython))
-                    return FailAndRollBack($"venv creation reported success but produced no interpreter at {venvPython}.");
+                if (!File.Exists(stagedVenvPython))
+                    return Fail(steps, $"venv creation reported success but produced no interpreter at {stagedVenvPython}." + untouched);
 
-                // 6. Install every tool OFFLINE from the wheelhouse. Percent bands across the whole
-                //    bundle install: download 0-20 (byte-level, above), extract 20-25, then two-phase
+                // 5. Install every tool OFFLINE from the wheelhouse, into the staged venv. Percent bands across the
+                //    whole bundle install: download 0-20 (byte-level, above), extract 20-25, then two-phase
                 //    pip progress for honest pacing:
                 //    a. Parse phase (~10 s): pip prints "Processing <wheel>" for all wheels in a burst.
                 //       Drives status+percent 25->40% so the user sees motion immediately.
@@ -375,7 +361,7 @@ public sealed class PythonToolsInstaller
 
                 // Where pip will land .dist-info dirs once it starts installing. Resolved relative to the
                 // venv layout: Lib\site-packages on Windows, lib\python*\site-packages on Unix.
-                var sitePackages = ResolveSitePackagesDir(_layout.PyenvDir);
+                var sitePackages = ResolveSitePackagesDir(stagedVenv);
 
                 var installing = false;
                 int processed = 0;
@@ -425,33 +411,66 @@ public sealed class PythonToolsInstaller
                     }
                 });
 
-                var (pipExit, pipOut) = _run(venvPython, pipArgs, OnPipLine, PipInstallTimeout);
+                var (pipExit, pipOut) = _run(stagedVenvPython, pipArgs, OnPipLine, PipInstallTimeout);
                 pollCts.Cancel();
                 try { await pollTask; } catch { /* poller cancellation */ }
 
                 // A timeout reports the sentinel exit code; surface it as the loud, bounded failure it is so the
                 // user (and the log) see "pip hung and was killed" rather than a generic non-zero exit.
                 if (pipExit == ProcessRunner.TimeoutExitCode)
-                    return FailAndRollBack($"offline pip install timed out after {PipInstallTimeout.TotalMinutes:F0} minutes and was killed: {Trim(pipOut)}.");
-                if (pipExit != 0) return FailAndRollBack($"offline pip install failed ({pipExit}): {Trim(pipOut)}.");
+                    return Fail(steps, $"offline pip install timed out after {PipInstallTimeout.TotalMinutes:F0} minutes and was killed: {Trim(pipOut)}." + untouched);
+                if (pipExit != 0) return Fail(steps, $"offline pip install failed ({pipExit}): {Trim(pipOut)}." + untouched);
                 percent?.Report(100);
                 progress?.Report($"Installed {wheelCount} packages");
 
-                // 7. Verify the venv is healthy BEFORE writing any shim or recording the version. Every tool's
-                // console script must be on disk. If pip exited 0 but a script is missing (a partial/corrupt
-                // wheelhouse), we must NOT write shims to missing targets nor stamp a version that would suppress
-                // a future repair - we fail loud and leave no stale shim behind.
-                if (!VenvHasAllTools(manifest.Scripts))
-                {
-                    var missing = manifest.Scripts.Where(s => !File.Exists(ConsoleScriptPath(s))).ToList();
-                    return FailAndRollBack($"venv is incomplete after pip install: missing console scripts [{string.Join(", ", missing)}]. No shims written, version not recorded.");
-                }
+                // 6. Verify the staged venv is healthy BEFORE anything live moves. Every tool's console script must
+                // be on disk. If pip exited 0 but a script is missing (a partial/corrupt wheelhouse), we must NOT
+                // swap it in nor stamp a version that would suppress a future repair - we fail loud.
+                var stagedScripts = VenvRelocation.ScriptsDirOf(stagedVenv);
+                var missing = manifest.Scripts.Where(s => !File.Exists(ConsoleScriptIn(stagedScripts, s))).ToList();
+                if (manifest.Scripts.Count == 0 || missing.Count > 0)
+                    return Fail(steps, $"venv is incomplete after pip install: missing console scripts [{string.Join(", ", missing)}]. Nothing was swapped in, version not recorded." + untouched);
 
-                // 8. The venv is healthy: NOW write bin\<script>.cmd shims (target exes are guaranteed present).
+                // 7. Point the staged venv at where it is about to live: its console scripts, its pyvenv.cfg and
+                // (off Windows) its interpreter links name the staging folders until this rewrites them.
+                Step("pointing the new tools environment at its final location");
+                if (!VenvRelocation.Relocate(stagedVenv, _layout.PyenvDir, staged, _layout.PythonDir,
+                        manifest.Scripts.Select(s => ConsoleScriptIn(stagedScripts, s)).ToList(), out var relocateError))
+                    return Fail(steps, $"the new tools environment could not be pointed at its final location: {relocateError}." + untouched);
+
+                // 8. Swap. Every move is a whole-directory rename on one volume, so it is atomic and cannot
+                //    half-move, and the four of them together take milliseconds - this, not the pip install, is
+                //    now the only time the tools are absent. The shims stay where they are: they forward by a path
+                //    relative to bin, so they reach the new venv the moment it is in place.
+                Step("swapping in the new tools environment");
+                if (!SetDirAside(_layout.PyenvDir, venvBackup, out var venvAsideError))
+                {
+                    // Nothing has moved: a tool started between the check above and here. Hold, exactly as if the
+                    // check had caught it.
+                    return Held(steps, $"a cc-* tool started using the tools environment, so the update to bundle " +
+                                       $"{manifest.BundleVersion} is held and nothing was changed: {venvAsideError}");
+                }
+                venvSetAside = Directory.Exists(venvBackup);
+
+                if (!SetDirAside(_layout.PythonDir, pythonBackup, out var pyAsideError))
+                    return FailAndRollBack($"a cc-* tool started using the base Python, so the update to bundle " +
+                                           $"{manifest.BundleVersion} is held: {pyAsideError}.", held: true);
+                pythonSetAside = Directory.Exists(pythonBackup);
+                Directory.Move(staged, _layout.PythonDir);
+                Directory.Move(stagedVenv, _layout.PyenvDir);
+
+                if (!File.Exists(pythonExe))
+                    return FailAndRollBack($"bundled python not found at {pythonExe} after the swap.");
+                if (!VenvHasAllTools(manifest.Scripts))
+                    return FailAndRollBack("the new tools environment is missing console scripts after the swap.");
+
+                // 9. Shims: take off the ones for scripts the previous bundle had and this one does not (their
+                // targets just went away with the previous venv), and write one for every script this bundle has.
                 Step($"writing {manifest.Scripts.Count} tool shims to bin");
+                RemoveManagedShims(restoreScripts.Except(manifest.Scripts, StringComparer.Ordinal).ToList());
                 WriteShims(manifest.Scripts);
 
-                // 9. Record the bundle version ONLY now that the venv is healthy and the shims point at real
+                // 10. Record the bundle version ONLY now that the venv is healthy and the shims point at real
                 // targets. Gating im.Set on VenvHasAllTools means a half-built venv never records a version that
                 // would make the version-gated auto-update skip the machine forever (issue #577).
                 var im = InstalledManifest.Load(_layout);
@@ -461,7 +480,7 @@ public sealed class PythonToolsInstaller
                 // the bundle just to learn which scripts to expect).
                 PythonToolsState.SaveScripts(_layout, manifest.Scripts);
 
-                // 10. The new environment is installed, reachable and recorded. Only NOW are the previous ones no
+                // 11. The new environment is installed, reachable and recorded. Only NOW are the previous ones no
                 // longer needed - deleting them is the one step that cannot be undone, so it is the last one.
                 if (venvSetAside) TryDeleteDir(venvBackup);
                 if (pythonSetAside) TryDeleteDir(pythonBackup);
@@ -480,9 +499,16 @@ public sealed class PythonToolsInstaller
                 // leave the machine with no tools (issue #3987).
                 return FailAndRollBack($"the tools update stopped on an error: {ex.Message}.");
             }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The same kind of error while the new runtime was still being built beside the live one. Nothing
+                // live had moved, so there is nothing to put back - but it is still a failed update, said as one.
+                return Fail(steps, $"the tools update stopped on an error: {ex.Message}." + untouched);
+            }
             finally
             {
                 if (Directory.Exists(staged)) TryDeleteDir(staged);
+                if (Directory.Exists(stagedVenv)) TryDeleteDir(stagedVenv);
             }
         }
         finally
@@ -500,10 +526,12 @@ public sealed class PythonToolsInstaller
     public static string ConsoleScriptPath(InstallLayout layout, string script)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        return OperatingSystem.IsWindows()
-            ? Path.Combine(layout.PyenvScriptsDir, $"{script}.exe")
-            : Path.Combine(layout.PyenvBinDir, script);
+        return ConsoleScriptIn(layout.PyenvBinDir, script);
     }
+
+    /// <summary>A tool's console script in a venv's script folder: <c>&lt;name&gt;.exe</c> on Windows, the bare name elsewhere.</summary>
+    internal static string ConsoleScriptIn(string venvScriptsDir, string script) =>
+        Path.Combine(venvScriptsDir, OperatingSystem.IsWindows() ? $"{script}.exe" : script);
 
     /// <summary>
     /// True only when every tool console script the bundle promises is actually on disk in the venv.

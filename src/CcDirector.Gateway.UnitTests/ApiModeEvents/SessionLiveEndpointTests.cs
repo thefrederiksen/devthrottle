@@ -360,11 +360,36 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         var refused = await stream.NextAsync();
 
         Assert.Equal("Refused: " + piNotRunning, Single(opening!).Text);
-        Assert.Equal(("gen-a:41", "Queued: a turn is running"), (queued!.Id, Single(queued).Text));
+        Assert.Equal(("gen-a:41", "Queued, 1st in line: a turn is running"), (queued!.Id, Single(queued).Text));
         Assert.Equal(("gen-a:42", "Refused: " + busy), (refused!.Id, Single(refused).Text));
         // What the receipts route answers: the stored receipt, worded by the one ruling.
         using (_boundary.EnterScope(Alice))
             Assert.Equal(Single(refused).Text, ApiModeLiveRuling.ReceiptWords(Assert.Single(_receipts.Read(ApiSession))));
+    }
+
+    [Fact]
+    public async Task Stream_TheOneAheadIsDelivered_TheWaitingPromptMovesUpAndAgreesWithTheReceiptsRoute()
+    {
+        await StartAsync();
+        await using var stream = await OpenStreamAsync(Alice, ApiSession);
+        PushA(Queued(1, "p1"), Queued(2, "p2"));
+        var first = await stream.NextAsync();
+        var second = await stream.NextAsync();
+        PushA(Delivered(3, "p1"));
+        var delivered = await stream.NextAsync();
+
+        Assert.Equal("Queued, 1st in line: a turn is running", Single(first!).Text);
+        Assert.Equal("Queued, 2nd in line: a turn is running", Single(second!).Text);
+        // One frame for the delivery: p1's receipt, then p2 at its new place.
+        Assert.Equal(new[] { ("p1", "Delivered"), ("p2", "Queued, 1st in line: a turn is running") },
+            Items(delivered!).Select(i => (i.PromptId!, i.Text)));
+        // What the receipts route answers for the same receipts, from the store the ingest wrote.
+        var ctx = new DefaultHttpContext();
+        ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "device-key";
+        ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = new DeviceCredentialIdentity("device-" + Alice.Value[..4], Alice.Value, "browser", "active");
+        var route = Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.JsonHttpResult<SessionReceiptsDto>>(
+            SessionReceiptsEndpoint.Read(ctx, ApiSession, _receipts, _pushed, StaleAfter, _boundary)).Value!;
+        Assert.Equal(Items(delivered!).Select(i => (i.PromptId!, i.Text)), route.Receipts.Select(r => (r.PromptId, r.Words)));
     }
 
     // ----- the stream: a continued cursor never shows a wrong picture (review of pull request #4083, finding 1) -----

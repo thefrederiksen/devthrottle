@@ -131,13 +131,13 @@ public sealed class ApiModeLiveRulingTests
         var items = RuleAll(events);
 
         // Assert
-        Assert.Equal(new[] { "Queued: you have the wheel", "Delivered" }, ReceiptWordsOf(items, "p1"));
+        Assert.Equal(new[] { "Queued, 1st in line: you have the wheel", "Delivered" }, ReceiptWordsOf(items, "p1"));
         Assert.Equal("neutral", items.First(i => i.ItemId == "receipt:p1").Tone);
     }
 
     [Theory]
-    [InlineData(PromptQueuedReason.TurnRunning, "Queued: a turn is running")]
-    [InlineData(PromptQueuedReason.AgentStarting, "Queued: the agent is starting")]
+    [InlineData(PromptQueuedReason.TurnRunning, "Queued, 1st in line: a turn is running")]
+    [InlineData(PromptQueuedReason.AgentStarting, "Queued, 1st in line: the agent is starting")]
     public void Rule_QueuedForAnotherReason_SaysThatReason(PromptQueuedReason reason, string expected)
     {
         // Act
@@ -403,7 +403,7 @@ public sealed class ApiModeLiveRulingTests
         var items = ruling.Rule(Queued(3, "gw-1", PromptQueuedReason.TurnRunning));
 
         // Assert
-        Assert.Equal(new[] { "Queued: a turn is running" }, ReceiptWordsOf(items, "gw-1"));
+        Assert.Equal(new[] { "Queued, 1st in line: a turn is running" }, ReceiptWordsOf(items, "gw-1"));
     }
 
     [Fact]
@@ -451,7 +451,7 @@ public sealed class ApiModeLiveRulingTests
 
         // Assert: each is the retry, newer than what the store held, so the stream shows the second reason - the one the
         // receipt store now holds and the receipts route answers.
-        Assert.Equal(new[] { "Queued: a turn is running" }, ReceiptWordsOf(queued, "gw-1"));
+        Assert.Equal(new[] { "Queued, 1st in line: a turn is running" }, ReceiptWordsOf(queued, "gw-1"));
         Assert.Equal(new[] { "Refused: " + RefusalBusy }, ReceiptWordsOf(refused, "gw-1"));
         Assert.Equal(1, ruling.SupersedesLogged);
     }
@@ -607,5 +607,229 @@ public sealed class ApiModeLiveRulingTests
         // Assert
         Assert.False(ApiModeLiveRuling.ShowsThoughts);
         Assert.Empty(items);
+    }
+
+    // ----- a queued receipt's place in line -----
+
+    /// <summary>An event as the feed hands it to a reader: held in generation B, which started after A (a Director
+    /// restart).</summary>
+    private static ApiModeHeldEvent HeldB(SessionEvent e) => new("gen-b", GenBStarted, e);
+
+    [Theory]
+    [InlineData(1, "1st")]
+    [InlineData(2, "2nd")]
+    [InlineData(3, "3rd")]
+    [InlineData(4, "4th")]
+    [InlineData(10, "10th")]
+    [InlineData(11, "11th")]
+    [InlineData(12, "12th")]
+    [InlineData(13, "13th")]
+    [InlineData(21, "21st")]
+    [InlineData(22, "22nd")]
+    [InlineData(23, "23rd")]
+    [InlineData(101, "101st")]
+    [InlineData(111, "111th")]
+    [InlineData(112, "112th")]
+    [InlineData(113, "113th")]
+    [InlineData(1000, "1000th")]
+    public void Ordinal_EachPlace_IsTheEnglishOrdinal(int place, string expected)
+    {
+        // Act
+        var words = ApiModeLiveRuling.Ordinal(place);
+
+        // Assert
+        Assert.Equal(expected, words);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Ordinal_APlaceBelowOne_Throws(int place)
+    {
+        // Act and Assert: a place in line counts from 1, so anything less is a defect, never words.
+        Assert.Throws<ArgumentOutOfRangeException>(() => ApiModeLiveRuling.Ordinal(place));
+    }
+
+    [Theory]
+    [InlineData(1, "turnRunning", "Queued, 1st in line: a turn is running")]
+    [InlineData(2, "userHasTheWheel", "Queued, 2nd in line: you have the wheel")]
+    [InlineData(13, "agentStarting", "Queued, 13th in line: the agent is starting")]
+    public void ReceiptWords_AQueuedReceiptWithAPlace_SaysItsPlaceInLine(int place, string reason, string expected)
+    {
+        // Arrange
+        var receipt = new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Queued, QueueReason = reason, QueuePosition = place };
+
+        // Act
+        var words = ApiModeLiveRuling.ReceiptWords(receipt);
+
+        // Assert
+        Assert.Equal(expected, words);
+    }
+
+    [Fact]
+    public void ReceiptWords_AQueuedReceiptWithNoPlaceKnown_SaysTheOldWordsAndGuessesNoNumber()
+    {
+        // Act
+        var words = ApiModeLiveRuling.ReceiptWords(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning", QueuePosition = null });
+
+        // Assert
+        Assert.Equal("Queued: a turn is running", words);
+    }
+
+    [Fact]
+    public void Rule_AFreshQueue_EachPlaceIsTheDirectorsOwnPosition()
+    {
+        // Arrange: the Director's PromptQueued.position counts from 1 (the contract; it sends its queue's count after
+        // adding the prompt), and on a fresh queue the place the Gateway derives must say the same.
+        var events = new PromptQueued[]
+        {
+            Queued(1, "p1", position: 1),
+            Queued(2, "p2", position: 2),
+            Queued(3, "p3", position: 3),
+        };
+        var ruling = new ApiModeLiveRuling();
+
+        // Act
+        var words = events.Select(q => Assert.Single(ruling.Rule(q)).Text).ToList();
+
+        // Assert
+        Assert.Equal(events.Select(q => $"Queued, {ApiModeLiveRuling.Ordinal(q.Position)} in line: a turn is running"), words);
+    }
+
+    [Fact]
+    public void Rule_TheOneAheadIsDelivered_EveryWaitingPromptMovesUp()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        RuleAll(ruling, new[] { Queued(1, "p1"), Queued(2, "p2"), Queued(3, "p3") });
+
+        // Act
+        var items = ruling.Rule(Delivered(4, "p1", PlainAck));
+
+        // Assert: the delivery first, then each prompt still waiting, at its new place, under the delivery's sequence.
+        Assert.Equal(new[]
+        {
+            ("receipt:p1", "Delivered", 4L),
+            ("receipt:p2", "Queued, 1st in line: a turn is running", 4L),
+            ("receipt:p3", "Queued, 2nd in line: a turn is running", 4L),
+        }, items.Select(i => (i.ItemId, i.Text, i.Sequence)));
+    }
+
+    [Fact]
+    public void Rule_TheOneAheadIsRefused_TheWaitingPromptMovesUp()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling();
+        RuleAll(ruling, new[] { Queued(1, "p1"), Queued(2, "p2") });
+
+        // Act
+        var items = ruling.Rule(Refused(3, "p1", PiNotRunning, PromptRefusedBy.Director));
+
+        // Assert
+        Assert.Equal(new[] { "Refused: " + PiNotRunning }, ReceiptWordsOf(items, "p1"));
+        Assert.Equal(new[] { "Queued, 1st in line: a turn is running" }, ReceiptWordsOf(items, "p2"));
+    }
+
+    [Fact]
+    public void Rule_APromptBehindTheWaitingOnesIsDelivered_NoWaitingPromptIsSentAgain()
+    {
+        // Arrange: p1 and p2 wait; p3 was never queued and goes straight in.
+        var ruling = new ApiModeLiveRuling();
+        RuleAll(ruling, new[] { Queued(1, "p1"), Queued(2, "p2") });
+
+        // Act
+        var delivered = ruling.Rule(Delivered(3, "p3", PlainAck));
+        var turnEnded = ruling.Rule(Ended(4, "t9", TurnOutcome.Done, null, "stop"));
+
+        // Assert: no place moved, so the changed-words check sends neither waiting receipt again.
+        Assert.Equal(new[] { "receipt:p3" }, delivered.Select(i => i.ItemId));
+        Assert.Equal(new[] { "turn:t9" }, turnEnded.Select(i => i.ItemId));
+    }
+
+    [Fact]
+    public void Rule_ARefusedPromptRetried_JoinsTheEndOfTheLine()
+    {
+        // Arrange: p2 was refused, and p3 queued after it.
+        var ruling = new ApiModeLiveRuling();
+        RuleAll(ruling, new SessionEvent[] { Queued(1, "p1"), Queued(2, "p2"), Refused(3, "p2", PiNotRunning, PromptRefusedBy.Director), Queued(4, "p3") });
+
+        // Act: the retry of p2 arrives now, behind p3, exactly as the receipt store reads it.
+        var items = ruling.Rule(Queued(5, "p2"));
+
+        // Assert
+        Assert.Equal(new[] { "Queued, 3rd in line: a turn is running" }, ReceiptWordsOf(items, "p2"));
+    }
+
+    [Fact]
+    public void Rule_SeededFromStoredReceipts_TheWaitingPromptMovesUpWhenTheOneAheadIsDelivered()
+    {
+        // Arrange: a reader that starts from the store, which holds p1 and p2 queued.
+        var stored = new[]
+        {
+            Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, 1),
+            Stored(new ApiModeReceiptDto { PromptId = "p2", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, 2),
+        };
+        ApiModeLiveRuling.PlaceInLine(stored);
+        var opening = stored.Select(s => ApiModeLiveRuling.ReceiptItem(s.Receipt, 0).Text).ToList();
+        var ruling = new ApiModeLiveRuling(stored);
+
+        // Act
+        var items = ruling.Rule(HeldA(Delivered(3, "p1", PlainAck)));
+
+        // Assert
+        Assert.Equal(new[] { "Queued, 1st in line: a turn is running", "Queued, 2nd in line: a turn is running" }, opening);
+        Assert.Equal(new[] { "Delivered" }, ReceiptWordsOf(items, "p1"));
+        Assert.Equal(new[] { "Queued, 1st in line: a turn is running" }, ReceiptWordsOf(items, "p2"));
+    }
+
+    [Fact]
+    public void PlaceInLine_DeliveredAndRefusedReceipts_HaveNoPlaceAndAreNotCountedAhead()
+    {
+        // Arrange
+        var stored = new[]
+        {
+            Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Delivered }, 1),
+            Stored(new ApiModeReceiptDto { PromptId = "p2", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, 2),
+            Stored(new ApiModeReceiptDto { PromptId = "p3", State = ApiModeReceiptState.Refused, RefusalReason = PiNotRunning }, 3),
+            Stored(new ApiModeReceiptDto { PromptId = "p4", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, 4),
+        };
+
+        // Act
+        ApiModeLiveRuling.PlaceInLine(stored);
+
+        // Assert
+        Assert.Equal(new int?[] { null, 1, null, 2 }, stored.Select(s => s.Receipt.QueuePosition));
+    }
+
+    [Fact]
+    public void PlaceInLine_AReceiptStillQueuedFromAnOlderGeneration_HasNoPlaceAndIsNotCountedAhead()
+    {
+        // Arrange: p1 was queued by a Director that has since restarted (generation A); p2 was queued by the new one.
+        var stored = new[]
+        {
+            Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, 7),
+            new ApiModeStoredReceipt(new ApiModeReceiptDto { PromptId = "p2", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, new ApiModeEventPosition("gen-b", GenBStarted, 1)),
+        };
+
+        // Act
+        ApiModeLiveRuling.PlaceInLine(stored);
+
+        // Assert: the old Director's queue is gone, so p1's place cannot be known and is not guessed.
+        Assert.Equal(new int?[] { null, 1 }, stored.Select(s => s.Receipt.QueuePosition));
+        Assert.Equal("Queued: a turn is running", ApiModeLiveRuling.ReceiptWords(stored[0].Receipt));
+    }
+
+    [Fact]
+    public void Rule_TheFirstPromptQueuedByANewerGeneration_TheOlderQueuedReceiptLosesItsPlace()
+    {
+        // Arrange: a reader that starts from the store, which holds p1 queued in generation A.
+        var ruling = new ApiModeLiveRuling(new[] { Stored(new ApiModeReceiptDto { PromptId = "p1", State = ApiModeReceiptState.Queued, QueueReason = "turnRunning" }, 7) });
+
+        // Act: the restarted Director queues p2 in generation B.
+        var items = ruling.Rule(HeldB(Queued(1, "p2")));
+
+        // Assert
+        Assert.Equal(new[] { "Queued, 1st in line: a turn is running" }, ReceiptWordsOf(items, "p2"));
+        Assert.Equal(new[] { "Queued: a turn is running" }, ReceiptWordsOf(items, "p1"));
     }
 }

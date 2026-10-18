@@ -586,12 +586,16 @@ public static class SessionLiveEndpoint
     }
 
     /// <summary>The session's stored receipts with the position each was last changed at, read inside the caller's
-    /// tenant scope (the store is partitioned by it).</summary>
+    /// tenant scope (the store is partitioned by it), each queued one with its place in line as the receipts read
+    /// derives it.</summary>
     private static IReadOnlyList<ApiModeStoredReceipt> StoredReceipts(
         ApiModeReceiptStore receipts, Tenancy.HostedTenantBoundary? tenantBoundary, TenantId tenant, string sid)
     {
+        IReadOnlyList<ApiModeStoredReceipt> stored;
         using (tenantBoundary?.EnterScope(tenant))
-            return receipts.ReadWithPositions(sid);
+            stored = receipts.ReadWithPositions(sid);
+        ApiModeLiveRuling.PlaceInLine(stored);
+        return stored;
     }
 
     /// <summary>

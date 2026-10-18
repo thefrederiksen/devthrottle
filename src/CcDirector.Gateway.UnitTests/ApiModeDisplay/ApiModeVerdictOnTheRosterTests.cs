@@ -214,7 +214,7 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
         var words = body.Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone));
         Assert.Equal(("Delivered - the turn failed: Pi exited during the turn (exit code 137)", "red"), words["p1"]);
         Assert.Equal(("Refused: " + RefusalBusy, "red"), words["p2"]);
-        Assert.Equal(("Queued: a turn is running", "neutral"), words["p3"]);
+        Assert.Equal(("Queued, 1st in line: a turn is running", "neutral"), words["p3"]);
     }
 
     // ----- helpers -----

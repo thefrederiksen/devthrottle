@@ -56,7 +56,8 @@ public sealed record LicenseMachineView(
     DateTime LastReportAtUtc,
     bool IsStale,
     string? SwitchInProgressId,
-    double ClockSkewSeconds);
+    double ClockSkewSeconds,
+    string? CannotSwitchReason = null);
 
 /// <summary>An account's whole License Switching picture at one moment.</summary>
 public sealed record LicenseOverview(IReadOnlyList<LicenseAccountView> Accounts, IReadOnlyList<LicenseMachineView> Machines);
@@ -166,7 +167,8 @@ public sealed class LicenseReadModel
                         LicenseStaleness.IsHoldingStale(h.IsActive, h.JudgedReadAtUtc, nowUtc), h.ReadError,
                         h.RenewalFailedAtUtc, h.RenewalError, h.RenewalErrorDetail))
                     .ToList(),
-                m.LastReportAtUtc, LicenseStaleness.IsMachineStale(m.LastReportAtUtc, nowUtc), m.SwitchInProgressId, m.ClockSkewSeconds))
+                m.LastReportAtUtc, LicenseStaleness.IsMachineStale(m.LastReportAtUtc, nowUtc), m.SwitchInProgressId, m.ClockSkewSeconds,
+                m.CannotSwitchReason))
             .ToList();
 
         return new LicenseOverview(accountViews, machineViews);

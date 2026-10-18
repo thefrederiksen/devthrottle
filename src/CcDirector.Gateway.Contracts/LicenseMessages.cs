@@ -46,6 +46,15 @@ public sealed class LicenseUsageReport
     /// account signed in straight into the default config while it was also held as a spare. Null on every other
     /// report.</summary>
     public LicenseHandSwitch? SwitchedByHand { get; set; }
+
+    /// <summary>Whether this Director can run a switch right now (contract section 12.1): true, or false with
+    /// <see cref="CannotSwitchReason"/>. NULL FROM A DIRECTOR OLDER THAN THIS FIELD, which means "this Director does
+    /// not say" - never "it cannot", and never a promise that it can. The Gateway treats such a machine exactly as it
+    /// did before the field existed.</summary>
+    public bool? CanSwitch { get; set; }
+
+    /// <summary>When <see cref="CanSwitch"/> is false: one of <see cref="LicenseCannotSwitchReasons"/>. Else null.</summary>
+    public string? CannotSwitchReason { get; set; }
 }
 
 /// <summary>
@@ -334,6 +343,20 @@ public static class LicenseRenewalErrors
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         LoginFailed, ApprovalFailed, WrongAccount, BrowserNotSignedIn, NeedsFreshSignIn, NoApprover, ApproverOffline, Expired, StoreRefused,
+    };
+}
+
+/// <summary>Why a Director says it cannot run a switch (contract section 12.1).</summary>
+public static class LicenseCannotSwitchReasons
+{
+    /// <summary>The license tool, cc-devthrottle, is not in this machine's Python tool environment, where the switch
+    /// looks for it.</summary>
+    public const string ToolMissing = "tool-missing";
+
+    /// <summary>Every word above. A value outside it is never carried: it could be anything a tool printed.</summary>
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
+    {
+        ToolMissing,
     };
 }
 
