@@ -364,6 +364,52 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
         Assert.Equal(Spoken, item.PromptText);
     }
 
+    // ----- a turn whose end was lost keeps its prompt's text -----
+    // The lost ending (ApiModeLostTurnEnd) writes the turn's outcome, never the prompt: in the store and in the live
+    // ruling, a receipt ruled lost carries the same text it carried before.
+
+    private static readonly DateTime GenBStarted = new(2026, 10, 16, 12, 30, 0, DateTimeKind.Utc);
+    private static ApiModeEventPosition AfterRestart(long sequence) => new("gen-b", GenBStarted, sequence);
+    private static ConnectionReady Ready(long seq) => new() { SessionId = Sid, Sequence = seq, At = new DateTimeOffset(T0), AgentSessionId = "e173b676-b5d6-4605-bc6c-cdbc82fd42a7", Model = "gpt-5.6-sol" };
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RecordTurnOverProven_AReceiptWithText_KeepsTheTextWhenRuledLost(bool turnStarted)
+    {
+        // Arrange: delivered with text in generation A; its turn (or, when its start fell in the hole too, no turn) open.
+        var store = Store();
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0, Spoken);
+        if (turnStarted) store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+
+        // Act: generation B's ConnectionReady proves the turn is over.
+        var changed = store.RecordTurnOverProven(Director, Sid, ApiModeLostTurnEnd.Continuing.None, "ConnectionReady", AfterRestart(1));
+
+        // Assert
+        Assert.Equal(1, changed);
+        var r = Only(store);
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, r.TurnOutcome);
+        Assert.Equal(Spoken, r.PromptText);
+    }
+
+    [Fact]
+    public void Rule_AStoredReceiptWithText_KeepsTheTextWhenRuledLostAsTheStoreDoes()
+    {
+        // Arrange: the ruling starts from the store, where p1 was delivered with text and t1 left open in generation A.
+        var store = Store();
+        store.RecordDelivered(Director, Sid, "p1", "started", StartedAck, At(1), T0, Spoken);
+        store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+        var ruling = new ApiModeLiveRuling(store.ReadWithPositions(Sid));
+
+        // Act: generation B's ConnectionReady proves t1 is over.
+        var items = ruling.Rule(new ApiModeHeldEvent("gen-b", GenBStarted, Ready(1)));
+
+        // Assert: ruled lost, with the prompt's text unchanged.
+        var receipt = Assert.Single(items, i => i.ItemId == "receipt:p1");
+        Assert.Equal(ApiModeLiveRuling.LostWords, receipt.Text);
+        Assert.Equal(Spoken, receipt.PromptText);
+    }
+
     [Fact]
     public void Rule_StartedFromStoredReceipts_KeepsTheStoredText()
     {
