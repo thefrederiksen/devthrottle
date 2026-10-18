@@ -24,8 +24,9 @@ moves no message and starts no session, in any mode.** Live mode is phase 4's.
 | A Mail Desk report with no Mail Desk service wired | Refused, **409** `{"error":"mail_desk_not_ready","detail":"<sentence>"}`, nothing recorded: no run row, no kept memory, no claim change, no start, no decision. | The guard holds even in a Gateway built without the service (a test host, a later refactor). The status follows phase 1's `mail_desk_off`. |
 | When the screening runs | **Off the request**, on the Gateway's lifetime, like a session start (`PendingStart`). The report answers at once. While one screening of a trigger runs, a second report of it is recorded `skipped-running` with the reason "the previous screening is still running", memory not kept. | Up to 20 model calls must not hold the Director's request open. |
 | The new run outcome | `screened` (`TriggerRunOutcome.Screened`). It **keeps the check's memory**, like `nothing-to-do`, and clears a check problem like any outcome that is not `failed`. Every place that names every outcome (the activity record, `CronRunResultFold.IsProblem`, the status and factory folds, `trigger runs`) names it. | Mission 5.7. |
-| A screening that could not be finished for some email | The run is `failed`, **memory not kept**, reason "the model could not be asked about <n> of <m> emails (<error kind>); they are read again next run". Emails already decided keep their rows and are never decided twice. | "Retried next run, never guessed", without storing any body text: the check reads the same mail again. Reusing `failed` puts it on the Open problems card and clears it at the next run that is not `failed`, with no new problem kind. |
-| The same email failing again and again | After **3** failed attempts (counted on its decision row), the run keeps the memory anyway; that email's decision stays `failed`, and it is listed in the 08:00 section under "could not be screened". | One email the model always refuses must not stop a mailbox forever. |
+| A screening that could not be finished for some email | The run is still `screened` and the memory is kept, **except for that email's mailbox**: the Gateway writes back that mailbox's check fields (`cursor`, `sentCache`, `keys`) exactly as the memory held them before this run, so the check reads that mailbox's same mail again next run. Every other mailbox moves on. That mailbox gets a `mail_desk_channel_checks` failure row, "the model could not be asked about <n> of <m> emails on <address> (<error kind>); they are read again next run", so it is a mailbox problem (6.2). | "Retried next run, never guessed", without storing any body text, and scoped to the one mailbox (the Delivery Lead's condition, 18 October 2026, consistent with the per-mailbox ruling). |
+| A reread is idempotent | One decision row per (channel, message key). An email already holding a decision that is not `failed` is skipped on a reread: no model call, no charge, no new row. | The Delivery Lead's condition 2. |
+| The same email failing again and again | On its **3rd** failed attempt (counted on its decision row) the email is decided `keep-for-owner`, reason "screening failed 3 times (<error kind>); kept for the owner", it is listed in the 08:00 section, and its mailbox's memory moves on as usual. | One email the model always refuses can never block its mailbox (the Delivery Lead's condition 3). |
 | The model | `IncludedModelId.WingmanFast` (`devthrottle/wingman-fast`), through the Gateway's hosted path (`TranscriptionEndpointResolver.ResolveWingman`, the key vault), the account named on the call: `GatewayAiCallTags.For(tenant, AiFeature.MailDesk)`, a new feature name `mail-desk`. | Mission 5.7, D14, question 4. |
 | The thresholds and the spend limit | Account settings in `tenant_settings`, settable, every change recorded in `mail_desk_list_changes` with kind `setting`. Defaults: **route 0.90, spam 0.95, spend limit 5.00 US dollars.** | The brief: "make it settable and record it". Phase 0 (c) proposed the two thresholds. |
 | What the spend limit counts | Every model call the Mail Desk has made for the account, ever: the sum of `costUsd` on its decision rows plus the cost of calls whose screening failed (kept on the row too). The limit is checked **before each call**; at or over it, no call is made. | "A spend limit of 5 dollars for the mission, after which it stops calling the model and says so." A call costs about $0.0001, so at most one call can cross it. |
@@ -77,16 +78,18 @@ document is the account's newest version, read **once per run**, and its version
   keeps its memory, and the spend problem (section 7) says so.
 - **The model failing** (no key, an HTTP error, a timeout, an answer that is not a chat completion, an answer with no
   token count so its cost is unknown): that message's decision is `failed` with the error kind, and the run is
-  `failed` (section 1).
-- An email already holding a decision that is not `failed` is never decided again; a `failed` one is decided again
-  and its row updated in place, its attempt count raised.
+  run handles it as section 1 says: only that email's mailbox reads it again.
+- An email already holding a decision that is not `failed` is never decided again and costs nothing; a `failed` one
+  is decided again and its row updated in place, its attempt count raised; the 3rd failure makes it `keep-for-owner`.
 
 **Tests (all required):** each layer deciding alone; the order (an email matching a rule AND the allow-list AND the
 block list is routed by the rule; one matching allow AND block cannot exist, phase 1 refuses it; an allow match is
 never asked the model); a known sender skipping 3b; `unsure`; below each threshold; exactly at each threshold
 (decides); an answer off the labels; no confidence; no routes; the 26th route refused; a model failure on one email
-of three (two decided, one `failed`, run `failed`, memory not kept, the next run decides it and updates the row); the
-third failed attempt keeping the memory; the spend limit (the call that would start at the limit is never made, the
+of three on mailbox A while mailbox B is screened (two decided, one `failed`; the run `screened`; A's cursor, keys and
+Sent cache written back as they were, B's moved on; A's failure row raised; the next run rereads A only, makes no model
+call and no charge for A's two decided emails, decides the third and updates its row; B is not reread); the third
+failed attempt deciding `keep-for-owner` and letting A's memory move on; the spend limit (the call that would start at the limit is never made, the
 fake model's call log proves it); observe mode starting nothing and queuing no filing (the memory's `filingQueue`
 unchanged, the starter fake never called) for every decision kind, and the same for a channel whose mode is `live`
 (this phase acts on no mode; the decision row records the mode it was made in).
@@ -112,8 +115,10 @@ The Mail Desk start's assignment carries the kept memory (`DefinitionAssignment.
 - The memory stays under 65,536 bytes; above that the Gateway refuses to write it and raises a problem naming the
   sizes (phase 2 measured about three channels at their caps).
 
-**Tests:** a first channel; a second channel added later starting a first run while the first keeps its cursor; a
-channel removed; two machines each handed only their own channels, and each one's report leaving the other's cursor
+**Tests:** a first channel; a channel added through the real route (`POST /gateway/mail-desk/channels`, what
+`maildesk channel add` calls) appearing in the very next assignment's memory and being read as a first run while the
+first keeps its cursor; a channel removed through `POST /gateway/mail-desk/channels/remove` missing from the next
+assignment's memory, so it stops being read, its decisions kept; two machines each handed only their own channels, and each one's report leaving the other's cursor
 byte for byte; no channel for this machine; the size refusal.
 
 ## 5. The model call
@@ -217,7 +222,8 @@ composer only lays it out):
 2. **Every junked email**, by mailbox, sender and subject, and the layer and reason - every one, never a sample, so a
    wrongly junked email is seen.
 3. **Kept for the owner**: every one, by sender and subject.
-4. **Could not be screened**: every email whose decision is `failed`, with the reason.
+4. **Could not be screened**: every email whose decision is `failed` (the spend limit, or a failure still being
+   retried), and every email kept for the owner after 3 failed screenings, with the reason.
 5. **List changes**: every `mail_desk_list_changes` row in the window - what, who (`whoInWords`) and why.
 6. **The spend**: spent and the limit, and the spend sentence when it stopped.
 7. A line saying the channels are in observe mode and nothing was moved, when every channel is in observe mode.
