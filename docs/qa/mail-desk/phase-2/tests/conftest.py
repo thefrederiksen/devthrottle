@@ -232,6 +232,7 @@ class World:
         self.capsys.readouterr()
         code = self.screen.main()
         captured = self.capsys.readouterr()
+        self.last_err = captured.err   # the run's standard error, for a test that cannot take it from run() itself
         if code != 0:
             assert captured.out == "", "a failed check printed an output"
             return code, None, None, captured.err

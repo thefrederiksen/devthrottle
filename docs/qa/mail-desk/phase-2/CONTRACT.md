@@ -71,7 +71,13 @@ and the 08:00 email show.
 **Where each one goes** (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026): every row naming an `<address>` or a channel is a failure of that channel only. Its
 sentence is the `sentence` of the channel's `failure` in the context, and line 2 is its `detail` (cut to 500
 characters, `FAILURE_DETAIL_CHARS`, so that failing channels never crowd new mail out of the 7 KB; `""` when there is
-none). The rows for the memory as a whole, the memory over the Director's limit, and anything else are still line 1 of
+none). **Failing channels never take the room new mail needs:** when healthy channels have new mail, the failing
+channels' sections may fill the context only up to 1,024 bytes short of its 7,168 (`MESSAGE_RESERVE_BYTES`), and
+otherwise up to all of it. Over that, detail lines are emptied, the last failing channel's first, and the sentences
+always stay. Only if the sentences alone still do not fit (measured with 17-character addresses and the longest sentence:
+more than 20 failing mailboxes beside one with new mail, more than 24 when every mailbox fails; fewer when a large
+filing report shares the run) does the run fail as a whole, saying how many mailboxes failed and which is
+first. The rows for the memory as a whole, the memory over the Director's limit, and anything else are still line 1 of
 standard error with exit 1. Every sentence, wherever it goes, is held to the same 165 characters.
 
 | Failure | Line 1 |
@@ -80,6 +86,8 @@ standard error with exit 1. Every sentence, wherever it goes, is held to the sam
 | No cc-outlook account list on the machine holds the address | `<address> is not signed in on <machine>: first run cc-outlook accounts add <address> -c f575e3f4-8f62-4bfb-8f30-f776e55b51bd` (line 2 begins `then run cc-outlook -a <address> auth`; once it is added, the next run's failure names the sign-in) |
 | More than one saved sign-in | `<address> is signed in more than once on <machine>: keep one and sign out of the others with cc-outlook` |
 | A cc-outlook account list exists and cannot be read (for example its permissions) | `<address> is not signed in on <machine>, and cc-outlook's account list cannot be read: <error kind>` (the file and the whole error on line 2) |
+| The saved sign-in is there and cannot be read (its permissions, a folder in its place, a disk error) (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026; it was an unforeseen error) | `the saved sign-in of <address> on <machine> cannot be read (<error kind>): check its permissions or sign in again` (the file and the whole error on line 2) |
+| The renewed sign-in cannot be written back to its file (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `the renewed sign-in of <address> could not be saved on <machine> (<error kind>): check the file's permissions and the free space` |
 | The sign-in service cannot be reached | `could not reach the Microsoft sign-in service from <machine> for <address>: <error kind>` (for example `ConnectionError`, `ProxyError`, `Timeout`; the whole error on line 2) |
 | The sign-in service answers with an error | `the Microsoft sign-in service failed on <machine> for <address>: <its message, cut to 50 characters>` |
 | Graph answers an HTTP error | `Microsoft Graph answered HTTP <status> for <address> while <step>` |
@@ -88,6 +96,7 @@ standard error with exit 1. Every sentence, wherever it goes, is held to the sam
 | A page without a `value` list | `Microsoft Graph answered a page without a 'value' list for <address> while <step>` |
 | A message without a usable id or receive time, or a text field that is not text | `Microsoft Graph answered a message without a usable id or receive time for <address> while reading the Inbox` |
 | An unknown provider | `provider <name> has no reader in this version of screen.py (channel <address>); this version reads: outlook` |
+| More failing channels than the context can name, even without their detail lines (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026) | `<n> of <m> mailboxes could not be checked on <machine>, more than the Mail Desk context can name; the first is <address>` (the first one's sentence on line 2) |
 | The memory would outgrow the Director's limit | `the Mail Desk check's memory would be <n> bytes, over the Director's 65536, so nothing was written: give this factory fewer channels` |
 | The memory is missing, empty, not JSON, unreadable, or holds a field this check did not write | one sentence naming the file or the channel and the field (3.2) |
 | Anything else | `screen.py stopped on an error it does not handle: <kind>: <message>` |
@@ -330,7 +339,7 @@ Standard output is exactly one line:
 | `filing` | Live mode only: the result of each item attempted (3.4), in queue order. It is empty otherwise. |
 | `filingNotCarriedOut` | Present only when the channel is in observe mode and its queue is not empty. It says how many items were waiting, and why they were not carried out. |
 | `more` | True when this channel has more new mail than this run reported. The next run continues from there. |
-| `failure` | Present only when this channel could not be checked this run (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026): `{"sentence": <the sentence of 1.2>, "detail": <its line 2, at most 500 characters, or "">}`. The channel's `messages` and `filing` are then empty, `more` is false, `filingNotCarriedOut` is absent, and its entry in the memory is exactly as it was. |
+| `failure` | Present only when this channel could not be checked this run (changed in phase 3 by the Delivery Lead's ruling of 18 October 2026): `{"sentence": <the sentence of 1.2>, "detail": <its line 2, at most 500 characters, or "" when there is none or there was no room for it (1.2)>}`. The channel's `messages` and `filing` are then empty, `more` is false, `filingNotCarriedOut` is absent, and its entry in the memory is exactly as it was. |
 
 ### 4.3 Cleaning text
 
@@ -457,6 +466,8 @@ check was broken on purpose seven ways, each put back after: a channel's failure
 red); the failing channel's entry not put back after a part-done run (10 red); the context version left at 1 (119
 red); an unforeseen error taken as one channel's failure (1 red); the end-of-run key pruning touching a failed channel
 (92 red); the detail not cut (1 red); and the memory checks of a channel failing the whole run again (28 red).
+The review of that work (`docs/qa/mail-desk/phase-3/reviews/screen-per-mailbox-review.md`) added 10 tests, 281 in
+all; each of the 10 fails against the check as it was before the review was answered (commit `724f2392a`).
 
 | Brief | What it proves | File |
 |---|---|---|

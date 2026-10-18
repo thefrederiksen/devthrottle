@@ -10,6 +10,7 @@ Every test here has two channels unless it says otherwise: MAILBOX is healthy an
 """
 
 import json
+import os
 
 import pytest
 import requests
@@ -190,6 +191,30 @@ def account_list_unreadable(world, monkeypatch):
     return f"{SECOND} is not signed in on {MACHINE}, and cc-outlook's account list cannot be read: PermissionError", {}
 
 
+def sign_in_file_unreadable(world):
+    """Review finding 2: the saved sign-in is there and cannot be read - here a folder in its place, which fails the
+    same way on every system (a file the user may not read is tested on its own below)."""
+    folder = world.base / "instances" / "default" / "config" / "outlook" / "tokens" / "second_example_org_msal.json"
+    folder.mkdir(parents=True)
+    world.sign_in.accounts[SECOND] = True
+    return f"the saved sign-in of {SECOND} on {MACHINE} cannot be read (IsADirectoryError): check its permissions or sign in again", {}
+
+
+def sign_in_write_back_fails(world, monkeypatch):
+    """Review finding 2: the renewed sign-in cannot be written back (a full disk)."""
+    world.plant(SECOND)
+    world.sign_in.renews.add(SECOND)
+    real = type(world.state).write_text
+
+    def write_text(self, *args, **kwargs):
+        if self.name.endswith("_msal.json"):
+            raise OSError(28, "No space left on device", str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(world.state), "write_text", write_text)
+    return f"the renewed sign-in of {SECOND} could not be saved on {MACHINE} (OSError): check the file's permissions", {}
+
+
 def sign_in_service_unreachable(world):
     world.plant(SECOND)
     world.sign_in.renew_raises[SECOND] = requests.exceptions.ConnectionError("Max retries exceeded")
@@ -271,9 +296,9 @@ def queue_not_a_list(world):
     return f"the channel {SECOND} has a 'filingQueue' that is not a list", {"filingQueue": {"a": 1}}
 
 
-NEEDS_MONKEYPATCH = {account_list_unreadable, move_failing}
+NEEDS_MONKEYPATCH = {account_list_unreadable, move_failing, sign_in_write_back_fails}
 KINDS = [no_sign_in, not_in_cc_outlook, signed_in_twice, cache_holds_no_account, expired, account_list_unreadable,
-         sign_in_service_unreachable, sign_in_service_failing, graph_http, graph_unreachable, graph_not_json,
+         sign_in_file_unreadable, sign_in_write_back_fails, sign_in_service_unreachable, sign_in_service_failing, graph_http, graph_unreachable, graph_not_json,
          graph_no_value, bad_message, move_failing, unknown_provider, bad_mode, bad_cursor, bad_keys, bad_sent_cache,
          queue_not_a_list]
 
@@ -448,3 +473,94 @@ def test_TheLogOfARunWithAFailingChannel_NamesItAndHoldsNoMailText(world):
     assert f"screen.py: {SECOND}: could not be checked, the other channels go on: {SECOND} is not signed in" in log
     for text in ("billing@example.com", "Secret", "token-for-"):
         assert text not in log
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="file permissions, as a user who is not root")
+def test_ASavedSignInTheUserMayNotRead_FailsThatChannelOnly(world):
+    """Review finding 2, as the reviewer measured it: the second mailbox's sign-in file at mode 000."""
+    path = world.plant(SECOND)
+    os.chmod(path, 0)
+    try:
+        world.memory(healthy(world), channel(SECOND, cursor=CURSOR, sentCache=FRESH_SENT))
+        failure = channel_failed(world, SECOND)
+    finally:
+        os.chmod(path, 0o600)
+    assert failure.splitlines()[0].startswith(f"the saved sign-in of {SECOND} on {MACHINE} cannot be read "
+                                              f"(PermissionError): ")
+    assert str(path) in failure.splitlines()[1]
+    assert world.read_memory()["channels"][0]["cursor"]["newest"] == NEW_MAIL
+
+
+# ---------------------------------------------------------------------------------------------------- many failing
+
+
+def many(count, start=0):
+    return [f"box{i:02d}@example.org" for i in range(start, start + count)]
+
+
+def test_FourteenMailboxesAllFailing_ExitZeroWithEverySentence_TheLastLosingTheirDetailFirst(world):
+    """Review finding 1: fourteen mailboxes not signed in made a context of 7,530 bytes and failed the whole run. The
+    sentences all stay; detail lines go, from the last failing channel back, until the context fits."""
+    addresses = many(14)
+    world.memory(*[channel(a, cursor=CURSOR) for a in addresses])
+    before = world.state.read_bytes()
+
+    code, output, context, err = world.run()
+
+    assert code == 0 and output["count"] == 0
+    assert len(output["context"].encode("utf-8")) <= world.screen.CONTEXT_BUDGET_BYTES
+    sentences = [s["failure"]["sentence"] for s in context["channels"]]
+    assert sentences == [f"{a} is not signed in on {MACHINE}: first run cc-outlook accounts add {a} -c {CLIENT}"
+                         for a in addresses]
+    details = [s["failure"]["detail"] for s in context["channels"]]
+    assert details[0] and details[-1] == ""
+    assert details == sorted(details, key=lambda d: d == "")     # every kept detail comes before every dropped one
+    assert world.state.read_bytes() == json.dumps(json.loads(before), ensure_ascii=False,
+                                                  separators=(",", ":")).encode("utf-8")
+    assert "reported without their detail" in err
+
+
+@pytest.mark.parametrize("failing", [13, 20])
+def test_AHealthyMailboxBesideManyFailing_IsReadAndItsCursorMoves(world, failing):
+    """Review finding 1: one healthy mailbox and thirteen failing ones exited 1 with "a message's sender address alone
+    is larger than the Mail Desk context budget". The failures now leave room for new mail."""
+    world.memory(healthy(world), *[channel(a, cursor=CURSOR) for a in many(failing)])
+
+    code, output, context, _ = world.run()
+
+    assert code == 0 and output["count"] == 1
+    assert_healthy_was_read(world, context)
+    assert "trimmed" not in context["channels"][0]["messages"][0]
+    assert all("failure" in s for s in context["channels"][1:])
+
+
+def test_AHealthyMailboxBesideTenFailingWithFullDetails_IsRead(world):
+    """The reviewer's earlier threshold: details at their full 500 characters."""
+    failing = many(10)
+    for address in failing:
+        world.plant(address)
+        world.sign_in.renew_raises[address] = requests.exceptions.ConnectionError("x" * 2000)
+    world.memory(healthy(world), *[channel(a, cursor=CURSOR) for a in failing])
+
+    code, output, context, _ = world.run()
+
+    assert code == 0 and output["count"] == 1
+    assert_healthy_was_read(world, context)
+
+
+def test_MoreFailingMailboxesThanTheContextCanName_IsAWholeRunFailureSayingHowMany(world):
+    """Past what the context can hold even without details, the run cannot name every failing mailbox. It fails as a
+    whole, saying how many failed and which is first, never with a sentence about a sender address."""
+    addresses = many(40)
+    world.memory(*[channel(a, cursor=CURSOR) for a in addresses])
+    before = world.state.read_bytes()
+
+    code, _, _, err = world.run()
+
+    assert code == 1
+    assert world.state.read_bytes() == before
+    lines = err.splitlines()
+    assert lines[0] == (f"40 of 40 mailboxes could not be checked on {MACHINE}, more than the Mail Desk context can "
+                        f"name; the first is {addresses[0]}")
+    assert len(lines[0]) <= world.screen.SENTENCE_LIMIT
+    assert lines[1].startswith(f"{addresses[0]} is not signed in on {MACHINE}")

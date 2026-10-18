@@ -197,4 +197,4 @@ def test_MoveFailing_WithARealLengthGraphId_KeepsTheWholeSentence(world, monkeyp
     assert sentence == f"Microsoft Graph answered HTTP 503 for {MAILBOX} while moving a message to junkemail"
     assert len(sentence) <= world.screen.SENTENCE_LIMIT
     assert graph_id not in failure
-    assert graph_id not in world.capsys.readouterr().err
+    assert graph_id not in world.last_err                  # review finding 3: the run's own standard error

@@ -83,6 +83,10 @@ SHORT_ERROR_CHARS = 50
 # A failing channel's detail line, as it is put into the context: cut so that failing channels never crowd new mail out
 # of the 7 KB budget. The detail is for a person; the sentence before it is never cut.
 FAILURE_DETAIL_CHARS = 500
+# When healthy channels have new mail, failing channels' sections may fill the context only up to this much short of the
+# budget, so the first new message always fits (a typical one whole, phase 0's worst one at 680 bytes too). Past that,
+# failing channels lose their detail lines, the last channel first; their sentences are never dropped (review finding 1).
+MESSAGE_RESERVE_BYTES = 1024
 CONTEXT_VERSION = 2             # phase 3: a channel's section may carry "failure"
 KEY_HEX = 16
 ADDRESS_HASH_HEX = 12
@@ -388,7 +392,14 @@ class OutlookReader:
         path = found[0]
         cache = msal.SerializableTokenCache()
         try:
-            cache.deserialize(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            # The file is there and cannot be read (its permissions, a folder in its place, a disk error): this
+            # mailbox's sign-in, said as it is (review finding 2).
+            raise CheckFailed(f"the saved sign-in of {self.address} on {machine()} cannot be read "
+                              f"({type(e).__name__}): check its permissions or sign in again", f"{path}: {e}") from None
+        try:
+            cache.deserialize(text)
         except ValueError:
             raise self.not_signed_in(base, f"the saved sign-in at {path} is not a sign-in cache") from None
         try:
@@ -414,9 +425,14 @@ class OutlookReader:
         # Written back exactly as cc-outlook does (MSALTokenBackend._save_cache): when it changed, to the same file,
         # then owner-only. Never into the memory.
         if cache.has_state_changed:
-            path.write_text(cache.serialize(), encoding="utf-8")
-            if os.name == "posix":
-                os.chmod(path, 0o600)
+            try:
+                path.write_text(cache.serialize(), encoding="utf-8")
+                if os.name == "posix":
+                    os.chmod(path, 0o600)
+            except OSError as e:
+                raise CheckFailed(f"the renewed sign-in of {self.address} could not be saved on {machine()} "
+                                  f"({type(e).__name__}): check the file's permissions and the free space",
+                                  f"{path}: {e}") from None
             log(f"{self.address}: the renewed sign-in was written back to its file")
         self.token = result["access_token"]
 
@@ -659,6 +675,27 @@ def failure_of(error):
     return {"sentence": str(error), "detail": detail}
 
 
+def fit_failures(sections, reserve):
+    """Failing channels' sections must leave `reserve` bytes of the context for new mail. Over that, the detail lines
+    go, the last failing channel's first; the sentences always stay. If the sentences alone still do not fit, the run
+    cannot name every failing mailbox, and says how many failed instead (a failure of the whole run)."""
+    room = CONTEXT_BUDGET_BYTES - reserve
+    failing = [section for section in sections if "failure" in section]
+    dropped = 0
+    for section in reversed(failing):
+        if utf8_size(build_context(sections)) <= room:
+            break
+        if section["failure"]["detail"]:
+            section["failure"]["detail"] = ""
+            dropped += 1
+    if dropped:
+        log(f"{dropped} failing channel(s) reported without their detail, so the context stays within its budget")
+    if failing and utf8_size(build_context(sections)) > room:
+        raise CheckFailed(f"{len(failing)} of {len(sections)} mailboxes could not be checked on {machine()}, more than "
+                          f"the Mail Desk context can name; the first is {failing[0]['address']}",
+                          failing[0]["failure"]["sentence"])
+
+
 def read_channel(channel, address, now, filing_room):
     """Signs one channel in, carries out its filing queue (live mode), refreshes its Sent-folder cache and reads its
     new mail. Changes only this channel's entry. Returns (filing results, bytes of filing used, the messages found,
@@ -738,6 +775,8 @@ def run(state_path, now):
         for order, message in enumerate(found):
             candidates.append((message["received"], index, order, message, known))
         more[index] = more_left
+
+    fit_failures(sections, MESSAGE_RESERVE_BYTES if candidates else 0)
 
     # New mail across every channel, oldest first, until 10 messages or the 7 KB budget.
     candidates.sort(key=lambda c: (c[0], c[1], c[2]))
