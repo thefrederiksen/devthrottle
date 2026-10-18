@@ -122,11 +122,13 @@ public sealed class ApiModeLiveRuling
             {
                 if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, q)) return;
                 r.State = ApiModeReceiptState.Queued;
+                KeepPromptText(r, q.PromptText);
                 r.QueueReason = Word(q.Reason);
             }),
             PromptDelivered d => ReceiptChange(d, position, r =>
             {
                 if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, d)) return;
+                KeepPromptText(r, d.PromptText);
                 r.State = ApiModeReceiptState.Delivered;
                 r.Disposition = Word(d.Disposition);
                 r.Acknowledgement = d.Acknowledgement;
@@ -134,6 +136,7 @@ public sealed class ApiModeLiveRuling
             PromptRefused f => ReceiptChange(f, position, r =>
             {
                 if (r.State != ApiModeReceiptState.Queued && !Supersedes(r, f)) return;
+                KeepPromptText(r, f.PromptText);
                 r.State = ApiModeReceiptState.Refused;
                 r.RefusalReason = f.Reason;
                 r.RefusedBy = Word(f.RefusedBy);
@@ -262,6 +265,7 @@ public sealed class ApiModeLiveRuling
             Tone = ReceiptTone(receipt),
             TurnId = receipt.TurnId,
             PromptId = receipt.PromptId,
+            PromptText = receipt.PromptText,
             Sequence = sequence,
         };
     }
@@ -412,7 +416,8 @@ public sealed class ApiModeLiveRuling
     /// A Refused receipt is replaced by the retry's Queued, Delivered or Refused, logged. Delivered is final (rule 1): a
     /// second ending after it is a Director defect, logged, and the delivery stands; a Queued after it changes nothing.
     /// Only an event newer than what the receipt was built from reaches here: a replay of an event the store had already
-    /// applied was set aside by its position first.
+    /// applied was set aside by its position first. The prompt's text is kept, as the store keeps it: a retry under the
+    /// same id is the same prompt, so it carries the same words.
     /// </summary>
     private bool Supersedes(ApiModeReceiptDto receipt, SessionEvent e)
     {
@@ -563,6 +568,16 @@ public sealed class ApiModeLiveRuling
         return prompts;
     }
 
+    /// <summary>The first event that carries the prompt's text sets it, verbatim, as the receipt store keeps it; a later
+    /// event never blanks or replaces it. Called only after an event has passed the finality check, so it sets the text
+    /// under the same condition as the store: an event the store sets aside (a late one after Delivered) sets no text
+    /// here either, and the live reader is never shown text the stored receipt does not have.</summary>
+    private static void KeepPromptText(ApiModeReceiptDto receipt, string? promptText)
+    {
+        if (receipt.PromptText is null && !string.IsNullOrEmpty(promptText))
+            receipt.PromptText = promptText;
+    }
+
     private static IReadOnlyList<ApiModeLiveItem> One(ApiModeLiveItem item) => new[] { item };
 
     private static string Unknown(string words, string what, string value)
@@ -577,6 +592,7 @@ public sealed class ApiModeLiveRuling
     private static ApiModeReceiptDto Copy(ApiModeReceiptDto r) => new()
     {
         PromptId = r.PromptId,
+        PromptText = r.PromptText,
         State = r.State,
         QueueReason = r.QueueReason,
         Disposition = r.Disposition,

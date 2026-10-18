@@ -277,6 +277,9 @@ public sealed class ApiModeEventIngestTests : IDisposable
         var refused = Receipt("p2");
         Assert.Equal(ApiModeReceiptState.Refused, refused.State);
         Assert.Equal(RefusalBusy, refused.RefusalReason);
+        // No event carried the text, so neither receipt has any: null, never an empty string.
+        Assert.Null(delivered.PromptText);
+        Assert.Null(refused.PromptText);
     }
 
     // ----- a malformed batch stores nothing -----

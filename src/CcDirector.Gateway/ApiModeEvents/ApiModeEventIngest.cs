@@ -75,13 +75,13 @@ public sealed class ApiModeEventIngest
         switch (e)
         {
             case PromptQueued q:
-                _receipts.RecordQueued(directorId, q.SessionId, q.PromptId, Word(q.Reason), position, at);
+                _receipts.RecordQueued(directorId, q.SessionId, q.PromptId, Word(q.Reason), position, at, q.PromptText);
                 break;
             case PromptDelivered d:
-                _receipts.RecordDelivered(directorId, d.SessionId, d.PromptId, Word(d.Disposition), d.Acknowledgement, position, at);
+                _receipts.RecordDelivered(directorId, d.SessionId, d.PromptId, Word(d.Disposition), d.Acknowledgement, position, at, d.PromptText);
                 break;
             case PromptRefused r:
-                _receipts.RecordRefused(directorId, r.SessionId, r.PromptId, r.Reason, Word(r.RefusedBy), position, at);
+                _receipts.RecordRefused(directorId, r.SessionId, r.PromptId, r.Reason, Word(r.RefusedBy), position, at, r.PromptText);
                 break;
             case TurnStarted s:
                 _receipts.RecordTurnStarted(directorId, s.SessionId, s.TurnId, s.PromptIds, position);

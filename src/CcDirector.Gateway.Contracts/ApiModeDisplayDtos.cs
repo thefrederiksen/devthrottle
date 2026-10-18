@@ -44,6 +44,10 @@ public sealed class ApiModeLiveItem
     /// <summary>The prompt a receipt item is for; null on every other kind.</summary>
     public string? PromptId { get; set; }
 
+    /// <summary>A receipt item's prompt text, verbatim (never trimmed, reworded or shortened); null on every other kind,
+    /// and on a receipt whose Director sent none.</summary>
+    public string? PromptText { get; set; }
+
     /// <summary>The sequence of the session event this item was ruled from, or 0 for an item that came from durable
     /// state rather than from an event (the stored receipts the live relay sends when a reader starts from them; a real sequence starts at
     /// 1). For logs and tests: a client applies items in the order they arrive and never sorts by it, because the
