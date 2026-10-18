@@ -919,6 +919,45 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task Stream_NoCursorAfterATurnsEndWasLost_OpensWithTheReceiptAsTheLiveReaderSawIt()
+    {
+        // Arrange: p1's turn never ends in generation A. A reader opens in generation B before anything proves that turn
+        // over, then follows live while a different turn starts, which does (item 7, ApiModeLostTurnEnd).
+        await StartAsync();
+        PushA(Delivered(1, "p1"), Started(2));
+        PushB(Text(1, "x"));
+        var sawLive = new ClientView();
+        await using (var stream = await OpenStreamAsync(Alice, ApiSession))
+        {
+            var first = await stream.NextAsync();
+            Assert.Equal("Delivered", Items(first!).Single(i => i.ItemId == "receipt:p1").Text);
+            sawLive.Apply(Items(first!));
+            PushB(new TurnStarted { SessionId = ApiSession, Sequence = 2, At = T0, TurnId = "t2", PromptIds = new[] { "p2" } });
+            var lost = await stream.NextAsync();
+            Assert.Equal(("gen-b:2", "receipt:p1", ApiModeLiveRuling.LostWords), (lost!.Id, Single(lost).ItemId, Single(lost).Text));
+            sawLive.Apply(Items(lost));
+        }
+
+        // Act: a new reader attaches with no cursor; then the Gateway restarts and another does.
+        await using var reopened = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await reopened.NextAsync();
+        await RestartGatewayAsync();
+        await using var afterRestart = await OpenStreamAsync(Alice, ApiSession);
+        var restartedOpening = await afterRestart.NextAsync();
+
+        // Assert: the receipt comes from the receipt store, which ruled the same lost ending, so each opening shows it
+        // exactly as the live reader shows it - its words, its tone, its turn and its prompt text.
+        var live = sawLive.Shown.Single(i => i.ItemId == "receipt:p1");
+        Assert.Equal((ApiModeLiveRuling.LostWords, "neutral", "t1", "text of p1"), (live.Text, live.Tone, live.TurnId, live.PromptText));
+        foreach (var frame in new[] { opening, restartedOpening })
+        {
+            var view = new ClientView();
+            view.Apply(Items(frame!));
+            Assert.Equal(live, view.Shown.Single(i => i.ItemId == "receipt:p1"));
+        }
+    }
+
+    [Fact]
     public async Task Stream_NoCursorMidReply_OpensWithWhatHasStreamedThenFollowsWithNoGapAndNoDouble()
     {
         await StartAsync();
