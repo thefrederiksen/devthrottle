@@ -113,7 +113,7 @@ def fake_gateway(monkeypatch):
     def fake(method, url, json=None, headers=None, timeout=None):
         parts = urlsplit(url)
         query = {k: v[0] for k, v in parse_qs(parts.query).items()}
-        calls.append({"method": method, "path": parts.path, "query": query, "body": json})
+        calls.append({"method": method, "path": parts.path, "query": query, "body": json, "headers": headers})
         status, body = answers.get((method, parts.path), (500, {"error": "the fake Gateway has no answer"}))
         return _Response(status, body)
 
@@ -372,6 +372,44 @@ def test_channel_add_PostsAddressProviderMachinesInOrderAndWhy(fake_gateway):
     assert f"Addition of channel {LONG_ADDRESS} recorded." in result.stdout
 
 
+@pytest.mark.parametrize("args, method, path", [
+    (["status"], "GET", "/status"),
+    (["channel", "add", LONG_ADDRESS, "--provider", "outlook", "--machine", "devlinux", "--why", WHY],
+     "POST", "/channels"),
+])
+def test_request_CarriesThisSessionsKeyAsTheBearerToken(fake_gateway, args, method, path):
+    # Arrange
+    fake_gateway.answer(method, path, 200, {"enabled": True, "rulesVersion": 0, "channels": [], "today": {}}
+                        if method == "GET" else CHANNEL)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", *args])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert _only_call(fake_gateway)["headers"]["Authorization"] == "Bearer session-key"
+
+
+@pytest.mark.parametrize("args, method, path, unchanged", [
+    (["channel", "remove", LONG_ADDRESS, "--why", WHY], "POST", "/channels/remove", CHANNEL),
+    (["mode", LONG_ADDRESS, "live", "--why", WHY], "POST", "/channels/mode", CHANNEL),
+    (["mode", LONG_ADDRESS, "live", "--why", WHY], "POST", "/channels/mode", {k: v for k, v in CHANNEL.items()
+                                                                              if k != "mode"}),
+])
+def test_channelChange_AnsweredWithAnUnchangedRow_ExitsOneAndIsNotReportedAsRecorded(
+        fake_gateway, args, method, path, unchanged):
+    # Arrange - the Gateway answers 200 with the row as it was: still observe, not removed
+    fake_gateway.answer(method, path, 200, unchanged)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", *args])
+
+    # Assert
+    assert result.exit_code == 1, result.output
+    assert "recorded" not in result.output
+    assert "whether it changed is unknown" in result.output
+
+
 def test_channel_remove_PostsAddressAndWhy(fake_gateway):
     # Arrange
     fake_gateway.answer("POST", "/channels/remove", 200, dict(CHANNEL, removedUtc="2026-10-18T10:00:00Z"))
@@ -534,8 +572,10 @@ def test_change_WithBlankWhy_ExitsTwoAndSendsNothing(fake_gateway, args):
 
 
 @pytest.mark.parametrize("args, expected", [
-    (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "route:books", "--why", WHY], "<factory>/<seat>"),
-    (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "route:/clerk", "--why", WHY], "<factory>/<seat>"),
+    (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "route:books", "--why", WHY],
+     "<factory>/<seat>"),
+    (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "route:/clerk", "--why", WHY],
+     "<factory>/<seat>"),
     (["allow", "add", "*@notifications.example.com", "--what", "x", "--do", "forward", "--why", WHY],
      "archive, keep-for-owner, route:<factory>/<seat>"),
     (["rule", "add", "r", "--from", "a@example.com", "--route", "a/b/c", "--why", WHY], "<factory>/<seat>"),

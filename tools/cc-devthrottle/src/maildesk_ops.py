@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlencode
 
 import requests
@@ -408,7 +408,7 @@ def decisions(
               "reason"]
     _write(
         _count(answer, rows),
-        f"by-decision: {_by_decision(answer.get('byDecision'))}",
+        _line(f"by-decision: {_by_decision(answer.get('byDecision'))}"),
         axi_output.render_list("decisions", fields, records),
     )
     axi_cli.print_next([f"{_DECISIONS} --decision <decision>", f"{_DECISIONS} --since <iso-time>", _STATUS])
@@ -417,7 +417,15 @@ def decisions(
 # ---------- changes ----------
 
 
-def _channel_changed(answer: Any, verb: str, address: str) -> None:
+def _channel_changed(
+    answer: Any, verb: str, address: str, proof: str, accept: Optional[Callable[[Any], bool]] = None,
+) -> None:
+    """Print a channel change - but only once the answered row carries `proof`, the field the change sets.
+
+    The address is on every channel row, changed or not, so it proves only an addition. A removal is proved by
+    `removedUtc` being set, and a mode change by `mode` being the mode asked for; a row that came back unchanged
+    exits 1 rather than being announced as a change."""
+    axi_cli.confirmed(answer, [proof], f"the {verb} of channel {address}", [_CHANNELS], accept=accept)
     confirmed = axi_cli.confirmed(answer, ["address"], f"the {verb} of channel {address}", [_CHANNELS])
     fields, records = _channel_records([answer], with_removed=verb == "removal")
     _write(
@@ -431,13 +439,13 @@ def channel_add(address: str, provider: str, machines: List[str], why: Optional[
     reason = require_why(why)
     body = {"address": address, "provider": provider, "machines": list(machines or []), "why": reason}
     answer = _call(lambda: _client().post("/channels", body), [_CHANNELS])
-    _channel_changed(answer, "addition", address)
+    _channel_changed(answer, "addition", address, "address")
 
 
 def channel_remove(address: str, why: Optional[str]) -> None:
     reason = require_why(why)
     answer = _call(lambda: _client().post("/channels/remove", {"address": address, "why": reason}), [_CHANNELS])
-    _channel_changed(answer, "removal", address)
+    _channel_changed(answer, "removal", address, "removedUtc")
 
 
 def mode(address: str, new_mode: str, why: Optional[str]) -> None:
@@ -445,7 +453,7 @@ def mode(address: str, new_mode: str, why: Optional[str]) -> None:
     require_one_of("mode", new_mode, MODES)
     body = {"address": address, "mode": new_mode, "why": reason}
     answer = _call(lambda: _client().post("/channels/mode", body), [_CHANNELS])
-    _channel_changed(answer, "mode change", address)
+    _channel_changed(answer, "mode change", address, "mode", accept=lambda answered: answered == new_mode)
 
 
 def _rules_changed(answer: Any, what: str) -> None:
