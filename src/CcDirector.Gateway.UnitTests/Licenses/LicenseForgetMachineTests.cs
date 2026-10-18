@@ -181,10 +181,33 @@ public sealed class LicenseForgetMachineTests : IDisposable
         var ended = _store.FindSwitch(TenantOne, row.SwitchId!)!;
         Assert.Equal((LicenseLogStates.Failed, LicenseGatewayReasonCodes.MachineForgotten), (ended.State, ended.ReasonCode));
         Assert.Equal("Ended without an answer: machine-a was forgotten before this switch was over.", ended.Message);
+        // The log says it in words, never as the code word (the review of pull request 4183, round two, finding 2).
+        var entry = Assert.Single(LicenseDisplayFold.LogEntries(new[] { ended }, Array.Empty<(string, string)>()));
+        Assert.Equal("The machine was forgotten, so this switch can never be answered.", entry.ReasonText);
         Assert.NotNull(ended.FinishedAtUtc);
         // No open row names the machine row that is gone, so the minute check goes on without a word.
         await switches.TickAsync(TenantOne, CancellationToken.None);
         Assert.Equal(0, Machines(TenantOne).GetArrayLength());
+    }
+
+    [Fact]
+    public void TheStoreRefusesAMachineThatReportedAgain_AfterThePageWasRead_AndChangesNothing()
+    {
+        // The review of pull request 4183, round two, finding 1: the route read the page while the machine was silent,
+        // and it reported again before the store's save.
+        var id = Apply(TenantOne, Good());
+        var row = _store.CreatePendingSwitch(TenantOne, id, A, B, LicenseSwitchReasons.Manual, T0)!;
+        Assert.True(_store.TryMark(TenantOne, row.SwitchId!, LicenseLogStates.Unknown, null, "Sent; no answer came back.", T0));
+        Assert.True(Approvers().Set(TenantOne, A, "machine-a", "owner", "profile-a", T0).Accepted);
+        _now = Silent;
+        Apply(TenantOne, Good(), _now);
+
+        var result = _store.ForgetMachine(TenantOne, id, "machine-a", _now, new[] { A });
+
+        Assert.Equal((null, LicenseForgetRefusals.NotOffered), (result.Row, result.RefusedBecause));
+        Assert.True(LicenseLogStates.IsOpen(_store.FindSwitch(TenantOne, row.SwitchId!)!.State));
+        Assert.Equal(1, Machines(TenantOne).GetArrayLength());
+        Assert.Single(Approvers().List(TenantOne));
     }
 
     [Fact]

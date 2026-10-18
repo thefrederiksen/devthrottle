@@ -1075,6 +1075,7 @@ public static class LicenseDisplayFold
         LicenseGatewayReasonCodes.OwnerEmailFailed => "The owner has not been emailed yet; it is tried again.",
         LicenseGatewayReasonCodes.NoOwnerAccount => "This Gateway has no DevThrottle account to email.",
         LicenseGatewayReasonCodes.DirectorError => "The machine's Director answered with an error.",
+        LicenseGatewayReasonCodes.MachineForgotten => "The machine was forgotten, so this switch can never be answered.",
         LicenseCannotSwitchReasons.ToolMissing => "The DevThrottle tool is missing from the machine's Python tool environment.",
         LicenseStore.CannotSwitchReasonNotKnown => "The machine's Director says it cannot run a switch, for a reason this Gateway does not know.",
         _ => reasonCode,

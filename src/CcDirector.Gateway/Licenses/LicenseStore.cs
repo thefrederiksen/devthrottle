@@ -1207,6 +1207,13 @@ public sealed class LicenseStore
     /// and the machine could never be forgotten. It ends here, as failed with <see cref="LicenseGatewayReasonCodes.MachineForgotten"/>,
     /// so no open row names a machine row that is gone. A late answer changes nothing: an ended row is not settled again.
     ///
+    /// A MACHINE THAT IS REPORTING IS REFUSED HERE TOO (the review of pull request 4183, round two, finding 1). The route
+    /// offers it only for a machine the page calls not reporting or refused, but that was read before this save; a
+    /// machine that reported again in between is still on its feet, and ending its switch or removing its approvers would
+    /// be wrong. So a machine with no open refusal whose last accepted report is not stale
+    /// (<see cref="LicenseStaleness.IsMachineStale"/>, the page's own rule) is refused with nothing changed. A refused
+    /// report never moves the last accepted report, so this never refuses a refused machine.
+    ///
     /// AN OPEN SIGN-IN DOES: refused with nothing changed. It is only a delay, because the sign-in check ends a sign-in
     /// on a machine it has not seen for long enough.
     ///
@@ -1235,6 +1242,11 @@ public sealed class LicenseStore
             {
                 FileLog.Write($"[LicenseStore] ForgetMachine: tenant={tenant.ToLogString()}, machine={idText} is not in this account");
                 return new LicenseForgetResult(null, LicenseForgetRefusals.NotFound);
+            }
+            if (machine is not null && refusals.Count == 0 && !LicenseStaleness.IsMachineStale(Utc(machine.LastReportAtUtc), now))
+            {
+                FileLog.Write($"[LicenseStore] ForgetMachine: REFUSED tenant={tenant.ToLogString()}, machine={idText}: it reported at {Utc(machine.LastReportAtUtc):O}");
+                return new LicenseForgetResult(null, LicenseForgetRefusals.NotOffered);
             }
             var open = ctx.LicenseSwitchLog.Where(r => r.MachineId == machineId && r.FinishedAtUtc == null).ToList();
             if (open.FirstOrDefault(r => r.Kind == LicenseSignInLog.Kind && (r.State == LicenseLogStates.Pending || r.State == LicenseLogStates.Unknown)) is { } signIn)
