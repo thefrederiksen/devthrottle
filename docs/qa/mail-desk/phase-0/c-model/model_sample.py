@@ -192,7 +192,8 @@ def cmd_fetch(args) -> None:
     profile = profiles.get(OUR_ADDRESS)
     if not profile:
         sys.exit(f"{OUR_ADDRESS} has no cc-outlook profile in {config_dir}")
-    cache_path = config_dir / "tokens" / f"{OUR_ADDRESS}_msal.json"
+    # Named exactly as cc-outlook's get_msal_token_path names it.
+    cache_path = config_dir / "tokens" / (OUR_ADDRESS.replace("@", "_").replace(".", "_") + "_msal.json")
     if not cache_path.exists():
         sys.exit(f"{OUR_ADDRESS} is not signed in on this machine: run cc-outlook -a devthrottle auth")
 
@@ -216,6 +217,7 @@ def cmd_fetch(args) -> None:
     )
     with httpx.Client(timeout=30) as client:
         page = graph_get(client, url, token)
+        folder = graph_get(client, f"https://{GRAPH_HOST}/v1.0/me/mailFolders/inbox?$select=totalItemCount", token)
     emails = []
     for m in page.get("value", [])[:SAMPLE_SIZE]:
         sender = (m.get("from") or {}).get("emailAddress") or {}
@@ -230,7 +232,9 @@ def cmd_fetch(args) -> None:
     out = raw_dir / "emails.json"
     out.write_text(json.dumps(emails, indent=1, ensure_ascii=False), encoding="utf-8")
     os.chmod(out, 0o600)
-    print(f"fetch: {len(emails)} emails read with GET only; raw text kept outside the repository")
+    more = "@odata.nextLink" in page
+    print(f"fetch: {len(emails)} emails read with GET only (Inbox holds {folder.get('totalItemCount')}, "
+          f"more pages: {more}); raw text kept outside the repository")
 
 
 # ---------------------------------------------------------------------------------------------
