@@ -11,9 +11,10 @@ using Xunit.Abstractions;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// THE TWO LICENSE WRITES ON A SELF-HOSTED GATEWAY: the shared machine token is a credential there - every Director
-/// on the machine has it - and it reads the three license routes, but it is not a signed-in person, so both writes
-/// are refused to it (the Tech Lead's ruling on the review of pull request 3936, finding 1).
+/// THE LICENSE WRITES ON A SELF-HOSTED GATEWAY: the shared machine token is a credential there - every Director on
+/// the machine has it - and it reads the license routes, but it is not a signed-in person, so every write is refused
+/// to it (the Tech Lead's ruling on the review of pull request 3936, finding 1): the renewal date, Switch now and
+/// Forget this machine.
 /// </summary>
 public sealed class LicenseWritesSelfHostedTests : IAsyncLifetime
 {
@@ -41,16 +42,18 @@ public sealed class LicenseWritesSelfHostedTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task TheSharedMachineToken_ReadsTheLicenses_AndIsRefusedBothWrites()
+    public async Task TheSharedMachineToken_ReadsTheLicenses_AndIsRefusedEveryWrite()
     {
         using var read = await _sharedToken.GetAsync("gateway/licenses");
         using var renewal = await _sharedToken.PutAsync("gateway/licenses/accounts/renewal",
             new StringContent("{\"accountEmail\":\"account-a@example.com\",\"renewsOn\":\"2026-10-17\"}", System.Text.Encoding.UTF8, "application/json"));
         using var switchNow = await _sharedToken.PostAsync("gateway/licenses/switch-now",
             new StringContent("{\"accountEmail\":\"account-a@example.com\"}", System.Text.Encoding.UTF8, "application/json"));
+        using var forget = await _sharedToken.PostAsync("gateway/licenses/machines/forget",
+            new StringContent("{\"machineId\":\"94ebcb15a4bf40438dca738dd31189d9\"}", System.Text.Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
-        foreach (var refused in new[] { renewal, switchNow })
+        foreach (var refused in new[] { renewal, switchNow, forget })
         {
             Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
             var json = JsonDocument.Parse(await refused.Content.ReadAsStringAsync()).RootElement;
