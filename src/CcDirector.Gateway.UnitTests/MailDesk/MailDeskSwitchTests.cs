@@ -223,9 +223,8 @@ public sealed class MailDeskSwitchTests : IDisposable
     // ---- the route group ------------------------------------------------------------------------------------
 
     /// <summary>
-    /// The Mail Desk routes, mapped into the gate exactly as GatewayHost maps them, beside one factory route behind the
-    /// factory agents gate. PLACEHOLDER: phase 1's routes Developer replaces the placeholder below with the real
-    /// Mail Desk routes and adds each one to <see cref="ExpectedMailDeskRoutes"/>.
+    /// The Mail Desk routes, mapped into the gate exactly as GatewayHost maps them (<see cref="MailDeskEndpoints.Map"/>
+    /// into <see cref="MailDeskGate.Group"/>), beside one factory route behind the factory agents gate.
     /// </summary>
     private (WebApplication App, MailDeskSwitch MailDesk, FactoryAgentsSwitch Factory) MailDeskApp()
     {
@@ -233,8 +232,11 @@ public sealed class MailDeskSwitchTests : IDisposable
         var factory = new FactoryAgentsSwitch(false, new TenantSettingsStore(Db));
         var app = WebApplication.CreateBuilder().Build();
 
-        var gate = MailDeskGate.Group(app, mailDesk, Resolve);
-        gate.MapGet(MailDeskGate.Prefix + "/status", () => Results.Json(new { enabled = true }));
+        var decisions = new MailDeskDecisionStore(Db);
+        CcDirector.Gateway.Api.MailDeskEndpoints.Map(MailDeskGate.Group(app, mailDesk, Resolve), Resolve, new CcDirector.Gateway.Api.MailDeskEndpoints.Parts(
+            new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), decisions,
+            new MailDeskChannelFold(_ => Array.Empty<TriggerEntity>(), _ => "UTC", decisions),
+            _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, _ => Array.Empty<string>(), () => _now));
 
         FactoryAgentsGate.Group(app, factory, Resolve).MapGet("/gateway/factory/placeholder", () => Results.Ok());
         return (app, mailDesk, factory);
@@ -244,6 +246,15 @@ public sealed class MailDeskSwitchTests : IDisposable
     private static readonly string[] ExpectedMailDeskRoutes =
     {
         "GET " + MailDeskGate.Prefix + "/status",
+        "GET " + MailDeskGate.Prefix + "/channels",
+        "POST " + MailDeskGate.Prefix + "/channels",
+        "POST " + MailDeskGate.Prefix + "/channels/remove",
+        "POST " + MailDeskGate.Prefix + "/channels/mode",
+        "GET " + MailDeskGate.Prefix + "/rules",
+        "GET " + MailDeskGate.Prefix + "/rules/history",
+        "POST " + MailDeskGate.Prefix + "/rules/{list}/add",
+        "POST " + MailDeskGate.Prefix + "/rules/{list}/remove",
+        "GET " + MailDeskGate.Prefix + "/decisions",
     };
 
     private static IReadOnlyList<RouteEndpoint> Endpoints(WebApplication app)

@@ -276,6 +276,17 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     internal MailDesk.MailDeskSwitch MailDeskSwitch { get; }
 
+    /// <summary>The Mail Desk's channels, rules and decisions (the Mail Desk mission, phase 1), each built ONCE per
+    /// process: every store holds its own lock, so a second instance would let two writers in one process race to the
+    /// database, where only the unique indexes would stop them.</summary>
+    internal MailDesk.MailDeskChannelStore MailDeskChannels { get; }
+
+    /// <inheritdoc cref="MailDeskChannels"/>
+    internal MailDesk.MailDeskRulesStore MailDeskRules { get; }
+
+    /// <inheritdoc cref="MailDeskChannels"/>
+    internal MailDesk.MailDeskDecisionStore MailDeskDecisions { get; }
+
     /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
     /// database shape does not depend on it; only the routes do.</summary>
     public Factory.FactoryActivityRecord FactoryActivity { get; }
@@ -354,6 +365,17 @@ public sealed class GatewayHost : IAsyncDisposable
     private IReadOnlyCollection<string> ConnectedMachinesOf(Core.Tenancy.TenantId tenant)
         => Registry.ListDirectors(tenant)
             .Where(d => d.StoppedAtUtc is null && !string.IsNullOrWhiteSpace(d.MachineName))
+            .Select(d => d.MachineName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>
+    /// Every machine one account's Directors have reported, connected now or not: what a Mail Desk channel's machines are
+    /// checked against, so a backup machine that is switched off today is still one the Gateway knows.
+    /// </summary>
+    private IReadOnlyCollection<string> KnownMachinesOf(Core.Tenancy.TenantId tenant)
+        => Registry.ListDirectors(tenant)
+            .Where(d => !string.IsNullOrWhiteSpace(d.MachineName))
             .Select(d => d.MachineName)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -2482,6 +2504,9 @@ public sealed class GatewayHost : IAsyncDisposable
         FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings);
         // The Mail Desk switch per account, in the same per-tenant settings; no machine switch, so no config.json key.
         MailDeskSwitch = new MailDesk.MailDeskSwitch(_tenantSettings);
+        MailDeskChannels = new MailDesk.MailDeskChannelStore(_gatewayDb);
+        MailDeskRules = new MailDesk.MailDeskRulesStore(_gatewayDb);
+        MailDeskDecisions = new MailDesk.MailDeskDecisionStore(_gatewayDb);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
@@ -5570,6 +5595,19 @@ public sealed class GatewayHost : IAsyncDisposable
         // Same admin service token; exact-match public in AuthMiddleware. The Mail Desk routes themselves are mapped
         // into Api.MailDeskGate.Group(...), which answers 404 with no body for an account that is off.
         Api.AdminMailDeskEndpoint.Map(_app, MailDeskSwitch, TenantRegistry);
+        // The Mail Desk routes (phase 1 contract, sections 4 and 5): status, channels, rules and decisions, every one
+        // inside the gate. The channel row is folded from the account's Mail Desk start's trigger and its time zone.
+        Api.MailDeskEndpoints.Map(
+            Api.MailDeskGate.Group(_app, MailDeskSwitch, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)),
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            parts: new Api.MailDeskEndpoints.Parts(
+                MailDeskChannels,
+                MailDeskRules,
+                MailDeskDecisions,
+                new MailDesk.MailDeskChannelFold(Triggers.Store.List, _tenantSettingsResolver.TimeZone, MailDeskDecisions),
+                _sessionHistory.FactoryOf,
+                KnownMachinesOf,
+                () => DateTime.UtcNow));
 
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.

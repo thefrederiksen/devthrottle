@@ -903,7 +903,7 @@ internal static class FactoryDefinitionEndpoints
 
     /// <summary>The caller kind of a credential that is neither a person's device nor a session's key. Deliberately
     /// NOT one of <see cref="FactoryMemoryAuthorKinds"/>: such a caller may read and can never be the author of a version.</summary>
-    private const string NeitherPersonNorSession = "machine";
+    private const string NeitherPersonNorSession = GatewayCaller.NeitherPersonNorSession;
 
     /// <summary>Who is asking: a person, a session, or neither, with the identifier a version records. A session also
     /// carries its name, and <paramref name="Factory"/> - the factory it is a session OF, or null when it is in none.</summary>
@@ -925,32 +925,25 @@ internal static class FactoryDefinitionEndpoints
         string route, out Caller caller, out IResult? error, Func<string, bool>? isNew = null)
     {
         caller = default;
-        error = null;
-        switch (KindOf(ctx))
+        if (!GatewayCaller.TryIdentify(ctx, factoryOf, nameof(FactoryDefinitionEndpoints), route, out var who, out error))
+            return false;
+        switch (who.Kind)
         {
             case FactoryMemoryAuthorKinds.Person:
-                caller = new Caller(FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor);
+                caller = new Caller(FactoryMemoryAuthorKinds.Person, who.Id);
                 return true;
             case FactoryMemoryAuthorKinds.Session:
-                var session = AuthMiddleware.CallingSession(ctx)!.SessionId.ToString();
-                var lookup = factoryOf(session);
-                if (!lookup.IsKnown)
+                var session = who.Id!;
+                if (who.Factory is null)
                 {
-                    FileLog.Write($"[FactoryDefinitionEndpoints] {route}: REFUSED - the calling session {session} is not yet known to the Gateway");
-                    error = Results.Json(new { error = SpawnFactory.NotYetKnown, detail = SpawnFactory.NotYetKnownDetail },
-                        statusCode: StatusCodes.Status409Conflict);
-                    return false;
-                }
-                if (!lookup.IsInAFactory)
-                {
-                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, lookup.Name);
+                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, who.Name);
                     return true;
                 }
-                var own = lookup.Factory!.Trim();
+                var own = who.Factory;
                 var asked = factory.Trim();
                 if (string.Equals(own, asked, StringComparison.OrdinalIgnoreCase))
                 {
-                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, lookup.Name, own);
+                    caller = new Caller(FactoryMemoryAuthorKinds.Session, session, who.Name, own);
                     return true;
                 }
                 if (isNew is not null && FactoryNames.TryFactory(asked, out var folded, out _) && isNew(folded))
@@ -979,15 +972,8 @@ internal static class FactoryDefinitionEndpoints
         }, statusCode: StatusCodes.Status403Forbidden);
     }
 
-    /// <summary>What kind of caller this is - a person's device, a session's key, or neither - without asking which
-    /// factory it may touch.</summary>
-    private static string KindOf(HttpContext ctx)
-    {
-        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
-        if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown) return FactoryMemoryAuthorKinds.Person;
-        if (AuthMiddleware.CallingSession(ctx) is not null) return FactoryMemoryAuthorKinds.Session;
-        return NeitherPersonNorSession;
-    }
+    /// <summary>What kind of caller this is - a person's device, a session's key, or neither (<see cref="GatewayCaller"/>).</summary>
+    private static string KindOf(HttpContext ctx) => GatewayCaller.KindOf(ctx);
 
     /// <summary>A write needs an author: a person or a session. The shared machine token and a Director are neither.</summary>
     private static bool TryWriter(Caller caller, string route, out IResult? error)
