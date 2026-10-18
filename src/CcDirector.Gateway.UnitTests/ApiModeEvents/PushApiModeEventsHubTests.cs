@@ -53,9 +53,66 @@ public sealed class PushApiModeEventsHubTests : IDisposable
         catch (IOException) { /* best-effort temp cleanup */ }
     }
 
-    private DirectorHub NewHub(string connectionId, bool withIngest = true) => new(_store, _registry, InputStatsHandle.Available(_inputStats),
-        new GatewayStreamRegistry(), _boundary,
+    private DirectorHub NewHub(string connectionId, bool withIngest = true, CcDirector.Gateway.Fleet.FleetDisplayStateObserver? fleetDisplayState = null) => new(_store, _registry, InputStatsHandle.Available(_inputStats),
+        new GatewayStreamRegistry(), _boundary, fleetDisplayState: fleetDisplayState,
         apiModeEvents: withIngest ? new ApiModeEventIngest(_buffer, _receipts, _boundary) : null) { Context = new FakeHubCallerContext(connectionId) };
+
+    private const string OtherSid = "77777777-7777-4777-8777-777777777777";
+
+    /// <summary>A display push over two sessions whose fold is the count of events held for each, and a sender that
+    /// records which session each push went to. <paramref name="otherLabel"/> is the other session's fold.</summary>
+    private (CcDirector.Gateway.Fleet.FleetDisplayStateObserver Observer, List<string> Sent) DisplayPush(Func<string> otherLabel)
+    {
+        var fleet = new List<(string, SessionDto)> { (Director, new SessionDto { SessionId = Sid }), (Director, new SessionDto { SessionId = OtherSid }) };
+        var sent = new List<string>();
+        var observer = new CcDirector.Gateway.Fleet.FleetDisplayStateObserver(
+            () => fleet,
+            sessions =>
+            {
+                foreach (var s in sessions)
+                    s.StateLabel = s.SessionId == Sid ? $"{_buffer.Read(TenantId.Local, Sid).Events.Count} events" : otherLabel();
+            },
+            (_, command, _) =>
+            {
+                lock (sent) sent.Add(command.SessionId);
+                return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success());
+            });
+        return (observer, sent);
+    }
+
+    [Fact]
+    public void PushApiModeEvents_AfterIngest_PushesThatSessionsDisplayStateAndNoOther()
+    {
+        // Arrange: both sessions already pushed; then the other session's fold moves too, but nothing arrived for it.
+        var otherLabel = "before";
+        var (observer, sent) = DisplayPush(() => otherLabel);
+        observer.Sweep();
+        var hub = NewHub("conn-1", fleetDisplayState: observer);
+        hub.Hello(Hello());
+        sent.Clear();
+        otherLabel = "after";
+
+        // Act
+        Assert.NotNull(hub.PushApiModeEvents(A(DeliveredThenDone())));
+
+        // Assert: only the session whose events landed is pushed.
+        Assert.Equal(new[] { Sid }, sent);
+    }
+
+    [Fact]
+    public void PushApiModeEvents_AMalformedBatch_PushesNoDisplayState()
+    {
+        var (observer, sent) = DisplayPush(() => "unchanged");
+        var hub = NewHub("conn-1", fleetDisplayState: observer);
+        hub.Hello(Hello());
+        sent.Clear();
+        var batch = A(DeliveredThenDone());
+        batch.Events.Reverse();   // sequences no longer rise
+
+        Assert.Null(hub.PushApiModeEvents(batch));
+
+        Assert.Empty(sent);
+    }
 
     private static DirectorStreamHello Hello() => new() { DirectorId = Director, Version = "test" };
 

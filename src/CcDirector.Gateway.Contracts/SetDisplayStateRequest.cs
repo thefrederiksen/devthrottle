@@ -51,4 +51,12 @@ public sealed class SetDisplayStateRequest
     /// <summary>The Gateway's row line (<see cref="SessionDto.InboxLine"/>): what waits in the session's fleet
     /// inbox, in finished words, or null when nothing does. Stored and rendered verbatim; null clears it.</summary>
     public string? InboxLine { get; set; }
+
+    /// <summary>
+    /// The Gateway's API-mode verdict (<see cref="SessionDto.ApiMode"/>, mission #4070), the wheel button included -
+    /// the same stamp the roster serves. Null on a session that is not in API mode. ADDITIVE: a Director built before
+    /// this field reads the payload with the web defaults, which skip a property they do not know, so it still accepts
+    /// the request and keeps every other field.
+    /// </summary>
+    public ApiModeSessionDisplay? ApiMode { get; set; }
 }
