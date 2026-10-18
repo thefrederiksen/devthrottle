@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
@@ -29,6 +30,10 @@ public sealed class ApiModeEventIngest
     private readonly ApiModeEventBuffer _buffer;
     private readonly ApiModeReceiptStore _receipts;
     private readonly HostedTenantBoundary _boundary;
+    // Per session, the newest generation the queue-left proof (ApiModeLostQueuedPrompt) has been made in. After the first
+    // proof of a generation there is nothing left for it to rule, so the store is not read again for that generation.
+    // Kept in memory only: a Gateway restart costs one more proof, which changes nothing already ruled.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _queueLeftProvenIn = new();
 
     public ApiModeEventIngest(ApiModeEventBuffer buffer, ApiModeReceiptStore receipts, HostedTenantBoundary boundary)
     {
@@ -55,7 +60,7 @@ public sealed class ApiModeEventIngest
             using (_boundary.EnterScope(tenant))
             {
                 foreach (var e in fresh)
-                    FeedReceipts(directorId, e, position(e.Sequence));
+                    FeedReceipts(tenant, directorId, e, position(e.Sequence));
             }
         });
 
@@ -85,16 +90,23 @@ public sealed class ApiModeEventIngest
     }
 
     /// <summary>The receipt-bearing events go to the receipt store; the rest are the buffer's only.</summary>
-    private void FeedReceipts(string directorId, SessionEvent e, ApiModeEventPosition position)
+    private void FeedReceipts(TenantId tenant, string directorId, SessionEvent e, ApiModeEventPosition position)
     {
         var at = e.At.UtcDateTime;
         // Before the event's own change, so a TurnStarted rules the turn before it lost and only then links its prompts.
         if (ApiModeLostTurnEnd.Proves(e, out var continuing))
             _receipts.RecordTurnOverProven(directorId, e.SessionId, continuing, ApiModeLostTurnEnd.Describe(e, position), position);
         // Likewise before the event's own change: a prompt still queued from an older generation that this generation did
-        // not re-announce is ruled Unknown first, and the event's own prompt is left to its own change.
-        if (ApiModeLostQueuedPrompt.Proves(e, out var ownPromptId))
-            _receipts.RecordQueueLeftProven(directorId, e.SessionId, ownPromptId, ApiModeLostQueuedPrompt.Describe(e, position), position);
+        // not re-announce is ruled Unknown first, and the prompts the event names are left to it. Once per generation.
+        if (ApiModeLostQueuedPrompt.Proves(e, out _))
+        {
+            var key = (tenant, e.SessionId);
+            if (!(_queueLeftProvenIn.TryGetValue(key, out var proven) && string.Equals(proven, position.Generation, StringComparison.Ordinal)))
+            {
+                _receipts.RecordQueueLeftProven(directorId, e.SessionId, e, ApiModeLostQueuedPrompt.Describe(e, position), position);
+                _queueLeftProvenIn[key] = position.Generation;
+            }
+        }
         switch (e)
         {
             case PromptQueued q:

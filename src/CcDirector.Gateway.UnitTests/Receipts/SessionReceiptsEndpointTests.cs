@@ -369,8 +369,8 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
             // Act: the store, as the ingest writes it, then the live reader.
             using (_boundary.EnterScope(Alice))
             {
-                if (ApiModeLostQueuedPrompt.Proves(held.Event, out var own))
-                    _store.RecordQueueLeftProven(AliceDirector, AliceSession, own, ApiModeLostQueuedPrompt.Describe(held.Event, held.Position), held.Position);
+                if (ApiModeLostQueuedPrompt.Proves(held.Event, out _))
+                    _store.RecordQueueLeftProven(AliceDirector, AliceSession, held.Event, ApiModeLostQueuedPrompt.Describe(held.Event, held.Position), held.Position);
                 if (held.Event is PromptQueued q)
                     _store.RecordQueued(AliceDirector, AliceSession, q.PromptId, ApiModeEventIngest.Word(q.Reason), held.Position, T0);
             }

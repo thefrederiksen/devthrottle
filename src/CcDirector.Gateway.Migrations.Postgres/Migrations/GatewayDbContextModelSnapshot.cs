@@ -287,6 +287,8 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.HasIndex("TenantId", "UpdatedAtUtc");
 
+                    b.HasIndex("TenantId", "DirectorId", "State");
+
                     b.HasIndex("TenantId", "SessionId", "TurnId");
 
                     b.ToTable("api_mode_receipts", "gateway");

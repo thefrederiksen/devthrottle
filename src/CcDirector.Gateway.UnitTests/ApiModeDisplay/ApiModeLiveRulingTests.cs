@@ -1116,6 +1116,34 @@ public sealed class ApiModeLiveRulingTests
         Assert.Empty(ReceiptWordsOf(items, "p1"));
     }
 
+    [Fact]
+    public void Rule_ATurnStartedThatCarriesTheQueuedPrompt_IsARecordOfItAndDoesNotRuleItUnknown()
+    {
+        // Arrange: p1 was queued in generation A; its delivery fell in the hole, and generation B opens with the turn
+        // that carries it (review of pull request #4209, finding 2).
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 7) });
+
+        // Act: the turn's start, then a later proof of the same generation.
+        var items = ruling.Rule(HeldB(Started(1, "t1", "p1"))).Concat(ruling.Rule(HeldB(Ended(2, "t1", TurnOutcome.Done, null, "stop")))).ToList();
+
+        // Assert: p1 is never ruled Unknown; it keeps the words it opened with.
+        Assert.DoesNotContain(UnknownWords, ReceiptWordsOf(items, "p1"));
+    }
+
+    [Fact]
+    public void Rule_ATurnStartedThatCarriesOneQueuedPrompt_StillRulesTheOtherUnknown()
+    {
+        // Arrange
+        var ruling = new ApiModeLiveRuling(new[] { StoredQueued("p1", 6), StoredQueued("p2", 7) });
+
+        // Act
+        var items = ruling.Rule(HeldB(Started(1, "t1", "p1")));
+
+        // Assert
+        Assert.DoesNotContain(UnknownWords, ReceiptWordsOf(items, "p1"));
+        Assert.Equal(new[] { UnknownWords }, ReceiptWordsOf(items, "p2"));
+    }
+
     [Theory]
     [InlineData("queued")]
     [InlineData("text")]

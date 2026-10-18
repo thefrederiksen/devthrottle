@@ -120,8 +120,8 @@ public sealed class ApiModeLiveRuling
         var lost = ApiModeLostTurnEnd.Proves(e, out var continuing)
             ? LostTurnEnds(e, continuing, position)
             : Array.Empty<ApiModeLiveItem>();
-        var left = ApiModeLostQueuedPrompt.Proves(e, out var ownPromptId)
-            ? QueuesLeft(e, ownPromptId, position)
+        var left = ApiModeLostQueuedPrompt.Proves(e, out var ownPromptIds)
+            ? QueuesLeft(e, ownPromptIds, position)
             : Array.Empty<ApiModeLiveItem>();
         var items = RuleEvent(e, position);
         return lost.Count == 0 && left.Count == 0 ? items : lost.Concat(left).Concat(items).ToList();
@@ -586,10 +586,12 @@ public sealed class ApiModeLiveRuling
     /// <summary>
     /// The Unknown ruling (<see cref="ApiModeLostQueuedPrompt"/>), under the condition the receipt store applies:
     /// <paramref name="e"/> comes after every re-announcement of its generation, and a Queued receipt other than the one
-    /// the event itself ends was last changed in an older generation. That last position is the one the store keeps on
-    /// the row, as for the lost turn ending (<see cref="LostTurnEnds"/>). The places in line that moved are sent again.
+    /// the event itself names was last changed in an older generation. That last position is the one the store keeps on
+    /// the row, as for the lost turn ending (<see cref="LostTurnEnds"/>). A still-queued prompt a <c>TurnStarted</c>
+    /// carries is not ruled and moves to the proof's position, as the store moves it
+    /// (<see cref="ApiModeLostQueuedPrompt.IsCarriedBy"/>). The places in line that moved are sent again.
     /// </summary>
-    private IReadOnlyList<ApiModeLiveItem> QueuesLeft(SessionEvent e, string? ownPromptId, ApiModeEventPosition? position)
+    private IReadOnlyList<ApiModeLiveItem> QueuesLeft(SessionEvent e, IReadOnlyCollection<string> ownPromptIds, ApiModeEventPosition? position)
     {
         var items = new List<ApiModeLiveItem>();
         foreach (var promptId in _order)
@@ -598,11 +600,17 @@ public sealed class ApiModeLiveRuling
             var receipt = _receipts[promptId];
             if (position is not { } at)
             {
-                if (receipt.State == ApiModeReceiptState.Queued && !string.Equals(promptId, ownPromptId, StringComparison.Ordinal))
+                if (receipt.State == ApiModeReceiptState.Queued && !ownPromptIds.Contains(promptId, StringComparer.Ordinal))
                     throw new InvalidOperationException($"ApiModeLiveRuling: {e.GetType().Name} was handed without its position, and prompt={promptId}'s queued receipt was last changed at {last}; hand it as a held event");
                 continue;
             }
-            if (!ApiModeLostQueuedPrompt.Applies(at, ownPromptId, promptId, receipt.State, last.Generation, last.GenerationStartedUtc))
+            if (ApiModeLostQueuedPrompt.IsCarriedBy(e, at, promptId, receipt.State, last.Generation, last.GenerationStartedUtc))
+            {
+                FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId}: it was queued at {last} and {ApiModeLostQueuedPrompt.Describe(e, at)} carries it, a record that it was sent; it is not ruled {nameof(ApiModeReceiptState.Unknown)} and stays Queued");
+                Touch(promptId, at);
+                continue;
+            }
+            if (!ApiModeLostQueuedPrompt.Applies(at, ownPromptIds, promptId, receipt.State, last.Generation, last.GenerationStartedUtc))
                 continue;
             FileLog.Write($"[ApiModeLiveRuling] Rule: session={e.SessionId} prompt={promptId}: it was queued at {last} and {ApiModeLostQueuedPrompt.Describe(e, at)} comes after every re-announcement of its generation, which did not re-announce it; the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}");
             receipt.State = ApiModeReceiptState.Unknown;

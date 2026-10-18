@@ -27,6 +27,20 @@ namespace CcDirector.Gateway.Receipts;
 /// receipts for each, and the next event of any other kind (the turn's own end at the latest) proves the same thing.
 /// Inside ONE generation the rule never applies: there every event the Director published reached the Gateway.</para>
 ///
+/// <para><b>A record of the prompt is not proof that it vanished.</b> A proving event that names a prompt is a record of
+/// that prompt, so the prompt is not ruled by it (<see cref="Proves"/> hands such prompts back). A <c>PromptDelivered</c>
+/// or <c>PromptRefused</c> ends its own prompt by its own change. A <c>TurnStarted</c> names the prompts its turn
+/// carries: the Director says it sent them, even when their <c>PromptDelivered</c> fell in the hole. Such a prompt is
+/// not ruled Unknown; it keeps reading Queued as before, and its position moves to the <c>TurnStarted</c>, as a
+/// re-announcement would move it (<see cref="IsCarriedBy"/>), so a later proof of the same generation does not rule it
+/// either.</para>
+///
+/// <para><b>Once per generation.</b> After the first proof of a generation no Queued receipt of an older generation is
+/// left (each was ruled, or moved to this generation by its re-announcement or its <c>TurnStarted</c>), and none can
+/// appear (the Gateway accepts no older generation after a newer one). So the ingest makes the proof once per session
+/// generation and skips it after; a Gateway restart forgets that, and the next event proves once more, which changes
+/// nothing already ruled.</para>
+///
 /// <para><b>The second proof: the owning Director came back as a NEW process.</b> A Director that dies (a crash, a
 /// power loss, a restart) takes its queue with it - the queue is held in memory only - and a restarted Director gives
 /// the session a new session id (phase 2 review, observation C), so the old session never sees a later generation and
@@ -38,8 +52,10 @@ namespace CcDirector.Gateway.Receipts;
 /// ended, and the receipt is ruled Unknown (<see cref="AppliesToEndedProcess"/>). Both times are read from the clock
 /// of the one Director machine, so comparing them is sound. A reconnect of the same process sends its own start time,
 /// never later than its own generations, so it rules nothing. A Hello with no start time (default) rules nothing. It
-/// could fire falsely only if two live processes shared one Director id, or the machine's clock stepped forward
-/// between them; even then a later real event replaces the ruling. This proof has no event and so no position: the
+/// could fire falsely only if two live processes shared one Director id, or if the Director machine's clock stepped
+/// BACKWARD after the process started, by more than the process's age at the step, and the process then reconnected:
+/// a generation made after that step is stamped earlier than the process's own start. (A forward step only makes later
+/// generations later still, which is safe.) Even then a later real event replaces the ruling. This proof has no event and so no position: the
 /// receipt keeps the position of its last event, and any later real event replaces the ruling as above.</para>
 ///
 /// <para><b>Restart or hole: the words claim neither.</b> No event names the Director process, so the first proof
@@ -64,43 +80,62 @@ public static class ApiModeLostQueuedPrompt
 
     /// <summary>
     /// Whether <paramref name="e"/> comes after every re-announcement of its generation (see the class summary): any
-    /// event but a <c>PromptQueued</c> (and a <c>MessageText</c>, see the class summary). <paramref name="ownPromptId"/> is
-    /// the prompt the event itself ends (a <c>PromptDelivered</c> or <c>PromptRefused</c>), which its own change rules,
-    /// not this one; null for every other event.
+    /// event but a <c>PromptQueued</c> (and a <c>MessageText</c>, see the class summary). <paramref name="ownPromptIds"/>
+    /// are the prompts the event itself names, which this proof never rules: the one a <c>PromptDelivered</c> or
+    /// <c>PromptRefused</c> ends, or the ones a <c>TurnStarted</c> carries; empty for every other event.
     /// </summary>
-    public static bool Proves(SessionEvent e, out string? ownPromptId)
+    public static bool Proves(SessionEvent e, out IReadOnlyCollection<string> ownPromptIds)
     {
         ArgumentNullException.ThrowIfNull(e);
         switch (e)
         {
             case PromptQueued:
             case MessageText:
-                ownPromptId = null;
+                ownPromptIds = Array.Empty<string>();
                 return false;
             case PromptDelivered d:
-                ownPromptId = d.PromptId;
+                ownPromptIds = new[] { d.PromptId };
                 return true;
             case PromptRefused f:
-                ownPromptId = f.PromptId;
+                ownPromptIds = new[] { f.PromptId };
+                return true;
+            case TurnStarted t:
+                ownPromptIds = t.PromptIds;
                 return true;
             default:
-                ownPromptId = null;
+                ownPromptIds = Array.Empty<string>();
                 return true;
         }
     }
 
     /// <summary>
     /// Whether a proof at <paramref name="proof"/> rules the receipt of <paramref name="promptId"/> Unknown: it is Queued,
-    /// it is not the prompt the proving event itself ends (<paramref name="ownPromptId"/>), and the last event applied to
+    /// it is not a prompt the proving event itself names (<paramref name="ownPromptIds"/>), and the last event applied to
     /// it (<paramref name="lastGeneration"/>, <paramref name="lastGenerationStartedUtc"/>) is of an older generation than
     /// the proof - so the proof's generation did not re-announce it.
     /// </summary>
     public static bool Applies(
-        ApiModeEventPosition proof, string? ownPromptId, string promptId, ApiModeReceiptState state,
+        ApiModeEventPosition proof, IReadOnlyCollection<string> ownPromptIds, string promptId, ApiModeReceiptState state,
         string lastGeneration, DateTime lastGenerationStartedUtc)
         => state == ApiModeReceiptState.Queued
-           && !string.Equals(promptId, ownPromptId, StringComparison.Ordinal)
+           && !Names(ownPromptIds, promptId)
            && proof.IsLaterGenerationThan(lastGeneration, lastGenerationStartedUtc);
+
+    /// <summary>
+    /// Whether the proving event <paramref name="e"/> at <paramref name="proof"/> is a <c>TurnStarted</c> that carries the
+    /// Queued receipt of <paramref name="promptId"/>, last changed in an older generation: the event is a record that the
+    /// prompt was sent, so it is not ruled Unknown (see the class summary), and its position moves to the proof.
+    /// </summary>
+    public static bool IsCarriedBy(
+        SessionEvent e, ApiModeEventPosition proof, string promptId, ApiModeReceiptState state,
+        string lastGeneration, DateTime lastGenerationStartedUtc)
+        => e is TurnStarted t
+           && state == ApiModeReceiptState.Queued
+           && Names(t.PromptIds, promptId)
+           && proof.IsLaterGenerationThan(lastGeneration, lastGenerationStartedUtc);
+
+    private static bool Names(IReadOnlyCollection<string> promptIds, string promptId)
+        => promptIds.Contains(promptId, StringComparer.Ordinal);
 
     /// <summary>
     /// Whether a real receipt event at <paramref name="position"/> replaces the Unknown ending of a receipt last changed at

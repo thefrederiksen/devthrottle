@@ -934,6 +934,9 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.TurnId });
             // Retention cuts on updated-at, tenant-leading for the global filter.
             b.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+            // A Director that comes back as a new process finds the receipts it still holds as Queued by its own id
+            // (ApiModeLostQueuedPrompt, the second proof), on the path every Director takes after a Gateway deploy.
+            b.HasIndex(e => new { e.TenantId, e.DirectorId, e.State });
         });
 
         // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
