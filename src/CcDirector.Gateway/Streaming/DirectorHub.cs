@@ -37,6 +37,8 @@ public sealed class DirectorHub : Hub
     // The public half this connection's Director said in its latest Hello for receiving a sealed value. A sign-in
     // approved on another machine is sealed to it (License Switching, contract section 8.3).
     private const string SealToRecipientItemKey = "cc.sealToRecipient";
+    // Set on the connection once its Hello has had the API-mode receipts of an earlier Director process checked.
+    private const string ApiModeProcessCheckedItemKey = "cc.apiModeProcessChecked";
 
     private readonly PushedSessionStore _store;
     private readonly DirectorRegistry _registry;
@@ -545,6 +547,22 @@ public sealed class DirectorHub : Hub
             FileLog.Write($"[DirectorHub] Hello REJECTED (raced another Hello for the same id): {ex.Message}: conn={Short(Context.ConnectionId)}");
             Context.Abort();
             return null;
+        }
+        // API MODE (mission #4070, item 9): a Director that comes back as a NEW process took the queue of its earlier
+        // process with it, so the receipts that process left Queued are ruled Unknown (ApiModeLostQueuedPrompt, the second
+        // proof). Once per connection: Hello repeats every ten seconds on one connection, and a new process is always a
+        // new connection. Contained: the Hello never fails because of it.
+        if (_apiModeEvents is not null && !Context.Items.ContainsKey(ApiModeProcessCheckedItemKey))
+        {
+            Context.Items[ApiModeProcessCheckedItemKey] = true;
+            try
+            {
+                _apiModeEvents.ObserveDirectorProcess(tenant, directorId, hello.StartedAt);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[DirectorHub] Hello: the API-mode receipts for director={directorId} (process started {hello.StartedAt:O}) were not checked: {ex.GetType().Name}: {ex.Message}; the Hello goes on");
+            }
         }
         // What this build can do, kept against the CONNECTION: the same machine can come back on an older
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.

@@ -27,12 +27,25 @@ namespace CcDirector.Gateway.Receipts;
 /// receipts for each, and the next event of any other kind (the turn's own end at the latest) proves the same thing.
 /// Inside ONE generation the rule never applies: there every event the Director published reached the Gateway.</para>
 ///
-/// <para><b>Restart or hole: the Gateway cannot tell, so the words claim neither.</b> No event names the Director
-/// process. A hole's generation starts exactly one millisecond after the one it continues, but that is how the pusher
-/// labels it, not a promise of the event model, and the Gateway need not have seen the generation it continues. And
-/// today a Director restart never reaches this rule at all: a restarted Director gives the session a new session id
-/// (phase 2 review, observation C), so the old session never sees a later generation. The words
-/// (<see cref="Words"/>) therefore say only what the events show.</para>
+/// <para><b>The second proof: the owning Director came back as a NEW process.</b> A Director that dies (a crash, a
+/// power loss, a restart) takes its queue with it - the queue is held in memory only - and a restarted Director gives
+/// the session a new session id (phase 2 review, observation C), so the old session never sees a later generation and
+/// the first proof never arrives. What does arrive is the Director's Hello, which carries the start time of the
+/// process saying it (<c>DirectorStreamHello.StartedAt</c>, read once per process, so every reconnect of one process
+/// sends the same value). A generation is made by a session stream inside its own process, so it starts at or after
+/// that process's start; a hole's generation is still inside it. So when the Director that holds a receipt says Hello
+/// with a start time LATER than the start of the receipt's last generation, the process that made that generation has
+/// ended, and the receipt is ruled Unknown (<see cref="AppliesToEndedProcess"/>). Both times are read from the clock
+/// of the one Director machine, so comparing them is sound. A reconnect of the same process sends its own start time,
+/// never later than its own generations, so it rules nothing. A Hello with no start time (default) rules nothing. It
+/// could fire falsely only if two live processes shared one Director id, or the machine's clock stepped forward
+/// between them; even then a later real event replaces the ruling. This proof has no event and so no position: the
+/// receipt keeps the position of its last event, and any later real event replaces the ruling as above.</para>
+///
+/// <para><b>Restart or hole: the words claim neither.</b> No event names the Director process, so the first proof
+/// cannot tell the two apart. The second does prove a restart, but not that the prompt was undelivered: a prompt
+/// written to the agent just before the crash may have had its <c>PromptDelivered</c> die unpushed with the process.
+/// The words (<see cref="Words"/>) therefore say only what both proofs show.</para>
 ///
 /// <para><b>The ending is the Gateway's inference, never history.</b> The receipt keeps everything it had (its queue
 /// reason, its prompt's text). A later real event for the prompt - its re-announcement, its delivery, its refusal -
@@ -97,6 +110,18 @@ public static class ApiModeLostQueuedPrompt
     public static bool IsReplacedBy(ApiModeEventPosition position, string lastGeneration, DateTime lastGenerationStartedUtc)
         => string.Equals(position.Generation, lastGeneration, StringComparison.Ordinal)
            || position.IsLaterGenerationThan(lastGeneration, lastGenerationStartedUtc);
+
+    /// <summary>
+    /// Whether a Hello from the Director that holds a receipt, saying its process started at
+    /// <paramref name="processStartedUtc"/>, rules that receipt Unknown: it is Queued, the start time is set, and the
+    /// receipt's last generation (<paramref name="lastGenerationStartedUtc"/>) started BEFORE that process did, so it was
+    /// made by an earlier process, which has ended (see the class summary). Compared at the whole milliseconds generations
+    /// are kept at; a tie rules nothing.
+    /// </summary>
+    public static bool AppliesToEndedProcess(DateTime processStartedUtc, ApiModeReceiptState state, DateTime lastGenerationStartedUtc)
+        => state == ApiModeReceiptState.Queued
+           && processStartedUtc != default
+           && ApiModeEventPosition.StartPrecision(lastGenerationStartedUtc) < ApiModeEventPosition.StartPrecision(processStartedUtc);
 
     /// <summary>The proof, named for a log line.</summary>
     public static string Describe(SessionEvent e, ApiModeEventPosition proof) => $"{e.GetType().Name} at {proof}";
