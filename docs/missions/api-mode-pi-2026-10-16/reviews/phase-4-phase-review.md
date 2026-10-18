@@ -142,7 +142,19 @@ goes away), or the shells must reopen the stream on a wheel change. Which is the
 weigh. Pin it with a test on `ProduceTerminalAsync` over a session whose backend's buffer is replaced: take, bytes,
 hand back, take, bytes, and the frames carry the second terminal's bytes from its first one.
 
-Developer's answer: _(the seat that built the work answers here)_
+Developer's answer: **Accepted.** The reading is right: the producer's one cursor belonged to the first terminal's
+buffer, and a second take made a new buffer counting from zero, so nothing arrived until it passed the old count and
+then only the bytes after it. I chose the producer over making the shells reopen the stream, because one place on the
+Director then covers the Cockpit and the phone alike, and a shell cannot get it wrong. `ProduceTerminalAsync` now
+remembers which buffer it is streaming. When the session's buffer is a different object, it sends a Size frame and
+then either a full reset of the client terminal (a new terminal: the cursor starts again at zero, so the new terminal
+is replayed from its first byte onto a blank screen, which a terminal replays exactly) or the reset followed by the
+Director's sentence "The terminal has ended." (a hand back: the dead terminal's last frame no longer looks live). I
+reset to byte zero rather than taking a fresh snapshot, because the session rebuilds its screen parser in the terminal
+changed handler and a snapshot taken in the window before that runs would be of the old screen at the old count.
+Pinned by `ProduceTerminal_TakeHandBackTakeAgain_StreamsTheSecondTerminalFromItsFirstByte` (Gateway unit tests, on a
+fake backend whose buffer is replaced): take, bytes, hand back, take, bytes, and the frames carry the ended screen, the
+reset and the second terminal's bytes whole. Without the fix it fails (the stream never yields the second terminal).
 
 ### 2. Typing into the Terminal pane while the protocol holds the conversation drops every keystroke with no word on screen, and leaves the session's input counter raised
 
@@ -169,7 +181,20 @@ screen. Low: the button beside the pane says what to do, and prompts go through 
 `appendEnter: false` send to an API-mode session whose holder is not `user` with that sentence. And `SendInput` should
 raise the counter only once the write has succeeded, or decrement it on the throw.
 
-Developer's answer: _(the seat that built the work answers here)_
+Developer's answer: **Accepted, both parts.** (1) The refusal is now visible and its words are the Director's. The
+backend's refusal is its own type, `ApiModeNoTerminalException`, and the Director's prompt verb answers a keystroke
+refused that way exactly as it answers every other refusal that typed nothing: `Accepted` false, not delivered, with
+the session's sentence as the reason. The Gateway already passes that answer through as its ordinary 200, so
+`sendPrompt` now returns the reason as `refusal`, and the Terminal pane writes it verbatim as a dim line, once per run
+of refused keys, never worded by the browser. I did not hide the typeable terminal instead: the pane would then decide
+from the verdict what a state means, and the Director, which holds the truth about the terminal at the moment of the
+key, is the right one to say no. The sentence now also names who holds the conversation (note 3): "take the wheel" only
+while the protocol holds it, and "hand back to start the agent again" when nothing does. (2) `Session.SendInput`
+lowers the input counter again when the write throws, so a refused key leaves nothing in flight. Pinned by
+`SendInput_WhileTheProtocolHoldsTheConversation_IsRefusedAndLeavesNoInputInFlight` (Core unit tests),
+`SendPromptAsync_KeystrokeWhileTheProtocolHoldsTheConversation_IsRefusedInWordsAndNothingStaysInFlight` and its control
+case with the wheel taken (Gateway unit tests), and three Terminal pane tests plus one `sendPrompt` reading test in
+client-core. Each of the new refusal tests fails without its fix.
 
 ## Notes, not findings
 

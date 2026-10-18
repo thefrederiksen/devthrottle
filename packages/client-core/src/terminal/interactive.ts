@@ -147,6 +147,8 @@ export class InteractiveTerminal {
   private inputPumping = false;
   // Whether the current run of failed keystroke sends has been reported; cleared by the next send that lands.
   private keystrokeFailureReported = false;
+  // The refusal sentence last shown for refused keys, so a run of them shows it once (phase 4 review, finding 2).
+  private shownKeystrokeRefusal: string | null = null;
 
   constructor(hostEl: HTMLElement, sessionId: string, onFileLink?: (path: string) => void) {
     this.hostEl = hostEl;
@@ -306,8 +308,9 @@ export class InteractiveTerminal {
         const chunk = this.pendingInput;
         this.pendingInput = "";
         try {
-          await sendPrompt(this.sessionId, chunk, false);
+          const sent = await sendPrompt(this.sessionId, chunk, false);
           this.keystrokeFailureReported = false;
+          this.showKeystrokeRefusal(sent?.refusal);
         } catch (err) {
           console.debug("[cockpit-terminal] keystroke send failed", this.sessionId, err);
           this.reportKeystrokeFailure(err);
@@ -316,6 +319,20 @@ export class InteractiveTerminal {
     } finally {
       this.inputPumping = false;
     }
+  }
+
+  // The Director answered the keys and typed nothing - an API-mode session whose protocol holds the conversation has
+  // no terminal (phase 4 review, finding 2). Its sentence is shown once per run of refused keys, not once per key, and
+  // the next key it takes clears the run.
+  private showKeystrokeRefusal(refusal: string | undefined): void {
+    if (refusal === undefined) {
+      this.shownKeystrokeRefusal = null;
+      return;
+    }
+    if (this.shownKeystrokeRefusal === refusal) return;
+    this.shownKeystrokeRefusal = refusal;
+    // error-report-exempt: the Director's own refusal, worded and ruled on the Director - nothing failed in this browser
+    this.statusLine(refusal);
   }
 
   // Keys typed into the terminal were dropped (the Error Logging mission, issue #3675, ruling R4). Reported once per

@@ -3058,6 +3058,12 @@ public sealed class Session : IDisposable
         }
     }
 
+    /// <summary>How many inputs are being written now. Zero whenever nothing is typing; a test reads it.</summary>
+    internal int InputsInFlight
+    {
+        get { lock (_inputLock) return _inputInFlight; }
+    }
+
     private void EndInput()
     {
         lock (_inputLock) _inputInFlight--;
@@ -3315,7 +3321,14 @@ public sealed class Session : IDisposable
             }
             _inputGeneration++;
             _inputInFlight++;
-            WriteRawInput(data, origin);
+            try { WriteRawInput(data, origin); }
+            catch
+            {
+                // Nothing was written, so nothing is in flight: a refused write must not leave the counter raised
+                // (phase 4 review, finding 2 - an API-mode session with no terminal refuses every keystroke).
+                _inputInFlight--;
+                throw;
+            }
             submits = NoteRawInputLocked(data, provenance);
         }
         try { AfterRawInput(data, origin, provenance, submits); }
