@@ -126,6 +126,14 @@ Every answer the owner gave, in his words where he gave words. Dictated text is 
 - **Also not granted, so the design must not need them:** a desktop (Director) release; a deploy of the website proxy
   in devthrottle_internal; sending any email from email@devthrottle.com; any change in Azure or Microsoft 365.
 
+### Approval
+
+- **D18. Approved, 18 October 2026.** The owner, in the dev report: "Approve, with the five recommendations, and
+  start" (`approve-and-start`). So every question in section 10 is answered with its recommendation: a $5 spend limit
+  for model calls; devlinux runs the check, SOREN_NORTH is the backup; the citizenship rule is data the owner supplies
+  when he likes; `devthrottle/wingman-fast` is the model; the most recent 200 emails or the last 30 days, whichever is
+  fewer, are screened.
+
 ### Overrides of the method
 
 None. The order of reviewers is the repository rules' section 5a (the owner's ruling of 28 September 2026), which is
@@ -445,7 +453,7 @@ the phase READMEs, the rig and its transcript, and the QA report.
 
 ## 10. Questions
 
-Each has the Architect's recommendation, which stands unless the owner overrides it.
+All five are answered: the owner approved every recommendation (D18).
 
 1. **Spend limit for model calls in this mission.** Recommendation: **$5**. At about $0.0003 per email on
    `wingman-fast`, that is over 15,000 emails, far more than the backfill and QA need; reaching it means something is
