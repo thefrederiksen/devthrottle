@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 
 // THE LICENSE ALARM ON THE PHONE (License Switching phase 6): the phone shell shows the Gateway's open alarms in the
@@ -18,9 +18,20 @@ import { LicenseAlarmBar } from "./LicenseAlarmBar";
 const LINE = "machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.";
 
 describe("phone license alarm bar", () => {
+  // jsdom has no ResizeObserver; the bar measures itself with one to add its height to --topbars-h. The stub stays in
+  // place until the bar is UNMOUNTED, not until the test's last assertion: the banner is drawn when the alarm read
+  // resolves, outside React's act, so the effect that creates the observer can run after the banner is already on
+  // screen. Removed at the end of the test, the stub was gone by the time that effect ran on a loaded runner, and the
+  // run failed on "ResizeObserver is not defined" with every test passing (main, 18 October 2026).
   beforeEach(() => {
     cleanup();
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     alarmRead.answer = { asOfUtc: "2026-10-17T08:00:00Z", count: 0, summary: null, linkText: null, alarms: [] };
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("draws no banner when no alarm is open", async () => {
@@ -30,8 +41,6 @@ describe("phone license alarm bar", () => {
   });
 
   it("draws the Gateway's line and a link to the Cockpit's Licenses page", async () => {
-    // jsdom has no ResizeObserver; the bar measures itself with one to add its height to --topbars-h.
-    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     alarmRead.answer = {
       asOfUtc: "2026-10-17T08:00:00Z",
       count: 1,
@@ -48,6 +57,5 @@ describe("phone license alarm bar", () => {
     const link = within(banner).getByTestId("license-alarm-link");
     expect(link.textContent).toBe("Open Licenses");
     expect(link.getAttribute("href")).toBe("/licenses");
-    vi.unstubAllGlobals();
   });
 });
