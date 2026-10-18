@@ -316,6 +316,37 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Null(p2.TurnOutcome);
     }
 
+    [Fact]
+    public void Accept_AHoleThatSwallowedTheTurnsStartAndEnd_TheNextTurnsStartRulesItLost()
+    {
+        // Arrange: p1 was delivered; the TurnStarted that carried it and its TurnEnded both fell in the hole.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck)));
+
+        // Act: generation B's TurnStarted of t2 carries p2, not p1.
+        Push(B(Delivered(1, "p2", PlainAck), Started(2, "t2", "p2")));
+
+        // Assert
+        var p1 = Receipt("p1");
+        Assert.Null(p1.TurnId);
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, p1.TurnOutcome);
+        Assert.Equal("t2", Receipt("p2").TurnId);
+    }
+
+    [Fact]
+    public void Accept_ANewGenerationWhoseFirstTurnNamesTheDeliveredPrompt_LinksItAndRulesNothingLost()
+    {
+        // Arrange: p1 delivered at the end of generation A, its turn not yet started.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck)));
+
+        // Act: generation B starts p1's own turn.
+        Push(B(Started(1, "t1", "p1")));
+
+        // Assert
+        var p1 = Receipt("p1");
+        Assert.Equal("t1", p1.TurnId);
+        Assert.Null(p1.TurnOutcome);
+    }
+
     // ----- a malformed batch stores nothing -----
 
     public static TheoryData<string> Faults => new()

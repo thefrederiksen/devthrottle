@@ -213,3 +213,58 @@ small.
 
 **Approve.** Finding 1 goes to a follow-on item; the pull request is complete for item 7 as the Tech Lead
 ruled it.
+
+## Developer's answer
+
+Rebased onto main after pull request #4178 (a queued receipt's place in line). The clash in
+`ApiModeLiveRuling.cs` was resolved keeping both behaviours whole: the place in line, counted again and
+re-sent after every receipt event, and the lost ending with the real `TurnEnded` replacing it.
+
+**Note 2, `_linkedHere` against `_lastPositions`: replaced.** It is plainly the same information.
+`_lastPositions` is the position of the last event that changed each receipt, moved by `Touch` exactly
+where the store's row moves (`ReceiptChange`, `TurnStart`, `TurnEnd`); `Applies` in the store compares
+against the row's `LastGeneration`. `_linkedHere` only ever recorded one case of that - a stored receipt
+linked in this ruling's generation - so it was a stand-in for the number `_lastPositions` now holds.
+`LostTurnEnds` loops over the receipts in order and compares against `_lastPositions`; `_linkedHere` is
+gone. Two things follow so the ruling keeps the store's bookkeeping exactly: a lost ending `Touch`es the
+receipt to the proof's position (the store does), and the real ending that replaces a lost one moves the
+position only forward (`TouchForward`, the store's `IsNewer` guard on `Touch`). A receipt whose last event
+was handed without a position counts as of this ruling's generation, as `PlaceInLine` already counts it,
+and is never ruled lost. After a lost ending the places in line are counted again (`WaitingIfMoved`),
+because the rows moved to the proof's generation, as the store reads them.
+
+**Finding 1 (low), a prompt whose `TurnStarted` also fell in the hole: done.** `ApiModeLostTurnEnd.Proves`
+now hands back the proving turn whole (`Continuing`: its id and the prompts it names). `Applies` rules a
+Delivered receipt with no outcome lost on the same three proofs in a later generation, with one difference
+for a receipt with no turn id: a `TurnStarted` that names the prompt is its own turn starting, not a proof.
+Store (`RecordTurnOverProven`, which no longer selects only rows with a turn id) and live ruling
+(`LostTurnEnds`) decide through the same `Applies`. The real event that replaces it is the turn's
+`TurnStarted`: in `RecordTurnStarted` and in the ruling's `TurnStart`, a receipt ruled lost with no turn is
+linked whatever the event's position, the lost ending is cleared, and the position never moves back. Its
+`TurnEnded` then ends it as any turn. Tests: store
+`RecordTurnOverProven_NoTurnAndAConnectionEventInALaterGeneration_RulesTheTurnLost` (two cases),
+`..._NoTurnAndAnotherTurnStartsInALaterGeneration_RulesTheTurnLost`,
+`..._NoTurnAndTheTurnThatNamesThePromptStarts_RulesNothingAndLinksIt`,
+`..._NoTurnInTheSameGeneration_RulesNothing`,
+`RecordTurnStarted_ALostReceiptWithNoTurn_TheRealStartReplacesTheLostEnding`,
+`RecordTurnEnded_AfterTheRealStartReplacedALostEndingWithNoTurn_EndsTheTurn`; live ruling
+`Rule_NoTurnAndAProofInALaterGeneration_RulesTheTurnLost` (three proofs),
+`Rule_NoTurnAndTheTurnThatNamesThePromptStarts_RulesNothingAndLinksIt`,
+`Rule_NoTurnAndAProofInTheSameGeneration_RulesNothing`,
+`Rule_NoTurnRuledLostThenItsRealTurnStarted_ReplacesTheLostEnding`,
+`Rule_AStoredLostEndingWithNoTurnThenItsRealTurnStarted_ReplacesIt`,
+`Rule_AStoredReceiptTouchedInThisGeneration_IsNotRuledLostByALaterProof` (pins note 2); ingest
+`Accept_AHoleThatSwallowedTheTurnsStartAndEnd_TheNextTurnsStartRulesItLost`,
+`Accept_ANewGenerationWhoseFirstTurnNamesTheDeliveredPrompt_LinksItAndRulesNothingLost`.
+
+**Note 1, the fold when the last turn's outcome is lost: pinned, behaviour kept.**
+`Fold_TheLastTurnsEndWasLost_IsIdleAfterThatTurnWithNoLastTurnLine`: kind `idle`, tone neutral,
+"Idle after turn 2", no last-turn line. That is true: the turn is proven over, and how it ended is not
+known, so saying nothing about its ending is the honest reading. One part is less clean, and I say so
+rather than change it: `Fold_ALostEndingWhoseTurnStartWasLostToo_CountsOnlyTheTurnsWhoseStartArrived`
+pins that a lost receipt with no turn id adds no turn to the count, so a session whose third turn's start
+fell in the hole reads "Idle after turn 2". That number counts the turns whose start reached the Gateway.
+It is not changed here because the honest alternative is not available: one turn can carry several
+prompts, so counting each turnless lost receipt as a turn would over-count, and either way the number would
+be a guess. It was already so before this change (the receipt read a bare Delivered). If the Tech Lead
+wants it worded ("at least turn 3", or a turn count that says some were lost), that is a follow-on item.
