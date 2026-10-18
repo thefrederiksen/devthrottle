@@ -246,8 +246,8 @@ offers for an on account and not for an off one; a newer template version is off
 
 Each Developer works in its own worktree cut from origin/main (rule 0), on its own branch, and opens its pull request
 **into the phase branch `mail-desk-phase-3`**. The Tech Lead rebases the phase branch onto origin/main when phase 1
-merges. A Developer's tests are the proof it owes; each Developer's code is reviewed by a separate Reviewer session on
-Claude Code with Fable (Codex is not installed on devlinux), opened by the Tech Lead, and every finding is answered by
+merges. A Developer's tests are the proof it owes; each Developer's code is reviewed by a separate Reviewer session of
+another agent family, in the order of repository rule 5a, opened by the Tech Lead, and every finding is answered by
 the Developer in `docs/qa/mail-desk/phase-3/reviews/`.
 
 ## 12. Example data
