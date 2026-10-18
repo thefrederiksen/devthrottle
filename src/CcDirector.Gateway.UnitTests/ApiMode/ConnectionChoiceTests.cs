@@ -47,6 +47,10 @@ public sealed class ConnectionChoiceTests : IDisposable
     /// <summary>What the fake Director's agents-list verb answers.</summary>
     private List<AgentChoiceDto> _reportedAgents = new();
     private NewSessionRequest? _directorDoorSaw;
+    /// <summary>What the reporting Director's interrupted-list verb answers, as the JSON it would serve.</summary>
+    private string _journalsJson = "[]";
+    /// <summary>Whether the restore asked the reporting Director to drop the journal row.</summary>
+    private bool _journalRowRemoved;
     private NewSessionRequest? _machineDoorSaw;
 
     public ConnectionChoiceTests()
@@ -426,6 +430,91 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.NotNull(SawAt(door));
     }
 
+    // ---- the crash-journal restore (the phase 6 review, round 2, finding R2-1) -------------------------------------
+
+    [Fact]
+    public async Task RestoreInterrupted_AnApiModeSeatToADirectorOlderThan2_23_Is409WithTheReason_NothingIsStarted_TheRowIsKept()
+    {
+        // Arrange: the reporting Director, which is also the target, is v2.22.0; the journal holds an API-mode Pi seat.
+        await StartAsync(directorVersion: "2.22.0");
+        var row = JournalApiModeSeat(ConnectionModes.Api);
+
+        // Act
+        using var response = await RestoreAsync(row);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("cannot start a session in API mode", await response.Content.ReadAsStringAsync());
+        Assert.Null(_directorDoorSaw);
+        Assert.False(_journalRowRemoved);
+    }
+
+    [Fact]
+    public async Task RestoreInterrupted_AnApiModeSeatToADirectorOf2_23_ContinuesInApiMode()
+    {
+        // Arrange
+        await StartAsync(directorVersion: "2.23.0");
+        var row = JournalApiModeSeat(ConnectionModes.Api);
+
+        // Act
+        using var response = await RestoreAsync(row);
+
+        // Assert
+        Assert.True(response.IsSuccessStatusCode, $"restore answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.Equal(ConnectionModes.Api, _directorDoorSaw?.ConnectionMode);
+    }
+
+    [Fact]
+    public async Task RestoreInterrupted_ATerminalSeatToADirectorOlderThan2_23_GoesOn()
+    {
+        // Arrange: the guard is for API mode only; a terminal seat restores on an older Director as before.
+        await StartAsync(directorVersion: "2.22.0");
+        var row = JournalApiModeSeat(connectionMode: null);
+
+        // Act
+        using var response = await RestoreAsync(row);
+
+        // Assert
+        Assert.True(response.IsSuccessStatusCode, $"restore answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.NotNull(_directorDoorSaw);
+        Assert.Null(_directorDoorSaw!.ConnectionMode);
+    }
+
+    private const string DeadDirector = "director-that-died";
+    private const int DeadPid = 4242;
+
+    /// <summary>Put one Pi seat in the reporting Director's crash journal, with the given connection mode.</summary>
+    private CrashJournalSessionDto JournalApiModeSeat(string? connectionMode)
+    {
+        var row = new CrashJournalSessionDto
+        {
+            SessionId = Guid.NewGuid().ToString(), Name = "pi seat", RepoPath = Path.GetTempPath(), Agent = "Pi",
+            CreatedAtUtc = new DateTimeOffset(2026, 10, 18, 9, 0, 0, TimeSpan.Zero), ConnectionMode = connectionMode,
+        };
+        _journalsJson = JsonSerializer.Serialize(new List<CrashJournalDto>
+        {
+            new()
+            {
+                DirectorId = DeadDirector, Pid = DeadPid, MachineName = Machine,
+                StartedAtUtc = new DateTimeOffset(2026, 10, 18, 8, 0, 0, TimeSpan.Zero),
+                LastUpdatedUtc = new DateTimeOffset(2026, 10, 18, 9, 30, 0, TimeSpan.Zero),
+                Sessions = { row },
+            },
+        }, Web);
+        return row;
+    }
+
+    /// <summary>A person's restore of the row from the Cockpit: the reporting Director is the target.</summary>
+    private Task<HttpResponseMessage> RestoreAsync(CrashJournalSessionDto row)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/interrupted/{DeadDirector}/{DeadPid}/restore")
+        {
+            Content = JsonContent.Create(new RestoreInterruptedRequest { SessionId = row.SessionId, Via = DirectorId }, options: Web),
+        };
+        request.Headers.Add(DeviceHeader, "desktop");
+        return _http!.SendAsync(request);
+    }
+
     // ---- through the routes ---------------------------------------------------------------------------------------
 
     [Fact]
@@ -612,6 +701,11 @@ public sealed class ConnectionChoiceTests : IDisposable
             {
                 case "agents-list":
                     return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(JsonSerializer.Serialize(_reportedAgents, Web)));
+                case "interrupted-list":
+                    return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(_journalsJson));
+                case "interrupted-remove":
+                    _journalRowRemoved = true;
+                    return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success("{}"));
                 case "create":
                     _directorDoorSaw = JsonSerializer.Deserialize<NewSessionRequest>(command.PayloadJson ?? "{}", Web);
                     return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(
