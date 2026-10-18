@@ -51,4 +51,9 @@ public sealed class SetDisplayStateRequest
     /// <summary>The Gateway's row line (<see cref="SessionDto.InboxLine"/>): what waits in the session's fleet
     /// inbox, in finished words, or null when nothing does. Stored and rendered verbatim; null clears it.</summary>
     public string? InboxLine { get; set; }
+
+    /// <summary>The Terminal tab's wheel button for an API-mode session (<see cref="ApiModeSessionDisplay.WheelAction"/>,
+    /// mission #4070): which button, its words, whether it can be pressed and why not, rendered verbatim by the
+    /// desktop. Null means no button - every terminal-mode session, and every session an older Gateway stamps.</summary>
+    public ApiModeWheelAction? WheelAction { get; set; }
 }

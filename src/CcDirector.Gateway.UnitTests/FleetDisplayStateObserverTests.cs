@@ -127,6 +127,50 @@ public sealed class FleetDisplayStateObserverTests
     }
 
     /// <summary>
+    /// THE WHEEL BUTTON RIDES THE SAME PUSH (mission #4070, phase 4). The desktop's Terminal tab draws "Take the wheel" or
+    /// "Hand back" from the Gateway's verdict, and the desktop cannot read the roster, so the four fields must be in the
+    /// payload as the fold stamped them; a change to any one alone must go down again, and so must its clearing.
+    /// </summary>
+    [Fact]
+    public void TheWheelAction_IsCarriedDown_AndAChangeToItAloneIsPushed()
+    {
+        var sender = new RecordingSender();
+        var fleet = new List<(string, SessionDto)> { ("dir-A", Session("s1")) };
+        ApiModeWheelAction? wheel = new() { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = true };
+        var observer = new FleetDisplayStateObserver(
+            () => fleet,
+            sessions =>
+            {
+                StubFold(sessions);
+                foreach (var s in sessions)
+                    s.ApiMode = wheel is null ? null : new ApiModeSessionDisplay { WheelAction = wheel };
+            },
+            sender.SendAsync);
+
+        observer.Sweep();
+        observer.Sweep();
+        var first = Assert.Single(sender.Sent).Payload.WheelAction;
+        Assert.NotNull(first);
+        Assert.Equal(ApiModeWheelVerbs.TakeTheWheel, first!.Verb);
+        Assert.Equal("Take the wheel", first.Label);
+        Assert.True(first.Enabled);
+        Assert.Null(first.DisabledReason);
+
+        // Only the enabled state and its reason change: that alone is pushed, with the reason verbatim.
+        wheel = new() { Verb = ApiModeWheelVerbs.TakeTheWheel, Label = "Take the wheel", Enabled = false, DisabledReason = "A turn is running." };
+        observer.Sweep();
+        Assert.Equal(2, sender.Sent.Count);
+        Assert.False(sender.Sent[^1].Payload.WheelAction!.Enabled);
+        Assert.Equal("A turn is running.", sender.Sent[^1].Payload.WheelAction!.DisabledReason);
+
+        // No button any more: the clearing goes down too.
+        wheel = null;
+        observer.Sweep();
+        Assert.Equal(3, sender.Sent.Count);
+        Assert.Null(sender.Sent[^1].Payload.WheelAction);
+    }
+
+    /// <summary>
     /// THE STAMP STORM the per-tenant gate exists to prevent (issue #1966). On the hosted Gateway the sweep
     /// runs one pass PER TENANT (GatewayHost wraps Sweep in ITenantPass.ForEachTenant), each pass seeing only
     /// that tenant's fleet. With a SINGLE flat gate, tenant t2's pass would prune s1 (not in t2's live set)

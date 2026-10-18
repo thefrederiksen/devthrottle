@@ -2429,7 +2429,9 @@ public sealed class GatewayHost : IAsyncDisposable
             enterScope: tenant => _tenantBoundary.EnterScope(tenant),
             // Message Load mission, slice 4: the row line, from the same inbox the roster reads. The store is built
             // further down this constructor, so it is read at fold time.
-            inboxLines: () => _fleetMessages);
+            inboxLines: () => _fleetMessages,
+            // API mode (mission #4070, phase 4): the desktop's wheel button, from the same facts the roster folds.
+            apiModeFacts: new ApiModeDisplay.ApiModeDisplayFacts(_apiModeEventBuffer, new ApiModeDisplay.ApiModeVerdictReceipts(_gatewayDb)));
         FleetDisplayState = new Fleet.FleetDisplayStateObserver(
             AmbientSnapshotConnected,
             sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),

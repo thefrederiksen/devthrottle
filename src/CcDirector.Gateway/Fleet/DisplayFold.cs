@@ -28,6 +28,7 @@ namespace CcDirector.Gateway.Fleet;
 /// THE ROW LINE IS NOT A FOLD INPUT (Message Load mission, slice 4, ruling 12). What waits in a session's fleet inbox is
 /// stamped by the push only. It reads nothing the colour, the label or the bucket read, and they do not read it, so a
 /// trace - which records only the colour and label - has nothing to gain from reading the inbox and skips that read.
+/// The API-mode verdict is the same: stamped by the push only.
 /// </summary>
 internal sealed class DisplayFold
 {
@@ -40,6 +41,7 @@ internal sealed class DisplayFold
     private readonly PushedSessionStore _pushed;
     private readonly Func<TenantId, IDisposable> _enterScope;
     private readonly Func<Messaging.IFleetInboxLineSource?> _inboxLines;
+    private readonly ApiModeDisplay.ApiModeDisplayFacts? _apiModeFacts;
 
     /// <param name="voice">The voice service, read at fold time because the host builds it later. Null answers "no voice
     /// state at all".</param>
@@ -48,6 +50,8 @@ internal sealed class DisplayFold
     /// thread). The push already runs inside its account's scope.</param>
     /// <param name="inboxLines">The fleet inbox the push folds each row line from, read at fold time because the host
     /// builds the store later. Null (or a null answer) stamps a null row line on every row.</param>
+    /// <param name="apiModeFacts">Where the push reads each API-mode row's verdict from (mission #4070, phase 4), so the
+    /// desktop is handed the Terminal tab's wheel button the roster shows. Null stamps no verdict on any row.</param>
     public DisplayFold(
         Func<WingmanVoiceService?> voice,
         NeedsYouClock needsYou,
@@ -57,7 +61,8 @@ internal sealed class DisplayFold
         Func<SnoozeExpiryReJudge?> snoozeExpiry,
         PushedSessionStore pushed,
         Func<TenantId, IDisposable> enterScope,
-        Func<Messaging.IFleetInboxLineSource?>? inboxLines = null)
+        Func<Messaging.IFleetInboxLineSource?>? inboxLines = null,
+        ApiModeDisplay.ApiModeDisplayFacts? apiModeFacts = null)
     {
         _voice = voice ?? throw new ArgumentNullException(nameof(voice));
         _needsYou = needsYou ?? throw new ArgumentNullException(nameof(needsYou));
@@ -68,6 +73,7 @@ internal sealed class DisplayFold
         _pushed = pushed ?? throw new ArgumentNullException(nameof(pushed));
         _enterScope = enterScope ?? throw new ArgumentNullException(nameof(enterScope));
         _inboxLines = inboxLines ?? (() => null);
+        _apiModeFacts = apiModeFacts;
     }
 
     /// <summary>The display push: the account in scope, its live verdicts, and every clock moved as it is folded.</summary>
@@ -114,5 +120,10 @@ internal sealed class DisplayFold
             // Only the push stamps the row line; see the class comment.
             inboxLines: writes ? _inboxLines() : null,
             writes: writes);
+        // THE API-MODE VERDICT, push only (mission #4070, phase 4): the desktop's Terminal tab draws the wheel button
+        // from it, as the roster's readers do. Like the row line it reads nothing the colour, the label or the bucket
+        // read, so a trace skips it. The same stamp the roster runs, so every surface shows the same button.
+        if (writes)
+            ApiModeDisplay.ApiModeRowStamp.Stamp(sessions, _apiModeFacts, ambientTenant);
     }
 }

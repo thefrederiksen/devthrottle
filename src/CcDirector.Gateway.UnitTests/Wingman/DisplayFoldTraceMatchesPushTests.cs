@@ -90,6 +90,57 @@ public sealed class DisplayFoldTraceMatchesPushTests
         Assert.Equal(push.StateLabel, trace.RowLabel);
     }
 
+    /// <summary>
+    /// THE PUSH CARRIES THE API-MODE VERDICT (mission #4070, phase 4): the desktop draws the Terminal tab's wheel button
+    /// from what the push stamps, so the push must stamp it - the same stamp the roster runs, so every surface shows the
+    /// same button. With no facts given, no row gets a verdict: one folded from nothing would be a confident wrong one.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void The_push_stamps_the_wheel_button_the_roster_shows(bool withFacts)
+    {
+        // Arrange - the user holds the wheel of an API-mode session, so the roster shows Hand back.
+        var pushed = new PushedSessionStore();
+        var facts = new CcDirector.Gateway.ApiModeDisplay.ApiModeDisplayFacts(
+            new CcDirector.Gateway.ApiModeEvents.ApiModeEventBuffer(),
+            (_, ids) => ids.ToDictionary(id => id, _ => (IReadOnlyList<CcDirector.Gateway.ApiModeDisplay.ApiModeVerdictReceipt>)Array.Empty<CcDirector.Gateway.ApiModeDisplay.ApiModeVerdictReceipt>()));
+        var fold = new DisplayFold(
+            voice: () => null,
+            needsYou: new NeedsYouClock(),
+            voiceWaiting: new VoiceWaitingClock(),
+            snoozes: null,
+            handRaises: new HandRaiseRegistry(),
+            snoozeExpiry: () => null,
+            pushed: pushed,
+            enterScope: _ => new NoScope(),
+            apiModeFacts: withFacts ? facts : null);
+        var row = new SessionDto
+        {
+            SessionId = Sid,
+            Name = Sid,
+            ActivityState = "WaitingForInput",
+            LastActivityAt = DateTime.UtcNow,
+            ConnectionMode = ConnectionModes.Api,
+            WheelHolder = WheelHolders.User,
+        };
+
+        // Act
+        fold.Push(Account, new List<SessionDto> { row }, new NoVerdicts());
+
+        // Assert
+        if (!withFacts)
+        {
+            Assert.Null(row.ApiMode);
+            return;
+        }
+        var wheel = row.ApiMode?.WheelAction;
+        Assert.NotNull(wheel);
+        Assert.Equal(ApiModeWheelVerbs.HandBack, wheel!.Verb);
+        Assert.Equal("Hand back", wheel.Label);
+        Assert.True(wheel.Enabled);
+    }
+
     [Fact]
     public void Only_the_display_fold_calls_the_push_fold_so_no_caller_can_name_its_own_inputs()
     {
