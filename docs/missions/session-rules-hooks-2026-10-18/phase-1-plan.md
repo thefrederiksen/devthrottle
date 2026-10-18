@@ -246,3 +246,13 @@ last field, so a negative control is tied to one command without the log holding
 beside the Director, the `release.yml` publish steps, and both local build scripts. And the installer
 registers the PreToolUse hook ONLY when the executable is present beside the Director, logging loudly
 when it is not: a hook pointed at a missing file errors on every shell command in every session.
+
+**P16. REPLACES P15 and the shipping half of P11: the Director carries cc-rule-hook inside itself.**
+The Director self-updates ONE file through two swap paths with backup and roll back, so a second release
+asset would reach into the riskiest code in the product. Instead the Director's publish builds
+cc-rule-hook natively for its platform and embeds it; `ClaudeHookInstaller.EnsureInstalled` writes it
+into the instance's `claude-hooks` folder beside the hook scripts (compare before write, executable bit
+on Linux, atomic replace; a replace refused because the file is in use is logged and retried on the next
+launch, never fatal) and registers that path. No new release asset, and install, update, roll back and
+slots need no change. A build made without the native compiler carries no hook, and the installer then
+registers no PreToolUse hook and logs that loudly.
