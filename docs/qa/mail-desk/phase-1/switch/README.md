@@ -9,7 +9,7 @@ Contract: `docs/qa/mail-desk/phase-1/CONTRACT.md`, section 1 (rows 1 to 4). Buil
 | The per-account switch, a `tenant_settings` key `mail_desk_switch`; no machine switch | `src/CcDirector.Gateway/MailDesk/MailDeskSwitch.cs`, `Settings/TenantSettingKeys.cs` |
 | The route group answering 404 with no body when off | `src/CcDirector.Gateway/Api/MailDeskGate.cs` |
 | The administrator route `GET`/`POST /gateway/admin/mail-desk`, exempt from the device-key check | `src/CcDirector.Gateway/Api/AdminMailDeskEndpoint.cs`, `Util/AuthMiddleware.cs`, wired in `GatewayHost.cs` |
-| What a Mail Desk start is: a definition trigger of `mail-desk` with check `checks/screen.py` | `src/CcDirector.Gateway/MailDesk/MailDeskStart.cs` |
+| What a Mail Desk start is: a definition trigger of `MailDeskTemplate.Factory` with check `MailDeskTemplate.CheckPath` | `src/CcDirector.Gateway/MailDesk/MailDeskStart.cs` |
 | The refusal: 409 `{"error":"mail_desk_off","detail":...}`, nothing recorded | `TriggerService.ReportCheckAsync`, `Api/TriggerEndpoints.cs` |
 | The command | `scripts/mail-desk-switch.ps1` |
 

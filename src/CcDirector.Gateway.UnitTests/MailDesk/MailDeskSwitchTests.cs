@@ -327,25 +327,25 @@ public sealed class MailDeskSwitchTests : IDisposable
     [InlineData("Mail-Desk")]
     [InlineData("  mail-desk ")]
     public void MailDeskStart_Is_ADefinitionTriggerOfMailDeskWithTheScreenCheck_IsAMatch(string factory)
-        => Assert.True(MailDeskStart.Is(DefinitionTrigger(factory, MailDeskStart.CheckPath)));
+        => Assert.True(MailDeskStart.Is(DefinitionTrigger(factory, MailDeskTemplate.CheckPath)));
 
     [Theory]
     [InlineData("website-factory")]
     [InlineData("mail-desk-2")]
     [InlineData("")]
     public void MailDeskStart_Is_AnotherFactory_IsNotAMatch(string factory)
-        => Assert.False(MailDeskStart.Is(DefinitionTrigger(factory, MailDeskStart.CheckPath)));
+        => Assert.False(MailDeskStart.Is(DefinitionTrigger(factory, MailDeskTemplate.CheckPath)));
 
     [Theory]
     [InlineData("checks/new_mail.py")]
     [InlineData("checks/Screen.py")]
     [InlineData("checks/screen.py.bak")]
     public void MailDeskStart_Is_AnotherCheckPath_IsNotAMatch(string checkPath)
-        => Assert.False(MailDeskStart.Is(DefinitionTrigger(MailDeskStart.Factory, checkPath)));
+        => Assert.False(MailDeskStart.Is(DefinitionTrigger(MailDeskTemplate.Factory, checkPath)));
 
     [Fact]
     public void MailDeskStart_Is_ACommandTrigger_IsNotAMatch()
-        => Assert.False(MailDeskStart.Is(DefinitionTrigger(MailDeskStart.Factory, checkPath: null)));
+        => Assert.False(MailDeskStart.Is(DefinitionTrigger(MailDeskTemplate.Factory, checkPath: null)));
 
     // ---- the check report ----------------------------------------------------------------------------------
 
@@ -356,7 +356,7 @@ public sealed class MailDeskSwitchTests : IDisposable
         // The published definition the start is built from: the fixture's outreach seat, renamed for Mail Desk.
         var d = FactoryDefinitionCheck.Read(DefinitionFixture.Valid()).Definition!;
         var seat = d.Seats.Single(s => s.Seat == "outreach") with { Seat = "mail-desk", Name = "Mail Desk" };
-        var published = new PublishedFactoryDefinition(1, d with { Factory = MailDeskStart.Factory, BossSeat = "mail-desk", Seats = new[] { seat } });
+        var published = new PublishedFactoryDefinition(1, d with { Factory = MailDeskTemplate.Factory, BossSeat = "mail-desk", Seats = new[] { seat } });
         return new TriggerService(new TriggerStore(Db), new FactoryActivityRecord(Db),
             (_, request, _) =>
             {
@@ -366,18 +366,18 @@ public sealed class MailDeskSwitchTests : IDisposable
             findSession: (_, _) => null, findSessionByName: (_, _) => null, timeZone: _ => TimeZoneInfo.Utc,
             nowUtc: () => _now, startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
-            definitionOf: (_, factory) => factory == MailDeskStart.Factory ? published : null,
+            definitionOf: (_, factory) => factory == MailDeskTemplate.Factory ? published : null,
             mailDeskOn: mailDesk.IsOn);
     }
 
     /// <summary>A definition trigger of the mail-desk factory, as a publish writes it.</summary>
-    private Guid AddMailDeskTrigger(string checkPath = MailDeskStart.CheckPath)
+    private Guid AddMailDeskTrigger(string checkPath = MailDeskTemplate.CheckPath)
     {
         using var ctx = Db.CreateContext(Account);
         var row = new TriggerEntity
         {
             Name = "mail-desk-screen",
-            Factory = MailDeskStart.Factory,
+            Factory = MailDeskTemplate.Factory,
             FactoryAgent = "mail-desk",
             Machine = Machine,
             RepoPath = "",
@@ -479,7 +479,7 @@ public sealed class MailDeskSwitchTests : IDisposable
         Assert.Equal(TriggerRunOutcome.NothingToDo, quiet.Run!.Outcome);
         Assert.Equal(TriggerReportRefusal.None, busy.Refusal);
         Assert.Equal(TriggerRunOutcome.Started, started!.Outcome);
-        Assert.Equal(MailDeskStart.Factory, Assert.Single(_starts).Factory);
+        Assert.Equal(MailDeskTemplate.Factory, Assert.Single(_starts).Factory);
         var (runs, stateRows, row) = Recorded(trigger);
         Assert.Equal(2, runs);
         Assert.Equal(2, stateRows);

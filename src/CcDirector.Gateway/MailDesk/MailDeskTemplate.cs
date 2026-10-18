@@ -27,13 +27,13 @@ namespace CcDirector.Gateway.MailDesk;
 /// </summary>
 public static class MailDeskTemplate
 {
-    /// <summary>The factory the template defines. The phase 1 contract's <c>MailDeskStart.Factory</c> names the same.</summary>
+    /// <summary>The factory the template defines. <see cref="MailDeskStart.Is"/> reads it.</summary>
     public const string Factory = "mail-desk";
 
     /// <summary>The template's one seat.</summary>
     public const string Seat = "mail-desk";
 
-    /// <summary>The screening check the seat's start runs. The phase 1 contract's <c>MailDeskStart.CheckPath</c>.</summary>
+    /// <summary>The screening check the seat's start runs. <see cref="MailDeskStart.Is"/> reads it.</summary>
     public const string CheckPath = "checks/screen.py";
 
     /// <summary>Every file the template holds, by its path in the definition, in ordinal order.</summary>
