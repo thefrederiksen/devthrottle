@@ -1,0 +1,551 @@
+{
+ "endpoint": "fake",
+ "model": "fake",
+ "emails": 18,
+ "spent_dollars": 0.001786,
+ "spent_is_notional": true,
+ "spend_limit_dollars": 0.5,
+ "stopped": null,
+ "rows": [
+  {
+   "key": "4efca292fa74",
+   "sender_kind": "example.com",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.81,
+    "letter_probabilities": {
+     "spam": 0.81,
+     "person": 0.19
+    },
+    "prompt_tokens": 150,
+    "completion_tokens": 1,
+    "cost_dollars": 5.44e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.65,
+    "letter_probabilities": {
+     "unsure": 0.65,
+     "devthrottle/mail-desk": 0.116667,
+     "citizenship": 0.116667,
+     "notification": 0.116667
+    },
+    "prompt_tokens": 141,
+    "completion_tokens": 1,
+    "cost_dollars": 5.116e-05
+   }
+  },
+  {
+   "key": "df1c97f99cc6",
+   "sender_kind": "example.org",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.64,
+    "letter_probabilities": {
+     "person": 0.64,
+     "spam": 0.36
+    },
+    "prompt_tokens": 150,
+    "completion_tokens": 1,
+    "cost_dollars": 5.44e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.61,
+    "letter_probabilities": {
+     "citizenship": 0.61,
+     "devthrottle/mail-desk": 0.13,
+     "notification": 0.13,
+     "unsure": 0.13
+    },
+    "prompt_tokens": 141,
+    "completion_tokens": 1,
+    "cost_dollars": 5.116e-05
+   }
+  },
+  {
+   "key": "ba3d2fcd018f",
+   "sender_kind": "example.net",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.8,
+    "letter_probabilities": {
+     "person": 0.8,
+     "spam": 0.2
+    },
+    "prompt_tokens": 142,
+    "completion_tokens": 1,
+    "cost_dollars": 5.152e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "devthrottle/mail-desk": 0.58,
+     "citizenship": 0.14,
+     "notification": 0.14,
+     "unsure": 0.14
+    },
+    "prompt_tokens": 133,
+    "completion_tokens": 1,
+    "cost_dollars": 4.828e-05
+   }
+  },
+  {
+   "key": "69e245b18cb2",
+   "sender_kind": "example.com",
+   "person_or_spam": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "person": 0.7,
+     "spam": 0.3
+    },
+    "prompt_tokens": 137,
+    "completion_tokens": 1,
+    "cost_dollars": 4.972e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.65,
+    "letter_probabilities": {
+     "citizenship": 0.65,
+     "devthrottle/mail-desk": 0.116667,
+     "notification": 0.116667,
+     "unsure": 0.116667
+    },
+    "prompt_tokens": 128,
+    "completion_tokens": 1,
+    "cost_dollars": 4.648e-05
+   }
+  },
+  {
+   "key": "6d0c3dc9a1f9",
+   "sender_kind": "example.gov",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.79,
+    "letter_probabilities": {
+     "spam": 0.79,
+     "person": 0.21
+    },
+    "prompt_tokens": 152,
+    "completion_tokens": 1,
+    "cost_dollars": 5.512e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.75,
+    "letter_probabilities": {
+     "unsure": 0.75,
+     "devthrottle/mail-desk": 0.083333,
+     "citizenship": 0.083333,
+     "notification": 0.083333
+    },
+    "prompt_tokens": 143,
+    "completion_tokens": 1,
+    "cost_dollars": 5.188e-05
+   }
+  },
+  {
+   "key": "b6f973b53d71",
+   "sender_kind": "example-law.com",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.76,
+    "letter_probabilities": {
+     "person": 0.76,
+     "spam": 0.24
+    },
+    "prompt_tokens": 154,
+    "completion_tokens": 1,
+    "cost_dollars": 5.584e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.77,
+    "letter_probabilities": {
+     "citizenship": 0.77,
+     "devthrottle/mail-desk": 0.076667,
+     "notification": 0.076667,
+     "unsure": 0.076667
+    },
+    "prompt_tokens": 145,
+    "completion_tokens": 1,
+    "cost_dollars": 5.26e-05
+   }
+  },
+  {
+   "key": "7baf31d2cd27",
+   "sender_kind": "example-cloud.com",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.51,
+    "letter_probabilities": {
+     "spam": 0.51,
+     "person": 0.49
+    },
+    "prompt_tokens": 132,
+    "completion_tokens": 1,
+    "cost_dollars": 4.792e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.53,
+    "letter_probabilities": {
+     "unsure": 0.53,
+     "devthrottle/mail-desk": 0.156667,
+     "citizenship": 0.156667,
+     "notification": 0.156667
+    },
+    "prompt_tokens": 123,
+    "completion_tokens": 1,
+    "cost_dollars": 4.468e-05
+   }
+  },
+  {
+   "key": "3c96c99101f5",
+   "sender_kind": "example-git.com",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.68,
+    "letter_probabilities": {
+     "person": 0.68,
+     "spam": 0.32
+    },
+    "prompt_tokens": 135,
+    "completion_tokens": 1,
+    "cost_dollars": 4.9e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "citizenship": 0.99,
+     "devthrottle/mail-desk": 0.003333,
+     "notification": 0.003333,
+     "unsure": 0.003333
+    },
+    "prompt_tokens": 126,
+    "completion_tokens": 1,
+    "cost_dollars": 4.576e-05
+   }
+  },
+  {
+   "key": "66ded1fcb116",
+   "sender_kind": "example-pay.com",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.55,
+    "letter_probabilities": {
+     "spam": 0.55,
+     "person": 0.45
+    },
+    "prompt_tokens": 133,
+    "completion_tokens": 1,
+    "cost_dollars": 4.828e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.71,
+    "letter_probabilities": {
+     "citizenship": 0.71,
+     "devthrottle/mail-desk": 0.096667,
+     "notification": 0.096667,
+     "unsure": 0.096667
+    },
+    "prompt_tokens": 124,
+    "completion_tokens": 1,
+    "cost_dollars": 4.504e-05
+   }
+  },
+  {
+   "key": "2c47374bbec1",
+   "sender_kind": "example-dns.com",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.9,
+    "letter_probabilities": {
+     "person": 0.9,
+     "spam": 0.1
+    },
+    "prompt_tokens": 143,
+    "completion_tokens": 1,
+    "cost_dollars": 5.188e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.71,
+    "letter_probabilities": {
+     "citizenship": 0.71,
+     "devthrottle/mail-desk": 0.096667,
+     "notification": 0.096667,
+     "unsure": 0.096667
+    },
+    "prompt_tokens": 134,
+    "completion_tokens": 1,
+    "cost_dollars": 4.864e-05
+   }
+  },
+  {
+   "key": "f91fb931b3bd",
+   "sender_kind": "example-promo.biz",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.98,
+    "letter_probabilities": {
+     "person": 0.98,
+     "spam": 0.02
+    },
+    "prompt_tokens": 146,
+    "completion_tokens": 1,
+    "cost_dollars": 5.296e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.86,
+    "letter_probabilities": {
+     "notification": 0.86,
+     "devthrottle/mail-desk": 0.046667,
+     "citizenship": 0.046667,
+     "unsure": 0.046667
+    },
+    "prompt_tokens": 137,
+    "completion_tokens": 1,
+    "cost_dollars": 4.972e-05
+   }
+  },
+  {
+   "key": "4dc6fe118d65",
+   "sender_kind": "example-leads.io",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.66,
+    "letter_probabilities": {
+     "person": 0.66,
+     "spam": 0.34
+    },
+    "prompt_tokens": 142,
+    "completion_tokens": 1,
+    "cost_dollars": 5.152e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.95,
+    "letter_probabilities": {
+     "unsure": 0.95,
+     "devthrottle/mail-desk": 0.016667,
+     "citizenship": 0.016667,
+     "notification": 0.016667
+    },
+    "prompt_tokens": 133,
+    "completion_tokens": 1,
+    "cost_dollars": 4.828e-05
+   }
+  },
+  {
+   "key": "3e4e90a6c126",
+   "sender_kind": "example-bank-secure.net",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.58,
+    "letter_probabilities": {
+     "person": 0.58,
+     "spam": 0.42
+    },
+    "prompt_tokens": 143,
+    "completion_tokens": 1,
+    "cost_dollars": 5.188e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.53,
+    "letter_probabilities": {
+     "unsure": 0.53,
+     "devthrottle/mail-desk": 0.156667,
+     "citizenship": 0.156667,
+     "notification": 0.156667
+    },
+    "prompt_tokens": 134,
+    "completion_tokens": 1,
+    "cost_dollars": 4.864e-05
+   }
+  },
+  {
+   "key": "26a676716118",
+   "sender_kind": "example-rank.co",
+   "person_or_spam": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "spam": 0.89,
+     "person": 0.11
+    },
+    "prompt_tokens": 140,
+    "completion_tokens": 1,
+    "cost_dollars": 5.08e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.54,
+    "letter_probabilities": {
+     "notification": 0.54,
+     "devthrottle/mail-desk": 0.153333,
+     "citizenship": 0.153333,
+     "unsure": 0.153333
+    },
+    "prompt_tokens": 131,
+    "completion_tokens": 1,
+    "cost_dollars": 4.756e-05
+   }
+  },
+  {
+   "key": "f0d59e2ea2c6",
+   "sender_kind": "example.com",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.94,
+    "letter_probabilities": {
+     "person": 0.94,
+     "spam": 0.06
+    },
+    "prompt_tokens": 130,
+    "completion_tokens": 1,
+    "cost_dollars": 4.72e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.7,
+    "letter_probabilities": {
+     "notification": 0.7,
+     "devthrottle/mail-desk": 0.1,
+     "citizenship": 0.1,
+     "unsure": 0.1
+    },
+    "prompt_tokens": 121,
+    "completion_tokens": 1,
+    "cost_dollars": 4.396e-05
+   }
+  },
+  {
+   "key": "35af4f5e193b",
+   "sender_kind": "example-news.com",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.7,
+    "letter_probabilities": {
+     "person": 0.7,
+     "spam": 0.3
+    },
+    "prompt_tokens": 137,
+    "completion_tokens": 1,
+    "cost_dollars": 4.972e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.96,
+    "letter_probabilities": {
+     "notification": 0.96,
+     "devthrottle/mail-desk": 0.013333,
+     "citizenship": 0.013333,
+     "unsure": 0.013333
+    },
+    "prompt_tokens": 128,
+    "completion_tokens": 1,
+    "cost_dollars": 4.648e-05
+   }
+  },
+  {
+   "key": "768d066bb940",
+   "sender_kind": "example.org",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.62,
+    "letter_probabilities": {
+     "person": 0.62,
+     "spam": 0.38
+    },
+    "prompt_tokens": 139,
+    "completion_tokens": 1,
+    "cost_dollars": 5.044e-05
+   },
+   "route": {
+    "label": "devthrottle/mail-desk",
+    "valid_answer": true,
+    "confidence": 0.76,
+    "letter_probabilities": {
+     "devthrottle/mail-desk": 0.76,
+     "citizenship": 0.08,
+     "notification": 0.08,
+     "unsure": 0.08
+    },
+    "prompt_tokens": 130,
+    "completion_tokens": 1,
+    "cost_dollars": 4.72e-05
+   }
+  },
+  {
+   "key": "bf8a93157624",
+   "sender_kind": "example-social.com",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.6,
+    "letter_probabilities": {
+     "person": 0.6,
+     "spam": 0.4
+    },
+    "prompt_tokens": 136,
+    "completion_tokens": 1,
+    "cost_dollars": 4.936e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "notification": 0.58,
+     "devthrottle/mail-desk": 0.14,
+     "citizenship": 0.14,
+     "unsure": 0.14
+    },
+    "prompt_tokens": 127,
+    "completion_tokens": 1,
+    "cost_dollars": 4.612e-05
+   }
+  }
+ ]
+}

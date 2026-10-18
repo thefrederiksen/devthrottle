@@ -1,0 +1,11 @@
+factory: qa-mail-sign-in
+title: QA Mail Sign-in
+purpose: Proves a definition check finds and renews the saved mailbox sign-in
+goalText: |
+  Prove the Mail Desk sign-in premise on a throwaway Gateway.
+goalApprovedOn: 2026-10-18
+bossSeat: boss
+defaults:
+  machine: devlinux
+  agent: ClaudeCode
+  model: claude-sonnet-5-5
