@@ -3421,7 +3421,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             FileLog.Write($"[MainWindow] TabBarWheelButton_Click FAILED: {ex}");
-            ShowNotification($"The wheel could not be switched: {ex.Message}");
+            ShowNotification(ShownError.Report("main window", "switch the wheel", $"The wheel could not be switched: {ex.Message}", ex));
         }
     }
 
