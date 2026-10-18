@@ -5135,6 +5135,13 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("BackupMachinesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2048)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]");
+
                     b.Property<string>("CheckCommand")
                         .IsRequired()
                         .HasMaxLength(2048)
@@ -5148,6 +5155,13 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("ClaimedByMachine")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("");
 
                     b.Property<DateTime?>("ClaimedUtc")
                         .HasColumnType("TEXT");

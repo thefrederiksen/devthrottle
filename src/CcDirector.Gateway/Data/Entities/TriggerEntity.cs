@@ -8,6 +8,8 @@ namespace CcDirector.Gateway.Data.Entities;
 /// Besides the definition, the row carries the three pieces of state the decision needs: the session this
 /// trigger last started (the one-at-a-time lock lasts until THAT session has ended), and which Director holds
 /// the check (<see cref="ClaimedByDirectorId"/>), so that several Directors on one machine never all run it.
+/// A definition trigger may also name backup machines (<see cref="BackupMachinesJson"/>), which take the check over
+/// while its own machine is away.
 /// </summary>
 public sealed class TriggerEntity : GatewayMintedKeyEntity
 {
@@ -68,4 +70,14 @@ public sealed class TriggerEntity : GatewayMintedKeyEntity
 
     /// <summary>When the claim was last renewed (UTC). A claim not renewed for two intervals lapses.</summary>
     public DateTime? ClaimedUtc { get; set; }
+
+    // ---- Mail Desk, phase 5: BACKUP MACHINES. ----
+
+    /// <summary>The machines that run this trigger's check while <see cref="Machine"/> is away, in order of preference,
+    /// as a JSON array; <c>[]</c> when it has none. Only a definition trigger has any (a start's <c>backupMachines</c>).</summary>
+    public string BackupMachinesJson { get; set; } = "[]";
+
+    /// <summary>The machine of the Director in <see cref="ClaimedByDirectorId"/>, or empty when none holds the claim or
+    /// the report that took it did not say. A claim must know its machine to be handed back to an earlier one.</summary>
+    public string ClaimedByMachine { get; set; } = "";
 }
