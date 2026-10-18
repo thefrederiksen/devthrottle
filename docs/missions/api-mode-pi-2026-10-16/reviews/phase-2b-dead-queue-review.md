@@ -565,3 +565,133 @@ later connection event and keeps its words, and a real re-announcement turns it 
 time, Debug, after checking no other test host was up: ApiModeLiveRulingTests 120, ApiModeReceiptStoreTests 86,
 SessionReceiptsEndpointTests 18, ApiModeEventIngestTests 40, SessionLiveEndpointTests 58, ApiModeEventPusherQueueTests
 10, ApiModeReceiptPromptTextTests 31 - **363 passed, 0 failed, 0 skipped**; ApiModeSessionFoldTests 25 passed as well.
+
+## Re-review after the Delivery Lead's ruling
+
+Pull request #4209 re-reviewed at its head `94b24a9db`, one commit on the previous check's head `e2e1d6bc1`. The branch
+sits on pull request #4179's head `cdd81b9a6`; `origin/main` at `dac07950f` has nothing the branch lacks (the merge base is
+`origin/main` itself), and GitHub reports the pull request MERGEABLE and CLEAN. Reviewer seat, session cf76bba5, a
+different agent family from the Developer, 18 October 2026 on devlinux.
+
+**Verdict: approve.** No path in the branch can show Delivered without a `PromptDelivered` held for that prompt id; the
+two Unknown wordings are chosen by one function from the receipt's own fields and every reader calls it; the widened
+lost-turn-end rule rules no running turn lost and leaves pull request #4179's rules as they were; the fold counts a
+carried turn as it counts a delivered one; and twelve tests fail when the widened paths are broken. Three notes, none a
+reason to hold.
+
+**Read, in full:** the diff from `e2e1d6bc1` to `94b24a9db` (five production files, the contract, the entity, six test
+files, and the ruling section of this file); `ApiModeLostTurnEnd.cs` whole; `ApiModeLiveRuling.cs` (the seed from stored
+receipts, `Rule`, `ReceiptWords`, `ReceiptTone`, `ReceiptItem`, `ReceiptChange`, `TurnStart`, `LostTurnEnds`,
+`QueuesLeft`, `TurnEnd`, `Unlink`); `ApiModeReceiptStore.cs` (`RecordQueued`, `RecordDelivered`, `RecordRefused`,
+`RecordTurnStarted`, `EndTurnOnce`, `RecordTurnOverProven`, `ProveQueueLeftOnce`, `ProveProcessEndedOnce`,
+`ReadWithPositions`, `Unlink`, `Deliver`, `Supersede`); `ApiModeEventIngest.FeedReceipts`; `ApiModeSessionFold` (the
+turn count and the activity words); `ApiModeVerdictReceipts`; the line of `SessionReceiptsEndpoint` that words a receipt;
+the client's `ApiModeLiveChat.tsx`.
+
+**Ran, Debug, `CcDirector.Gateway.UnitTests`, nine classes in one filter** (the seven of the first review plus
+`ApiModeSessionFoldTests` and `PushApiModeEventsHubTests`), two runs, each after checking no other test host was up:
+
+- Run 1, the branch as it stands: **398 passed, 0 failed, 0 skipped**, 39 seconds. That is the Developer's 363 plus the
+  fold's 25 and the hub's 10.
+- Run 2, a deliberate break of every path this commit widened, all at once, everything else as on the branch:
+  `ReceiptWords` answering the first Unknown wording for every Unknown receipt; `ApiModeLostTurnEnd.IsOpenOutside`
+  accepting Delivered only; the store's lost-turn candidates excluding a carried row; the live ruling's `TurnEnd` landing
+  the outcome on Delivered receipts only; both `Unlink` methods doing nothing. **12 failed, 386 passed.** The quiet logger
+  I used prints no failing names and I did not spend a third run on them, so the twelve are accounted for by reading the
+  tests against the break: four in the store (the carried ruling's fields and words, the turn's outcome with the carried
+  words kept, the lost ending on a carried receipt, the re-announcement that drops the turn), three in the live ruling
+  (the carried ruling, each Unknown receipt's own words, the real delivery that shows the failed turn's outcome, which
+  needs the outcome to have landed on the carried receipt), two in the ingest (the carried ruling, and the places in
+  line across the next hole), the pusher's third test, and the receipts endpoint's and the live stream's carried-prompt
+  tests. Nothing else in the nine classes asserts on a carried receipt's words, its turn's lost ending or its
+  unlinking. The three files were restored from git and the tree is clean.
+
+### Check 1 - Delivered only on a held PromptDelivered
+
+Every write of the Delivered state in the branch: `ApiModeLiveRuling` line 146, inside the `PromptDelivered` arm of
+`RuleEvent`; and `ApiModeReceiptStore.RecordDelivered` at its four writes (a new row, the branch that replaces an Unknown
+ruling, the supersede of a refusal, the ordinary path). `RecordDelivered` has one caller, the ingest's `PromptDelivered`
+case. The hub's Hello (`RecordDirectorProcessStarted`), the queue proof (`RecordQueueLeftProven`), the turn proofs
+(`RecordTurnOverProven`, `RecordTurnStarted`, `RecordTurnEnded`), the fold, the verdict reader, the receipts endpoint and
+the stream's opening (`ReceiptItem` over the stored receipts) write no state at all. `LostDisposition`,
+`IsInferredDelivery` and the two inferred-delivery branches are gone; a search of the branch finds none of them, and the
+contract and entity notes list the agent's three dispositions only. The client reads the words and the tone and composes
+nothing (the word Delivered appears there in a comment). So the only Delivered the Gateway can show is one written from
+a `PromptDelivered` for that prompt id. The one refinement on "any generation": a `PromptDelivered` of a generation older
+than the Unknown ruling is set aside as a replay and the receipt stays Unknown, which shows nothing the ruling forbids,
+and such an event cannot arrive except through a Gateway restart replay of an event the store had already applied.
+
+### Check 2 - the two Unknown wordings are chosen the same way by every reader
+
+One function, `ApiModeLiveRuling.ReceiptWords`, chooses between them from the receipt's fields alone:
+`ApiModeLostQueuedPrompt.IsCarried(State, TurnId)`, that is Unknown with a turn id. The receipts endpoint, the live
+ruling's own items (`ReceiptItem`, `ReceiptIfChanged`) and the stream's opening from the store (the seed, which fills the
+shown words with `ReceiptWords`) all call it, and nothing else words a receipt: a search for "Not known" across the
+Gateway, the contracts, `packages` and `apps` finds the two constants and unrelated folds only. The discriminator is
+sound. A Queued receipt never carries a turn id in either reader: the store's `RecordTurnStarted` links Delivered rows
+only and `Supersede` clears the turn; the live `TurnStart` sets a turn on Delivered receipts only; the seed copies the
+row. The two other Unknown rulings (`Applies`, `AppliesToEndedProcess`) are made on Queued receipts and set no turn. So an
+Unknown receipt has a turn id only through `IsCarriedBy`. A real `PromptDelivered` turns it Delivered and keeps the turn
+and its outcome; a real `PromptQueued` or `PromptRefused` turns it Queued or Refused and drops the turn (`Unlink`, in both
+readers, including the live ruling's list of the turn's prompts), so no Unknown receipt keeps a turn that did not carry
+it. The tone is neutral for both wordings. The receipts endpoint, the live stream and the stream's opening are compared
+in the two endpoint tests and agree.
+
+### Check 3 - the widened lost-turn-end rule
+
+`IsOpenOutside` now accepts Delivered, or Unknown with a turn id. For a carried receipt the turn id is the carrying
+`TurnStarted`'s and the receipt's position is that event's (`Touch`, in both readers), so `Applies` needs a proof of a
+LATER generation than the one the turn started in, and `Proves` is unchanged: a `TurnStarted` of a different turn,
+`ConnectionReady`, or `ConnectionEnded`. Each proves the carrying turn over by the Director's own rules, exactly as it
+does for a Delivered receipt whose turn started in that generation, so no turn that is still running is ruled lost. The
+carrying event cannot rule its own receipt lost: in the ingest `RecordTurnOverProven` runs before `RecordQueueLeftProven`,
+when the row is still Queued, and in the live ruling `LostTurnEnds` runs before `QueuesLeft` likewise; had the order been
+the other way, the proof's turn id equals the receipt's and the generations are equal, so `Applies` would answer false
+twice over. The no-turn-id branch of `IsOpenOutside` is reached by Delivered receipts only, since `IsCarried` requires a
+turn id, so pull request #4179's "turn start lost too" rule and `RecordTurnStarted`'s lost-relink branch are untouched
+and cannot meet a carried row. The store's candidate query matches the predicate (no outcome, and Delivered or Unknown
+with a turn id) and now passes the row's real state to `Applies` instead of the constant Delivered it passed before,
+which is the correction the widening needed. The real `TurnEnded` lands on a carried receipt in both readers: the
+store's `EndTurnOnce` selects by turn id regardless of state, as it always did, and the live `TurnEnd` now includes a
+carried receipt among the turn's prompts, which `TurnStart` adds for every prompt id it names and the seed adds for
+every stored receipt with a turn id. The words do not change with the outcome, by design; the outcome is on the receipt.
+Pull request #4179's tests live in the same nine classes and passed in run 1.
+
+### Check 4 - the turn count in the fold
+
+`ApiModeSessionFold` numbers turns from every receipt that has a turn id, whatever its state, and takes a turn's outcome
+from the first receipt that has one. A carried receipt therefore counts its turn exactly as a delivered one would: a
+session whose only prompt was carried reads "Working - turn 1" while the turn runs, "Idle after turn 1" after the real
+end or the lost ruling, and "Not known: turn 1 started and its end never reached the Gateway" when the protocol process
+has let go without either. The queued count (`State == Queued`) leaves it out, as the place-in-line functions do.
+`ApiModeSessionFoldTests` (25) passed in run 1. One consequence to know: when a real `PromptQueued` or `PromptRefused`
+unlinks the only receipt of a carried turn, that turn leaves the fold's count and later turns renumber down by one. Both
+readers do the same, so the surfaces agree; it is the right answer to "the Director still holds this prompt"; and the
+path exists only for a Director that re-announces or refuses a prompt it had said a turn carried.
+
+### Check 5 - the tests
+
+Run 2 above: twelve fail with the widened paths broken. The carried state is pinned as `ApiModeReceiptState.Unknown`
+with a null disposition and a null acknowledgement in the store and the ingest, and as the carried words with the
+neutral tone in the live ruling, the pusher, the receipts endpoint and the live stream, so a return to Delivered would
+fail them on the state or the words. Every changed or new name is Method_Scenario_Result
+(`RecordTurnOverProven_ACarriedPromptWhoseTurnsEndWasLost_RulesTheTurnLostAndKeepsItsCarriedWords`,
+`RecordQueued_TheRealReannouncementAfterACarriedPromptWasRuledUnknown_IsQueuedAndDropsTheTurn`,
+`Rule_ATurnStartedThatCarriesTheQueuedPrompt_RulesItUnknownLinkedToTheTurnAndNeverDelivered`, and the rest). No
+clock, process, sleep or port.
+
+### Notes (not findings)
+
+- **N6. Two live-ruling paths have no test of their own.** A carried receipt taken from the store and ruled lost by a
+  later generation's connection event (`LostTurnEnds`), and a real `PromptQueued` or `PromptRefused` unlinking a carried
+  receipt (`Unlink`, including the removal from the turn's prompt list). Both are pinned on the store side, and the lost
+  ending's decision is the shared `ApiModeLostTurnEnd.Applies`, so the shared decision is tested; what is untested is the
+  live ruling's own bookkeeping. Two tests in a follow-on.
+- **N7. The contract note on `ApiModeReceiptDto.Words`** still lists only the first Unknown wording. Add the carried one
+  when the file is next touched.
+- **N8. Note N2 of the first review still stands:** the holes paragraph of `event-model.md` states neither Gateway
+  ruling (the `lost` turn ending, the `Unknown` receipt ending, now with its carried form).
+
+### Verdict
+
+**Approve.** Fit to merge at `94b24a9db`.
