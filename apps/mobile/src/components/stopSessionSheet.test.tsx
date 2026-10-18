@@ -47,6 +47,7 @@ function manage(over: Partial<SessionManage> = {}): SessionManage {
     toggleHold: () => Promise.resolve(true),
     holdFor: () => Promise.resolve(true),
     stopSession: () => stopSessionMock() as Promise<SessionStopOutcome>,
+    refreshNow: () => {},
     ...over,
   };
 }

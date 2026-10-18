@@ -124,6 +124,37 @@ starts:
 - `prompt` - what the seat is told when the start fires.
 - `preventOverlap` - whether a start waits while the last run is still going.
 
+### Steps
+
+```yaml
+steps:                            # optional; at least one when present
+  - name: Worktree sweep          # required, at most 40 characters
+    detail: every repository      # optional; one line under the name
+    runs: cc-worktrees sweep      # optional; the command, exactly as the brief gives it
+    repeats: until it says DONE, at most 12 times   # optional
+  - name: Safe?
+    decision: a failure, an ALERT, or under 60 GB free   # makes the step a question
+    continueWhen: "no"            # the answer that stays on the main line
+    branch:                       # the one step off the main line
+      when: "yes"                 # required: the answer that takes it
+      name: Email the owner       # required
+      detail: what failed         # optional
+      ends: stop                  # required: done or stop
+```
+
+- `steps` - what the seat does, step by step, in order. It is what the factory page draws; it does not change what the
+  seat is told, which is the `brief`.
+- `name` - the step in a few words.
+- `detail` - one line shown under the name.
+- `runs` - the command the step runs, shown when the step is opened on the page.
+- `repeats` - when the step repeats, in words.
+- `decision` - makes the step a question and says what is decided. A decision does not run a command or repeat: put
+  that work in a step of its own before it.
+- `continueWhen` - on a decision, the answer that stays on the main line.
+- `branch` - on a decision, the one step taken off the main line. A step with `branch` or `continueWhen` must be a
+  decision. Inside the branch, `when` is the answer that takes the branch, `name` and `detail` describe its step, and
+  `ends` says how the seat ends after it: `done` (it finishes) or `stop` (it stops and waits for a person).
+
 ## grants.yaml
 
 ```yaml

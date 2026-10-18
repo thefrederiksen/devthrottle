@@ -102,6 +102,10 @@
          C# string literals, so they stay diffable against the skill files they came from and cannot
          drift through escaping. -->
     <EmbeddedResource Include="Skills\Content\*.skill.md" />
+    <!-- The built-in Mail Desk factory's definition template (Mail Desk mission, design 5.3): a folder of files, kept as
+         files so they read and diff as the definition a person would import. Each is named by its path in the
+         definition, so MailDeskTemplate reads back exactly the folder. -->
+    <EmbeddedResource Include="MailDesk\Template\**\*" LogicalName="CcDirector.Gateway.MailDesk.Template/%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- The factory definition's JSON Schemas (Factory Definition mission): the contract the definition check
          enforces and phase 3 serves. Files, not literals, so an editor can read them as they are. -->
     <EmbeddedResource Include="Factory\Definition\Schemas\*.schema.json" LogicalName="CcDirector.Gateway.Factory.Definition.Schemas.%(Filename)%(Extension)" />

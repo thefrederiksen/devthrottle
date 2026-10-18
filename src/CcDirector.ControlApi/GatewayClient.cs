@@ -28,7 +28,7 @@ namespace CcDirector.ControlApi;
 /// When the config is disabled (no gateway.url) the client is inert - every method
 /// is a no-op so the Director boots normally in local-only mode.
 /// </summary>
-public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, Triggers.IFactoryCheckSource, IDisposable
+public sealed class GatewayClient : IGatewayHold, IGatewayWheel, IGatewayColourLegend, IGatewayLinkRequests, Triggers.ITriggerGateway, Triggers.IFactoryCheckSource, IDisposable
 {
     /// <summary>How often the heartbeat fires.</summary>
     public static TimeSpan HeartbeatInterval { get; } = TimeSpan.FromSeconds(15);
@@ -1178,6 +1178,34 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, IGateway
         using var resp = await _http.PostAsJsonAsync($"sessions/{sessionId}/hold", body, ct);
         if (!resp.IsSuccessStatusCode)
             throw await RelayFailureAsync(resp, $"hold for {sessionId}", ct);
+    }
+
+    /// <summary>
+    /// Take the wheel of an API-mode session through the Gateway's <c>POST /sessions/{sid}/wheel/take</c> (mission
+    /// #4070) - the <see cref="IGatewayWheel"/> seam. The same authenticated client the hold uses. Fail-loud: throws
+    /// when the Gateway is not configured or refuses, carrying the Gateway's own sentence.
+    /// </summary>
+    public Task TakeWheelAsync(string sessionId, CancellationToken ct = default)
+        => PostWheelVerbAsync(sessionId, "take", ct);
+
+    /// <summary>Hand the wheel back through the Gateway's <c>POST /sessions/{sid}/wheel/hand-back</c>. As
+    /// <see cref="TakeWheelAsync"/>.</summary>
+    public Task HandBackWheelAsync(string sessionId, CancellationToken ct = default)
+        => PostWheelVerbAsync(sessionId, "hand-back", ct);
+
+    private async Task PostWheelVerbAsync(string sessionId, string route, CancellationToken ct)
+    {
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException(
+                "This Director is not connected to a Gateway, so the wheel cannot be taken or handed back from here.");
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("Session id is required", nameof(sessionId));
+
+        FileLog.Write($"[GatewayClient] PostWheelVerbAsync: POST /sessions/{sessionId}/wheel/{route}");
+        using var resp = await _http.PostAsync($"sessions/{sessionId}/wheel/{route}", content: null, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, $"wheel {route} for {sessionId}", ct);
+        FileLog.Write($"[GatewayClient] PostWheelVerbAsync: {route} accepted for {sessionId}");
     }
 
     /// <summary>

@@ -1,0 +1,218 @@
+[
+ {
+  "id": "s01",
+  "sender_local": "maria.lopez",
+  "sender_domain": "example.com",
+  "sender_name": "Maria Lopez",
+  "subject": "Director will not start after update",
+  "preview": "Hi, since installing 2.24 the Director closes right after the splash screen on Windows 11. I attached the log. Can you help?",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "devthrottle/mail-desk"
+  }
+ },
+ {
+  "id": "s02",
+  "sender_local": "billing",
+  "sender_domain": "example.org",
+  "sender_name": "Accounts Payable",
+  "subject": "Invoice question for our DevThrottle subscription",
+  "preview": "Hello, we were charged twice for October. Could you refund the duplicate charge and send a corrected invoice?",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "devthrottle/mail-desk"
+  }
+ },
+ {
+  "id": "s03",
+  "sender_local": "jkim",
+  "sender_domain": "example.net",
+  "sender_name": "Jae Kim",
+  "subject": "Bug: session list shows wrong machine",
+  "preview": "When I move a session to my laptop, the session list still shows the old machine name until I restart.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "devthrottle/mail-desk"
+  }
+ },
+ {
+  "id": "s04",
+  "sender_local": "t.nguyen",
+  "sender_domain": "example.com",
+  "sender_name": "Thao Nguyen",
+  "subject": "How do I add a second machine?",
+  "preview": "I bought the team plan. How do I connect my second machine to the same account?",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "devthrottle/mail-desk"
+  }
+ },
+ {
+  "id": "s05",
+  "sender_local": "caseworker",
+  "sender_domain": "example.gov",
+  "sender_name": "Citizenship Office",
+  "subject": "Your citizenship application: documents received",
+  "preview": "Dear applicant, we have received the documents for your citizenship application. Your case number is listed below.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "citizenship"
+  }
+ },
+ {
+  "id": "s06",
+  "sender_local": "office",
+  "sender_domain": "example-law.com",
+  "sender_name": "Hansen Immigration Law",
+  "subject": "Citizenship application - next appointment",
+  "preview": "Hello, the interview for the citizenship application is booked. Please bring your passport and the original certificates.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "citizenship"
+  }
+ },
+ {
+  "id": "s07",
+  "sender_local": "noreply",
+  "sender_domain": "example-cloud.com",
+  "sender_name": "Example Cloud",
+  "subject": "Your monthly usage report",
+  "preview": "Your usage for September is ready. View it in the console.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "notification"
+  }
+ },
+ {
+  "id": "s08",
+  "sender_local": "alerts",
+  "sender_domain": "example-git.com",
+  "sender_name": "Example Git",
+  "subject": "[devthrottle] Workflow run failed on main",
+  "preview": "The CI workflow failed on main. View the run for details.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "notification"
+  }
+ },
+ {
+  "id": "s09",
+  "sender_local": "no-reply",
+  "sender_domain": "example-pay.com",
+  "sender_name": "Example Pay",
+  "subject": "Receipt for your payment",
+  "preview": "Thank you for your payment of $12.00. Your plan renews next month.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "notification"
+  }
+ },
+ {
+  "id": "s10",
+  "sender_local": "security",
+  "sender_domain": "example-dns.com",
+  "sender_name": "Example Domains",
+  "subject": "New sign-in to your account",
+  "preview": "A new sign-in to your account was detected from a new device. If this was you, no action is needed.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "notification"
+  }
+ },
+ {
+  "id": "s11",
+  "sender_local": "deals",
+  "sender_domain": "example-promo.biz",
+  "sender_name": "Best Deals Daily",
+  "subject": "You WON a free iPhone - claim now!!!",
+  "preview": "Congratulations! You have been selected. Click here within 24 hours to claim your prize. Limited offer.",
+  "expected": {
+   "person_or_spam": "spam",
+   "route": "unsure"
+  }
+ },
+ {
+  "id": "s12",
+  "sender_local": "sales",
+  "sender_domain": "example-leads.io",
+  "sender_name": "Growth Team",
+  "subject": "10x your signups in 30 days",
+  "preview": "Hi there, we help software founders get more users with guaranteed outreach. Can I book 15 minutes?",
+  "expected": {
+   "person_or_spam": "spam",
+   "route": "unsure"
+  }
+ },
+ {
+  "id": "s13",
+  "sender_local": "support",
+  "sender_domain": "example-bank-secure.net",
+  "sender_name": "Account Security",
+  "subject": "Urgent: verify your mailbox password",
+  "preview": "Your mailbox will be closed today. Sign in at the link below to keep your account.",
+  "expected": {
+   "person_or_spam": "spam",
+   "route": "unsure"
+  }
+ },
+ {
+  "id": "s14",
+  "sender_local": "seo",
+  "sender_domain": "example-rank.co",
+  "sender_name": "SEO Expert",
+  "subject": "Your website is not on page one",
+  "preview": "I noticed your site has errors. I can fix them and rank you first on Google for a small fee.",
+  "expected": {
+   "person_or_spam": "spam",
+   "route": "unsure"
+  }
+ },
+ {
+  "id": "s15",
+  "sender_local": "peter",
+  "sender_domain": "example.com",
+  "sender_name": "Peter",
+  "subject": "Coffee next week?",
+  "preview": "Hey, are you around next week? Would be good to catch up about the trip.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "unsure"
+  }
+ },
+ {
+  "id": "s16",
+  "sender_local": "newsletter",
+  "sender_domain": "example-news.com",
+  "sender_name": "Example Weekly",
+  "subject": "This week in developer tools",
+  "preview": "Five stories you missed this week, plus a deal on our conference tickets.",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "notification"
+  }
+ },
+ {
+  "id": "s17",
+  "sender_local": "dana",
+  "sender_domain": "example.org",
+  "sender_name": "Dana Smith",
+  "subject": "Can DevThrottle run on a Mac mini?",
+  "preview": "I am thinking of buying DevThrottle. Does the Director run on an Apple silicon Mac mini?",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "devthrottle/mail-desk"
+  }
+ },
+ {
+  "id": "s18",
+  "sender_local": "notifications",
+  "sender_domain": "example-social.com",
+  "sender_name": "Example Social",
+  "subject": "Welcome to Example Social",
+  "preview": "Thanks for joining. Here is how to set up your profile.\u200c\u200b\u200d\u200c\u200b\u200d\u200c\u200b\u200d\u200c\u200b\u200d",
+  "expected": {
+   "person_or_spam": "person",
+   "route": "notification"
+  }
+ }
+]

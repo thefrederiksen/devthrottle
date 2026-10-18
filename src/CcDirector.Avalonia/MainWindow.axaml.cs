@@ -190,10 +190,17 @@ public partial class MainWindow : Window
     // (LoadScreenshotViewModels) and Clear All (DeleteAllScreenshots) agree on what a screenshot is.
     private static readonly string[] ScreenshotExtensions = { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
 
+    /// <summary>The Terminal tab's wheel button for the active session (mission #4070, phase 4). It reads the Gateway
+    /// seam at press time, and posts its changes to the screen thread.</summary>
+    private readonly TerminalWheelPresenter _wheelPresenter = new(
+        () => (global::Avalonia.Application.Current as App)?.ControlApiHost?.GatewayWheel,
+        work => Dispatcher.UIThread.Post(work));
+
     public MainWindow()
     {
         InitializeComponent();
         FileLog.Write("[MainWindow] Avalonia MainWindow initialized");
+        _wheelPresenter.Changed += UpdateWheelBar;
 
         // The declared size is a PREFERENCE, not a promise - shrink it to the display before the
         // window is ever shown (issue #1049).
@@ -2326,6 +2333,7 @@ public partial class MainWindow : Window
                     TerminalHost.Detach();
                     SourceControlView.Detach();
                     _activeSession = null;
+                    _wheelPresenter.Attach(null);
 
                     SetSessionHeaderVisible(false);
                     PlaceholderText.IsVisible = true;
@@ -2526,6 +2534,7 @@ public partial class MainWindow : Window
         }
 
         _activeSession = vm;
+        _wheelPresenter.Attach(vm?.Session);
 
         // Driver-capability action buttons (Stop / Interrupt / Clear context /
         // History) follow the active session; null hides them all.
@@ -2713,6 +2722,7 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         SourceControlView.Detach();
         _activeSession = null;
+        _wheelPresenter.Attach(null);
         // Same reason as the removal path above: _activeSession is nulled here without going through
         // SelectSession, so the Cockpit button must be hidden explicitly.
         TabBarCockpitButton.IsVisible = false;
@@ -3370,6 +3380,49 @@ public partial class MainWindow : Window
         if (sender is not Control button) return;
         await BusyAction.RunAsync(button, "main window", "open the Cockpit", () => OpenCockpitWithFeedbackAsync(sessionId: null), "Opening...",
             owner: this, failureTitle: "Cannot Open Cockpit");
+    }
+
+    /// <summary>
+    /// Draw the Terminal tab's wheel button from <see cref="_wheelPresenter"/>: shown only on the Terminal tab, and only
+    /// when the Gateway's verdict has a button. Words, enabled state and the reason line are the presenter's, verbatim;
+    /// the colours are the two styles in MainWindow.axaml, from docs/VisualStyle.md (taking the wheel is the primary
+    /// action, handing back the secondary one).
+    /// </summary>
+    private void UpdateWheelBar()
+    {
+        var onTerminal = _activeLeftTab == "Terminal" && _activeSession != null;
+        var shown = onTerminal && _wheelPresenter.IsVisible;
+        TabBarWheelButton.IsVisible = shown;
+        // The note also carries a button this build could not read, which shows with no button beside it.
+        TabBarWheelNote.IsVisible = onTerminal && _wheelPresenter.Note is not null;
+        TabBarWheelNote.Text = _wheelPresenter.Note ?? "";
+        TabBarWheelNote.Foreground = new SolidColorBrush(Color.Parse(
+            _wheelPresenter.Refusal is not null || _wheelPresenter.Problem is not null ? "#F48771" : "#9D9D9D"));
+        ToolTip.SetTip(TabBarWheelNote, _wheelPresenter.Note);
+        if (!shown) return;
+
+        TabBarWheelButton.Content = _wheelPresenter.IsPending ? $"{_wheelPresenter.Label}..." : _wheelPresenter.Label;
+        TabBarWheelButton.IsEnabled = _wheelPresenter.IsEnabled;
+        // Layout only: which of the two styles in MainWindow.axaml the Gateway's verb is drawn with.
+        var handBack = _wheelPresenter.Action?.Verb == Gateway.Contracts.ApiModeWheelVerbs.HandBack;
+        TabBarWheelButton.Classes.Set("handback", handBack);
+        TabBarWheelButton.Classes.Set("take", !handBack);
+        ToolTip.SetTip(TabBarWheelButton, _wheelPresenter.DisabledReason);
+    }
+
+    /// <summary>The Terminal tab's wheel button: take the wheel or hand it back, through the Gateway.</summary>
+    private async void TabBarWheelButton_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write($"[MainWindow] TabBarWheelButton_Click: session={_activeSession?.Session.Id.ToString() ?? "(none)"}");
+        try
+        {
+            await _wheelPresenter.PressAsync();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] TabBarWheelButton_Click FAILED: {ex}");
+            ShowNotification(ShownError.Report("main window", "switch the wheel", $"The wheel could not be switched: {ex.Message}", ex));
+        }
     }
 
     /// <summary>
@@ -5471,6 +5524,7 @@ public partial class MainWindow : Window
         // Show refresh button only when Terminal tab is active and a session exists
         TabBarRefreshButton.IsVisible = tab == "Terminal" && _activeSession != null;
         TabBarCaptureButton.IsVisible = tab == "Terminal" && _activeSession != null;
+        UpdateWheelBar();
         // The Cockpit button follows the SESSION, not the tab: those two above are terminal actions, this
         // one is "take me to this session elsewhere", which is true on every tab. Keying it to the tab as
         // well would make it come and go - the one thing it was placed here to avoid.
@@ -7116,6 +7170,7 @@ public partial class MainWindow : Window
         TerminalHost.Detach();
         SourceControlView.Detach();
         _activeSession = null;
+        _wheelPresenter.Attach(null);
 
         // Stop git status polling
         _sessionGitTimer?.Stop();

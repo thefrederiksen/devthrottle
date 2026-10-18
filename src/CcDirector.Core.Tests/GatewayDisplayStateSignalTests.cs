@@ -91,6 +91,36 @@ public sealed class GatewayDisplayStateSignalTests
     }
 
     [Fact]
+    public void TheWheelActionChangingAlone_RaisesTheChange_AndIsCached()
+    {
+        var s = NewSession();
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false, apiMode: ApiMode(CcDirector.Gateway.Contracts.ApiModeWheelVerbs.TakeTheWheel, "Take the wheel"));
+        var heard = 0;
+        s.OnGatewayDisplayStateChanged += () => heard++;
+
+        // API mode mission #4070, phase 4: the wheel changing hands changes nothing but the Terminal tab's button.
+        // The rail and the button must still hear it.
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false, apiMode: ApiMode(CcDirector.Gateway.Contracts.ApiModeWheelVerbs.HandBack, "Hand back"));
+        Assert.Equal(1, heard);
+        Assert.Equal("Hand back", s.GatewayApiMode?.WheelAction?.Label);
+
+        // The same verdict again, as a new object, is silent.
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false, apiMode: ApiMode(CcDirector.Gateway.Contracts.ApiModeWheelVerbs.HandBack, "Hand back"));
+        Assert.Equal(1, heard);
+
+        // No verdict clears it, and that is a change too.
+        s.ApplyGatewayDisplayState("blue", "Working", "active", null, null, false, apiMode: null);
+        Assert.Equal(2, heard);
+        Assert.Null(s.GatewayApiMode);
+    }
+
+    private static CcDirector.Gateway.Contracts.ApiModeSessionDisplay ApiMode(string verb, string label) => new()
+    {
+        Kind = "idle",
+        WheelAction = new CcDirector.Gateway.Contracts.ApiModeWheelAction { Verb = verb, Label = label, Enabled = true },
+    };
+
+    [Fact]
     public void AnyFieldChanging_RaisesTheChange()
     {
         var s = NewSession();
