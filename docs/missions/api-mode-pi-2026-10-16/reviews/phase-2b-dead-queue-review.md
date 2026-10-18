@@ -323,3 +323,119 @@ real PostgreSQL.
 prove once per generation (finding 3). Findings 4 and 5 can ride along or follow. With those four done and
 the seven classes plus `ApiModeEventPusherQueueTests` green on the rebased tree, I would approve without a
 second full read: the design, the words, the replacement rules and the client safety are right as they stand.
+
+## Check of the review fixes
+
+Pull request #4209 checked at its head `457d447c6`, now rebased onto pull request #4179's head `cdd81b9a6`, which sits
+on current main with pull request #4190; nothing on main is ahead of the branch. GitHub reports it MERGEABLE and CLEAN.
+Reviewer seat, session bc725552, 18 October 2026 on devlinux.
+
+**Verdict: hold, on one thing only - the addition beyond the ruling.** Findings 1, 3, 4 and 5 are fixed as asked, and
+the index migration is right on both providers. Finding 2 is fixed in the sense that a carried prompt no longer reads
+"no record of sending it"; but the state it reads instead - Queued, counted in the new generation's line - is one the
+Director does not hold, it miscounts every prompt behind it for the rest of the generation, and it turns into the
+Unknown words at the next hole anyway. A prompt a `TurnStarted` carries should be ruled Delivered, because in the
+Director's own events a prompt enters a turn's `promptIds` only after its `PromptDelivered` was published. That is a
+product ruling for the Tech Lead; the reasoning and the evidence are below. With it ruled either way and one more
+small commit, I would approve.
+
+**Read, in full:** the diff from `cdd81b9a6` to `457d447c6` (the three production files, the contract, the context, both
+migrations with their designers and snapshots, nine test files, the Developer's five answers in this file); `PiDialect.cs`
+on `origin/main` (`_deliveredAwaitingTurn`, filled at line 460 in the `started` disposition of a `PromptDelivered` and
+read by `OnAgentStart` into `TurnStarted.PromptIds`); pull request #4200's file list.
+
+**Ran, Debug, `CcDirector.Gateway.UnitTests`, two runs, each after checking no other test host was up:**
+
+- Run 1, the nine affected classes in one filter (the seven of the first review, `ApiModeEventPusherQueueTests` and
+  `FleetOutcomeStopIdentityMigrationTests`): **366 passed, 0 failed, 0 skipped**, 41 seconds.
+- Run 2, one throwaway test appended to `ApiModeEventIngestTests` and removed afterwards (the tree is clean), driving
+  the real ingest and store exactly as the Developer's tests do: generation A queues `p1`; its delivery falls in the
+  hole; generation B opens with the `TurnStarted` that carries `p1`, that turn ends `done`, and the user queues `p2`;
+  then generation C re-announces `p2` only and a tool runs. The test asserts the words as the receipts endpoint derives
+  them (`ReadWithPositions`, `PlaceInLine`, `ReceiptWords`) after B, and `p1`'s state after C. **It passed**, which
+  means the branch answers: after B, `p1` reads "Queued, 1st in line: a turn is running" and `p2` reads "Queued, 2nd
+  in line: a turn is running"; after C, `p1` is Unknown.
+
+### Finding 1 - fixed
+
+Rebased with `--onto`; the one conflict resolved keeping both sides. Three end-to-end tests through the real
+`SessionEventStream`, `ApiModeEventPusher`, ingest, buffer and store. The first is the one I asked for and it pins
+every step: the re-announcement holds `p2` and `p3` only, `p1` still reads Queued after the reply text (which proves
+nothing), and at the tool event `p1` reads the Unknown words with `p2` and `p3` at 1st and 2nd. The hole is made by
+turning the Gateway off rather than by the memory bound; to the pusher it is the same hole (a new segment that
+re-announces from the stream's own line), so that is a fair simplification. The third test asserts only that `p1` does
+not read the Unknown words, not what it does read - see finding 2.
+
+### Finding 2 - fixed in its letter, and the replacement state is wrong
+
+What the branch does: `Proves` hands back every prompt the event names; `IsCarriedBy` holds for a `TurnStarted` that
+names a Queued receipt of an older generation, and both readers then keep the receipt Queued and move its position to
+the `TurnStarted`, "as a re-announcement would". The Developer's reason is right as far as it goes: with the proof made
+once per generation in the ingest and not at all in the ruling's memory, leaving the prompt in the older generation
+would let the next proof of the same generation rule it Unknown in the live ruling, so its position has to move.
+
+Why the moved Queued state is the wrong one:
+
+- **The Director does not hold it.** The Director's own line (`QueuedPrompts`) dropped `p1` at its `PromptDelivered`,
+  which is why generation B did not re-announce it. Moving `p1` into B's generation makes the Gateway count it in B's
+  line: for the rest of generation B, after its turn has ended, `p1` reads "Queued, 1st in line: a turn is running",
+  every prompt queued behind it reads one place too far ("2nd in line" for the only prompt the Director holds), and
+  `ApiModeSessionFold`'s queued count is one too high. Before item 9 the same receipt read "Queued: a turn is running"
+  with no place and was not counted, because `PlaceInLine` counts only the newest generation. So on this one path the
+  fix regresses the place in line, which is the thing pull request #4178 and #4190 were built to get right.
+- **It is not stable.** At the next hole, generation C re-announces the Director's line, which does not have `p1`, and
+  C's first proving event rules `p1` Unknown - the very words finding 2 objected to, arriving one hole later.
+- **The record it rests on says more than "Queued".** In `PiDialect`, a prompt id enters `TurnStarted.PromptIds` from
+  `_deliveredAwaitingTurn`, which is filled only when the `PromptDelivered` is published (line 460, the `started`
+  disposition) and read into the turn by `OnAgentStart`; `EndNeverStartedTurn` reads the same set. So a `TurnStarted`
+  that carries a prompt the Gateway still holds as Queued at a later generation is proof that the prompt's
+  `PromptDelivered` was published before it and fell in the hole. That is the same strength of proof as the one the
+  whole item rests on, and it proves delivery, not continued queueing.
+
+What I recommend, for the Tech Lead to rule: a Queued receipt of an older generation that a later generation's
+`TurnStarted` carries is ruled **Delivered** by the Gateway - its disposition and acknowledgement unknown (both fields
+are already nullable, and `ReceiptWords` for Delivered reads neither), the turn linked by the same event, since the proof
+runs before `RecordTurnStarted` and the linkage takes Delivered rows - so the turn's outcome then lands on it by the
+existing rules, and a later turn ending reads on it as on any delivered prompt. This is the Gateway's inference, as
+`lost` and `Unknown` are, so it should be marked as one on the row (a disposition word for "the acknowledgement was
+lost", parallel to the `lost` turn outcome) and replaced by the real `PromptDelivered` should one ever arrive, which it
+cannot except as a replay. With that, `IsCarriedBy` becomes the branch that rules Delivered instead of the branch that
+moves a Queued row, in the same two places, and the third pusher test asserts "Delivered" rather than "not Unknown".
+If the Tech Lead rules instead to keep the Queued state, the two consequences above (the place in line for the rest of
+the generation; Unknown at the next hole) belong in the class summary, and the third pusher test should assert the
+words it does produce, so the choice is on record.
+
+### Finding 3 - fixed
+
+The ingest remembers, per tenant and session, the generation the proof was last made in, written only after the store
+call returns, so a failed proof is made again; a newer generation proves once more; a Gateway restart proves once more
+and changes nothing. `Accept_ManyProofsInOneGeneration_ReadTheStoreForTheProofOnce` counts the database work with a
+diagnostic listener and shows three later tool events do no database work at all;
+`Accept_AProofInEachOfTwoLaterGenerations_ProvesInEach` shows the next generation proves again. The dictionary is never
+pruned; one short entry per API-mode session since the Gateway started is small, and the Developer names it as a choice.
+Right as done.
+
+### Finding 4 - fixed
+
+The class summary now names the unsafe direction (a backward step of the Director machine's clock after the process
+started, by more than the process's age, followed by a reconnect) and says a forward step is safe.
+
+### Finding 5 - fixed, and the migration is right
+
+`GatewayDbContext` adds `HasIndex(TenantId, DirectorId, State)` with a comment saying why. Two migrations,
+`20261018124011_AddApiModeReceiptDirectorIndex` (SQLite) and `20261018124044_AddApiModeReceiptDirectorIndex` (PostgreSQL,
+schema `gateway`), each the newest in its folder, each creating only `IX_api_mode_receipts_tenant_id_DirectorId_State`
+on `api_mode_receipts` over `tenant_id`, `DirectorId`, `State` - the same column spelling as the table's existing
+`IX_api_mode_receipts_tenant_id_SessionId_TurnId` - with a matching `Down`. Each designer's target model is identical to
+its provider's updated snapshot (I diffed the model bodies; no difference on either provider), and each designer is two
+lines longer than the previous migration's, which is the index. Pull request #4200 (open) adds
+`20261018041929_AddApiModeConversationItems` and `20261018042014_AddApiModeConversationItems`, timestamped earlier than
+these, and edits both snapshots: whichever of the two merges second must regenerate its migration against the merged
+snapshot so the chain and the snapshot agree. Not exercised on a real PostgreSQL, as the Developer says.
+
+### The rest
+
+The hub test conflict is resolved keeping main's `fleetDisplayState` parameter and its two display-push tests beside
+this branch's `Hello(DateTime)` helper. Nothing else in the two item 9 commits changed beyond what the five answers
+describe. With the carried prompt ruled - Delivered as recommended, or Queued with its consequences recorded - and the
+nine classes green on that commit, I would approve.
