@@ -318,6 +318,15 @@ public sealed class PostgresProviderProofTests
             ("license_switch_log", "FromAccountEmail"),
             ("license_switch_log", "State"),
             ("license_switch_log", "SwitchId"),
+            // The Mail Desk (Mail Desk mission, phase 1). The kind and the address are the unique index that keeps one
+            // active channel per mailbox; the message key is the unique index that records a message once; the layer,
+            // the decision and a change's kind are closed words every filter compares exactly.
+            ("mail_desk_channels", "Address"),
+            ("mail_desk_channels", "Kind"),
+            ("mail_desk_decisions", "Decision"),
+            ("mail_desk_decisions", "Layer"),
+            ("mail_desk_decisions", "MessageKey"),
+            ("mail_desk_list_changes", "Kind"),
             ("mission_notes", "Key"),
             ("push_subscriptions", "Endpoint"),
             // The account's raised sessions (the Fleet Manager Improvement mission): the session id is the exact key
