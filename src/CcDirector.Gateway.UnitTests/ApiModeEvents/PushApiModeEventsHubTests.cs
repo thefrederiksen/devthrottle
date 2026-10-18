@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -55,7 +56,7 @@ public sealed class PushApiModeEventsHubTests : IDisposable
 
     private DirectorHub NewHub(string connectionId, bool withIngest = true, CcDirector.Gateway.Fleet.FleetDisplayStateObserver? fleetDisplayState = null) => new(_store, _registry, InputStatsHandle.Available(_inputStats),
         new GatewayStreamRegistry(), _boundary, fleetDisplayState: fleetDisplayState,
-        apiModeEvents: withIngest ? new ApiModeEventIngest(_buffer, _receipts, _boundary) : null) { Context = new FakeHubCallerContext(connectionId) };
+        apiModeEvents: withIngest ? new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(_harness.Open(), () => T0.UtcDateTime), _boundary) : null) { Context = new FakeHubCallerContext(connectionId) };
 
     private const string OtherSid = "77777777-7777-4777-8777-777777777777";
 

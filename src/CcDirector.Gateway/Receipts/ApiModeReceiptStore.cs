@@ -451,7 +451,10 @@ public sealed class ApiModeReceiptStore
                 .ThenBy(r => r.FirstSequence)
                 .ThenBy(r => r.PromptId)
                 .AsEnumerable()
-                .Select(r => new ApiModeStoredReceipt(ToDto(r), new ApiModeEventPosition(r.LastGeneration, r.LastGenerationStartedUtc, r.LastSequence)))
+                .Select(r => new ApiModeStoredReceipt(ToDto(r), new ApiModeEventPosition(r.LastGeneration, r.LastGenerationStartedUtc, r.LastSequence))
+                {
+                    First = new ApiModeConversation.ApiModeConversationPlace(r.FirstGenerationStartedUtc, r.FirstSequence),
+                })
                 .ToList();
         }
     }

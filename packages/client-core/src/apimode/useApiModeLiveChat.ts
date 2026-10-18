@@ -1,9 +1,9 @@
 // The live conversation of one API-mode session, kept current from the Gateway's live stream (mission #4070, phase 3).
 //
-// The conversation is built from the stream ALONE, replayed from the start: not from /history, whose replies carry no
-// message id, so a reply loaded from it could not be matched to the same reply arriving live and would show twice.
-// The stream is opened with no cursor; the Gateway replays what it holds, then follows live, and resets the view when
-// it cannot continue it.
+// The conversation is built from the stream ALONE: not from /history, whose replies carry no message id, so a reply
+// loaded from it could not be matched to the same reply arriving live and would show twice. The stream is opened with
+// no cursor; the Gateway opens it with the session's stored conversation (durable, so the same after a Gateway
+// restart), then follows live, and resets the view when it cannot continue it.
 import { useEffect, useRef, useState } from "react";
 import { describeAndReport } from "../errors/reportClientError";
 import { applyItems, applyReset, emptyConversation, type LiveConversation } from "./liveConversation";
