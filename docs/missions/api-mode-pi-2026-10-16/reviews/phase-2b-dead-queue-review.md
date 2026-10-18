@@ -749,6 +749,41 @@ three endings and a separate arm for the lost one:
 Name: `Accept_ACarriedPromptWithoutItsDelivery_NeverReadsDeliveredThroughItsTurnsEndTheNextHoleAndAGatewayRestart`,
 or one name per arm in the same shape.
 
+**Developer's answer.** Added to `ApiModeEventIngestTests`, through the real ingest and the real store, with no product
+code changed:
+
+- `Accept_ACarriedPromptWithoutItsDelivery_NeverReadsDeliveredThroughItsTurnsEndTheNextHoleAndAGatewayRestart`, a
+  theory over `done`, `failed` and `cancelled`: generation A queues `p1`; generation B opens with `TurnStarted t1 [p1]`;
+  then `TurnEnded t1` with the arm's outcome; then the next hole, generation C opening with `ConnectionReady` and a tool
+  event; then the Gateway restart.
+- `Accept_ACarriedPromptWithoutItsDeliveryWhoseTurnsEndWasLost_NeverReadsDeliveredThroughTheNextHoleAndAGatewayRestart`,
+  the lost arm: the same start, no `TurnEnded`, generation C opening with `ConnectionReady` (the outcome is ruled
+  `lost`), then the next hole, generation D with a tool event, then the Gateway restart.
+
+At every step one helper reads `p1` from the stored receipt and from `WordsNow` and asserts state Unknown, turn `t1`,
+the step's outcome (none before the end, then the arm's word), the prompt's text, no disposition, no acknowledgement,
+the carried words, and the rendered `ReceiptItem` reading the carried words in tone `neutral`. After each next hole the
+read is asserted equal to the one before it. The restart builds a NEW buffer, a NEW receipt store and a NEW ingest over
+the same database (so the once-per-generation memory is empty), feeds one more tool event of the current generation,
+then builds `new ApiModeLiveRuling(store.ReadWithPositions(...))`, renders `ReceiptItem` for `p1`, and rules every held
+event of the new buffer through that ruling; the stored read must equal the read before the restart. Every item for
+`p1` from every step, including those the rebuilt ruling made, is collected, and the test asserts none begins with
+"Delivered".
+
+Proof that it bites, two temporary breaks, each restored with `git checkout` before the next:
+
+1. The carried branch of `ProveQueueLeftOnce` changed to write `Delivered`: all four new cases fail at step 1 (the
+   stored read is `Delivered`, words "Delivered"), and so do the two existing carried tests.
+2. `ReceiptWords` changed to answer "Delivered" for an Unknown receipt with a turn outcome (a later-stage regression):
+   all four new cases fail at step 2 (after the real end in the theory, after the lost ending in the lost arm), and so
+   does the existing carried-then-queued test. 5 failed, 39 passed.
+
+With the product code as it is: `ApiModeEventIngestTests` 44 passed, 0 failed (40 before, plus the four new cases). The other
+eight classes the review ran, each alone with no other test host on the machine, all with 0 failed: `ApiModeLiveRulingTests`
+120, `ApiModeReceiptStoreTests` 86, `ApiModeReceiptPromptTextTests` 31, `SessionReceiptsEndpointTests` 18,
+`SessionLiveEndpointTests` 58, `PushApiModeEventsHubTests` 10, `ApiModeEventPusherQueueTests` 10,
+`FleetOutcomeStopIdentityMigrationTests` 3. Nine classes, 380 passed, 0 failed.
+
 ### Verdict, amended
 
 **Hold, on finding 6 only.** The code is right as it stands and nothing in checks 1 to 5 changes; the hold is for the

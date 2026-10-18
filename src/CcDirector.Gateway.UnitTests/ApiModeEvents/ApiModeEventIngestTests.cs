@@ -380,6 +380,93 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Equal(afterB, afterC);
     }
 
+    // ----- a carried prompt's whole life without its delivery (review of pull request #4209, finding 6) -----
+
+    [Theory]
+    [InlineData(TurnOutcome.Done, null, "done")]
+    [InlineData(TurnOutcome.Failed, "the model refused", "failed")]
+    [InlineData(TurnOutcome.Cancelled, "stopped by the user", "cancelled")]
+    public void Accept_ACarriedPromptWithoutItsDelivery_NeverReadsDeliveredThroughItsTurnsEndTheNextHoleAndAGatewayRestart(TurnOutcome outcome, string? reason, string word)
+    {
+        // Arrange: generation A queues p1; its PromptDelivered falls in the hole, and generation B opens with the turn
+        // that carries it.
+        var shown = new List<ApiModeLiveItem>();
+        Push(A(Ready(1), Queued(2, "p1")));
+        Push(B(Started(1, "t1", "p1")));
+        AssertCarried(turnOutcome: null, shown);
+
+        // Act + Assert: the turn ends with the real outcome; the receipt keeps it beside the carried words.
+        Push(B(Ended(2, "t1", outcome, reason, "stop")));
+        var ended = AssertCarried(word, shown);
+
+        // The next hole: generation C opens with a new agent process and a tool runs. Nothing changes.
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Ready(1), Tool(2)));
+        Assert.Equal(ended, AssertCarried(word, shown));
+
+        // The Gateway restarts and generation C carries on.
+        AssertTheRestartRulesTheSame(Batch("gen-c", GenBStarted.AddHours(1), Tool(3)), ended, word, shown);
+        Assert.DoesNotContain(shown, item => item.Text.StartsWith("Delivered", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Accept_ACarriedPromptWithoutItsDeliveryWhoseTurnsEndWasLost_NeverReadsDeliveredThroughTheNextHoleAndAGatewayRestart()
+    {
+        // Arrange: as above, generation B opens with the turn that carries p1.
+        var shown = new List<ApiModeLiveItem>();
+        Push(A(Ready(1), Queued(2, "p1")));
+        Push(B(Started(1, "t1", "p1")));
+        AssertCarried(turnOutcome: null, shown);
+
+        // Act + Assert: t1's TurnEnded falls in a hole too; generation C opens with a new agent process, which proves
+        // the turn is over, so its ending is ruled lost - and the receipt still reads the carried words.
+        Push(Batch("gen-c", GenBStarted.AddHours(1), Ready(1)));
+        var lost = AssertCarried(ApiModeLostTurnEnd.Outcome, shown);
+
+        // The next hole: generation D, and a tool runs. Nothing changes.
+        Push(Batch("gen-d", GenBStarted.AddHours(2), Tool(1)));
+        Assert.Equal(lost, AssertCarried(ApiModeLostTurnEnd.Outcome, shown));
+
+        // The Gateway restarts and generation D carries on.
+        AssertTheRestartRulesTheSame(Batch("gen-d", GenBStarted.AddHours(2), Tool(2)), lost, ApiModeLostTurnEnd.Outcome, shown);
+        Assert.DoesNotContain(shown, item => item.Text.StartsWith("Delivered", StringComparison.Ordinal));
+    }
+
+    /// <summary>p1 read through the store and the receipts endpoint's words: Unknown, carried by t1, the given turn
+    /// outcome, its text kept, no disposition and no acknowledgement. Adds its item to <paramref name="shown"/> and
+    /// answers what was read, to compare with a later step.</summary>
+    private (ApiModeReceiptState, string?, string?, string?, string?, string?, string) AssertCarried(string? turnOutcome, List<ApiModeLiveItem> shown)
+    {
+        var receipt = Receipt("p1");
+        var item = ApiModeLiveRuling.ReceiptItem(receipt, 0);
+        shown.Add(item);
+        var read = (receipt.State, receipt.TurnId, receipt.TurnOutcome, receipt.PromptText, receipt.Disposition, receipt.Acknowledgement, WordsNow()["p1"]);
+        Assert.Equal((ApiModeReceiptState.Unknown, "t1", turnOutcome, "text of p1", (string?)null, (string?)null, ApiModeLostQueuedPrompt.CarriedWords), read);
+        Assert.Equal((ApiModeLostQueuedPrompt.CarriedWords, "neutral"), (item.Text, item.Tone));
+        return read;
+    }
+
+    /// <summary>A Gateway restart: a NEW ingest and store over the same database (the once-per-generation memory empty)
+    /// take <paramref name="batch"/>, and a ruling rebuilt from the stored receipts renders p1 and rules the held event.
+    /// The stored receipt, its rendered item and every item the rebuilt ruling makes for p1 read as before.</summary>
+    private void AssertTheRestartRulesTheSame(ApiModeEventBatch batch, (ApiModeReceiptState, string?, string?, string?, string?, string?, string) before, string turnOutcome, List<ApiModeLiveItem> shown)
+    {
+        var buffer = new ApiModeEventBuffer();
+        var store = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
+        new ApiModeEventIngest(buffer, store, _boundary).Accept(Alice, Director, batch);
+
+        IReadOnlyList<ApiModeStoredReceipt> stored;
+        using (_boundary.EnterScope(Alice))
+            stored = store.ReadWithPositions(Sid);
+        var ruling = new ApiModeLiveRuling(stored);
+        var p1 = Assert.Single(stored, r => r.Receipt.PromptId == "p1").Receipt;
+        var item = ApiModeLiveRuling.ReceiptItem(p1, 0);
+        shown.Add(item);
+        shown.AddRange(buffer.Read(Alice, Sid).Events.SelectMany(h => ruling.Rule(h)).Where(i => i.PromptId == "p1"));
+
+        Assert.Equal(before, AssertCarried(turnOutcome, shown));
+        Assert.Equal((ApiModeReceiptState.Unknown, ApiModeLostQueuedPrompt.CarriedWords, "neutral"), (p1.State, item.Text, item.Tone));
+    }
+
     /// <summary>Each receipt's words as the receipts endpoint derives them.</summary>
     private Dictionary<string, string> WordsNow()
     {
