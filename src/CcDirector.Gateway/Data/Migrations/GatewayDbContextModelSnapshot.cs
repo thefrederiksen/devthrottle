@@ -2967,6 +2967,61 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("license_switch_log", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelCheckEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CheckedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Machine")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Ok")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Sentence")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("TriggerRunId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ChannelId", "CheckedUtc");
+
+                    b.ToTable("mail_desk_channel_checks", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelEntity", b =>
                 {
                     b.Property<Guid>("Id")

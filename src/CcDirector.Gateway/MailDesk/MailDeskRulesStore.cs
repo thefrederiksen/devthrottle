@@ -87,6 +87,25 @@ public sealed class MailDeskRulesStore
         }
     }
 
+    /// <summary>
+    /// Every recorded change made at or after <paramref name="fromUtc"/> and before <paramref name="toUtc"/>, oldest
+    /// first - all of them, never a page, because the 08:00 email lists every change of its day (phase 3 contract,
+    /// section 9).
+    /// </summary>
+    public IReadOnlyList<MailDeskListChangeEntity> ChangesBetween(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    {
+        if (toUtc < fromUtc)
+            throw new ArgumentException($"The span ends ({toUtc:o}) before it starts ({fromUtc:o}).", nameof(toUtc));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskListChanges.AsNoTracking()
+                .Where(c => c.AtUtc >= fromUtc && c.AtUtc < toUtc)
+                .OrderBy(c => c.AtUtc).ThenBy(c => c.VersionAfter)
+                .ToList();
+        }
+    }
+
     // ---------- the one write ----------
 
     /// <summary>

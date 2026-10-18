@@ -64,7 +64,10 @@ public sealed class FactoryEmailTests : IDisposable
         nowUtc: () => _now,
         triggers: Triggers,
         scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
-        settleLastStatus: (_, _, _) => false);
+        settleLastStatus: (_, _, _) => false,
+        mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
+            new CcDirector.Gateway.MailDesk.MailDeskChannelStore(Db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(Db),
+            _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend));
 
     private CcDirector.Gateway.Factory.Triggers.TriggerStore? _triggers;
     private CcDirector.Gateway.Factory.Triggers.TriggerStore Triggers => _triggers ??= new(Db);
@@ -85,6 +88,7 @@ public sealed class FactoryEmailTests : IDisposable
             baseUrl: () => "https://gateway.example.test",
             store: Store,
             sender: sender,
+            mailDesk: (_, _, _, _) => null,
             now: () => _now);
     }
 
