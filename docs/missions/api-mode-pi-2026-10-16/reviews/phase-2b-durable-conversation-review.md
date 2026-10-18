@@ -465,3 +465,61 @@ old generation's rows in place, and `p1`'s receipt taking the new turn's ending,
 test showed. Two cheap closures, either of which ends the dependence: a turn id that carries the generation (the
 Director's numbering, one place), or the conversation and receipt stores keying by generation as well. That is the
 Tech Lead's call and separate work; it is not a finding against this pull request.
+
+## 8. Check of the move over #4179 (head `9063dc5c1`)
+
+**Verdict: approved. The move is clean; both behaviours are whole; nothing approved at `d46565f14` was dropped.**
+Read only, as asked (the machine's one gate seat was running), so this rests on the range-diff, the merged
+code and the one new test, not on a run.
+
+**What was compared.** `git range-diff d46565f14~4..d46565f14 origin/main..HEAD`, with `origin/main` at `266f16865`
+(#4179 merged). The three review commits are byte-identical (`=`). The first commit differs only in the three
+files the move named: `GatewayHost.cs`, `PushApiModeEventsHubTests.cs` and `SessionLiveEndpointTests.cs`, and in
+each only inside the conflicting region. As a second instrument I took the diff from the approved head to this head
+over every file this pull request touches and set it against main's own movement over the same files
+(`432e54a28..origin/main`); the two differ only in hunk offsets, the two conflict resolutions, and the new test.
+So the moved tree is exactly the approved tree plus #4179 plus one test.
+
+**The conflict resolutions, each read.**
+- `GatewayHost.cs`: the ingest is built with the conversation store as its third argument, between the receipts and
+  the tenant boundary, and the display-facts line main added sits after it. Right.
+- `PushApiModeEventsHubTests.cs`: the hub's ingest gets a conversation store over the test harness's database with
+  the test clock; main's `fleetDisplayState` parameter and `OtherSid` are kept. Right.
+- `SessionLiveEndpointTests.cs`, the generation-B reset test: the approved assertion on the opening's item order
+  (`receipt:p1`, `connection:gen-b:1`, `receipt:p2`) stands, and #4179's expectation is added beside it: p1 reads
+  `LostWords`, p2 reads `Delivered`. Right, and it is what the merged code does.
+
+**Both behaviours whole.** #4179 in the merged `ApiModeLiveRuling`: `Rule` rules the lost endings before the event's
+own items; `TurnStart` clears a newer real start, relinks an older one and re-sends the relinked receipt with its
+turn; `TurnEnd` lets the real ending replace a lost one whatever its position, through `TouchForward`. In
+`ApiModeReceiptStore`: `RecordTurnOverProven`, the relink branch of `RecordTurnStarted` and the replace branch of
+`RecordTurnEnded` are as merged on main; the move only added `First` to the stored receipt the read hands back.
+#4200: the conversation store's per-session gate and settled set, `ApiModeConversationOpening`, the ruling that
+starts from stored receipts and the stored conversation, `ConversationItems`, the connection item id carrying its
+generation, and the endpoint's one snapshot under the feed's session lock are all as approved.
+
+**The ingest order is right.** For each fresh event, under the buffer's session lock: the lost proof
+(`RecordTurnOverProven`), then the event's own receipt change, then the conversation row. The first two are #4179's
+order and must stay so a `TurnStarted` rules the earlier turn lost before linking its own prompts. The conversation
+row can go last because it never depends on a receipt: `ConversationItems` builds a ruling with no receipts and drops
+receipt items, so a proof event stores only its own line (a connection line or a turn line). A reader's opening is
+read under the same lock, so it sees every event's three writes or none of them.
+
+**A lost receipt shows the same in the opening as live.** The opening takes each receipt from the receipt store, which
+ruled the lost ending through the same `ApiModeLostTurnEnd.Applies` the live ruling uses, and renders it with the same
+`ReceiptItem`. The new test `Stream_NoCursorAfterATurnsEndWasLost_OpensWithTheReceiptAsTheLiveReaderSawIt` pins it end
+to end: a live reader sees p1 ruled lost by t2's start in generation B, and a fresh reader's opening, before and after
+a Gateway restart, shows that receipt with the same words, tone (`neutral`), turn id and prompt text. The reset test
+above pins the same words in the opening of a reader reset by a new generation.
+
+**The migration is still newest on both providers.** Main's newest is `20261018015813` (SQLite) and
+`20261018015844` (Postgres), the prompt-text migration; this branch adds `20261018041929` and `20261018042014`, later
+on both. Both designers and both snapshots carry `PromptText` on the receipts and the new conversation items table.
+#4179 added no migration, so nothing on main sits between.
+
+**One note, low, nothing to do.** When an opening's ruling replays a held `TurnStarted` that the store had relinked
+without moving the row's position (an older real start on a turnless lost receipt), the ruling's copy already carries
+the turn id, so the replay goes down the ordinary link path and sets the receipt's last position to that older start.
+No item is sent and no word changes; a later real `TurnEnded` still replaces the lost ending, and no later proof can
+apply because the outcome is already set. It is #4179's replay-from-store behaviour, not the move's, and it is
+harmless; recorded so it is not re-found.
