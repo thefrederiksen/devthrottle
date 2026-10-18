@@ -214,6 +214,10 @@ export interface LicenseMachine extends LicenseMachineRef {
   canAddSpare: boolean;
   /** What Add a spare does, or the sentence saying why it is not offered - the one the route refuses with. */
   addSpareText: string;
+  /** Forget this machine is offered for it: it has stopped reporting, or its reports are refused. */
+  canForget: boolean;
+  /** What Forget this machine does, or the sentence saying why it is not offered - the one the route refuses with. */
+  forgetText: string;
   /** The sign-ins on this machine that have not ended. */
   signInsInProgress: LicenseSignInInProgress[];
   /** The Director that sent the machine's last report: the one asked for its browser profiles. */
@@ -587,6 +591,32 @@ export async function listLicenseBrowserProfiles(directorId: string, signal?: Ab
     signal,
   );
   return body.browsers.map(({ id, name }) => ({ id, name }));
+}
+
+/** The answer of POST /gateway/licenses/machines/forget: what was forgotten, and its row of the log. */
+export interface LicenseForgetMachineResult {
+  text: string;
+  entry: LicenseLogEntry;
+}
+
+/**
+ * POST /gateway/licenses/machines/forget - forget the machine `machineId` (its machineId in the overview): it leaves
+ * the page with what it holds, and its open problems end. Offered only where the machine's canForget is true. A
+ * refusal throws GatewayError carrying the Gateway's own sentence.
+ */
+export async function forgetLicenseMachine(machineId: string, signal?: AbortSignal): Promise<LicenseForgetMachineResult> {
+  const res = await gatewayFetch("/gateway/licenses/machines/forget", {
+    method: "POST",
+    headers: jsonWriteHeaders(),
+    body: JSON.stringify({ machineId }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "forget the machine");
+  const body = (await res.json()) as LicenseForgetMachineResult | null;
+  if (typeof body?.text !== "string" || typeof body?.entry?.entryId !== "string") {
+    throw new GatewayError(res.status, "The Gateway answered Forget this machine without its 'text' sentence and its 'entry' row.");
+  }
+  return body;
 }
 
 /**

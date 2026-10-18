@@ -142,6 +142,7 @@ its window resets), and one can still be chosen by hand; `switchNowText` says so
 | `spares` | The spares it holds, in account email order. |
 | `switchInProgress` | Null, or `switchId`, `fromAccountEmail`, `toAccountEmail`, `text` - the switch it is in the middle of and one sentence saying where it stands. The two emails are "" when only the machine's own report says a switch is running. |
 | `heldUntilUtc`, `heldText` | **Both null unless the machine is held out of the automatic switch** because its switch keeps failing the same way (contract section 5.8). Then: the time it is held until, and the Gateway's sentence saying so, why and until when. The page draws `heldText` in the schedule, under the machine's status, exactly as given; never compare `heldUntilUtc` with now. Switch now is still offered for its account, and still sends the machine a switch at once. |
+| `canForget`, `forgetText` | **Phase 6: whether Forget this machine is offered for it** (section 6, `POST /gateway/licenses/machines/forget`), and the sentence. It is offered only for a machine whose status is `report-refused` or `not-reporting`, and never while a switch or a sign-in on it is under way. Offered: "Take machine-a off this page, with what it holds, and end its open problems and their alarms. For a machine that is gone or renamed; if it reports again, it comes back." Not offered, the sentence the route refuses with: "machine-a is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.", "machine-a is in the middle of a switch; it can be forgotten once the switch is over." or "A sign-in on machine-a has not finished; it can be forgotten once it has." The page draws the button only where `canForget` is true. |
 | `readiness`, `readinessTargetAccountEmail`, `readinessText`, `readinessTone` | **Phase 6: whether it is ready for the account it would switch to next.** `readiness` is `ready`, `not-ready` or `no-room` (no other account has room - not a readiness gap); the account is null for `no-room`. All four are null when the machine is on no account. The page draws `readinessText` on the machine's line in the schedule, in `readinessTone`, exactly as given, and never decides anything from the state word. |
 
 **Readiness** (`readiness`, `readinessText`, phase 6; contract section 11). The sentences, word for word:
@@ -479,6 +480,8 @@ show nothing. Section 6 has the sentences and the tone rule.
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
+      "canForget": false,
+      "forgetText": "the-mac is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.",
       "signInsInProgress": [],
       "directorId": "dir-mac",
       "canListBrowserProfiles": false,
@@ -565,6 +568,8 @@ show nothing. Section 6 has the sentences and the tone rule.
       "heldText": null,
       "canAddSpare": false,
       "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
+      "canForget": false,
+      "forgetText": "the-windows-machine is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.",
       "signInsInProgress": [],
       "directorId": "dir-windows",
       "canListBrowserProfiles": false,
@@ -771,7 +776,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
 | Field | Meaning |
 |---|---|
 | `entryId` | The row's identity, for the page's list. |
-| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `report-refused` (Report refused), `report-accepted` (Reports accepted), `machine-silent` (Not reporting), `reporting-again` (Reporting again), `approval` (Approval), `cannot-switch` (Cannot switch), `can-switch-again` (Can switch again). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
+| `kind`, `kindText` | `switch` (Switch), `spare-added` (Spare added), `spare-removed` (Spare removed), `no-room` (Nothing was switched), `renewal-failed` (Renewal failing), `report-refused` (Report refused), `report-accepted` (Reports accepted), `machine-silent` (Not reporting), `reporting-again` (Reporting again), `approval` (Approval), `cannot-switch` (Cannot switch), `can-switch-again` (Can switch again), `forgotten` (Machine forgotten). **A kind a later build writes is shown as "Note"** - the row is still listed, and its `summary` is its message. Never branch on a kind you do not know; show `kindText` and `summary`. |
 | `atUtc` | When the Gateway decided the switch or saw the change. |
 | `machineId`, `machineName`, `osUser`, `label` | The machine the row is about, as the four fields of rule 9: `machineId` is the `machineId` of its row in the overview's `machines`, and `label` is what the row's `summary` calls it. One switch of an account is one row per machine, and the page lists one row per machine (section 1). On a row about no machine (a `no-room` row) `machineId` is null and the other three are "". A `report-refused` row of a machine none of whose reports was ever accepted also has `machineId` null; it names the machine as its report did, or "" when the report named none. A machine that is no longer listed in the overview still has its identifier and its label here. |
 | `fromAccountEmail`, `toAccountEmail` | A switch's from and to. On `spare-added` and `renewal-failed` only `to` is set (on `renewal-failed` it is the account whose sign-in could not be renewed), on `spare-removed` and `no-room` only `from`. On `cannot-switch` and `can-switch-again` neither is set: they are about the machine. |
@@ -1034,7 +1039,7 @@ A refusal, here `GET /gateway/licenses/log?limit=0`:
 }
 ```
 
-## 6. The two writes - the renewal date and Switch now - and a failed renewal
+## 6. The writes - the renewal date, Switch now and Forget this machine - and a failed renewal
 
 ### `PUT /gateway/licenses/accounts/renewal` - the date a subscription is billed again
 
@@ -1202,16 +1207,46 @@ machines ready for it and leave the rest on an account at its limit, while the a
 the next best account they are ready for. Sending none makes exactly the automatic moves, which `switchNowText` and
 the schedule both describe. A target picked by hand is sent as named.
 
+### `POST /gateway/licenses/machines/forget` - forget a machine that is gone (phase 6)
+
+A machine that is renamed, whose operating system user changes, or that is taken out of service stops reporting
+under its old name, and its row would stay on the page for ever, with its open problems and their alarms. The owner
+forgets it. The body is `{"machineId": "<its machineId in the overview>"}`, sent as `application/json`.
+
+**It is offered exactly where the overview says `canForget: true`**, and the route asks the same question of the
+same folded overview, so it refuses exactly what the page does not offer, with the same sentence.
+
+Forgetting a machine, in one save:
+
+- ends its open `report-refused` and `machine-silent` rows, so the alarms raised from them close on the next minute;
+- removes what it holds and its row: it is no longer in the overview, the forecast or the schedule;
+- writes one `forgotten` row, "machine-a was forgotten: it is off the Licenses page, with what it held, and its open
+  problems are over. If it reports again, it comes back.";
+- keeps every earlier row of the log about it.
+
+A machine none of whose reports was ever accepted is forgotten under the stand-in row the page lists it under: its
+open refusal ends. **There is no automatic age-out:** only the owner forgets a machine. **A machine that reports again
+comes back** as a new row, like any machine reporting for the first time. An open renewal warning about it is ended
+by the minute check, which finds the machine no longer holds that sign-in.
+
+| Answer | When |
+|---|---|
+| `200` `{"text", "entry"}` | It was forgotten: the sentence above, and its `forgotten` row of the log (the shape of section 4). |
+| `400` `invalid_body` | The body is not a JSON object. |
+| `400` `invalid_machine` | `machineId` is not 32 hexadecimal digits. |
+| `404` `machine_not_found` | No machine of this account has that identifier: "That machine is not on the Licenses page of this account; load the page again." |
+| `409` `forget_not_offered`, `switch_in_progress`, `sign_in_in_progress` | The machine is reporting, or a switch or a sign-in on it is under way; `error` is its `forgetText`. A switch or a sign-in started after the page was read is caught by the store as well, which changes nothing. |
+
 ### Who may call the writes
 
-**The two writes are for a signed-in person only: the owner's own phone or browser.** Setting the date a
-subscription renews, and moving every machine of the owner's subscription to another one, are the owner's own
-actions, from the Cockpit. Everything else that can READ the license routes is refused the writes with `403`:
+**The three writes are for a signed-in person only: the owner's own phone or browser.** Setting the date a
+subscription renews, moving every machine of the owner's subscription to another one, and forgetting a machine are
+the owner's own actions, from the Cockpit. Everything else that can READ the license routes is refused the writes with `403`:
 
 | Caller | Answer |
 |---|---|
 | The owner's signed-in browser or phone | allowed |
-| A session key (an agent), raised or not | `403` `session_key_out_of_scope` - `SessionKeyGuard` lists neither route |
+| A session key (an agent), raised or not | `403` `session_key_out_of_scope` - `SessionKeyGuard` lists none of the three routes |
 | A Director's own device key | `403` `owner_only` |
 | The shared machine token of a self-hosted Gateway | `403` `owner_only` |
 | No credential | `401` |
@@ -1228,8 +1263,8 @@ Each write names itself in its sentence. The same caller asking for Switch now i
 
 **A self-hosted Cockpit opened with the machine token reads the page and is refused both writes.** On a
 self-hosted Gateway the login page can store the shared machine token as the browser's credential. With it the page
-reads all three routes - and is told `canSwitchNow: true`, because that is about the machines, not about who is
-looking - and both writes answer `403` `owner_only`. That is not an error of the page: the page shows the sentence in
+reads the routes - and is told `canSwitchNow: true`, because that is about the machines, not about who is
+looking - and every write answers `403` `owner_only`. That is not an error of the page: the page shows the sentence in
 `error` as it is given, and the owner signs in as a person to use the writes.
 
 The caller is judged before the body is read, and a body must be sent as `application/json`.

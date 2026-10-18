@@ -477,6 +477,60 @@ public static class LicenseDisplayFold
         };
     }
 
+    /// <summary>What a <see cref="LicenseLogKinds.Forgotten"/> row is called in the log.</summary>
+    public const string ForgottenKindText = "Machine forgotten";
+
+    /// <summary>
+    /// FORGET THIS MACHINE: whether the owner is offered it for each machine of the overview, and the sentence. Run on
+    /// the finished overview, after <see cref="LicenseSignInFold.Apply"/>, because a sign-in under way is one reason it is
+    /// not offered. The route asks the same question of the same folded overview, so the button and the route agree.
+    /// Offered only for a machine that has stopped reporting or whose reports are refused - a machine that is gone or
+    /// renamed looks like that - and never while a switch or a sign-in on it is under way.
+    /// </summary>
+    public static void ApplyForget(LicenseOverviewResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        foreach (var machine in response.Machines)
+        {
+            var (_, text, refusal) = ForgetVerdict(machine);
+            machine.CanForget = refusal is null;
+            machine.ForgetText = text;
+        }
+    }
+
+    /// <summary>Whether this machine of a finished overview may be forgotten now: the sentence, and null for the code
+    /// when it may, or one of <see cref="LicenseForgetRefusals"/> when it may not.</summary>
+    public static (bool CanForget, string Text, string? RefusalCode) ForgetVerdict(LicenseMachineDto machine)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        var refusal = machine.SwitchInProgress is not null ? LicenseForgetRefusals.SwitchOpen
+            : machine.SignInsInProgress.Count > 0 ? LicenseForgetRefusals.SignInOpen
+            : machine.Status is LicenseMachineStatuses.ReportRefused or LicenseMachineStatuses.NotReporting ? null
+            : LicenseForgetRefusals.NotOffered;
+        return refusal is null
+            ? (true, $"Take {machine.Label} off this page, with what it holds, and end its open problems and their alarms. "
+                     + "For a machine that is gone or renamed; if it reports again, it comes back.", null)
+            : (false, ForgetRefused(refusal, machine.Label), refusal);
+    }
+
+    /// <summary>The sentence of a Forget this machine that was refused, for one of <see cref="LicenseForgetRefusals"/>.</summary>
+    public static string ForgetRefused(string code, string label) => code switch
+    {
+        LicenseForgetRefusals.NotFound => "That machine is not on the Licenses page of this account; load the page again.",
+        LicenseForgetRefusals.SwitchOpen => $"{label} is in the middle of a switch; it can be forgotten once the switch is over.",
+        LicenseForgetRefusals.SignInOpen => $"A sign-in on {label} has not finished; it can be forgotten once it has.",
+        LicenseForgetRefusals.NotOffered => $"{label} is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.",
+        _ => throw new ArgumentOutOfRangeException(nameof(code), code, "Not a reason a machine is not forgotten."),
+    };
+
+    /// <summary>The answer of a machine that was forgotten: its sentence, and its row of the log, labelled as the log
+    /// labels it among <paramref name="machines"/>, the account's machines as they were before it was forgotten.</summary>
+    public static LicenseForgetMachineResponse ForgetAccepted(LicenseSwitchLogEntity row, IReadOnlyList<(string MachineName, string OsUser)> machines)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return new LicenseForgetMachineResponse { Text = row.Message ?? "", Entry = LogEntries(new[] { row }, machines)[0] };
+    }
+
     /// <summary>What a machine whose reports are refused is called in its status.</summary>
     public const string ReportRefusedText = "Report refused";
 
@@ -920,6 +974,7 @@ public static class LicenseDisplayFold
             LicenseLogKinds.ReportingAgain => "Reporting again",
             LicenseLogKinds.CannotSwitch => "Cannot switch",
             LicenseLogKinds.CanSwitchAgain => "Can switch again",
+            LicenseLogKinds.Forgotten => ForgottenKindText,
             _ => "Note",
         };
         var message = string.IsNullOrWhiteSpace(row.Message) ? null : row.Message;
