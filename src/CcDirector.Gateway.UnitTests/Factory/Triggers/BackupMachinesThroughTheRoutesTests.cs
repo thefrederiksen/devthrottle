@@ -67,12 +67,12 @@ public sealed class BackupMachinesThroughTheRoutesTests : IDisposable
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no session is started in this test")),
             findSession: (_, _) => null, findSessionByName: (_, _) => null,
             timeZone: _ => TimeZoneInfo.Utc, nowUtc: () => _now, startLifetime: CancellationToken.None,
-            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null);
+            directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true, definitionOf: (_, _) => null, mailDeskOn: _ => false);
         TriggerEndpoints.Map(_routes, _ => T, service, directorMachine: (_, id) => Directors.GetValueOrDefault(id),
             nowUtc: () => _now, sessionFactoryOf: _ => SessionFactoryLookup.NotKnown, isDefined: _publish.Store.IsDefined,
             dueChecks: new DueCheckService(runs, (tenant, id) => jobs.Get(tenant, id), _triggers.CheckStates, new NoStarts(),
                 directorRunsDefinitionChecks: (_, _) => true, resultRecorded: (_, _) => { }, nowUtc: () => _now,
-                startLifetime: CancellationToken.None));
+                startLifetime: CancellationToken.None, mailDeskOn: _ => false));
     }
 
     public void Dispose()
