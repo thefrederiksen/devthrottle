@@ -92,14 +92,26 @@ foreach ($t in $testProjects) {
 if ($PSBoundParameters.ContainsKey('Files')) {
     $changed = @($Files)
 } else {
-    $changed = @(& git -C $repoRoot diff --name-only "$Base...HEAD" 2>$null)
-    if ($LASTEXITCODE -ne 0) { $changed = @() }
-    else {
-        # The gate runs on a dirty tree too, and records it as dirty - so what it has NOT committed yet is part
-        # of the change it is judging. Edits in the working tree and the index, and new untracked files.
-        $changed = @($changed + @(& git -C $repoRoot diff --name-only HEAD) +
-                     @(& git -C $repoRoot ls-files --others --exclude-standard) | Where-Object { $_ } | Select-Object -Unique)
-    }
+    # GIT'S WARNINGS MUST NOT END THE GATE. git writes warnings to standard error - for a file whose line endings it
+    # will convert, "LF will be replaced by CRLF" - and Windows PowerShell 5.1 turns any standard-error line of a
+    # native command into a terminating error under Stop, even with 2>$null. On 18 October that ended every gate run
+    # on a tree holding such a file. So the preference is lowered around these reads only, and a real failure is
+    # still caught by the exit code.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $changed = @(& git -C $repoRoot diff --name-only "$Base...HEAD" 2>$null)
+        if ($LASTEXITCODE -ne 0) { $changed = @() }
+        else {
+            # The gate runs on a dirty tree too, and records it as dirty - so what it has NOT committed yet is part
+            # of the change it is judging. Edits in the working tree and the index, and new untracked files.
+            $dirty = @(& git -C $repoRoot diff --name-only HEAD 2>$null)
+            if ($LASTEXITCODE -ne 0) { throw "git diff --name-only HEAD failed (exit $LASTEXITCODE) in $repoRoot; the gate cannot tell what this change touches." }
+            $untracked = @(& git -C $repoRoot ls-files --others --exclude-standard 2>$null)
+            if ($LASTEXITCODE -ne 0) { throw "git ls-files --others failed (exit $LASTEXITCODE) in $repoRoot; the gate cannot tell what this change touches." }
+            $changed = @($changed + $dirty + $untracked | Where-Object { $_ } | Select-Object -Unique)
+        }
+    } finally { $ErrorActionPreference = $previousPreference }
 }
 if ($changed.Count -eq 0) {
     # No diff, or the base is unknown. Both mean "cannot reason about this change" -> run everything.
