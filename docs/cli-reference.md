@@ -664,6 +664,7 @@ COMMANDS:
   session whoami   Show this session's own fleet identity.
   session rename   Rename a session, defaulting to the current session.
   session spawn    Open a new session - here, on another computer, or on one named Director.
+  session review   Start a reviewer you own, moving on by itself from a seat that cannot work.
   session report   Tell the session that owns you what you did, at the end of your turn
                    (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   session raise    Put your hand up to the session driving you when you are blocked.
@@ -1362,6 +1363,37 @@ recorded is reported as possibly started and is not started again until you chec
 name it with `--force-seat`. The command waits for every seat's answer. Exit 0 means every seat came
 back; exit 1 means a seat failed or is still pending; exit 3 means `--wait-seconds 0` - accepted, not
 waited, so nothing is known to have come back. Added 17 September 2026 (the Message Load mission).
+
+### Session Review
+
+```
+USAGE: cc-devthrottle session review [OPTIONS] REPO
+
+ARGUMENTS:
+  REPO  Absolute path to the worktree holding the change to review [required]
+
+OPTIONS:
+  --prompt TEXT            What to review, sent to each seat as its first prompt [required]
+  --name TEXT              Display name for the reviewer session
+  --seats TEXT             The reviewer seats to try, in order [default: codex,fable,opus]
+  --watch-seconds INTEGER  How long each seat's screen is read before it counts as reviewing [default: 60]
+```
+
+Starts a reviewer session that YOU own (`--controlled-by self`), so it must run inside a session. The seats
+are Codex, Claude Code on Fable and Claude Code on Opus, tried in the `--seats` order. Each seat is opened with
+the prompt and its screen is read for `--watch-seconds`:
+
+- A usage or spend limit, a refused model, a signed-out agent or an empty credit balance on the screen stops
+  that seat, with the reason, and opens the next one with the same prompt.
+- A seat that shows the agent's working marker ("esc to interrupt") and no blocker by the end of the watch is
+  the reviewer.
+- A seat that shows neither never started (a swallowed first prompt, a question nobody answers) and is
+  stopped and replaced the same way.
+
+It ends with one line saying which seat is reviewing and why any seat before it was skipped, for example
+`the codex seat hit its usage limit, so the fable seat is reviewing, in session <id>.` Exit 1 when no seat
+could start, naming why for each, and when a stuck seat could not be confirmed stopped: then no other seat is
+started, so two reviewers never run on one change.
 
 ### Fleet Manager
 

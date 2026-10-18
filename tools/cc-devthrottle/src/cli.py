@@ -23,6 +23,7 @@ from . import factory_record_ops
 from . import factory_registry_ops
 from . import factory_status_ops
 from . import factory_manager_ops
+from . import review_ops
 from . import run_ops
 from . import fleet_manager_ops
 from . import fleet_ops
@@ -531,6 +532,22 @@ _ACTIONS = [
             {"name": "repo", "required": True},
             {"name": "machine", "required": False},
             {"name": "director", "required": False},
+        ],
+    },
+    {
+        "id": "session-review",
+        "description": (
+            "Start a reviewer session you own. Tries Codex, then Claude Code on Fable, then on Opus (or the "
+            "--seats order), reads each seat's screen for the first minute, and moves to the next by itself when "
+            "a seat is blocked by a limit, a refused model or a sign-in, or never starts working."
+        ),
+        "command": "cc-devthrottle session review <worktree> --prompt <what to review> [--name <name>] [--seats codex,fable,opus]",
+        "mutatesState": True,
+        "args": [
+            {"name": "repo", "required": True},
+            {"name": "prompt", "required": True},
+            {"name": "name", "required": False},
+            {"name": "seats", "required": False},
         ],
     },
     {
@@ -3355,6 +3372,33 @@ def spawn(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
         machine, mission, workflow_run, director, connection,
     )
+
+
+@session_app.command()
+def review(
+    repo: str = typer.Argument(..., help="Absolute path to the worktree holding the change to review."),
+    prompt: str = typer.Option(..., "--prompt", help="What to review, sent to each seat as its first prompt."),
+    name: Optional[str] = typer.Option(None, "--name", help="Display name for the reviewer session."),
+    seats: str = typer.Option(
+        review_ops.DEFAULT_SEATS,
+        "--seats",
+        help="The reviewer seats to try, in order, comma separated: codex, fable, opus.",
+    ),
+    watch_seconds: int = typer.Option(
+        60,
+        "--watch-seconds",
+        help="How long each seat's screen is read before it counts as reviewing (at least 10).",
+    ),
+) -> None:
+    """Start a reviewer you own, moving on by itself from a seat that cannot work.
+
+    Opens the first seat (Codex, then Claude Code on Fable, then on Opus, unless --seats says otherwise)
+    and reads its screen for the first minute. A usage or spend limit, a refused model or a signed-out
+    agent stops that seat, with the reason, and opens the next with the same prompt; so does a seat that
+    never shows it is working. Prints one line saying which seat is reviewing and why any were skipped.
+    Exit 1 when no seat could start.
+    """
+    review_ops.review(repo, prompt, name, seats, watch_seconds)
 
 
 @fleet_manager_app.command("show")
