@@ -117,7 +117,10 @@ public static class ClaudeAutoModeSetupOffer
         {
             case null:
                 return "Claude Code's own server setting is absent, and it offers the question only when that is true";
-            case JsonValue offer when !(offer.TryGetValue<bool>(out var offered) && offered):
+            case JsonValue offer when offer.TryGetValue<bool>(out var offered) && offered:
+                break;
+            default:
+                // Claude Code tests it with === true, so false, a string, a number, an object or a list all mean not asked.
                 return "Claude Code's own server setting does not offer it";
         }
         // Claude Code counts this start before it decides, so the count on disk is one short of the one it compares.
