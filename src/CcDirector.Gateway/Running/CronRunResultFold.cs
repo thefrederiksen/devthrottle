@@ -114,6 +114,10 @@ public static class CronRunResultFold
     /// definition trigger of the account with its checks, newest first. A failed check is a <c>check-failed</c>
     /// problem in the same shape (<see cref="TriggerProblems"/>). Command triggers are never handed in: their failures
     /// are not problems.</param>
+    /// <param name="mailDesk">The THIRD SOURCE (Mail Desk mission, phase 3, sections 6.2 and 7): each active mailbox's
+    /// kept checks and the account's spend. A mailbox that could not be checked and a spend limit that stopped the model
+    /// are problems in the same shape, under the mailbox's factory (<see cref="MailDesk.MailDeskProblems"/>).
+    /// <see cref="MailDesk.MailDeskProblemFacts.None"/> for an account whose Mail Desk is off.</param>
     public static CronRunProblemsDto Problems(
         IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> runsByJob,
         IReadOnlyDictionary<string, CronJobDto> jobs,
@@ -121,9 +125,11 @@ public static class CronRunResultFold
         string? factory,
         bool includeClosed,
         DateTime asOfUtc,
-        IReadOnlyList<(TriggerEntity Trigger, IReadOnlyList<TriggerRunEntity> Runs)> definitionTriggerRuns)
+        IReadOnlyList<(TriggerEntity Trigger, IReadOnlyList<TriggerRunEntity> Runs)> definitionTriggerRuns,
+        MailDesk.MailDeskProblemFacts mailDesk)
     {
         ArgumentNullException.ThrowIfNull(definitionTriggerRuns);
+        ArgumentNullException.ThrowIfNull(mailDesk);
         ArgumentNullException.ThrowIfNull(runsByJob);
         ArgumentNullException.ThrowIfNull(jobs);
         ArgumentNullException.ThrowIfNull(zone);
@@ -184,6 +190,15 @@ public static class CronRunResultFold
                     dto.OpenForText = OpenFor(asOfUtc - dto.RaisedAtUtc);
                 problems.Add(dto);
             }
+        }
+
+        foreach (var dto in MailDesk.MailDeskProblems.All(mailDesk, zone, asOfUtc))
+        {
+            if (wanted is not null && !string.Equals(dto.Factory, wanted, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!includeClosed && dto.State != CronRunProblemStates.Open) continue;
+            if (dto.State == CronRunProblemStates.Open)
+                dto.OpenForText = OpenFor(asOfUtc - dto.RaisedAtUtc);
+            problems.Add(dto);
         }
 
         problems = problems

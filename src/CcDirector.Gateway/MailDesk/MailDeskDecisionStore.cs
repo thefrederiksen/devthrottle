@@ -168,6 +168,39 @@ public sealed class MailDeskDecisionStore
         }
     }
 
+    /// <summary>
+    /// Every decision made at or after <paramref name="fromUtc"/> and before <paramref name="toUtc"/>, oldest first -
+    /// all of them, never a page, because the 08:00 email lists every junked email of its day (phase 3 contract,
+    /// section 9) so a wrongly junked one is seen.
+    /// </summary>
+    public IReadOnlyList<MailDeskDecisionEntity> DecidedBetween(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    {
+        if (toUtc < fromUtc)
+            throw new ArgumentException($"The span ends ({toUtc:o}) before it starts ({fromUtc:o}).", nameof(toUtc));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskDecisions.AsNoTracking()
+                .Where(d => d.DecidedUtc >= fromUtc && d.DecidedUtc < toUtc)
+                .OrderBy(d => d.DecidedUtc).ThenBy(d => d.Id)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// What the Mail Desk's model calls have cost the account, ever, in millionths of a dollar: the sum of the cost on
+    /// every decision row (phase 3 contract, section 1 - a failed screening keeps its call's cost on its row too).
+    /// </summary>
+    public long SpentMicros(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            // Summed here rather than in the database: SQLite and PostgreSQL disagree on the type of a sum of nothing.
+            return ctx.MailDeskDecisions.AsNoTracking().Where(d => d.CostMicros != null).Select(d => d.CostMicros!.Value).ToList().Sum();
+        }
+    }
+
     private static MailDeskDecisionEntity? Kept(GatewayDbContext ctx, MailDeskDecisionInput input)
         => ctx.MailDeskDecisions.AsNoTracking().FirstOrDefault(d => d.ChannelId == input.ChannelId && d.MessageKey == input.MessageKey);
 
