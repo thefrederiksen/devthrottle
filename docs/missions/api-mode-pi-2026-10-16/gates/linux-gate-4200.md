@@ -1,9 +1,9 @@
 # Linux gate: pull request #4200
 
-**Verdict: NOT FINISHED.** CcDirector.Core.UnitTests and CcDirector.Gateway.UnitTests pass, and
+**Verdict: NOT FINISHED ON LINUX; Gateway.Tests goes to the Windows gate.** CcDirector.Core.UnitTests and CcDirector.Gateway.UnitTests pass, and
 every migration and model-snapshot test passes. CcDirector.Gateway.Tests could not be judged: the
 machine ran out of inotify instances during both the branch run and the main run, so most of its
-failures say nothing about the code. It must be run again once the limit is raised.
+failures say nothing about the code. That suite is judged on the Windows gate instead.
 
 Linux gate under the owner's decision of 18 October; Windows re-check pending.
 
@@ -73,11 +73,16 @@ The failures that are NOT the inotify error were checked one by one:
   **failed-once**, not blocking.
 - The other 8 are failures with the same names on main.
 
-## To finish this gate
+## Gateway.Tests is judged on Windows
 
-Raise the limit (`sudo sysctl fs.inotify.max_user_instances=1024`, the owner's step since it needs
-`sudo`), then run CcDirector.Gateway.Tests again on the same two commits and compare. This record is
-updated with that result.
+The Windows machine, SOREN_NORTH, came back on 18 October before the limit here was raised. So the
+Delivery Lead moved CcDirector.Gateway.Tests for this pull request to the Windows gate, and it is
+judged there, not here. This Linux record stays as it is: it covers Core.UnitTests,
+Gateway.UnitTests and the migration tests, and gives no verdict on Gateway.Tests.
+
+For a later Linux run, the cure is to raise the limit (`sudo sysctl
+fs.inotify.max_user_instances=1024`, a step for the owner since it needs `sudo`), and then run
+CcDirector.Gateway.Tests on both commits again.
 
 ## What this gate does not cover
 
