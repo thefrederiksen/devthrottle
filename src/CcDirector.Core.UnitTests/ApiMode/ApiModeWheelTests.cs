@@ -278,12 +278,16 @@ public sealed class ApiModeWheelTests : IDisposable
         await rig.Session.HandBackWheelAsync();
         var outcome = await ScriptedPi.WithinHangGuard(sending, "the queued prompt's receipt");
 
-        // Assert: queued with the reason, never typed into the terminal, written to the new Pi and delivered.
+        // Assert: queued with the reason, never typed into the terminal, written to the new Pi and delivered, and both
+        // events carry the prompt's text verbatim.
         Assert.Equal(PromptQueuedReason.UserHasTheWheel, queued.Reason);
+        Assert.Equal("Reply with exactly the word PONG", queued.PromptText);
         Assert.Equal(0, typedIntoTheTerminal);
         Assert.True(outcome.Confirmed);
         Assert.Equal(["get_state", "prompt"], rig.PisStarted[1].WrittenTypes);
-        Assert.Equal(queued.PromptId, rig.Sink.Events.OfType<PromptDelivered>().Single().PromptId);
+        var delivered = rig.Sink.Events.OfType<PromptDelivered>().Single();
+        Assert.Equal(queued.PromptId, delivered.PromptId);
+        Assert.Equal("Reply with exactly the word PONG", delivered.PromptText);
     }
 
     [Fact]
