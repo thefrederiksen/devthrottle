@@ -29,6 +29,10 @@ public sealed class ApiModeReceiptDto
 {
     public string PromptId { get; set; } = "";
 
+    /// <summary>The prompt's own text, verbatim - never trimmed, reworded or shortened, newlines and leading or
+    /// trailing spaces kept. Null when the Director sent none (a Director older than the text on the events).</summary>
+    public string? PromptText { get; set; }
+
     public ApiModeReceiptState State { get; set; }
 
     /// <summary>Why the Director held the prompt (<c>userHasTheWheel</c>, <c>turnRunning</c>, <c>agentStarting</c>),

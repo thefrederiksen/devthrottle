@@ -34,6 +34,11 @@ public static class LicenseRoutes
     /// <summary>GET: the license alarms open now, with the banner's finished words (<see cref="LicenseAlarmsResponse"/>).
     /// Read by the shell of every Cockpit page and of the phone app. There is no route that raises or clears one.</summary>
     public const string Alarms = "/gateway/licenses/alarms";
+
+    /// <summary>POST: Forget this machine - take a machine that has stopped reporting, or whose reports are refused,
+    /// off the page (<see cref="LicenseForgetMachineRequest"/>, <see cref="LicenseForgetMachineResponse"/>). Offered
+    /// where <see cref="LicenseMachineDto.CanForget"/> is true. Refused to every session key.</summary>
+    public const string ForgetMachine = "/gateway/licenses/machines/forget";
 }
 
 /// <summary>The one status an account is shown with. <see cref="LicenseAccountDto.StatusText"/> is the label.</summary>
@@ -391,6 +396,14 @@ public sealed class LicenseMachineDto
 
     /// <summary>What "Add a spare" does here, or the sentence saying why it is not offered.</summary>
     public string AddSpareText { get; set; } = "";
+
+    /// <summary>"Forget this machine" is offered for this machine: it has stopped reporting, or its reports are
+    /// refused, and no switch or sign-in on it is under way.</summary>
+    public bool CanForget { get; set; }
+
+    /// <summary>What "Forget this machine" does here, or the sentence saying why it is not offered - the one the
+    /// route refuses with.</summary>
+    public string ForgetText { get; set; } = "";
 
     /// <summary>The sign-ins started from the Cockpit that this machine has not finished, oldest first.</summary>
     public List<LicenseSignInInProgressDto> SignInsInProgress { get; set; } = new();
@@ -785,6 +798,23 @@ public sealed class LicenseSwitchNowRequest
 
     /// <summary>The account to move them to; null or blank lets the Gateway choose, as an automatic switch would.</summary>
     public string? TargetAccountEmail { get; set; }
+}
+
+/// <summary>The body of POST <see cref="LicenseRoutes.ForgetMachine"/>.</summary>
+public sealed class LicenseForgetMachineRequest
+{
+    /// <summary>The machine to forget: its <see cref="LicenseMachineDto.MachineId"/> in the overview.</summary>
+    public string? MachineId { get; set; }
+}
+
+/// <summary>The answer of an accepted Forget this machine.</summary>
+public sealed class LicenseForgetMachineResponse
+{
+    /// <summary>The sentence saying what was forgotten, drawn as given.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>The row the Licenses log now has for it.</summary>
+    public LicenseLogEntryDto Entry { get; set; } = new();
 }
 
 /// <summary>The answer of an accepted Switch now: where the machines were sent, each machine's switch as its log row

@@ -40,6 +40,10 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     /// <summary>The write exits the process and fails with a broken pipe, as a write racing the agent's exit does.</summary>
     public bool ExitDuringWrite { get; init; }
 
+    /// <summary>As <see cref="ExitDuringWrite"/>, only for a line (without its line feed) this matches: an agent that
+    /// exits as one chosen command is written.</summary>
+    public Func<string, bool>? ExitDuringWriteOf { get; set; }
+
     /// <summary>The exit code a kill reports: 137 as on Linux, or -1 as on Windows.</summary>
     public int KillExitCode { get; init; } = 137;
 
@@ -76,7 +80,7 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
     {
         if (_inputClosed || HasExited)
             throw new IOException("The pipe is being closed.");
-        if (ExitDuringWrite)
+        if (ExitDuringWrite || ExitDuringWriteOf?.Invoke(Encoding.UTF8.GetString(line.Span[..^1])) == true)
         {
             Exit(0);
             throw new IOException("Broken pipe");
@@ -146,9 +150,15 @@ internal sealed class FakeApiModeProcess : IApiModeProcess
 
     public Task<int> WaitForExitAsync(CancellationToken cancellationToken) => _exit.Task.WaitAsync(cancellationToken);
 
+    /// <summary>Completes when standard input is closed, so a test can act between the close and the exit.</summary>
+    public Task InputClosedTask => _inputClosedSignal.Task;
+
+    private readonly TaskCompletionSource _inputClosedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public void CloseInput()
     {
         _inputClosed = true;
+        _inputClosedSignal.TrySetResult();
         if (ExitsWhenInputCloses)
             Exit(0);
     }

@@ -39,11 +39,27 @@ Every event carries: `sessionId` (the DevThrottle session), `sequence` (rising p
 client can order and de-duplicate), and `at` (time observed, from an injected clock). Events inside
 a turn also carry `turnId` (assigned by the Director; Pi has no turn id of its own).
 
+**Holes start a new generation.** The Director sends a generation to the Gateway under its own id only while it holds
+every event of it from sequence 1; when an event is lost before it was sent (the memory bound dropped it, it was too
+large for any batch, or it was published while the Gateway was turned off), the events after the hole go up as a new
+generation, a fresh id counted again from sequence 1, so a reader is told its earlier cursor is incomplete and folds
+again from the new generation.
+
+**Every new generation starts by re-announcing the queue** (the Delivery Lead's ruling on the review of pull request
+#4178, finding 1). The Gateway takes a generation as one Director queue: a receipt still queued from an older generation
+gets no place in line. A hole does not end the Director's process, so its queue survives it. The first events of every
+new generation are therefore one `PromptQueued` for each prompt still waiting for its receipt at the hole, oldest first,
+with its place in that line as `position`, its `reason` and its `promptText`, before any later event of that generation.
+The line is the session's own, kept from its events (a `PromptQueued` joins the end, its `PromptDelivered` or
+`PromptRefused` leaves) and carried on every batch, so it is known even at a hole whose events never reached the pusher.
+With nothing queued, nothing is re-announced. This also restores the receipt of a queued prompt whose own `PromptQueued`
+fell in the hole. A delivery or refusal whose own event fell in the hole is not corrected by the Director.
+
 | Event | Fields | Meaning |
 |---|---|---|
-| `PromptQueued` | `promptId`, `reason` (`userHasTheWheel`, `turnRunning`, `agentStarting`), `position` | The Director is holding the prompt; it has not been written to the agent. |
-| `PromptDelivered` | `promptId`, `disposition` (`started`, `queuedByAgent`, `handled`), `acknowledgement` (the agent's own reply, verbatim) | The agent itself acknowledged the prompt. This is the receipt. |
-| `PromptRefused` | `promptId`, `reason` (the agent's own words, or the Director's when the agent never answered), `refusedBy` (`agent`, `director`) | The prompt did not enter the conversation, and why. |
+| `PromptQueued` | `promptId`, `promptText`, `reason` (`userHasTheWheel`, `turnRunning`, `agentStarting`), `position` | The Director is holding the prompt; it has not been written to the agent. |
+| `PromptDelivered` | `promptId`, `promptText`, `disposition` (`started`, `queuedByAgent`, `handled`), `acknowledgement` (the agent's own reply, verbatim) | The agent itself acknowledged the prompt. This is the receipt. |
+| `PromptRefused` | `promptId`, `promptText`, `reason` (the agent's own words, or the Director's when the agent never answered), `refusedBy` (`agent`, `director`) | The prompt did not enter the conversation, and why. |
 | `TurnStarted` | `turnId`, `promptIds` | The agent began working on the prompt(s). |
 | `MessageText` | `turnId`, `messageId`, `channel` (`reply`, `thought`), `kind` (`delta`, `final`), `text` | Agent text. `delta` is appended for a live view; `final` replaces everything streamed for that message. `thought` is the Agent Client Protocol's thought chunk; whether it is shown is the Gateway's ruling (phase 2). |
 | `ToolCallStarted` | `turnId`, `toolCallId`, `toolName`, `kind` (`read`, `edit`, `execute`, `search`, `fetch`, `other`), `input` (verbatim) | A tool began running: the card appears as running. |
@@ -55,8 +71,23 @@ a turn also carry `turnId` (assigned by the Director; Pi has no turn id of its o
 
 Three fields may be null, each when there is honestly no value: `reason` on a `done` turn,
 `agentStopReason` when the agent exited mid-turn, and `durationMilliseconds` when the dialect closed a
-tool the agent never finished. `toolCallId` on `PermissionRequested` is optional. Every other field is
-always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
+tool the agent never finished. `toolCallId` on `PermissionRequested` is optional, and `promptText` on the
+three prompt events may be absent (below). Every other field is always present. `PromptQueued.position` counts from 1: position 1 is the next prompt to be written.
+
+**`promptText` is on all three prompt events whenever the Director knows it** (the Delivery Lead's ruling 15, 17
+October 2026): the prompt exactly as the Director wrote it to the agent - or, for one that was never written, exactly as it would have
+been - verbatim, never trimmed, reworded or shortened, with its newlines and leading and trailing spaces kept. The
+Director fills it for every prompt whatever its source: the Gateway's prompt route, the owner typing in the desktop, a
+fleet message or doorbell, the framework's own text, a pre-prompt, and a prompt released from the Director's queue. It
+is there so the Gateway can store the prompt's text on its receipt row.
+
+**`promptText` may be absent, from a Director older than the field** (the Delivery Lead's ruling on pull request
+#4121, 17 October 2026). The Gateway deploys before every Director updates, so it will read prompt events from
+Directors that do not write the field. The Gateway reads such an event with no text (null) and accepts it and the rest
+of its batch; it never refuses the batch for the missing field. Were the field required, one older Director's whole
+batch would be refused, its pusher would drop it for good, and that Director's sessions would lose their receipts and
+their live stream until it updated. A current Director always writes the field, for every prompt; absence means only
+"this Director predates the field", never "the prompt had no text".
 
 **What a `promptId` is** (the Delivery Lead's rulings and the phase 1 integration review, finding 3, 16 October 2026):
 the Gateway's delivery id when the prompt came from the Gateway with one - its prompt route gives every prompt one -

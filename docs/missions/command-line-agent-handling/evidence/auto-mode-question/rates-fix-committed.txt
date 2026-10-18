@@ -1,0 +1,7 @@
+4 attempts counted (0 setup failures not counted).
+
+product cd0a3d38d132  (2026-10-17 23:48 to 23:49 UTC)
+  agent    scenario            pass   of   rate  95% interval   failures (director/truth)
+  claude   auto-mode-question     2    2   100%    34% - 100%   
+  claude   auto-mode-question-settled     2    2   100%    34% - 100%   
+  claude   ALL SCENARIOS          4    4   100%    51% - 100%   

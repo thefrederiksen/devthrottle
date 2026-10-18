@@ -151,7 +151,7 @@ public sealed class LicenseEndpointsTests : IDisposable
         Assert.Equal(new[]
         {
             "machineId", "machineName", "osUser", "label", "activeAccountEmail", "status", "statusText", "statusTone", "statusDetail", "isStale",
-            "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "heldUntilUtc", "heldText", "canAddSpare", "addSpareText",
+            "lastReportAtUtc", "lastReportText", "active", "spares", "switchInProgress", "heldUntilUtc", "heldText", "canAddSpare", "addSpareText", "canForget", "forgetText",
             "signInsInProgress", "directorId", "canListBrowserProfiles", "browserProfilesText",
             "readiness", "readinessTargetAccountEmail", "readinessText", "readinessTone",
         }, Names(machine));

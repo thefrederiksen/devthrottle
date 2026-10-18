@@ -238,6 +238,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<long>("LastSequence")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("PromptText")
+                        .HasColumnType("text");
+
                     b.Property<string>("QueueReason")
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");

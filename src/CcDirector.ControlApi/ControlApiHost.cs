@@ -54,6 +54,7 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// <summary>The turn-push mission's Director side: keeps the Gateway's stored conversation current for
     /// every session by pushing what it has not seen. Null when there is no Gateway.</summary>
     private TurnPusher? _turnPusher;
+    private ApiModeEventPusher? _apiModeEventPusher;
 
     /// <summary>
     /// Remove-the-network-port mission, phase 1b: the hashes of the Gateway session keys this Director's
@@ -723,10 +724,12 @@ public sealed class ControlApiHost : IAsyncDisposable
             _ = Task.Run(() => triggerRunner.RunAsync(_triggerRunnerCts.Token));
         }
         _turnPusher = BuildTurnPusher(gatewayConfig);
+        UseApiModeEventSink(gatewayConfig);
         _streamClient = BuildStreamClient(gatewayConfig);
         AttachLicenseReporting(_streamClient);
         _streamClient?.Start();
         _turnPusher?.Start();
+        _apiModeEventPusher?.Start();
         WireDoorbellPush();
         WireRepositoryPush();
 
@@ -1211,6 +1214,10 @@ public sealed class ControlApiHost : IAsyncDisposable
             onHello: capabilities =>
             {
                 if (capabilities.TurnWatermarksKnown) _ = _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
+                // API mode (issue #4070): after a new connection, a Gateway restart or a deploy, every event the Gateway
+                // has not acknowledged goes up again - on that connection's first Hello only, never on the ten-second
+                // re-push's, so a Gateway that keeps refusing is not sent the same batch every ten seconds.
+                _ = _apiModeEventPusher?.HelloAnsweredAsync();
                 // License Switching contract 2.3: the first Hello on a new connection is answered with a "connected"
                 // usage report, so a restarted Gateway has the facts within seconds rather than two minutes. After
                 // the Hello, because only then does the Director know the Gateway has PushLicenseUsage at all.
@@ -1224,6 +1231,7 @@ public sealed class ControlApiHost : IAsyncDisposable
             onNewConnection: () =>
             {
                 Interlocked.Exchange(ref _licenseReportOnNextHello, 1);
+                _apiModeEventPusher?.NewConnection();
                 foreach (var session in _sessionManager.ListSessions())
                     session.SetFleetManagerLessons(null);
             },
@@ -1299,6 +1307,33 @@ public sealed class ControlApiHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// API mode (issue #4070, phase 4): where API-mode sessions' events go. With a Gateway, the pusher that holds each
+    /// event until the Gateway has acknowledged it (built once, like the turn pusher, so what it holds survives a settings
+    /// change); with none, the Director's log. Sessions already running follow the change: their streams read the session
+    /// manager's sink at every publish. Terminal sessions publish no events and are untouched.
+    /// </summary>
+    private void UseApiModeEventSink(GatewayConfig gatewayConfig)
+    {
+        if (!gatewayConfig.IsEnabled)
+        {
+            FileLog.Write("[ControlApiHost] UseApiModeEventSink: no Gateway; API-mode events go to the Director's log");
+            _sessionManager.SessionEventSink = new CcDirector.Core.ApiMode.LoggingSessionEventSink();
+            return;
+        }
+        _apiModeEventPusher ??= new ApiModeEventPusher(
+            push: (batch, ct) =>
+            {
+                // The field is read per call, so a settings change that rebuilds the stream does not strand the pusher.
+                var client = _streamClient;
+                if (client is null) throw new InvalidOperationException("there is no Gateway stream to push API-mode events over");
+                return client.PushApiModeEventsAsync(batch, ct);
+            },
+            canPush: () => _streamClient?.GatewaySupports(ApiModeEventPusher.HubMethod) == true);
+        _sessionManager.SessionEventSink = _apiModeEventPusher;
+        FileLog.Write("[ControlApiHost] UseApiModeEventSink: API-mode events are pushed to the Gateway");
+    }
+
+    /// <summary>
     /// The Director-side dispatcher for a command that arrived over the tunnel. Almost every verb runs through
     /// the shared <see cref="SessionCommandExecutor"/> so it is byte-identical to its HTTP route. The one
     /// exception is <c>shutdown</c> (Gateway Cleanup mission): stopping the whole Director is a HOST concern,
@@ -1344,7 +1379,18 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
 
         return SessionCommandExecutor.DispatchAsync(_sessionManager, DirectorId, cmd,
-            new SessionCommandServices { ProactiveExplain = _proactiveExplain, TurnSummaryCache = _turnSummaryCache, DirectorVersion = _version, Repositories = _repositoryRegistry, ReapplyGatewayAsync = ReapplyGatewayAsync, Licenses = Core.Licenses.LicenseSwitching.Shared });
+            new SessionCommandServices
+            {
+                ProactiveExplain = _proactiveExplain, TurnSummaryCache = _turnSummaryCache, DirectorVersion = _version, Repositories = _repositoryRegistry,
+                ReapplyGatewayAsync = ReapplyGatewayAsync, Licenses = Core.Licenses.LicenseSwitching.Shared,
+                // The wheel commands (API mode, phase 4) reply only after the Gateway holds the session's new row.
+                PushSessionRowAsync = (row, ct) =>
+                {
+                    var client = _streamClient
+                        ?? throw new InvalidOperationException("there is no Gateway stream to push the session's row over");
+                    return client.PushDeltaAndWaitAsync(row, ct);
+                },
+            });
     }
 
     /// <summary>
@@ -1803,6 +1849,16 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// change that replaces the client (ReapplyGatewayAsync) is picked up without
     /// re-subscribing. NotifySessionState is a no-op while disabled/unregistered.
     /// </summary>
+    /// <summary>
+    /// The holder of an API-mode session's wheel (API mode mission, issue #4070, phase 4) is read by the Gateway's wheel
+    /// commands to refuse a take or a hand back, so a change of holder pushes like any other fold input. The two wheel
+    /// commands await their own push; this one carries the changes no command made - the user's terminal exiting on its
+    /// own, a hand back whose Pi could not be started - which ride no activity change when the session was already
+    /// waiting for a prompt, and would otherwise reach the Gateway only on the ten-second re-push.
+    /// </summary>
+    internal static void PushOnWheelChange(Core.Sessions.Session session, Action<SessionDto> notifyDelta, string directorId) =>
+        session.OnTerminalChanged += () => notifyDelta(ControlEndpoints.Map(session, directorId));
+
     private void WireDoorbellPush()
     {
         void Attach(Core.Sessions.Session session)
@@ -1886,6 +1942,8 @@ public sealed class ControlApiHost : IAsyncDisposable
             // owner off the pushed row to decide whose stops these are, so it must not wait for the re-push.
             session.OnControllerChanged += () =>
                 _streamClient?.NotifyDelta(ControlEndpoints.Map(session, DirectorId));
+
+            PushOnWheelChange(session, row => _streamClient?.NotifyDelta(row), DirectorId);
         }
 
         _sessionManager.OnSessionCreated += session =>
@@ -1973,9 +2031,11 @@ public sealed class ControlApiHost : IAsyncDisposable
             // turn watermarks, and a pusher created after that call has already gone out would miss the
             // reconciliation entirely (found in review) - the same order StartAsync uses.
             _turnPusher ??= BuildTurnPusher(gatewayConfig);
+            UseApiModeEventSink(gatewayConfig);
             _streamClient = BuildStreamClient(gatewayConfig);
             _streamClient?.Start();
             _turnPusher?.Start();
+            _apiModeEventPusher?.Start();
             // Issue #1292: keep the async-vs-local numbering decision in step with the new config.
             _sessionManager.FleetNumberingActive = gatewayConfig.IsEnabled;
         }
@@ -2071,6 +2131,13 @@ public sealed class ControlApiHost : IAsyncDisposable
             try { await _turnPusher.DisposeAsync(); }
             catch (Exception ex) { FileLog.Write($"[ControlApiHost] turn pusher dispose ERROR: {ex.Message}"); }
             _turnPusher = null;
+        }
+        if (_apiModeEventPusher is not null)
+        {
+            _sessionManager.SessionEventSink = new CcDirector.Core.ApiMode.LoggingSessionEventSink();
+            try { await _apiModeEventPusher.DisposeAsync(); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] API-mode event pusher dispose ERROR: {ex.Message}"); }
+            _apiModeEventPusher = null;
         }
         _pointerWatcher = null;
         _preambleMaintainer?.Dispose();

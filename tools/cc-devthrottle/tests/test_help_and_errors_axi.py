@@ -24,7 +24,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src import axi_cli, machine_ops, mission_ops, session_ops  # noqa: E402
+from src import axi_cli, machine_ops, mission_ops, review_ops, session_ops  # noqa: E402
 from src.cli import app  # noqa: E402
 
 runner = CliRunner()
@@ -96,6 +96,7 @@ def _default_answers():
         ("DELETE", f"sessions/{SID}/request-deletion"): {"pendingDeletion": False},
         ("POST", f"sessions/{SID}/stop"): STOP_ANSWER,
         ("POST", f"directors/{DIRECTOR}/sessions"): {"sessionId": NEW, "name": "spawned"},
+        ("GET", f"sessions/{NEW}"): {"sessionId": NEW, "activityState": "Working"},
         ("POST", f"sessions/{SID}/mission"): lambda body: {
             "session": {"sessionId": SID, "missionId": body.get("missionId")},
             "previousMissionId": OTHER_MID, "previousMissionName": "AXI two",
@@ -174,7 +175,20 @@ def gw(monkeypatch):
 
     monkeypatch.delenv("CC_SESSION_ID", raising=False)
     monkeypatch.setenv("CC_DIRECTOR_ID", DIRECTOR)
+    # `session review` watches a seat for a minute; a clock that a sleep moves runs that watch instantly.
+    monkeypatch.setattr(review_ops, "time", _InstantClock())
     return fake
+
+
+class _InstantClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
 
 
 def _run(argv, env=None, monkeypatch=None):
@@ -236,6 +250,8 @@ MUTATIONS = [
     ("session spawn", ["session", "spawn", "/repos/x", "--controlled-by", "self", "--name", "n", "--mission", "none"],
      AS_SID,
      [f'cc-devthrottle message send {NEW} "<message>"', f"cc-devthrottle session buffer {NEW}"]),
+    ("session review", ["session", "review", "/repos/x", "--prompt", "review it", "--name", "n"], AS_SID,
+     [f"cc-devthrottle session buffer {NEW}", f'cc-devthrottle message send {NEW} "<message>"']),
     ("session hand-over", ["session", "hand-over", SID, "--to", "fleet-manager"], None,
      ["cc-devthrottle session list --fields id,name,state", f"cc-devthrottle session hand-over {SID} --to owner"]),
     ("session hand-over --to owner", ["session", "hand-over", SID, "--to", "owner"], None,
@@ -1022,6 +1038,8 @@ UNCONFIRMED = [
     ("undo still flagged", ["session", "done", SID, "--undo"], None,
      _set(**{f"DELETE sessions/{SID}/request-deletion": {"pendingDeletion": True}}), "True for pendingDeletion"),
     ("spawn empty", ["session", "spawn", "/repos/x", "--controlled-by", "self", "--name", "n", "--mission", "none"],
+     AS_SID, _set(**{f"POST directors/{DIRECTOR}/sessions": {}}), "did not return a session id"),
+    ("review spawn empty", ["session", "review", "/repos/x", "--prompt", "review it", "--name", "n"],
      AS_SID, _set(**{f"POST directors/{DIRECTOR}/sessions": {}}), "did not return a session id"),
     ("send empty", ["message", "send", SID, "hello"], None,
      _set(**{f"POST sessions/{SID}/message": {}}), "did not accept"),

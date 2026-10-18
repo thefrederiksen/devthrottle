@@ -346,6 +346,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "fleet-advise",
     # Issue #3559: the Fleet Manager keeps a lesson from the owner's correction.
     "fleet-lesson",
+    # The reviewer that moves to the next seat by itself when one cannot work.
+    "session-review",
     # Issue #3622: the planned fire times of a random schedule.
     "schedule-plan",
     # The Fleet Manager mission, step 8.

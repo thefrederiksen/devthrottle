@@ -324,8 +324,7 @@ internal static class ControlEndpoints
             // API mode (issue #4070): how the Director drives the agent, and who holds the conversation. Facts; the
             // Gateway rules on what they mean.
             ConnectionMode = Core.ApiMode.SessionConnectionModeWords.ToWord(s.ConnectionMode),
-            WheelHolder = Core.ApiMode.SessionConnectionModeWords.WheelHolderOf(
-                s.ConnectionMode, s.Status is SessionStatus.Exited or SessionStatus.Failed),
+            WheelHolder = Core.ApiMode.SessionConnectionModeWords.WheelHolderWord(s.WheelHolder),
             // Prompts that did not go (issue internal#811). Only this machine can see a delivery fail, so
             // the counts and the unresolved flag are reported here as FACTS; the Gateway folds the words.
             // Before this they existed solely as a line in a Director log file, which is how two spoken

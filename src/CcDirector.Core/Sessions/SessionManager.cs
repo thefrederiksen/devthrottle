@@ -100,11 +100,15 @@ public sealed class SessionManager : IDisposable
     public Func<IApiModeProcess> ApiModeProcessFactory { get; set; } = () => new SystemApiModeProcess();
 
     /// <summary>
-    /// Where API-mode sessions' events go (issue #4070). Until the upstream message to the Gateway exists (phase 2,
-    /// <c>DirectorUpStreamMessages</c>), the Director's log.
-    /// TODO(API mode phase 2): the Director's composition sets the sink that fills the upstream message here.
+    /// Where API-mode sessions' events go (issue #4070): the Director's log when there is no Gateway, and the control
+    /// layer's pusher (<c>ApiModeEventPusher</c>) when there is one, set by the host at start and whenever the Gateway
+    /// setting changes. Read at every publish, so a change reaches sessions that are already running.
     /// </summary>
     public ISessionEventSink SessionEventSink { get; set; } = new LoggingSessionEventSink();
+
+    /// <summary>Makes the terminal an API-mode session's wheel runs in when the user takes it (phase 4): the terminal path's
+    /// own backend in the Director, a fake in a test, so no test starts a terminal. Null means the terminal path's own.</summary>
+    public Func<ISessionBackend>? ApiModeTerminalFactory { get; set; }
 
     /// <summary>The clock API-mode sessions' events are timed by.</summary>
     public TimeProvider ApiModeClock { get; set; } = TimeProvider.System;
@@ -174,12 +178,13 @@ public sealed class SessionManager : IDisposable
 
     /// <summary>
     /// Asked, for a Claude Code session nobody will answer (opened by another session, or a seat), whether it would stop on
-    /// Claude Code's one-time Bypass Permissions warning: given the session's own arguments, its full launch line and its
-    /// folder, it answers the sentence that refuses the start, or null to go ahead. The Director gives
-    /// <see cref="Claude.ClaudeBypassConsent.WhyItWouldStop"/> for this user and machine; when it is not set, nothing is
+    /// a question of Claude Code's that only the owner may answer - the one-time Bypass Permissions warning, or "Teach auto
+    /// mode about your environment?": given the session's own arguments, its full launch line and its folder, it answers
+    /// the sentence that refuses the start, or null to go ahead. The Director gives
+    /// <see cref="Claude.ClaudeStartQuestions.WhyItWouldStop"/> for this user and machine; when it is not set, nothing is
     /// refused.
     /// </summary>
-    public Func<string?, string, string, string?>? ClaudeBypassCheck { get; init; }
+    public Func<string?, string, string, string?>? ClaudeQuestionCheck { get; init; }
 
     /// <summary>
     /// Answers, before a seat's agent starts, whether this machine holds the secrets its kit lists and may use them for
@@ -388,6 +393,8 @@ public sealed class SessionManager : IDisposable
         FactoryDefinitionVersion = s.FactoryDefinitionVersion,
         FactoryKit = s.FactoryKit,
         LaunchModel = s.LaunchModel,
+        // API mode only (issue #4070): a terminal session's row stays exactly what it was before the field existed.
+        ConnectionMode = s.ConnectionMode == SessionConnectionMode.Api ? SessionConnectionModeWords.ToWord(s.ConnectionMode) : null,
     };
 
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)
@@ -874,7 +881,9 @@ public sealed class SessionManager : IDisposable
             ? new ApiModeSessionBackend(id.ToString(), launchSpec.PreassignedSessionId
                     ?? throw new InvalidOperationException($"{agent.Kind} named no session id for API mode, so its conversation could not be resumed or taken over."),
                 resuming: !string.IsNullOrEmpty(resumeSessionId),
-                new SessionEventStream(id.ToString(), SessionEventSink, ApiModeClock), ApiModeProcessFactory, ApiModeClock)
+                new SessionEventStream(id.ToString(), new ForwardingSessionEventSink(() => SessionEventSink), ApiModeClock), ApiModeProcessFactory,
+                // The user's wheel (phase 4) runs in the terminal path's own backend.
+                ApiModeTerminalFactory ?? (() => PlatformSessionBackend.CreateDefault(_options.DefaultBufferSizeBytes)), ApiModeClock)
             : backendType switch
         {
             // ConPty on Windows, UnixPty on macOS/Linux - one selection, in PlatformSessionBackend.
@@ -949,14 +958,15 @@ public sealed class SessionManager : IDisposable
             if (agent.Kind == AgentKind.ClaudeCode && kitDirectory is not null)
                 TrustSeatFolder(id, home, pooled);
 
-            // CLAUDE CODE'S ONE-TIME BYPASS WARNING, WHICH NOBODY WOULD ANSWER (Command Line Agent Handling mission). A
-            // session opened by another session, or a seat, that would stop on it is refused here in words; the Director
-            // never accepts the warning for the owner (ClaudeBypassConsent). A session the owner opens is left alone.
+            // CLAUDE CODE'S QUESTIONS THAT ONLY THE OWNER MAY ANSWER, WHICH NOBODY WOULD (Command Line Agent Handling
+            // mission): the one-time Bypass Permissions warning and "Teach auto mode about your environment?". A session
+            // opened by another session, or a seat, that would stop on one is refused here in words; the Director never
+            // answers them for the owner (ClaudeStartQuestions). A session the owner opens is left alone.
             if (agent.Kind == AgentKind.ClaudeCode && (controllerSessionId is not null || kitDirectory is not null)
-                && ClaudeBypassCheck?.Invoke(userArgs, args, workingDirectory) is { } bypassRefusal)
+                && ClaudeQuestionCheck?.Invoke(userArgs, args, workingDirectory) is { } questionRefusal)
             {
-                FileLog.Write($"[SessionManager] CreateSession REFUSED: session={id}: {bypassRefusal}");
-                throw new Claude.ClaudeStartRefusedException(bypassRefusal);
+                FileLog.Write($"[SessionManager] CreateSession REFUSED: session={id}: {questionRefusal}");
+                throw new Claude.ClaudeStartRefusedException(questionRefusal);
             }
 
             // Inject CC_SESSION_ID so skills (e.g. /handover) can look up the session name, and

@@ -70,7 +70,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         _signIns = new LicenseSignInService(_log, _reads, _directors.IsConnected, _directors.SendAsync, _directors.EnterScope,
             () => _now, CancellationToken.None);
         _alarms = new LicenseAlarmService(_db, Mail, Push, () => _now);
-        _approverReadiness = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(_db)), _reads, () => _now);
+        _approverReadiness = new LicenseApproverReadiness(new LicenseApproverStore(new TenantSettingsStore(_db)), _reads, _directors.IsConnected, () => _now);
         // By default the Director takes the command and never answers: the sign-in stays open.
         _directors.Answer = _ => _neverAnswers.Task;
     }
@@ -231,6 +231,59 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Empty(SignInRows());
     }
 
+    // The phase 6 review, finding 1, as the owner lives it. Account A passes 80% and machine-a holds no sign-in for account
+    // B. The 80% alarm asks the owner to set an approver for B, and the owner sets machine-b's "work" profile. machine-b's
+    // Director is running and connected and ran its daily approver check an hour ago, before the record existed. Before
+    // this change the record waited up to a day for that Director's next daily run, and the alarm told the owner to start
+    // a Director that was running. Now: the alarm says the check is coming, the Director's next ten-minute look checks the
+    // record, and the very next readiness tick starts the sign-in.
+    [Fact]
+    public async Task Tick_TheOwnerSetsAnApproverAt80_TheConnectedDirectorChecksItWithinTenMinutes_AndTheNextTickStartsTheSignIn()
+    {
+        var approvers = new LicenseApproverStore(new TenantSettingsStore(_db));
+        var registration = new LicenseApproverRegistration(approvers, _reads, () => _now);
+        using var machineB = new LicenseApproverDirectorKit(registration, One, DirB, () => _now);
+        _approverWhyNot = _approverReadiness.WhyNotReady;
+        _aWeekly = 90;
+        BothReport();
+
+        // machine-b's Director ran its daily check before any approver named it: nothing to check, an empty report.
+        Assert.Empty((await machineB.Check.TickAsync(CancellationToken.None))!.Rows);
+        _now = T0.AddHours(1);
+        BothReport();
+        await Tick();
+        Assert.Equal("No machine is set to approve sign-ins for account-b@example.com. Set an approver for account-b@example.com on the Licenses page.",
+            Assert.Single(_alarms.ListOpen(One)).Action);
+
+        // The owner does the one thing the alarm asked.
+        Assert.True(approvers.Set(One, B, MachineB, "owner", "work", _now).Accepted);
+        var waiting = Of(await Tick(), MachineA);
+        Assert.Equal(LicenseReadinessFixes.ApproverNotReady, waiting.Fix);
+        Assert.Empty(SignInsSent());
+        Assert.Equal("Not ready: holds no sign-in for account-b@example.com. The approver for account-b@example.com (browser profile \"work\" on machine-b) "
+                     + "has never been checked. Nothing to do: the Director on machine-b is connected and checks it within 10 minutes.", waiting.Text);
+        Assert.DoesNotContain("Start the Director", Assert.Single(_alarms.ListOpen(One)).Action);
+
+        // machine-b's next ten-minute look, 23 hours before its daily run is due: the record is checked now.
+        _now += LicenseApproverContract.DueCheckWithin;
+        var report = await machineB.Check.TickAsync(CancellationToken.None);
+        Assert.Equal(("work", (string?)B, LicenseApproverStates.CanApprove), report!.Rows.Select(r => (r.BrowserProfile, r.AccountEmail, r.State)).Single());
+        Assert.Equal(new[] { ("work", (string?)B) }, machineB.Tool.ApproverChecks);
+
+        // The next readiness tick starts the sign-in.
+        _now += TimeSpan.FromMinutes(1);
+        BothReport();
+        var tick = await Tick();
+        Assert.Equal(LicenseReadinessFixes.StartNow, Of(tick, MachineA).Fix);
+        var sent = (LicenseSignInRequest)(await TheSignInSent()).Payload;
+        Assert.Equal(B, sent.AccountEmail);
+
+        // A checked record is no longer due: the following looks open no browser until the daily run.
+        _now += LicenseApproverContract.DueCheckWithin;
+        Assert.Null(await machineB.Check.TickAsync(CancellationToken.None));
+        Assert.Single(machineB.Tool.ApproverChecks);
+    }
+
     // A machine whose Director is not connected cannot be signed in: nothing is started, and the sentence says why.
     [Fact]
     public async Task Judge_DirectorOffline_StartsNothing_AndSaysSo()
@@ -298,7 +351,8 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Single(SignInsSent());
     }
 
-    // No account has room: its own state, not a readiness gap - nothing is started and nothing is raised.
+    // No account has room: its own state, not a readiness gap - nothing is started and no not-ready alarm is raised
+    // (at 90% the no-room alarm is: see the tests of that alarm at the end).
     [Fact]
     public async Task Judge_NoOtherAccountHasRoom_IsItsOwnState_NotAGap()
     {
@@ -316,7 +370,7 @@ public sealed class LicenseReadinessServiceTests : IDisposable
             Assert.False(m.IsGap);
         }
         Assert.Empty(SignInsSent());
-        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Equal("no-room-at-80", Assert.Single(_alarms.ListOpen(One)).Kind);
     }
 
     // ----- one sign-in per gap -----
@@ -727,5 +781,139 @@ public sealed class LicenseReadinessServiceTests : IDisposable
         Assert.Empty(SignInsSent());
         Assert.Empty(_alarms.ListOpen(Two));
         Assert.Empty(_alarms.ListOpen(One)); // One was not checked by that call either
+    }
+
+    // ----- the 80% no-room alarm -----
+
+    private const string NoRoomAt85 = "account-a@example.com is at 85% of its weekly limit and no other account has room to switch its machines "
+                                      + "to; the first to have room again is account-b@example.com, at 2026-10-15 03:12 UTC.";
+
+    private const string NoRoomAction = "Nothing can be switched to before 2026-10-15 03:12 UTC; to keep working, free up or add an account.";
+
+    private List<LicenseAlarmEntity> NoRoomAlarms() => _alarms.ListOpen(One).Where(a => a.Kind == "no-room-at-80").ToList();
+
+    // Under 80% with no other account having room: nothing is raised - there is still time, and nothing to say yet.
+    [Fact]
+    public async Task Tick_NoRoom_Under80_RaisesNoAlarm()
+    {
+        _aWeekly = 79.9;
+        _bWeekly = 98;
+        BothReport();
+
+        var tick = await Tick();
+
+        Assert.Equal((0, 0, 0), (tick.NoRoomAlarms!.Opened, tick.NoRoomAlarms.StillOpen, tick.NoRoomAlarms.Closed));
+        Assert.Empty(_alarms.ListOpen(One));
+        Assert.Empty(_emails);
+        Assert.Empty(_pushed);
+    }
+
+    // At 80% or more with no room: ONE alarm for the account - though two machines are on it - naming the account and
+    // its use, and the account that has room again first and when, from its reset time. One push and one email when it
+    // opens; the next check keeps it open and sends nothing more.
+    [Fact]
+    public async Task Tick_NoRoom_At80_OpensOneAlarmForTheAccount_NamingTheFirstReset_AndTheNextTickNoSecond()
+    {
+        _aWeekly = 85;
+        _bWeekly = 98;
+        BothReport();
+
+        var first = await Tick();
+        _now = T0.AddMinutes(1);
+        BothReport();
+        var second = await Tick();
+
+        var alarm = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal(("no-room-at-80", "", Guid.Empty, A), (alarm.Kind, alarm.MachineName, alarm.MachineId, alarm.AccountEmail));
+        Assert.Equal(NoRoomAt85, alarm.Problem);
+        Assert.Equal(NoRoomAction, alarm.Action);
+        Assert.Equal(1, first.NoRoomAlarms!.Opened);
+        Assert.Equal((0, 1, 0), (second.NoRoomAlarms!.Opened, second.NoRoomAlarms.StillOpen, second.NoRoomAlarms.Closed));
+        Assert.Single(_emails);
+        var pushed = Assert.Single(_pushed);
+        Assert.Equal(("", "no-room-at-80"), (pushed.MachineName, pushed.Kind.Key));
+    }
+
+    // Another account has room again: the no-room alarm closes by itself.
+    [Fact]
+    public async Task Tick_NoRoom_At80_RoomComesBack_TheAlarmCloses()
+    {
+        _aWeekly = 85;
+        _bWeekly = 98;
+        BothReport();
+        await Tick();
+        Assert.Single(NoRoomAlarms());
+
+        _bWeekly = 10;
+        _now = T0.AddMinutes(3);
+        BothReport();
+        var tick = await Tick();
+
+        Assert.Equal(1, tick.NoRoomAlarms!.Closed);
+        Assert.Empty(NoRoomAlarms());
+    }
+
+    // The account in use is under 80% again on a fresh reading: the no-room alarm closes, though there is still no room.
+    [Fact]
+    public async Task Tick_NoRoom_TheAccountFallsUnder80_TheAlarmCloses()
+    {
+        _aWeekly = 85;
+        _bWeekly = 98;
+        BothReport();
+        await Tick();
+        Assert.Single(NoRoomAlarms());
+
+        _aWeekly = 3;
+        _now = T0.AddMinutes(3);
+        BothReport();
+        var tick = await Tick();
+
+        Assert.Equal(LicenseReadinessStates.NoRoom, Of(tick, MachineA).State);
+        Assert.Equal(1, tick.NoRoomAlarms!.Closed);
+        Assert.Empty(_alarms.ListOpen(One));
+    }
+
+    // The same rule of freshness as the not-ready alarm: nothing opens on a stale reading, and an open alarm stays
+    // open while the reading is stale, with no second email.
+    [Fact]
+    public async Task Tick_NoRoom_OpensOnlyOnAFreshReading_AndStaysOpenWhileTheReadingIsStale()
+    {
+        _aWeekly = 90;
+        _bWeekly = 98;
+        BothReport();
+        _now = T0.AddMinutes(20); // account A's active reading is stale after 6 minutes; B's spare reading is still fresh
+        await Tick();
+        Assert.Empty(_alarms.ListOpen(One));
+
+        _aWeekly = 85;
+        BothReport();
+        await Tick();
+        var opened = Assert.Single(NoRoomAlarms());
+
+        _now = T0.AddMinutes(30); // A's reading of minute 20 is stale now; B's is not
+        var stale = await Tick();
+
+        var still = Assert.Single(NoRoomAlarms());
+        Assert.Equal(opened.Id, still.Id);
+        Assert.Equal((0, 1, 0), (stale.NoRoomAlarms!.Opened, stale.NoRoomAlarms.StillOpen, stale.NoRoomAlarms.Closed));
+        Assert.Equal("account-a@example.com was at or above 80% at its last fresh reading and no other account has room to switch its "
+                     + "machines to; the first to have room again is account-b@example.com, at 2026-10-15 03:12 UTC.", still.Problem);
+        Assert.Single(_emails);
+    }
+
+    // A machine not ready while another account HAS room still gets the not-ready alarm, unchanged - and no no-room alarm.
+    [Fact]
+    public async Task Tick_At80_NotReady_WhileAnotherAccountHasRoom_RaisesOnlyTheNotReadyAlarm()
+    {
+        _aWeekly = 85;
+        BothReport();
+
+        var tick = await Tick();
+
+        var alarm = Assert.Single(_alarms.ListOpen(One));
+        Assert.Equal(("not-ready-at-80", MachineA), (alarm.Kind, alarm.MachineName));
+        Assert.Equal("machine-a is not ready to switch off account-a@example.com, which is at 85% of its weekly limit: "
+                     + "account-b@example.com is the account it would switch to next, and it holds no sign-in for account-b@example.com.", alarm.Problem);
+        Assert.Equal((0, 0, 0), (tick.NoRoomAlarms!.Opened, tick.NoRoomAlarms.StillOpen, tick.NoRoomAlarms.Closed));
     }
 }

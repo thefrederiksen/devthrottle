@@ -1,0 +1,9 @@
+8 attempts counted (0 setup failures not counted).
+
+product b18b5423932a+local-changes  (2026-10-17 23:27 to 23:29 UTC)
+  agent    scenario            pass   of   rate  95% interval   failures (director/truth)
+  claude   first                  2    2   100%    34% - 100%   
+  claude   idle-short             2    2   100%    34% - 100%   
+  claude   auto-mode-question     2    2   100%    34% - 100%   
+  claude   auto-mode-question-settled     2    2   100%    34% - 100%   
+  claude   ALL SCENARIOS          8    8   100%    68% - 100%   

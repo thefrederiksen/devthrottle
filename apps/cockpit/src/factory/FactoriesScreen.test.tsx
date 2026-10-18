@@ -28,6 +28,7 @@ const screenClient = vi.hoisted(() => ({
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
   getFactoryFloor: vi.fn(() => new Promise(() => {})),
+  getFactoryDrawing: vi.fn(() => new Promise(() => {})),
   startFactoryTalk: vi.fn(),
   runFactoryOwnerAction: vi.fn(),
   startProblemTalk: vi.fn(),
@@ -356,10 +357,19 @@ describe("A factory's page (mockup 2)", () => {
 
     expect(screen.getByText("A cash engine of $15,000-$40,000 a year that runs without your time.")).toBeTruthy();
     expect(screen.getByText("Only you change the goal. Approved 4 Oct 2026.")).toBeTruthy();
-    expect(screen.getByText("Goal number - posted by Boss, today 06:20")).toBeTruthy();
-    expect(screen.getByText("Propane saved this season: not yet proven")).toBeTruthy();
+    // The goal and its number are one line in the header (owner, 18 Oct 2026): who posted it is the number's tooltip.
+    expect(screen.getByText("Propane saved this season: not yet proven").getAttribute("title")).toBe("Goal number - posted by Boss, today 06:20");
     expect(screen.getByText("How it is measured").getAttribute("href")).toBe("/fixture/how-it-is-measured");
     expect(screen.getByText("Is the Bunkie Bathroom meant to be at 20 C?")).toBeTruthy();
+    // The boss's latest and the last talk are on Activity, not the Overview (owner, 18 Oct 2026).
+    expect(screen.queryByTestId("fa-boss-latest")).toBeNull();
+    expect(screen.queryByTestId("fa-last-talk")).toBeNull();
+  });
+
+  it("shows the boss's latest and the last talk on the Activity tab", async () => {
+    renderAt("/factories/warmforward/activity");
+
+    await screen.findByTestId("fa-boss-latest");
     expect(screen.getByText("Today 06:20 - Feed healthy. Found zone 8 holding 20 C; asked you.")).toBeTruthy();
     expect(screen.getByText("All reports").getAttribute("href")).toBe("/factories?tab=activity&factory=warmforward&agent=nora-hale");
     expect(within(screen.getByTestId("fa-last-talk")).getByText("None yet.")).toBeTruthy();
@@ -1060,14 +1070,15 @@ describe("Open problems on a factory's page (Factory Control, step 1b)", () => {
     expect(within(item).getByTestId("fa-problem-session").getAttribute("href")).toBe(`/session/${PROBLEM.sessionId}`);
   });
 
-  it("says so when there are none", async () => {
+  it("is not on the Overview when there are none: the Overview shows only what needs you (owner, 18 Oct 2026)", async () => {
     screenClient.getFactoryPage.mockResolvedValue({
       ...FACTORY_PAGE,
       problems: { ...FACTORY_PAGE.problems!, items: [], emptyText: "No open problems. (fixture)" },
     });
     renderAt("/factories/warmforward");
 
-    expect((await screen.findByTestId("fa-problems-empty")).textContent).toBe("No open problems. (fixture)");
+    await screen.findByTestId("fa-overview");
+    expect(screen.queryByTestId("fa-problems-empty")).toBeNull();
   });
 
   it("Handle the issue shows it is working at once, then opens the briefed talk the Gateway started", async () => {
@@ -1131,11 +1142,12 @@ describe("Open problems on a factory's page (Factory Control, step 1b)", () => {
   });
 });
 
+// On the Activity tab since the Overview became the drawing (owner, 18 October 2026).
 describe("Reports emailed to you, on a factory's page (Factory Control, brief 5's store)", () => {
   const EMAIL = FACTORY_PAGE.emails!.items[0];
 
   it("lists each kept email verbatim, in the Gateway's words", async () => {
-    renderAt("/factories/warmforward");
+    renderAt("/factories/warmforward/activity");
 
     const card = await screen.findByTestId("fa-page-emails");
     expect(within(card).getByText("Reports emailed to you (fixture)")).toBeTruthy();
@@ -1152,14 +1164,14 @@ describe("Reports emailed to you, on a factory's page (Factory Control, brief 5'
       ...FACTORY_PAGE,
       emails: { ...FACTORY_PAGE.emails!, items: [], emptyText: "No report has covered this factory yet. (fixture)" },
     });
-    renderAt("/factories/warmforward");
+    renderAt("/factories/warmforward/activity");
 
     expect((await screen.findByTestId("fa-emails-empty")).textContent).toBe("No report has covered this factory yet. (fixture)");
   });
 
   it("Read opens the email exactly as it was sent, in a sandboxed frame", async () => {
     screenClient.getFactoryEmail.mockResolvedValue({ id: EMAIL.id, title: "Factories: 2 open problems (fixture)", html: "<p>as sent</p>" });
-    renderAt("/factories/warmforward");
+    renderAt("/factories/warmforward/activity");
 
     fireEvent.click(await screen.findByTestId("fa-email-read"));
 

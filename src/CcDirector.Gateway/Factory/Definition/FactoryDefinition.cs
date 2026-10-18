@@ -44,7 +44,8 @@ public sealed record SeatDefinition(
     IReadOnlyList<string> Secrets,
     IReadOnlyList<string> FactorySkills,
     IReadOnlyList<string> FleetSkills,
-    IReadOnlyList<string> Files)
+    IReadOnlyList<string> Files,
+    IReadOnlyList<SeatStepDefinition> Steps)
 {
     /// <summary>The machine the seat runs on: its own, else the factory's default.</summary>
     public string MachineOrDefault(FactoryDefinitionDefaults defaults) => Machine ?? defaults.Machine;
@@ -69,6 +70,22 @@ public sealed record SeatStartDefinition(
     IReadOnlyList<string> Secrets,
     string Prompt,
     bool PreventOverlap);
+
+/// <summary>
+/// One step of what a seat does (its <c>steps</c>), drawn on the factory page. A step with a <see cref="Decision"/> is
+/// a question; its <see cref="Branch"/> is the way off the main line. Steps describe; the brief is what the seat is told.
+/// </summary>
+public sealed record SeatStepDefinition(
+    string Name,
+    string? Detail,
+    string? Runs,
+    string? Repeats,
+    string? Decision,
+    string? ContinueWhen,
+    SeatStepBranchDefinition? Branch);
+
+/// <summary>A decision's way off the main line: one step, then the seat ends (done) or stops for a person (stop).</summary>
+public sealed record SeatStepBranchDefinition(string When, string Name, string? Detail, string Ends);
 
 /// <summary>One grant from <c>grants.yaml</c>.</summary>
 public sealed record GrantDefinition(string Id, string Allows, string? Limits, IReadOnlyList<string> Seats);

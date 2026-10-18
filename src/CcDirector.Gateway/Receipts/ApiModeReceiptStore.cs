@@ -34,7 +34,9 @@ namespace CcDirector.Gateway.Receipts;
 ///  - ONE TURN PER PROMPT. A turn start links the delivered prompts it names to its turn id; a turn end writes its
 ///    outcome onto exactly those receipts, once.
 ///  - VERBATIM. The acknowledgement and the reasons are stored as received, never shortened or reworded; an oversized
-///    one is refused whole rather than cut (<see cref="MaxVerbatimLength"/>).
+///    one is refused whole rather than cut (<see cref="MaxVerbatimLength"/>). The prompt's own text is kept the same
+///    way (<see cref="MaxPromptTextLength"/>): the first event that carries it sets it, and no later event blanks or
+///    replaces it.
 ///  - ATOMIC ACROSS PROCESSES. One transaction per change. The primary key is the prompt, so two Gateways creating the
 ///    same receipt at once (a deploy has two processes for a moment) collide on the key, and the loser re-reads and
 ///    decides again, once - the <see cref="History.SessionTurnStore"/> pattern.
@@ -50,6 +52,11 @@ public sealed class ApiModeReceiptStore
     /// <summary>The longest acknowledgement or reason accepted. A Director's refusal reason can carry the agent's
     /// standard error lines, so this is generous; a longer one is a Director defect and is refused, not cut.</summary>
     public const int MaxVerbatimLength = 64 * 1024;
+
+    /// <summary>The longest prompt text accepted: the most characters of event JSON one batch may carry, so the ingest,
+    /// which refuses a larger batch whole, can never hand the store one longer. A prompt is the user's own words and is
+    /// never cut; the column is unbounded on every provider.</summary>
+    public const int MaxPromptTextLength = ApiModeEventBatch.MaxCharacters;
 
     /// <summary>The longest session, prompt, turn or Director id accepted (the column width).</summary>
     public const int MaxIdLength = 64;
@@ -73,13 +80,15 @@ public sealed class ApiModeReceiptStore
     /// The Director is holding the prompt (<c>PromptQueued</c>). Creates the receipt, or refreshes the reason of one still
     /// queued. True when the store changed.
     /// </summary>
-    public bool RecordQueued(string directorId, string sessionId, string promptId, string reason, ApiModeEventPosition position, DateTime atUtc)
+    /// <param name="promptText">The prompt's text, verbatim; null or empty when the event carried none.</param>
+    public bool RecordQueued(string directorId, string sessionId, string promptId, string reason, ApiModeEventPosition position, DateTime atUtc, string? promptText = null)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
         RequireId(promptId, nameof(promptId));
         RequireWord(reason, nameof(reason));
         RequirePosition(position);
+        RequirePromptText(promptText);
         var at = Utc(atUtc, nameof(atUtc));
 
         return Write(nameof(RecordQueued), sessionId, promptId, position, ctx =>
@@ -91,6 +100,7 @@ public sealed class ApiModeReceiptStore
                 {
                     r.QueueReason = reason;
                     r.QueuedAtUtc = at;
+                    KeepPromptText(r, promptText);
                 }));
                 return "queued";
             }
@@ -100,6 +110,7 @@ public sealed class ApiModeReceiptStore
                 var was = Supersede(nameof(RecordQueued), row, position, ApiModeReceiptState.Queued);
                 row.QueueReason = reason;
                 row.QueuedAtUtc = at;
+                KeepPromptText(row, promptText);
                 return "queued again, a retry; it replaces " + was;
             }
             if (row.State != nameof(ApiModeReceiptState.Queued))
@@ -108,6 +119,7 @@ public sealed class ApiModeReceiptStore
                 return null;
             }
             row.QueueReason = reason;
+            KeepPromptText(row, promptText);
             Touch(row, position);
             return "queue reason now " + reason;
         });
@@ -118,7 +130,8 @@ public sealed class ApiModeReceiptStore
     /// and it replaces the refusal; after a Delivered one it is a second ending, refused (rule 1). True when the store
     /// changed.
     /// </summary>
-    public bool RecordDelivered(string directorId, string sessionId, string promptId, string disposition, string acknowledgement, ApiModeEventPosition position, DateTime atUtc)
+    /// <param name="promptText">The prompt's text, verbatim; null or empty when the event carried none.</param>
+    public bool RecordDelivered(string directorId, string sessionId, string promptId, string disposition, string acknowledgement, ApiModeEventPosition position, DateTime atUtc, string? promptText = null)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
@@ -126,6 +139,7 @@ public sealed class ApiModeReceiptStore
         RequireWord(disposition, nameof(disposition));
         RequireVerbatim(acknowledgement, nameof(acknowledgement));
         RequirePosition(position);
+        RequirePromptText(promptText);
         var at = Utc(atUtc, nameof(atUtc));
 
         return Write(nameof(RecordDelivered), sessionId, promptId, position, ctx =>
@@ -133,7 +147,11 @@ public sealed class ApiModeReceiptStore
             var row = Find(ctx, sessionId, promptId);
             if (row is null)
             {
-                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Delivered, position, r => Deliver(r, disposition, acknowledgement, at)));
+                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Delivered, position, r =>
+                {
+                    Deliver(r, disposition, acknowledgement, at);
+                    KeepPromptText(r, promptText);
+                }));
                 return "delivered (" + disposition + ")";
             }
             if (!IsNewer(position, row)) return null;
@@ -141,6 +159,7 @@ public sealed class ApiModeReceiptStore
             {
                 var was = Supersede(nameof(RecordDelivered), row, position, ApiModeReceiptState.Delivered);
                 Deliver(row, disposition, acknowledgement, at);
+                KeepPromptText(row, promptText);
                 return "delivered (" + disposition + "), a retry; it replaces " + was;
             }
             if (row.State != nameof(ApiModeReceiptState.Queued))
@@ -150,6 +169,7 @@ public sealed class ApiModeReceiptStore
             }
             row.State = nameof(ApiModeReceiptState.Delivered);
             Deliver(row, disposition, acknowledgement, at);
+            KeepPromptText(row, promptText);
             Touch(row, position);
             return "delivered (" + disposition + ")";
         });
@@ -161,7 +181,8 @@ public sealed class ApiModeReceiptStore
     /// store changed.
     /// </summary>
     /// <param name="refusedBy"><c>agent</c> or <c>director</c>, as the event model words it.</param>
-    public bool RecordRefused(string directorId, string sessionId, string promptId, string reason, string refusedBy, ApiModeEventPosition position, DateTime atUtc)
+    /// <param name="promptText">The prompt's text, verbatim; null or empty when the event carried none.</param>
+    public bool RecordRefused(string directorId, string sessionId, string promptId, string reason, string refusedBy, ApiModeEventPosition position, DateTime atUtc, string? promptText = null)
     {
         RequireId(directorId, nameof(directorId));
         RequireId(sessionId, nameof(sessionId));
@@ -169,6 +190,7 @@ public sealed class ApiModeReceiptStore
         RequireVerbatim(reason, nameof(reason));
         RequireWord(refusedBy, nameof(refusedBy));
         RequirePosition(position);
+        RequirePromptText(promptText);
         var at = Utc(atUtc, nameof(atUtc));
 
         return Write(nameof(RecordRefused), sessionId, promptId, position, ctx =>
@@ -176,7 +198,11 @@ public sealed class ApiModeReceiptStore
             var row = Find(ctx, sessionId, promptId);
             if (row is null)
             {
-                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Refused, position, r => Refuse(r, reason, refusedBy, at)));
+                ctx.ApiModeReceipts.Add(NewRow(ctx, directorId, sessionId, promptId, ApiModeReceiptState.Refused, position, r =>
+                {
+                    Refuse(r, reason, refusedBy, at);
+                    KeepPromptText(r, promptText);
+                }));
                 return "refused by " + refusedBy;
             }
             if (!IsNewer(position, row)) return null;
@@ -184,6 +210,7 @@ public sealed class ApiModeReceiptStore
             {
                 var was = Supersede(nameof(RecordRefused), row, position, ApiModeReceiptState.Refused);
                 Refuse(row, reason, refusedBy, at);
+                KeepPromptText(row, promptText);
                 return "refused by " + refusedBy + ", a retry; it replaces " + was;
             }
             if (row.State != nameof(ApiModeReceiptState.Queued))
@@ -193,6 +220,7 @@ public sealed class ApiModeReceiptStore
             }
             row.State = nameof(ApiModeReceiptState.Refused);
             Refuse(row, reason, refusedBy, at);
+            KeepPromptText(row, promptText);
             Touch(row, position);
             return "refused by " + refusedBy;
         });
@@ -410,6 +438,10 @@ public sealed class ApiModeReceiptStore
     /// row's first position moves to the retry's event: receipts are read, and turns numbered, in the order their
     /// prompts arrived, and the retry arrived now. Only the caller may decide a row is Refused and the event newer; the
     /// caller then writes the retry's own fields. Answers what was replaced, for the log line.
+    /// The prompt's text is kept, not cleared: a retry under the same id is the same prompt, so it carries the same
+    /// words (event model, "What a promptId is"). Clearing it would let a retry's event without text blank the row,
+    /// which <see cref="KeepPromptText"/> forbids; the caller hands the retry's text to KeepPromptText, which fills it
+    /// only when the refused attempt carried none.
     /// </summary>
     private string Supersede(string operation, ApiModeReceiptEntity row, ApiModeEventPosition position, ApiModeReceiptState now)
     {
@@ -450,9 +482,18 @@ public sealed class ApiModeReceiptStore
         row.RefusedAtUtc = at;
     }
 
+    /// <summary>The first event that carries the prompt's text sets it, exactly as received; a later event never blanks
+    /// or replaces it, and an event with no text (null or empty) leaves the row as it is.</summary>
+    private static void KeepPromptText(ApiModeReceiptEntity row, string? promptText)
+    {
+        if (row.PromptText is null && !string.IsNullOrEmpty(promptText))
+            row.PromptText = promptText;
+    }
+
     internal static ApiModeReceiptDto ToDto(ApiModeReceiptEntity row) => new()
     {
         PromptId = row.PromptId,
+        PromptText = row.PromptText,
         State = Enum.Parse<ApiModeReceiptState>(row.State),
         QueueReason = row.QueueReason,
         Disposition = row.Disposition,
@@ -490,6 +531,12 @@ public sealed class ApiModeReceiptStore
         ArgumentNullException.ThrowIfNull(value, name);
         if (value.Length > MaxVerbatimLength)
             throw new ArgumentException($"{name} is {value.Length} characters; at most {MaxVerbatimLength} are stored, and a verbatim field is never cut", name);
+    }
+
+    private static void RequirePromptText(string? value)
+    {
+        if (value is not null && value.Length > MaxPromptTextLength)
+            throw new ArgumentException($"promptText is {value.Length} characters; at most {MaxPromptTextLength} are stored, and a prompt's text is never cut", "promptText");
     }
 
     /// <summary>A default position (never constructed) has no generation: a caller defect, refused.</summary>

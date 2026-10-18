@@ -27,7 +27,13 @@ public sealed record SessionEventBatch(
     string SessionId,
     string Generation,
     DateTime GenerationStartedUtc,
-    IReadOnlyList<SessionEvent> Events);
+    IReadOnlyList<SessionEvent> Events)
+{
+    /// <summary>The session's prompts still waiting for their receipt just before the first of <see cref="Events"/>
+    /// (<see cref="QueuedPrompts"/>). A sink that sends what follows a hole as a new generation re-announces the line from
+    /// it, so it must hold the line as of every event, including events it never saw. Nothing queued unless set.</summary>
+    public QueuedPrompts QueuedBefore { get; init; } = QueuedPrompts.Empty;
+}
 
 /// <summary>
 /// One session's event stream inside one Director process: its numbering (the sequence, the turn ids and the command
@@ -68,6 +74,10 @@ public sealed class SessionEventStream
     /// <summary>The numbers this session hands out, shared by every agent process of it.</summary>
     public SessionEventNumbering Numbering { get; } = new();
 
+    /// <summary>The session's prompts still waiting for their receipt after the last event published, as its own events
+    /// say. Every batch carries the line as it stood before it (<see cref="SessionEventBatch.QueuedBefore"/>).</summary>
+    public QueuedPrompts Queued { get; private set; } = QueuedPrompts.Empty;
+
     /// <summary>
     /// A new Director prompt id, for a prompt that has no Gateway delivery id: a new GUID every time, never a counter.
     /// Receipts are kept by tenant, session and prompt id, and a counter would start again at 1 after a Director
@@ -75,19 +85,38 @@ public sealed class SessionEventStream
     /// </summary>
     public string NextPromptId() => Guid.NewGuid().ToString();
 
-    /// <summary>Hand <paramref name="events"/> to the sink as one batch. An empty list sends nothing.</summary>
+    /// <summary>Hand <paramref name="events"/> to the sink as one batch, with the line of queued prompts as it stood
+    /// before them. An empty list sends nothing.</summary>
     public void Publish(IReadOnlyList<SessionEvent> events)
     {
         ArgumentNullException.ThrowIfNull(events);
         if (events.Count == 0)
             return;
-        _sink.Publish(new SessionEventBatch(SessionId, Generation, GenerationStartedUtc, events));
+        var before = Queued;
+        Queued = before.After(events);
+        _sink.Publish(new SessionEventBatch(SessionId, Generation, GenerationStartedUtc, events) { QueuedBefore = before });
     }
 }
 
 /// <summary>
-/// The sink the Director uses until the upstream message to the Gateway exists (phase 2): every event is written to the
-/// Director's log as its JSON, so an API-mode session's events are on record and readable. It sends nothing anywhere.
+/// A sink that hands each batch to whichever sink is current when the batch is published. The session manager gives every
+/// session's stream this one, so a Director whose Gateway is configured, changed or removed after a session started sends
+/// that session's later events where the Director's events go now.
+/// </summary>
+public sealed class ForwardingSessionEventSink : ISessionEventSink
+{
+    private readonly Func<ISessionEventSink> _current;
+
+    public ForwardingSessionEventSink(Func<ISessionEventSink> current) =>
+        _current = current ?? throw new ArgumentNullException(nameof(current));
+
+    public void Publish(SessionEventBatch batch) => _current().Publish(batch);
+}
+
+/// <summary>
+/// The Director's sink when there is no Gateway: every event is written to the Director's log as its JSON, so an API-mode
+/// session's events are on record and readable. It sends nothing anywhere. With a Gateway, the control layer's pusher
+/// replaces it.
 /// </summary>
 public sealed class LoggingSessionEventSink : ISessionEventSink
 {

@@ -791,6 +791,38 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         return await hub.PushTurnsAsync(seq, batch, ct).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Push one batch of an API-mode session's events (API mode mission, issue #4070) and return the Gateway's answer:
+    /// a watermark (stored), a watermark with an empty generation (refused for now), or null (refused for good). Throws
+    /// when the tunnel is not connected - the caller (<see cref="ApiModeEventPusher"/>) holds the events and sends them
+    /// again at the next trigger.
+    /// </summary>
+    public async Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        return await PushApiModeEventsAsync(batch, new HubConnectionCalls(conn), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <see cref="PushApiModeEventsAsync(ApiModeEventBatch, CancellationToken)"/> over a given hub. Refused, like a
+    /// disconnected tunnel, until this connection's session keys have been sent, for the reason the turn push gives
+    /// (<see cref="SessionIdsMayGoUp"/>): no session id goes up before its key.
+    /// </summary>
+    internal async Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, IDirectorHubCalls hub, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        FileLog.Write($"[GatewayStreamClient] PushApiModeEventsAsync: session={batch.SessionId}, generation={batch.Generation}, events={batch.Events.Count}");
+        if (!hub.IsConnected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        if (!SessionIdsMayGoUp)
+            throw new InvalidOperationException(
+                "the session keys have not been sent on this Gateway connection yet, so no session id may go up before them");
+        return await hub.PushApiModeEventsAsync(batch, ct).ConfigureAwait(false);
+    }
+
     /// <summary>The capability line already reported, so a ten-second reseed does not repeat it forever.</summary>
     private string _lastCapabilityReport = "";
 
@@ -1175,6 +1207,36 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
         var seq = Interlocked.Increment(ref _sequence);
         _ = SendAsync(() => hub.PushDeltaAsync(seq, session), "PushDelta");
+    }
+
+    /// <summary>
+    /// Push one changed session and complete only once the Gateway has applied it (API mode mission, issue #4070, phase 4):
+    /// <see cref="IDirectorHubCalls.PushDeltaAsync"/> is <c>InvokeAsync</c>, whose task completes only after the Gateway's
+    /// <c>PushDelta</c> returned, and that method applies the delta before it returns. Unlike <see cref="NotifyDelta(SessionDto)"/>
+    /// it is awaited and it throws: when the tunnel is down, and before this connection's session keys have been sent.
+    /// </summary>
+    public async Task PushDeltaAndWaitAsync(SessionDto session, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var conn = _connection;
+        if (conn is null || conn.State != HubConnectionState.Connected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        await PushDeltaAndWaitAsync(session, new HubConnectionCalls(conn), ct).ConfigureAwait(false);
+    }
+
+    /// <summary><see cref="PushDeltaAndWaitAsync(SessionDto, CancellationToken)"/> over a given hub.</summary>
+    internal async Task PushDeltaAndWaitAsync(SessionDto session, IDirectorHubCalls hub, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        FileLog.Write($"[GatewayStreamClient] PushDeltaAndWaitAsync: session={session.SessionId}, wheel={session.WheelHolder}");
+        if (!hub.IsConnected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        if (!SessionIdsMayGoUp)
+            throw new InvalidOperationException(
+                "the session keys have not been sent on this Gateway connection yet, so no session id may go up before them");
+        var seq = Interlocked.Increment(ref _sequence);
+        await hub.PushDeltaAsync(seq, session).ConfigureAwait(false);
+        FileLog.Write($"[GatewayStreamClient] PushDeltaAndWaitAsync: session={session.SessionId}, applied by the Gateway");
     }
 
     /// <summary>

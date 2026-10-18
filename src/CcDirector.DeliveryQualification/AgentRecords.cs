@@ -27,10 +27,15 @@ public static class AgentRecords
 
     private static readonly Regex PayloadFile = new(@"input_\d{8}_\d{6}_\w+\.txt", RegexOptions.CultureInvariant);
 
+    /// <summary>Claude Code's configuration folder, which holds its conversations: CLAUDE_CONFIG_DIR when that is set
+    /// (a scenario with a configuration of its own, <see cref="ScratchClaudeConfig"/>), else the home folder's.</summary>
+    public static string ClaudeConfigFolder() =>
+        Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR") is { Length: > 0 } dir ? dir : Path.Combine(Home, ".claude");
+
     /// <summary>Where each agent keeps its records.</summary>
     public static IReadOnlyList<string> RootsFor(string agent) => agent switch
     {
-        "claude" => [Path.Combine(Home, ".claude", "projects")],
+        "claude" => [Path.Combine(ClaudeConfigFolder(), "projects")],
         "codex" => [Path.Combine(Home, ".codex", "sessions")],
         "pi" => [Path.Combine(Home, ".pi", "agent", "sessions")],
         "gemini" => [Path.Combine(Home, ".gemini", "tmp")],

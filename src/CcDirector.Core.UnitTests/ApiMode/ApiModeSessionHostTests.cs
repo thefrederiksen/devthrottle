@@ -707,4 +707,253 @@ public sealed class ApiModeSessionHostTests
         Assert.Empty(rig.Host.Defects);
         Assert.Empty(rig.Pi.Unexpected);
     }
+
+    // ---------------------------------------------------------------- the prompt's text on its events (ruling 15)
+
+    /// <summary>A prompt whose newlines and leading and trailing spaces must reach every event unchanged.</summary>
+    private const string SpacedText = "  Reply with exactly the word PONG\n\n  then stop.\r\n  ";
+
+    [Fact]
+    public async Task SendPromptAsync_BeforePiIsReady_QueuedAndDeliveredCarryTheTextExactlyAsWrittenToPi()
+    {
+        // Arrange
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        await using var rig = StartHost(pi);
+        await pi.WaitForWrittenAsync("get_state");
+
+        // Act: queued while Pi starts, then released from the queue and written.
+        var sending = rig.Host.SendPromptAsync(SpacedText, CancellationToken.None);
+        var queued = await rig.Sink.WaitForAsync<PromptQueued>();
+        pi.RespondToNext();
+        var written = await pi.WaitForWrittenAsync("prompt");
+        pi.RespondToNext();
+        await ScriptedPi.WithinHangGuard(sending, "the prompt's receipt");
+
+        // Assert: the text on both events is the message Pi was given, character for character.
+        Assert.Equal(SpacedText, MessageOf(written));
+        Assert.Equal(SpacedText, queued.PromptText);
+        Assert.Equal(SpacedText, Assert.Single(rig.Sink.Events.OfType<PromptDelivered>()).PromptText);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_QueuedBehindATurn_EachPromptsEventsCarryItsOwnText()
+    {
+        // Arrange
+        var pi = new ScriptedPi("plain") { AutoRespond = false, RepeatFirstPromptAnswer = true };
+        await using var rig = StartHost(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act: the second prompt waits in the Director's queue and is released once the first turn ends.
+        var first = rig.Host.SendPromptAsync("First\n", "upload-1", CancellationToken.None);
+        await pi.WaitForWrittenAsync("prompt");
+        var second = rig.Host.SendPromptAsync(SpacedText, "upload-2", CancellationToken.None);
+        var queued = await rig.Sink.WaitForAsync<PromptQueued>();
+        pi.RespondToNext();
+        await ScriptedPi.WithinHangGuard(first, "the first prompt's receipt");
+        var secondLine = await pi.WaitForWrittenAsync("prompt", occurrence: 2);
+        pi.RespondToNext();
+        await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
+
+        // Assert
+        Assert.Equal("upload-2", queued.PromptId);
+        Assert.Equal(SpacedText, queued.PromptText);
+        Assert.Equal(SpacedText, MessageOf(secondLine));
+        var delivered = rig.Sink.Events.OfType<PromptDelivered>().ToDictionary(d => d.PromptId, d => d.PromptText);
+        Assert.Equal("First\n", delivered["upload-1"]);
+        Assert.Equal(SpacedText, delivered["upload-2"]);
+    }
+
+    [Fact]
+    public async Task TrySendPromptNowAsync_Delivered_CarriesTheTextExactlyAsWrittenToPi()
+    {
+        // Arrange
+        await using var rig = StartHost(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        var receipt = await rig.Host.TrySendPromptNowAsync(SpacedText, "upload-3", CancellationToken.None);
+
+        // Assert
+        Assert.True(receipt!.Delivered);
+        Assert.Equal(SpacedText, MessageOf(rig.Pi.Written[1]));
+        Assert.Equal(SpacedText, Assert.Single(rig.Sink.Events.OfType<PromptDelivered>()).PromptText);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_PiRefuses_RefusedCarriesTheText()
+    {
+        // Arrange
+        await using var rig = StartHost(new ScriptedPi("refusal") { PromptAnswers = [2] });
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        await rig.Host.SendPromptAsync(SpacedText, CancellationToken.None);
+
+        // Assert
+        var refused = Assert.Single(rig.Sink.Events.OfType<PromptRefused>());
+        Assert.Equal(PromptRefusedBy.Agent, refused.RefusedBy);
+        Assert.Equal(SpacedText, refused.PromptText);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_PiExitsBeforeAcknowledging_RefusedCarriesTheText()
+    {
+        // Arrange
+        await using var rig = StartHost(new ScriptedPi("exit-before-ack"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+
+        // Act
+        await rig.Host.SendPromptAsync(SpacedText, CancellationToken.None);
+
+        // Assert
+        var refused = Assert.Single(rig.Sink.Events.OfType<PromptRefused>());
+        Assert.Equal(PiDialect.ExitedBeforeAcknowledgingReason, refused.Reason);
+        Assert.Equal(SpacedText, refused.PromptText);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_AfterPiEnded_RefusedCarriesTheTextThatWouldHaveBeenWritten()
+    {
+        // Arrange
+        await using var rig = StartHost(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        await rig.ShutdownAsync();
+
+        // Act
+        await rig.Host.SendPromptAsync(SpacedText, CancellationToken.None);
+
+        // Assert: never written, and the refusal still says exactly what would have been.
+        var refused = Assert.Single(rig.Sink.Events.OfType<PromptRefused>());
+        Assert.StartsWith("Pi is not running", refused.Reason);
+        Assert.Equal(SpacedText, refused.PromptText);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_StillQueuedWhenPiEnds_RefusedCarriesTheTextThatWouldHaveBeenWritten()
+    {
+        // Arrange: Pi never names its conversation, so the prompt stays in the Director's queue.
+        var pi = new ScriptedPi("plain") { AutoRespond = false };
+        await using var rig = StartHost(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        var sending = rig.Host.SendPromptAsync(SpacedText, CancellationToken.None);
+        var queued = await rig.Sink.WaitForAsync<PromptQueued>();
+
+        // Act
+        await rig.ShutdownAsync();
+        await ScriptedPi.WithinHangGuard(sending, "the prompt's receipt");
+
+        // Assert
+        var refused = Assert.Single(rig.Sink.Events.OfType<PromptRefused>());
+        Assert.StartsWith(ApiModeSessionHost.ExitedBeforeWritingReason, refused.Reason);
+        Assert.Equal(SpacedText, queued.PromptText);
+        Assert.Equal(SpacedText, refused.PromptText);
+        Assert.Equal(["get_state"], pi.WrittenTypes);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_ReleasedFromTheQueueToARestartedPi_QueuedAndDeliveredCarryTheText()
+    {
+        // Arrange: the first Pi acknowledges and never starts; the second prompt waits and goes to the restarted Pi.
+        var stuck = new ScriptedPi("plain") { AcknowledgeOnly = true };
+        var restarted = new ScriptedPi("plain");
+        await using var rig = StartHost(stuck, restarts: restarted);
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        await rig.Host.SendPromptAsync("First", CancellationToken.None);
+        var second = rig.Host.SendPromptAsync(SpacedText, CancellationToken.None);
+        var queued = await rig.Sink.WaitForAsync<PromptQueued>();
+
+        // Act
+        rig.Clock.Advance(ApiModeSessionDefaults.TurnStartBound);
+        var receipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
+
+        // Assert
+        Assert.True(receipt.Delivered);
+        Assert.Equal(SpacedText, MessageOf(restarted.Written[1]));
+        Assert.Equal(SpacedText, queued.PromptText);
+        Assert.Equal(SpacedText, rig.Sink.Events.OfType<PromptDelivered>().Single(d => d.PromptId == receipt.PromptId).PromptText);
+    }
+
+    // ---------------------------------------------------------------- a prompt whose write fails
+
+    // A write fails only once Pi's process has ended, and no restart can follow (a restart needs a prompt Pi acknowledged
+    // and never started, which is still in flight, and no prompt is written while one is). So the prompt is refused where
+    // the write failed - never queued again - and gets its one receipt at once (the Tech Lead's ruling, 18 October 2026).
+
+    private static readonly string ExitedWhileWriting = $"{ApiModeSessionHost.ExitedBeforeWritingReason}: Pi exited (exit code 0)";
+
+    private static bool IsPromptLine(string line, string text) =>
+        JsonDocument.Parse(line).RootElement.GetProperty("type").GetString() == "prompt" && MessageOf(line) == text;
+
+    [Fact]
+    public async Task SendPromptAsync_PiExitsAsThePromptIsWritten_TheSendRefusesItAtOnceAndNeverQueuesIt()
+    {
+        // Arrange: Pi has named its conversation, and exits as the prompt is written to it.
+        var pi = new ScriptedPi("plain");
+        await using var rig = StartHost(pi);
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        pi.Process.ExitDuringWriteOf = line => IsPromptLine(line, SpacedText);
+
+        // Act
+        rig.Sink.Caller.Value = "the send";
+        var receipt = await ScriptedPi.WithinHangGuard(rig.Host.SendPromptAsync(SpacedText, CancellationToken.None), "the prompt's receipt");
+        rig.Sink.Caller.Value = null;
+        await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
+
+        // Assert: one refusal, by the Director, with how Pi ended and the text; never reported queued.
+        Assert.False(receipt.Delivered);
+        Assert.Equal(PromptRefusedBy.Director, receipt.RefusedBy);
+        Assert.Equal(ExitedWhileWriting, receipt.RefusalReason);
+        var refused = Assert.Single(rig.Sink.Events.OfType<PromptRefused>());
+        Assert.Equal(receipt.PromptId, refused.PromptId);
+        Assert.Equal(SpacedText, refused.PromptText);
+        Assert.Empty(rig.Sink.Events.OfType<PromptQueued>());
+        // The send itself refused it, at once - not the end of the process, later, as a prompt left in the queue would be.
+        Assert.Equal("the send", rig.Sink.PublishedFrom(refused));
+        Assert.Null(rig.Sink.PublishedFrom(rig.Sink.Events.OfType<ConnectionEnded>().Single()));
+        Assert.IsType<ConnectionEnded>(rig.Sink.Events[^1]);
+        Assert.Equal(["get_state"], pi.WrittenTypes);
+        Assert.Empty(rig.Host.Defects);
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_PiExitsAsAQueuedPromptIsWritten_ThatPromptIsRefusedAndTheOthersKeepTheirPlaceUntilTheEnd()
+    {
+        // Arrange: the first prompt is in flight; two more wait behind it, 1st and 2nd in line.
+        var pi = new ScriptedPi("plain") { AutoRespond = false, RepeatFirstPromptAnswer = true };
+        await using var rig = StartHost(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        var first = rig.Host.SendPromptAsync("First", CancellationToken.None);
+        await pi.WaitForWrittenAsync("prompt");
+        var second = rig.Host.SendPromptAsync("Second", CancellationToken.None);
+        var secondQueued = await rig.Sink.WaitForAsync<PromptQueued>(q => q.PromptText == "Second");
+        var third = rig.Host.SendPromptAsync("Third", CancellationToken.None);
+        var thirdQueued = await rig.Sink.WaitForAsync<PromptQueued>(q => q.PromptText == "Third");
+        pi.Process.ExitDuringWriteOf = line => IsPromptLine(line, "Second");
+
+        // Act: Pi answers the first and runs its turn; the Director writes the second, and Pi exits as it does.
+        pi.RespondToNext();
+        Assert.True((await ScriptedPi.WithinHangGuard(first, "the first prompt's receipt")).Delivered);
+        var secondReceipt = await ScriptedPi.WithinHangGuard(second, "the second prompt's receipt");
+        var thirdReceipt = await ScriptedPi.WithinHangGuard(third, "the third prompt's receipt");
+        await ScriptedPi.WithinHangGuard(rig.Host.Ended, "the session's end");
+
+        // Assert: each waiting prompt was reported queued once, at the place it took, and never again...
+        Assert.Equal(new[] { 1, 2 }, new[] { secondQueued.Position, thirdQueued.Position });
+        Assert.Equal([secondQueued, thirdQueued], rig.Sink.Events.OfType<PromptQueued>());
+        // ...the second was refused where its write failed, and the third, never written, at the end, as before...
+        Assert.Equal(ExitedWhileWriting, secondReceipt.RefusalReason);
+        Assert.Equal(ExitedWhileWriting, thirdReceipt.RefusalReason);
+        var refusals = rig.Sink.Events.OfType<PromptRefused>().ToList();
+        Assert.Equal([secondQueued.PromptId, thirdQueued.PromptId], refusals.Select(r => r.PromptId));
+        Assert.Equal(["Second", "Third"], refusals.Select(r => r.PromptText));
+        Assert.All(refusals, r => Assert.Equal(PromptRefusedBy.Director, r.RefusedBy));
+        // ...and only the first prompt ever reached Pi.
+        Assert.Equal(["get_state", "prompt"], pi.WrittenTypes);
+        Assert.IsType<ConnectionEnded>(rig.Sink.Events[^1]);
+        Assert.Empty(rig.Host.Defects);
+    }
 }
