@@ -36,6 +36,14 @@ namespace CcDirector.Core.Claude;
 /// The hook command is per-platform: PowerShell on Windows, POSIX shell on macOS/Linux (where
 /// PowerShell does not exist, which used to silently disable transcript tracking and leave
 /// session history permanently empty on those platforms).
+///
+/// SESSION RULES (part 2, phase 1, rulings P9, P12 and P15): the same settings also register a
+/// PreToolUse hook for Claude Code's shell tools (<c>Bash</c>, and <c>PowerShell</c> on Windows) that
+/// runs <c>cc-rule-hook</c>, the native rule evaluator shipped beside the Director's own executable. It
+/// is registered for EVERY session, because Claude Code reads its hooks at launch and rules arrive
+/// mid-session - but only when the executable is actually there, because a hook pointed at a missing
+/// file errors on every shell command. It is a native executable, not a script, because it runs before
+/// every shell command and PowerShell's start-up cost (above) cannot be paid that often.
 /// </summary>
 public static class ClaudeHookInstaller
 {
@@ -106,6 +114,18 @@ public static class ClaudeHookInstaller
         "fi\n" +
         "exit 0\n";
 
+    /// <summary>Claude Code's shell tools, as its PreToolUse matcher names them. Claude Code 2.1.302 lists
+    /// exactly these two as shell tools; PowerShell exists on Windows only, so naming it costs nothing
+    /// elsewhere.</summary>
+    public const string ShellToolMatcher = "Bash|PowerShell";
+
+    /// <summary>The rule evaluator's file name on each platform.</summary>
+    public static string RuleHookExecutableName(bool forWindows) => forWindows ? "cc-rule-hook.exe" : "cc-rule-hook";
+
+    /// <summary>Where the rule evaluator ships: beside the Director's own executable.</summary>
+    public static string RuleHookPathBesideDirector(bool forWindows)
+        => Path.Combine(AppContext.BaseDirectory, RuleHookExecutableName(forWindows));
+
     /// <summary>The hook event sources we register a SessionStart hook for. These are the
     /// moments Claude can switch to a new session id / transcript file.</summary>
     private static readonly string[] SessionStartMatchers = { "startup", "resume", "clear", "compact" };
@@ -127,6 +147,13 @@ public static class ClaudeHookInstaller
     /// can never run on macOS/Linux, which silently killed transcript tracking there).
     /// </summary>
     public static string? EnsureInstalled(string directory, bool forWindows)
+        => EnsureInstalled(directory, forWindows, RuleHookPathBesideDirector(forWindows));
+
+    /// <summary>
+    /// Testable overload that also names the rule evaluator to register. The PreToolUse hook is written
+    /// only when <paramref name="ruleHookPath"/> exists.
+    /// </summary>
+    public static string? EnsureInstalled(string directory, bool forWindows, string ruleHookPath)
     {
         try
         {
@@ -136,7 +163,7 @@ public static class ClaudeHookInstaller
             File.WriteAllText(scriptPath, forWindows ? PowerShellScriptContent : ShellScriptContent);
 
             var settingsPath = Path.Combine(directory, SharedSettingsFileName);
-            File.WriteAllText(settingsPath, BuildSettingsJson(scriptPath, forWindows));
+            File.WriteAllText(settingsPath, BuildSettingsJson(scriptPath, forWindows, ruleHookPath));
 
             return settingsPath;
         }
@@ -168,12 +195,17 @@ public static class ClaudeHookInstaller
     /// without them.
     /// </summary>
     public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions)
+        => WriteSessionSettings(kitDirectory, hooksDirectory, forWindows, permissions, RuleHookPathBesideDirector(forWindows));
+
+    /// <summary>Testable overload of <see cref="WriteSessionSettings(string, string, bool, JsonObject)"/> that also
+    /// names the rule evaluator, exactly as <see cref="EnsureInstalled(string, bool, string)"/> does.</summary>
+    public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions, string ruleHookPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(kitDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(hooksDirectory);
         ArgumentNullException.ThrowIfNull(permissions);
 
-        var settings = JsonSerializer.SerializeToNode(BuildSettings(ScriptPathIn(hooksDirectory, forWindows), forWindows))!.AsObject();
+        var settings = JsonSerializer.SerializeToNode(BuildSettings(ScriptPathIn(hooksDirectory, forWindows), forWindows, ruleHookPath))!.AsObject();
         settings["permissions"] = permissions.DeepClone();
 
         var path = Path.Combine(kitDirectory, SessionSettingsFileName);
@@ -191,13 +223,13 @@ public static class ClaudeHookInstaller
 
     private static readonly JsonSerializerOptions SettingsJsonOptions = new() { WriteIndented = true };
 
-    private static string BuildSettingsJson(string scriptPath, bool forWindows)
-        => JsonSerializer.Serialize(BuildSettings(scriptPath, forWindows), SettingsJsonOptions);
+    private static string BuildSettingsJson(string scriptPath, bool forWindows, string ruleHookPath)
+        => JsonSerializer.Serialize(BuildSettings(scriptPath, forWindows, ruleHookPath), SettingsJsonOptions);
 
     // THE ONE BUILDER of the hooks content: the shared file is it serialized, and a seat's own file is it plus the
     // seat's permissions (WriteSessionSettings). Two builders would drift, and a seat would lose the pointer tracking
     // and the preamble every other session has.
-    private static object BuildSettings(string scriptPath, bool forWindows)
+    private static object BuildSettings(string scriptPath, bool forWindows, string ruleHookPath)
     {
         // Shell form (single command string), which works whether Claude runs hooks through
         // cmd.exe or sh. The script path is quoted (per-user data dirs contain spaces, e.g.
@@ -212,12 +244,25 @@ public static class ClaudeHookInstaller
         for (var i = 0; i < SessionStartMatchers.Length; i++)
             sessionStart[i] = new { matcher = SessionStartMatchers[i], hooks = new[] { hook } };
 
-        return new
+        var hooks = new Dictionary<string, object[]>
         {
-            hooks = new Dictionary<string, object[]>
-            {
-                ["SessionStart"] = sessionStart,
-            },
+            ["SessionStart"] = sessionStart,
         };
+
+        // The rule evaluator is run directly - it is a native executable, so there is no interpreter in
+        // front of it - by its absolute path, quoted for the spaces in install folders. Only when it is
+        // there: a missing one would put a hook error in front of every shell command of every session,
+        // so its absence is logged loudly instead and the sessions run without rule evaluation.
+        if (File.Exists(ruleHookPath))
+        {
+            var ruleHook = new { type = "command", command = $"\"{ruleHookPath}\"", timeout = 10 };
+            hooks["PreToolUse"] = [new { matcher = ShellToolMatcher, hooks = new[] { ruleHook } }];
+        }
+        else
+        {
+            FileLog.Write($"[ClaudeHookInstaller] BuildSettings: RULE HOOK MISSING - {ruleHookPath} does not exist, so NO session rule is evaluated before shell commands in sessions started now. The Director's build or install did not place cc-rule-hook beside it.");
+        }
+
+        return new { hooks };
     }
 }
