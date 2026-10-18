@@ -101,6 +101,16 @@
           "preventOverlap": {
             "description": "Whether a start waits while the seat's last run is still going. Default true; cannot be false on a start with a check.",
             "type": "boolean"
+          },
+          "backupMachines": {
+            "description": "The machines that run the check while the seat's machine is away, in order of preference after it. Only allowed on a start with every and a check; never the seat's own machine, and each once.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "description": "A machine's name. Must not be blank.",
+              "type": "string",
+              "pattern": "\\S"
+            }
           }
         }
       }

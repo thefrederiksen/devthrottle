@@ -155,6 +155,12 @@ def _status(trigger: Dict[str, Any]) -> str:
     return kind if not text or text == "OK" else f"{kind} - {text}"
 
 
+def _machines(trigger: Dict[str, Any]) -> str:
+    # Where the check runs, as the Gateway worded it - the machine, then any backups in order. A Gateway from before
+    # backup machines sends no words, and its trigger runs on its one machine.
+    return trigger.get("machinesText") or _v(trigger.get("machine"))
+
+
 def add(
     name: str, factory: str, agent: str, machine: str, repo: str, check: str, every: str, prompt: str,
     paused: bool, json_output: bool,
@@ -209,7 +215,7 @@ def list_triggers(json_output: bool) -> None:
         lines.append(
             f"  {_v(t.get('name'))}  [{_status(t)}]"
             f"  {'PAUSED  ' if t.get('paused') else ''}every {format_interval(t.get('intervalSeconds'))}"
-            f" on {_v(t.get('machine'))}  last check: {_v(t.get('lastCheckUtc'))} ({_v(t.get('lastOutcome'))})")
+            f" on {_machines(t)}  last check: {_v(t.get('lastCheckUtc'))} ({_v(t.get('lastOutcome'))})")
     axi_cli.write_lines(*lines)
     axi_cli.print_next(["cc-devthrottle trigger show <name>", "cc-devthrottle trigger runs <name>"])
 
@@ -230,7 +236,7 @@ def show(key: str, json_output: bool) -> None:
         f"  Paused:        {'yes' if t.get('paused') else 'no'}",
         f"  Factory:       {_v(t.get('factory'))}",
         f"  Factory agent: {_v(t.get('factoryAgent'))}",
-        f"  Machine:       {_v(t.get('machine'))}",
+        f"  Machine:       {_machines(t)}",
         f"  Repository:    {_v(t.get('repoPath'))}",
         f"  Check:         {_v(t.get('checkCommand'))}",
         f"  Every:         {format_interval(t.get('intervalSeconds'))}",

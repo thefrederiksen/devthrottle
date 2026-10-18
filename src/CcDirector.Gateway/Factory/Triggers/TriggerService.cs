@@ -16,7 +16,8 @@ public enum TriggerReportRefusal
     None,
     /// <summary>No trigger has that id or name in this account.</summary>
     NoSuchTrigger,
-    /// <summary>Another Director on the machine holds this trigger's check.</summary>
+    /// <summary>Another Director holds this trigger's check: one on the same machine, or (Mail Desk, phase 5) one on a
+    /// machine earlier in the trigger's list that took it back.</summary>
     HeldByAnotherDirector,
     /// <summary>A check from a definition, reported by a Director that never said on Hello that it runs them.</summary>
     CannotRunDefinitionChecks,
@@ -158,7 +159,9 @@ public sealed class TriggerService
         var status = TriggerStatusFold.For(t.CreatedUtc, t.IntervalSeconds, t.LastCheckUtc, t.LastOutcome, t.LastReason,
             t.LastSessionId, t.LastStartedUtc is { } s ? DateTime.SpecifyKind(s, DateTimeKind.Utc) : null, _nowUtc(),
             startOutcomeUnknown: IsHeldByUnknownStart(t),
-            noDefinitionDirectorOn: t.IsDefinitionCheck && !_machineRunsDefinitionChecks(new TenantId(t.TenantId), t.Machine)
+            // Silent for want of a Director only when no machine on the trigger's list has one that runs definition checks.
+            noDefinitionDirectorOn: t.IsDefinitionCheck
+                                    && !TriggerMachines.AllOf(t).Any(m => _machineRunsDefinitionChecks(new TenantId(t.TenantId), m))
                 ? t.Machine
                 : null);
         return new TriggerDto
@@ -168,6 +171,8 @@ public sealed class TriggerService
             Factory = t.Factory,
             FactoryAgent = t.FactoryAgent,
             Machine = t.Machine,
+            BackupMachines = TriggerMachines.BackupsOf(t).ToList(),
+            MachinesText = TriggerMachines.Text(t),
             RepoPath = t.RepoPath,
             CheckCommand = t.CheckCommand,
             IntervalSeconds = t.IntervalSeconds,
@@ -200,7 +205,9 @@ public sealed class TriggerService
     };
 
     /// <summary>
-    /// The checks this Director must run: the triggers on its machine it holds, or takes over. A COMMAND trigger is
+    /// The checks this Director must run: the triggers whose machines include its machine that it holds, or takes over
+    /// (a backup machine takes a lapsed claim; a trigger's own machine takes its check back - see
+    /// <see cref="TriggerStore.ClaimForDirector"/>). A COMMAND trigger is
     /// handed exactly as it always was. A DEFINITION trigger (Factory Definition, phase 5b, design 2.1) is handed with
     /// its kind, factory, version, check path and declared secrets, and the newest state its check left - and with no
     /// command and no folder, because its check is downloaded from the published version and never runs in a checkout.
@@ -310,11 +317,16 @@ public sealed class TriggerService
     /// that arrives while the start is still running reads the lock and records <c>skipped-running</c>.
     /// The result's <see cref="TriggerReportResult.Starting"/> carries that start; the route does not wait on it.
     /// </summary>
+    /// <param name="machine">The machine of the reporting Director, as the route resolved it. It is kept as the claim's
+    /// machine, so a backup's claim can be taken back (Mail Desk, phase 5), and the session a check begins starts on
+    /// it. Null from a caller that does not say: the claim's machine is then not known, and the session starts on the
+    /// trigger's own machine, as before backup machines.</param>
     public async Task<TriggerReportResult> ReportCheckAsync(
-        TenantId tenant, string directorId, string triggerIdOrName, TriggerCheckReport report, CancellationToken ct)
+        TenantId tenant, string directorId, string triggerIdOrName, TriggerCheckReport report, CancellationToken ct,
+        string? machine = null)
     {
         ArgumentNullException.ThrowIfNull(report);
-        FileLog.Write($"[TriggerService] ReportCheckAsync: tenant={tenant.ToLogString()}, director={directorId}, trigger={triggerIdOrName}");
+        FileLog.Write($"[TriggerService] ReportCheckAsync: tenant={tenant.ToLogString()}, director={directorId}, machine={machine ?? "not said"}, trigger={triggerIdOrName}");
 
         var found = _store.Find(tenant, triggerIdOrName);
         if (found is null)
@@ -342,7 +354,7 @@ public sealed class TriggerService
 
             // A lock with no session and no start running is a start whose outcome was not known: adopt its session
             // if the Director has reported it, or let the lock lapse once the grace is over - before deciding.
-            trigger = ResolveUnknownStart(tenant, trigger, directorId, now);
+            trigger = ResolveUnknownStart(tenant, trigger, directorId, machine, now);
             if (trigger is null)
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"no trigger '{triggerIdOrName}' in this account");
@@ -351,7 +363,7 @@ public sealed class TriggerService
             if (decision.Start is null)
             {
                 var recorded = _store.RecordCheck(tenant, trigger.Id, directorId, report.CheckedAtUtc, decision.Outcome!,
-                    decision.Count, decision.SessionId, decision.Reason, _nowUtc());
+                    decision.Count, decision.SessionId, decision.Reason, _nowUtc(), machine);
                 if (recorded is null)
                     return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                         $"trigger '{trigger.Name}' was deleted while its check was being recorded");
@@ -365,14 +377,14 @@ public sealed class TriggerService
                 return new TriggerReportResult(TriggerReportRefusal.None, recorded.Run, null);
             }
 
-            if (!_store.BeginStart(tenant, trigger.Id, directorId, now, decision.Start.Name!))
+            if (!_store.BeginStart(tenant, trigger.Id, directorId, now, decision.Start.Name!, machine))
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"trigger '{trigger.Name}' was deleted while its check was being recorded");
             _inFlight[trigger.Id] = 0;
             // The run row of a check that begins a start is written when the start returns, and its state is kept
             // then, only when a session started (see FinishStartAsync) - so it travels with the start.
-            pending = new PendingStart(tenant, trigger, directorId, report.CheckedAtUtc, decision.Count!.Value, decision.Start,
-                report.State);
+            pending = new PendingStart(tenant, trigger, directorId, machine, report.CheckedAtUtc, decision.Count!.Value,
+                decision.Start, report.State);
             FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={trigger.Name}, count={pending.Count.ToString(CultureInfo.InvariantCulture)}, lock taken, starting session '{pending.Request.Name}' off the request");
         }
         catch (Exception ex)
@@ -416,7 +428,7 @@ public sealed class TriggerService
     /// Inside the grace with no session yet, nothing changes and the lock keeps holding. Returns the trigger as it now
     /// stands, or null when it no longer exists.
     /// </summary>
-    private TriggerEntity? ResolveUnknownStart(TenantId tenant, TriggerEntity trigger, string directorId, DateTime now)
+    private TriggerEntity? ResolveUnknownStart(TenantId tenant, TriggerEntity trigger, string directorId, string? machine, DateTime now)
     {
         if (!IsHeldByUnknownStart(trigger))
             return trigger;
@@ -429,14 +441,14 @@ public sealed class TriggerService
         string what;
         if (found is not null && !string.IsNullOrEmpty(found.SessionId))
         {
-            recorded = _store.AdoptStart(tenant, trigger.Id, directorId, found.SessionId, now);
+            recorded = _store.AdoptStart(tenant, trigger.Id, directorId, found.SessionId, now, machine);
             what = $"Found session {found.SessionId}, named {name}, from the start of {trigger.Name} whose outcome was not known, and took it as the lock";
         }
         else if (now - startedUtc >= StartGrace)
         {
             var reason = TriggerStatusFold.StartFailedPrefix +
                          $"no session named '{name ?? "(no name was recorded)"}' showed up within {(int)StartGrace.TotalMinutes} minutes of a start whose outcome was not known; the lock is released";
-            recorded = _store.LapseStart(tenant, trigger.Id, directorId, reason, now);
+            recorded = _store.LapseStart(tenant, trigger.Id, directorId, reason, now, machine);
             what = $"{trigger.Name}: {reason}";
         }
         else
@@ -450,8 +462,19 @@ public sealed class TriggerService
         return recorded.Trigger;
     }
 
-    private sealed record PendingStart(TenantId Tenant, TriggerEntity Trigger, string DirectorId, DateTime CheckedUtc,
-        int Count, NewSessionRequest Request, string? State);
+    /// <param name="Machine">The reporting Director's machine, or null when the report did not say.</param>
+    private sealed record PendingStart(TenantId Tenant, TriggerEntity Trigger, string DirectorId, string? Machine, DateTime CheckedUtc,
+        int Count, NewSessionRequest Request, string? State)
+    {
+        /// <summary>
+        /// WHERE THE SESSION STARTS: on the machine of the Director that ran the check - the request names that
+        /// Director. On a trigger with no backups that is the trigger's own machine, as it always was. When a BACKUP
+        /// ran it (Mail Desk, phase 5), the trigger's own machine is away - that is why the backup holds the claim - so
+        /// the session starts on the backup, the one machine known to be up a moment ago. A report that did not say its
+        /// machine starts on the trigger's own machine, as before backup machines.
+        /// </summary>
+        public string StartMachine => Machine ?? Trigger.Machine;
+    }
 
     /// <summary>What a check came to: an outcome recorded now, or a session to start.</summary>
     private sealed record Decision(string? Outcome, int? Count, string? SessionId, string? Reason, NewSessionRequest? Start);
@@ -481,7 +504,7 @@ public sealed class TriggerService
         TriggerStartAttempt attempt;
         try
         {
-            attempt = await _startSession(p.Trigger.Machine, p.Request, _startLifetime).ConfigureAwait(false);
+            attempt = await _startSession(p.StartMachine, p.Request, _startLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -508,7 +531,7 @@ public sealed class TriggerService
                           $" The lock is held until a session named '{p.Request.Name}' shows up, or for {(int)StartGrace.TotalMinutes} minutes."
                         : TriggerStatusFold.StartFailedPrefix + error;
                 var recorded = _store.RecordStartResult(p.Tenant, p.Trigger.Id, p.DirectorId, p.CheckedUtc, outcome,
-                    p.Count, started ? attempt.SessionId : null, reason, _nowUtc(), holdLock: attempt.OutcomeUnknown);
+                    p.Count, started ? attempt.SessionId : null, reason, _nowUtc(), holdLock: attempt.OutcomeUnknown, p.Machine);
                 if (recorded is null)
                 {
                     FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name} was deleted while its session was starting; session={attempt.SessionId ?? "none"} is not recorded");
@@ -569,8 +592,8 @@ public sealed class TriggerService
             Agent = "ClaudeCode",
             Name = name,
             PrePrompt = TriggerDefinition.PromptFor(trigger.Prompt, count),
-            // The Director that ran the check is on the trigger's machine and was alive a moment ago; starting the
-            // session there names ONE Director instead of leaving it to whichever the machine resolves to first.
+            // The Director that ran the check was alive a moment ago, and the session starts on its machine; naming it
+            // names ONE Director instead of leaving it to whichever the machine resolves to first.
             Director = directorId,
             // Like a schedule's seed run: a session that finishes with nothing needing a person closes itself,
             // which is also what ends the one-at-a-time lock.

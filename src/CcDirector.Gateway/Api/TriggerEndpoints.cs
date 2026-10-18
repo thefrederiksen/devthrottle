@@ -247,7 +247,7 @@ internal static class TriggerEndpoints
         {
             FileLog.Write($"[TriggerEndpoints] POST /directors/{directorId}/triggers/{id}/checks");
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
-            if (directorMachine(tenant, directorId) is null) return NoSuchDirector(directorId);
+            if (directorMachine(tenant, directorId) is not { } machine) return NoSuchDirector(directorId);
             // Factory Definition, phase 5b: a report carries up to 16 KB of each output and 64 KB of a check's state.
             // The body is capped at what a full report needs at the worst JSON escaping (TriggerCheckLimits) - below
             // the server's own default, so this is a bound set to fit, not a raise.
@@ -262,7 +262,8 @@ internal static class TriggerEndpoints
 
             // The request's cancellation reaches only the decision. A session start the check begins runs on the
             // Gateway's own lifetime, and this answers without waiting for it: a start outlasts the Director's wait.
-            var result = await service.ReportCheckAsync(tenant, directorId, id, report!, ctx.RequestAborted);
+            // The machine goes with the report: it is the claim's machine (Mail Desk, phase 5) and where a session starts.
+            var result = await service.ReportCheckAsync(tenant, directorId, id, report!, ctx.RequestAborted, machine);
             if (result is { Refusal: TriggerReportRefusal.None, Starting: not null })
                 return Results.Json(new TriggerStartAccepted { TriggerId = id, Count = result.StartingCount!.Value },
                     statusCode: StatusCodes.Status202Accepted);
