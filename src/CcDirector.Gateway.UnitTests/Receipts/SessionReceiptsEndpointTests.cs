@@ -389,4 +389,26 @@ public sealed class SessionReceiptsEndpointTests : IDisposable
         Assert.Equal(served["p2"], shown["p2"]);
         Assert.Equal(served.OrderBy(kv => kv.Key, StringComparer.Ordinal), rebuilt.OrderBy(kv => kv.Key, StringComparer.Ordinal));
     }
+    [Fact]
+    public void Read_AQueuedPromptWhoseDirectorCameBackAsANewProcess_GivesTheWordsTheStreamOpensWith()
+    {
+        // Arrange: p1 and p2 queued in generation A (started at T0); the Director died, and its new process (started an
+        // hour later) said Hello. There are no more events for this session, so the stream opens from the store.
+        RecordQueued("p1", 1);
+        RecordQueued("p2", 2);
+        using (_boundary.EnterScope(Alice))
+            Assert.Equal(2, _store.RecordDirectorProcessStarted(AliceDirector, T0.AddHours(1)));
+
+        // Act
+        var served = Body(Get(Alice, AliceSession)).Receipts.ToDictionary(r => r.PromptId, r => (r.Words, r.Tone, r.QueuePosition));
+        var stored = AliceStored();
+        ApiModeLiveRuling.PlaceInLine(stored);
+        var opening = stored.ToDictionary(r => r.Receipt.PromptId, r => { var i = ApiModeLiveRuling.ReceiptItem(r.Receipt, 0); return (i.Text, i.Tone, r.Receipt.QueuePosition); });
+
+        // Assert
+        const string words = "Not known - the Director reconnected without this prompt in its queue or any record of sending it";
+        Assert.Equal((words, "neutral", (int?)null), served["p1"]);
+        Assert.Equal((words, "neutral", (int?)null), served["p2"]);
+        Assert.Equal(served.OrderBy(kv => kv.Key, StringComparer.Ordinal), opening.OrderBy(kv => kv.Key, StringComparer.Ordinal));
+    }
 }
