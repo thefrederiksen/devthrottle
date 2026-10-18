@@ -268,3 +268,152 @@ It is not changed here because the honest alternative is not available: one turn
 prompts, so counting each turnless lost receipt as a turn would over-count, and either way the number would
 be a guess. It was already so before this change (the receipt read a bare Delivered). If the Tech Lead
 wants it worded ("at least turn 3", or a turn count that says some were lost), that is a follow-on item.
+
+## Re-review
+
+Pull request #4179 re-reviewed at its head `7f6ecf8b6` (three commits on `origin/main` at `8994f5e1a`, which holds
+pull request #4178, a queued receipt's place in line). Reviewer seat, session 868ed433, opened by the Tech Lead,
+running a different agent family from the Developer. Written 17 October 2026 on devlinux.
+
+**Verdict: hold, one finding (low in reach, but it is the store and the live ruling disagreeing, and the fix is
+small).** The rebase is sound: both behaviours are whole in the store and in the live ruling, the three readers agree,
+and replacing `_linkedHere` with `_lastPositions` kept the forward-only positions. The new path for a receipt with no
+turn id is right in the case it was asked for (the turn's start and end both in the hole). It goes wrong in one
+sequence: when the real `TurnStarted` arrives late, older than the lost ruling, the receipt is re-opened under its turn,
+and the real `TurnEnded` that follows it is then dropped by the store's forward-only rule while the live ruling applies
+it. I reproduced it with one test on each side (section 3 below): the store's fails, the ruling's passes.
+
+### 1. Scope: what I read, what I ran
+
+**Read, in full, on the branch head:** `git diff origin/main...HEAD` (twelve files); `git range-diff` from the approved
+head `f5a95005c` to this head, for the four production files; `ApiModeLostTurnEnd.cs`, `ApiModeLiveRuling.cs`,
+`ApiModeReceiptStore.cs` and `ApiModeEventIngest.cs` as they stand; the six changed test files' diffs with their
+helpers. **Read on `origin/main`:** `ApiModeEventPosition.cs` (`IsLaterGenerationThan`, `IsAfter`),
+`Api/SessionLiveEndpoint.cs` (`StartRuling`, the poll route's reset, the stream's `RebuildAsync`, `StoredReceipts`,
+`ReceiptItems`), `Api/SessionReceiptsEndpoint.cs` (`Read`), `ApiModeSessionFold.cs` (the turn count and the outcome
+switch), and the #4178 commit `7792ff019`.
+
+**Ran, on devlinux, Debug, one run, after checking no other test host was up:** `CcDirector.Gateway.UnitTests` filtered
+to the six classes the change touches (`ApiModeLiveRulingTests`, `ApiModeReceiptStoreTests`, `ApiModeEventIngestTests`,
+`SessionReceiptsEndpointTests`, `SessionLiveEndpointTests`, `ApiModeSessionFoldTests`), with the two reproduction tests
+of section 3 appended for the run only. **275 tests, 274 passed, 1 failed**: the failure is the store reproduction, as
+predicted; every test the Developer wrote passed. The two test files were restored from git afterwards; the tree is clean.
+
+**Could not reach:** the same as the first review (a Director really pushing events, PostgreSQL, Windows).
+
+### 2. The rebase, checked
+
+**Place in line (#4178) is whole in the live ruling.** `ReceiptChange` still ends in `WaitingIfMoved(e.Sequence, receipt)`;
+`TurnStart` and `TurnEnd` both still end in `WaitingIfMoved(sequence, null)`; the new `LostTurnEnds` ends in it too
+whenever it changed a receipt, because the ruled rows moved on to the proof's generation, which can take an older
+generation's queue out of the count, exactly as the store's rows then read. The proof event is handed to `LostTurnEnds`
+first and to `RuleEvent` second, so the recount runs twice on one event; the changed-words check makes the second pass
+send nothing new. The store side needs nothing: the place is derived at read time, never stored.
+
+**The lost ending is whole in both.** Store: `RecordTurnOverProven` runs from the ingest before the event's own change,
+selects every Delivered row with no outcome (with or without a turn id) and asks `ApiModeLostTurnEnd.Applies`;
+`EndTurnOnce` ends the open rows under the forward-only rule and, only when none is open, replaces the lost ones
+whatever the position without moving the position back. Ruling: `LostTurnEnds` asks the same `Applies` against
+`_lastPositions`; `TurnEnd` targets the open receipts of the turn, else the lost ones, and touches forward. The
+real-event overrides are pinned on both sides, including an older-generation `TurnEnded` after the ruling.
+
+**`_lastPositions` for `_linkedHere` is the right replacement, and forward-only positions survived it.** I traced
+every place the ruling's `_lastPositions` moves against the store's row position: set from the stored position at
+construction; `Touch` in `ReceiptChange` (behind the stored-position and sequence guards, as before); `Touch` in
+`TurnStart`'s normal path (unguarded, as on main; the store's `IsNewer` guard means the two can differ only within one
+generation, and both the lost rule and the place in line compare generations only, so it is harmless); `Touch` to the
+proof's position in `LostTurnEnds` (the store does the same); `TouchForward` in `TurnEnd` and in the new replace path
+(the store's `IsNewer`-guarded `Touch`). `Rule_AStoredReceiptTouchedInThisGeneration_IsNotRuledLostByALaterProof` pins
+the one case `_linkedHere` used to carry. `RecordQueued`, `RecordDelivered`, `RecordRefused`, `RecordTurnStarted`'s normal
+path and the ruling's `ReceiptChange` are untouched.
+
+**The endpoint, the live stream and the stream's opening from the store agree.** All three read `ReadWithPositions`,
+call `PlaceInLine` over the same list, and word each receipt through `ReceiptWords` and `ReceiptTone`. The Developer's
+`Read_ATurnWhoseEndWasLost_GivesTheWordsTheLiveStreamGives` checks the served receipt, the live item and a reader
+rebuilt from the store against each other for a lost ending; `SessionLiveEndpointTests`' changed expectation (p1 lost in
+the stored receipts after the reset, then only the connection line) is right for its events.
+
+**The new no-turn-id path, in the case it was asked for.** A Delivered receipt with no turn id and no outcome is ruled
+lost by the same three proofs in a later generation, except by a `TurnStarted` that names the prompt, which is its own
+turn starting; the ingest and the ruling both ask the proof first and link second. The store's query no longer requires
+a turn id. Pinned in the store, the ruling and the ingest (`Accept_AHoleThatSwallowedTheTurnsStartAndEnd_...`,
+`Accept_ANewGenerationWhoseFirstTurnNamesTheDeliveredPrompt_...`). Correct.
+
+### 3. Finding
+
+#### Finding 1 (low). A late real `TurnStarted` re-opens a lost turn with no turn id, and the store then drops the real `TurnEnded` the live ruling applies
+
+**Where:** `ApiModeReceiptStore.RecordTurnStarted`, the new block `if (row.TurnId is null && row.TurnOutcome == lost)`,
+which sets the turn id and calls `EndTurn(row, null, null, null)` whatever the event's position; its twin in
+`ApiModeLiveRuling.TurnStart`. Then `EndTurnOnce`, whose open-rows branch keeps `if (!IsNewer(position, row)) continue;`.
+
+**The sequence.** p1 is Delivered at A#1 with no turn id. Generation B's `ConnectionReady` at B#1 rules it lost; the row's
+position is now B#1. The `TurnStarted` of t1 naming p1 arrives late, at A#2 (older than B#1). The replace path links p1
+to t1, clears the lost ending and, rightly, leaves the position at B#1. The real `TurnEnded` of t1 then arrives, at A#3.
+
+- Store: `EndTurnOnce` finds p1 open under t1; A#3 is not newer than B#1; `continue`. Changed: 0. p1 reads a bare
+  "Delivered" under t1, open, for the rest of generation B; no later proof in generation B can rule it again, because
+  its position is already B's.
+- Live ruling: `TurnEnd` finds p1 open under t1 and applies the outcome with no position guard. p1 reads "Delivered - the
+  turn failed: the model errored".
+
+So the two readers disagree, and the store has dropped a real ending in the one path the Tech Lead's "the real ending
+replaces lost at any position" rule exists for. Had the lost ending been left in place, the same `TurnEnded` would have
+taken the else branch (no open rows, replace the lost ones) and both readers would show the real outcome.
+
+**Reproduced.** Two tests, run once each against the branch head and then removed (they are not committed; the
+Developer should add them under their own names):
+
+    // ApiModeReceiptStoreTests - FAILS on the branch: Expected 1, Actual 0
+    var store = StoreWithADeliveredPromptAndNoTurn();
+    store.RecordTurnOverProven(Director, Sid, ApiModeLostTurnEnd.Continuing.None, "ConnectionReady", AfterRestart(1));
+    store.RecordTurnStarted(Director, Sid, "t1", new[] { "p1" }, At(2));
+    var changed = store.RecordTurnEnded(Director, Sid, "t1", "failed", "the model errored", At(3), T0.AddSeconds(4));
+    Assert.Equal(1, changed);
+    Assert.Equal("Delivered - the turn failed: the model errored", ApiModeLiveRuling.ReceiptWords(Only(store)));
+
+    // ApiModeLiveRulingTests - PASSES on the branch, which is the disagreement
+    var ruling = RulingWithADeliveredPromptAndNoTurn();
+    ruling.Rule(HeldB(Ready(1)));
+    ruling.Rule(HeldA(Started(4, "t1", "p1")));
+    var items = ruling.Rule(HeldA(Ended(5, "t1", TurnOutcome.Failed, "the model errored", null)));
+    Assert.Equal(new[] { "Delivered - the turn failed: the model errored" }, ReceiptWordsOf(items, "p1"));
+
+**Why the re-open is wrong in principle, not only in this sequence.** By the dialect, a `TurnStarted` naming p1 that
+arrives after a proof which did not name p1 is always an earlier turn arriving out of order: an acknowledged prompt moves
+into the very next turn at `OnAgentStart`, and a process exit sends a `TurnStarted` plus a failed `TurnEnded` for prompts
+it acknowledged and never ran before `ConnectionEnded`, so no later turn of the session can be p1's. The proof already
+showed every earlier turn over. Clearing the lost ending therefore says "running" of a turn that is proven over; the
+Developer's test `RecordTurnStarted_ALostReceiptWithNoTurn_TheRealStartReplacesTheLostEnding` pins that wrong reading
+("Delivered", open). Low, because it needs an event to arrive after a proof that is newer than it, which the first review
+traced to two Gateway processes ingesting at once during a deploy and nothing else; the same reach as the rule it breaks.
+
+**What I recommend.** In the store's replace path and the ruling's twin: link the receipt to its turn always (so the real
+`TurnEnded` can find it), but clear the lost ending only when the `TurnStarted` is newer than the receipt's last
+position (`IsNewer` in the store, `IsAfter` against `_lastPositions` in the ruling: the turn is genuinely starting now);
+when it is older, keep `lost`. Then the late real `TurnEnded` takes the existing no-open-rows branch in both readers and
+replaces the lost ending with the real outcome, position unmoved. Turn the two reproductions above into tests under the
+Developer's names (the store one goes green with the fix; the ruling one stays green), and change the two existing
+"replaces the lost ending" tests on the older position to expect `lost` kept with the turn id set. One small side effect
+to accept or address: in the ruling, `ReceiptIfChanged` compares words only, so the relinked receipt's item (now with a
+turn id) is not re-sent to the client; harmless, or compare the turn id too. A relinked receipt also gains a turn id
+the fold then counts, which narrows the count gap the Developer named under note 1.
+
+### 4. Notes (none blocks the merge once finding 1 is fixed)
+
+1. **A lost `PromptDelivered` is a different hole, outside item 7.** In the ingest test
+   `Accept_AHoleThatSwallowedTheTurnsEnd_TheNextTurnsStartRulesItLost`, p2's delivery is in generation B so all is well;
+   but when the hole swallows a prompt's `PromptDelivered` and the next generation's `TurnStarted` names it, the store
+   logs "is Queued, not Delivered; it is not linked" and the receipt reads Queued for ever while its turn runs. Not this
+   change's concern; a line for the mission's list of what remains.
+2. **The fold.** Both new fold tests are right, and I agree with the Developer that the turn count for a turnless lost
+   receipt is the Tech Lead's call, not a change to make here.
+3. **The first review's four notes** are all answered: note 1 pinned, note 2 done (and checked above), note 3 and note 4
+   stand as recorded.
+
+### 5. Verdict
+
+**Hold** for finding 1: keep the lost ending when the real `TurnStarted` that relinks a turnless receipt is older than
+the lost ruling, in the store and in the ruling, with the two reproductions as tests. Everything else in the rebase and
+the new path is approved as it stands; after that one change the pull request is complete for item 7 as the Tech Lead
+ruled it, including the first review's finding 1.
