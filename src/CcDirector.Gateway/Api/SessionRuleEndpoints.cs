@@ -1,6 +1,8 @@
 using System.Text.Json;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Rules;
+using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -26,76 +28,170 @@ namespace CcDirector.Gateway.Api;
 /// sessions the rule may act on - "all-sessions" is a choice a caller can make, but an absent scope is no
 /// longer read as meaning all of them. And a promotion says who is asking and what they are agreeing to;
 /// an empty POST to the promote route now promotes nothing.
+///
+/// AGENTS MANAGE RULES (Session Rules part 2, phase 2, owner decision D7: "Any agent should be able to change
+/// and set up the rules"). A session key may call every route here - <c>SessionKeyGuard.IsRuleRoute</c> - and
+/// there is a CHANGE route, <c>PATCH /gateway/rules/{id}</c>, which carries any field of the rule's body. Every
+/// write is recorded in the change history with who made it, read from the request and never from the body:
+/// the calling session's id and the agent it runs, or the device or person. <c>GET /gateway/rules/history</c>
+/// reads it back.
 /// </summary>
 [Rules.RuleFeature]
 internal static class SessionRuleEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SessionRuleStore store)
+    /// <summary>How many changes the history answers with when the caller does not say.</summary>
+    internal const int DefaultHistoryLimit = 50;
+
+    /// <summary>The most changes one read of the history answers with.</summary>
+    internal const int MaxHistoryLimit = 500;
+
+    /// <param name="app">The route table.</param>
+    /// <param name="store">The rule store every write goes through.</param>
+    /// <param name="agentOf">The agent a calling session runs, read from the live roster, or null when the
+    /// session is not on it. Only ever asked about the session whose key the middleware verified.</param>
+    public static void Map(IEndpointRouteBuilder app, SessionRuleStore store, Func<SessionCredentialIdentity, string?> agentOf)
     {
+        ArgumentNullException.ThrowIfNull(agentOf);
+
         // Every rule this account has, newest first - the account's own sentences.
         app.MapGet("/gateway/rules", () => Results.Json(new { rules = store.All().Select(SessionRuleWire.Project).ToList() }));
+
+        // THE CHANGE HISTORY, newest first: who created, changed, promoted and deleted which rule, and what it was
+        // before and after. Each filter narrows, and an unreadable one is refused rather than ignored - an
+        // ignored filter answers a narrower question with the whole account's history.
+        app.MapGet("/gateway/rules/history", (string? rule, string? session, string? action, int? limit) =>
+        {
+            Guid? ruleId = null;
+            if (!string.IsNullOrWhiteSpace(rule))
+            {
+                if (!Guid.TryParse(rule.Trim(), out var parsed))
+                    return Refused($"'{rule}' is not a rule id. A rule id is the id 'rules list' shows.");
+                ruleId = parsed;
+            }
+            var take = limit ?? DefaultHistoryLimit;
+            if (take > MaxHistoryLimit)
+                return Refused($"at most {MaxHistoryLimit} changes are answered at once, and {take} were asked for.");
+            try
+            {
+                var changes = store.History(ruleId, session, string.IsNullOrWhiteSpace(action) ? null : action.Trim(), take);
+                return Results.Json(new { count = changes.Count, changes = changes.Select(SessionRuleWire.Project).ToList() });
+            }
+            catch (RuleRejectedException ex)
+            {
+                return Refused(ex.Reason);
+            }
+        });
 
         // One rule.
         app.MapGet("/gateway/rules/{id:guid}", (Guid id) =>
         {
             var rule = store.Get(id);
             return rule is null
-                ? Results.Json(new { error = $"there is no rule with the id {id}." }, statusCode: StatusCodes.Status404NotFound)
+                ? NoSuchRule(id)
                 : Results.Json(new { rule = SessionRuleWire.Project(rule) });
         });
 
         // Write a rule. It is ALWAYS created in dry run - the store takes no state parameter at all.
-        app.MapPost("/gateway/rules", (JsonElement body) =>
+        app.MapPost("/gateway/rules", (JsonElement body, HttpContext http) =>
         {
             try
             {
+                var actor = ActorOf(http, agentOf);
+                var draft = SessionRuleWire.ReadDraft(body);
                 var rule = store.Create(
-                    RuleCallJson.Text(body, "instruction") ?? "",
-                    RuleCallJson.Text(body, "screenDescription") ?? "",
-                    SessionRuleWire.Strings(body, "triggerWords"),
-                    SessionRuleWire.Calls(body),
-                    SessionRuleWire.ReadScope(body),
-                    SessionRuleWire.Number(body, "cooldownSeconds"),
-                    SessionRuleWire.Number(body, "dailyCap"),
-                    DateTime.UtcNow);
-                FileLog.Write($"[SessionRuleEndpoints] POST /gateway/rules: stored {rule.Id} in dry run");
+                    draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
+                    draft.CooldownSeconds, draft.DailyCap, DateTime.UtcNow, actor);
+                FileLog.Write($"[SessionRuleEndpoints] POST /gateway/rules: stored {rule.Id} in dry run, by {actor.ChangedBy}");
                 return Results.Json(new { rule = SessionRuleWire.Project(rule) });
             }
             catch (RuleRejectedException ex)
             {
                 FileLog.Write($"[SessionRuleEndpoints] POST /gateway/rules REFUSED: {ex.Reason}");
-                return Results.Json(new { error = ex.Reason }, statusCode: StatusCodes.Status400BadRequest);
+                return Refused(ex.Reason);
             }
         });
 
-        // Move a rule out of dry run. ONLY A PERSON DOES THIS, and this route is the only place in the
-        // whole Gateway that can obtain the evidence: the grant's factory is internal, takes THE REQUEST
-        // rather than an identity somebody typed, and a structural test over the built assembly asserts
-        // that no other type reaches it or reaches Promote. The evaluator has no inbound request, so there
-        // is nothing it could pass - see RulePromotionGrant, which states exactly what that does and does
-        // not enforce.
+        // CHANGE a rule: any field of its body, the rest kept. The rule goes back to dry run - see
+        // SessionRuleStore.Change - and the answer says so, because the caller may have just promoted it.
+        app.MapPatch("/gateway/rules/{id:guid}", (Guid id, JsonElement body, HttpContext http) =>
+        {
+            var current = store.Get(id);
+            if (current is null)
+            {
+                FileLog.Write($"[SessionRuleEndpoints] PATCH /gateway/rules/{id} REFUSED: no such rule");
+                return NoSuchRule(id);
+            }
+            try
+            {
+                var actor = ActorOf(http, agentOf);
+                var draft = SessionRuleWire.ReadChange(current, body);
+                var rule = store.Change(
+                    id, draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
+                    draft.CooldownSeconds, draft.DailyCap, DateTime.UtcNow, actor);
+                FileLog.Write($"[SessionRuleEndpoints] PATCH /gateway/rules/{id}: changed by {actor.ChangedBy}");
+                return Results.Json(new { rule = SessionRuleWire.Project(rule), wasLive = current.State == RuleState.Live });
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleEndpoints] PATCH /gateway/rules/{id} REFUSED: {ex.Reason}");
+                return Refused(ex.Reason);
+            }
+        });
+
+        // Move a rule out of dry run. Only an AUTHENTICATED REQUEST does this, and this route is the only place
+        // in the whole Gateway that can obtain the evidence: the grant's factory is internal, takes THE REQUEST
+        // rather than an identity somebody typed, and a structural test over the built assembly asserts that no
+        // other type reaches it or reaches Promote. The evaluator has no inbound request, so there is nothing
+        // it could pass - see RulePromotionGrant, which states exactly what that does and does not enforce. An
+        // agent session may promote since owner decision D7, and is named and recorded when it does.
         app.MapPost("/gateway/rules/{id:guid}/promote", (Guid id, HttpContext http, JsonElement body) =>
         {
             try
             {
                 var grant = RulePromotionGrant.FromAuthenticatedRequest(
                     id, http, RuleCallJson.Text(body, "acknowledgement"), DateTime.UtcNow);
-                return Results.Json(new { rule = SessionRuleWire.Project(store.Promote(id, grant, DateTime.UtcNow)) });
+                return Results.Json(new { rule = SessionRuleWire.Project(store.Promote(id, grant, DateTime.UtcNow, ActorOf(http, agentOf))) });
             }
             catch (RuleRejectedException ex)
             {
                 FileLog.Write($"[SessionRuleEndpoints] promote {id} REFUSED: {ex.Reason}");
-                return Results.Json(new { error = ex.Reason }, statusCode: StatusCodes.Status400BadRequest);
+                return Refused(ex.Reason);
             }
         });
 
-        // Delete a rule. Its firings are left alone - the record outlives the rule.
-        app.MapDelete("/gateway/rules/{id:guid}", (Guid id) =>
-            Results.Json(new { deleted = store.Delete(id) }));
+        // Delete a rule. Its firings and its change history are left alone - the record outlives the rule.
+        app.MapDelete("/gateway/rules/{id:guid}", (Guid id, HttpContext http) =>
+            Results.Json(new { deleted = store.Delete(id, DateTime.UtcNow, ActorOf(http, agentOf)) }));
 
         // THE RECORD, which is the product: every firing of one rule, newest first.
         app.MapGet("/gateway/rules/{id:guid}/firings", (Guid id) =>
             Results.Json(new { firings = store.FiringsFor(id).Select(SessionRuleWire.Project).ToList() }));
     }
 
+    /// <summary>
+    /// WHO IS MAKING THIS CHANGE, read from what the request pipeline verified and never from the body: the same
+    /// name a promotion grant carries, plus - for a session key - the session's id and the agent the live roster
+    /// says it runs. A caller the pipeline named nobody (only possible on a Gateway whose sign-in check is off)
+    /// is recorded as exactly that, rather than refused, because such a Gateway serves its one owner.
+    /// </summary>
+    internal static RuleChangeActor ActorOf(HttpContext http, Func<SessionCredentialIdentity, string?> agentOf)
+    {
+        var name = RulePromotionGrant.CallerOf(http) ?? UnnamedCaller;
+        var session = AuthMiddleware.CallingSession(http);
+        if (session is null) return new RuleChangeActor(name, null, null);
+        return new RuleChangeActor(name, session.SessionId.ToString(), agentOf(session) ?? AgentNotOnRoster);
+    }
+
+    /// <summary>What the history says when the pipeline named nobody.</summary>
+    internal const string UnnamedCaller = "unnamed (this Gateway checks no sign-in)";
+
+    /// <summary>What the history says when the calling session is not on the live roster, so its agent is not
+    /// known. Said, not guessed.</summary>
+    internal const string AgentNotOnRoster = "unknown (the session was not on the live roster)";
+
+    private static IResult Refused(string reason) =>
+        Results.Json(new { error = reason }, statusCode: StatusCodes.Status400BadRequest);
+
+    private static IResult NoSuchRule(Guid id) =>
+        Results.Json(new { error = $"there is no rule with the id {id}." }, statusCode: StatusCodes.Status404NotFound);
 }

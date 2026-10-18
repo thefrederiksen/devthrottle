@@ -329,6 +329,9 @@ public static class SessionKeyGuard
 
     private static bool IsAllowed(string verb, string[] s)
     {
+        // The Session Rules surface, every verb on it at once: see IsRuleRoute.
+        if (IsRuleRoute(verb, s)) return true;
+
         // ---------- Reads ----------
         if (verb is "GET" or "HEAD")
         {
@@ -774,6 +777,48 @@ public static class SessionKeyGuard
             if (IsFleetManagerRoute(verb, s)) return true;
 
             return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// THE SESSION RULES SURFACE (Session Rules part 2, phase 2, owner decision D7: "Any agent should be able to
+    /// change and set up the rules"). Matched on method and path together against <c>SessionRuleEndpoints</c>:
+    ///
+    ///   GET    /gateway/rules                   list
+    ///   GET    /gateway/rules/history           the change history
+    ///   GET    /gateway/rules/{id}              one rule
+    ///   GET    /gateway/rules/{id}/firings      its firing record
+    ///   POST   /gateway/rules                   create - always in dry run, the store takes no state
+    ///   PATCH  /gateway/rules/{id}              change - which puts the rule back in dry run
+    ///   POST   /gateway/rules/{id}/promote      promote - with the caller's own sentence
+    ///   DELETE /gateway/rules/{id}              delete - the firing record and the history are kept
+    ///
+    /// WHY THIS IS SAFE TO OPEN. Every write still goes through the rule store and its write gate, so a session
+    /// key cannot store a check the product does not ship, cannot start a rule live, and cannot reach another
+    /// account's rules. What D7 adds is accountability rather than a bound: every write is recorded in
+    /// <c>session_rule_changes</c> with the calling session's id and agent, before and after, in the same save.
+    /// Each shape is a literal at its exact length, so a new word hung off /gateway/rules is refused until it is
+    /// classified here.
+    /// </summary>
+    private static bool IsRuleRoute(string verb, string[] s)
+    {
+        if (s.Length < 2 || s[0] != "gateway" || s[1] != "rules") return false;
+        var read = verb is "GET" or "HEAD";
+
+        // /gateway/rules - list, or create.
+        if (s.Length == 2) return read || verb == "POST";
+
+        // /gateway/rules/history - read; /gateway/rules/{id} - read, change, delete.
+        if (s.Length == 3)
+            return s[2] == "history" ? read : read || verb is "PATCH" or "DELETE";
+
+        // /gateway/rules/{id}/firings - read; /gateway/rules/{id}/promote - promote.
+        if (s.Length == 4)
+        {
+            if (s[3] == "firings") return read;
+            if (s[3] == "promote") return verb == "POST";
         }
 
         return false;

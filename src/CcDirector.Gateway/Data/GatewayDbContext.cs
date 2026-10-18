@@ -165,6 +165,25 @@ public sealed class GatewayDbContext : DbContext
             Rules.SessionRuleRecordRules.CheckFiring(
                 firing, Rules.RulePrimitiveRegistry.Default, state, DryRunState);
         }
+
+        // THE CHANGE HISTORY IS APPEND ONLY (Session Rules part 2, phase 2). Agents may now change rules, and the
+        // owner allowed that on the ground that every change is recorded with the session that made it. A history
+        // row that could be edited or removed afterwards would make that record something a caller can rewrite.
+        foreach (var entry in ChangeTracker.Entries<SessionRuleChangeEntity>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new Rules.RuleRejectedException(
+                    "the history of a rule's changes is only ever added to. A change that was made is not " +
+                    "edited or removed from the record afterwards.");
+            if (entry.State != EntityState.Added) continue;
+
+            var change = entry.Entity;
+            if (!string.Equals(change.TenantId, ActiveTenant, StringComparison.Ordinal))
+                throw new Rules.RuleRejectedException(
+                    $"this change record says it belongs to '{change.TenantId}', and this connection belongs to " +
+                    $"'{ActiveTenant}'. A change is recorded in the account it was made in.");
+            Rules.SessionRuleRecordRules.CheckChange(change);
+        }
     }
 
     // Derived from the states themselves, never typed out again: a second copy of a wire value is a
@@ -594,6 +613,12 @@ public sealed class GatewayDbContext : DbContext
     /// <remarks>INTERNAL, for the same reason as <see cref="SessionRules"/>: the record is the product.</remarks>
     internal DbSet<SessionRuleFiringEntity> SessionRuleFirings => Set<SessionRuleFiringEntity>();
 
+    /// <summary>The history of every change to a rule (<c>session_rule_changes</c>) - who, which session and
+    /// agent, when, and the rule before and after. Append only.</summary>
+    /// <remarks>INTERNAL, for the same reason as <see cref="SessionRules"/>: it is written in the same save as the
+    /// change it describes, by the rule store, and nowhere else.</remarks>
+    internal DbSet<SessionRuleChangeEntity> SessionRuleChanges => Set<SessionRuleChangeEntity>();
+
     /// <summary>Serializer options for the skill metadata column. One shared instance: constructing
     /// fresh options per call defeats the serializer's internal caching.</summary>
     private static readonly System.Text.Json.JsonSerializerOptions MetadataJsonOptions = new();
@@ -914,6 +939,20 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.RuleId, e.OccurredUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.OccurredUtc });
             b.OwnsMany(e => e.PrimitiveRuns, o => o.ToJson());
+        });
+
+        modelBuilder.Entity<SessionRuleChangeEntity>(b =>
+        {
+            b.ToTable("session_rule_changes");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Action).HasMaxLength(32);
+            b.Property(e => e.ChangedBy).HasMaxLength(256);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Agent).HasMaxLength(64);
+            // "What happened to this rule?", "what did this session change?", and the whole account's history.
+            b.HasIndex(e => new { e.TenantId, e.RuleId, e.OccurredUtc });
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.OccurredUtc });
+            b.HasIndex(e => new { e.TenantId, e.OccurredUtc });
         });
 
         modelBuilder.Entity<SessionTurnHeadEntity>(b =>
@@ -2395,6 +2434,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<MailDeskRoutedEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
+        ApplyTenantScope<SessionRuleChangeEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictFeedbackEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictTraceEntity>(modelBuilder);
