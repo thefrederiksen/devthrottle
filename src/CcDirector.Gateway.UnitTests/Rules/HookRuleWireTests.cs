@@ -333,4 +333,18 @@ public sealed class HookRuleWireTests : IDisposable
         Assert.Equal(2, wire.GetProperty("matchedRuleIds").GetArrayLength());
         Assert.Equal(812, wire.GetProperty("evaluationMicroseconds").GetInt64());
     }
+    // ---- who may call the two new routes ---------------------------------------------------------------
+
+    /// <summary>
+    /// W1 and W5 are called with the Director's own credential (and the user's), never a session key. Whether
+    /// session keys reach the /gateway/rules surface is phase 2's decision for the whole surface; this pins the
+    /// phase 1 contract, so opening these two routes to sessions is a deliberate change to this test rather
+    /// than a side effect.
+    /// </summary>
+    [Theory]
+    [InlineData("GET", "/gateway/rules/effective")]
+    [InlineData("POST", "/gateway/rules/hook-firings")]
+    public void SessionKeyGuard_EffectiveRulesAndHookFiringsRoutes_AreRefusedToASessionKey(string method, string path)
+        => Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} must be refused to a session key in phase 1.");
 }
