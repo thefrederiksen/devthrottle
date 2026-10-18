@@ -67,7 +67,14 @@ public sealed class ApiModeReceiptDto
     /// <summary>When the Gateway last changed this receipt.</summary>
     public DateTime UpdatedAtUtc { get; set; }
 
-    /// <summary>The receipt's finished words, rendered verbatim (event model rule 5): <c>Queued: &lt;why&gt;</c>,
+    /// <summary>A queued prompt's place in line NOW, counted from 1 (1 is the next prompt to be written): one plus the
+    /// session's still-queued receipts ahead of it. Derived by the Gateway at read time and never stored, so it moves up
+    /// as earlier prompts are delivered, refused or stopped. Null unless the receipt is queued, and null for a queued
+    /// receipt whose place cannot be known (it was queued by a Director generation that has since been replaced).</summary>
+    public int? QueuePosition { get; set; }
+
+    /// <summary>The receipt's finished words, rendered verbatim (event model rule 5): <c>Queued, &lt;place&gt; in line:
+    /// &lt;why&gt;</c> (<c>Queued: &lt;why&gt;</c> when no place is known),
     /// <c>Delivered</c>, <c>Delivered - the turn failed: &lt;reason&gt;</c>, <c>Delivered - stopped</c>, or
     /// <c>Refused: &lt;reason&gt;</c>. Ruled on the Gateway (<c>ApiModeLiveRuling.ReceiptWords</c>); a client never
     /// composes a receipt.</summary>
