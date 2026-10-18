@@ -1,4 +1,4 @@
-# Mail Desk phase 0 proof (a), 2026-10-18T14:48:04Z, tree d091f9083, machine devlinux, Director PATH: the live Director PATH (no ~/.local/bin)
+# Mail Desk phase 0 proof (a), 2026-10-18T14:59:42Z, tree 85ade87ca, machine devlinux, Director PATH: the live Director PATH (no ~/.local/bin)
 
 # ~/.local/bin links BEFORE the run
   agenteyes -> <home>/.local/lib/agenteyes/agenteyes
@@ -29,11 +29,11 @@
 
 # the saved sign-in BEFORE the run
   <home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json
-  mtimeNs: 1792334796206589253
-  mtimeUtc: 2026-10-18T14:46:36.206589+00:00
-  bytes: 9559
+  mtimeNs: 1792335575199304329
+  mtimeUtc: 2026-10-18T14:59:35.199304+00:00
+  bytes: 9558
   mode: 0o600
-  sha256Prefix: 15adeb1b84d1
+  sha256Prefix: 953004a86d51
 
 # BEFORE the run: cc-outlook accounts list (exit 0; other accounts' rows left out)
                                          Outlook Accounts                                          
@@ -42,13 +42,13 @@
 | email@devthrottle.com         | devthrottle |         | Yes           | f575e3f4-8f62-4bfb-8... |
 +-------------------------------------------------------------------------------------------------+
 
-# Gateway http://127.0.0.1:58279 built from this tree, storage root <rig>/gateway-root (empty for this run). The installed Director (pid 2312966, id 6772ad4d-7080-4fa6-8c61-dcb61cff10a9, version 2.22.0) started with CC_DIRECTOR_ROOT=<rig>/director-root and HOME=<rig>/home, and joined it.
+# Gateway http://127.0.0.1:46459 built from this tree, storage root <rig>/gateway-root (empty for this run). The installed Director (pid 2350699, id 921e4060-eaab-4d59-a208-06c7dee34fd6, version 2.22.0) started with CC_DIRECTOR_ROOT=<rig>/director-root and HOME=<rig>/home, and joined it.
 
 # the test Director's instance registration
 {
- "DirectorId": "6772ad4d-7080-4fa6-8c61-dcb61cff10a9",
- "Pid": 2312966,
- "StartedAt": "2026-10-18T14:48:16.2219927Z",
+ "DirectorId": "921e4060-eaab-4d59-a208-06c7dee34fd6",
+ "Pid": 2350699,
+ "StartedAt": "2026-10-18T14:59:54.2732481Z",
  "ControlEndpoint": "",
  "MachineName": "devlinux",
  "User": "<user>",
@@ -111,13 +111,13 @@ $ cc-devthrottle factory definition save qa-mail-sign-in --dir <rig>/definition 
   "authorId": "device browser qa-browser",
   "changeNote": "Mail Desk phase 0 proof (a): the sign-in probe",
   "restoredFrom": null,
-  "writtenAtUtc": "2026-10-18T14:48:18.704578Z",
+  "writtenAtUtc": "2026-10-18T14:59:56.82082Z",
   "publishedAtUtc": null,
   "publishedBy": null,
   "publishedByKind": null,
   "publishedByName": null,
   "publishedByText": null,
-  "contentBytes": 9131,
+  "contentBytes": 10027,
   "fileCount": 4,
   "newestVersion": 1,
   "publishedVersion": null,
@@ -159,7 +159,7 @@ what changes: First publish: 9 factory settings set, 2 seats added, 1 start crea
   Signin: start created, Every 2 minutes.
     check checks/sign_in_probe.py
     prompt "QA-MAIL-SIGN-IN. This prompt is never sent: the check always reports count 0."
-  Check checks/sign_in_probe.py added: 186 lines.
+  Check checks/sign_in_probe.py added: 210 lines.
       + # /// script
       + # requires-python = ">=3.10"
       + # dependencies = ["msal>=1.28"]
@@ -200,8 +200,16 @@ what changes: First publish: 9 factory settings set, 2 seats added, 1 start crea
       + AUTHORITY = "https://login.microsoftonline.com/common"
       + SCOPE = "https://graph.microsoft.com/Mail.ReadWrite"
       + GRAPH_HOST = "graph.microsoft.com"
-      + # cc-outlook names the file after the address with "@" and "." made "_" (auth.get_msal_token_path).
-      + CACHE_NAME = MAILBOX.replace("@", "_").replace(".", "_") + "_msal.json"
+      + 
+      + 
+      + def cache_file_name(email):
+      +     """cc-outlook's own naming rule, copied from get_msal_token_path in tools/cc-outlook/src/auth.py (origin/main
+      +     d091f9083): safe_name = email.replace('@', '_').replace('.', '_'); the file is f'{safe_name}_msal.json'."""
+      +     safe_name = email.replace("@", "_").replace(".", "_")
+      +     return f"{safe_name}_msal.json"
+      + 
+      + 
+      + CACHE_NAME = cache_file_name(MAILBOX)
       + 
       + 
       + class RefusedCall(Exception):
@@ -246,7 +254,25 @@ what changes: First publish: 9 factory settings set, 2 seats added, 1 start crea
       + 
       + def caches_under(home):
       +     base = director_base(home)
-      +     return base, sorted(base.glob(f"instances/*/config/outlook/tokens/{CACHE_NAME}"))
+      +     return base, caches_in(base)
+      + 
+      + 
+      + def caches_in(base):
+      +     """Every saved sign-in of the mailbox under one Director base folder: instances/*/config/outlook/tokens/<name>.
+      +     Nowhere else - there is no fallback to ~/.cc-director."""
+      +     return sorted(Path(base).glob(f"instances/*/config/outlook/tokens/{CACHE_NAME}"))
+      + 
+      + 
+      + def find_sign_in(base):
+      +     """The one saved sign-in under `base`, or the reason there is not exactly one. Never picks one of several."""
+      +     found = caches_in(base)
+      +     if not found:
+      +         return None, (f"{MAILBOX} is not signed in on this machine (looked under {base}/instances/*/config/outlook/"
+      +                       f"tokens/{CACHE_NAME}, found none): run cc-outlook -a devthrottle auth")
+      +     if len(found) > 1:
+      +         return None, (f"{MAILBOX} is signed in more than once on this machine, so the check cannot tell which sign-in "
+      +                       f"to use: {', '.join(str(p) for p in found)}. Keep one: sign out of the others with cc-outlook")
+      +     return found[0], None
       + 
       + 
       + def scp_names(access_token):
@@ -291,11 +317,9 @@ what changes: First publish: 9 factory settings set, 2 seats added, 1 start crea
       +         print(reason, file=sys.stderr)
       +         sys.exit(1)
       + 
-      +     if len(real_found) != 1:
-      +         fail(f"{MAILBOX} is {'not signed in' if not real_found else 'signed in more than once'} on this machine "
-      +              f"(looked under {real_base}/instances/*/config/outlook/tokens, found {len(real_found)}): "
-      +              f"run cc-outlook -a devthrottle auth")
-      +     cache_path = real_found[0]
+      +     cache_path, why_not = find_sign_in(real_base)
+      +     if why_not:
+      +         fail(why_not)
       +     run["cacheBefore"] = stat_of(cache_path)
       + 
       +     cache = msal.SerializableTokenCache()
@@ -368,19 +392,19 @@ help[2]:
 # waiting for 1 recorded checks of the signin start (every two minutes)
 
 # every recorded check of the start's trigger (CheckedUtc, Outcome, Count, SessionId, Reason, DirectorId)
-  ('2026-10-18 14:48:46.3678968', 'failed', None, None, 'the check could not start: the check declares packages and uv is not on this machine', '6772ad4d-7080-4fa6-8c61-dcb61cff10a9')
+  ('2026-10-18 15:00:24.4053952', 'failed', None, None, 'the check could not start: the check declares packages and uv is not on this machine', '921e4060-eaab-4d59-a208-06c7dee34fd6')
 
-$ cc-devthrottle trigger runs f02168ba-18fe-41e1-86e5-821cbe0c16de      (as the rig's person)
-1 most recent check(s) of f02168ba-18fe-41e1-86e5-821cbe0c16de, newest first:
-  2026-10-18T14:48:46.3678968Z  failed  count=- reason: the check could not start: the check declares packages and uv is not on this machine
+$ cc-devthrottle trigger runs af5c7362-8ba2-46aa-8405-4c7b9d6a4f21      (as the rig's person)
+1 most recent check(s) of af5c7362-8ba2-46aa-8405-4c7b9d6a4f21, newest first:
+  2026-10-18T15:00:24.4053952Z  failed  count=- reason: the check could not start: the check declares packages and uv is not on this machine
 help[1]:
-  cc-devthrottle trigger show "f02168ba-18fe-41e1-86e5-821cbe0c16de"
+  cc-devthrottle trigger show "af5c7362-8ba2-46aa-8405-4c7b9d6a4f21"
 [exit 0]
 
 $ cc-devthrottle factory check-state show qa-mail-sign-in signin      (as the rig's person)
 count: 1
 states[1]{seat,start,name,check,ownerKey,written,by,state}:
-  signin,1,qa-mail-sign-in-signin-start-1,checks/sign_in_probe.py,trigger:f02168ba-18fe-41e1-86e5-821cbe0c16de,never,-,(empty)
+  signin,1,qa-mail-sign-in-signin-start-1,checks/sign_in_probe.py,trigger:af5c7362-8ba2-46aa-8405-4c7b9d6a4f21,never,-,(empty)
 help[2]:
   cc-devthrottle factory check-state reset qa-mail-sign-in <seat> --start <start>
   cc-devthrottle factory check-state show qa-mail-sign-in <seat> --json
@@ -395,26 +419,26 @@ help[2]:
 }
 
 # the check runs - the test Director's log, lines naming ('DefinitionCheckRunner', 'FindOnPath')
-  2026-10-18 10:48:19.275 [CheckProcesses] FindOnPath: name=uv, found=(none)
-  2026-10-18 10:48:46.326 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, factory=qa-mail-sign-in, version=1, check=checks/sign_in_probe.py, secrets=0, due=-
-  2026-10-18 10:48:46.357 [DefinitionCheckRunner] downloaded: factory=qa-mail-sign-in, version=1, files=1, folder=<rig>/director-root/instances/default/factory-checks/qa-mail-sign-in/1
-  2026-10-18 10:48:46.367 [CheckProcesses] FindOnPath: name=uv, found=(none)
-  2026-10-18 10:48:46.367 [DefinitionCheckRunner] check could not start: the check declares packages and uv is not on this machine
+  2026-10-18 10:59:57.483 [CheckProcesses] FindOnPath: name=uv, found=(none)
+  2026-10-18 11:00:24.367 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, factory=qa-mail-sign-in, version=1, check=checks/sign_in_probe.py, secrets=0, due=-
+  2026-10-18 11:00:24.397 [DefinitionCheckRunner] downloaded: factory=qa-mail-sign-in, version=1, files=1, folder=<rig>/director-root/instances/default/factory-checks/qa-mail-sign-in/1
+  2026-10-18 11:00:24.405 [CheckProcesses] FindOnPath: name=uv, found=(none)
+  2026-10-18 11:00:24.405 [DefinitionCheckRunner] check could not start: the check declares packages and uv is not on this machine
 
 # the test Director asked to stop by its lifecycle request file
-  request: <rig>/director-root/config/lifecycle-signals/cc-director-shutdown-6772ad4d-7080-4fa6-8c61-dcb61cff10a9.request
-  pid 2312966 exited: True (exit code 0)
+  request: <rig>/director-root/config/lifecycle-signals/cc-director-shutdown-921e4060-eaab-4d59-a208-06c7dee34fd6.request
+  pid 2350699 exited: True (exit code 0)
 
 # processes still running from the rig folder after the stop
   (none)
 
 # the saved sign-in AFTER the run
   <home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json
-  mtimeNs: 1792334796206589253
-  mtimeUtc: 2026-10-18T14:46:36.206589+00:00
-  bytes: 9559
+  mtimeNs: 1792335575199304329
+  mtimeUtc: 2026-10-18T14:59:35.199304+00:00
+  bytes: 9558
   mode: 0o600
-  sha256Prefix: 15adeb1b84d1
+  sha256Prefix: 953004a86d51
 
 # AFTER the run: cc-outlook accounts list (exit 0; other accounts' rows left out)
                                          Outlook Accounts                                          

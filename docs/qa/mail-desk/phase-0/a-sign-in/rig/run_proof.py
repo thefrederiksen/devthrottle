@@ -346,7 +346,7 @@ def state_rows(db, tid):
 
 def publish():
     folder = RIG / "definition"
-    shutil.copytree(DEFINITION, folder)
+    shutil.copytree(DEFINITION, folder, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     factory_yaml = folder / "factory.yaml"
     factory_yaml.write_text(factory_yaml.read_text(encoding="utf-8").replace("machine: devlinux", f"machine: {MACHINE}"),
                             encoding="utf-8")

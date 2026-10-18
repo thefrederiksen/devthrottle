@@ -38,8 +38,16 @@ CLIENT_ID = "f575e3f4-8f62-4bfb-8f30-f776e55b51bd"
 AUTHORITY = "https://login.microsoftonline.com/common"
 SCOPE = "https://graph.microsoft.com/Mail.ReadWrite"
 GRAPH_HOST = "graph.microsoft.com"
-# cc-outlook names the file after the address with "@" and "." made "_" (auth.get_msal_token_path).
-CACHE_NAME = MAILBOX.replace("@", "_").replace(".", "_") + "_msal.json"
+
+
+def cache_file_name(email):
+    """cc-outlook's own naming rule, copied from get_msal_token_path in tools/cc-outlook/src/auth.py (origin/main
+    d091f9083): safe_name = email.replace('@', '_').replace('.', '_'); the file is f'{safe_name}_msal.json'."""
+    safe_name = email.replace("@", "_").replace(".", "_")
+    return f"{safe_name}_msal.json"
+
+
+CACHE_NAME = cache_file_name(MAILBOX)
 
 
 class RefusedCall(Exception):
@@ -84,7 +92,25 @@ def account_record_home():
 
 def caches_under(home):
     base = director_base(home)
-    return base, sorted(base.glob(f"instances/*/config/outlook/tokens/{CACHE_NAME}"))
+    return base, caches_in(base)
+
+
+def caches_in(base):
+    """Every saved sign-in of the mailbox under one Director base folder: instances/*/config/outlook/tokens/<name>.
+    Nowhere else - there is no fallback to ~/.cc-director."""
+    return sorted(Path(base).glob(f"instances/*/config/outlook/tokens/{CACHE_NAME}"))
+
+
+def find_sign_in(base):
+    """The one saved sign-in under `base`, or the reason there is not exactly one. Never picks one of several."""
+    found = caches_in(base)
+    if not found:
+        return None, (f"{MAILBOX} is not signed in on this machine (looked under {base}/instances/*/config/outlook/"
+                      f"tokens/{CACHE_NAME}, found none): run cc-outlook -a devthrottle auth")
+    if len(found) > 1:
+        return None, (f"{MAILBOX} is signed in more than once on this machine, so the check cannot tell which sign-in "
+                      f"to use: {', '.join(str(p) for p in found)}. Keep one: sign out of the others with cc-outlook")
+    return found[0], None
 
 
 def scp_names(access_token):
@@ -129,11 +155,9 @@ def main():
         print(reason, file=sys.stderr)
         sys.exit(1)
 
-    if len(real_found) != 1:
-        fail(f"{MAILBOX} is {'not signed in' if not real_found else 'signed in more than once'} on this machine "
-             f"(looked under {real_base}/instances/*/config/outlook/tokens, found {len(real_found)}): "
-             f"run cc-outlook -a devthrottle auth")
-    cache_path = real_found[0]
+    cache_path, why_not = find_sign_in(real_base)
+    if why_not:
+        fail(why_not)
     run["cacheBefore"] = stat_of(cache_path)
 
     cache = msal.SerializableTokenCache()

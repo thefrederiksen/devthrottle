@@ -1,16 +1,17 @@
 # Mail Desk, phase 0, proof (a): the sign-in premise
 
 Date: 18 October 2026. Mission: `docs/missions/mail-desk-2026-10-18/MISSION.md`, design 5.4 and the phase 0 row
-(issue #4213). Tree: `d091f9083` (origin/main), plus only this folder. No product code changed.
+(issue #4213). The final runs were made from `85ade87ca` (origin/main `d091f9083` plus the first version of this folder) with the
+check, rig and tests exactly as committed here. No product code changed.
 
 ## The verdict
 
 | Point | Verdict | Evidence line (from `transcript.txt`) |
 |---|---|---|
-| 1. The check finds the real saved sign-in, with every `CC_` variable stripped | **PROVEN** | every run: `"ccVariableNames": ["CC_CHECK_FACTORY", "CC_CHECK_SEAT", "CC_CHECK_SECRET_VARS", "CC_CHECK_STATE_FILE"]`, and `fromAccountRecord.found` is exactly one file: `<home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json` |
+| 1. The check finds the real saved sign-in, with every `CC_` variable stripped | **PROVEN** (exactly one: the real run; none and more than one: the tests below) | every run: `"ccVariableNames": ["CC_CHECK_FACTORY", "CC_CHECK_SEAT", "CC_CHECK_SECRET_VARS", "CC_CHECK_STATE_FILE"]`, and `fromAccountRecord.found` is exactly one file: `<home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json` |
 | 2. A token for `Mail.ReadWrite` is renewed silently, and a read-only GET works with it | **PROVEN** | every run: `"silentToken": "yes"`, `"tokenSource": "identity_provider"` (freshly minted, not served from the cache), `"inboxTotalItemCount": 19` |
 | 3. The token does not carry `Mail.Send` | **NOT PROVEN: the token carries Mail.Send; the guarantee must come from the check's code** | every run: `"scp": ["Calendars.ReadWrite", "Mail.ReadWrite", "Mail.Send", "MailboxSettings.Read", "User.Read", "email", "openid", "profile"]`, `"scpHasMailSend": true` |
-| 4. The renewed cache is written back to the same file, owner-only, and cc-outlook still sees the account | **PROVEN** | the file's modification time moved on every run (14:38:18 before, then 14:41:37, 14:44:06, 14:46:36), its hash prefix changed (`82e3b1a9e309` before), `"cacheStateChanged": true`, mode `0o600` before and after, and `cc-outlook accounts list` shows `email@devthrottle.com ... devthrottle ... Yes` before and after |
+| 4. The renewed cache is written back to the same file, owner-only, and cc-outlook still sees the account | **PROVEN** | the file's modification time moved on every run (14:46:36 before, then 14:54:36, 14:57:05, 14:59:35, each run's `cacheBefore` being the run before's `cacheAfter`), its hash prefix changed (`15adeb1b84d1` before), `"cacheStateChanged": true`, mode `0o600` before and after, and `cc-outlook accounts list` shows `email@devthrottle.com ... devthrottle ... Yes` before and after |
 
 The Tech Lead was told about point 3 at once, by message, when the first run showed it.
 
@@ -58,10 +59,12 @@ on the machine. In the main run the rig put `~/.local/bin` first on the test Dir
   Linux) holds no tokens. The Director's per-user base folder is the one place every instance's saved sign-ins live.
 - **The Tech Lead's proposed rule holds.** Search only the Director's per-user base folder (Linux
   `~/.local/share/cc-director`, Windows `%LOCALAPPDATA%\cc-director`, macOS `~/Library/Application Support/cc-director`)
-  under `instances/*/config/outlook/tokens/`, and fail naming the fix when there is none or more than one. Two
-  corrections to the wording:
+  under `instances/*/config/outlook/tokens/`, with no fallback to `~/.cc-director`; fail naming the fix when there is
+  none, and fail naming every path found when there is more than one, never picking one. Two corrections to the
+  wording:
   - the file is named `email_devthrottle_com_msal.json`, not `email@devthrottle.com_msal.json`: cc-outlook turns
-    "@" and "." into "_" (`get_msal_token_path` in `tools/cc-outlook/src/auth.py`);
+    "@" and "." into "_". The check copies that rule from `get_msal_token_path` in `tools/cc-outlook/src/auth.py` and
+    cites it (`cache_file_name`), and a test fails if the rule's line in cc-outlook changes;
   - on Linux and macOS the home must come from the account record, not HOME. On Windows there is no account record in
     Python's standard library, but `LOCALAPPDATA` is not a `CC_` variable and reaches the check; this check's Windows
     branch uses it and was never run.
@@ -72,14 +75,35 @@ on the machine. In the main run the rig put `~/.local/bin` first on the test Dir
   that also says `/config`. It is not the owner's Director for this mission and was not touched; if screen.py ever runs
   on a Director like that, the account-record lookup would search `/config/.local/share/cc-director`, and whether the
   saved sign-in is there depends on what that container mounts.
-- The check's missing-sign-in failure ("email@devthrottle.com is not signed in on this machine (looked under ...):
-  run cc-outlook -a devthrottle auth") is written in the check but was never triggered, because the owner had already
-  signed in when the rig ran. Not proven.
+
+## The three lookup cases, and the tests
+
+The lookup takes the base folder as an argument (`find_sign_in(base)`), so `tests/test_sign_in_probe.py` points it at
+scratch folders holding zero, one or two instance folders with dummy cache files; the real cache is never read or
+copied by a test. Every test runs with every `CC_` variable removed. 16 tests, all passing:
+
+```
+uv run --no-project --with pytest --with "msal>=1.28" python -m pytest docs/qa/mail-desk/phase-0/a-sign-in/tests -v
+16 passed in 0.16s
+```
+
+- **None**: no instance folder, or instance folders holding only other names (including the wrong name
+  `email@devthrottle.com_msal.json`), or a cache only in the old `~/.cc-director` place: "email@devthrottle.com is not
+  signed in on this machine (looked under ...): run cc-outlook -a devthrottle auth". Through the whole check (`main`)
+  it exits 1 with that reason and never reaches the sign-in library.
+- **Exactly one**: that file is returned. Through `main`, with a decoy under the HOME variable's base, the check opens
+  the file under the account record's home and not the decoy. The real case is the rig's three runs.
+- **More than one**: the reason names every path found, and nothing is picked. Through `main` it exits 1 naming both
+  and never reaches the sign-in library.
+- The guard refuses POST, PATCH, PUT and DELETE, and any host but graph.microsoft.com, before any request is made.
+
+The tests were checked against a broken lookup: with the more-than-one rule disabled (it then quietly took the first
+file), the two more-than-one tests failed and the other 14 passed.
 
 ## How it was run
 
 - **A throwaway Gateway** built from this tree (`dotnet build src/CcDirector.Gateway/CcDirector.Gateway.csproj`), on a
-  free port of 127.0.0.1 (46121 in the main run), with an empty storage root of its own under `/tmp/mail-desk-p0-a-rig`,
+  free port of 127.0.0.1, with an empty storage root of its own under `/tmp/mail-desk-p0-a-rig`,
   Tailscale off, authentication on, factory agents on in that root's own `config/config.json`. A person (a browser
   device row) and the Director (a workstation device row), each with its own key, as the phase 5b rig did. Every `CC_`
   variable of the shell was removed from its environment; it never talked to gateway.devthrottle.com.
@@ -116,14 +140,12 @@ uv run --script docs/qa/mail-desk/phase-0/a-sign-in/rig/run_proof.py docs/qa/mai
 - `definition/` - the published definition, byte for byte except `machine:`, which the rig sets to this machine's name.
 - `rig/run_proof.py` - the rig. It starts the Gateway and the Director, publishes, waits for the runs, reads the
   evidence back, and stops everything it started, pass or fail.
+- `tests/test_sign_in_probe.py` - the lookup's three cases, the naming rule and the guard.
 - `transcript.txt` - the main run (three checks). `transcript-live-path.txt` - the uv run (one check).
 
 In the transcripts the rig folder is `<rig>`, the tree `<repo>`, the user's home `<home>` and the user's name
-`<user>`. They hold no token, no cache content, no message and no address other than email@devthrottle.com. Two
-things in `transcript.txt` were scrubbed by hand after the run, and the rig was then changed to do both itself (the
-`--live-path` run was made with the changed rig): the user name in the Director's registration (`"User"`), and the
-other cc-outlook account's row, which is now left out of the `cc-outlook accounts list` output; a scrubbing rule had
-also overwritten the client id cell of the mailbox's own row, which was put back as `f575e3f4-8f62...`. The full list
+`<user>`, all done by the rig itself; the other cc-outlook account's row is left out of `cc-outlook accounts list`.
+They hold no token, no cache content, no message and no address other than email@devthrottle.com. The full list
 of variable names the check saw is in the transcript; it includes some names inherited from the session that started
 the rig (`AI_AGENT`, `CLAUDE_PID`, `SSH_CONNECTION` and others), which a Director started any other way would not
 carry.
@@ -133,7 +155,8 @@ carry.
 - That the token lacks `Mail.Send` (point 3): it does not lack it.
 - That screen.py can start on the owner's live Director as devlinux stands today: the evidence says uv is not on that
   Director's PATH (the finding above).
-- The missing or expired sign-in failure: written, never triggered.
+- The missing sign-in and more-than-one failures on a real Director: proven by the tests on scratch folders only,
+  since the owner was signed in once when the rig ran. An expired sign-in (the refresh token refused) was not tried.
 - Windows and macOS: only Linux ran. The Windows and macOS branches of the folder lookup were never run.
 - The production Gateway and the owner's own Director: deliberately not used.
 - No email was read beyond the Inbox's item count; nothing was moved, changed or sent.
