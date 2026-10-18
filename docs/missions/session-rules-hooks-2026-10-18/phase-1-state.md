@@ -15,3 +15,4 @@
 - C answers c9ca29b5e: all 4 accepted+fixed; Tech Lead re-ran Core 140/140; MERGED into mission branch b99426c4f.
 - B answers da1557983: 3 findings fixed, notes answered; Tech Lead re-ran 63/63 + 127/127; MERGED. Merged tree: RuleHook 63, Core 211, Gateway Rules 494 all green.
 - W Windows proof: session 6c7d56f3 on SOREN_NORTH, branch mission/session-rules-hooks-p1-win; brief-windows.md. Tell it when A merges.
+- W 6d6dbd83b: Windows tests green, PowerShell tool input = command, Claude Code on Windows runs hooks via Git Bash (~60 ms baseline); BLOCKED on C++ build tools - owner terminal 115 on SOREN_NORTH.
