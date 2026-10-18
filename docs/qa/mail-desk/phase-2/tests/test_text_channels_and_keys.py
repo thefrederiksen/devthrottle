@@ -42,7 +42,7 @@ def test_Preview_InTheReport_IsCleanedAndCut(world):
     _, _, context, _ = world.run()
     reported = all_messages(context)[0]
     assert reported["preview"] == ("Hello there. " + VISIBLE)[:200]
-    assert reported["subject"] == "Invoice ready" and reported["name"] == "Billing Team"
+    assert reported["subject"] == "Invoice ready" and reported["senderName"] == "Billing Team"
 
 
 # ---------------------------------------------------------------------------------------------------- test 9
@@ -61,8 +61,8 @@ def test_TwoChannels_OneRun_EachSignedInSeparatelyAndReportedUnderItsOwnAddress(
     first, second = context["channels"]
     assert (first["address"], second["address"]) == (MAILBOX, SECOND)
     key = world.screen.short_key
-    assert [m["key"] for m in first["messages"]] == [key(MAILBOX, "a-1"), key(MAILBOX, "same-id")]
-    assert [m["key"] for m in second["messages"]] == [key(SECOND, "b-1"), key(SECOND, "same-id")]
+    assert [m["messageKey"] for m in first["messages"]] == [key(MAILBOX, "a-1"), key(MAILBOX, "same-id")]
+    assert [m["messageKey"] for m in second["messages"]] == [key(SECOND, "b-1"), key(SECOND, "same-id")]
     assert key(MAILBOX, "same-id") != key(SECOND, "same-id")           # a key names its channel
     tokens = {(url.split("/mailFolders/")[1].split("/")[0] if "/mailFolders/" in url else url, token)
               for _, url, _, token in world.graph.log}
@@ -143,7 +143,7 @@ def test_Keys_ReportedMessagesAreInTheTableWithTheirIds(world):
     world.graph.box(MAILBOX)["inbox"] += [msg("AAMkAG-long-id=", "2026-10-18T08:00:00Z")]
     world.memory(channel(cursor=CURSOR))
     _, _, context, _ = world.run()
-    key = all_messages(context)[0]["key"]
+    key = all_messages(context)[0]["messageKey"]
     assert len(key) == 16 and "AAMkAG" not in context.__repr__()
     assert world.read_memory()["channels"][0]["keys"][key] == {"id": "AAMkAG-long-id=", "reportedUtc": "2026-10-18T12:00:00Z"}
 
@@ -152,7 +152,7 @@ def test_Keys_PrunedToTheFortyNewestUnderSevenDaysButQueuedKeysAreKept(world):
     screen = world.screen
     keys = {f"k{n:03}": {"id": f"id-{n}", "reportedUtc": f"2026-10-{10 + n // 20:02}T00:{n % 60:02}:00Z"}
             for n in range(100)}
-    queue = [{"key": "k000", "to": "archive"}]
+    queue = [{"messageKey": "k000", "decision": "archive"}]
     kept = screen.prune_keys(keys, queue, NOW)
     assert "k000" in kept                                              # oldest, but still queued
     assert set(kept) - {"k000"} == {f"k{n:03}" for n in range(60, 100)}
@@ -182,3 +182,17 @@ def test_Output_IsExactlyCountAndContext(world, capsys):
     out = capsys.readouterr().out
     assert list(json.loads(out)) == ["count", "context"]
     assert out.endswith("\n") and out.count("\n") == 1
+
+
+def test_ChannelId_TheGatewaysIdIsCarriedIntoTheReport(world):
+    world.plant()
+    world.memory(channel(id="c-0001", cursor=CURSOR))
+    _, _, context, _ = world.run()
+    assert context["channels"][0]["id"] == "c-0001"
+
+
+def test_UnknownProvider_TheSentenceIsTheFirstLine(world):
+    world.memory(channel(provider="gmail"))
+    _, _, _, err = world.run()
+    assert err.splitlines()[0] == ("provider gmail has no reader in this version of screen.py (channel "
+                                   "email@devthrottle.com); this version reads: outlook")

@@ -186,6 +186,15 @@ class World:
         self.sign_in.accounts[address] = True
         return path
 
+    def register(self, profiles, instance="default"):
+        """cc-outlook's account list in one instance, in its own shape (tools/cc-outlook/src/auth.py, PROFILES_FILE):
+        {"profiles": {<email>: {"client_id": ..., "nickname"?: ...}}, "default": <email>}."""
+        folder = self.base / "instances" / instance / "config" / "outlook"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "profiles.json"
+        path.write_text(json.dumps({"profiles": profiles, "default": next(iter(profiles), None)}), encoding="utf-8")
+        return path
+
     def memory(self, *channels, **extra):
         self.state.write_text(json.dumps(dict({"channels": list(channels)}, **extra)), encoding="utf-8")
 
