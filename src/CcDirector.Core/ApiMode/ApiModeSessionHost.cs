@@ -56,6 +56,10 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     /// <summary>The reason on the <see cref="ConnectionEnded"/> of a Pi process stopped because the user took the wheel.</summary>
     public const string UserTookTheWheelReason = "The user took the wheel: Pi's conversation is open in its terminal";
 
+    /// <summary>What a session ended while the user held the wheel adds to <see cref="UserTookTheWheelReason"/>: the terminal
+    /// that reason names is closed by the same end.</summary>
+    public const string EndedWhileTheUserHeldTheWheelSuffix = "; the session ended before the wheel was handed back";
+
     /// <summary>The reason on the <see cref="TurnEnded"/> of a turn Pi cut short with its abort because the user took the
     /// wheel - never the Stop button's words, so the record tells the two apart.</summary>
     public const string TurnStoppedForTheWheelReason = "stopped because the user took the wheel: the conversation was opened in Pi's terminal";
@@ -448,11 +452,13 @@ public sealed class ApiModeSessionHost : IAsyncDisposable
     {
         var ended = _lastConnectionEnded
             ?? throw new InvalidOperationException($"Session {_sessionId} has the wheel taken but no ended Pi process on record.");
-        RefuseQueuedLocked(UserTookTheWheelReason + "; the session ended before the wheel was handed back");
-        // The last process was ended on purpose for the take, and the session is ended on purpose now: a clean end.
+        RefuseQueuedLocked(UserTookTheWheelReason + EndedWhileTheUserHeldTheWheelSuffix);
+        // The last process was ended on purpose for the take, and the session is ended on purpose now: a clean end. Its
+        // exit code is 0, not the last process's: a take that had to kill Pi leaves 137 (or -1 on Windows), which the
+        // session would read as a crash. That code stays on the process's own ConnectionEnded, already published.
         Volatile.Write(ref _sessionEndedInFailure, false);
-        _sessionEnded = ended;
-        FileLog.Write($"[ApiModeSessionHost] EndWhileSuspended: session={_sessionId}, the session ends while the user held the wheel");
+        _sessionEnded = ended with { ExitCode = 0, Reason = ended.Reason + EndedWhileTheUserHeldTheWheelSuffix };
+        FileLog.Write($"[ApiModeSessionHost] EndWhileSuspended: session={_sessionId}, the session ends while the user held the wheel (the last Pi process ended with exit code {ended.ExitCode})");
         _observed.Writer.TryComplete();
     }
 

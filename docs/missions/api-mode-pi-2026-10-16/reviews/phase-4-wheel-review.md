@@ -826,23 +826,51 @@ so the kill is reached, and the session ended through `KillAsync`: `Exited`, not
 would also do for the reason: while the merge's test asserts the reason does not contain "failed", a clean end's reason is
 not shown at all, so that assertion passes on the wording, not the verdict.
 
+**Developer's answer (round 2): fixed, the first way.** `EndWhileSuspendedLocked` now records the session's end with exit
+code 0: `_sessionEnded = ended with { ExitCode = 0, ... }`. The killed process's own code (137, or -1 on Windows) stays on
+its `ConnectionEnded`, which was published when the take ended it, and the log line of the end now names it. I chose this
+over ruling every API-mode end by the stream's verdict alone because it touches only the one end that is the Director's
+on purpose, so the silent end rule is untouched: a Pi that fails while the protocol holds the wheel still hands its own
+exit code and the stream's verdict to `Session.OnBackendProcessExited`, and still reads failed
+(`HandBackWheelAsync_ThenPiFailsWhileTheProtocolHoldsTheWheel_TheSessionStillReadsFailed` is unchanged and passes).
+Pinned by `TakeWheelAsync_PiKilledUnderAnUnconfirmedAbort_ThenTheUserEndsTheSession_ReadsExitedNeverCrashed`: the
+merge's test with a fake Pi that does not exit when its input closes, the fake clock advanced until the transport's kill
+is reached, and the session ended through `Session.KillAsync`. It asserts the take's `ConnectionEnded` carries 137, and
+the session reads `Exited`, `Crashed` false, exit code 0, with the end reason below. **Without the fix it fails:**
+`Assert.Equal() Failure: Values differ, Expected: Exited, Actual: Failed` (and, with the status assertion moved after it,
+`Expected: 0, Actual: 137` on the exit code). The merge's own test now asserts the end reason exactly instead of the
+"does not contain failed" check you showed passes on the wording.
+
 ### Notes, not findings
 
 - **The end reason while suspended says the terminal is open.** `EndWhileSuspendedLocked` keeps the take's reason, "The
   user took the wheel: Pi's conversation is open in its terminal", as the session's `EndReason`, at the moment the terminal
   has just been closed by the same shutdown. The queue refusals on the same path append "; the session ended before the
   wheel was handed back"; the end reason could carry the same suffix. Wording; today a clean end's reason is not displayed.
+  **Answer: fixed.** The session's end reason while suspended is now the take's reason plus
+  `ApiModeSessionHost.EndedWhileTheUserHeldTheWheelSuffix` ("; the session ended before the wheel was handed back"),
+  the same suffix the queue refusals use, now one constant. Both tests of that end assert it exactly.
 - **No test pins a hand back whose Pi cannot be started.** The path reads truly (question 2) and I measured it with a
   throwaway, which the gate does not have. The rig makes it a one-line arrangement: a `StartSession` with one Pi makes the
   hand back's start throw. Law 17.
+  **Answer: fixed.** `HandBackWheelAsync_PiCannotBeStartedAgain_IsRefusedInWordsAndLeavesNoHolder`, on that one-line
+  arrangement: the hand back is refused with "Pi could not be started again over the protocol", Stop is refused with
+  the no-holder sentence, a following take opens a second terminal with no second Pi, and the session the user then
+  kills reads `Exited`, not crashed.
 - **The no-holder Stop sentence** ("its terminal exited") is also answered when the holder is `None` because a hand back
   could not start Pi (measured). True in spirit, wrong in the detail. Wording.
+  **Answer: fixed.** The sentence now reads "(its terminal exited, or Pi could not be started again)", and the new
+  test above asserts it on the second path.
 - **A hand back right after a take under an unconfirmed abort is refused as mid-turn for up to the quiet threshold.**
   On that path `TurnEnded` and `ConnectionEnded` arrive in one batch, so `OnApiModeEvents` leaves the activity at
   `Working`; `OnApiModeTerminalChanged` sets nothing on a take; the detector moves it to waiting only after the terminal
   has been quiet for ten seconds. Until then `terminalMidTurn()` is true and the hand back is refused with
   `TerminalMidTurnReason`. The refusal is safe and self-healing, and the kill path is not affected (the terminal's end sets
   waiting for a prompt before the host's end is read). Bounded by the threshold; not a finding.
+  **Answer: declined.** The refusal is the safe side of the two-processes rule, says what to do in words, and clears
+  itself within the quiet threshold on the injected clock. Clearing it sooner means setting the activity from the take
+  on a batch the detector has not judged, which is a new rule for what the activity means, for a refusal that lasts ten
+  seconds. Not worth the risk in this pull request.
 - **A take whose terminal cannot start and whose Pi then cannot be started back** throws out of `TakeWheelAsync` instead
   of returning a refusal, leaving the holder `None` with the host suspended: a coherent state the next take or hand back
   recovers from, and the Gateway sees an error rather than a sentence. The first round's similar note stands.

@@ -62,9 +62,10 @@ public sealed class ApiModeSessionBackend : ISessionBackend
     public const string StopWhileUserHoldsReason =
         "You have the wheel of this session, so its turn runs in Pi's terminal, where Stop cannot reach it: nothing was stopped. Stop it in the terminal, then hand back if you want the session to continue in API mode.";
 
-    /// <summary>Why a Stop is refused while no process holds the conversation (the user's terminal exited on its own).</summary>
+    /// <summary>Why a Stop is refused while no process holds the conversation (the user's terminal exited on its own, or a
+    /// hand back could not start Pi).</summary>
     public const string StopWithNoHolderReason =
-        "No process holds this session's conversation (its terminal exited), so no turn is running and nothing was stopped. Hand back to continue in API mode, or take the wheel to open the terminal again.";
+        "No process holds this session's conversation (its terminal exited, or Pi could not be started again), so no turn is running and nothing was stopped. Hand back to continue in API mode, or take the wheel to open the terminal again.";
 
     private readonly string _sessionId;
     private readonly string _agentSessionId;

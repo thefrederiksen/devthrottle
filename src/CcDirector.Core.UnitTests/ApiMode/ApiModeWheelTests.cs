@@ -500,6 +500,35 @@ public sealed class ApiModeWheelTests : IDisposable
     }
 
     [Fact]
+    public async Task HandBackWheelAsync_PiCannotBeStartedAgain_IsRefusedInWordsAndLeavesNoHolder()
+    {
+        // Arrange: one Pi only, so the hand back's start throws.
+        var rig = StartSession(new ScriptedPi("plain"));
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        Assert.True((await rig.Session.TakeWheelAsync()).Done);
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Session.OnExited += code => exited.TrySetResult(code);
+
+        // Act
+        var handBack = await rig.Session.HandBackWheelAsync();
+        var stopRefusal = await rig.Session.StopApiModeTurnAsync();
+        var takeAgain = await rig.Session.TakeWheelAsync();
+        await rig.Session.KillAsync();
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: refused in words with no process holding the conversation; the next take opens the terminal with no
+        // second Pi, and the session the user ends reads a clean exit.
+        Assert.False(handBack.Done);
+        Assert.StartsWith("Pi could not be started again over the protocol", handBack.Refusal);
+        Assert.Equal(ApiModeSessionBackend.StopWithNoHolderReason, stopRefusal);
+        Assert.True(takeAgain.Done);
+        Assert.Equal(2, rig.Terminals.Count);
+        Assert.Single(rig.PisStarted);
+        Assert.Equal(SessionStatus.Exited, rig.Session.Status);
+        Assert.False(rig.Session.Crashed);
+    }
+
+    [Fact]
     public async Task StopApiModeTurnAsync_WhileTheProtocolHoldsIt_IsPisAbortConfirmed()
     {
         // Arrange: the refusal recording answers an abort while idle.
@@ -606,8 +635,49 @@ public sealed class ApiModeWheelTests : IDisposable
         Assert.False(rig.Backend.EndedInFailure);
         Assert.Equal(SessionStatus.Exited, rig.Session.Status);
         Assert.False(rig.Session.Crashed);
-        Assert.Equal(ApiModeSessionHost.UserTookTheWheelReason, rig.Session.EndReason);
-        Assert.DoesNotContain("failed", rig.Session.LastStatusReason ?? "");
+        Assert.Equal(ApiModeSessionHost.UserTookTheWheelReason + ApiModeSessionHost.EndedWhileTheUserHeldTheWheelSuffix, rig.Session.EndReason);
+    }
+
+    [Fact]
+    public async Task TakeWheelAsync_PiKilledUnderAnUnconfirmedAbort_ThenTheUserEndsTheSession_ReadsExitedNeverCrashed()
+    {
+        // Arrange: Pi never confirms the take's abort and does not exit when its input closes, so the transport has to
+        // kill it (exit code 137). That code belongs to the take, which the Director made on purpose.
+        var pi = new ScriptedPi("abort", exitsWhenInputCloses: false) { AutoRespond = false };
+        var rig = StartSession(pi);
+        await pi.WaitForWrittenAsync("get_state");
+        pi.RespondToNext();
+        await rig.Sink.WaitForAsync<ConnectionReady>();
+        var sending = rig.Session.SendTextAsync("Count slowly to fifty", Door);
+        await pi.WaitForWrittenAsync("prompt");
+        pi.RespondToNext();
+        Assert.True((await ScriptedPi.WithinHangGuard(sending, "the prompt's receipt")).Confirmed);
+        await rig.Sink.WaitForAsync<TurnStarted>();
+        var exited = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Session.OnExited += code => exited.TrySetResult(code);
+
+        // Act: take the wheel past the unconfirmed abort and the kill, then the user ends the session with the kill verb.
+        var taking = rig.Session.TakeWheelAsync();
+        await pi.WaitForWrittenAsync("abort");
+        rig.Clock.Advance(ApiModeSessionDefaults.ShutdownGrace);
+        var killed = rig.Sink.WaitForAsync<ConnectionEnded>();
+        while (!killed.IsCompleted)
+        {
+            rig.Clock.Advance(ApiModeSessionDefaults.ShutdownGrace);
+            await Task.Yield();
+        }
+        var take = await ScriptedPi.WithinHangGuard(taking, "the take, past a Pi that had to be killed");
+        await rig.Session.KillAsync();
+        await ScriptedPi.WithinHangGuard(exited.Task, "the session's exit");
+
+        // Assert: the take's kill is on its own ConnectionEnded; the session the user ended reads a clean exit.
+        Assert.True(take.Done);
+        Assert.Equal(137, rig.Sink.Events.OfType<ConnectionEnded>().Single().ExitCode);
+        Assert.False(rig.Backend.EndedInFailure);
+        Assert.Equal(SessionStatus.Exited, rig.Session.Status);
+        Assert.False(rig.Session.Crashed);
+        Assert.Equal(0, rig.Session.ExitCode);
+        Assert.Equal(ApiModeSessionHost.UserTookTheWheelReason + ApiModeSessionHost.EndedWhileTheUserHeldTheWheelSuffix, rig.Session.EndReason);
     }
 
     [Fact]
