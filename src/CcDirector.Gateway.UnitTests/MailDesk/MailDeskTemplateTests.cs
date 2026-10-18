@@ -142,6 +142,9 @@ public sealed class MailDeskTemplateTests : IDisposable
 
         // Act + Assert: what it receives, the commands it uses, and what it never does.
         Assert.Contains("not for me", brief, StringComparison.OrdinalIgnoreCase);
+        // The field names are the screening check's context words (phase 2 check contract, section 4.2).
+        foreach (var field in new[] { "messageKey", "receivedUtc", "sender", "senderName", "subject", "hasAttachments", "knownSender", "preview" })
+            Assert.Contains(field, brief);
         foreach (var command in new[]
                  {
                      "maildesk allow add", "maildesk block add", "maildesk rule add", "maildesk route add",

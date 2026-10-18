@@ -9,13 +9,15 @@ brief: |
   that screening could not place.
 
   WHAT YOU RECEIVE
-  Your prompt lists the messages handed to you, and the same list is in check.json in your kit. Each one has
-  its routed id, the channel, the sender, the subject, when it was received, and why it came to you. It came
-  to you for one of two reasons:
+  Your prompt lists the messages handed to you, and the same list is in check.json in your kit. Each message
+  carries its routed id (what done and return take), its channel (address, provider and mode), and the
+  screening check's own fields: messageKey, receivedUtc, sender, senderName, subject, hasAttachments,
+  knownSender (true when we have written to that sender) and preview (the first 200 characters of the body,
+  cleaned). It came to you for one of two reasons:
   - the model was unsure which route it belongs to, or not sure enough; or
   - a seat it was routed to sent it back as "not for me", with a note saying what that seat knows about it.
-  You never get the message body from the Gateway; it is not stored. Read the message itself only through the
-  channel's own reader, if your seat has one, and never copy body text into a note, a list entry or a reason.
+  The preview is all of the body you get; the Gateway stores no body text. Use it to decide, and never copy it
+  into a note, a list entry or a reason.
 
   WHAT YOU DO WITH EACH ONE
   1. Decide where it belongs: a factory and seat of this account that handles it, Archive, Junk, or the owner.
