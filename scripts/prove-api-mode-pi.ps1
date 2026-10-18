@@ -629,6 +629,12 @@ try {
         $changed = @(Compare-Object @($userBinBefore -split "`n") @($userBinAfter -split "`n") | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
         Add-Result "Teardown: the user's ~/.local/bin links are unchanged" ($changed.Count -eq 0 -and $userBinBefore.Length -gt 0) `
             $(if ($changed.Count -eq 0) { "$(@($userBinBefore -split "`n").Count) links, all as before" } else { "CHANGED: $($changed -join '; ')" })
+        # The one link every session on this machine depends on, named on its own so a failure cannot hide in a list.
+        $expected = Join-Path $HOME '.local/share/cc-director/pyenv/bin/cc-devthrottle'
+        $actual = (Get-Item (Join-Path $HOME '.local/bin/cc-devthrottle') -ErrorAction SilentlyContinue).LinkTarget
+        Add-Result "Teardown: ~/.local/bin/cc-devthrottle still points at the user's own install" ($actual -eq $expected) `
+            "it points at $actual"
+        if ($actual -ne $expected) { Say "LOUD: ~/.local/bin/cc-devthrottle points at '$actual', not '$expected'. Every session on this machine needs it repaired." }
     }
 
     $spend = Measure-Spend
