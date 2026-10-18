@@ -257,3 +257,83 @@ Read: the diff `bb93c97a4..6d9d5daa9` in full (the check, the contract, the rig,
 answers). Ran: the suite at `6d9d5daa9`; the suite with the check swapped to `724f2392a`; the three probe files
 against `6d9d5daa9`; one deliberate breakage, restored. Not reached: a real Graph, a real sign-in service, Windows and
 macOS, the Gateway side of section 6.
+
+## Second re-review
+
+Reviewed: the same branch at commit `b1baaaa7f`, which answers findings 4 and 5 and acts on observation D by signing
+every channel in before any channel files or reads, and sizing the filing half after sign-in. The Tech Lead asked
+four questions about that reordering; each is answered below with what was run. No new finding.
+
+**Suite:** 292 passed in 4.5 seconds at `b1baaaa7f`. **The new tests fail on the previous check:** with `screen.py`
+swapped for its text at `6d9d5daa9`, 9 failed and 283 passed: the two long-address sentence tests, the four
+JSON-but-not-an-object tests, the two heavy-filing tests, and the whole-run sentence test whose wording changed. That
+is what the answers claim. The three tests of the sign-in library's own behaviour pass on both, as they should. The
+tree was confirmed clean after the swap.
+
+### The request guard is still the only way to the network
+
+`git diff 724f2392a..b1baaaa7f` touches no line of `graph_request`, `check_request`, `transport`, `MOVE_PATH`,
+`MESSAGE_ID` or `GRAPH_HOST`. At `b1baaaa7f`, `urlopen` is called in one place (`transport`), `transport` in one
+place (`graph_request`), and `graph_request` in one place (`OutlookReader.graph`). The sign-in step that now runs
+first talks to the sign-in service through the sign-in library, as it always did, never to Graph. The whole
+`test_request_guard.py` file is in the 292.
+
+### Observe mode still files nothing
+
+Probe: a live mailbox with 60 queued moves, an observe mailbox with 5 queued moves, and 10 mailboxes not signed in,
+in one memory. Exit 0; 39 POSTs, every one with the live mailbox's token; the observe mailbox's section carries
+`filing: []` and `filingNotCarriedOut: {count: 5, ...}`; its queue of 5 is in the memory afterwards, untouched. The
+order of network calls was recorded on one timeline: both sign-ins came before the first Graph call, and no sign-in
+came after one.
+
+### A sign-in failure still leaves that channel's memory byte for byte
+
+Probe: a live mailbox whose renewal fails, with an id, a stale `sentCache`, a `keys` table and a 5-item queue. Exit
+0; its entry in the memory, re-serialised the way the check writes it, is identical before and after; its section
+carries the "not signed in" sentence; zero Graph calls were made for it and zero POSTs in the run. The first review's
+mode 000 probe re-run gives the per-channel "cannot be read (PermissionError)" sentence, and the JSON-list token file
+that finding 5 raised now gives the per-channel "not a sign-in cache" detail with the healthy mailbox read. The
+`fail` closure restores `channels[index]` from a copy taken before `check_channel`, and the sign-in step writes
+nothing into the channel's entry (the renewed cache goes to its own file), so there is nothing a sign-in failure
+could have changed.
+
+### Filing still never starves new mail, and the heavy-filing loop is gone
+
+| Memory (one live mailbox, 60 queued moves, one new message, beside N not signed in) | At `6d9d5daa9` | At `b1baaaa7f` |
+|---|---|---|
+| N = 5 | exit 0, 48 filed, 12 left | exit 0, 48 filed, 12 left, the message reported whole |
+| N = 10 | exit 1 every run | exit 0, 36 filed, 24 left, the message reported whole, 6685 bytes |
+| N = 14 | exit 1 every run | exit 0, 21 filed, 39 left, the message reported whole, 6728 bytes |
+| N = 10 with an observe mailbox beside | not measured | exit 0, 39 filed, 21 left; one more run empties the queue; 60 in Archive, none moved twice |
+
+The sizing reads correctly: the filing half is cut to what is left of the budget after the known failures'
+sentences and the 1,024-byte reserve, each filed result is counted against it, and `fit_failures` still runs after
+reading, so the context written is never over 7,168. The limits table in the answers is consistent with this
+reviewer's measurements at a third address length (21 characters: first whole-run failure at 24 all failing, at 20
+beside one with new mail, both between the answers' 17- and 30-character rows).
+
+### Findings 4 and 5
+
+**4, closed.** The sentence is now `<n> of <m> mailboxes failed on <machine>, too many to name in the context`, with
+`; first: <address>` only when the whole stays within 165. The first review's 58-character addresses now give 146
+characters with the address named; a 114-character address leaves it to line 2, which names it. Both tested.
+
+**5, closed.** The file's text must be a JSON object before it is deserialized; anything else is the existing
+per-channel "not a sign-in cache". Shown end to end this time, because the shape test runs before the faked sign-in
+application: `[]`, `1`, `"x"` and `null` each fail only that channel. The Developer's reason for refusing the shape
+rather than catching `AttributeError` around the sign-in calls (a defect in the check must stay loud) is sound.
+
+### What remains, by the Developer's own account
+
+A Graph failure arriving after filing, in many mailboxes in the same five minutes, is not known when the filing half
+is sized and can still end at the honest whole-run sentence. That is a true statement of the design's edge, it is
+far rarer than the sign-in case that drove observation D, and it ends in a sentence that says what happened. No
+change asked.
+
+### Scope of the second re-review
+
+Read: the diff `f47e51814..b1baaaa7f` in full (the check, the contract, the test file, the answers), and `run()`
+at `b1baaaa7f` whole. Ran: the suite at `b1baaaa7f`; the suite with the check swapped to `6d9d5daa9`; the first
+review's probes 1 and 3 and one new probe (call order, observe mode, heavy filing with new mail, draining the queue,
+a sign-in failure's memory) against `b1baaaa7f`. Not reached: a real Graph, a real sign-in service, Windows and
+macOS, the Gateway side of section 6.
