@@ -1,0 +1,10 @@
+seat: signin
+name: Signin
+role: Signin
+brief: |
+  Never started: the check always counts nothing.
+starts:
+  - every: 2m
+    check: checks/sign_in_probe.py
+    prompt: |
+      QA-MAIL-SIGN-IN. This prompt is never sent: the check always reports count 0.
