@@ -44,7 +44,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         Assert.Equal(HookBytes, File.ReadAllBytes(written));
 
         var preToolUse = Assert.Single(Hooks(settings)["PreToolUse"]!.AsArray())!;
-        Assert.Equal("Bash|PowerShell", (string?)preToolUse["matcher"]);
+        Assert.Equal("^(Bash|PowerShell)$", (string?)preToolUse["matcher"]);
         var hook = Assert.Single(preToolUse["hooks"]!.AsArray())!;
         Assert.Equal("command", (string?)hook["type"]);
         // The absolute path, quoted for the spaces in per-user folders.
@@ -166,9 +166,36 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         Directory.CreateDirectory(kit);
 
         var own = ClaudeHookInstaller.WriteSessionSettings(kit, HooksDirectory, forWindows: true,
-            new JsonObject { ["deny"] = new JsonArray("Bash(git push:*)") }, ruleHookCarried: true);
+            new JsonObject { ["deny"] = new JsonArray("Bash(git push:*)") }, HookBytes);
 
         Assert.NotNull(Hooks(own)["PreToolUse"]);
+        Assert.True(JsonNode.DeepEquals(Hooks(shared)["PreToolUse"], Hooks(own)["PreToolUse"]));
+    }
+
+    /// <summary>
+    /// Review finding 2, in the Director's REAL launch order: a factory seat's own settings are written
+    /// (SessionManager.PrepareFactoryKitLaunch) BEFORE the shared hooks are installed. On a fresh instance -
+    /// a new install, a new slot - nothing has written the evaluator yet, and the seat's file is its ONE
+    /// --settings. It must still register the rule hook, or that seat's shell commands are never evaluated
+    /// and nothing anywhere says so.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WriteSessionSettings_FreshInstanceBeforeTheSharedInstall_StillWritesAndRegistersTheRuleHook(bool forWindows)
+    {
+        var kit = Path.Combine(_root, "kit");
+        Directory.CreateDirectory(kit);
+        Assert.False(Directory.Exists(HooksDirectory));
+
+        var own = ClaudeHookInstaller.WriteSessionSettings(kit, HooksDirectory, forWindows, new JsonObject(), HookBytes);
+
+        var path = ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows);
+        Assert.Equal(HookBytes, File.ReadAllBytes(path));
+        Assert.Equal($"\"{path}\"", (string?)Hooks(own)["PreToolUse"]![0]!["hooks"]![0]!["command"]);
+
+        // And the shared install that follows agrees with it.
+        var shared = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows, HookBytes)!;
         Assert.True(JsonNode.DeepEquals(Hooks(shared)["PreToolUse"], Hooks(own)["PreToolUse"]));
     }
 
@@ -179,9 +206,54 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         Directory.CreateDirectory(kit);
         ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows: true, HookBytes);
 
-        var own = ClaudeHookInstaller.WriteSessionSettings(kit, HooksDirectory, forWindows: true, new JsonObject(), ruleHookCarried: false);
+        var own = ClaudeHookInstaller.WriteSessionSettings(kit, HooksDirectory, forWindows: true, new JsonObject(), ruleHook: null);
 
         Assert.False(Hooks(own).ContainsKey("PreToolUse"));
+    }
+
+    // ---------- Review finding 1: nothing about the evaluator may cost the session its other hooks ----------
+
+    /// <summary>
+    /// The SessionStart hooks (session pointer across /clear and compaction, the fleet preamble) worked
+    /// before the rule hook existed. A failure of the optional evaluator step must never take them away:
+    /// EnsureInstalled returning null launches the session with NO --settings at all.
+    /// </summary>
+    [Fact]
+    public void EnsureInstalled_ExistingEvaluatorCannotBeRead_StillWritesTheSettingsWithTheSessionStartHooks()
+    {
+        if (OperatingSystem.IsWindows())
+            return; // Removing read permission is a POSIX mode; on Windows the same failure is a sharing lock.
+        Directory.CreateDirectory(HooksDirectory);
+        var path = ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows: false);
+        File.WriteAllBytes(path, OlderHookBytes);
+        File.SetUnixFileMode(path, UnixFileMode.None);
+        try
+        {
+            var settings = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows: false, HookBytes);
+
+            Assert.NotNull(settings);
+            Assert.Equal(4, Hooks(settings!)["SessionStart"]!.AsArray().Count);
+        }
+        finally
+        {
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Theory]
+    [InlineData(typeof(IOException))]
+    [InlineData(typeof(UnauthorizedAccessException))]
+    [InlineData(typeof(InvalidOperationException))]
+    [InlineData(typeof(NotSupportedException))]
+    public void EnsureInstalled_EvaluatorStepThrowsAnything_StillWritesTheSettingsWithTheSessionStartHooks(Type failure)
+    {
+        var settings = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows: true, HookBytes,
+            replace: (_, _) => throw (Exception)Activator.CreateInstance(failure, "simulated")!);
+
+        Assert.NotNull(settings);
+        Assert.Equal(4, Hooks(settings!)["SessionStart"]!.AsArray().Count);
+        Assert.False(Hooks(settings!).ContainsKey("PreToolUse"));
+        Assert.DoesNotContain(Directory.GetFiles(HooksDirectory), f => f.EndsWith(".tmp", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -119,8 +119,10 @@ public static class ClaudeHookInstaller
 
     /// <summary>Claude Code's shell tools, as its PreToolUse matcher names them. Claude Code 2.1.302 lists
     /// exactly these two as shell tools; PowerShell exists on Windows only, so naming it costs nothing
-    /// elsewhere.</summary>
-    public const string ShellToolMatcher = "Bash|PowerShell";
+    /// elsewhere. Anchored, so no other tool whose name merely CONTAINS one of the two ever runs the
+    /// evaluator: a live run on 2.1.302 showed this anchored form fires on Bash, and that the matcher is
+    /// read as a regular expression (<c>^(Bas)$</c> did not fire).</summary>
+    public const string ShellToolMatcher = "^(Bash|PowerShell)$";
 
     /// <summary>The rule evaluator's file name on each platform.</summary>
     public static string RuleHookExecutableName(bool forWindows) => forWindows ? "cc-rule-hook.exe" : "cc-rule-hook";
@@ -205,19 +207,21 @@ public static class ClaudeHookInstaller
     /// without them.
     /// </summary>
     public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions)
-        => WriteSessionSettings(kitDirectory, hooksDirectory, forWindows, permissions, RuleHookBinary.IsCarried());
+        => WriteSessionSettings(kitDirectory, hooksDirectory, forWindows, permissions, RuleHookBinary.Carried());
 
     /// <summary>Testable overload of <see cref="WriteSessionSettings(string, string, bool, JsonObject)"/> that says
     /// whether this Director build carries the rule evaluator. The seat's file registers it exactly when the shared
     /// file does: the build carries one AND <see cref="EnsureInstalled(string, bool)"/> left it on disk.</summary>
-    public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions, bool ruleHookCarried)
+    public static string WriteSessionSettings(string kitDirectory, string hooksDirectory, bool forWindows, JsonObject permissions, byte[]? ruleHook)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(kitDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(hooksDirectory);
         ArgumentNullException.ThrowIfNull(permissions);
 
-        var onDisk = RuleHookPathIn(hooksDirectory, forWindows);
-        var ruleHookPath = ruleHookCarried && File.Exists(onDisk) ? onDisk : null;
+        // The seat's file is written BEFORE the shared install in the Director's launch order
+        // (PrepareFactoryKitLaunch runs first), so on a fresh instance nothing has written the evaluator yet.
+        // It installs it itself - the same compare-before-write, so the shared install after it is a no-op.
+        var ruleHookPath = InstallRuleHook(hooksDirectory, forWindows, ruleHook, ReplaceFile);
 
         var settings = JsonSerializer.SerializeToNode(BuildSettings(ScriptPathIn(hooksDirectory, forWindows), forWindows, ruleHookPath))!.AsObject();
         settings["permissions"] = permissions.DeepClone();
@@ -288,6 +292,12 @@ public static class ClaudeHookInstaller
     /// never fatal (ruling P16): it is logged, the replace is tried again at the next session launch, and
     /// meanwhile the evaluator already there, from the previous build, is a working hook and stays
     /// registered.
+    ///
+    /// NOTHING here may throw. The evaluator is optional and the SessionStart hooks written beside it are
+    /// not: an exception escaping to <see cref="EnsureInstalled(string, bool)"/>'s catch would launch the
+    /// session with no --settings at all, losing the session pointer and the preamble that worked before
+    /// the rule hook existed. Every failure resolves to "register the evaluator already on disk" or
+    /// "register none", and says which in the log.
     /// </summary>
     private static string? InstallRuleHook(string directory, bool forWindows, byte[]? ruleHook, Action<string, string> replace)
     {
@@ -300,12 +310,13 @@ public static class ClaudeHookInstaller
         }
 
         var path = RuleHookPathIn(directory, forWindows);
-        if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(ruleHook))
-            return path;
-
         var tmp = $"{path}.{Environment.ProcessId}.tmp";
         try
         {
+            if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(ruleHook))
+                return path;
+
+            Directory.CreateDirectory(directory);
             File.WriteAllBytes(tmp, ruleHook);
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
@@ -314,15 +325,29 @@ public static class ClaudeHookInstaller
             FileLog.Write($"[ClaudeHookInstaller] InstallRuleHook: wrote {path} ({ruleHook.Length} bytes)");
             return path;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
-            File.Delete(tmp);
+            RemoveTemporary(tmp);
             var kept = File.Exists(path);
-            FileLog.Write($"[ClaudeHookInstaller] InstallRuleHook: could not replace {path} ({ex.Message}); it is tried again at the next " +
+            FileLog.Write($"[ClaudeHookInstaller] InstallRuleHook: could not check or replace {path} ({ex.GetType().Name}: {ex.Message}); it is tried again at the next " +
                 (kept
                     ? "session launch, and the evaluator already there, from an earlier build, stays registered meanwhile."
                     : "session launch. There is NO evaluator on disk, so NO session rule is evaluated in sessions started now."));
             return kept ? path : null;
+        }
+    }
+
+    // A failed delete is logged and left: a stray temporary file is harmless, and it must not turn a
+    // handled failure back into one that costs the session its hooks.
+    private static void RemoveTemporary(string tmp)
+    {
+        try
+        {
+            File.Delete(tmp);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[ClaudeHookInstaller] RemoveTemporary: could not delete {tmp}: {ex.Message}");
         }
     }
 }
