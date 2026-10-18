@@ -282,6 +282,71 @@ public sealed class ApiModeEventIngestTests : IDisposable
         Assert.Null(refused.PromptText);
     }
 
+    // ----- a turn whose end was lost in a hole between two generations (item 7) -----
+
+    [Fact]
+    public void Accept_AHoleThenTheSameTurnContinuesInTheNewGeneration_RulesNothingAndItsRealEndStands()
+    {
+        // Arrange: t1 runs in generation A; then a hole, and the same Pi process carries on with t1 in generation B.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck), Started(3, "t1", "p1"), Text(4, "t1", "PO")));
+
+        // Act
+        Push(B(Text(1, "t1", "NG")));
+        var whileRunning = Receipt("p1").TurnOutcome;
+        Push(B(Ended(2, "t1", TurnOutcome.Done, null, "stop")));
+
+        // Assert: a new generation alone proves nothing.
+        Assert.Null(whileRunning);
+        Assert.Equal("done", Receipt("p1").TurnOutcome);
+    }
+
+    [Fact]
+    public void Accept_AHoleThatSwallowedTheTurnsEnd_TheNextTurnsStartRulesItLost()
+    {
+        // Arrange: t1's TurnEnded and the next prompt's delivery fell in the hole.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck), Started(3, "t1", "p1"), Text(4, "t1", "PO")));
+
+        // Act
+        Push(B(Delivered(1, "p2", PlainAck), Started(2, "t2", "p2")));
+
+        // Assert
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, Receipt("p1").TurnOutcome);
+        var p2 = Receipt("p2");
+        Assert.Equal("t2", p2.TurnId);
+        Assert.Null(p2.TurnOutcome);
+    }
+
+    [Fact]
+    public void Accept_AHoleThatSwallowedTheTurnsStartAndEnd_TheNextTurnsStartRulesItLost()
+    {
+        // Arrange: p1 was delivered; the TurnStarted that carried it and its TurnEnded both fell in the hole.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck)));
+
+        // Act: generation B's TurnStarted of t2 carries p2, not p1.
+        Push(B(Delivered(1, "p2", PlainAck), Started(2, "t2", "p2")));
+
+        // Assert
+        var p1 = Receipt("p1");
+        Assert.Null(p1.TurnId);
+        Assert.Equal(ApiModeLostTurnEnd.Outcome, p1.TurnOutcome);
+        Assert.Equal("t2", Receipt("p2").TurnId);
+    }
+
+    [Fact]
+    public void Accept_ANewGenerationWhoseFirstTurnNamesTheDeliveredPrompt_LinksItAndRulesNothingLost()
+    {
+        // Arrange: p1 delivered at the end of generation A, its turn not yet started.
+        Push(A(Ready(1), Delivered(2, "p1", PlainAck)));
+
+        // Act: generation B starts p1's own turn.
+        Push(B(Started(1, "t1", "p1")));
+
+        // Assert
+        var p1 = Receipt("p1");
+        Assert.Equal("t1", p1.TurnId);
+        Assert.Null(p1.TurnOutcome);
+    }
+
     // ----- a malformed batch stores nothing -----
 
     public static TheoryData<string> Faults => new()

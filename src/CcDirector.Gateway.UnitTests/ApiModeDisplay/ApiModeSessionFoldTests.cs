@@ -206,6 +206,43 @@ public sealed class ApiModeSessionFoldTests
         Assert.Equal("Idle after turn 2", verdict.ActivityLabel);
     }
 
+    // ----- a last turn whose end was lost (review of pull request #4179, note 1) -----
+
+    [Fact]
+    public void Fold_TheLastTurnsEndWasLost_IsIdleAfterThatTurnWithNoLastTurnLine()
+    {
+        // Arrange: t2's TurnEnded fell in a hole and a later generation proved it over; the Gateway ruled it lost.
+        var receipts = new[] { Delivered("p1", "t1", "done"), Delivered("p2", "t2", ApiModeLostTurnEnd.Outcome) };
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)))!;
+
+        // Assert: the turn is over (proven) and how it ended is not known, so no "last turn" line and no colour.
+        Assert.Equal("idle", verdict.Kind);
+        Assert.Equal("neutral", verdict.Tone);
+        Assert.False(verdict.Working);
+        Assert.Equal(2, verdict.TurnNumber);
+        Assert.Equal("Idle after turn 2", verdict.ActivityLabel);
+        Assert.Null(verdict.LastTurnEnding);
+    }
+
+    [Fact]
+    public void Fold_ALostEndingWhoseTurnStartWasLostToo_CountsOnlyTheTurnsWhoseStartArrived()
+    {
+        // Arrange: p2's TurnStarted fell in the hole as well, so its receipt has no turn id; the turn number counts the
+        // turns whose start reached the Gateway, and no number is guessed for the one whose start did not.
+        var receipts = new[] { Delivered("p1", "t1", "done"), Delivered("p2", null, ApiModeLostTurnEnd.Outcome) };
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, receipts, HeldWhole(Ready(1)))!;
+
+        // Assert
+        Assert.Equal("idle", verdict.Kind);
+        Assert.Equal(1, verdict.TurnNumber);
+        Assert.Equal("Idle after turn 1", verdict.ActivityLabel);
+        Assert.Null(verdict.LastTurnEnding);
+    }
+
     [Fact]
     public void Fold_AReplayTrimmedWithNoGatewayRestart_SaysOnlyThatNoConnectionEventIsHeld()
     {
