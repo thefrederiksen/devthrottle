@@ -1,0 +1,11 @@
+Question: which route should handle this email? Each route is described by the line saying what it handles.
+
+Labels:
+{route_lines}
+
+Email:
+From: {sender_name} <{sender_address}>
+Subject: {subject}
+Start of the body: {preview}
+
+Answer with one letter: {letters}.
