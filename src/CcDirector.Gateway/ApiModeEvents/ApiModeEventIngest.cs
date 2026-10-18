@@ -18,22 +18,27 @@ namespace CcDirector.Gateway.ApiModeEvents;
 ///  2. The buffer decides, under the session's lock, which events are new: an older generation is refused, a later
 ///     one replaces the session's, and inside one generation only sequences above the highest held are new - so a
 ///     duplicate or late batch stores nothing and cannot move a session backwards.
-///  3. The new events feed the durable receipt store (inside the tenant's scope), then the buffer appends them and
-///     hands them to its subscribers.
+///  3. The new events feed the durable receipt store and the durable conversation
+///     (<see cref="ApiModeConversation.ApiModeConversationStore"/>), inside the tenant's scope, then the buffer appends
+///     them and hands them to its subscribers. All of it under the buffer's session lock, which is what lets a reader's
+///     opening be read as an exact snapshot (<see cref="IApiModeEventFeed.Snapshot"/>).
 ///
-/// The receipts are idempotent on their own (each row keeps the position of the last event applied), so a batch the
+/// Both stores are idempotent on their own (each row keeps the position of the last event applied), so a batch the
 /// Gateway half-stored before an error is safe to send again.
 /// </summary>
 public sealed class ApiModeEventIngest
 {
     private readonly ApiModeEventBuffer _buffer;
     private readonly ApiModeReceiptStore _receipts;
+    private readonly ApiModeConversation.ApiModeConversationStore _conversation;
     private readonly HostedTenantBoundary _boundary;
 
-    public ApiModeEventIngest(ApiModeEventBuffer buffer, ApiModeReceiptStore receipts, HostedTenantBoundary boundary)
+    public ApiModeEventIngest(ApiModeEventBuffer buffer, ApiModeReceiptStore receipts,
+        ApiModeConversation.ApiModeConversationStore conversation, HostedTenantBoundary boundary)
     {
         _buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
         _receipts = receipts ?? throw new ArgumentNullException(nameof(receipts));
+        _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
         _boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
     }
 
@@ -55,7 +60,10 @@ public sealed class ApiModeEventIngest
             using (_boundary.EnterScope(tenant))
             {
                 foreach (var e in fresh)
+                {
                     FeedReceipts(directorId, e, position(e.Sequence));
+                    _conversation.Record(batch.SessionId, new ApiModeHeldEvent(batch.Generation, batch.GenerationStartedUtc, e));
+                }
             }
         });
 
@@ -101,7 +109,8 @@ public sealed class ApiModeEventIngest
     /// generation or no start time, too many events, an event that is not a session event, an event of another session,
     /// sequences that do not rise strictly, a sequence below the first,
     /// more characters than <see cref="ApiModeEventBatch.MaxCharacters"/>, a turn that ended other than done with no reason, or an
-    /// id or text longer than the receipt store keeps - so nothing reaches the store that it would refuse half-way.
+    /// id or text longer than the receipt store or the conversation store keeps - so nothing reaches a store that it would
+    /// refuse half-way.
     /// </summary>
     internal static IReadOnlyList<ApiModeEventBuffer.Incoming> Parse(ApiModeEventBatch batch)
     {
@@ -164,6 +173,12 @@ public sealed class ApiModeEventIngest
                     throw new ArgumentException($"event {i} (TurnEnded {ApiModeEventIngest.Word(t.Outcome)}) carries no reason; every outcome but done must say why", "batch");
                 if (t.Reason is not null) Text(i, t.Reason, "reason");
                 break;
+            // The ids an item of the durable conversation is named by: refused here when too long, so the conversation
+            // store is never handed one it would refuse half-way through a batch.
+            case MessageText m: Id(i, m.TurnId, "turnId"); SourceId(i, m.MessageId, "messageId"); break;
+            case ToolCallStarted t: Id(i, t.TurnId, "turnId"); SourceId(i, t.ToolCallId, "toolCallId"); break;
+            case ToolCallFinished t: Id(i, t.TurnId, "turnId"); SourceId(i, t.ToolCallId, "toolCallId"); break;
+            case PermissionRequested p: Id(i, p.TurnId, "turnId"); SourceId(i, p.RequestId, "requestId"); break;
             case SessionTurnEvent other: Id(i, other.TurnId, "turnId"); break;
         }
     }
@@ -172,6 +187,13 @@ public sealed class ApiModeEventIngest
     {
         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"event {i} has an empty {name}", "batch");
         if (value.Length > ApiModeReceiptStore.MaxIdLength) throw new ArgumentException($"event {i} has a {name} longer than {ApiModeReceiptStore.MaxIdLength} characters", "batch");
+    }
+
+    private static void SourceId(int i, string? value, string name)
+    {
+        var max = ApiModeConversation.ApiModeConversationStore.MaxSourceIdLength;
+        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"event {i} has an empty {name}", "batch");
+        if (value.Length > max) throw new ArgumentException($"event {i} has a {name} longer than {max} characters", "batch");
     }
 
     private static void Text(int i, string? value, string name)

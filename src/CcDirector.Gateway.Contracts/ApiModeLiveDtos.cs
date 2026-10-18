@@ -1,9 +1,11 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// The relay's one explicit gap: the client missed events and must not append what follows to what it holds. It
-/// rebuilds the session from durable state instead - the receipts (<c>GET /sessions/{sid}/receipts</c>) and the
-/// stored conversation (<c>GET /sessions/{sid}/history</c>) - and then carries on with the items that follow the reset.
+/// The relay's one explicit gap: what the client holds cannot be continued, so it must not append what follows to it.
+/// The client lets go of every item it holds and applies what follows the reset: on the stream, the same opening a reader
+/// with no cursor gets (the session's stored conversation with its receipts merged in), then the live items; on the poll
+/// form, the page's items, which are that opening. After <see cref="ApiModeLiveResetCodes.FellBehind"/> nothing follows:
+/// the client reconnects with no cursor, and the stream opens with the stored conversation.
 /// </summary>
 public sealed class ApiModeLiveResetDto
 {
@@ -13,7 +15,8 @@ public sealed class ApiModeLiveResetDto
     /// <summary>Why, as a sentence to show or log as it is.</summary>
     public string Message { get; set; } = "";
 
-    /// <summary>The routes to rebuild from, with the session id filled in.</summary>
+    /// <summary>The routes to rebuild from, with the session id filled in: <c>/sessions/{sid}/live</c>, whose opening is
+    /// the stored conversation.</summary>
     public List<string> RebuildFrom { get; set; } = new();
 }
 

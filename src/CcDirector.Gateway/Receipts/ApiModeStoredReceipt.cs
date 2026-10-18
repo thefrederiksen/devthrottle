@@ -8,4 +8,10 @@ namespace CcDirector.Gateway.Receipts;
 /// from the store: an event at or before this position is one the store has already ruled on. The position never
 /// travels to a client, which reads <see cref="ApiModeReceiptDto"/> alone.
 /// </summary>
-public sealed record ApiModeStoredReceipt(ApiModeReceiptDto Receipt, ApiModeEventPosition LastPosition);
+public sealed record ApiModeStoredReceipt(ApiModeReceiptDto Receipt, ApiModeEventPosition LastPosition)
+{
+    /// <summary>Where the receipt stands in its session (the row's first position, the order the store reads receipts
+    /// in): how the live stream's opening places it among the stored conversation's items. Set by the store's read; null
+    /// on a receipt made by hand.</summary>
+    public ApiModeConversation.ApiModeConversationPlace? First { get; init; }
+}

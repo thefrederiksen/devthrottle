@@ -2,11 +2,11 @@
 //
 // The Gateway's contract for this route is in src/CcDirector.Gateway/Api/SessionLiveEndpoint.cs. What this reader does
 // with it:
-//   - It opens the stream with NO cursor, so the Gateway replays everything it holds for the session from the start,
-//     then follows live. (`after=0` is not a cursor the Gateway hands out; it answers 400.)
+//   - It opens the stream with NO cursor, so the Gateway opens it with the session's stored conversation (one items
+//     frame), then follows live. (`after=0` is not a cursor the Gateway hands out; it answers 400.)
 //   - Each `items` frame is a JSON array of ruled items, handed on whole and in order. Its `id` is the frame's cursor.
 //   - A `reset` frame is handed on, and its empty `id` clears the cursor, so a reconnect after it does not resend a
-//     cursor the Gateway could not honour.
+//     cursor the Gateway could not honour. The stored conversation follows it as the same opening frame.
 //   - The stream can end at any time (a proxy, a deploy, the network). That is not a gap: the reader reconnects with
 //     the cursor of the last frame it handed on, in the Last-Event-ID header, and the Gateway either continues from
 //     it or answers with a reset.

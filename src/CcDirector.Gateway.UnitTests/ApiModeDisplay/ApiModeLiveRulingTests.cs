@@ -16,8 +16,9 @@ namespace CcDirector.Gateway.Tests.ApiModeDisplay;
 /// </summary>
 public sealed class ApiModeLiveRulingTests
 {
+    /// <summary>Every event as the feed hands it, held in generation A: a connection line is named by its generation.</summary>
     private static List<ApiModeLiveItem> RuleAll(ApiModeLiveRuling ruling, IEnumerable<SessionEvent> events)
-        => events.SelectMany(ruling.Rule).ToList();
+        => events.SelectMany(e => ruling.Rule(HeldA(e))).ToList();
 
     private static List<ApiModeLiveItem> RuleAll(IEnumerable<SessionEvent> events) => RuleAll(new ApiModeLiveRuling(), events);
 
@@ -548,6 +549,55 @@ public sealed class ApiModeLiveRulingTests
 
         // Act + Assert
         Assert.False(ruling.Remembers(Ended(3, "t1", TurnOutcome.Failed, "the model errored", null)));
+    }
+
+    [Fact]
+    public void Rule_ConnectionLinesOfTwoGenerations_AreNamedByTheirGenerationSoTheyStayApart()
+    {
+        // Arrange: the Director restarted, and the new generation's sequence started again at 1.
+        var ruling = new ApiModeLiveRuling();
+
+        // Act
+        var first = Assert.Single(ruling.Rule(HeldA(Ready(1))));
+        var second = Assert.Single(new ApiModeLiveRuling().Rule(new ApiModeHeldEvent("gen-b", GenBStarted, Gone(1, 0, "Pi exited (exit code 0)"))));
+
+        // Assert
+        Assert.Equal(("connection:gen-a:1", "connection:gen-b:1"), (first.ItemId, second.ItemId));
+    }
+
+    [Fact]
+    public void Rule_AConnectionEventWithoutItsPosition_Throws()
+    {
+        // Act + Assert: the generation names the line, so the event must be handed as a held event.
+        var refused = Assert.Throws<InvalidOperationException>(() => new ApiModeLiveRuling().Rule(Ready(1)));
+        Assert.Contains("held event", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Rule_StartedFromAStoredRunningToolCard_TheFinishKeepsItsTitleAndInput()
+    {
+        // Arrange: the stored conversation holds the card still running; the start is not in any held event.
+        var stored = new ApiModeLiveItem { ItemId = "tool:c1", Kind = ApiModeLiveItemKinds.ToolCard, Mode = ApiModeLiveItemModes.Replace, Text = "read", Status = ApiModeLiveRuling.ToolRunningStatus, Detail = "README.md", Tone = "neutral", TurnId = "t1" };
+        var ruling = new ApiModeLiveRuling(Array.Empty<ApiModeStoredReceipt>(), new[] { stored });
+
+        // Act
+        var remembers = ruling.Remembers(ToolDone(9, "t1", "c1", ToolCallOutcome.Failed));
+        var card = Assert.Single(ruling.Rule(HeldA(ToolDone(9, "t1", "c1", ToolCallOutcome.Failed))));
+
+        // Assert
+        Assert.True(remembers);
+        Assert.Equal(("read", "failed", "README.md", "red"), (card.Text, card.Status, card.Detail, card.Tone));
+    }
+
+    [Fact]
+    public void Rule_StartedFromAStoredFinishedToolCard_DoesNotTreatItAsRunning()
+    {
+        // Arrange
+        var stored = new ApiModeLiveItem { ItemId = "tool:c1", Kind = ApiModeLiveItemKinds.ToolCard, Mode = ApiModeLiveItemModes.Replace, Text = "read", Status = "done", Tone = "green", TurnId = "t1" };
+        var ruling = new ApiModeLiveRuling(Array.Empty<ApiModeStoredReceipt>(), new[] { stored });
+
+        // Act + Assert
+        Assert.False(ruling.Remembers(ToolDone(9, "t1", "c1", ToolCallOutcome.Succeeded)));
     }
 
     [Fact]

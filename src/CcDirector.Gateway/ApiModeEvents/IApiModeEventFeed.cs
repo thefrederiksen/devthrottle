@@ -15,7 +15,8 @@ namespace CcDirector.Gateway.ApiModeEvents;
 /// <see cref="ApiModeEventBuffer.MaxCharactersPerSession"/> characters; the oldest go first), and at most
 /// <see cref="ApiModeEventBuffer.MaxSessions"/> sessions (the least recently written go first). It is held in this
 /// process only: a Gateway restart starts empty. Durable facts live elsewhere - the receipts in
-/// <see cref="Receipts.ApiModeReceiptStore"/>.</para>
+/// <see cref="Receipts.ApiModeReceiptStore"/>, and the final form of everything else the live view shows in
+/// <see cref="ApiModeConversation.ApiModeConversationStore"/>.</para>
 ///
 /// <para><b>Tenant-scoped by construction.</b> Every call names the tenant; a session id in one tenant never reaches
 /// another tenant's events or subscribers.</para>
@@ -39,6 +40,15 @@ public interface IApiModeEventFeed
     /// the same events the handler was given, its generation, and whether it was complete).
     /// </summary>
     ApiModeEventSubscription Subscribe(TenantId tenant, string sessionId, ApiModeEventCursor? after, Action<ApiModeHeldEvent> onEvent);
+
+    /// <summary>
+    /// Run <paramref name="withHeld"/> under the session's lock, handing it every held event of the session (what
+    /// <see cref="Read"/> with no cursor answers). While it runs nothing is stored for the session and nothing is handed
+    /// to a subscriber, and the ingest writes the durable stores under the same lock, so what it reads from them reflects
+    /// exactly the events handed in: the live stream's opening is built this way (<c>ApiModeConversationOpening</c>). It
+    /// must not call back into the feed, and should be as quick as the ingest's own write.
+    /// </summary>
+    T Snapshot<T>(TenantId tenant, string sessionId, Func<ApiModeEventReplay, T> withHeld);
 
     /// <summary>Follow every session of every tenant from now on, with NO replay: for Gateway code that keeps its own per
     /// session state, such as the display fold. Dispose to stop. Such a reader must start from durable state (the
