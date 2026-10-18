@@ -605,3 +605,262 @@ Measured with `git merge-tree --write-tree` from the pull request head, 17 Octob
 - The terminal is started through the terminal path's own factory, launcher and environment (question 3).
 - The pull request's code is unchanged since the first round, so every one of that round's findings
   stands as written there; this file is the place to answer them.
+
+## Round 2
+
+Reviewed on 17 October 2026 against commit `697af4171`, the head of pull request #4094 after the Developer's answers
+(commit `3af9df1f4`) and the merge of origin/main (commit `1bbd9bd12`, which brought the silent end of pull request
+#4129 and the event push of pull request #4090) into the branch. Read in a worktree cut from that commit at
+`../devthrottle-review-4094b`, diffed against origin/main (22 files, 2,743 lines added, 71 removed). Reviewer seat,
+session `c010dd7e`, running a different agent family from the Developer. Reading only: nothing here was built, fixed or
+committed as a test by the reviewer. Where I ran a throwaway test to measure a claim, I say so, and the file was restored
+to the commit's bytes before anything was committed (the working tree was clean at the commit of this section).
+
+### Verdict
+
+**Not ready to merge as written, for one defect in the merge resolution; everything else holds.** Six of the seven
+first-round answers are right: each fix closes the harm it was raised for, and each fix's test fails without it as the
+Developer says (I did not repeat the fail-without runs; I read each test against its fix and the fixes are the ones the
+tests exercise). The declined seventh is declined with a reason that holds. The merge resolution is right in four of the
+five cases the brief names, and wrong in one: **a take that had to kill Pi, followed by the user ending the session while
+they hold the wheel, reads as a crashed session** (round 2, finding 1, measured with a throwaway test). The sentence the
+Developer wrote into the merge, that the end while suspended records a clean end, is true of the stream's verdict and
+false of the session's, because the session's crash rule reads the exit code too, and the exit code it is handed is the
+one the take's kill produced. Two processes never hold the conversation, and the locks cannot deadlock; the tests use no
+real clock, sleep or process. The Developer decides what happens to the finding (law 11).
+
+### Scope: what I read, what I ran, what I could not reach
+
+**Read, in full, on the pull request head:** `ApiModeSessionBackend.cs`, `ApiModeSessionHost.cs`, `SessionWheel.cs`,
+`SessionConnectionModeWords.cs`; the diff of `Session.cs` and `SessionManager.cs` against origin/main, and in `Session.cs`
+the unchanged `OnBackendProcessExited`, `IsUnexpectedExit`, `KillAsync`, `OnApiModeEvents` and `OnBackendStatusChanged`;
+the diffs of `ControlApiHost.cs`, `ControlEndpoints.cs`, `GatewayStreamClient.cs`, `SessionCommandExecutor.cs`,
+`SessionWriteExecutor.cs` and `TerminalStateDetector.cs`; `ApiModeTransport.ShutdownAsync` and `KillByTransport`;
+`UnixPtyBackend.Dispose` and `UnixProcessHost.Dispose` (the claim in the finding 1 answer that disposing a terminal
+kills it). **The merge itself:** I rebuilt the automatic merge of the two parents with `git merge-tree --write-tree`,
+which conflicts in five files, and diffed the committed merge against it, so every line the Developer chose by hand is
+read: `ApiModeSessionBackend.cs` (the `Buffer` property), `ApiModeSessionHost.cs` (the failure line and the clean end in
+`EndWhileSuspendedLocked`), `SessionManager.cs` (the forwarding sink with the terminal factory), the two test files, and
+the two tests the merge added to `ApiModeWheelTests.cs`. **The tests:** `ApiModeWheelTests.cs` (all twenty-five),
+`FakeTerminalBackend.cs`, `FakeApiModeProcess.cs` (the diff), `ApiModeSessionCreationTests.cs` (the rig and the two
+wheel tests), `ApiModeSessionTests.cs` and `SessionConnectionModeWordsTests.cs` (the diffs),
+`ApiModeConnectionThroughTheDirectorTests.cs` (the diff), `MinimalPiProcess.cs`, `DirectorKeysBeforeRosterTests.cs` (the
+diff), and `ScriptedPi.WithinHangGuard`. **The documents:** the first round above with every answer, and the pull
+request's description.
+
+**Ran, on devlinux (Linux, .NET 10.0.301), one project at a time, with no other test run on the machine (checked with
+`pgrep` before each):**
+
+- `dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~CcDirector.Core.UnitTests.ApiMode"`:
+  **172 passed, 0 failed, 0 skipped**, 521 milliseconds. The twenty-five wheel tests and the nine creation tests are
+  among them.
+- `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~ApiModeConnectionThroughTheDirectorTests"`
+  (built with `-p:RunWorkspaceTypecheck=false`): **16 passed, 0 failed, 0 skipped**, 275 milliseconds.
+- `dotnet test src/CcDirector.Avalonia.Tests --filter "FullyQualifiedName~DirectorKeysBeforeRosterTests"` (a file the
+  merge resolved by hand): **19 passed, 0 failed, 0 skipped**, 132 milliseconds.
+- Two throwaway tests on the pull request's own rig, appended to `ApiModeWheelTests.cs`, run alone, and the file restored
+  from the commit's bytes afterwards. Their results are under finding 1 and under question (2) below.
+
+**Could not reach:** no real Pi, Director or Gateway was started, so the real transport's kill and the real terminal
+hosts' kill are read, not seen. No Windows machine: `scripts\test-local.ps1` was not run; the pull request says the
+Windows gate is the Tech Lead's. The desktop and the clients are not in this pull request.
+
+### (1) The seven answers
+
+1. **Finding 1 (the terminal that does not exit): right.** `EndTerminalLocked` now changes nothing until `HasExited` is
+   true, and returns false otherwise; `HandBackWheelAsync` turns false into `TerminalStillRunningReason` with the holder
+   still `User` and the terminal still attached. The exit, when the kill lands, reaches `HandleTerminalExitAsync`, which
+   finds the terminal still attached and detaches it as an exit on its own, so the next hand back starts Pi with nothing
+   beside it. On the kill path (`GracefulShutdownAsync`) a terminal that has not exited is detached and disposed, and I
+   confirmed that `UnixProcessHost.Dispose` sends the kill signal to a child that has not exited, so "disposed, which kills
+   it" is true on the Unix host. The test (`...TheTerminalHasNotExitedAfterItsShutdown...`) drives exactly the false
+   branch twice, then the exit, then the hand back, and reads the timeline from the factories. Closed.
+2. **Finding 2 (Stop while the user holds the wheel): right.** `ApiModeSessionBackend.StopTurnAsync` reads the refusal
+   under the ownership lock, so a take under way is seen finished (bounded, finding 3), and answers `StopWhileUserHoldsReason`,
+   `StopWithNoHolderReason`, or the ended sentence. The lock is released before Pi's answer is awaited. The race the answer
+   names, a take beginning after the read, is caught by `host.Suspended` after a null answer. `TurnStopCoreAsync` answers
+   Conflict in those words. Three Core tests and one Gateway-side test. One wording note below: the no-holder sentence says
+   "its terminal exited" also when the holder is `None` because a hand back could not start Pi (measured, question 2).
+   Closed.
+3. **Finding 3 (the unbounded stop under the lock): right.** `SuspendAsync` bounds `StopAsync` with
+   `new CancellationTokenSource(grace, _clock)` linked to the caller's token, catches the bound's cancellation alone, and
+   goes on to close Pi's input; the transport kills after the same grace. The take therefore ends within two graces, and
+   nothing queued behind the ownership lock waits on Pi. The abandoned stop waiter is completed when the process ends
+   (`OnProcessEndedLocked` completes every waiter in `_stops`), so nothing leaks. The test advances the fake clock by the
+   grace and reads the take's completion, the timeline and the turn's reason. Closed. **But see finding 1 of this round:**
+   the kill this path ends in leaves an exit code that a later end of the session reads as a crash.
+4. **Finding 4 (the Starting stomp): right.** `beforeResume` runs under the ownership lock before `StartConnection`, so
+   Starting cannot land after anything the new Pi reports; `OnApiModeTerminalChanged` sets no activity while the holder is
+   `Protocol`, and sets waiting for a prompt only with no holder. The test makes the losing order certain by holding the
+   hand back's status change until the session has read `ConnectionReady`, and reads the two states in order. Closed.
+5. **Finding 5 (the holder pushed by nothing): right.** `ControlApiHost.PushOnWheelChange` subscribes `OnTerminalChanged`
+   to a fire-and-forget delta of the mapped row, attached beside the other pushes in `WireDoorbellPush`; the failed
+   restart now raises `TerminalChanged` too (measured, question 2). The Gateway-side test drives the terminal's own exit and
+   reads the pushed holder. The Developer's own stated gap stands: the line that attaches the helper for every session is
+   read, not run. Closed.
+6. **Finding 6 (the take's turn ends "stopped by the user"): right.** `TakeEventsLocked` rewrites, while `_suspended`,
+   a cancelled turn's reason to `TurnStoppedForTheWheelReason` and an unconfirmed abort's failed turn to
+   `TurnAbortUnconfirmedReason` with Pi's reason in brackets; a turn that ended done is untouched. Two tests now have a turn
+   running at the take, which was the gap. The rewrite also catches a turn the user's own Stop cancelled in the same instant
+   a take began, which then reads as the wheel's; the two cannot be told apart from inside the host, and the wheel's reason
+   is the truer of the two for a turn that ends under a take. Closed.
+7. **Finding 7 (the recorder, the log writer and the Wingman never see the wheel's terminal): the decline holds.** The
+   reason proves no harm to the conversation's record: the terminal runs the same Pi on the same conversation id in the
+   same folder, so every message of the wheel period is in Pi's own session file, which is the record a resume and the
+   Chat read; the session log and the recording corpus are terminal-screen records of terminal sessions, and an API-mode
+   session's record is its event stream, which carries the take and the hand back with their reasons. The Wingman's reading
+   is for a person who is not looking; the user holding the wheel is looking. What is lost is the screen of the wheel period
+   in the session log, which the Developer names and rules out of scope for this pull request. The test
+   (`...EverySessionMachineryCopesAcrossTheSwitch`) attaches every per-session component and drives a take, a draw, a hand
+   back and a prompt; it proves they cope, and says so. Accepted as a scope decision with its reason written down.
+
+The note about the detector on the real clock: **right.** The creation tests' detector now runs on its own
+`FakeTimeProvider`, and the mid-turn test moves only that clock, in settle-check steps, never as far as the quiet
+threshold. The pass no longer depends on the machine.
+
+### (2) The merge resolution
+
+The automatic merge conflicts in five files; the Developer's resolutions are all the right ones: `Buffer` is the
+terminal's (the branch's), the forwarding sink is kept with the terminal factory added (both sides), the two test files
+keep both sides' tests, and in the host the `events[^1]` rewritten with the wheel's reason is what `_lastConnectionEnded`
+carries. The five cases the brief names:
+
+- **A take never reads as a failed or crashed end: true of the take itself, false of the session's end after a take
+  that killed Pi.** During a take `OnProcessEndedLocked` returns before `_sessionEnded` or `_sessionEndedInFailure` is
+  set, so the take raises no exit and the session's status is untouched (the merge's test reads `Running` while held).
+  The line `failure = !suspended && connection.Dialect.EndedInFailure` is therefore not what keeps the take clean; the
+  early return is, and `failure` is never written while suspended (`loopFailed` forcing it to true is dead on that path
+  too). What keeps the *end while suspended* clean is `EndWhileSuspendedLocked` writing `_sessionEndedInFailure = false`,
+  and that covers only the stream's verdict. The session also reads the exit code. **Round 2, finding 1.**
+- **A Pi failure while the protocol holds the wheel still reads failed: true.** Not suspended, so the dialect's verdict
+  stands as on main; the merge's second test drives it through a hand back and reads `Failed`, `Crashed` and the reason.
+- **A terminal exit on its own: true.** Not a session end: the holder becomes `None`, the status text says so, the
+  activity is set to waiting for a prompt, the row is pushed, and Stop is refused with the no-holder sentence. Tested
+  (`...ThenTheTerminalExitsOnItsOwn...`, `...AfterTheTerminalExitedOnItsOwn...`, the Gateway-side push test).
+- **A hand back that cannot start Pi: true, by reading and by a throwaway measurement; no committed test pins it.**
+  `ResumeAsync` sets `_suspended = false` only after `StartConnection` returned, so a start that throws leaves the host
+  suspended with the old ended connection; the backend turns the exception into a refusal in words, sets the holder to
+  `None`, and raises `TerminalChanged`, which sets waiting for a prompt and pushes the row. I measured it on the rig with a
+  process factory that throws on the hand back's start: the hand back was refused with "Pi could not be started again over
+  the protocol (...)", the holder was `None`, the screen was empty, the activity went Starting then waiting for a prompt,
+  Stop was refused with the no-holder sentence, a following take opened the terminal with no Pi started (one Pi process
+  in all), and a kill ended the session `Exited`, not crashed, with exit code 0. The path reads truly. It has no test in
+  the gate; a note below.
+- **A Director shutdown mid-switch: true.** `GracefulShutdownAsync` waits for the ownership lock, which a take now holds
+  for at most about two graces (finding 3) and a hand back for at most the terminal's shutdown plus Pi's start; it ends the
+  terminal, releases the lock, and `ShutdownAsync` ends the session on the last process's end when suspended, or on the
+  running Pi's end when not. The one window I can see is a hand back that takes the ownership lock in the instant between
+  the shutdown's release of it and `ShutdownAsync` taking the host's lock: `ResumeAsync` starts a Pi, and `ShutdownAsync`
+  then shuts that Pi down and ends the session on its end. Never two processes, never a stuck state, one wasted process
+  start; a note, not a finding.
+
+### (3) Two processes, and the lock
+
+- **Inside one session.** Every path that sets the holder to `None` leaves the host suspended or exited, so a take with
+  no holder opens the terminal with no Pi to stop and none that can start (`StartConnection` has three callers; the restart
+  and the overdue timer both read `_suspended`, and `ResumeAsync` requires it). The hand back that finds its terminal still
+  running changes nothing. The take waits for `EndHandled`. The timeline tests read the order from the factories. I found no
+  path to two processes.
+- **Across sessions.** The claim is unchanged from round 1 and covers API-mode sessions only, as the pull request states.
+- **Deadlock.** The ownership lock is taken in `TakeWheelAsync`, `HandBackWheelAsync`, `StopTurnAsync` (released before
+  Pi's answer), `GracefulShutdownAsync` (released before the host's shutdown) and `HandleTerminalExitAsync` (a
+  fire-and-forget task, so the terminal's exit thread never blocks on it, and the fake terminal's synchronous exit inside
+  `GracefulShutdownAsync` cannot either). The host's lock is never held while the ownership lock is awaited, and the
+  ownership lock is held across host calls that take the host's lock, which is the one safe order. Every wait under the
+  ownership lock is now bounded on the injected clock (the stop and the transport's grace) or by the terminal host's own
+  timeout. The `beforeResume` callback runs the session's activity handlers under the ownership lock; the production
+  handlers push a fire-and-forget delta and read the holder without a lock, so none can wait on it. The one sync wait I
+  found is in a test's own handler (`...PiNamesItsConversationBeforeTheHandBackFinishes...`), under a hang guard, by design.
+
+### (4) Rule 5a
+
+No `Task.Delay`, `Thread.Sleep`, `Stopwatch`, `DateTime.Now`, real process or `TimeProvider.System` in any changed test
+file (searched). The only waits on the real clock are hang guards (`ScriptedPi.WithinHangGuard`, the Gateway tests'
+thirty-second `WaitAsync`, the Avalonia test's `HoldDelta`), each of which can only fail a test that hangs and never
+decides a pass. `MinimalPiProcess` and `FakeTerminalBackend` spawn nothing; the creation tests write a file named `pi`
+that is never run. The one `DateTime.UtcNow` in `DirectorKeysBeforeRosterTests.cs` is a key expiry in a pre-existing
+helper, not this pull request's. Met.
+
+### Findings
+
+#### Round 2, finding 1. A take that had to kill Pi, then the user ending the session while they hold the wheel, reads as a crashed session with the take's words as the failure
+
+**Where.** `src/CcDirector.Core/ApiMode/ApiModeSessionHost.cs`, `EndWhileSuspendedLocked` (the session's end is
+`_lastConnectionEnded`, whose `ExitCode` is the killed process's); `src/CcDirector.Core/Sessions/Session.cs`,
+`OnBackendProcessExited` (`crashed = IsUnexpectedExit(exitCode, wasWorking) || streamSaysFailed`, and
+`IsUnexpectedExit` is `exitCode != 0 || wasWorking`).
+
+**What the code does.** When a take's abort is not confirmed within the grace (finding 3), or Pi does not exit when its
+input is closed, the transport kills it: exit code 137 on Linux and macOS, -1 on Windows (`ApiModeProcessEnded`'s own
+documentation). That `ConnectionEnded`, with its exit code, becomes `_lastConnectionEnded`. The user then holds the wheel
+for as long as they like. When the session is ended while they hold it, by the kill verb, the desktop or the Director's own
+shutdown, `EndWhileSuspendedLocked` makes that record the session's end: the stream's verdict is written clean
+(`_sessionEndedInFailure = false`), but the exit code travels with it to `Exited` and to `Session.OnBackendProcessExited`,
+whose rule calls any non-zero exit code a crash. The session ends `Failed`, `Crashed` true, with the status reason
+`failed: The user took the wheel: Pi's conversation is open in its terminal`.
+
+**Proof.** A throwaway test on the pull request's own rig, the merge's test
+`TakeWheelAsync_PiStoppedOnPurposeUnderAnUnconfirmedAbort_ThenTheSessionEnds_ReadsCleanNeverFailed` with two changes:
+the fake Pi does not exit when its input closes (`exitsWhenInputCloses: false`, so the transport's kill is reached, as the
+Developer's own description of finding 3 names it), and the session is ended with `Session.KillAsync` as the kill verb and
+the Director's shutdown end it. The fake clock was advanced once for the abort's bound and once for the shutdown grace.
+Result: `killsByTheTake=1 statusWhileHeld=Running exitCode=137 status=Failed crashed=True endedInFailure=False
+endReason=The user took the wheel: Pi's conversation is open in its terminal lastStatusReason=failed: The user took the
+wheel: Pi's conversation is open in its terminal`. The merge's own test passes only because its fake Pi exits with code 0
+on input close, so the kill is never reached. The file was restored afterwards.
+
+**The harm.** The brief's rule for the merge is that a take never reads as a failed or crashed end, and the Developer
+wrote that the end while suspended records a clean end. On this path the session's final row is red, `Crashed` is true,
+and the reason shown is the take's sentence presented as a failure, for a session the user ended on purpose, possibly an
+hour after the take. The kill the exit code records belongs to the take, which the stream already reports as the user's
+doing; the end belongs to the user. Everything that reads `Crashed` or `Failed` (the roster colour, the record of how the
+session ended) is told something false.
+
+**Why it must change.** The session's end while suspended is the Director's own, on purpose, so its exit code must not be
+the take's. Either `EndWhileSuspendedLocked` records the end with exit code 0 (the killed process's own code is already
+published in its `ConnectionEnded` and in the log, so nothing is lost), or `Session.OnBackendProcessExited` rules an
+API-mode end by the stream's verdict alone, which is the design the silent end (pull request #4129) wrote into that method's
+own comment ("Pi exits 0 whenever its input closes ... the stream says how its agent ended"); the second is wider and is
+the Developer's and the Tech Lead's to weigh. Pin it with the merge's test run with a Pi that does not exit on input close,
+so the kill is reached, and the session ended through `KillAsync`: `Exited`, not `Failed`, `Crashed` false. The same test
+would also do for the reason: while the merge's test asserts the reason does not contain "failed", a clean end's reason is
+not shown at all, so that assertion passes on the wording, not the verdict.
+
+### Notes, not findings
+
+- **The end reason while suspended says the terminal is open.** `EndWhileSuspendedLocked` keeps the take's reason, "The
+  user took the wheel: Pi's conversation is open in its terminal", as the session's `EndReason`, at the moment the terminal
+  has just been closed by the same shutdown. The queue refusals on the same path append "; the session ended before the
+  wheel was handed back"; the end reason could carry the same suffix. Wording; today a clean end's reason is not displayed.
+- **No test pins a hand back whose Pi cannot be started.** The path reads truly (question 2) and I measured it with a
+  throwaway, which the gate does not have. The rig makes it a one-line arrangement: a `StartSession` with one Pi makes the
+  hand back's start throw. Law 17.
+- **The no-holder Stop sentence** ("its terminal exited") is also answered when the holder is `None` because a hand back
+  could not start Pi (measured). True in spirit, wrong in the detail. Wording.
+- **A hand back right after a take under an unconfirmed abort is refused as mid-turn for up to the quiet threshold.**
+  On that path `TurnEnded` and `ConnectionEnded` arrive in one batch, so `OnApiModeEvents` leaves the activity at
+  `Working`; `OnApiModeTerminalChanged` sets nothing on a take; the detector moves it to waiting only after the terminal
+  has been quiet for ten seconds. Until then `terminalMidTurn()` is true and the hand back is refused with
+  `TerminalMidTurnReason`. The refusal is safe and self-healing, and the kill path is not affected (the terminal's end sets
+  waiting for a prompt before the host's end is read). Bounded by the threshold; not a finding.
+- **A take whose terminal cannot start and whose Pi then cannot be started back** throws out of `TakeWheelAsync` instead
+  of returning a refusal, leaving the holder `None` with the host suspended: a coherent state the next take or hand back
+  recovers from, and the Gateway sees an error rather than a sentence. The first round's similar note stands.
+- **The loop failure's `failure = true` is dead while suspended.** `OnProcessEndedLocked` returns before
+  `_sessionEndedInFailure` is written on a suspended end, and `EndWhileSuspendedLocked` later writes it false, so the
+  Developer's sentence "loop failure still forces it" is true only while the protocol holds the wheel, which is where it
+  was already true on main. The published `ConnectionEnded` on that double fault says only that the user took the wheel;
+  the loop failure is in the log and the defects. A Director defect coinciding with a take; the label is defensible either
+  way.
+- **A hand back landing in the instant between a shutdown's release of the ownership lock and the host's shutdown**
+  starts a Pi that the shutdown then ends (question 2). One wasted process start; never two at once.
+- **The transient `None` pushed during a hand back.** `EndTerminalLocked` sets the holder to `None` and `beforeResume`
+  then sets Starting, whose activity push carries a row with no holder for the milliseconds until `ResumeAsync` sets
+  `Protocol` and the awaited push carries it. Both go up the same connection in order. Harmless.
+
+### What the next seat need not re-check
+
+- The seven answers' code is the code their tests exercise; six close their harm and one is declined with its reason.
+- The merge chose the right side in all five conflicted files; the one defect is in what the resolution left unsaid (the
+  exit code), not in a chosen line.
+- The ownership lock's every wait is bounded, and the two-lock order is the safe one.
