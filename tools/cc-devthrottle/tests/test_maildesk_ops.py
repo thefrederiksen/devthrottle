@@ -729,6 +729,7 @@ def test_list_AnswerWithNoList_IsNotReadAsEmpty(fake_gateway):
     ["status"], ["mode"], ["decisions"], ["channel", "list"], ["channel", "add"], ["channel", "remove"],
     ["rules", "show"], ["rules", "history"], ["allow", "add"], ["allow", "remove"], ["block", "add"],
     ["block", "remove"], ["rule", "add"], ["rule", "remove"], ["route", "add"], ["route", "remove"],
+    ["settings"], ["set"],
 ])
 def test_everySubcommand_HasHelp(args):
     # Act
@@ -750,5 +751,194 @@ def test_actions_ListEveryMaildeskCommand():
         "maildesk-status", "maildesk-channel-list", "maildesk-channel-add", "maildesk-channel-remove", "maildesk-mode",
         "maildesk-rules-show", "maildesk-rules-history", "maildesk-allow-add", "maildesk-allow-remove",
         "maildesk-block-add", "maildesk-block-remove", "maildesk-rule-add", "maildesk-rule-remove",
-        "maildesk-route-add", "maildesk-route-remove", "maildesk-decisions",
+        "maildesk-route-add", "maildesk-route-remove", "maildesk-decisions", "maildesk-settings", "maildesk-set",
     } <= ids
+
+
+# ---------- the settings (phase 3, contract section 7) ----------
+
+SETTINGS = {
+    "routeThreshold": 0.90, "spamThreshold": 0.95, "spendLimitUsd": 5.00, "spentUsd": 0.0012, "stopped": False,
+    "label": "$0.0012 spent of the $5.00 spend limit",
+}
+
+STOPPED_LABEL = ("Mail Desk stopped asking the model: the spend limit of $5.00 is reached ($5.0003 spent). "
+                 "Raise it with maildesk set spend-limit <dollars> --why \"<text>\"")
+
+
+def _setting_answer(name="route-threshold", before=0.9, after=0.85):
+    change = dict(CHANGE, kind="setting", action="set", subject=name, detail={"from": before, "to": after},
+                  versionBefore=None, versionAfter=None)
+    return {"settings": dict(SETTINGS, routeThreshold=after), "change": change}
+
+
+def test_settings_GetsSettings_PrintsEveryValueAndTheGatewaysLabel(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/settings", 200, SETTINGS)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "settings"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    call = _only_call(fake_gateway)
+    assert (call["method"], call["path"], call["query"], call["body"]) == ("GET", "/gateway/mail-desk/settings", {}, None)
+    for line in ("route-threshold: 0.9", "spam-threshold: 0.95", "spend-limit: 5.0", "spent: 0.0012", "stopped: no",
+                 "spend: $0.0012 spent of the $5.00 spend limit"):
+        assert line in result.stdout
+    assert result.stdout.isascii()
+
+
+def test_settings_Stopped_PrintsTheSpendSentenceVerbatim(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/settings", 200, dict(SETTINGS, stopped=True, label=STOPPED_LABEL))
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "settings"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert "stopped: yes" in result.stdout
+    assert STOPPED_LABEL in result.stdout
+
+
+def test_settings_Json_PrintsTheGatewaysAnswerInItsOwnShape(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/settings", 200, SETTINGS)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "settings", "--json"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == SETTINGS
+
+
+def test_status_PrintsTheSpendBlocksLabel(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/status", 200, {
+        "enabled": True, "rulesVersion": 0, "channels": [], "today": {"total": 0, "byDecision": BY_DECISION},
+        "spend": dict(SETTINGS, stopped=True, label=STOPPED_LABEL), "help": [],
+    })
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "status"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert f"spend: {STOPPED_LABEL}" in result.stdout
+
+
+@pytest.mark.parametrize("name, value, sent", [
+    ("route-threshold", "0.85", 0.85),
+    ("spam-threshold", "1", 1.0),
+    ("spend-limit", "0", 0.0),
+    ("spend-limit", "100", 100.0),
+])
+def test_set_PostsNameValueAsANumberAndWhy(fake_gateway, name, value, sent):
+    # Arrange
+    fake_gateway.answer("POST", "/settings", 200, _setting_answer(name, 0.9, sent))
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "set", name, value, "--why", WHY])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    call = _only_call(fake_gateway)
+    assert (call["method"], call["path"]) == ("POST", "/gateway/mail-desk/settings")
+    assert call["body"] == {"name": name, "value": sent, "why": WHY}
+    assert isinstance(call["body"]["value"], float)
+    assert f"Setting {name} changed from 0.9 to {sent}." in result.stdout
+    assert f"why: {WHY}" in result.stdout
+
+
+def test_history_KindSetting_IsAcceptedAndSent(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/rules/history", 200, {"count": 0, "total": 0, "changes": []})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "rules", "history", "--kind", "setting"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert _only_call(fake_gateway)["query"] == {"kind": "setting"}
+
+
+@pytest.mark.parametrize("why", [None, "   "])
+def test_set_WithoutWhy_ExitsTwoAndSendsNothing(fake_gateway, why):
+    # Act
+    args = ["maildesk", "set", "route-threshold", "0.8"] + ([] if why is None else ["--why", why])
+    result = runner.invoke(app, args)
+
+    # Assert
+    assert result.exit_code == 2, result.output
+    assert "--why is required" in result.output
+    assert fake_gateway.calls == []
+
+
+def test_set_UnknownName_ExitsTwoListingTheSettingsAndSendsNothing(fake_gateway):
+    # Act
+    result = runner.invoke(app, ["maildesk", "set", "threshold", "0.8", "--why", WHY])
+
+    # Assert
+    assert result.exit_code == 2, result.output
+    assert "route-threshold, spam-threshold, spend-limit" in result.output
+    assert fake_gateway.calls == []
+
+
+@pytest.mark.parametrize("name, value", [
+    ("route-threshold", "0.49"),
+    ("route-threshold", "1.01"),
+    ("spam-threshold", "0"),
+    ("spend-limit", "-1"),
+    ("spend-limit", "100.01"),
+    ("spend-limit", "five"),
+    ("spend-limit", "nan"),
+    ("spend-limit", "inf"),
+])
+def test_set_ValueOutOfRangeOrNotANumber_ExitsTwoNamingTheRangeAndSendsNothing(fake_gateway, name, value):
+    # Act: after "--", so a negative value reaches the range check rather than reading as an option.
+    result = runner.invoke(app, ["maildesk", "set", "--why", WHY, "--", name, value])
+
+    # Assert
+    assert result.exit_code == 2, result.output
+    assert f"{name} is a number from" in result.output
+    assert fake_gateway.calls == []
+
+
+@pytest.mark.parametrize("answer", [{}, {"settings": SETTINGS}, {"change": dict(CHANGE, subject="spam-threshold")}])
+def test_set_AnswerWithoutTheChange_ExitsOneAndIsNotReportedAsChanged(fake_gateway, answer):
+    # Arrange
+    fake_gateway.answer("POST", "/settings", 200, answer)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "set", "route-threshold", "0.8", "--why", WHY])
+
+    # Assert
+    assert result.exit_code == 1, result.output
+    assert "changed from" not in result.stdout
+
+
+def test_set_FactorySessionRefused_PrintsTheGatewaysErrorAndDetailVerbatim(fake_gateway):
+    # Arrange
+    detail = "a session of a factory does not change the Mail Desk's thresholds or its spend limit"
+    fake_gateway.answer("POST", "/settings", 403, {"error": "factory_session_refused", "detail": detail})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "set", "spend-limit", "50", "--why", WHY])
+
+    # Assert
+    assert result.exit_code == 1, result.output
+    assert f"factory_session_refused - {detail} (HTTP 403)" in result.output
+
+
+def test_set_SwitchOff_SaysMailDeskIsNotSwitchedOn(fake_gateway):
+    # Arrange
+    fake_gateway.answer("POST", "/settings", 404, None)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "set", "spend-limit", "50", "--why", WHY])
+
+    # Assert
+    assert result.exit_code == 1, result.output
+    assert maildesk_ops.SWITCHED_OFF in result.output
