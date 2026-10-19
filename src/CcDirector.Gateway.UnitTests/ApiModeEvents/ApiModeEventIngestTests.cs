@@ -452,7 +452,7 @@ public sealed class ApiModeEventIngestTests : IDisposable
     {
         var buffer = new ApiModeEventBuffer();
         var store = new ApiModeReceiptStore(_harness.Open(_ambient), () => T0.UtcDateTime);
-        new ApiModeEventIngest(buffer, store, _boundary).Accept(Alice, Director, batch);
+        new ApiModeEventIngest(buffer, store, new ApiModeConversationStore(_harness.Open(_ambient), () => T0.UtcDateTime), _boundary).Accept(Alice, Director, batch);
 
         IReadOnlyList<ApiModeStoredReceipt> stored;
         using (_boundary.EnterScope(Alice))

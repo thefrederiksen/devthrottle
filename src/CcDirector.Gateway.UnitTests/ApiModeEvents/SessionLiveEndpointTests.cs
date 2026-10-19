@@ -1004,6 +1004,51 @@ public sealed class SessionLiveEndpointTests : IAsyncDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Stream_NoCursorAfterAQueuedPromptWasRuledUnknown_OpensWithTheReceiptAsTheLiveReaderSawIt(bool carried)
+    {
+        // Arrange: p1 is queued in generation A. A reader opens in generation B before anything proves p1 left the queue,
+        // then follows live while the event that does arrives (item 9, ApiModeLostQueuedPrompt): a connection the queue
+        // did not re-announce p1 before, or the turn that carries it.
+        await StartAsync();
+        PushA(Queued(1, "p1"));
+        PushB(Text(1, "x"));
+        var sawLive = new ClientView();
+        await using (var stream = await OpenStreamAsync(Alice, ApiSession))
+        {
+            var first = await stream.NextAsync();
+            Assert.Equal("Queued, 1st in line: a turn is running", Items(first!).Single(i => i.ItemId == "receipt:p1").Text);
+            sawLive.Apply(Items(first!));
+            if (carried) PushB(Started(2));
+            else PushB(Ready(2));
+            var ruled = await stream.NextAsync();
+            Assert.Equal(carried ? ApiModeLostQueuedPrompt.CarriedWords : ApiModeLostQueuedPrompt.Words,
+                Items(ruled!).Single(i => i.ItemId == "receipt:p1").Text);
+            sawLive.Apply(Items(ruled!));
+        }
+
+        // Act: a new reader attaches with no cursor; then the Gateway restarts and another does.
+        await using var reopened = await OpenStreamAsync(Alice, ApiSession);
+        var opening = await reopened.NextAsync();
+        await RestartGatewayAsync();
+        await using var afterRestart = await OpenStreamAsync(Alice, ApiSession);
+        var restartedOpening = await afterRestart.NextAsync();
+
+        // Assert: the receipt store ruled the same Unknown at the same event, so each opening shows the receipt exactly
+        // as the live reader shows it - its words, its tone, its turn (the carrying turn's, when carried) and its text.
+        var live = sawLive.Shown.Single(i => i.ItemId == "receipt:p1");
+        Assert.Equal((carried ? ApiModeLostQueuedPrompt.CarriedWords : ApiModeLostQueuedPrompt.Words, "neutral", carried ? "t1" : null),
+            (live.Text, live.Tone, live.TurnId));
+        foreach (var frame in new[] { opening, restartedOpening })
+        {
+            var view = new ClientView();
+            view.Apply(Items(frame!));
+            Assert.Equal(live, view.Shown.Single(i => i.ItemId == "receipt:p1"));
+        }
+    }
+
     [Fact]
     public async Task Stream_NoCursorMidReply_OpensWithWhatHasStreamedThenFollowsWithNoGapAndNoDouble()
     {
