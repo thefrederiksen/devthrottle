@@ -4345,12 +4345,16 @@ public sealed class Session : IDisposable
             return token;
         }
         var frame = SnapshotLiveFrame();
-        var (rows, cursorRow, cursorCol, cursorVisible) = (frame.Rows, frame.CursorRow, frame.CursorCol, frame.CursorVisible);
-        var row = cursorRow >= 0 && cursorRow < rows.Count ? rows[cursorRow] : "";
-        var rowWithoutFaint = frame.RowsWithoutFaint is { } input && cursorRow >= 0 && cursorRow < input.Count ? input[cursorRow] : row;
+        var position = Drivers.DoorbellSafety.ReadComposerPosition(AgentKind, frame);
+        var rows = frame.Rows;
+        var row = position.CursorRow >= 0 && position.CursorRow < rows.Count ? rows[position.CursorRow] : "";
+        var rowWithoutFaint = frame.RowsWithoutFaint is { } input && position.CursorRow >= 0 && position.CursorRow < input.Count
+            ? input[position.CursorRow]
+            : row;
         var faint = rowWithoutFaint == row ? "" : $", rowWithoutFaint={Quoted(rowWithoutFaint)} (the rest was drawn faint, not typed)";
-        return $"reading={reading}, text={Quoted(composerText)}, cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
-               $"row={Quoted(row)}{faint}, screen={_screenCols}x{_screenRows}";
+        return $"reading={reading}, text={Quoted(composerText)}, cursorRow={position.CursorRow}, cursorCol={position.CursorCol}, " +
+               $"promptRow={position.PromptRow}, cursorVisible={position.CursorVisible}, row={Quoted(row)}{faint}, " +
+               $"screen={_screenCols}x{_screenRows}";
     }
 
     /// <summary>

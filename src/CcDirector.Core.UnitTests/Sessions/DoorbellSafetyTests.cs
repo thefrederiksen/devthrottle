@@ -301,18 +301,14 @@ public sealed class DoorbellSafetyTests
     }
 
     [Fact]
-    public void Claude_a_blank_continuation_row_holding_the_cursor_is_text()
+    public void Claude_empty_rows_with_the_cursor_parked_off_the_prompt_are_empty()
     {
-        // The owner pressed a new line and nothing else: the prompt row is bare, the next row is blank, and the
-        // cursor is on that next row.
         var idle = Load("claude-idle-empty-after-turn");
-        var rule = idle.Rows[idle.CursorRow - 1];
-        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow - 2, rule);
-        frame = DoorbellCaptures.WithRow(frame, idle.CursorRow - 1, "❯");
-        frame = DoorbellCaptures.WithRow(frame, idle.CursorRow, "");
-        frame = frame with { CursorRow = idle.CursorRow, CursorCol = 2 };
+        var promptRow = DoorbellSafety.ReadComposerPosition(AgentKind.ClaudeCode, idle).PromptRow;
+        var frame = idle with { CursorRow = promptRow - 1, CursorCol = 19 };
 
-        Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
+        Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
+        Assert.Equal((promptRow - 1, 19, promptRow, true), DoorbellSafety.ReadComposerPosition(AgentKind.ClaudeCode, frame));
     }
 
     [Fact]
@@ -330,11 +326,11 @@ public sealed class DoorbellSafetyTests
     }
 
     [Fact]
-    public void Claude_a_bare_prompt_with_the_cursor_hidden_is_unreadable_not_empty()
+    public void Claude_a_bare_prompt_with_the_cursor_hidden_is_empty()
     {
         var idle = Load("claude-idle-empty-after-turn") with { CursorVisible = false };
 
-        Assert.Equal(ComposerReading.NotFound, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, idle));
+        Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, idle));
     }
 
     [Fact]
@@ -353,6 +349,20 @@ public sealed class DoorbellSafetyTests
         var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow, "›");
 
         Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
+    }
+
+    [Fact]
+    public void Codex_empty_rows_with_the_cursor_off_the_prompt_are_empty()
+    {
+        var idle = Load("codex-idle-empty-placeholder");
+        var promptRow = idle.CursorRow;
+        var rows = idle.Rows.ToArray();
+        rows[promptRow] = rows[promptRow][..1];
+        rows[promptRow + 1] = "";
+        var frame = idle with { Rows = rows, CursorRow = promptRow + 1, CursorCol = 19 };
+
+        Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
+        Assert.Equal((promptRow + 1, 19, promptRow, true), DoorbellSafety.ReadComposerPosition(AgentKind.Codex, frame));
     }
 
     [Fact]
