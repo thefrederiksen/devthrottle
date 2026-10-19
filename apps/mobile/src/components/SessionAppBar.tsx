@@ -78,6 +78,10 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
   const { sessionId } = useParams<{ sessionId: string }>();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // The rename sheet. `renameText` holds the working copy of the name while the sheet is open; the row
+  // itself is the hook's, and nothing here renames it - manage.rename is the one write path.
+  const [renaming, setRenaming] = useState(false);
+  const [renameText, setRenameText] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Close the menu on an outside tap or Escape, the way a menu is expected to behave.
@@ -120,6 +124,32 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
   // a fresh question, so there is nothing yet to explain.
   const onCancelStop = useCallback(() => {
     setConfirming(false);
+  }, []);
+
+  // Open the rename sheet, prefilled with the session's CURRENT name - the live row's when this screen
+  // has one, falling back to the title the screen fetched itself. A fresh question starts clean: the
+  // error from a previous attempt is cleared, exactly as the stop sheet does on open.
+  const onOpenRename = useCallback(() => {
+    manage.setError(null);
+    setRenameText(manage.session?.name?.trim() || "");
+    setRenaming(true);
+  }, [manage]);
+
+  // Send the rename. A SUCCESS closes the sheet: the hook has already adopted the Gateway's applied
+  // name on the row (and re-synced the roster), so the title above changes at once and no report of an
+  // action the owner just watched happen is needed - same ruling as the stop. A FAILURE keeps the sheet
+  // open: the Gateway's sentence is shown inside it, above the Save button it explains, and the name
+  // can be corrected or the attempt abandoned from where it stands.
+  const onConfirmRename = useCallback(async () => {
+    const name = renameText.trim();
+    if (!name || manage.busy) return;
+    if (await manage.rename(name)) setRenaming(false);
+  }, [renameText, manage]);
+
+  // Backing out of the rename. Like the stop's Cancel it does NOT clear manage.error: the operator may
+  // be abandoning a rename that FAILED, and the banner behind the sheet is where that failure now lives.
+  const onCancelRename = useCallback(() => {
+    setRenaming(false);
   }, []);
 
   return (
@@ -196,6 +226,23 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
                 </div>
               )}
 
+              {/* The rename. The same verb the roster's owner uses everywhere else - the Cockpit's
+                  session menu and the CLI's `session rename` - so the name can be fixed on the phone
+                  too, from the screen that is showing it. Not destructive, so it sits above Stop and
+                  carries no danger styling: it opens a sheet that confirms nothing on its own. */}
+              <button
+                type="button"
+                className="menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onOpenRename();
+                }}
+                disabled={manage.busy}
+              >
+                Rename session
+              </button>
+
               <button
                 type="button"
                 className="menu-item menu-item-danger"
@@ -219,9 +266,15 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
           back button and the menu button leave no room for a real name ("102 Ghost Directors from tests"
           collapsed to "102 M..."). The network pill used to ride the end of this row and has moved up to
           the middle of row 1 - see the note there; in short, it was sitting directly above the Voice mode
-          tab and getting hit instead of it. */}
+          tab and getting hit instead of it.
+
+          The LIVE row's name outranks the title the screen fetched once on mount: the app bar owns the
+          rename verb now, so the title must change the moment a rename lands (the hook adopts the
+          Gateway's applied name on its row) instead of holding the old name until the screen is remounted.
+          While there is no row - a failed read - the screen's own title still stands, so a rename is
+          never what blanks the name. */}
       <div className="session-title-row">
-        <h1 className="term-title session-title">{title}</h1>
+        <h1 className="term-title session-title">{manage.session?.name?.trim() || title}</h1>
         {/* A prompt to this session was NOT delivered - the user's words never reached the agent (issue
             internal#811). It lives on the shared app bar so it is on EVERY per-session screen: the loss
             usually happens while the phone is somewhere else entirely, so a sign that only existed on one tab
@@ -239,10 +292,10 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
         />
       </div>
 
-      {/* The action error banner. It is suppressed while the stop sheet is open, because the sheet
-          shows the same sentence inside itself and a modal overlay covers this row anyway - two copies
+      {/* The action error banner. It is suppressed while EITHER sheet is open, because a sheet shows
+          the same sentence inside itself and a modal overlay covers this row anyway - two copies
           of one event, one of them unreadable, is exactly what finding I8 was. */}
-      {manage.error !== null && !confirming && (
+      {manage.error !== null && !confirming && !renaming && (
         <div className="banner banner-error" role="alert">{/* error-reported-by: useSessionManage */}{manage.error}</div>
       )}
       {/* The snooze pill. A DEFERRED snooze reads "Snoozing when it finishes" (asked for while the agent is
@@ -260,6 +313,58 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
         return pill !== null ? <span className="manage-held-pill">{pill}</span> : null;
       })()}
 
+      {/* The rename sheet: the one place on the phone a session's name is changed. The input is
+          prefilled with the current name, selected ready to type over; Save is armed only for a
+          non-empty trimmed name. A SUCCESS closes the sheet and the title above changes at once (the
+          hook adopted the row); a FAILURE keeps it open with the Gateway's sentence inside - the same
+          shape the stop sheet settled on for its own failure. */}
+      {renaming && (
+        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Rename session">
+          <div className="confirm-card">
+            <h2 className="confirm-title">Rename session</h2>
+            <label className="confirm-label" htmlFor="session-rename-input">New name</label>
+            <input
+              id="session-rename-input"
+              className="confirm-input"
+              type="text"
+              value={renameText}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              // Enter in the box saves - what the keyboard's Go key sends - and Escape backs out, the
+              // way a text dialog is expected to behave. Neither bypasses the armed-Save guard above.
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void onConfirmRename();
+                if (e.key === "Escape") onCancelRename();
+              }}
+              onChange={(e) => setRenameText(e.target.value)}
+              autoFocus
+            />
+            {manage.error !== null && (
+              <div className="confirm-error" role="alert">{/* error-reported-by: useSessionManage */}{manage.error}</div>
+            )}
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="confirm-btn confirm-cancel"
+                onClick={onCancelRename}
+                disabled={manage.busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm-btn confirm-save"
+                onClick={() => void onConfirmRename()}
+                disabled={manage.busy || renameText.trim() === ""}
+              >
+                {manage.busy ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* The stop sheet: ONE question, asked plainly (internal#1992) - no reason box, because the owner's
           confirm is the authorisation and the hook sends the derived reason; no answer card on success,
           because a stop the owner asked for and watched happen needs no report. Only a failure speaks. */}
