@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 // THE PHONE MOUNTS THE SHARED LIVE CHAT FOR AN API-MODE SESSION (mission #4070, phase 3). The live Chat lives once in
@@ -10,12 +10,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 const SID = "3a8e5d21-0000-4000-8000-000000000041";
 
 let roster: unknown[] = [];
+// How the roster read answers; by default with `roster`. A test may hold it pending or make it fail.
+let rosterRead: () => Promise<unknown[]> = () => Promise.resolve(roster);
 
 // The fields the roster read requires of every row; the subject here is only the connection mode and the verdict.
 const row = { activityState: "Idle", effectiveColor: "grey", stateLabel: "Idle", triageBucket: "idle", agent: "Pi", agentToolDisplay: "Pi" };
 
 vi.mock("@devthrottle/client-core/api/client", () => ({
-  listSessions: () => Promise.resolve(roster),
+  listSessions: () => rosterRead(),
   holdSession: vi.fn(),
   stopSession: vi.fn(),
   gatewayErrorMessage: (err: unknown) => String(err),
@@ -55,6 +57,7 @@ import { Chat } from "./Chat";
 afterEach(() => {
   cleanup();
   historyReadFor.mockClear();
+  rosterRead = () => Promise.resolve(roster);
 });
 
 function renderChat() {
@@ -77,6 +80,37 @@ describe("the phone Chat screen", () => {
     expect(historyReadFor).toHaveBeenLastCalledWith(undefined);
     expect(screen.queryByText("No conversation yet.")).toBeNull();
     expect(screen.queryByText("Show:")).toBeNull();
+  });
+
+  it("Chat_ApiModeRow_NeverStartsTheHistoryReadEvenBeforeTheRosterAnswers", async () => {
+    roster = [{ ...row, sessionId: SID, name: "pi", connectionMode: "api", apiMode: { kind: "idle", activityLabel: "Idle after turn 1" } }];
+
+    renderChat();
+
+    await waitFor(() => expect(screen.getByTestId("live-chat")).toBeTruthy());
+    expect(historyReadFor).not.toHaveBeenCalledWith(SID);
+  });
+
+  it("Chat_RosterNotAnsweredYet_ShowsLoadingAndReadsNoHistory", async () => {
+    rosterRead = () => new Promise(() => {});
+
+    renderChat();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByText("Loading session...")).toBeTruthy();
+    expect(screen.queryByText("No conversation yet.")).toBeNull();
+    expect(screen.queryByText("Show:")).toBeNull();
+    expect(historyReadFor).not.toHaveBeenCalledWith(SID);
+  });
+
+  it("Chat_RosterReadFails_TheHistoryChatStillLoads", async () => {
+    // A failed roster read is an answer: no row is coming, so the history Chat works as it did before.
+    rosterRead = () => Promise.reject(new Error("the Gateway could not be reached"));
+
+    renderChat();
+
+    await waitFor(() => expect(historyReadFor).toHaveBeenCalledWith(SID));
+    expect(screen.queryByTestId("live-chat")).toBeNull();
   });
 
   it("Chat_TerminalModeRow_KeepsTheHistoryChat", async () => {

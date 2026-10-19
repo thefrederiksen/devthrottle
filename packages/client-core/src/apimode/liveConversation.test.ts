@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyItems, applyReset, emptyConversation, LiveItemError } from "./liveConversation";
+import { applyItems, applyOpening, applyReset, emptyConversation, LiveItemError } from "./liveConversation";
 import { receiptItem, replyDelta, replyFinal, toolCard, turnEndedItem } from "./liveStream.testkit";
 
 // The client applies the Gateway's items exactly as each says (append or replace, by item id) and rules nothing.
@@ -101,5 +101,43 @@ describe("applyReset", () => {
 
     expect(state.entries).toHaveLength(1);
     expect(state.reset).toEqual(reset);
+  });
+});
+
+describe("applyOpening", () => {
+  const notKept = {
+    itemId: "conversation:earlier-not-kept", kind: "notice", mode: "replace", text: "Earlier conversation is not kept.",
+    tone: "neutral", sequence: 0,
+  };
+
+  it("applyOpening_AfterItemsTheGatewayHasSinceLetGo_ShowsExactlyTheOpeningInItsOwnOrder", () => {
+    // Arrange: the view holds an old reply, a receipt and a newer reply.
+    const held = applyItems(emptyConversation(), [
+      replyFinal("m1", "t1", "Oldest", 1), receiptItem("p2", "Delivered", "green", 2), replyFinal("m2", "t2", "Newer", 3),
+    ]);
+
+    // Act: the opening of a stream opened again with no cursor; the oldest reply was let go.
+    const next = applyOpening(held, [notKept, receiptItem("p2", "Delivered", "green", 0), replyFinal("m2", "t2", "Newer", 3)]);
+
+    // Assert
+    expect(next.entries.map((e) => e.itemId)).toEqual(["conversation:earlier-not-kept", "receipt:p2", "reply:m2"]);
+  });
+
+  it("applyOpening_AppendItemInTheOpening_StartsFromNothingAndDoesNotDoubleWhatWasHeld", () => {
+    const held = applyItems(emptyConversation(), [replyDelta("m1", "t1", "So far", 4)]);
+
+    const next = applyOpening(held, [{ ...replyDelta("m1", "t1", "So far", 4) }]);
+
+    expect(next.entries).toHaveLength(1);
+    expect(next.entries[0].text).toBe("So far");
+  });
+
+  it("applyOpening_AfterAReset_KeepsTheResetSentence", () => {
+    const reset = { code: "new_generation", message: "The Director restarted.", rebuildFrom: ["/sessions/s/live"] };
+
+    const next = applyOpening(applyReset(emptyConversation(), reset), [replyFinal("m1", "t1", "Stored", 0)]);
+
+    expect(next.reset).toEqual(reset);
+    expect(next.entries.map((e) => e.itemId)).toEqual(["reply:m1"]);
   });
 });

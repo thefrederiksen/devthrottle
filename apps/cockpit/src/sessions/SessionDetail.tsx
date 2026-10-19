@@ -274,9 +274,15 @@ export function SessionDetail() {
           {mainTab === "chat" && (
             <div className="session-pane">
               {/* An API-mode session's Chat is the live conversation from the Gateway's stream (mission #4070, phase
-                  3); the row carries the Gateway's verdict only in API mode. A terminal-mode session is unchanged. */}
+                  3); the row carries the Gateway's verdict only in API mode. A terminal-mode session is unchanged.
+                  Before the roster's first answer the mode is not known, so neither Chat is mounted: mounting the
+                  history Chat there started a /history read for an API-mode session (phase 6 QA). */}
               {selected?.apiMode ? (
                 <ApiModeLiveChat sessionId={sessionId} display={selected.apiMode} />
+              ) : sessions === null ? (
+                <div className="chat-tab">
+                  <div className="chat-empty" role="status">Loading session...</div>
+                </div>
               ) : (
                 <ChatTab sessionId={sessionId} />
               )}

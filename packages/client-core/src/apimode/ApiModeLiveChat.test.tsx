@@ -244,6 +244,32 @@ describe("ApiModeLiveChat", () => {
     for (const c of net.connections) expect(c.url).toMatch(/\/sessions\/s1\/live(\?|$)/);
   });
 
+  it("ApiModeLiveChat_ReconnectWithNoCursor_TheNewOpeningReplacesTheThreadInItsOwnOrder", async () => {
+    // Arrange: the Gateway held no event of the session, so the opening had no id and the reconnect sends no cursor.
+    const { net, conn } = await mount();
+    await send(() => {
+      conn().write(`event: items\ndata: ${JSON.stringify([
+        replyFinal("m1", "t1", "The oldest reply", 1), receiptItem("p2", "Delivered", "green", 0, "t2", "Second prompt"),
+      ])}\n\n`);
+      conn().end();
+    });
+
+    // Act: the stream is opened again; meanwhile the oldest reply was let go, so the opening starts with the notice.
+    await send(() => net.runTimers());
+    await send(() => conn().write(`event: items\ndata: ${JSON.stringify([
+      { itemId: "conversation:earlier-not-kept", kind: "notice", mode: "replace", text: "Earlier conversation is not kept.", tone: "neutral", sequence: 0 },
+      receiptItem("p2", "Delivered", "green", 0, "t2", "Second prompt"),
+    ])}\n\n`));
+
+    // Assert: exactly the new opening, in its order - the let-go reply is gone and the notice is first.
+    expect(net.connections).toHaveLength(2);
+    expect(net.connections[1].headers["Last-Event-ID"]).toBeUndefined();
+    const log = screen.getByRole("log", { name: "Live conversation" });
+    expect([...log.querySelectorAll("[data-item-id]")].map((e) => e.getAttribute("data-item-id")))
+      .toEqual(["conversation:earlier-not-kept", "receipt:p2"]);
+    expect(within(log).queryByText("The oldest reply")).toBeNull();
+  });
+
   it("ApiModeLiveChat_FailedTurn_ShowsTheFailureBesideDeliveredAndTheTurnLine", async () => {
     const { conn } = await mount();
     await send(() => conn().items("g1:1", [receiptItem("p1", "Delivered", "green", 1, undefined, "Count to ten")]));
