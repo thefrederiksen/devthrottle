@@ -1326,8 +1326,8 @@ public static class SessionKeyGuard
     /// <summary>
     /// THE MAIL DESK (Mail Desk mission, phase 1 contract, section 4). Allowed to every session key, because the route
     /// itself decides who may act: every session reads; any session may change the rules (D7: "freely, every change
-    /// recorded"); a session in no factory may add and remove a channel and switch its mode, and a factory's own session
-    /// is refused those by the route, in words. Every route also answers 404 for an account Mail Desk is off for.
+    /// recorded"); a session in no factory may add and remove a channel, switch its mode and change a setting (phase 3),
+    /// and a factory's own session is refused those by the route, in words. Every route also answers 404 for an account Mail Desk is off for.
     /// </summary>
     private static bool IsMailDeskRoute(string verb, string[] s)
     {
@@ -1341,6 +1341,8 @@ public static class SessionKeyGuard
             {
                 "status" or "decisions" or "rules" => read,
                 "channels" => read || write,
+                // /settings - the thresholds and the spend limit: read, and changed (phase 3).
+                "settings" => read || write,
                 _ => false,
             },
             // /channels/remove, /channels/mode; /rules/history.

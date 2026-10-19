@@ -43,6 +43,36 @@ public sealed class MailDeskRulesValidatorTests
         return result.Refusal;
     }
 
+    // ---------- the route cap (phase 3, section 3) ----------
+
+    private static MailDeskRulesDocument WithRoutes(int count) => new()
+    {
+        Routes = Enumerable.Range(1, count)
+            .Select(i => new MailDeskRouteEntry { Factory = "books", Seat = $"clerk-{i}", Handles = $"bills of kind {i}" }).ToList(),
+    };
+
+    [Fact]
+    public void Validate_TwentyFiveRoutes_IsValid()
+    {
+        // Act
+        var result = MailDeskRulesValidator.Validate(WithRoutes(MailDeskRulesValidator.MaxRoutes));
+
+        // Assert
+        Assert.True(result.IsValid, result.Refusal);
+        Assert.Equal(25, result.Document!.Routes.Count);
+    }
+
+    [Fact]
+    public void Validate_TheTwentySixthRoute_IsRefusedNamingTheCapAndTheFix()
+    {
+        // Act
+        var refusal = RefusalOf(WithRoutes(26));
+
+        // Assert
+        Assert.Contains("26 routes are listed and at most 25 may be", refusal);
+        Assert.Contains("remove a route before adding another", refusal);
+    }
+
     // ---------- what passes, and the one spelling ----------
 
     [Fact]
