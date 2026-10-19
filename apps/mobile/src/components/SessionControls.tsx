@@ -93,7 +93,14 @@ export function SessionControls({ sessionId, onFlash, onError, showKeyRows }: Se
     async (seq: string, label: string) => {
       if (!sessionId) return;
       try {
-        await sendPrompt(sessionId, seq, false);
+        const sent = await sendPrompt(sessionId, seq, false);
+        if (sent.refusal !== undefined) {
+          // The Director answered the key and typed nothing - an API-mode session with no terminal, or a dialog only a
+          // person at the machine may answer. Its sentence is shown as it came, never "Sent" (review of #4234, finding 1).
+          // error-report-exempt: the Director's own refusal, worded and ruled on the Director - nothing failed in this browser
+          onError(sent.refusal);
+          return;
+        }
         onFlash("Sent");
       } catch (err) {
         onError(describeAndReport(SURFACE, `send the ${label} key`, err, { sessionId }));

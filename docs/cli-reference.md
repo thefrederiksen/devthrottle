@@ -2354,6 +2354,55 @@ A session key may add, read, pause and resume triggers. Only a Director's own ke
 check: the Director's routes (`GET /directors/{id}/triggers` and
 `POST /directors/{id}/triggers/{trigger}/checks`) are refused to a session key.
 
+### Mail Desk
+
+The Mail Desk reads an account's mailboxes and decides what each message is: a rule's route, an allowed
+sender, a blocked one, or a question to a model. Every decision is recorded, and every change to the
+channels or the rules is recorded with who made it and why. These commands read and change what the
+Gateway holds under `/gateway/mail-desk`.
+
+```
+USAGE: cc-devthrottle maildesk [--gateway URL] COMMAND [ARGS]...
+
+COMMANDS:
+  status [--json]
+  channel list [--all] [--json]
+  channel add ADDRESS --provider outlook --machine MACHINE [--machine BACKUP] --why "TEXT"
+  channel remove ADDRESS --why "TEXT"
+  mode ADDRESS observe|live --why "TEXT"
+  rules show [--version N] [--json]
+  rules history [-n N] [--kind rule|allow|block|route|channel|mode] [--json]
+  allow add PATTERN --what "TEXT" --do archive|keep-for-owner|route:FACTORY/SEAT --why "TEXT"
+  allow remove PATTERN --why "TEXT"
+  block add PATTERN --why "TEXT"
+  block remove PATTERN --why "TEXT"
+  rule add NAME [--subject-contains TEXT]... [--from PATTERN]... --route FACTORY/SEAT --why "TEXT"
+  rule remove NAME --why "TEXT"
+  route add FACTORY/SEAT --handles "TEXT" --why "TEXT"
+  route remove FACTORY/SEAT --why "TEXT"
+  decisions [--since TIME] [--layer L] [--decision D] [--channel ADDRESS] [-n N] [--json]
+```
+
+A `PATTERN` is an exact address or `*@domain`. A block entry's own reason is its `--why`.
+
+- **Every change needs `--why`.** A change without one, or with a blank one, fails with exit 2 before
+  anything is sent.
+- **Every filter is sent to the Gateway,** so `--json` answers the same question as the plain output.
+  `--json` prints the Gateway's answer in its own shape.
+- **Fixed values are checked first.** `--layer` takes `rule`, `allow`, `block`, `sender-screen`,
+  `route-model`; `--decision` takes `route`, `archive`, `junk`, `keep-for-owner`, `mail-desk-agent`,
+  `failed`; `--kind` takes `rule`, `allow`, `block`, `route`, `channel`, `mode`; a mode is `observe` or
+  `live`. Any other value, a malformed `FACTORY/SEAT`, or an unknown flag fails with exit 2 and lists
+  what is valid.
+- **The Gateway decides, the command prints.** A channel's mode label, whether it is signed in, and how
+  its last check went are printed as the Gateway wrote them. A refusal prints the Gateway's own `error`
+  and `detail` and exits 1.
+- **The switch.** The Mail Desk is off for every account by default. While it is off, every command
+  says "Mail Desk is not switched on for this account." and exits 1.
+
+A person or a session may read everything and change the rules. Only a person or a session in no
+factory may add or remove a channel or change its mode; the Gateway refuses a factory's session.
+
 ### Setup
 
 ```

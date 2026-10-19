@@ -23,12 +23,13 @@ public sealed class LicenseAlarmsEndpointTests : IDisposable
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly LicenseAlarmService _alarms;
+    private DateTime _now = T0;
 
     public LicenseAlarmsEndpointTests()
     {
         _alarms = new LicenseAlarmService(_harness.Open(),
             (_, _, _) => Task.FromResult(new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Sent, null)),
-            (_, _, _) => Task.CompletedTask, () => T0);
+            (_, _, _) => Task.CompletedTask, () => _now);
     }
 
     public void Dispose() => _harness.Dispose();
@@ -59,6 +60,25 @@ public sealed class LicenseAlarmsEndpointTests : IDisposable
         Assert.Equal("machine-a is not ready. Add a spare to machine-a.", json.GetProperty("alarms")[0].GetProperty("text").GetString());
         Assert.Equal(0, other.GetProperty("count").GetInt32());
         Assert.Equal(0, other.GetProperty("alarms").GetArrayLength());
+    }
+
+    // An alarm that came back within the hold-down: the route's line carries the count, read from the stored rows.
+    [Fact]
+    public async Task Alarms_AlarmThatCameBack_TheLineSaysItHasComeAndGone()
+    {
+        var machine = Guid.NewGuid();
+        var trueNow = new[] { new LicenseAlarmCondition(machine, "machine-a", null, "machine-a is not ready.", "Add a spare to machine-a.") };
+        await _alarms.RaiseAsync(One, NotReady, trueNow, CancellationToken.None);
+        _now = T0.AddMinutes(15);
+        await _alarms.RaiseAsync(One, NotReady, Array.Empty<LicenseAlarmCondition>(), CancellationToken.None);
+        _now = T0.AddMinutes(30);
+        await _alarms.RaiseAsync(One, NotReady, trueNow, CancellationToken.None);
+
+        var (_, json) = Get(One);
+
+        Assert.Equal("machine-a is not ready. Add a spare to machine-a. It has come and gone: this is the second time in a row, "
+                     + "each within 6 hours of the last, and you were told only the first time.",
+            json.GetProperty("alarms")[0].GetProperty("text").GetString());
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
+using CcDirector.Core.ApiMode;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
@@ -569,7 +570,15 @@ internal static class SessionCommandExecutor
             }
         }
         else
-            session.SendInput(Encoding.UTF8.GetBytes(request.Text), origin, provenance);
+        {
+            // AN API-MODE SESSION WITH NO TERMINAL OPEN (phase 4 review, finding 2): the keystroke is refused with the
+            // Director's sentence, answered like every other refusal that typed nothing, so the Terminal pane shows it.
+            try { session.SendInput(Encoding.UTF8.GetBytes(request.Text), origin, provenance); }
+            catch (ApiModeNoTerminalException refused)
+            {
+                return NoTerminalAnswer(session, bufferCursor, refused.Message);
+            }
+        }
 
         if (refusals.Refused)
             return UsageLimitDialogAnswer(session, bufferCursor);
@@ -594,6 +603,26 @@ internal static class SessionCommandExecutor
     /// </summary>
     private static DirectorCommandResult TooOldAnswer(Session session, long bufferCursor, string reason)
     {
+        return DirectorCommandResult.Success(Serialize(new PromptResponse
+        {
+            Accepted = false,
+            SentAt = DateTime.UtcNow,
+            BufferCursor = bufferCursor,
+            ActivityState = session.ActivityState.ToString(),
+            Error = reason,
+            DeliveryState = DeliveryState.NotDelivered,
+            DeliveryStateReason = reason,
+        }));
+    }
+
+    /// <summary>
+    /// THE VERB'S ANSWER TO A KEYSTROKE FOR AN API-MODE SESSION WITH NO TERMINAL OPEN (phase 4 review, finding 2): the
+    /// same not-delivered shape as <see cref="TooOldAnswer"/>, carrying the session's own sentence, so the Terminal pane
+    /// shows why nothing was typed instead of dropping the keys silently.
+    /// </summary>
+    private static DirectorCommandResult NoTerminalAnswer(Session session, long bufferCursor, string reason)
+    {
+        FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: REFUSED session={session.Id}: no terminal is open; nothing was typed");
         return DirectorCommandResult.Success(Serialize(new PromptResponse
         {
             Accepted = false,

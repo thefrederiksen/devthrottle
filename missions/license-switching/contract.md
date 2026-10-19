@@ -994,7 +994,8 @@ await alarms.RaiseAsync(tenant, NotReady, new[]
   owner's phones and one owner email.
 - **Already open:** it stays open and nothing is sent. Its two sentences are brought up to date.
 - **Open, but not in the list:** it closes by itself and writes an `alarm-closed` row in the Licenses log.
-- **Raised again after it closed:** a NEW alarm, with its own push and its own email.
+- **Raised again after it closed:** a NEW alarm, with its own push and its own email - unless it comes back within the
+  hold-down (section 9.4a), when it is shown and logged but sends neither.
 - A check speaks only for its own kind: it never closes another kind's alarm.
 
 Raising is idempotent, so a check that runs every minute simply raises what it sees every minute. The service is
@@ -1022,6 +1023,29 @@ Raising is idempotent, so a check that runs every minute simply raises what it s
 - **Push:** through the Web Push subscriptions of the tenant (`Push.LicenseAlarmPushNotifier`), once when the alarm
   opens, never retried. A tap opens the Cockpit's Licenses page (`/licenses`), because the phone has no Licenses screen
   of its own.
+
+### 9.4a An alarm that comes and goes tells the owner once (the hold-down)
+
+Added 18 October 2026, after one machine whose connection kept dropping for 10 to 20 minutes opened and closed its
+alarm five times in three hours: one cause, five emails and five pushes.
+
+- **The rule:** an alarm that opens again for the same identity (tenant + kind + machine + account) less than
+  `LicenseAlarmService.HoldDown` - **6 hours** - after the last one of that identity closed, when the owner was told of
+  that one, opens as usual but sends **no email and no push**. "Told" means its email was sent, it was itself held, or
+  the Gateway has no account to email (its push was the telling). One that closed with its email still owed told the
+  owner nothing, so its return is told.
+- **What still happens:** its `license_alarms` row, its banner line and its `alarm-opened` Licenses log row, which says
+  "Alarm opened again within 6 hours of closing, so no email or push was sent." The row's email state is
+  `held-came-back`, so the minute check never sends it either.
+- **The window is measured from the LAST close,** so a run that keeps coming back stays held for as long as it does. At
+  6 hours or more after the last close, an opening tells the owner again.
+- **The banner says so,** folded on the Gateway: the line ends "It has come and gone: this is the third time in a row,
+  each within 6 hours of the last, and you were told only the first time." The count walks back through the stored rows
+  to the opening that told the owner.
+- **It survives a restart:** both the decision and the count are read from `license_alarms`, never from memory.
+- **Why 6 hours:** it covers a working session of one lasting cause coming and going, while a problem that returns the
+  next morning is news and is told again.
+- **It never changes when an alarm opens or closes,** only whether an opening tells the owner. It applies to every kind.
 
 ### 9.5 Where it shows
 

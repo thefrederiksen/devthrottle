@@ -1,0 +1,8 @@
+{
+  "routes": [
+    {"name": "devthrottle/mail-desk", "handles": "customers and users of DevThrottle: support, billing, bugs"},
+    {"name": "citizenship", "handles": "the citizenship application"},
+    {"name": "notification", "handles": "automated notices from services"}
+  ],
+  "unsure": {"name": "unsure", "handles": "none of the above, or you cannot tell"}
+}

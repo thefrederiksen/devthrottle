@@ -1,0 +1,581 @@
+{
+ "endpoint": "fake",
+ "model": "fake",
+ "emails": 19,
+ "spent_dollars": 0.002312,
+ "spent_is_notional": true,
+ "spend_limit_dollars": 0.5,
+ "stopped": null,
+ "rows": [
+  {
+   "key": "30b048fcb8ed",
+   "sender_kind": "godaddy.com",
+   "person_or_spam": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "person": 0.98,
+     "spam": 0.02
+    },
+    "prompt_tokens": 175,
+    "completion_tokens": 1,
+    "cost_dollars": 6.34e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.5,
+    "letter_probabilities": {
+     "notification": 0.5,
+     "devthrottle/mail-desk": 0.166667,
+     "citizenship": 0.166667,
+     "unsure": 0.166667
+    },
+    "prompt_tokens": 166,
+    "completion_tokens": 1,
+    "cost_dollars": 6.016e-05
+   }
+  },
+  {
+   "key": "27cb21d118e1",
+   "sender_kind": "updates.heycatch.ai",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.59,
+    "letter_probabilities": {
+     "spam": 0.59,
+     "person": 0.41
+    },
+    "prompt_tokens": 171,
+    "completion_tokens": 1,
+    "cost_dollars": 6.196e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "citizenship": 0.95,
+     "devthrottle/mail-desk": 0.016667,
+     "notification": 0.016667,
+     "unsure": 0.016667
+    },
+    "prompt_tokens": 162,
+    "completion_tokens": 1,
+    "cost_dollars": 5.872e-05
+   }
+  },
+  {
+   "key": "e5f142eb4c76",
+   "sender_kind": "ours",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.6,
+    "letter_probabilities": {
+     "person": 0.6,
+     "spam": 0.4
+    },
+    "prompt_tokens": 186,
+    "completion_tokens": 1,
+    "cost_dollars": 6.736e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.93,
+    "letter_probabilities": {
+     "unsure": 0.93,
+     "devthrottle/mail-desk": 0.023333,
+     "citizenship": 0.023333,
+     "notification": 0.023333
+    },
+    "prompt_tokens": 177,
+    "completion_tokens": 1,
+    "cost_dollars": 6.412e-05
+   }
+  },
+  {
+   "key": "5edc075aca71",
+   "sender_kind": "ours",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.59,
+    "letter_probabilities": {
+     "spam": 0.59,
+     "person": 0.41
+    },
+    "prompt_tokens": 176,
+    "completion_tokens": 1,
+    "cost_dollars": 6.376e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.97,
+    "letter_probabilities": {
+     "citizenship": 0.97,
+     "devthrottle/mail-desk": 0.01,
+     "notification": 0.01,
+     "unsure": 0.01
+    },
+    "prompt_tokens": 167,
+    "completion_tokens": 1,
+    "cost_dollars": 6.052e-05
+   }
+  },
+  {
+   "key": "41a755c330e3",
+   "sender_kind": "updates.heycatch.ai",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.82,
+    "letter_probabilities": {
+     "person": 0.82,
+     "spam": 0.18
+    },
+    "prompt_tokens": 171,
+    "completion_tokens": 1,
+    "cost_dollars": 6.196e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "notification": 0.58,
+     "devthrottle/mail-desk": 0.14,
+     "citizenship": 0.14,
+     "unsure": 0.14
+    },
+    "prompt_tokens": 162,
+    "completion_tokens": 1,
+    "cost_dollars": 5.872e-05
+   }
+  },
+  {
+   "key": "89d3f3bd1425",
+   "sender_kind": "ours",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.86,
+    "letter_probabilities": {
+     "person": 0.86,
+     "spam": 0.14
+    },
+    "prompt_tokens": 176,
+    "completion_tokens": 1,
+    "cost_dollars": 6.376e-05
+   },
+   "route": {
+    "label": "devthrottle/mail-desk",
+    "valid_answer": true,
+    "confidence": 0.5,
+    "letter_probabilities": {
+     "devthrottle/mail-desk": 0.5,
+     "citizenship": 0.166667,
+     "notification": 0.166667,
+     "unsure": 0.166667
+    },
+    "prompt_tokens": 167,
+    "completion_tokens": 1,
+    "cost_dollars": 6.052e-05
+   }
+  },
+  {
+   "key": "9bded9d455af",
+   "sender_kind": "updates.heycatch.ai",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.82,
+    "letter_probabilities": {
+     "person": 0.82,
+     "spam": 0.18
+    },
+    "prompt_tokens": 171,
+    "completion_tokens": 1,
+    "cost_dollars": 6.196e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "notification": 0.58,
+     "devthrottle/mail-desk": 0.14,
+     "citizenship": 0.14,
+     "unsure": 0.14
+    },
+    "prompt_tokens": 162,
+    "completion_tokens": 1,
+    "cost_dollars": 5.872e-05
+   }
+  },
+  {
+   "key": "fb2451a82ade",
+   "sender_kind": "ours",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.97,
+    "letter_probabilities": {
+     "spam": 0.97,
+     "person": 0.03
+    },
+    "prompt_tokens": 176,
+    "completion_tokens": 1,
+    "cost_dollars": 6.376e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.91,
+    "letter_probabilities": {
+     "citizenship": 0.91,
+     "devthrottle/mail-desk": 0.03,
+     "notification": 0.03,
+     "unsure": 0.03
+    },
+    "prompt_tokens": 167,
+    "completion_tokens": 1,
+    "cost_dollars": 6.052e-05
+   }
+  },
+  {
+   "key": "ca954f1dfe4a",
+   "sender_kind": "updates.heycatch.ai",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.93,
+    "letter_probabilities": {
+     "spam": 0.93,
+     "person": 0.07
+    },
+    "prompt_tokens": 171,
+    "completion_tokens": 1,
+    "cost_dollars": 6.196e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.57,
+    "letter_probabilities": {
+     "unsure": 0.57,
+     "devthrottle/mail-desk": 0.143333,
+     "citizenship": 0.143333,
+     "notification": 0.143333
+    },
+    "prompt_tokens": 162,
+    "completion_tokens": 1,
+    "cost_dollars": 5.872e-05
+   }
+  },
+  {
+   "key": "6847009bb727",
+   "sender_kind": "heycatch.ai",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.75,
+    "letter_probabilities": {
+     "spam": 0.75,
+     "person": 0.25
+    },
+    "prompt_tokens": 168,
+    "completion_tokens": 1,
+    "cost_dollars": 6.088e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.88,
+    "letter_probabilities": {
+     "notification": 0.88,
+     "devthrottle/mail-desk": 0.04,
+     "citizenship": 0.04,
+     "unsure": 0.04
+    },
+    "prompt_tokens": 159,
+    "completion_tokens": 1,
+    "cost_dollars": 5.764e-05
+   }
+  },
+  {
+   "key": "e71a19794542",
+   "sender_kind": "x.com",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.71,
+    "letter_probabilities": {
+     "spam": 0.71,
+     "person": 0.29
+    },
+    "prompt_tokens": 162,
+    "completion_tokens": 1,
+    "cost_dollars": 5.872e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "notification": 0.54,
+     "devthrottle/mail-desk": 0.153333,
+     "citizenship": 0.153333,
+     "unsure": 0.153333
+    },
+    "prompt_tokens": 153,
+    "completion_tokens": 1,
+    "cost_dollars": 5.548e-05
+   }
+  },
+  {
+   "key": "acd8b4f8f428",
+   "sender_kind": "x.com",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.8,
+    "letter_probabilities": {
+     "person": 0.8,
+     "spam": 0.2
+    },
+    "prompt_tokens": 163,
+    "completion_tokens": 1,
+    "cost_dollars": 5.908e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.98,
+    "letter_probabilities": {
+     "notification": 0.98,
+     "devthrottle/mail-desk": 0.006667,
+     "citizenship": 0.006667,
+     "unsure": 0.006667
+    },
+    "prompt_tokens": 154,
+    "completion_tokens": 1,
+    "cost_dollars": 5.584e-05
+   }
+  },
+  {
+   "key": "478c8d3d45b2",
+   "sender_kind": "updates.heycatch.ai",
+   "person_or_spam": {
+    "label": "spam",
+    "valid_answer": true,
+    "confidence": 0.67,
+    "letter_probabilities": {
+     "spam": 0.67,
+     "person": 0.33
+    },
+    "prompt_tokens": 169,
+    "completion_tokens": 1,
+    "cost_dollars": 6.124e-05
+   },
+   "route": {
+    "label": "citizenship",
+    "valid_answer": true,
+    "confidence": 0.99,
+    "letter_probabilities": {
+     "citizenship": 0.99,
+     "devthrottle/mail-desk": 0.003333,
+     "notification": 0.003333,
+     "unsure": 0.003333
+    },
+    "prompt_tokens": 160,
+    "completion_tokens": 1,
+    "cost_dollars": 5.8e-05
+   }
+  },
+  {
+   "key": "37ea5b47756e",
+   "sender_kind": "heycatch.ai",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.92,
+    "letter_probabilities": {
+     "person": 0.92,
+     "spam": 0.08
+    },
+    "prompt_tokens": 170,
+    "completion_tokens": 1,
+    "cost_dollars": 6.16e-05
+   },
+   "route": {
+    "label": "devthrottle/mail-desk",
+    "valid_answer": true,
+    "confidence": 0.6,
+    "letter_probabilities": {
+     "devthrottle/mail-desk": 0.6,
+     "citizenship": 0.133333,
+     "notification": 0.133333,
+     "unsure": 0.133333
+    },
+    "prompt_tokens": 161,
+    "completion_tokens": 1,
+    "cost_dollars": 5.836e-05
+   }
+  },
+  {
+   "key": "16f108a48443",
+   "sender_kind": "updates.heycatch.ai",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.9,
+    "letter_probabilities": {
+     "person": 0.9,
+     "spam": 0.1
+    },
+    "prompt_tokens": 174,
+    "completion_tokens": 1,
+    "cost_dollars": 6.304e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "citizenship": 0.51,
+     "devthrottle/mail-desk": 0.163333,
+     "notification": 0.163333,
+     "unsure": 0.163333
+    },
+    "prompt_tokens": 165,
+    "completion_tokens": 1,
+    "cost_dollars": 5.98e-05
+   }
+  },
+  {
+   "key": "dd0d5d5c6dba",
+   "sender_kind": "heycatch.ai",
+   "person_or_spam": {
+    "label": "unsure",
+    "valid_answer": false,
+    "confidence": null,
+    "letter_probabilities": {
+     "person": 0.86,
+     "spam": 0.14
+    },
+    "prompt_tokens": 168,
+    "completion_tokens": 1,
+    "cost_dollars": 6.088e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.81,
+    "letter_probabilities": {
+     "unsure": 0.81,
+     "devthrottle/mail-desk": 0.063333,
+     "citizenship": 0.063333,
+     "notification": 0.063333
+    },
+    "prompt_tokens": 159,
+    "completion_tokens": 1,
+    "cost_dollars": 5.764e-05
+   }
+  },
+  {
+   "key": "eedf3e18972f",
+   "sender_kind": "ours",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.92,
+    "letter_probabilities": {
+     "person": 0.92,
+     "spam": 0.08
+    },
+    "prompt_tokens": 176,
+    "completion_tokens": 1,
+    "cost_dollars": 6.376e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.68,
+    "letter_probabilities": {
+     "notification": 0.68,
+     "devthrottle/mail-desk": 0.106667,
+     "citizenship": 0.106667,
+     "unsure": 0.106667
+    },
+    "prompt_tokens": 167,
+    "completion_tokens": 1,
+    "cost_dollars": 6.052e-05
+   }
+  },
+  {
+   "key": "7df7e76bf9ac",
+   "sender_kind": "ours",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.96,
+    "letter_probabilities": {
+     "person": 0.96,
+     "spam": 0.04
+    },
+    "prompt_tokens": 176,
+    "completion_tokens": 1,
+    "cost_dollars": 6.376e-05
+   },
+   "route": {
+    "label": "notification",
+    "valid_answer": true,
+    "confidence": 0.6,
+    "letter_probabilities": {
+     "notification": 0.6,
+     "devthrottle/mail-desk": 0.133333,
+     "citizenship": 0.133333,
+     "unsure": 0.133333
+    },
+    "prompt_tokens": 167,
+    "completion_tokens": 1,
+    "cost_dollars": 6.052e-05
+   }
+  },
+  {
+   "key": "bca90fbc7bcb",
+   "sender_kind": "ours",
+   "person_or_spam": {
+    "label": "person",
+    "valid_answer": true,
+    "confidence": 0.76,
+    "letter_probabilities": {
+     "person": 0.76,
+     "spam": 0.24
+    },
+    "prompt_tokens": 176,
+    "completion_tokens": 1,
+    "cost_dollars": 6.376e-05
+   },
+   "route": {
+    "label": "unsure",
+    "valid_answer": true,
+    "confidence": 0.69,
+    "letter_probabilities": {
+     "unsure": 0.69,
+     "devthrottle/mail-desk": 0.103333,
+     "citizenship": 0.103333,
+     "notification": 0.103333
+    },
+    "prompt_tokens": 167,
+    "completion_tokens": 1,
+    "cost_dollars": 6.052e-05
+   }
+  }
+ ]
+}

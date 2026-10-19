@@ -228,6 +228,13 @@ def _install_root() -> Path:
     override = os.environ.get("CC_DIRECTOR_ROOT")
     if override:
         return _machine_root(Path(override))
+    return _default_root()
+
+
+def _default_root() -> Path:
+    """The root this machine uses when nothing overrides it, ignoring the CC_DIRECTOR_ROOT setting:
+    "where is this machine's own install", not "where is this command pointed". The same question
+    CcStorage.DefaultRoot answers for the Director."""
     if _is_windows():
         return Path(os.environ.get("LOCALAPPDATA", "")) / "cc-director"
     if sys.platform == "darwin":
@@ -284,7 +291,7 @@ def _shim_paths(installer: DevThrottleInstaller, script: str) -> dict[str, str]:
             "cmd": str(installer.install_dir / f"{script}.cmd"),
             "bare": str(installer.install_dir / script),
         }
-    return {"link": str(Path.home() / ".local" / "bin" / script)}
+    return {"link": str(_shim_dir(installer) / script)}
 
 
 def _command_status(installer: DevThrottleInstaller, script: str) -> dict:
@@ -306,14 +313,37 @@ def _legacy_alias_status() -> list[dict]:
 
 
 def _shim_dir(installer: DevThrottleInstaller) -> Path:
-    """The directory whose presence on PATH makes the tools resolvable. On Windows the installer
-    writes the shims into the install bin directory and adds that to PATH; on macOS and Linux the
-    shims are links in ~/.local/bin and that is the only directory the installer puts on PATH
-    (InstallFinalizer.EnsureMacUserBinOnPath). Requiring the install bin directory there reported
-    every healthy macOS install as broken."""
-    if _is_windows():
-        return installer.install_dir
-    return Path.home() / ".local" / "bin"
+    """The directory that holds this install's tool shims, whose presence on PATH makes the tools
+    resolvable. The rule is _shim_dir_for; this answers it for the install this command found."""
+    return _shim_dir_for(installer.install_root, _default_root(), Path.home(), _is_windows())
+
+
+def _shim_dir_for(install_root: Path, default_root: Path, home: Path, is_windows: bool) -> Path:
+    """Where the tool shims of the install at ``install_root`` are written. The Python form of
+    ToolShimPath.ShimDirFor in the Director, with the same four inputs and the same answers - keep
+    the two in sync.
+
+    On Windows it is always the install's own bin directory. On macOS and Linux it is the user's
+    ~/.local/bin only when the install IS this machine's default root, and the install's own bin
+    directory for any other root - a test Director on a scratch root, a wizard harness, an unpacked
+    bundle. A root that is not the machine's own keeps its shims inside itself, so that deleting it
+    takes nothing else with it (mission #4070). Looking for the links of such a root in ~/.local/bin
+    reported every tool as missing its shim, and named a repair that writes them somewhere else."""
+    own_bin = install_root / "bin"
+    if is_windows or not _is_same_directory(install_root, default_root):
+        return own_bin
+    return home / ".local" / "bin"
+
+
+def _is_same_directory(a: Path, b: Path) -> bool:
+    """Do two directory paths name the same folder? Compared as absolute paths without a trailing
+    separator, case-sensitively on Linux and case-insensitively on Windows and macOS, the way
+    ToolShimPath.IsSameDirectory compares them."""
+    first = os.path.abspath(str(a)).rstrip("\\/")
+    second = os.path.abspath(str(b)).rstrip("\\/")
+    if sys.platform.startswith("linux"):
+        return first == second
+    return first.lower() == second.lower()
 
 
 # The per-user systemd units DevThrottle has ever written. devthrottle-launcher.service is no longer
@@ -395,9 +425,10 @@ def doctor_data() -> dict:
     ]
     cc_resolved = shutil.which("cc-devthrottle")
     problems = []
-    # Only the directory that holds the shims must exist. On macOS and Linux that is ~/.local/bin
-    # and the install bin directory is never created (PythonToolsInstaller.WriteUnixShims), so
-    # requiring it there reported every healthy install as needing repair.
+    # Only the directory that holds the shims must exist. On macOS and Linux that is ~/.local/bin for
+    # the machine's default root, whose install bin directory is never created
+    # (PythonToolsInstaller.WriteUnixShims), so requiring that there reported every healthy install as
+    # needing repair. For any other root it is the root's own bin directory (_shim_dir_for).
     if not shim_dir.exists():
         problems.append(f"tool shim directory is missing: {shim_dir}")
     if not _path_contains(shim_dir):

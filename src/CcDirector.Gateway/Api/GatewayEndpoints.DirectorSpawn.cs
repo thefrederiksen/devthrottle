@@ -120,6 +120,11 @@ internal static partial class GatewayEndpoints
         if (SpawnFactory.DirectorCannotCarry(req, d) is { } tooOld)
             return DirectorSpawnOutcome.Refused(Results.Json(new { error = tooOld }, statusCode: StatusCodes.Status409Conflict));
 
+        // AND API MODE GOES ONLY TO A DIRECTOR THAT CAN START IT (API mode mission, phase 6 review, finding 1). An older
+        // Director drops the connection mode and starts the terminal without a word - refused here, before anything starts.
+        if (ConnectionChoiceFold.DirectorCannotCarry(req, d) is { } noApiMode)
+            return DirectorSpawnOutcome.Refused(Results.Json(new { error = noApiMode }, statusCode: StatusCodes.Status409Conflict));
+
         // AND A SEAT START GOES ONLY TO A DIRECTOR THAT BUILDS THE KIT (Factory Definition mission, phase 5). This is the
         // door the talk takes, so it is where a talk with a seat is refused on an older Director - before anything starts.
         if (SpawnFactory.DirectorCannotBuildKit(req, d,

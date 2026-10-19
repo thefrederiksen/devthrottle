@@ -56,4 +56,43 @@ internal static class ConnectionChoiceFold
         return "API mode is not offered yet: it opens once taking the wheel is built (mission #4070, phase 4). " +
                "Start the session in terminal mode.";
     }
+
+    /// <summary>The first Director release that reads <see cref="NewSessionRequest.ConnectionMode"/> on a create and can
+    /// start an agent in API mode (the field and the API-mode code first shipped together in v2.23.0).</summary>
+    internal static readonly Version FirstDirectorThatCarriesApiMode = new(2, 23, 0);
+
+    /// <summary>
+    /// The refusal for an API-mode create going to a Director too old to honour it, or null when the create may go. An
+    /// older Director has no such field, drops it without a word, and starts the agent in its terminal - a session
+    /// started as something nobody asked for, and the caller is never told (the phase 6 review, finding 1). So the
+    /// create is refused before it leaves, with a sentence naming the version needed. A Director whose version cannot be
+    /// read is refused too: whether it carries the mode cannot be told. The same shape as the factory field's guard
+    /// (<see cref="SpawnFactory.DirectorCannotCarry(NewSessionRequest, DirectorDto)"/>).
+    /// </summary>
+    internal static string? DirectorCannotCarry(NewSessionRequest req, DirectorDto director)
+    {
+        if (req?.ConnectionMode != ConnectionModes.Api || director is null) return null;
+        var version = SpawnFactory.ReleaseOf(director.Version);
+        if (version is not null && version >= FirstDirectorThatCarriesApiMode) return null;
+
+        var name = string.IsNullOrWhiteSpace(director.MachineName) ? director.DirectorId : director.MachineName;
+        var shown = string.IsNullOrWhiteSpace(director.Version) ? "a version it does not report" : $"version {director.Version.Trim()}";
+        FileLog.Write($"[ConnectionChoiceFold] REFUSED an API-mode create to Director {director.DirectorId} on {name}: {shown} is older than {FirstDirectorThatCarriesApiMode}");
+        return $"The Director on {name} is {shown}, which cannot start a session in API mode, so no session was started. " +
+               $"Update this Director to {FirstDirectorThatCarriesApiMode.ToString(3)} or later, or start the session in terminal mode.";
+    }
+
+    /// <summary>
+    /// <see cref="DirectorCannotCarry(NewSessionRequest, DirectorDto)"/> for a door that knows the Director only by id
+    /// (the machine door, which learns it from the resolver). A door with no way to read the Director, or an id the
+    /// account does not hold, is refused for an API-mode create: what it cannot read it cannot vouch for.
+    /// </summary>
+    internal static string? DirectorCannotCarry(NewSessionRequest req, string directorId, Func<string, DirectorDto?>? directorOf)
+    {
+        if (req?.ConnectionMode != ConnectionModes.Api) return null;
+        if (directorOf?.Invoke(directorId) is { } director) return DirectorCannotCarry(req, director);
+        FileLog.Write($"[ConnectionChoiceFold] REFUSED an API-mode create to Director {directorId}: its version cannot be read here");
+        return $"The Gateway cannot read which version Director {directorId} is, so it cannot tell whether that Director can " +
+               "start a session in API mode, and no session was started.";
+    }
 }

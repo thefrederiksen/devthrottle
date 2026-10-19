@@ -934,6 +934,10 @@ export interface PromptSendResult {
    *  ruled on (voice delivery phase 5, review finding 2): a second press of the same claim answers the record's
    *  current state, so the words are shown back rather than delivered, and the reason says which. */
   shownBack?: { reason: string; offerSendAnyway: boolean; transcript: string | null };
+  /** The Director's sentence when it answered and typed nothing (`accepted: false` with a not-delivered reason): an
+   *  API-mode session with no terminal open, or a usage-limit dialog only a person at the machine may answer. Shown
+   *  verbatim; a caller never words its own (CLAUDE.md rule 7). */
+  refusal?: string;
 }
 
 export async function sendPrompt(
@@ -965,6 +969,8 @@ export async function sendPrompt(
     throw await GatewayError.from(res, "send that to the session");
   }
   const answer = (await res.json().catch(() => ({}))) as {
+    accepted?: boolean;
+    deliveryStateReason?: string | null;
     directorState?: string;
     deliveryId?: string | null;
     unconfirmed?: boolean;
@@ -991,7 +997,10 @@ export async function sendPrompt(
         transcript: typeof answer.transcript === "string" ? answer.transcript : null,
       }
     : undefined;
-  return { delivering: false, deliveryId, shownBack };
+  const refusal = answer.accepted === false && typeof answer.deliveryStateReason === "string" && answer.deliveryStateReason !== ""
+    ? answer.deliveryStateReason
+    : undefined;
+  return { delivering: false, deliveryId, shownBack, refusal };
 }
 
 // What a session's live screen is right now (GET /sessions/{sid}/wingman/waiting-screen). "menu" means a
@@ -1141,6 +1150,32 @@ export async function sendInterrupt(sessionId: string, signal?: AbortSignal): Pr
   });
   if (!res.ok) {
     throw await GatewayError.from(res, "interrupt the session");
+  }
+}
+
+// Take the wheel of an API-mode session (mission #4070): the Director stops the agent's protocol process and
+// opens its real terminal on the same conversation. POST /sessions/{sid}/wheel/take. A refusal (terminal mode,
+// already held, a Director that refused mid-switch) throws a GatewayError carrying the Gateway's own sentence in
+// serverReason and its code ("wheel_already_held", ...) in code; the caller shows the sentence verbatim.
+export async function takeWheel(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await postWheelVerb(sessionId, "take", "take the wheel", signal);
+}
+
+// Hand the wheel back: the Director closes the terminal and resumes the conversation in API mode.
+// POST /sessions/{sid}/wheel/hand-back. Refusals arrive exactly as for takeWheel.
+export async function handBackWheel(sessionId: string, signal?: AbortSignal): Promise<void> {
+  await postWheelVerb(sessionId, "hand-back", "hand the wheel back", signal);
+}
+
+async function postWheelVerb(sessionId: string, route: "take" | "hand-back", what: string, signal?: AbortSignal): Promise<void> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/wheel/${route}`, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, what);
   }
 }
 

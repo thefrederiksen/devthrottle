@@ -35,6 +35,10 @@ public sealed class GatewayDbContext : DbContext
     /// (devthrottle_internal#2307 review F2). A duplicate insert fails on it by this name.</summary>
     public const string MemberAnswerIndexName = "IX_dev_report_items_one_member_answer";
 
+    /// <summary>The unique index that allows one ACTIVE Mail Desk channel per (tenant, kind, address); a removed channel
+    /// leaves it (Mail Desk, phase 1). A second add of an active address fails on it by this name.</summary>
+    public const string MailDeskActiveChannelIndexName = "IX_mail_desk_channels_one_active_address";
+
     /// <summary>
     /// The tenant the current unit of work is scoped to (the raw <see cref="Core.Tenancy.TenantId.Value"/>).
     /// Set by the store from the ambient tenant context before every read or write; the global query filter
@@ -332,6 +336,20 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The durable conversation of an API-mode session (<c>api_mode_conversation_items</c>, mission #4070 phase
     /// 2 follow-on): the final form of each item the live view shows, other than receipts, in the Gateway's own order.</summary>
     public DbSet<ApiModeConversationItemEntity> ApiModeConversationItems => Set<ApiModeConversationItemEntity>();
+    /// <summary>The channels the Mail Desk screens, one row per mailbox; a removed one is kept (Mail Desk, phase 1).</summary>
+    public DbSet<MailDeskChannelEntity> MailDeskChannels => Set<MailDeskChannelEntity>();
+
+    /// <summary>Every version of each account's Mail Desk rules, append-only (Mail Desk, phase 1).</summary>
+    public DbSet<MailDeskRulesVersionEntity> MailDeskRules => Set<MailDeskRulesVersionEntity>();
+
+    /// <summary>Every change to the Mail Desk's rules, channels and modes, with who and why (Mail Desk, phase 1).</summary>
+    public DbSet<MailDeskListChangeEntity> MailDeskListChanges => Set<MailDeskListChangeEntity>();
+
+    /// <summary>One row per screened email: what the Mail Desk decided and why. No body text (Mail Desk, phase 1).</summary>
+    public DbSet<MailDeskDecisionEntity> MailDeskDecisions => Set<MailDeskDecisionEntity>();
+
+    /// <summary>One row per email routed to a seat in live mode (Mail Desk; the table lands in phase 1, phase 4 uses it).</summary>
+    public DbSet<MailDeskRoutedEntity> MailDeskRouted => Set<MailDeskRoutedEntity>();
 
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
@@ -958,6 +976,94 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.Ordinal }).IsUnique();
             // Retention cuts on updated-at, tenant-leading for the global filter.
             b.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+        });
+
+        // ---- the Mail Desk (Mail Desk mission, phase 1, contract section 2) -----
+
+        modelBuilder.Entity<MailDeskChannelEntity>(b =>
+        {
+            b.ToTable("mail_desk_channels");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.Provider).HasMaxLength(16);
+            b.Property(e => e.Address).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskAddresses.MaxLength);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Seat).HasMaxLength(64);
+            b.Property(e => e.Mode).HasMaxLength(16);
+            b.Property(e => e.CreatedBy).HasMaxLength(200);
+            b.Property(e => e.ChangedBy).HasMaxLength(200);
+            b.Property(e => e.RemovedBy).HasMaxLength(200);
+            // AT MOST ONE ACTIVE CHANNEL PER ADDRESS, in the database, so two Gateway replicas adding the same mailbox at
+            // the same moment cannot both succeed. A removed row is kept and leaves the index, so the address can be
+            // added again as a new row.
+            b.HasIndex(e => new { e.TenantId, e.Kind, e.Address })
+                .IsUnique()
+                .HasDatabaseName(MailDeskActiveChannelIndexName)
+                .HasFilter("\"RemovedUtc\" IS NULL");
+        });
+
+        modelBuilder.Entity<MailDeskRulesVersionEntity>(b =>
+        {
+            b.ToTable("mail_desk_rules");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SavedByKind).HasMaxLength(20);
+            b.Property(e => e.SavedBy).HasMaxLength(200);
+            // THE UNIQUE INDEX IS THE CONCURRENCY CONTROL, as the key is for a factory's definition: two replicas saving
+            // the same account's rules at the same moment both compute the same next version, and with this index the
+            // second insert cannot exist. It is also the only index the reads need - the newest version, and one version.
+            b.HasIndex(e => new { e.TenantId, e.Version }).IsUnique();
+        });
+
+        modelBuilder.Entity<MailDeskListChangeEntity>(b =>
+        {
+            b.ToTable("mail_desk_list_changes");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.Action).HasMaxLength(16);
+            b.Property(e => e.Subject).HasMaxLength(400);
+            b.Property(e => e.WhoKind).HasMaxLength(20);
+            b.Property(e => e.WhoId).HasMaxLength(200);
+            // As long as a session's name may be (session_history.SessionName), so a name is never cut short.
+            b.Property(e => e.WhoName).HasMaxLength(320);
+            b.Property(e => e.Why).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskWho.MaxWhyLength);
+            // The history reads newest first, all of it or one kind.
+            b.HasIndex(e => new { e.TenantId, e.AtUtc });
+            b.HasIndex(e => new { e.TenantId, e.Kind, e.AtUtc });
+        });
+
+        modelBuilder.Entity<MailDeskDecisionEntity>(b =>
+        {
+            b.ToTable("mail_desk_decisions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.MessageKey).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskDecisionStore.MaxMessageKeyLength);
+            b.Property(e => e.SenderAddress).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskAddresses.MaxLength);
+            b.Property(e => e.Subject).HasMaxLength(1000);
+            b.Property(e => e.Layer).HasMaxLength(32);
+            b.Property(e => e.Decision).HasMaxLength(32);
+            b.Property(e => e.RouteFactory).HasMaxLength(64);
+            b.Property(e => e.RouteSeat).HasMaxLength(64);
+            b.Property(e => e.Reason).HasMaxLength(1000);
+            b.Property(e => e.Mode).HasMaxLength(16);
+            b.Property(e => e.Outcome).HasMaxLength(32);
+            b.Property(e => e.OutcomeDetail).HasMaxLength(1000);
+            // ONE DECISION PER MESSAGE: a check that reports the same message twice records it once.
+            b.HasIndex(e => new { e.TenantId, e.ChannelId, e.MessageKey }).IsUnique();
+            // The decisions read is newest first; the day's counts cut by channel and time.
+            b.HasIndex(e => new { e.TenantId, e.DecidedUtc });
+            b.HasIndex(e => new { e.TenantId, e.ChannelId, e.DecidedUtc });
+        });
+
+        modelBuilder.Entity<MailDeskRoutedEntity>(b =>
+        {
+            b.ToTable("mail_desk_routed");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Seat).HasMaxLength(64);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.State).HasMaxLength(16);
+            b.Property(e => e.ReturnNote).HasMaxLength(4000);
+            b.HasIndex(e => new { e.TenantId, e.DecisionId });
+            b.HasIndex(e => new { e.TenantId, e.State });
         });
 
         // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
@@ -2279,6 +2385,11 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SessionTurnHeadEntity>(modelBuilder);
         ApplyTenantScope<ApiModeReceiptEntity>(modelBuilder);
         ApplyTenantScope<ApiModeConversationItemEntity>(modelBuilder);
+        ApplyTenantScope<MailDeskChannelEntity>(modelBuilder);
+        ApplyTenantScope<MailDeskRulesVersionEntity>(modelBuilder);
+        ApplyTenantScope<MailDeskListChangeEntity>(modelBuilder);
+        ApplyTenantScope<MailDeskDecisionEntity>(modelBuilder);
+        ApplyTenantScope<MailDeskRoutedEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
@@ -2386,6 +2497,16 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<ApiModeConversationItemEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<ApiModeConversationItemEntity>().Property(e => e.ItemId).UseCollation("C");
             modelBuilder.Entity<ApiModeConversationItemEntity>().Property(e => e.TurnId).UseCollation("C");
+            // mail_desk_channels and mail_desk_decisions: the kind and the address are the unique index that keeps one
+            // active channel per mailbox, and the message key is the unique index that records a message once, so the
+            // two providers must agree on what counts as the same mailbox and the same message. The layer, the decision
+            // and the mode are closed words every filter compares exactly.
+            modelBuilder.Entity<MailDeskChannelEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<MailDeskChannelEntity>().Property(e => e.Address).UseCollation("C");
+            modelBuilder.Entity<MailDeskDecisionEntity>().Property(e => e.MessageKey).UseCollation("C");
+            modelBuilder.Entity<MailDeskDecisionEntity>().Property(e => e.Layer).UseCollation("C");
+            modelBuilder.Entity<MailDeskDecisionEntity>().Property(e => e.Decision).UseCollation("C");
+            modelBuilder.Entity<MailDeskListChangeEntity>().Property(e => e.Kind).UseCollation("C");
             modelBuilder.Entity<SessionHistoryRollupEntity>().Property(e => e.RepoKey).UseCollation("C");
             // turn_verdicts.SessionId is a caller-supplied natural-key string in a composite primary key,
             // the same byte-ordinal equality/uniqueness requirement as session_turns.SessionId above - pin

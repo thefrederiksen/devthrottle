@@ -1,0 +1,155 @@
+{
+ "emails": 18,
+ "model": "fake",
+ "endpoint": "fake",
+ "spent_dollars": 0.001786,
+ "agree_person_or_spam": 9,
+ "agree_route": 5,
+ "confusion_person_or_spam": {
+  "person": {
+   "spam": 4,
+   "person": 9,
+   "unsure": 1
+  },
+  "spam": {
+   "person": 3,
+   "unsure": 1
+  }
+ },
+ "confusion_route": {
+  "devthrottle/mail-desk": {
+   "unsure": 2,
+   "citizenship": 2,
+   "devthrottle/mail-desk": 1
+  },
+  "citizenship": {
+   "unsure": 1,
+   "citizenship": 1
+  },
+  "notification": {
+   "unsure": 3,
+   "citizenship": 2,
+   "notification": 1
+  },
+  "unsure": {
+   "notification": 3,
+   "unsure": 2
+  }
+ },
+ "thresholds_route": [
+  {
+   "threshold": 0.0,
+   "kept": 10,
+   "kept_wrong": 7,
+   "sent_to_agent": 8,
+   "sent_that_model_had_wrong": 6
+  },
+  {
+   "threshold": 0.5,
+   "kept": 10,
+   "kept_wrong": 7,
+   "sent_to_agent": 8,
+   "sent_that_model_had_wrong": 6
+  },
+  {
+   "threshold": 0.6,
+   "kept": 9,
+   "kept_wrong": 6,
+   "sent_to_agent": 9,
+   "sent_that_model_had_wrong": 7
+  },
+  {
+   "threshold": 0.7,
+   "kept": 7,
+   "kept_wrong": 4,
+   "sent_to_agent": 11,
+   "sent_that_model_had_wrong": 9
+  },
+  {
+   "threshold": 0.8,
+   "kept": 2,
+   "kept_wrong": 1,
+   "sent_to_agent": 16,
+   "sent_that_model_had_wrong": 12
+  },
+  {
+   "threshold": 0.9,
+   "kept": 1,
+   "kept_wrong": 0,
+   "sent_to_agent": 17,
+   "sent_that_model_had_wrong": 13
+  },
+  {
+   "threshold": 0.95,
+   "kept": 1,
+   "kept_wrong": 0,
+   "sent_to_agent": 17,
+   "sent_that_model_had_wrong": 13
+  },
+  {
+   "threshold": 0.99,
+   "kept": 0,
+   "kept_wrong": 0,
+   "sent_to_agent": 18,
+   "sent_that_model_had_wrong": 13
+  }
+ ],
+ "thresholds_person_or_spam": [
+  {
+   "threshold": 0.0,
+   "kept": 16,
+   "kept_wrong": 7,
+   "sent_to_agent": 2,
+   "sent_that_model_had_wrong": 2
+  },
+  {
+   "threshold": 0.5,
+   "kept": 16,
+   "kept_wrong": 7,
+   "sent_to_agent": 2,
+   "sent_that_model_had_wrong": 2
+  },
+  {
+   "threshold": 0.6,
+   "kept": 13,
+   "kept_wrong": 4,
+   "sent_to_agent": 5,
+   "sent_that_model_had_wrong": 5
+  },
+  {
+   "threshold": 0.7,
+   "kept": 8,
+   "kept_wrong": 3,
+   "sent_to_agent": 10,
+   "sent_that_model_had_wrong": 6
+  },
+  {
+   "threshold": 0.8,
+   "kept": 5,
+   "kept_wrong": 2,
+   "sent_to_agent": 13,
+   "sent_that_model_had_wrong": 7
+  },
+  {
+   "threshold": 0.9,
+   "kept": 3,
+   "kept_wrong": 1,
+   "sent_to_agent": 15,
+   "sent_that_model_had_wrong": 8
+  },
+  {
+   "threshold": 0.95,
+   "kept": 1,
+   "kept_wrong": 1,
+   "sent_to_agent": 17,
+   "sent_that_model_had_wrong": 8
+  },
+  {
+   "threshold": 0.99,
+   "kept": 0,
+   "kept_wrong": 0,
+   "sent_to_agent": 18,
+   "sent_that_model_had_wrong": 9
+  }
+ ]
+}

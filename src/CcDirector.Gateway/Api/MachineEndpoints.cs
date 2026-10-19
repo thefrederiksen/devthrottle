@@ -497,10 +497,15 @@ internal static class MachineEndpoints
             // A SEAT START rides the same hook (Factory Definition mission, phase 5): the spawner refuses one for a
             // Director that does not build the kit, and asking it here as well is what makes that refusal a 409 the
             // caller acts on rather than the 502 of a machine that could not be reached.
+            //
+            // AN API-MODE CREATE rides it too (API mode mission, phase 6 review, finding 1): an older Director drops the
+            // connection mode and starts the terminal without a word, so it is refused first, by the same version rule.
             string? tooOld = null;
-            Func<string, string?>? refuseDirector = req.Factory is null && !req.CarriesSeatStartFields() ? null : directorId =>
-                tooOld = SpawnFactory.RefuseAtMachineDoor(req, directorId,
-                    directors is null ? null : id => directors.Get(tenant, id), spawner.RefuseSeatStart);
+            Func<string, DirectorDto?>? directorOf = directors is null ? null : id => directors.Get(tenant, id);
+            var asksApiMode = req.ConnectionMode == ConnectionModes.Api;
+            Func<string, string?>? refuseDirector = req.Factory is null && !req.CarriesSeatStartFields() && !asksApiMode ? null : directorId =>
+                tooOld = ConnectionChoiceFold.DirectorCannotCarry(req, directorId, directorOf)
+                         ?? SpawnFactory.RefuseAtMachineDoor(req, directorId, directorOf, spawner.RefuseSeatStart);
 
             var spawned = await spawner.SpawnOnMachineWithOutcomeAsync(machine, req, ct, refuseDirector);
             var (ok, dto, error) = (spawned.Ok, spawned.Dto, spawned.Error);

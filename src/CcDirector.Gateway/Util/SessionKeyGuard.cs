@@ -464,6 +464,7 @@ public static class SessionKeyGuard
             if (IsFactoryBriefRoute(verb, s)) return true;
             if (IsFactoryDefinitionRoute(verb, s)) return true;
             if (IsFactoryRecordRoute(verb, s)) return true;
+            if (IsMailDeskRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -660,6 +661,7 @@ public static class SessionKeyGuard
             if (IsFactoryBriefRoute(verb, s)) return true;
             if (IsFactoryDefinitionRoute(verb, s)) return true;
             if (IsFactoryRecordRoute(verb, s)) return true;
+            if (IsMailDeskRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -689,6 +691,7 @@ public static class SessionKeyGuard
             if (IsFactoryBriefRoute(verb, s)) return true;
             if (IsFactoryDefinitionRoute(verb, s)) return true;
             if (IsFactoryRecordRoute(verb, s)) return true;
+            if (IsMailDeskRoute(verb, s)) return true;
 
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
@@ -1318,6 +1321,35 @@ public static class SessionKeyGuard
         if (s.Length == 4 && s[2] == "check-state" && s[3] == "reset") return verb == "POST";
 
         return false;
+    }
+
+    /// <summary>
+    /// THE MAIL DESK (Mail Desk mission, phase 1 contract, section 4). Allowed to every session key, because the route
+    /// itself decides who may act: every session reads; any session may change the rules (D7: "freely, every change
+    /// recorded"); a session in no factory may add and remove a channel and switch its mode, and a factory's own session
+    /// is refused those by the route, in words. Every route also answers 404 for an account Mail Desk is off for.
+    /// </summary>
+    private static bool IsMailDeskRoute(string verb, string[] s)
+    {
+        if (s.Length < 3 || s[0] != "gateway" || s[1] != "mail-desk") return false;
+        var read = verb is "GET" or "HEAD";
+        var write = verb == "POST";
+        return s.Length switch
+        {
+            // /status and /decisions are reads; /channels is read and added to; /rules is a read.
+            3 => s[2] switch
+            {
+                "status" or "decisions" or "rules" => read,
+                "channels" => read || write,
+                _ => false,
+            },
+            // /channels/remove, /channels/mode; /rules/history.
+            4 when s[2] == "channels" => write && s[3] is "remove" or "mode",
+            4 when s[2] == "rules" => read && s[3] == "history",
+            // /rules/{list}/add and /rules/{list}/remove - an unknown list is refused by the route, in words.
+            5 when s[2] == "rules" => write && s[4] is "add" or "remove",
+            _ => false,
+        };
     }
 
     private static bool IsScheduleRoute(string verb, string[] s)

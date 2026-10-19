@@ -1,6 +1,8 @@
 using System.Text;
 using CcDirector.ControlApi;
+using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Memory;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
@@ -76,6 +78,80 @@ public sealed class DirectorStreamProducersTests
             Assert.All(frames, f => Assert.Equal("term-1", f.StreamId));
         }
         finally { sm.Dispose(); }
+    }
+
+    /// <summary>
+    /// A backend whose terminal comes and goes, as an API-mode session's does with the wheel: each take is a new buffer
+    /// counting its bytes from zero, and a hand back leaves none.
+    /// </summary>
+    private sealed class WheelTerminalBackend : ISessionBackend
+    {
+        public int ProcessId => 0;
+        public string Status => "Wheel terminal";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer { get; set; } = new CircularTerminalBuffer(65536);
+#pragma warning disable CS0067
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) => Buffer?.Write(data);
+        public Task SendTextAsync(string text) => Task.CompletedTask;
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    private static async Task<DirectorStreamFrame> NextBinaryAsync(IAsyncEnumerator<DirectorStreamFrame> frames)
+    {
+        while (true)
+        {
+            Assert.True(await frames.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)), "the stream ended early");
+            if (frames.Current.Kind == DirectorStreamFrameType.Binary)
+                return frames.Current;
+        }
+    }
+
+    [Fact]
+    public async Task ProduceTerminal_TakeHandBackTakeAgain_StreamsTheSecondTerminalFromItsFirstByte()
+    {
+        // Arrange: the first terminal has written more than the second ever will, which is what hid the second one.
+        var sm = new SessionManager(new AgentOptions());
+        var backend = new WheelTerminalBackend();
+        var session = sm.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var first = Encoding.UTF8.GetBytes("the first terminal drew a long screen of text\r\n");
+        var second = Encoding.UTF8.GetBytes("pi two\r\n");
+        var frames = DirectorStreamProducers.ProduceTerminalAsync(sm, session.Id, "term-wheel", timeout.Token).GetAsyncEnumerator(timeout.Token);
+        try
+        {
+            await NextBinaryAsync(frames); // the opening snapshot of the first terminal's screen
+            backend.Write(first);
+            Assert.Equal(first, (await NextBinaryAsync(frames)).Data);
+
+            // Act 1: hand back - no terminal at all.
+            backend.Buffer = null;
+            var ended = await NextBinaryAsync(frames);
+
+            // Act 2: take the wheel again - a new terminal, counting from zero.
+            backend.Buffer = new CircularTerminalBuffer(65536);
+            backend.Write(second);
+            var cleared = await NextBinaryAsync(frames);
+            var drawn = await NextBinaryAsync(frames);
+
+            // Assert: the dead screen is cleared with a word, and the second terminal arrives whole, from its first byte.
+            Assert.Equal(DirectorStreamProducers.TerminalEndedScreen, ended.Data);
+            Assert.Contains("The terminal has ended.", Encoding.UTF8.GetString(ended.Data!));
+            Assert.Equal(DirectorStreamProducers.ClearScreen, cleared.Data);
+            Assert.Equal(second, drawn.Data);
+        }
+        finally
+        {
+            await frames.DisposeAsync();
+            sm.Dispose();
+        }
     }
 
     [Fact]

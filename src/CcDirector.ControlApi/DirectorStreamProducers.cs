@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.ControlApi;
@@ -36,6 +37,9 @@ internal static class DirectorStreamProducers
             yield break;
         }
 
+        // The terminal the snapshot is of. An API-mode session's terminal comes and goes with the wheel, and each new one
+        // is a different buffer counting its bytes from zero, so the cursor below belongs to this buffer and no other.
+        var streamedBuffer = session0.Buffer;
         var (snapshot, reflected, snapCols, snapRows) = session0.GetTerminalSnapshot();
         yield return Size(streamId, snapCols, snapRows);
         foreach (var chunk in Chunk(snapshot))
@@ -62,6 +66,22 @@ internal static class DirectorStreamProducers
             }
 
             var buffer = session.Buffer;
+            if (!ReferenceEquals(buffer, streamedBuffer))
+            {
+                // A DIFFERENT TERMINAL (phase 4 review, finding 1): the user handed back, or took the wheel again. The
+                // client's screen is the old terminal's, so it is cleared; a new terminal is then streamed from its first
+                // byte, which a cleared client replays exactly, and a terminal that went away leaves a sentence saying so.
+                FileLog.Write($"[DirectorStreamProducers] ProduceTerminalAsync: stream={streamId}, session={sessionId}: " +
+                              $"the terminal changed ({(buffer is null ? "none open now" : "a new one")}); clearing the client and restarting the cursor");
+                streamedBuffer = buffer;
+                cursor = 0;
+                lastCols = session.CurrentCols;
+                lastRows = session.CurrentRows;
+                yield return Size(streamId, lastCols, lastRows);
+                yield return Binary(streamId, buffer is null ? TerminalEndedScreen : ClearScreen);
+                continue;
+            }
+
             if (buffer is not null)
             {
                 var (data, newCursor) = buffer.GetWrittenSince(cursor);
@@ -116,6 +136,15 @@ internal static class DirectorStreamProducers
             yield return Binary(streamId, chunk);
         }
     }
+
+    /// <summary>A full reset of the client terminal, then a cleared screen and scrollback with the cursor home: the
+    /// blank terminal a new terminal's first byte is written to.</summary>
+    internal static readonly byte[] ClearScreen = System.Text.Encoding.ASCII.GetBytes("\u001bc\u001b[3J\u001b[2J\u001b[H");
+
+    /// <summary>What the client shows once the terminal it was showing has gone: a cleared screen and the Director's
+    /// sentence, so the dead terminal's last frame is never left looking typeable.</summary>
+    internal static readonly byte[] TerminalEndedScreen = System.Text.Encoding.UTF8.GetBytes(
+        "\u001bc\u001b[3J\u001b[2J\u001b[H\u001b[2m[The terminal has ended.]\u001b[0m\r\n");
 
     // Split a payload into bounded frames so no single Binary frame exceeds the cap. An empty payload yields
     // nothing (no empty frame), matching the old "if length > 0 send" behaviour.

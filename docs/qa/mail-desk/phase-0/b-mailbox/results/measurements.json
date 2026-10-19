@@ -1,0 +1,235 @@
+{
+  "mailbox": "email@devthrottle.com",
+  "measuredAt": "2026-10-18T14:39:04Z",
+  "inboxCountsBefore": {
+    "totalItemCount": 19,
+    "unreadItemCount": 4
+  },
+  "inboxCountsAfter": {
+    "totalItemCount": 19,
+    "unreadItemCount": 4
+  },
+  "inboxCountsUnchanged": true,
+  "inboxPaging": {
+    "pageSizeRequested": 50,
+    "pages": 1,
+    "messagesPerPage": [
+      19
+    ],
+    "secondsPerPage": [
+      0.03
+    ],
+    "secondsTotal": 0.03,
+    "messagesYielded": 19,
+    "stoppedBy": "end of folder",
+    "oldestYieldedDaysBack": 6.56,
+    "nextLinkKeptNewestFirstOrder": true
+  },
+  "inboxProbes": {
+    "top1000": {
+      "accepted": true,
+      "returned": 19,
+      "hasNextLink": false,
+      "seconds": 0.028
+    },
+    "top1001": {
+      "accepted": true,
+      "returned": 19,
+      "hasNextLink": false,
+      "seconds": 0.029
+    },
+    "filterReceivedSince30DaysWithOrderby": {
+      "accepted": true,
+      "firstPage": 19,
+      "hasNextLink": false
+    },
+    "filterReceivedSince30DaysOldestFirst": {
+      "accepted": true,
+      "firstPage": 19,
+      "hasNextLink": false
+    },
+    "inboxSmallPages": {
+      "pageSize": 5,
+      "pages": 4,
+      "messages": 19,
+      "distinctMessages": 19,
+      "repeatedAcrossPages": 0,
+      "newestFirstOrderKept": true,
+      "secondsTotal": 0.111
+    },
+    "sentSmallPages": {
+      "pageSize": 10,
+      "pages": 5,
+      "messages": 44,
+      "distinctMessages": 44,
+      "repeatedAcrossPages": 0,
+      "newestFirstOrderKept": true,
+      "secondsTotal": 0.162
+    }
+  },
+  "sentFolder": {
+    "pageSizeRequested": 100,
+    "pages": 1,
+    "messages": 44,
+    "cappedAt": null,
+    "oldestDaysBack": 122.8,
+    "distinctRecipientAddresses": 38,
+    "secondsTotal": 0.466
+  },
+  "knownSendersInInboxSample": 0,
+  "sizes": {
+    "messageIdLength": {
+      "n": 19,
+      "min": 152,
+      "median": 152,
+      "p90": 152,
+      "max": 152,
+      "mean": 152
+    },
+    "byPreviewLength": {
+      "200": {
+        "utf8": {
+          "recordBytesInContext": {
+            "n": 19,
+            "min": 425,
+            "median": 446,
+            "p90": 665,
+            "max": 680,
+            "mean": 521.8
+          },
+          "recordBytesEscapedInOutput": {
+            "n": 19,
+            "min": 469,
+            "median": 488,
+            "p90": 695,
+            "max": 710,
+            "mean": 558.2
+          },
+          "fitOneContextMedianRecord": 18,
+          "fitOneContextWorstRecord": 12,
+          "realBatchesOverSample": {
+            "batches": 2,
+            "lastBatchRemainder": 4,
+            "messagesPerFullBatch": {
+              "n": 1,
+              "min": 15,
+              "median": 15,
+              "p90": 15,
+              "max": 15,
+              "mean": 15
+            }
+          },
+          "bindingCapForWorstRecord": "context 8 KB"
+        },
+        "asciiEscaped": {
+          "recordBytesInContext": {
+            "n": 19,
+            "min": 425,
+            "median": 446,
+            "p90": 1028,
+            "max": 1049,
+            "mean": 662.3
+          },
+          "recordBytesEscapedInOutput": {
+            "n": 19,
+            "min": 469,
+            "median": 488,
+            "p90": 1179,
+            "max": 1202,
+            "mean": 744.1
+          },
+          "fitOneContextMedianRecord": 18,
+          "fitOneContextWorstRecord": 7,
+          "realBatchesOverSample": {
+            "batches": 2,
+            "lastBatchRemainder": 7,
+            "messagesPerFullBatch": {
+              "n": 1,
+              "min": 12,
+              "median": 12,
+              "p90": 12,
+              "max": 12,
+              "mean": 12
+            }
+          },
+          "bindingCapForWorstRecord": "context 8 KB"
+        }
+      },
+      "100": {
+        "utf8": {
+          "recordBytesInContext": {
+            "n": 19,
+            "min": 303,
+            "median": 346,
+            "p90": 395,
+            "max": 408,
+            "mean": 357.1
+          },
+          "recordBytesEscapedInOutput": {
+            "n": 19,
+            "min": 344,
+            "median": 378,
+            "p90": 425,
+            "max": 438,
+            "mean": 389.9
+          },
+          "fitOneContextMedianRecord": 23,
+          "fitOneContextWorstRecord": 19,
+          "realBatchesOverSample": {
+            "batches": 1,
+            "lastBatchRemainder": 19,
+            "messagesPerFullBatch": {
+              "n": 1,
+              "min": 19,
+              "median": 19,
+              "p90": 19,
+              "max": 19,
+              "mean": 19
+            }
+          },
+          "bindingCapForWorstRecord": "context 8 KB"
+        },
+        "asciiEscaped": {
+          "recordBytesInContext": {
+            "n": 19,
+            "min": 303,
+            "median": 346,
+            "p90": 503,
+            "max": 519,
+            "mean": 401.1
+          },
+          "recordBytesEscapedInOutput": {
+            "n": 19,
+            "min": 344,
+            "median": 378,
+            "p90": 569,
+            "max": 586,
+            "mean": 447.8
+          },
+          "fitOneContextMedianRecord": 23,
+          "fitOneContextWorstRecord": 15,
+          "realBatchesOverSample": {
+            "batches": 1,
+            "lastBatchRemainder": 19,
+            "messagesPerFullBatch": {
+              "n": 1,
+              "min": 19,
+              "median": 19,
+              "p90": 19,
+              "max": 19,
+              "mean": 19
+            }
+          },
+          "bindingCapForWorstRecord": "context 8 KB"
+        }
+      }
+    }
+  },
+  "caps": {
+    "contextBytes": 8192,
+    "outputBytes": 16384
+  },
+  "graphCalls": 17,
+  "throttledResponses": 0,
+  "secondsWholeRun": 0.982
+}

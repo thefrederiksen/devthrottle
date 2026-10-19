@@ -1,0 +1,139 @@
+{
+ "emails": 19,
+ "model": "fake",
+ "endpoint": "fake",
+ "spent_dollars": 0.002312,
+ "agree_person_or_spam": 10,
+ "agree_route": 5,
+ "confusion_person_or_spam": {
+  "person": {
+   "unsure": 2,
+   "spam": 7,
+   "person": 10
+  }
+ },
+ "confusion_route": {
+  "notification": {
+   "notification": 5,
+   "unsure": 9,
+   "citizenship": 3,
+   "devthrottle/mail-desk": 2
+  }
+ },
+ "thresholds_route": [
+  {
+   "threshold": 0.0,
+   "kept": 10,
+   "kept_wrong": 5,
+   "sent_to_agent": 9,
+   "sent_that_model_had_wrong": 9
+  },
+  {
+   "threshold": 0.5,
+   "kept": 10,
+   "kept_wrong": 5,
+   "sent_to_agent": 9,
+   "sent_that_model_had_wrong": 9
+  },
+  {
+   "threshold": 0.6,
+   "kept": 8,
+   "kept_wrong": 4,
+   "sent_to_agent": 11,
+   "sent_that_model_had_wrong": 10
+  },
+  {
+   "threshold": 0.7,
+   "kept": 5,
+   "kept_wrong": 3,
+   "sent_to_agent": 14,
+   "sent_that_model_had_wrong": 11
+  },
+  {
+   "threshold": 0.8,
+   "kept": 5,
+   "kept_wrong": 3,
+   "sent_to_agent": 14,
+   "sent_that_model_had_wrong": 11
+  },
+  {
+   "threshold": 0.9,
+   "kept": 4,
+   "kept_wrong": 3,
+   "sent_to_agent": 15,
+   "sent_that_model_had_wrong": 11
+  },
+  {
+   "threshold": 0.95,
+   "kept": 3,
+   "kept_wrong": 2,
+   "sent_to_agent": 16,
+   "sent_that_model_had_wrong": 12
+  },
+  {
+   "threshold": 0.99,
+   "kept": 1,
+   "kept_wrong": 1,
+   "sent_to_agent": 18,
+   "sent_that_model_had_wrong": 13
+  }
+ ],
+ "thresholds_person_or_spam": [
+  {
+   "threshold": 0.0,
+   "kept": 17,
+   "kept_wrong": 7,
+   "sent_to_agent": 2,
+   "sent_that_model_had_wrong": 2
+  },
+  {
+   "threshold": 0.5,
+   "kept": 17,
+   "kept_wrong": 7,
+   "sent_to_agent": 2,
+   "sent_that_model_had_wrong": 2
+  },
+  {
+   "threshold": 0.6,
+   "kept": 15,
+   "kept_wrong": 5,
+   "sent_to_agent": 4,
+   "sent_that_model_had_wrong": 4
+  },
+  {
+   "threshold": 0.7,
+   "kept": 13,
+   "kept_wrong": 4,
+   "sent_to_agent": 6,
+   "sent_that_model_had_wrong": 5
+  },
+  {
+   "threshold": 0.8,
+   "kept": 10,
+   "kept_wrong": 2,
+   "sent_to_agent": 9,
+   "sent_that_model_had_wrong": 7
+  },
+  {
+   "threshold": 0.9,
+   "kept": 6,
+   "kept_wrong": 2,
+   "sent_to_agent": 13,
+   "sent_that_model_had_wrong": 7
+  },
+  {
+   "threshold": 0.95,
+   "kept": 2,
+   "kept_wrong": 1,
+   "sent_to_agent": 17,
+   "sent_that_model_had_wrong": 8
+  },
+  {
+   "threshold": 0.99,
+   "kept": 0,
+   "kept_wrong": 0,
+   "sent_to_agent": 19,
+   "sent_that_model_had_wrong": 9
+  }
+ ]
+}

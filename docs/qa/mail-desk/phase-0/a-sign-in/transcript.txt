@@ -1,0 +1,774 @@
+# Mail Desk phase 0 proof (a), 2026-10-18T14:53:52Z, tree 85ade87ca, machine devlinux, Director PATH: ~/.local/bin + the live Director PATH
+
+# ~/.local/bin links BEFORE the run
+  agenteyes -> <home>/.local/lib/agenteyes/agenteyes
+  az -> <home>/.local/share/uv/tools/azure-cli/bin/az
+  az.bat -> <home>/.local/share/uv/tools/azure-cli/bin/az.bat
+  az.completion.sh -> <home>/.local/share/uv/tools/azure-cli/bin/az.completion.sh
+  azps.ps1 -> <home>/.local/share/uv/tools/azure-cli/bin/azps.ps1
+  browser-harness -> <home>/.local/share/cc-director/instances/default/harness-env/bin/browser-harness
+  cc-dev-reports -> <home>/.local/share/cc-director/pyenv/bin/cc-dev-reports
+  cc-devthrottle -> <home>/.local/share/cc-director/pyenv/bin/cc-devthrottle
+  cc-gmail -> <home>/.local/share/cc-director/pyenv/bin/cc-gmail
+  cc-html -> <home>/.local/share/cc-director/pyenv/bin/cc-html
+  cc-image -> <home>/.local/share/cc-director/pyenv/bin/cc-image
+  cc-outlook -> <home>/.local/share/cc-director/pyenv/bin/cc-outlook
+  cc-pdf -> <home>/.local/share/cc-director/pyenv/bin/cc-pdf
+  cc-secrets -> <home>/.local/share/cc-director/pyenv/bin/cc-secrets
+  cc-ship -> <home>/.local/share/cc-director/pyenv/bin/cc-ship
+  cc-vault -> <home>/.local/share/cc-director/pyenv/bin/cc-vault
+  cc-word -> <home>/.local/share/cc-director/pyenv/bin/cc-word
+  cc-worktrees -> <home>/.local/share/cc-director/pyenv/bin/cc-worktrees
+  claude -> <home>/.local/share/claude/versions/2.1.302
+  codex -> <home>/.local/share/node/bin/codex
+  node -> <home>/.local/share/node/bin/node
+  npm -> <home>/.local/share/node/bin/npm
+  npx -> <home>/.local/share/node/bin/npx
+  pi.symlink-bak-2026-10-18 -> <home>/.local/share/node/bin/pi
+  pwsh -> <home>/.local/share/powershell-7.4.11/pwsh
+
+# the saved sign-in BEFORE the run
+  <home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json
+  mtimeNs: 1792334796206589253
+  mtimeUtc: 2026-10-18T14:46:36.206589+00:00
+  bytes: 9559
+  mode: 0o600
+  sha256Prefix: 15adeb1b84d1
+
+# BEFORE the run: cc-outlook accounts list (exit 0; other accounts' rows left out)
+                                         Outlook Accounts                                          
++-------------------------------------------------------------------------------------------------+
+| Account                       | Nickname    | Default | Authenticated | Client ID               |
+| email@devthrottle.com         | devthrottle |         | Yes           | f575e3f4-8f62-4bfb-8... |
++-------------------------------------------------------------------------------------------------+
+
+# Gateway http://127.0.0.1:57239 built from this tree, storage root <rig>/gateway-root (empty for this run). The installed Director (pid 2328674, id 1e007867-fd8d-493c-98fe-99caab727be8, version 2.22.0) started with CC_DIRECTOR_ROOT=<rig>/director-root and HOME=<rig>/home, and joined it.
+
+# the test Director's instance registration
+{
+ "DirectorId": "1e007867-fd8d-493c-98fe-99caab727be8",
+ "Pid": 2328674,
+ "StartedAt": "2026-10-18T14:54:04.2719437Z",
+ "ControlEndpoint": "",
+ "MachineName": "devlinux",
+ "User": "<user>",
+ "DisplayName": "devlinux",
+ "Version": "2.22.0",
+ "Os": "",
+ "SchemaVersion": 1,
+ "LastSeen": null,
+ "TailnetEndpoint": null,
+ "EndpointUnreachableReason": null,
+ "Source": "file",
+ "StreamVerifiedAt": null,
+ "StreamVerifyError": null,
+ "AdvertisedEndpointState": null,
+ "AdvertisedEndpointCheckedAt": null,
+ "AdvertisedEndpointUnreachableSince": null,
+ "AdvertisedEndpointError": null,
+ "StoppedAtUtc": null
+}
+
+# the definition, as published (../definition; checks/sign_in_probe.py is committed beside this rig)
+  --- factory.yaml
+    factory: qa-mail-sign-in
+    title: QA Mail Sign-in
+    purpose: Proves a definition check finds and renews the saved mailbox sign-in
+    goalText: |
+      Prove the Mail Desk sign-in premise on a throwaway Gateway.
+    goalApprovedOn: 2026-10-18
+    bossSeat: boss
+    defaults:
+      machine: devlinux
+      agent: ClaudeCode
+      model: claude-sonnet-5-5
+
+  --- seats/boss.yaml
+    seat: boss
+    name: Boss
+    role: Boss
+    brief: |
+      Read the factory's problems.
+
+  --- seats/signin.yaml
+    seat: signin
+    name: Signin
+    role: Signin
+    brief: |
+      Never started: the check always counts nothing.
+    starts:
+      - every: 2m
+        check: checks/sign_in_probe.py
+        prompt: |
+          QA-MAIL-SIGN-IN. This prompt is never sent: the check always reports count 0.
+
+$ cc-devthrottle factory definition save qa-mail-sign-in --dir <rig>/definition --expected-version 0 --note "Mail Desk phase 0 proof (a): the sign-in probe" --json      (as the rig's person)
+{
+  "factory": "qa-mail-sign-in",
+  "version": 1,
+  "state": "draft",
+  "authorKind": "person",
+  "authorId": "device browser qa-browser",
+  "changeNote": "Mail Desk phase 0 proof (a): the sign-in probe",
+  "restoredFrom": null,
+  "writtenAtUtc": "2026-10-18T14:54:06.7657271Z",
+  "publishedAtUtc": null,
+  "publishedBy": null,
+  "publishedByKind": null,
+  "publishedByName": null,
+  "publishedByText": null,
+  "contentBytes": 10027,
+  "fileCount": 4,
+  "newestVersion": 1,
+  "publishedVersion": null,
+  "files": null,
+  "created": null,
+  "findings": [],
+  "changes": null,
+  "applied": null
+}
+[exit 0]
+
+$ cc-devthrottle factory definition publish qa-mail-sign-in --version 1 --replaces 0      (as the rig's person)
+Published: version 1 of the definition of qa-mail-sign-in. Version 1 is now the published definition.
+what changes: First publish: 9 factory settings set, 2 seats added, 1 start created, 1 check added.
+  factory qa-mail-sign-in
+  title QA Mail Sign-in
+  purpose Proves a definition check finds and renews the saved mailbox sign-in
+  goal text set: 1 line
+      + Prove the Mail Desk sign-in premise on a throwaway Gateway.
+  goalApprovedOn 2026-10-18
+  bossSeat boss
+  defaults.machine devlinux
+  defaults.agent ClaudeCode
+  defaults.model claude-sonnet-5-5
+  Seat Boss (boss) added.
+    role Boss
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    brief: 1 line
+      + Read the factory's problems.
+  Seat Signin (signin) added.
+    role Signin
+    machine devlinux (the factory's default)
+    agent ClaudeCode (the factory's default)
+    model claude-sonnet-5-5 (the factory's default)
+    brief: 1 line
+      + Never started: the check always counts nothing.
+  Signin: start created, Every 2 minutes.
+    check checks/sign_in_probe.py
+    prompt "QA-MAIL-SIGN-IN. This prompt is never sent: the check always reports count 0."
+  Check checks/sign_in_probe.py added: 210 lines.
+      + # /// script
+      + # requires-python = ">=3.10"
+      + # dependencies = ["msal>=1.28"]
+      + # ///
+      + """Mail Desk phase 0, proof (a): the sign-in premise, as a throwaway definition check.
+      + 
+      + Run by a Director from a PUBLISHED version of a factory definition, with every CC_ variable stripped from its
+      + environment. It proves, and writes as evidence into its memory file (CC_CHECK_STATE_FILE):
+      + 
+      + 1. which variable NAMES it saw (never a value), and where it looked for the saved cc-outlook sign-in of
+      +    email@devthrottle.com: once from the HOME variable (the control) and once from the operating system's account
+      +    record (pwd), which is the rule the real screen.py would follow;
+      + 2. that MSAL renews a token for https://graph.microsoft.com/Mail.ReadWrite SILENTLY from that saved sign-in (there is
+      +    no interactive or device-code sign-in anywhere in this file), and that one read-only GET works with it;
+      + 3. the names in the access token's "scp" claim, and whether Mail.Send is among them;
+      + 4. that the renewed cache is written back to the same file, owner-only, the way cc-outlook does it.
+      + 
+      + It prints {"count": 0}, so it never starts a session. Nothing secret is written anywhere: no token, no cache content,
+      + no message, no address other than the mailbox's own.
+      + 
+      + The only network calls are MSAL's own call to the sign-in service and GET requests to Microsoft Graph. Every Graph
+      + call goes through graph_get(), which refuses any method but GET and any host but graph.microsoft.com.
+      + """
+      + 
+      + import base64
+      + import json
+      + import os
+      + import sys
+      + import time
+      + import urllib.request
+      + from pathlib import Path
+      + 
+      + import msal
+      + 
+      + MAILBOX = "email@devthrottle.com"
+      + # cc-outlook's own Azure app and authority (tools/cc-outlook/src/auth.py and its saved profile for this mailbox).
+      + CLIENT_ID = "f575e3f4-8f62-4bfb-8f30-f776e55b51bd"
+      + AUTHORITY = "https://login.microsoftonline.com/common"
+      + SCOPE = "https://graph.microsoft.com/Mail.ReadWrite"
+      + GRAPH_HOST = "graph.microsoft.com"
+      + 
+      + 
+      + def cache_file_name(email):
+      +     """cc-outlook's own naming rule, copied from get_msal_token_path in tools/cc-outlook/src/auth.py (origin/main
+      +     d091f9083): safe_name = email.replace('@', '_').replace('.', '_'); the file is f'{safe_name}_msal.json'."""
+      +     safe_name = email.replace("@", "_").replace(".", "_")
+      +     return f"{safe_name}_msal.json"
+      + 
+      + 
+      + CACHE_NAME = cache_file_name(MAILBOX)
+      + 
+      + 
+      + class RefusedCall(Exception):
+      +     pass
+      + 
+      + 
+      + def graph_get(url, token):
+      +     """The one way this check talks to Microsoft Graph: GET, to graph.microsoft.com, nothing else."""
+      +     return graph_call("GET", url, token)
+      + 
+      + 
+      + def graph_call(method, url, token):
+      +     host = urllib.request.urlparse(url).hostname
+      +     if host != GRAPH_HOST:
+      +         raise RefusedCall(f"refused: {url} is not on {GRAPH_HOST}")
+      +     if method != "GET":
+      +         raise RefusedCall(f"refused: {method} is not allowed against {GRAPH_HOST}; this check only reads")
+      +     req = urllib.request.Request(url, method="GET", headers={"Authorization": f"Bearer {token}"})
+      +     with urllib.request.urlopen(req, timeout=30) as res:
+      +         return json.loads(res.read().decode("utf-8"))
+      + 
+      + 
+      + def director_base(home):
+      +     """The Director's per-user base folder under a given home, by the same platform rules as cc_storage._user_base,
+      +     minus every variable: Windows %LOCALAPPDATA%, macOS Application Support, Linux ~/.local/share."""
+      +     if os.name == "nt":
+      +         local = os.environ.get("LOCALAPPDATA")
+      +         return Path(local) / "cc-director" if local else Path(home) / "AppData" / "Local" / "cc-director"
+      +     if sys.platform == "darwin":
+      +         return Path(home) / "Library" / "Application Support" / "cc-director"
+      +     return Path(home) / ".local" / "share" / "cc-director"
+      + 
+      + 
+      + def account_record_home():
+      +     """The user's real home from the operating system's account record, never from HOME. On Windows (no pwd) the
+      +     base comes from LOCALAPPDATA, which is not a CC_ variable and so reaches a check."""
+      +     if os.name != "posix":
+      +         return os.path.expanduser("~")
+      +     import pwd
+      +     return pwd.getpwuid(os.getuid()).pw_dir
+      + 
+      + 
+      + def caches_under(home):
+      +     base = director_base(home)
+      +     return base, caches_in(base)
+      + 
+      + 
+      + def caches_in(base):
+      +     """Every saved sign-in of the mailbox under one Director base folder: instances/*/config/outlook/tokens/<name>.
+      +     Nowhere else - there is no fallback to ~/.cc-director."""
+      +     return sorted(Path(base).glob(f"instances/*/config/outlook/tokens/{CACHE_NAME}"))
+      + 
+      + 
+      + def find_sign_in(base):
+      +     """The one saved sign-in under `base`, or the reason there is not exactly one. Never picks one of several."""
+      +     found = caches_in(base)
+      +     if not found:
+      +         return None, (f"{MAILBOX} is not signed in on this machine (looked under {base}/instances/*/config/outlook/"
+      +                       f"tokens/{CACHE_NAME}, found none): run cc-outlook -a devthrottle auth")
+      +     if len(found) > 1:
+      +         return None, (f"{MAILBOX} is signed in more than once on this machine, so the check cannot tell which sign-in "
+      +                       f"to use: {', '.join(str(p) for p in found)}. Keep one: sign out of the others with cc-outlook")
+      +     return found[0], None
+      + 
+      + 
+      + def scp_names(access_token):
+      +     """Only the names in the token's scp claim. A token that is not a JSON Web Token is said to be so."""
+      +     parts = access_token.split(".")
+      +     if len(parts) != 3:
+      +         return None
+      +     payload = parts[1] + "=" * (-len(parts[1]) % 4)
+      +     claims = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8"))
+      +     return sorted(str(claims.get("scp", "")).split())
+      + 
+      + 
+      + def stat_of(path):
+      +     st = path.stat()
+      +     return {"mtimeNs": st.st_mtime_ns, "mtimeUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime)),
+      +             "mode": oct(st.st_mode & 0o777), "bytes": st.st_size}
+      + 
+      + 
+      + def main():
+      +     state_file = Path(os.environ["CC_CHECK_STATE_FILE"])
+      +     previous = state_file.read_text(encoding="utf-8").strip()
+      +     memory = json.loads(previous) if previous else {"runs": []}
+      +     run = {"run": len(memory["runs"]) + 1, "startedUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+      +     memory["runs"].append(run)
+      + 
+      +     names = sorted(os.environ)
+      +     run["variableNames"] = names
+      +     run["ccVariableNames"] = [n for n in names if n.startswith("CC_")]
+      + 
+      +     env_home = os.environ.get("HOME", "")
+      +     account_home = account_record_home()
+      +     control_base, control_found = caches_under(env_home) if env_home else (None, [])
+      +     real_base, real_found = caches_under(account_home)
+      +     run["homeVariable"] = env_home
+      +     run["accountRecordHome"] = account_home
+      +     run["controlFromHomeVariable"] = {"searched": str(control_base), "found": [str(p) for p in control_found]}
+      +     run["fromAccountRecord"] = {"searched": str(real_base), "found": [str(p) for p in real_found]}
+      + 
+      +     def fail(reason):
+      +         run["result"] = "failed: " + reason
+      +         state_file.write_text(json.dumps(memory, indent=1), encoding="utf-8")
+      +         print(reason, file=sys.stderr)
+      +         sys.exit(1)
+      + 
+      +     cache_path, why_not = find_sign_in(real_base)
+      +     if why_not:
+      +         fail(why_not)
+      +     run["cacheBefore"] = stat_of(cache_path)
+      + 
+      +     cache = msal.SerializableTokenCache()
+      +     cache.deserialize(cache_path.read_text(encoding="utf-8"))
+      +     app = msal.PublicClientApplication(client_id=CLIENT_ID, authority=AUTHORITY, token_cache=cache)
+      +     accounts = app.get_accounts(username=MAILBOX)
+      +     run["accountsInCache"] = len(accounts)
+      +     if not accounts:
+      +         fail(f"the saved sign-in at {cache_path} holds no account for {MAILBOX}: run cc-outlook -a devthrottle auth")
+      + 
+      +     # Silent only. force_refresh makes MSAL redeem the refresh token for a token minted for this one scope now.
+      +     result = app.acquire_token_silent([SCOPE], account=accounts[0], force_refresh=True)
+      +     if not result or "access_token" not in result:
+      +         error = (result or {}).get("error", "no token came back")
+      +         fail(f"the saved sign-in for {MAILBOX} could not be renewed silently ({error}): run cc-outlook -a devthrottle auth")
+      +     run["silentToken"] = "yes"
+      +     run["tokenSource"] = result.get("token_source", "")
+      + 
+      +     scp = scp_names(result["access_token"])
+      +     run["scp"] = scp if scp is not None else "the access token is not a JSON Web Token"
+      +     run["scpHasMailSend"] = bool(scp) and "Mail.Send" in scp
+      + 
+      +     inbox = graph_get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox?$select=totalItemCount", result["access_token"])
+      +     run["inboxTotalItemCount"] = inbox.get("totalItemCount")
+      + 
+      +     # The guard refuses what this check must never do; recorded so the transcript shows it is live, not just written.
+      +     refused = []
+      +     for method in ("POST", "PATCH", "DELETE", "PUT"):
+      +         try:
+      +             graph_call(method, "https://graph.microsoft.com/v1.0/me/messages", "unused")
+      +         except RefusedCall as exc:
+      +             refused.append(f"{method}: {exc}")
+      +     run["guardRefused"] = refused
+      + 
+      +     # Written back exactly as cc-outlook does (MSALTokenBackend._save_cache): only when the state changed, to the same
+      +     # path, then owner-only on POSIX.
+      +     run["cacheStateChanged"] = cache.has_state_changed
+      +     if cache.has_state_changed:
+      +         cache_path.write_text(cache.serialize(), encoding="utf-8")
+      +         if os.name == "posix":
+      +             os.chmod(cache_path, 0o600)
+      +     run["cacheAfter"] = stat_of(cache_path)
+      +     run["result"] = "passed"
+      + 
+      +     state_file.write_text(json.dumps(memory, indent=1), encoding="utf-8")
+      +     print(json.dumps({"count": 0}))
+      + 
+      + 
+      + if __name__ == "__main__":
+      +     main()
+applied:
+  Definition: version 1 published.
+  Registry: qa-mail-sign-in registered from its definition, in no folder: each seat runs where the definition says.
+  Trigger qa-mail-sign-in-signin-start-1 created for seat signin: every 2 minutes, check checks/sign_in_probe.py, on devlinux.
+help[2]:
+  cc-devthrottle factory definition get qa-mail-sign-in
+  cc-devthrottle factory definition history qa-mail-sign-in
+[exit 0]
+
+$ cc-devthrottle trigger list      (as the rig's person)
+1 trigger(s):
+  qa-mail-sign-in-signin-start-1  [OK - waiting for the first check]  every 2m on devlinux  last check: - (-)
+help[2]:
+  cc-devthrottle trigger show <name>
+  cc-devthrottle trigger runs <name>
+[exit 0]
+
+# waiting for 3 recorded checks of the signin start (every two minutes)
+
+# every recorded check of the start's trigger (CheckedUtc, Outcome, Count, SessionId, Reason, DirectorId)
+  ('2026-10-18 14:54:36.297689', 'nothing-to-do', 0, None, None, '1e007867-fd8d-493c-98fe-99caab727be8')
+  ('2026-10-18 14:57:05.0573851', 'nothing-to-do', 0, None, None, '1e007867-fd8d-493c-98fe-99caab727be8')
+  ('2026-10-18 14:59:35.2397045', 'nothing-to-do', 0, None, None, '1e007867-fd8d-493c-98fe-99caab727be8')
+
+$ cc-devthrottle trigger runs c9b96330-5597-42d0-aabb-b8ed0a3ac472      (as the rig's person)
+3 most recent check(s) of c9b96330-5597-42d0-aabb-b8ed0a3ac472, newest first:
+  2026-10-18T14:59:35.2397045Z  nothing-to-do  count=0
+  2026-10-18T14:57:05.0573851Z  nothing-to-do  count=0
+  2026-10-18T14:54:36.297689Z  nothing-to-do  count=0
+help[1]:
+  cc-devthrottle trigger show "c9b96330-5597-42d0-aabb-b8ed0a3ac472"
+[exit 0]
+
+$ cc-devthrottle factory check-state show qa-mail-sign-in signin      (as the rig's person)
+count: 1
+states[1]{seat,start,name,check,ownerKey,written,by,state}:
+  signin,1,qa-mail-sign-in-signin-start-1,checks/sign_in_probe.py,trigger:c9b96330-5597-42d0-aabb-b8ed0a3ac472,2026-10-18T14:59:35.2560521Z,1e007867-fd8d-493c-98fe-99caab727be8,"{ \"runs\": [ { \"run\": 1, \"startedUtc\": \"2026-10-18T14:54:35Z\", \"variableNames\": [ \"AI_AGENT\", \"CC_CHECK_FACTORY\", \"CC_CHE..."
+help[2]:
+  cc-devthrottle factory check-state reset qa-mail-sign-in <seat> --start <start>
+  cc-devthrottle factory check-state show qa-mail-sign-in <seat> --json
+[exit 0]
+
+# the start's factory_check_state rows on the throwaway Gateway (Sequence, Bytes, WrittenUtc, WrittenBy)
+  (1, 2420, '2026-10-18 14:54:36.5364937', '1e007867-fd8d-493c-98fe-99caab727be8')
+  (2, 4824, '2026-10-18 14:57:05.0806684', '1e007867-fd8d-493c-98fe-99caab727be8')
+  (3, 7228, '2026-10-18 14:59:35.2560521', '1e007867-fd8d-493c-98fe-99caab727be8')
+
+# the evidence the check kept in its memory, read back from the throwaway Gateway (newest state row)
+{
+ "runs": [
+  {
+   "run": 1,
+   "startedUtc": "2026-10-18T14:54:35Z",
+   "variableNames": [
+    "AI_AGENT",
+    "CC_CHECK_FACTORY",
+    "CC_CHECK_SEAT",
+    "CC_CHECK_SECRET_VARS",
+    "CC_CHECK_STATE_FILE",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+    "COREPACK_ENABLE_AUTO_PIN",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "DISPLAY",
+    "GIO_LAUNCHED_DESKTOP_FILE",
+    "GIO_LAUNCHED_DESKTOP_FILE_PID",
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "NoDefaultCurrentDirectoryInExePath",
+    "OLDPWD",
+    "PATH",
+    "PWD",
+    "SHELL",
+    "SHLVL",
+    "SSH_CLIENT",
+    "SSH_CONNECTION",
+    "TERM",
+    "USER",
+    "UV",
+    "UV_RUN_RECURSION_DEPTH",
+    "VIRTUAL_ENV",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_CLASS",
+    "XDG_SESSION_ID",
+    "XDG_SESSION_TYPE",
+    "_"
+   ],
+   "ccVariableNames": [
+    "CC_CHECK_FACTORY",
+    "CC_CHECK_SEAT",
+    "CC_CHECK_SECRET_VARS",
+    "CC_CHECK_STATE_FILE"
+   ],
+   "homeVariable": "<rig>/home",
+   "accountRecordHome": "<home>",
+   "controlFromHomeVariable": {
+    "searched": "<rig>/home/.local/share/cc-director",
+    "found": []
+   },
+   "fromAccountRecord": {
+    "searched": "<home>/.local/share/cc-director",
+    "found": [
+     "<home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json"
+    ]
+   },
+   "cacheBefore": {
+    "mtimeNs": 1792334796206589253,
+    "mtimeUtc": "2026-10-18T14:46:36Z",
+    "mode": "0o600",
+    "bytes": 9559
+   },
+   "accountsInCache": 1,
+   "silentToken": "yes",
+   "tokenSource": "identity_provider",
+   "scp": [
+    "Calendars.ReadWrite",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "MailboxSettings.Read",
+    "User.Read",
+    "email",
+    "openid",
+    "profile"
+   ],
+   "scpHasMailSend": true,
+   "inboxTotalItemCount": 19,
+   "guardRefused": [
+    "POST: refused: POST is not allowed against graph.microsoft.com; this check only reads",
+    "PATCH: refused: PATCH is not allowed against graph.microsoft.com; this check only reads",
+    "DELETE: refused: DELETE is not allowed against graph.microsoft.com; this check only reads",
+    "PUT: refused: PUT is not allowed against graph.microsoft.com; this check only reads"
+   ],
+   "cacheStateChanged": true,
+   "cacheAfter": {
+    "mtimeNs": 1792335276183844769,
+    "mtimeUtc": "2026-10-18T14:54:36Z",
+    "mode": "0o600",
+    "bytes": 9562
+   },
+   "result": "passed"
+  },
+  {
+   "run": 2,
+   "startedUtc": "2026-10-18T14:57:04Z",
+   "variableNames": [
+    "AI_AGENT",
+    "CC_CHECK_FACTORY",
+    "CC_CHECK_SEAT",
+    "CC_CHECK_SECRET_VARS",
+    "CC_CHECK_STATE_FILE",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+    "COREPACK_ENABLE_AUTO_PIN",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "DISPLAY",
+    "GIO_LAUNCHED_DESKTOP_FILE",
+    "GIO_LAUNCHED_DESKTOP_FILE_PID",
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "NoDefaultCurrentDirectoryInExePath",
+    "OLDPWD",
+    "PATH",
+    "PWD",
+    "SHELL",
+    "SHLVL",
+    "SSH_CLIENT",
+    "SSH_CONNECTION",
+    "TERM",
+    "USER",
+    "UV",
+    "UV_RUN_RECURSION_DEPTH",
+    "VIRTUAL_ENV",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_CLASS",
+    "XDG_SESSION_ID",
+    "XDG_SESSION_TYPE",
+    "_"
+   ],
+   "ccVariableNames": [
+    "CC_CHECK_FACTORY",
+    "CC_CHECK_SEAT",
+    "CC_CHECK_SECRET_VARS",
+    "CC_CHECK_STATE_FILE"
+   ],
+   "homeVariable": "<rig>/home",
+   "accountRecordHome": "<home>",
+   "controlFromHomeVariable": {
+    "searched": "<rig>/home/.local/share/cc-director",
+    "found": []
+   },
+   "fromAccountRecord": {
+    "searched": "<home>/.local/share/cc-director",
+    "found": [
+     "<home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json"
+    ]
+   },
+   "cacheBefore": {
+    "mtimeNs": 1792335276183844769,
+    "mtimeUtc": "2026-10-18T14:54:36Z",
+    "mode": "0o600",
+    "bytes": 9562
+   },
+   "accountsInCache": 1,
+   "silentToken": "yes",
+   "tokenSource": "identity_provider",
+   "scp": [
+    "Calendars.ReadWrite",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "MailboxSettings.Read",
+    "User.Read",
+    "email",
+    "openid",
+    "profile"
+   ],
+   "scpHasMailSend": true,
+   "inboxTotalItemCount": 19,
+   "guardRefused": [
+    "POST: refused: POST is not allowed against graph.microsoft.com; this check only reads",
+    "PATCH: refused: PATCH is not allowed against graph.microsoft.com; this check only reads",
+    "DELETE: refused: DELETE is not allowed against graph.microsoft.com; this check only reads",
+    "PUT: refused: PUT is not allowed against graph.microsoft.com; this check only reads"
+   ],
+   "cacheStateChanged": true,
+   "cacheAfter": {
+    "mtimeNs": 1792335425015068163,
+    "mtimeUtc": "2026-10-18T14:57:05Z",
+    "mode": "0o600",
+    "bytes": 9560
+   },
+   "result": "passed"
+  },
+  {
+   "run": 3,
+   "startedUtc": "2026-10-18T14:59:34Z",
+   "variableNames": [
+    "AI_AGENT",
+    "CC_CHECK_FACTORY",
+    "CC_CHECK_SEAT",
+    "CC_CHECK_SECRET_VARS",
+    "CC_CHECK_STATE_FILE",
+    "CLAUDE_EFFORT",
+    "CLAUDE_PID",
+    "COREPACK_ENABLE_AUTO_PIN",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "DISPLAY",
+    "GIO_LAUNCHED_DESKTOP_FILE",
+    "GIO_LAUNCHED_DESKTOP_FILE_PID",
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "NoDefaultCurrentDirectoryInExePath",
+    "OLDPWD",
+    "PATH",
+    "PWD",
+    "SHELL",
+    "SHLVL",
+    "SSH_CLIENT",
+    "SSH_CONNECTION",
+    "TERM",
+    "USER",
+    "UV",
+    "UV_RUN_RECURSION_DEPTH",
+    "VIRTUAL_ENV",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_CLASS",
+    "XDG_SESSION_ID",
+    "XDG_SESSION_TYPE",
+    "_"
+   ],
+   "ccVariableNames": [
+    "CC_CHECK_FACTORY",
+    "CC_CHECK_SEAT",
+    "CC_CHECK_SECRET_VARS",
+    "CC_CHECK_STATE_FILE"
+   ],
+   "homeVariable": "<rig>/home",
+   "accountRecordHome": "<home>",
+   "controlFromHomeVariable": {
+    "searched": "<rig>/home/.local/share/cc-director",
+    "found": []
+   },
+   "fromAccountRecord": {
+    "searched": "<home>/.local/share/cc-director",
+    "found": [
+     "<home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json"
+    ]
+   },
+   "cacheBefore": {
+    "mtimeNs": 1792335425015068163,
+    "mtimeUtc": "2026-10-18T14:57:05Z",
+    "mode": "0o600",
+    "bytes": 9560
+   },
+   "accountsInCache": 1,
+   "silentToken": "yes",
+   "tokenSource": "identity_provider",
+   "scp": [
+    "Calendars.ReadWrite",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "MailboxSettings.Read",
+    "User.Read",
+    "email",
+    "openid",
+    "profile"
+   ],
+   "scpHasMailSend": true,
+   "inboxTotalItemCount": 19,
+   "guardRefused": [
+    "POST: refused: POST is not allowed against graph.microsoft.com; this check only reads",
+    "PATCH: refused: PATCH is not allowed against graph.microsoft.com; this check only reads",
+    "DELETE: refused: DELETE is not allowed against graph.microsoft.com; this check only reads",
+    "PUT: refused: PUT is not allowed against graph.microsoft.com; this check only reads"
+   ],
+   "cacheStateChanged": true,
+   "cacheAfter": {
+    "mtimeNs": 1792335575199304329,
+    "mtimeUtc": "2026-10-18T14:59:35Z",
+    "mode": "0o600",
+    "bytes": 9558
+   },
+   "result": "passed"
+  }
+ ]
+}
+
+# the check runs - the test Director's log, lines naming ('DefinitionCheckRunner', 'FindOnPath')
+  2026-10-18 10:54:07.420 [CheckProcesses] FindOnPath: name=uv, found=<home>/.local/bin/uv
+  2026-10-18 10:54:34.374 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, factory=qa-mail-sign-in, version=1, check=checks/sign_in_probe.py, secrets=0, due=-
+  2026-10-18 10:54:34.404 [DefinitionCheckRunner] downloaded: factory=qa-mail-sign-in, version=1, files=1, folder=<rig>/director-root/instances/default/factory-checks/qa-mail-sign-in/1
+  2026-10-18 10:54:34.414 [CheckProcesses] FindOnPath: name=uv, found=<home>/.local/bin/uv
+  2026-10-18 10:54:36.297 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, exit=0, timedOut=False, state=2420 chars
+  2026-10-18 10:57:04.300 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, factory=qa-mail-sign-in, version=1, check=checks/sign_in_probe.py, secrets=0, due=-
+  2026-10-18 10:57:04.300 [CheckProcesses] FindOnPath: name=uv, found=<home>/.local/bin/uv
+  2026-10-18 10:57:05.057 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, exit=0, timedOut=False, state=4824 chars
+  2026-10-18 10:59:34.299 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, factory=qa-mail-sign-in, version=1, check=checks/sign_in_probe.py, secrets=0, due=-
+  2026-10-18 10:59:34.300 [CheckProcesses] FindOnPath: name=uv, found=<home>/.local/bin/uv
+  2026-10-18 10:59:35.239 [DefinitionCheckRunner] RunAsync: trigger=qa-mail-sign-in-signin-start-1, exit=0, timedOut=False, state=7228 chars
+
+# the test Director asked to stop by its lifecycle request file
+  request: <rig>/director-root/config/lifecycle-signals/cc-director-shutdown-1e007867-fd8d-493c-98fe-99caab727be8.request
+  pid 2328674 exited: True (exit code 0)
+
+# processes still running from the rig folder after the stop
+  (none)
+
+# the saved sign-in AFTER the run
+  <home>/.local/share/cc-director/instances/default/config/outlook/tokens/email_devthrottle_com_msal.json
+  mtimeNs: 1792335575199304329
+  mtimeUtc: 2026-10-18T14:59:35.199304+00:00
+  bytes: 9558
+  mode: 0o600
+  sha256Prefix: 953004a86d51
+
+# AFTER the run: cc-outlook accounts list (exit 0; other accounts' rows left out)
+                                         Outlook Accounts                                          
++-------------------------------------------------------------------------------------------------+
+| Account                       | Nickname    | Default | Authenticated | Client ID               |
+| email@devthrottle.com         | devthrottle |         | Yes           | f575e3f4-8f62-4bfb-8... |
++-------------------------------------------------------------------------------------------------+
+
+# ~/.local/bin links AFTER the run
+  agenteyes -> <home>/.local/lib/agenteyes/agenteyes
+  az -> <home>/.local/share/uv/tools/azure-cli/bin/az
+  az.bat -> <home>/.local/share/uv/tools/azure-cli/bin/az.bat
+  az.completion.sh -> <home>/.local/share/uv/tools/azure-cli/bin/az.completion.sh
+  azps.ps1 -> <home>/.local/share/uv/tools/azure-cli/bin/azps.ps1
+  browser-harness -> <home>/.local/share/cc-director/instances/default/harness-env/bin/browser-harness
+  cc-dev-reports -> <home>/.local/share/cc-director/pyenv/bin/cc-dev-reports
+  cc-devthrottle -> <home>/.local/share/cc-director/pyenv/bin/cc-devthrottle
+  cc-gmail -> <home>/.local/share/cc-director/pyenv/bin/cc-gmail
+  cc-html -> <home>/.local/share/cc-director/pyenv/bin/cc-html
+  cc-image -> <home>/.local/share/cc-director/pyenv/bin/cc-image
+  cc-outlook -> <home>/.local/share/cc-director/pyenv/bin/cc-outlook
+  cc-pdf -> <home>/.local/share/cc-director/pyenv/bin/cc-pdf
+  cc-secrets -> <home>/.local/share/cc-director/pyenv/bin/cc-secrets
+  cc-ship -> <home>/.local/share/cc-director/pyenv/bin/cc-ship
+  cc-vault -> <home>/.local/share/cc-director/pyenv/bin/cc-vault
+  cc-word -> <home>/.local/share/cc-director/pyenv/bin/cc-word
+  cc-worktrees -> <home>/.local/share/cc-director/pyenv/bin/cc-worktrees
+  claude -> <home>/.local/share/claude/versions/2.1.302
+  codex -> <home>/.local/share/node/bin/codex
+  node -> <home>/.local/share/node/bin/node
+  npm -> <home>/.local/share/node/bin/npm
+  npx -> <home>/.local/share/node/bin/npx
+  pi.symlink-bak-2026-10-18 -> <home>/.local/share/node/bin/pi
+  pwsh -> <home>/.local/share/powershell-7.4.11/pwsh
+
+# ~/.local/bin unchanged by the run
+  True
+
+# summary of the saved sign-in
+  Authenticated before: True, after: True
+  modification time changed: True
+  hash prefix changed: True
+  mode after: 0o600
