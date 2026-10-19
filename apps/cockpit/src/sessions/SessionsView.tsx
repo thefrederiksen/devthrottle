@@ -39,6 +39,9 @@ function initialView(): RosterView {
 /** The selected session, for the detail region to read (driver capabilities, name, hold state). */
 export interface SessionsOutletContext {
   sessions: SessionDto[] | null;
+  /** The roster read's failure, as the banner shows it, or null. With `sessions` null it tells "not answered yet"
+   *  (null) from "the read failed" (a sentence): the store keeps no rows after a failed first read. */
+  rosterError: string | null;
   /** Per-Director reachability for the Online / Wobbly / Offline rendering (issue #1215). */
   directors: DirectorReachability[];
   /** Re-read the roster now instead of at the next poll: a control whose press changed the session's verdict
@@ -132,7 +135,7 @@ export function SessionsView() {
     [refreshNow, navigate, location.search],
   );
 
-  const context: SessionsOutletContext = { sessions, directors, refreshNow };
+  const context: SessionsOutletContext = { sessions, rosterError: error, directors, refreshNow };
 
   // Requests to talk to another session (issue #3631) are read once here and shown on the session that asked - its
   // roster card and its header - never as a band above the detail. Secret transfers waiting for the owner (issue

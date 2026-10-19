@@ -8,7 +8,10 @@
 //   - a new item takes its place at the end, in the order items ARRIVE - never sorted by sequence, which starts again
 //     with every Director generation.
 // A reset means what is held must not be continued: everything is let go, the Gateway's own sentence is kept to show,
-// and the items that follow (the stored receipts first) build the view again.
+// and the opening that follows builds the view again.
+// The OPENING - the first frame of a stream opened with no cursor (#4200) - is the session's whole stored conversation,
+// so it replaces what is held rather than being applied onto it: an item the Gateway has since let go does not linger,
+// and the opening's own order ("earlier conversation is not kept" first) is the order shown.
 //
 // Pure functions over immutable state, so React sees a new object for every change and a test needs no DOM.
 import { LIVE_ITEM_MODES, type ApiModeLiveItem, type ApiModeLiveReset } from "./liveTypes";
@@ -81,6 +84,11 @@ export function applyItems(state: LiveConversation, items: readonly ApiModeLiveI
     entries[at] = entryOf(item, text);
   }
   return { entries, reset: state.reset };
+}
+
+/** The opening of a stream: the whole conversation, in place of everything held. A reset's sentence stays. */
+export function applyOpening(state: LiveConversation, items: readonly ApiModeLiveItem[]): LiveConversation {
+  return applyItems({ entries: [], reset: state.reset }, items);
 }
 
 /** The Gateway said the view cannot be continued: let everything go and keep its sentence. */
