@@ -20,6 +20,40 @@ on Linux, once #4200, #4209 and phase 3 part B are on main, and on Windows (SORE
 arranges. Two earlier dry runs passed every step too; their evidence is
 not kept (one of them is the run that changed the user's tool links, below). All of them are in `spend.md`.
 
+## The QA run, and the report
+
+The QA report (section 7 in full) is built from one recorded run per platform:
+
+- **Linux, on devlinux:** from a clean worktree of the ref the Delivery Lead names,
+  `pwsh -NoProfile -File scripts/prove-api-mode-pi.ps1`. No `-SkipBuild`: the Gateway is built with the Cockpit and the
+  phone app (`-p:BuildCockpit=true -p:BuildMobile=true`) and the Director is built fresh.
+- **Windows, on SOREN_NORTH:** a runner seat follows `windows-runner-brief.md` in this folder.
+- **The report:** `pwsh -File scripts/build-api-mode-qa-report.ps1 -Runs <linux folder>,<windows folder> -Out
+  docs/missions/api-mode-pi-2026-10-16/proofs/phase-6/qa-report.html`. It writes one self-contained HTML file in the
+  dev report shape (checked with the Gateway's own `DevReportShapeCheck`), with every screenshot embedded, the checks
+  per platform with their evidence, the failure cases proven by unit tests, the findings from `qa-findings.txt`, and an
+  evidence section saying what is NOT proven. A platform with no run is reported as not proven, and the status is
+  `agent-working` until both platforms have a run with every check passing.
+
+**The screens** (section 7, item 4) are taken by `scripts/prove-api-mode-pi-screens.mjs`, which the proof script calls
+at the moment each screen exists. They are the real Cockpit (1440 by 900) and phone app (390 by 844) that the test
+Gateway serves, driven by headless Chrome through `playwright-core` (installed into the rig; it downloads no browser),
+signed in with the test Gateway's own token. Each is a picture and the page's accessibility tree, and each is checked
+for the words its state shows before it is taken:
+
+| Screen | Taken when | Must show |
+|---|---|---|
+| `new-session-api-mode` | after the session starts; nothing is submitted | the Connection row, with API mode pressed |
+| `chat-tool-card` | after the bash tool's turn | `TOOL-OK` |
+| `chat-midturn` | while the long prompt's turn runs (the prompt is sent once both pages are open, and Stop waits for the picture) | `Working - turn` |
+| `chat-after-stop` | after Stop | `stopped` |
+| `terminal-before-take` | before taking the wheel | `Take the wheel` |
+| `terminal-after-take` | after taking the wheel | `Hand back` |
+
+On Windows the desktop Director's New Session dialog and Terminal tab (before and after taking the wheel) are dumped
+through UI Automation, the API `scripts/ui-drive.ps1` uses, and photographed. On Linux there is no accessibility reader
+for the desktop, so those are not taken and the summary says so. The desktop has no API-mode Chat screen at all.
+
 ## Which Gateway
 
 The flow must reach a Gateway that has the API-mode code and the switch on, and the hosted Gateway only gets it at

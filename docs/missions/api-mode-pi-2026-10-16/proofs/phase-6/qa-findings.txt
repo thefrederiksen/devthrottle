@@ -1,0 +1,17 @@
+The Cockpit's composer says "Working" with a Stop button while an API-mode session is idle.
+Seen on the Terminal tab of a session the Gateway itself labelled "Idle - no turn yet" (19 October dry run, before phase 3 part B). The Gateway's own status line beside it was right; the composer's state is read elsewhere.
+
+Mid-turn, the Cockpit's Chat showed the receipt but not the streaming reply, while the phone streamed it.
+Seen in the 19 October dry run, before phase 3 part B was merged; the reply appeared in the Cockpit once the turn ended. The recorded run says whether it still happens.
+
+Both clients join a reply's lines into one paragraph.
+"Write the numbers from 1 to 600, one per line" shows as "1 2 3 ..." in the Cockpit and the phone; the reply Pi sent has a line per number.
+
+cc-devthrottle session prompt says "Held: ... may already be in" for a prompt API mode queued because the user has the wheel.
+The receipt already says "Queued, 1st in line: you have the wheel"; the command's words do not say what the Gateway knows.
+
+cc-devthrottle has no command for receipts, the live items, the wheel, Stop or typing into the terminal.
+The proof calls the Gateway's routes for those; the Delivery Lead has taken the missing commands as follow-up work outside this mission.
+
+A test Director on a scratch storage root used to relink the user's real ~/.local/bin.
+Found in the first dry run on devlinux; fixed in the product by #4211, and the proof script also gives its test Director a home folder of its own and checks the links after every run.

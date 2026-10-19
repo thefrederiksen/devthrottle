@@ -68,6 +68,26 @@
 .PARAMETER Python
     The Python that runs cc-devthrottle. Default: the cc-* tools' own Python on this machine.
 
+.PARAMETER NoScreens
+    Skip the screens (section 7, item 4). By default the run photographs, and dumps the accessibility tree of, the
+    Cockpit and the phone app (served by the test Gateway, so the Gateway is built with both web apps) at the moments
+    each screen exists: New Session with API mode, the Chat tab with a tool card, the Chat tab mid-turn, and the
+    Terminal tab before and after taking the wheel. On Windows it also dumps the desktop Director's New Session dialog
+    and Terminal tab through UI Automation. The desktop has no accessibility reader on Linux, so there it is skipped
+    and the summary says so.
+
+.PARAMETER Chrome
+    The Chrome the screens are taken with. Default: the usual install path for the platform.
+
+.PARAMETER PlaywrightDir
+    A folder whose node_modules holds playwright-core. Default: playwright-core 1.58.2 is installed into the rig
+    (it downloads no browser; it drives -Chrome).
+
+.PARAMETER RigRoot
+    The folder the run's scratch folder is made in. Default: the system temporary folder. The screens show the rig's
+    work folder, and pictures cannot be scrubbed, so on Windows, where the temporary folder holds the user's name,
+    pass a short folder such as C:\apiproof.
+
 .PARAMETER KeepRig
     Keep the scratch storage root, logs and work folder after the run. By default the script deletes the one
     folder it created for this run, once the test Director and Gateway have stopped.
@@ -81,7 +101,11 @@ param(
     [int]$GatewayPort = 7995,
     [switch]$SkipBuild,
     [string]$Python,
-    [switch]$KeepRig
+    [switch]$KeepRig,
+    [switch]$NoScreens,
+    [string]$Chrome,
+    [string]$PlaywrightDir,
+    [string]$RigRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -91,7 +115,7 @@ $started = Get-Date
 $stamp = $started.ToUniversalTime().ToString('yyyyMMdd-HHmmss')
 $osWord = if ($IsWindows) { 'windows' } elseif ($IsLinux) { 'linux' } else { 'other' }
 if (-not $OutDir) { $OutDir = Join-Path $repo "docs/missions/api-mode-pi-2026-10-16/proofs/phase-6/$osWord-$stamp" }
-$rig = Join-Path ([System.IO.Path]::GetTempPath()) "api-mode-pi-proof-$stamp"
+$rig = Join-Path $(if ($RigRoot) { $RigRoot } else { [System.IO.Path]::GetTempPath() }) "api-mode-pi-proof-$stamp"
 $root = Join-Path $rig 'root'
 $work = Join-Path $rig 'work'
 $logs = Join-Path $rig 'logs'
@@ -131,6 +155,9 @@ $gatewayProcess = $null
 $directorPid = 0
 $directorId = $null
 $sessionsToStop = [System.Collections.Generic.List[string]]::new()
+$screens = [System.Collections.Generic.List[object]]::new()
+$screensDir = Join-Path $OutDir 'screens'
+$node = $null
 
 function Say([string]$Message) { Write-Host "[prove-api-mode-pi] $Message" }
 
@@ -331,7 +358,9 @@ function Resolve-Pi {
 function Build-Rig {
     if ($SkipBuild) { Say 'skipping the build: using what this tree already built'; return }
     Say 'building the Gateway from this tree'
-    & dotnet build (Join-Path $repo 'src/CcDirector.Gateway') -c Debug --nologo -v q
+    # With both web apps when the screens are taken, so the test Gateway serves the real Cockpit and phone app.
+    $webApps = if ($NoScreens) { @() } else { @('-p:BuildCockpit=true', '-p:BuildMobile=true') }
+    & dotnet build (Join-Path $repo 'src/CcDirector.Gateway') -c Debug --nologo -v q @webApps
     if ($LASTEXITCODE -ne 0) { Stop-Setup 'the Gateway did not build' }
     Say "building the slot-$Slot Director from this tree"
     if ($IsWindows) {
@@ -396,10 +425,15 @@ function Start-TestDirector([string]$PiPath) {
     if ($IsWindows) {
         # Task Scheduler, never this process tree (CLAUDE.md rule 0b). The task sets the root and starts the Director.
         $taskName = "cc-director$Slot-launch"
+        # Never replace a task that is not this script's: the user may have registered one by this name.
+        $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($existing -and $existing.Description -ne 'API mode proof test Director') {
+            Stop-Setup "a scheduled task named $taskName already exists and was not made by this script; it is left alone - remove or rename it, then run again"
+        }
         $command = "`$env:CC_DIRECTOR_ROOT = '$root'; & '$exe'"
         $action = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument "-NoProfile -WindowStyle Hidden -Command `"$command`"" -WorkingDirectory (Split-Path $exe)
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)
-        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force | Out-Null
+        Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description 'API mode proof test Director' -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
     } else {
         # A HOME of its own. A Director on a fresh root repairs its cc-* tools at start-up, and on Linux and macOS
@@ -452,7 +486,10 @@ function Stop-TestDirector {
     $gone = Wait-For { -not (Get-Process -Id $directorPid -ErrorAction SilentlyContinue) } 60
     if ($sent -and $gone) { Add-Result 'Teardown: the test Director stopped on its named signal' $true "process $directorPid exited" }
     else { Add-Result 'Teardown: the test Director stopped on its named signal' $false "process $directorPid is still running; it was NOT killed - stop it by hand" }
-    if ($IsWindows) { Unregister-ScheduledTask -TaskName "cc-director$Slot-launch" -Confirm:$false -ErrorAction SilentlyContinue }
+    if ($IsWindows) {
+        $mine = Get-ScheduledTask -TaskName "cc-director$Slot-launch" -ErrorAction SilentlyContinue
+        if ($mine -and $mine.Description -eq 'API mode proof test Director') { Unregister-ScheduledTask -TaskName "cc-director$Slot-launch" -Confirm:$false }
+    }
 }
 
 function Stop-TestGateway {
@@ -474,6 +511,195 @@ function Get-UserBinLinks {
     $dir = Join-Path $HOME '.local/bin'
     if (-not (Test-Path $dir)) { return '' }
     (Get-ChildItem $dir | Where-Object { $_.LinkTarget } | Sort-Object Name | ForEach-Object { "$($_.Name) -> $($_.LinkTarget)" }) -join "`n"
+}
+
+# ----------------------------------------------------------------------------------------------- screens --
+
+function Initialize-Screens {
+    if ($NoScreens) { return }
+    $gatewayDir = Split-Path (Get-GatewayExe)
+    if (-not (Test-Path (Join-Path $gatewayDir 'wwwroot/c/index.html')) -or -not (Test-Path (Join-Path $gatewayDir 'wwwroot/mobile/index.html'))) {
+        Stop-Setup 'the test Gateway was built without the Cockpit and phone app; run without -SkipBuild, or pass -NoScreens'
+    }
+    $script:node = (Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if (-not $node) { Stop-Setup 'node is not on this PATH, so the screens cannot be taken; pass -NoScreens to skip them' }
+    if (-not $Chrome) {
+        $script:Chrome = if ($IsWindows) { Join-Path ${env:ProgramFiles} 'Google\Chrome\Application\chrome.exe' } else { '/opt/google/chrome/chrome' }
+    }
+    if (-not (Test-Path $Chrome)) { Stop-Setup "no Chrome at $Chrome; pass -Chrome or -NoScreens" }
+    if (-not $PlaywrightDir) {
+        $script:PlaywrightDir = Join-Path $rig 'playwright'
+        New-Item -ItemType Directory -Force -Path $PlaywrightDir | Out-Null
+        $npm = (Get-Command npm -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        if (-not $npm) { Stop-Setup 'npm is not on this PATH, so playwright-core cannot be installed; pass -PlaywrightDir' }
+        Say 'installing playwright-core 1.58.2 into the rig (no browser download)'
+        & $npm install --prefix $PlaywrightDir --silent --no-audit --no-fund playwright-core@1.58.2 | Out-Null
+        if ($LASTEXITCODE -ne 0) { Stop-Setup 'playwright-core did not install; pass -PlaywrightDir' }
+    }
+    New-Item -ItemType Directory -Force -Path $screensDir | Out-Null
+}
+
+# Start the screens script; with -Ready it runs in the background and the caller waits with Complete-WebScreens.
+function Start-WebScreens([string[]]$ScreenArgs, [switch]$Background) {
+    $env:GATEWAY_URL = $gatewayUrl; $env:GATEWAY_TOKEN = $token
+    $env:PLAYWRIGHT_DIR = $PlaywrightDir; $env:CHROME = $Chrome
+    $script = Join-Path $PSScriptRoot 'prove-api-mode-pi-screens.mjs'
+    $outFile = Join-Path $logs "screens-$([guid]::NewGuid().ToString('N')).out"
+    # Start-Process joins its arguments with spaces and quotes none of them, so "Working - turn" would arrive as three
+    # arguments and the screen would be checked for "Working" alone. Each one is quoted here.
+    $all = (@($script) + $ScreenArgs + @('--out', $screensDir) | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' }) -join ' '
+    $proc = Start-Process -FilePath $node -ArgumentList $all -PassThru -NoNewWindow `
+        -RedirectStandardOutput $outFile -RedirectStandardError "$outFile.err"
+    $job = [pscustomobject]@{ Process = $proc; OutFile = $outFile; Args = $ScreenArgs }
+    if ($Background) { return $job }
+    return Complete-WebScreens $job
+}
+
+function Complete-WebScreens($Job, [int]$Seconds = 180) {
+    if (-not $Job.Process.WaitForExit($Seconds * 1000)) { $Job.Process.Kill(); }
+    $lines = @(Get-Content $Job.OutFile -ErrorAction SilentlyContinue)
+    $parsed = $null
+    if ($lines.Count -gt 0) { try { $parsed = $lines[-1] | ConvertFrom-Json } catch { } }
+    if (-not $parsed) {
+        $err = (Get-Content "$($Job.OutFile).err" -Raw -ErrorAction SilentlyContinue)
+        Add-Result "Screen: $($Job.Args -join ' ')" $false "the screens script gave no result: $err"
+        return @()
+    }
+    foreach ($r in @($parsed)) {
+        $screens.Add([pscustomobject]@{ Name = $r.name; Surface = $r.surface; Ok = [bool]$r.ok; Detail = $r.detail
+            Png = "screens/$($r.name)-$($r.surface).png"; Aria = "screens/$($r.name)-$($r.surface).aria.txt" })
+        Add-Result "Screen: $($r.name) ($($r.surface))" ([bool]$r.ok) $r.detail
+    }
+    return @($parsed)
+}
+
+function Invoke-WebShot([string]$Name, [string]$Sid, [string]$Tab, [string]$Expect) {
+    if ($NoScreens) { return }
+    $null = Start-WebScreens @('shot', '--name', $Name, '--session', $Sid, '--tab', $Tab, '--expect', $Expect)
+}
+
+# ---- the desktop Director, on Windows only, through UI Automation (the same API scripts/ui-drive.ps1 drives) ----
+
+function Initialize-DesktopAutomation {
+    if ($script:uiaReady) { return }
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
+    $script:uiaReady = $true
+}
+
+function Get-DesktopWindows {
+    $cond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $directorPid)
+    @([System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $cond))
+}
+
+function Find-DesktopElement($Root, [string]$AutomationId) {
+    $cond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $AutomationId)
+    $Root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+}
+
+# Press an element whichever way it accepts: invoke, select, or toggle.
+function Invoke-DesktopElement($Element) {
+    foreach ($pattern in @([System.Windows.Automation.InvokePattern]::Pattern, [System.Windows.Automation.SelectionItemPattern]::Pattern, [System.Windows.Automation.TogglePattern]::Pattern)) {
+        $p = $null
+        if ($Element.TryGetCurrentPattern($pattern, [ref]$p)) {
+            if ($p -is [System.Windows.Automation.InvokePattern]) { $p.Invoke() }
+            elseif ($p -is [System.Windows.Automation.SelectionItemPattern]) { $p.Select() }
+            else { $p.Toggle() }
+            return
+        }
+    }
+    throw "element '$($Element.Current.Name)' [$($Element.Current.AutomationId)] cannot be pressed"
+}
+
+# The window's accessibility tree, one element per line: control type, name, automation id.
+function Write-DesktopTree($Element, [string]$Path) {
+    $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $visit = $null
+    $visit = {
+        param($e, $depth)
+        if ($depth -gt 40) { return }
+        $c = $e.Current
+        $lines.Add(('  ' * $depth) + "- $($c.ControlType.ProgrammaticName -replace '^ControlType\.', '') `"$($c.Name)`"" + $(if ($c.AutomationId) { " [$($c.AutomationId)]" } else { '' }))
+        $child = $walker.GetFirstChild($e)
+        while ($child) { & $visit $child ($depth + 1); $child = $walker.GetNextSibling($child) }
+    }
+    & $visit $Element 0
+    $lines | Set-Content -Path $Path -Encoding utf8
+    return ($lines -join "`n")
+}
+
+function Save-DesktopPicture($Element, [string]$Path) {
+    $r = $Element.Current.BoundingRectangle
+    $bitmap = [System.Drawing.Bitmap]::new([int]$r.Width, [int]$r.Height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try { $graphics.CopyFromScreen([int]$r.X, [int]$r.Y, 0, 0, $bitmap.Size); $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png) }
+    finally { $graphics.Dispose(); $bitmap.Dispose() }
+}
+
+# One desktop screen: $Prepare gets the main window and returns the element to dump (a window).
+function Invoke-DesktopShot([string]$Name, [string]$Expect, [scriptblock]$Prepare) {
+    if ($NoScreens -or -not $IsWindows) { return }
+    try {
+        Initialize-DesktopAutomation
+        $main = Wait-For { Get-DesktopWindows | Select-Object -First 1 } 30
+        if (-not $main) { throw 'the test Director has no window' }
+        $target = & $Prepare $main
+        Start-Sleep -Milliseconds 1500
+        $tree = Write-DesktopTree $target (Join-Path $screensDir "$Name-desktop.uia.txt")
+        Save-DesktopPicture $target (Join-Path $screensDir "$Name-desktop.png")
+        $ok = $tree -match [regex]::Escape($Expect)
+        $detail = if ($ok) { "showed `"$Expect`"" } else { "the window's tree has no `"$Expect`"" }
+    } catch {
+        $ok = $false; $detail = "could not be taken: $($_.Exception.Message)"
+    }
+    $screens.Add([pscustomobject]@{ Name = $Name; Surface = 'desktop'; Ok = $ok; Detail = $detail
+        Png = "screens/$Name-desktop.png"; Aria = "screens/$Name-desktop.uia.txt" })
+    Add-Result "Screen: $Name (desktop)" $ok $detail
+}
+
+# The desktop's session list and Terminal tab, for the one session the test Director holds.
+$DesktopTerminalTab = {
+    param($main)
+    $list = Find-DesktopElement $main 'SessionList'
+    if (-not $list) { throw 'no SessionList' }
+    $itemCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
+    $item = $list.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $itemCond)
+    if (-not $item) { throw 'no session in SessionList' }
+    Invoke-DesktopElement $item
+    Start-Sleep -Milliseconds 800
+    $tab = Find-DesktopElement $main 'TerminalTabButton'
+    if (-not $tab) { throw 'no TerminalTabButton' }
+    Invoke-DesktopElement $tab
+    return $main
+}
+
+# The desktop New Session dialog with Pi and API mode chosen; closed with Cancel, so nothing starts.
+$DesktopNewSession = {
+    param($main)
+    $button = Find-DesktopElement $main 'BtnNewSession'
+    if (-not $button) { throw 'no BtnNewSession' }
+    Invoke-DesktopElement $button
+    $dialog = Wait-For { Get-DesktopWindows | Where-Object { $_.Current.NativeWindowHandle -ne $main.Current.NativeWindowHandle } | Select-Object -First 1 } 20
+    if (-not $dialog) { throw 'the New Session dialog did not open' }
+    $agents = Find-DesktopElement $dialog 'AgentEntryList'
+    $nameCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
+    $pi = @($agents.FindAll([System.Windows.Automation.TreeScope]::Descendants, $nameCond)) | Where-Object { $_.Current.Name -match '\bPi\b' } | Select-Object -First 1
+    if ($pi) { Invoke-DesktopElement $pi; Start-Sleep -Milliseconds 500 }
+    $radio = Find-DesktopElement $dialog 'ConnectionApiRadio'
+    if (-not $radio) { throw 'no ConnectionApiRadio: the Connection row is not shown' }
+    Invoke-DesktopElement $radio
+    $script:desktopDialog = $dialog
+    return $dialog
+}
+
+function Close-DesktopDialog {
+    if (-not $script:desktopDialog) { return }
+    try {
+        $cond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Cancel')
+        $cancel = $script:desktopDialog.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+        if ($cancel) { Invoke-DesktopElement $cancel }
+    } catch { Say "the desktop New Session dialog could not be closed: $($_.Exception.Message)" }
+    $script:desktopDialog = $null
 }
 
 # ------------------------------------------------------------------------------------------------- spend --
@@ -515,6 +741,11 @@ function Invoke-Flow {
     Add-Result '1a. Spawn Pi with --connection api' ([bool]$connected) $(if ($connected) { "session $sid, connection api, $($connected.apiMode.agentLabel)" } else { 'the session never showed API mode with the agent connected' })
     if (-not $connected) { return }
 
+    # Screen: New Session with API mode chosen (nothing is submitted).
+    if (-not $NoScreens) { $null = Start-WebScreens @('newsession') }
+    Invoke-DesktopShot 'new-session-api-mode' 'API mode' $DesktopNewSession
+    Close-DesktopDialog
+
     $text = 'Reply with exactly the word PONG'
     $null = Send-Prompt $sid $text
     $receipt = Wait-TurnEnded $sid $text
@@ -530,10 +761,19 @@ function Invoke-Flow {
     $last = $cards | Select-Object -Last 1
     Add-Result '2. A bash tool: a tool card that finished' ($last -and $last.status -eq 'done') `
         "tool card '$($last.text)' statuses: $(($cards | ForEach-Object { $_.status }) -join ' -> '), input $($last.detail)"
+    Invoke-WebShot 'chat-tool-card' $sid 'chat' 'TOOL-OK'
 
-    # Step 3: a long prompt, then Stop; the turn ended cancelled.
-    $text = 'Write the numbers from 1 to 300, one per line, with no other text.'
+    # Step 3: a long prompt, then Stop; the turn ended cancelled. The mid-turn screen is opened first, the prompt is
+    # sent once both pages are ready, and Stop waits until the screen has been taken while the turn runs.
+    $text = 'Write the numbers from 1 to 600, one per line, with no other text.'
+    $midTurn = $null
+    if (-not $NoScreens) {
+        $ready = Join-Path $logs 'midturn.ready'
+        $midTurn = Start-WebScreens @('shot', '--name', 'chat-midturn', '--session', $sid, '--tab', 'chat', '--expect', 'Working - turn', '--ready', $ready, '--timeout', '60') -Background
+        $null = Wait-For { Test-Path $ready } 90 500
+    }
     $null = Send-Prompt $sid $text
+    if ($midTurn) { $null = Complete-WebScreens $midTurn 120 }
     $streaming = Wait-For {
         $r = Get-ReceiptFor $sid $text
         if ($r -and $r.turnId -and @(Get-Items $sid | Where-Object { $_.kind -eq 'replyText' -and $_.itemId.StartsWith("reply:$($r.turnId)-") }).Count -gt 0) { $r }
@@ -543,12 +783,18 @@ function Invoke-Flow {
     Add-Result '3. Stop: the turn ended cancelled' ($streaming -and $stop.Status -eq 200 -and $receipt.turnOutcome -eq 'cancelled') `
         "stop answered $($stop.Status); turn outcome $($receipt.turnOutcome) ($($receipt.turnOutcomeReason)), receipt '$($receipt.words)'"
 
+    Invoke-WebShot 'chat-after-stop' $sid 'chat' 'stopped'
+
     # Step 4: take the wheel, type the code word into the terminal, hand back, ask for it in API mode.
+    Invoke-WebShot 'terminal-before-take' $sid 'terminal' 'Take the wheel'
+    Invoke-DesktopShot 'terminal-before-take' 'Take the wheel' $DesktopTerminalTab
     $take = Invoke-Gateway POST "/sessions/$sid/wheel/take"
     $held = Wait-For { $row = Get-Row $sid; if ($row.wheelHolder -eq 'user') { $row } } 30
     # The terminal's Pi starts a moment after the holder changes; wait for it before counting.
     $piCount = Wait-For { $n = Get-PiProcessCount; if ($n -ge 1) { $n } } 20
     Add-Result '4a. Take the wheel' ($take.Status -eq 200 -and $held -and $piCount -eq 1) "answered $($take.Status); holder $($held.wheelHolder), button '$($held.apiMode.wheelAction.label)'; Pi processes $piCount"
+    Invoke-WebShot 'terminal-after-take' $sid 'terminal' 'Hand back'
+    Invoke-DesktopShot 'terminal-after-take' 'Hand back' $DesktopTerminalTab
 
     $again = Invoke-Gateway POST "/sessions/$sid/wheel/take"
     Add-Result 'Failure case: take the wheel twice - the second is refused' ($again.Status -ge 400 -and $again.Status -lt 500) `
@@ -623,6 +869,7 @@ try {
     Copy-Item -Recurse -Force (Join-Path $repo 'tools/cc-devthrottle/src') (Join-Path $importRoot 'cc_devthrottle')
     Copy-Item -Recurse -Force (Join-Path $repo 'tools/cc_shared') (Join-Path $importRoot 'cc_shared')
     Build-Rig
+    Initialize-Screens
     Start-TestGateway
     Start-TestDirector $piPath
     Invoke-Flow
@@ -653,11 +900,20 @@ try {
         Where-Object { $_ -match '\[PiDialect\]|\[ApiMode|\[PiApiMode|ApiModeWheel' }
     ($directorLog | ForEach-Object { Protect-Text $_ }) | Set-Content (Join-Path $OutDir 'director-pi.log') -Encoding utf8
     $wire | Set-Content (Join-Path $OutDir 'wire.jsonl') -Encoding utf8
+    # The accessibility dumps are text, so they are scrubbed like the rest; the pictures cannot be (see -RigRoot).
+    foreach ($dump in @(Get-ChildItem $screensDir -Filter *.txt -ErrorAction SilentlyContinue)) {
+        Protect-Text (Get-Content $dump.FullName -Raw) | Set-Content $dump.FullName -Encoding utf8 -NoNewline
+    }
+    # What this run did not take, said in words rather than left out.
+    $notTaken = [System.Collections.Generic.List[string]]::new()
+    if ($NoScreens) { $notTaken.Add('No screens: the run was made with -NoScreens.') }
+    elseif (-not $IsWindows) { $notTaken.Add('The desktop Director''s screens: Linux has no accessibility reader for the desktop here; the Windows run dumps them through UI Automation.') }
+    if (-not $NoScreens) { $notTaken.Add('The desktop Director''s Chat tab mid-turn: the desktop has no API-mode Chat screen to take; the Cockpit and phone shots are the Chat evidence.') }
 
     $failed = @($results | Where-Object { $_.Result -eq 'FAIL' }).Count
     if ($failed -gt 0 -and $exitCode -eq 0) { $exitCode = 1 }
     $t = $spend.Totals
-    $spendLine = "| $((Get-Date).ToString('yyyy-MM-dd')) | Developer, phase 6 | Proof run, $osWord ($stamp) | $($t.input + $spend.CutOffInput) | $($t.output + $spend.CutOffOutput) | $($t.cacheRead) | $($t.cacheWrite) | $($spend.Dollars) |"
+    $spendLine = "| $($started.ToUniversalTime().ToString('yyyy-MM-dd')) | Developer, phase 6 | Proof run, $osWord ($stamp) | $($t.input + $spend.CutOffInput) | $($t.output + $spend.CutOffOutput) | $($t.cacheRead) | $($t.cacheWrite) | $($spend.Dollars) |"
     @(
         "Pi tokens for this run, from Pi's own session files: input $($t.input), output $($t.output), cache read $($t.cacheRead), cache write $($t.cacheWrite).",
         "Replies Pi cut off (recorded as zero, estimated per spend.md): $($t.estimatedCutOff), estimated as $($spend.CutOffInput) input and $($spend.CutOffOutput) output tokens.",
@@ -678,10 +934,22 @@ try {
     $summary.Add('')
     $summary.Add('Proven by unit tests instead of this run:')
     foreach ($case in $UnitTestProven.Keys) { $summary.Add("  $case"); foreach ($test in $UnitTestProven[$case]) { $summary.Add("    $test") } }
+    if ($notTaken.Count -gt 0) { $summary.Add(''); $summary.Add('Not taken in this run:'); foreach ($n in $notTaken) { $summary.Add("  $n") } }
     $summary.Add('')
     $summary.Add("Spend: $($spend.Dollars) dollars estimated (spend.txt)")
     $summary.Add("Result: $(if ($exitCode -eq 0) { 'every step passed' } else { "$failed step(s) failed" })")
     ($summary | ForEach-Object { Protect-Text $_ }) | Set-Content (Join-Path $OutDir 'summary.txt') -Encoding utf8
+    # The same, machine-readable, for scripts/build-api-mode-qa-report.ps1.
+    $machine = [ordered]@{
+        platform = $osWord; startedUtc = $started.ToUniversalTime().ToString('o'); stamp = $stamp
+        commit = (git -C $repo rev-parse HEAD); tree = $treeWords; pi = $piVersion
+        steps = @($results | ForEach-Object { [ordered]@{ step = $_.Step; result = $_.Result; detail = $_.Detail } })
+        screens = @($screens | ForEach-Object { [ordered]@{ name = $_.Name; surface = $_.Surface; ok = $_.Ok; detail = (Protect-Text $_.Detail); png = $_.Png; aria = $_.Aria } })
+        notTaken = @($notTaken)
+        unitTestProven = @($UnitTestProven.Keys | ForEach-Object { [ordered]@{ case = $_; tests = @($UnitTestProven[$_]) } })
+        spendDollars = $spend.Dollars; exitCode = $exitCode
+    }
+    Protect-Text ($machine | ConvertTo-Json -Depth 10) | Set-Content (Join-Path $OutDir 'results.json') -Encoding utf8
     Say "summary: $(Join-Path $OutDir 'summary.txt')"
     # Delete only the folder this run created, and only once nothing it started is still running in it.
     $directorGone = -not $directorPid -or -not (Get-Process -Id $directorPid -ErrorAction SilentlyContinue)
