@@ -984,7 +984,7 @@ public sealed class ApiModeLiveRulingTests
         RuleAll(ruling, new[] { Queued(1, "p1"), Queued(2, "p2"), Queued(3, "p3") });
 
         // Act
-        var items = ruling.Rule(Delivered(4, "p1", PlainAck));
+        var items = ruling.Rule(HeldA(Delivered(4, "p1", PlainAck)));
 
         // Assert: the delivery first, then each prompt still waiting, at its new place, under the delivery's sequence.
         Assert.Equal(new[]
@@ -1003,7 +1003,7 @@ public sealed class ApiModeLiveRulingTests
         RuleAll(ruling, new[] { Queued(1, "p1"), Queued(2, "p2") });
 
         // Act
-        var items = ruling.Rule(Refused(3, "p1", PiNotRunning, PromptRefusedBy.Director));
+        var items = ruling.Rule(HeldA(Refused(3, "p1", PiNotRunning, PromptRefusedBy.Director)));
 
         // Assert
         Assert.Equal(new[] { "Refused: " + PiNotRunning }, ReceiptWordsOf(items, "p1"));
@@ -1018,8 +1018,8 @@ public sealed class ApiModeLiveRulingTests
         RuleAll(ruling, new[] { Queued(1, "p1"), Queued(2, "p2") });
 
         // Act
-        var delivered = ruling.Rule(Delivered(3, "p3", PlainAck));
-        var turnEnded = ruling.Rule(Ended(4, "t9", TurnOutcome.Done, null, "stop"));
+        var delivered = ruling.Rule(HeldA(Delivered(3, "p3", PlainAck)));
+        var turnEnded = ruling.Rule(HeldA(Ended(4, "t9", TurnOutcome.Done, null, "stop")));
 
         // Assert: no place moved, so the changed-words check sends neither waiting receipt again.
         Assert.Equal(new[] { "receipt:p3" }, delivered.Select(i => i.ItemId));
