@@ -1,5 +1,6 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Contracts.ApiMode;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +36,13 @@ namespace CcDirector.Gateway.Receipts;
 ///    outcome onto exactly those receipts, once. The one exception is a turn whose end was lost in a hole between two
 ///    generations (<see cref="ApiModeLostTurnEnd"/>): on proof that it is over the Gateway rules it <c>lost</c>
 ///    (<see cref="RecordTurnOverProven"/>), and the turn's real <c>TurnEnded</c>, should it still arrive, replaces that.
+///  - A QUEUED PROMPT WHOSE ENDING WAS LOST (<see cref="ApiModeLostQueuedPrompt"/>). On proof that a later generation
+///    did not re-announce it, the Gateway rules it <see cref="ApiModeReceiptState.Unknown"/>
+///    (<see cref="RecordQueueLeftProven"/>), and likewise when its Director comes back as a new process
+///    (<see cref="RecordDirectorProcessStarted"/>); the prompt's next real event, whatever its sequence, replaces that.
+///    When the proof is a later turn's start that carries the prompt, its delivery's record was lost: it is ruled
+///    Unknown and linked to that turn (<see cref="ApiModeLostQueuedPrompt.CarriedWords"/>), never Delivered, since the
+///    Gateway holds no acknowledgement; the prompt's real <c>PromptDelivered</c> replaces that with a true Delivered.
 ///  - VERBATIM. The acknowledgement and the reasons are stored as received, never shortened or reworded; an oversized
 ///    one is refused whole rather than cut (<see cref="MaxVerbatimLength"/>). The prompt's own text is kept the same
 ///    way (<see cref="MaxPromptTextLength"/>): the first event that carries it sets it, and no later event blanks or
@@ -106,6 +114,16 @@ public sealed class ApiModeReceiptStore
                 }));
                 return "queued";
             }
+            if (IsUnknown(row))
+            {
+                if (!ReplacesUnknown(nameof(RecordQueued), row, position)) return null;
+                row.State = nameof(ApiModeReceiptState.Queued);
+                Unlink(row);
+                row.QueueReason = reason;
+                KeepPromptText(row, promptText);
+                TouchForward(row, position);
+                return "queued, replacing the Gateway's " + nameof(ApiModeReceiptState.Unknown) + " ruling";
+            }
             if (!IsNewer(position, row)) return null;
             if (row.State == nameof(ApiModeReceiptState.Refused))
             {
@@ -129,8 +147,9 @@ public sealed class ApiModeReceiptStore
 
     /// <summary>
     /// The agent acknowledged the prompt (<c>PromptDelivered</c>): the receipt. After a Refused receipt it is the retry's,
-    /// and it replaces the refusal; after a Delivered one it is a second ending, refused (rule 1). True when the store
-    /// changed.
+    /// and it replaces the refusal; after a Delivered one it is a second ending, refused (rule 1). After the Gateway's
+    /// Unknown ruling it is the true delivery, and replaces the ruling; a receipt a later turn carried keeps that turn
+    /// and its outcome. True when the store changed.
     /// </summary>
     /// <param name="promptText">The prompt's text, verbatim; null or empty when the event carried none.</param>
     public bool RecordDelivered(string directorId, string sessionId, string promptId, string disposition, string acknowledgement, ApiModeEventPosition position, DateTime atUtc, string? promptText = null)
@@ -155,6 +174,15 @@ public sealed class ApiModeReceiptStore
                     KeepPromptText(r, promptText);
                 }));
                 return "delivered (" + disposition + ")";
+            }
+            if (IsUnknown(row))
+            {
+                if (!ReplacesUnknown(nameof(RecordDelivered), row, position)) return null;
+                row.State = nameof(ApiModeReceiptState.Delivered);
+                Deliver(row, disposition, acknowledgement, at);
+                KeepPromptText(row, promptText);
+                TouchForward(row, position);
+                return "delivered (" + disposition + "), replacing the Gateway's " + nameof(ApiModeReceiptState.Unknown) + " ruling";
             }
             if (!IsNewer(position, row)) return null;
             if (row.State == nameof(ApiModeReceiptState.Refused))
@@ -206,6 +234,16 @@ public sealed class ApiModeReceiptStore
                     KeepPromptText(r, promptText);
                 }));
                 return "refused by " + refusedBy;
+            }
+            if (IsUnknown(row))
+            {
+                if (!ReplacesUnknown(nameof(RecordRefused), row, position)) return null;
+                row.State = nameof(ApiModeReceiptState.Refused);
+                Unlink(row);
+                Refuse(row, reason, refusedBy, at);
+                KeepPromptText(row, promptText);
+                TouchForward(row, position);
+                return "refused by " + refusedBy + ", replacing the Gateway's " + nameof(ApiModeReceiptState.Unknown) + " ruling";
             }
             if (!IsNewer(position, row)) return null;
             if (row.State == nameof(ApiModeReceiptState.Refused))
@@ -378,7 +416,7 @@ public sealed class ApiModeReceiptStore
     /// <summary>
     /// An event that proves every earlier turn of the session is over (<see cref="ApiModeLostTurnEnd.Proves"/>) arrived
     /// in a later generation than a turn's last event: that turn's <c>TurnEnded</c> fell in a hole and will never come.
-    /// Every Delivered receipt whose turn has no outcome - with its turn id, or with none when the turn's start was lost
+    /// Every Delivered receipt (and every receipt a later turn carried, <see cref="ApiModeLostQueuedPrompt.IsCarried"/>) whose turn has no outcome - with its turn id, or with none when the turn's start was lost
     /// too - other than <paramref name="continuing"/>'s own, is given the lost ending
     /// (<see cref="ApiModeLostTurnEnd.Outcome"/>) under <see cref="ApiModeLostTurnEnd.Applies"/>, the condition the live
     /// ruling applies too. Answers how many receipts changed.
@@ -410,13 +448,17 @@ public sealed class ApiModeReceiptStore
         using var ctx = _db.CreateContext();
         using var tx = ctx.Database.BeginTransaction();
         var delivered = nameof(ApiModeReceiptState.Delivered);
+        var unknown = nameof(ApiModeReceiptState.Unknown);
+        // A receipt a later turn carried is Unknown and linked to that turn (ApiModeLostQueuedPrompt.IsCarried); its turn
+        // ends like a delivered receipt's.
         var candidates = ctx.ApiModeReceipts
-            .Where(r => r.SessionId == sessionId && r.State == delivered && r.TurnOutcome == null)
+            .Where(r => r.SessionId == sessionId && r.TurnOutcome == null
+                        && (r.State == delivered || (r.State == unknown && r.TurnId != null)))
             .ToList();
         var changed = 0;
         foreach (var row in candidates)
         {
-            if (!ApiModeLostTurnEnd.Applies(position, continuing, row.PromptId, ApiModeReceiptState.Delivered, row.TurnId, row.TurnOutcome, row.LastGeneration, row.LastGenerationStartedUtc))
+            if (!ApiModeLostTurnEnd.Applies(position, continuing, row.PromptId, Enum.Parse<ApiModeReceiptState>(row.State), row.TurnId, row.TurnOutcome, row.LastGeneration, row.LastGenerationStartedUtc))
                 continue;
             FileLog.Write($"[ApiModeReceiptStore] RecordTurnOverProven session={sessionId} prompt={row.PromptId} turn={row.TurnId ?? "(its start was lost too)"}: its last event was at {row.LastGeneration}#{row.LastSequence} and {proof} proves the turn is over; its TurnEnded was lost when the Director reconnected, so the turn's ending is ruled {ApiModeLostTurnEnd.Outcome}");
             // No reason and no end time: how and when the turn ended is not known.
@@ -424,6 +466,125 @@ public sealed class ApiModeReceiptStore
             row.TurnOutcomeReason = null;
             row.TurnEndedAtUtc = null;
             Touch(row, position);
+            changed++;
+        }
+        ctx.SaveChanges();
+        tx.Commit();
+        return changed;
+    }
+
+    /// <summary>
+    /// An event that comes after every re-announcement of its generation (<see cref="ApiModeLostQueuedPrompt.Proves"/>)
+    /// arrived: every Queued receipt of the session whose last event is of an older generation was neither re-announced
+    /// nor ended, and is ruled <see cref="ApiModeReceiptState.Unknown"/> under
+    /// <see cref="ApiModeLostQueuedPrompt.Applies"/>, the condition the live ruling applies too. Everything else on the
+    /// receipt - its queue reason, its prompt's text - is kept. Answers how many receipts changed.
+    /// </summary>
+    /// <param name="provingEvent">The event that proved it: <see cref="ApiModeLostQueuedPrompt.Proves"/> must accept it.
+    /// The prompts it names are not ruled by the queue rule; a still-queued prompt its <c>TurnStarted</c> carries is ruled
+    /// Unknown, linked to that turn, and counted as changed (<see cref="ApiModeLostQueuedPrompt.IsCarriedBy"/>).</param>
+    /// <param name="proof">What proved it, for the log line.</param>
+    public int RecordQueueLeftProven(string directorId, string sessionId, SessionEvent provingEvent, string proof, ApiModeEventPosition position)
+    {
+        RequireId(directorId, nameof(directorId));
+        RequireId(sessionId, nameof(sessionId));
+        ArgumentNullException.ThrowIfNull(provingEvent);
+        if (!ApiModeLostQueuedPrompt.Proves(provingEvent, out var ownPromptIds))
+            throw new ArgumentException($"{provingEvent.GetType().Name} does not prove that a queue was left", nameof(provingEvent));
+        foreach (var promptId in ownPromptIds) RequireId(promptId, nameof(provingEvent));
+        ArgumentException.ThrowIfNullOrWhiteSpace(proof);
+        RequirePosition(position);
+
+        lock (_gate)
+        {
+            try { return ProveQueueLeftOnce(sessionId, provingEvent, ownPromptIds, proof, position); }
+            catch (DbUpdateException ex)
+            {
+                FileLog.Write($"[ApiModeReceiptStore] RecordQueueLeftProven session={sessionId}: write lost a race with another writer ({ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
+                return ProveQueueLeftOnce(sessionId, provingEvent, ownPromptIds, proof, position);
+            }
+        }
+    }
+
+    private int ProveQueueLeftOnce(string sessionId, SessionEvent provingEvent, IReadOnlyCollection<string> ownPromptIds, string proof, ApiModeEventPosition position)
+    {
+        using var ctx = _db.CreateContext();
+        using var tx = ctx.Database.BeginTransaction();
+        var queued = nameof(ApiModeReceiptState.Queued);
+        var candidates = ctx.ApiModeReceipts
+            .Where(r => r.SessionId == sessionId && r.State == queued)
+            .ToList();
+        var changed = 0;
+        foreach (var row in candidates)
+        {
+            if (ApiModeLostQueuedPrompt.IsCarriedBy(provingEvent, position, row.PromptId, ApiModeReceiptState.Queued, row.LastGeneration, row.LastGenerationStartedUtc))
+            {
+                // Linked here, by the same event: RecordTurnStarted runs after the proof and links only a row the
+                // TurnStarted is newer than, and this row has just moved to its position.
+                var turnId = ((TurnStarted)provingEvent).TurnId;
+                FileLog.Write($"[ApiModeReceiptStore] RecordQueueLeftProven session={sessionId} prompt={row.PromptId}: it was queued at {row.LastGeneration}#{row.LastSequence} and {proof} carries it; its PromptDelivered was lost and the Gateway holds no acknowledgement, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}, carried by turn {turnId}");
+                row.State = nameof(ApiModeReceiptState.Unknown);
+                row.TurnId = turnId;
+                Touch(row, position);
+                changed++;
+                continue;
+            }
+            if (!ApiModeLostQueuedPrompt.Applies(position, ownPromptIds, row.PromptId, ApiModeReceiptState.Queued, row.LastGeneration, row.LastGenerationStartedUtc))
+                continue;
+            FileLog.Write($"[ApiModeReceiptStore] RecordQueueLeftProven session={sessionId} prompt={row.PromptId}: it was queued at {row.LastGeneration}#{row.LastSequence} and {proof} comes after every re-announcement of its generation, which did not re-announce it; the event that took it out of the queue was lost, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}");
+            row.State = nameof(ApiModeReceiptState.Unknown);
+            Touch(row, position);
+            changed++;
+        }
+        ctx.SaveChanges();
+        tx.Commit();
+        return changed;
+    }
+
+    /// <summary>
+    /// The Director <paramref name="directorId"/> said Hello as a process that started at
+    /// <paramref name="processStartedUtc"/>: every Queued receipt it holds, in the ambient tenant, whose last generation
+    /// started before that process did was queued by a process that has ended, and is ruled
+    /// <see cref="ApiModeReceiptState.Unknown"/> under <see cref="ApiModeLostQueuedPrompt.AppliesToEndedProcess"/>. There
+    /// is no proving event, so the receipt keeps the position of its last event; its queue reason and its prompt's text
+    /// are kept. A default start time rules nothing. Answers how many receipts changed.
+    /// </summary>
+    public int RecordDirectorProcessStarted(string directorId, DateTime processStartedUtc)
+    {
+        RequireId(directorId, nameof(directorId));
+        if (processStartedUtc == default)
+        {
+            FileLog.Write($"[ApiModeReceiptStore] RecordDirectorProcessStarted director={directorId}: the Hello carried no process start time, so it proves nothing");
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            try { return ProveProcessEndedOnce(directorId, processStartedUtc); }
+            catch (DbUpdateException ex)
+            {
+                FileLog.Write($"[ApiModeReceiptStore] RecordDirectorProcessStarted director={directorId}: write lost a race with another writer ({ex.GetType().Name}: {ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
+                return ProveProcessEndedOnce(directorId, processStartedUtc);
+            }
+        }
+    }
+
+    private int ProveProcessEndedOnce(string directorId, DateTime processStartedUtc)
+    {
+        using var ctx = _db.CreateContext();
+        using var tx = ctx.Database.BeginTransaction();
+        var queued = nameof(ApiModeReceiptState.Queued);
+        var candidates = ctx.ApiModeReceipts
+            .Where(r => r.DirectorId == directorId && r.State == queued)
+            .ToList();
+        var changed = 0;
+        foreach (var row in candidates)
+        {
+            if (!ApiModeLostQueuedPrompt.AppliesToEndedProcess(processStartedUtc, ApiModeReceiptState.Queued, row.LastGenerationStartedUtc))
+                continue;
+            FileLog.Write($"[ApiModeReceiptStore] RecordDirectorProcessStarted director={directorId} session={row.SessionId} prompt={row.PromptId}: it was queued at {row.LastGeneration}#{row.LastSequence}, a generation started at {row.LastGenerationStartedUtc:O}, and the Director now runs as a process started at {processStartedUtc.ToUniversalTime():O}; the process that held its queue has ended, so the receipt is ruled {nameof(ApiModeReceiptState.Unknown)}");
+            row.State = nameof(ApiModeReceiptState.Unknown);
+            row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
             changed++;
         }
         ctx.SaveChanges();
@@ -533,6 +694,38 @@ public sealed class ApiModeReceiptStore
     /// <summary>Whether the event at <paramref name="position"/> comes after the last one applied to the row.</summary>
     private static bool IsNewer(ApiModeEventPosition position, ApiModeReceiptEntity row)
         => position.IsAfter(row.LastGeneration, row.LastGenerationStartedUtc, row.LastSequence);
+
+    private static bool IsUnknown(ApiModeReceiptEntity row) => row.State == nameof(ApiModeReceiptState.Unknown);
+
+    /// <summary>Whether a real receipt event replaces the row's Unknown ruling (<see cref="ApiModeLostQueuedPrompt.IsReplacedBy"/>):
+    /// whatever its sequence, unless it is of an older generation, a replay, logged and set aside.</summary>
+    private static bool ReplacesUnknown(string operation, ApiModeReceiptEntity row, ApiModeEventPosition position)
+    {
+        if (ApiModeLostQueuedPrompt.IsReplacedBy(position, row.LastGeneration, row.LastGenerationStartedUtc))
+        {
+            FileLog.Write($"[ApiModeReceiptStore] {operation} session={row.SessionId} prompt={row.PromptId} at={position}: the prompt's real event arrived after the Gateway ruled it {nameof(ApiModeReceiptState.Unknown)} at {row.LastGeneration}#{row.LastSequence}; it replaces the ruling");
+            return true;
+        }
+        FileLog.Write($"[ApiModeReceiptStore] {operation} session={row.SessionId} prompt={row.PromptId} at={position}: an event of a generation older than the {nameof(ApiModeReceiptState.Unknown)} ruling at {row.LastGeneration}#{row.LastSequence} is a replay; nothing changes");
+        return false;
+    }
+
+    /// <summary>Drops the turn a later turn's start linked to an Unknown receipt (<see cref="ApiModeLostQueuedPrompt.IsCarried"/>)
+    /// when the prompt's real Queued or Refused replaces the ruling: a prompt the Director still queues or refused was not
+    /// carried by that turn. A receipt ruled Unknown any other way has no turn, so nothing changes.</summary>
+    private static void Unlink(ApiModeReceiptEntity row)
+    {
+        row.TurnId = null;
+        EndTurn(row, null, null, null);
+    }
+
+    /// <summary><see cref="Touch"/> that never moves the row's position backwards: a real event that replaces an Unknown
+    /// ruling may be older than the proof the ruling was made at.</summary>
+    private void TouchForward(ApiModeReceiptEntity row, ApiModeEventPosition position)
+    {
+        if (IsNewer(position, row)) Touch(row, position);
+        else row.UpdatedAtUtc = Utc(_utcNow(), "utcNow");
+    }
 
     private void Touch(ApiModeReceiptEntity row, ApiModeEventPosition position)
     {

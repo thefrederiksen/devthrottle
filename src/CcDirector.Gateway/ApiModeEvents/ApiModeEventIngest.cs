@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
@@ -32,6 +33,10 @@ public sealed class ApiModeEventIngest
     private readonly ApiModeReceiptStore _receipts;
     private readonly ApiModeConversation.ApiModeConversationStore _conversation;
     private readonly HostedTenantBoundary _boundary;
+    // Per session, the newest generation the queue-left proof (ApiModeLostQueuedPrompt) has been made in. After the first
+    // proof of a generation there is nothing left for it to rule, so the store is not read again for that generation.
+    // Kept in memory only: a Gateway restart costs one more proof, which changes nothing already ruled.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _queueLeftProvenIn = new();
 
     public ApiModeEventIngest(ApiModeEventBuffer buffer, ApiModeReceiptStore receipts,
         ApiModeConversation.ApiModeConversationStore conversation, HostedTenantBoundary boundary)
@@ -61,7 +66,7 @@ public sealed class ApiModeEventIngest
             {
                 foreach (var e in fresh)
                 {
-                    FeedReceipts(directorId, e, position(e.Sequence));
+                    FeedReceipts(tenant, directorId, e, position(e.Sequence));
                     _conversation.Record(batch.SessionId, new ApiModeHeldEvent(batch.Generation, batch.GenerationStartedUtc, e));
                 }
             }
@@ -76,13 +81,40 @@ public sealed class ApiModeEventIngest
         return new ApiModeEventWatermark { SessionId = batch.SessionId, Generation = result.Generation, Sequence = result.HighestSequence };
     }
 
+    /// <summary>
+    /// The Director <paramref name="directorId"/>, bound to <paramref name="tenant"/>, said Hello as a process started at
+    /// <paramref name="processStartedUtc"/>: the receipts still queued by an earlier process of it are ruled Unknown
+    /// (<see cref="ApiModeLostQueuedPrompt"/>, the second proof). Answers how many receipts changed.
+    /// </summary>
+    public int ObserveDirectorProcess(TenantId tenant, string directorId, DateTime processStartedUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directorId);
+        int changed;
+        using (_boundary.EnterScope(tenant))
+            changed = _receipts.RecordDirectorProcessStarted(directorId, processStartedUtc);
+        if (changed > 0)
+            FileLog.Write($"[ApiModeEventIngest] ObserveDirectorProcess director={directorId}: the Director came back as a process started at {processStartedUtc.ToUniversalTime():O}; {changed} receipt(s) queued by its earlier process ruled {nameof(ApiModeReceiptState.Unknown)}");
+        return changed;
+    }
+
     /// <summary>The receipt-bearing events go to the receipt store; the rest are the buffer's only.</summary>
-    private void FeedReceipts(string directorId, SessionEvent e, ApiModeEventPosition position)
+    private void FeedReceipts(TenantId tenant, string directorId, SessionEvent e, ApiModeEventPosition position)
     {
         var at = e.At.UtcDateTime;
         // Before the event's own change, so a TurnStarted rules the turn before it lost and only then links its prompts.
         if (ApiModeLostTurnEnd.Proves(e, out var continuing))
             _receipts.RecordTurnOverProven(directorId, e.SessionId, continuing, ApiModeLostTurnEnd.Describe(e, position), position);
+        // Likewise before the event's own change: a prompt still queued from an older generation that this generation did
+        // not re-announce is ruled Unknown first, and the prompts the event names are left to it. Once per generation.
+        if (ApiModeLostQueuedPrompt.Proves(e, out _))
+        {
+            var key = (tenant, e.SessionId);
+            if (!(_queueLeftProvenIn.TryGetValue(key, out var proven) && string.Equals(proven, position.Generation, StringComparison.Ordinal)))
+            {
+                _receipts.RecordQueueLeftProven(directorId, e.SessionId, e, ApiModeLostQueuedPrompt.Describe(e, position), position);
+                _queueLeftProvenIn[key] = position.Generation;
+            }
+        }
         switch (e)
         {
             case PromptQueued q:
