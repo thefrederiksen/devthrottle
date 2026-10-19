@@ -281,6 +281,18 @@ change, but one fix closes both.
 **What would close it.** `sendKey` shows `sent.refusal` verbatim (the Director's words, rule 7) through the phone's
 existing error or status surface instead of the flash when it is set, with a phone test like my probe.
 
+Developer's answer: **Accepted.** The regression is real and mine: `sendPrompt` stopped throwing for a refused key,
+and the phone's `sendKey` still read any answer as "Sent". `sendKey` now passes `sent.refusal` verbatim to the phone's
+existing red box (`onError`) and returns without the flash; a key the Director typed still flashes "Sent". That also
+closes the older case the review names, a key answered not delivered at the usage-limit dialog. I left it in
+`SessionControls` rather than adding a client-core helper: the ruling and the words already live on the Director, and
+client-core already reads them once, in `sendPrompt`; each shell only chooses its own surface to show them on (the
+Cockpit's terminal line, the phone's red box), which is layout, not a second ruling. Pinned by
+`apps/mobile/src/components/sessionControlsKeyRefused.test.tsx`: through the real controls, a refused Up shows the
+sentence and never "Sent" (fails without the fix: `onError` was never called), and its control case, a typed Enter,
+says "Sent". Phone suite 34 files, 162 tests passed; client-core 179 files, 2,252 tests passed; type check and lint
+clean, each run alone on devlinux.
+
 ### Notes, not findings
 
 1. **A stream opened during a hand back's restart of Pi starts on the dead terminal's screen and keeps it.**
