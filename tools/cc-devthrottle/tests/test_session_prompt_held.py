@@ -31,14 +31,22 @@ DELIVERY_ID = "0123456789abcdef0123456789abcdef"
 def serve(monkeypatch):
     calls = []
 
-    def _serve(response):
+    def _serve(response, receipts=None, receipts_error=None):
         monkeypatch.setattr(session_ops, "resolve_target_or_current", lambda target, command: SESSION_ID)
 
         def post_json(path, body=None, timeout=30):
             calls.append({"path": path, "body": body})
             return response
 
+        def get_json(path, timeout=30):
+            calls.append({"path": path, "body": None})
+            if receipts_error is not None:
+                raise session_ops.gateway.GatewayError(receipts_error)
+            # A terminal-mode session: the Gateway knows it and holds no receipts for it.
+            return receipts if receipts is not None else {"sessionId": SESSION_ID, "count": 0, "receipts": []}
+
         monkeypatch.setattr(session_ops.gateway, "post_json", post_json)
+        monkeypatch.setattr(session_ops.gateway, "get_json", get_json)
         return calls
 
     return _serve
@@ -60,8 +68,60 @@ def test_session_prompt_held_answer_exits_zero_and_sends_once(serve):
     assert "Held" in result.output
     assert DELIVERY_ID in result.output
     assert "Do not send it again" in result.output
-    assert len(calls) == 1, "a held prompt must never be sent a second time"
-    assert calls[0]["path"] == f"sessions/{SESSION_ID}/prompt"
+    assert [c["path"] for c in calls if c["body"] is not None] == [f"sessions/{SESSION_ID}/prompt"], \
+        "a held prompt must never be sent a second time"
+
+
+def test_session_prompt_queued_in_api_mode_says_the_receipts_own_words(serve):
+    # Arrange: API mode, the user has the wheel - the Director holds the prompt and its verb answers "delivering",
+    # while the Gateway's receipt for the same delivery id already says it is queued and why.
+    calls = serve(
+        {"delivering": True, "directorState": "delivering", "deliveryId": DELIVERY_ID},
+        receipts={"sessionId": SESSION_ID, "count": 2, "receipts": [
+            {"promptId": "another-prompt", "state": "Delivered", "words": "Delivered"},
+            {"promptId": DELIVERY_ID, "state": "Queued", "queueReason": "userHasTheWheel",
+             "words": "Queued, 1st in line: you have the wheel"},
+        ]},
+    )
+
+    # Act
+    result = runner.invoke(app, ["session", "prompt", SESSION_ID, "hello there"])
+
+    # Assert: the Gateway's words, not "Held"; still exit zero and still sent once.
+    assert result.exit_code == 0, result.output
+    assert "Queued, 1st in line: you have the wheel" in result.output
+    assert "Held" not in result.output
+    assert "do not send it again" in result.output
+    assert [c["path"] for c in calls] == [f"sessions/{SESSION_ID}/prompt", f"sessions/{SESSION_ID}/receipts"]
+
+
+def test_session_prompt_held_with_no_receipt_for_it_keeps_the_held_sentence(serve):
+    # Arrange: receipts exist, but none for this delivery id.
+    serve(
+        {"delivering": True, "directorState": "no-answer", "deliveryId": DELIVERY_ID},
+        receipts={"sessionId": SESSION_ID, "count": 1, "receipts": [{"promptId": "another-prompt", "words": "Delivered"}]},
+    )
+
+    # Act
+    result = runner.invoke(app, ["session", "prompt", SESSION_ID, "hello there"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert "Held" in result.output
+    assert "Delivered" not in result.output
+
+
+def test_session_prompt_held_when_the_receipts_cannot_be_read_says_so_and_still_exits_zero(serve):
+    # Arrange
+    serve({"delivering": True, "directorState": "no-answer", "deliveryId": DELIVERY_ID}, receipts_error="the Gateway answered 502")
+
+    # Act
+    result = runner.invoke(app, ["session", "prompt", SESSION_ID, "hello there"])
+
+    # Assert: the prompt was accepted, so the command does not fail; the failed read is said, not hidden.
+    assert result.exit_code == 0, result.output
+    assert "Held" in result.output
+    assert "Its receipt could not be read: the Gateway answered 502" in result.output
 
 
 def test_session_prompt_delivered_answer_still_reports_sent(serve):

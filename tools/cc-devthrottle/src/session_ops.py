@@ -710,10 +710,24 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
     # became of the delivery id itself. Sending the text a second time is how a prompt reaches an agent twice.
     if isinstance(resp, dict) and resp.get("delivering") is True:
         delivery_id = resp.get("deliveryId") or "(none given)"
+        # AN API-MODE SESSION HAS A RECEIPT FOR IT (API mode mission, phase 6, QA finding 4). The Director holds a prompt
+        # sent while the user has the wheel until the hand back, so its prompt verb answers "delivering" - but the
+        # Gateway already knows more: the prompt's receipt says "Queued, 1st in line: you have the wheel". Its words are
+        # the Gateway's ruling and are printed as they are. A terminal-mode session has no receipts, and keeps the
+        # held sentence below.
+        words, unread = _receipt_words(sid, resp.get("deliveryId"))
+        if words is not None:
+            console.print(
+                f"[yellow]{axi_cli.ascii_text(words)}[/yellow]: the prompt to {sid} (delivery id {delivery_id}). "
+                "The Director sends it on its own; do not send it again."
+            )
+            axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
+            return resp
         console.print(
             f"[yellow]Held[/yellow]: the prompt to {sid} may already be in - the Director has not said yet "
             f"(its state: {axi_cli.ascii_text(str(resp.get('directorState')))}, delivery id {delivery_id}). "
             "The Gateway is finding out. Do not send it again."
+            + (f" (Its receipt could not be read: {axi_cli.ascii_text(unread)}.)" if unread else "")
         )
         axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
         return resp
@@ -724,6 +738,27 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
     console.print(f"[green]Sent[/green] prompt to {sid}.")
     axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
     return resp if isinstance(resp, dict) else {}
+
+
+def _receipt_words(sid: str, delivery_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """The Gateway's words on the receipt of the prompt with this delivery id, and why it could not be read.
+
+    The Gateway's delivery id IS the API-mode receipt's prompt id (event-model.md, "What a promptId is"). Returns
+    (words, None) when the session has that receipt, (None, None) when it has none - a terminal-mode session has no
+    receipts - and (None, reason) when the read failed. The prompt was accepted either way, so a failed read is said,
+    never raised: the held answer is still true.
+    """
+    if not delivery_id:
+        return None, None
+    try:
+        answer = gateway.get_json(f"sessions/{sid}/receipts")
+    except gateway.GatewayError as err:
+        return None, str(err)
+    receipts = answer.get("receipts") if isinstance(answer, dict) else None
+    for receipt in receipts or []:
+        if isinstance(receipt, dict) and receipt.get("promptId") == delivery_id and receipt.get("words"):
+            return str(receipt["words"]), None
+    return None, None
 
 
 def interrupt_session(target: Optional[str]) -> Dict[str, Any]:
