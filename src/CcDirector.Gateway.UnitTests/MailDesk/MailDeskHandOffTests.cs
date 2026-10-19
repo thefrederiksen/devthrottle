@@ -170,11 +170,16 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
 
         // Act
         var second = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("key-2", 2) })), _rig.Now.AddMinutes(5));
-        var (secondResult, skipped) = await _rig.ReportAsync(second);
+        // Not awaited past the report itself: a second screening begun by mistake would wait on the same hold.
+        var secondResult = await _rig.Triggers.ReportCheckAsync(MailDeskHandOffRig.Account, DirectorA, _rig.TriggerId.ToString("D"), second, CancellationToken.None, MachineA);
+        var began = secondResult.Starting is not null;
         _rig.Model.Hold.SetResult();
         var screened = await firstResult.Starting!;
+        if (secondResult.Starting is { } mistaken) await mistaken;
+        var skipped = secondResult.Run;
 
         // Assert
+        Assert.False(began, "the second report began a second screening");
         Assert.Equal(TriggerRunOutcome.SkippedRunning, skipped!.Outcome);
         Assert.Equal(TriggerService.ScreeningStillRunning, skipped.Reason);
         Assert.Equal(0, memoryRowsBefore);
