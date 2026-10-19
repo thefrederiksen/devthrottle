@@ -271,6 +271,23 @@ describe("ApiModeLiveChat", () => {
     expect(screen.getByText("Turn stopped: stopped by the user")).toBeTruthy();
   });
 
+  it("ApiModeLiveChat_ReplyOnePerLine_ShowsEachLineOnItsOwnLine", async () => {
+    // Arrange: "Write the numbers from 1 to 600, one per line" (phase 6 QA, finding 3), streamed in pieces that do not
+    // end at a line break, as Pi streams it.
+    const { conn } = await mount();
+
+    // Act
+    await send(() => {
+      conn().items("g1:2", [replyDelta("m9", "t9", "1\n2", 2)]);
+      conn().items("g1:3", [replyDelta("m9", "t9", "\n3", 3)]);
+    });
+
+    // Assert: three lines, not "1 2 3" in one run of text.
+    const body = screen.getByRole("log", { name: "Live conversation" }).querySelector("[data-item-id='reply:m9'] .live-chat-body");
+    expect(body?.querySelectorAll("br")).toHaveLength(2);
+    expect(body?.innerHTML).toBe("<p>1<br>2<br>3</p>\n");
+  });
+
   it("ApiModeLiveChat_ReplyFinal_ReplacesTheStreamedTextAndRendersMarkdown", async () => {
     const { conn, view } = await mount();
     await send(() => conn().items("g1:4", [replyDelta("m1", "t1", "**PO", 4)]));
