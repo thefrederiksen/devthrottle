@@ -163,6 +163,14 @@ the contract, learns that `starting` happens only after a hand back. Someone deb
 "Starting" would look for a hand back that never happened. One clause in each of those places: "while the agent
 process is starting: a new session's first start, or a hand back".
 
+**Developer's answer.** Accepted and fixed. `ApiModeDisplayDtos.cs`: the summary of `Kind` now says the starting
+state covers "while the agent process is starting - a new session's first start, or a hand back", and the summary
+of `ActivityLabel` names both words ("Starting - the agent is starting" for a first start, "... again after turn 3"
+for a hand back). `ApiModeSessionFold.cs`: the class paragraph is now headed "Starting: a new session's first start,
+or a hand back", says a session is set starting when it is created (every crash continuation is one) and before a
+hand back, and says what a first start read before this rule (red "Idle - no turn yet"); the comment on the
+`else if (starting)` branch names both. The pull request description says the same.
+
 ### Finding 2 (low): no test pins the first-start state
 
 **Where.** `ApiModeSessionFoldTests.cs`. `Fold_TheAgentIsStartingWithNoTurnYet_SaysItIsStarting` has no turn but
@@ -175,6 +183,15 @@ nothing held (`HeldWhole()`), and after a Gateway restart nothing held and the f
 later edit to the `starting` condition (for example, to make it require a held `ConnectionEnded`, which would be a
 natural "only after a hand back" tightening) sent new sessions back to red. One test through the stamp, with an
 empty feed and a starting row, asserting `starting`, neutral and "Agent starting", closes it.
+
+**Developer's answer.** Accepted and fixed, with two tests. `Fold_ANewSessionsFirstStart_IsStartingAndNeutralNotIdleAndRed`
+is a theory over both first-start feeds - the whole generation with nothing held (`HeldWhole()`) and, after a Gateway
+restart, an empty feed that is not complete - with the protocol holding the wheel, no receipts and the agent
+starting; it asserts `starting`, neutral, not working, no turn number, "Starting - the agent is starting" and "Agent
+starting". `Stamp_FirstStart_TheRowAndTheApiModeVerdictAgreeTheAgentIsStarting` goes through the real ingest, store
+and `ApiModeRowStamp` with nothing pushed and a row whose `ActivityState` is `Starting`, and asserts the row is blue
+and the verdict is `starting`, neutral, "Starting - the agent is starting" and "Agent starting". With the rule switched
+off in the fold (`var starting = false && ...`) all three cases fail; with it restored all pass.
 
 ## Summary
 

@@ -27,9 +27,11 @@ namespace CcDirector.Gateway.ApiModeDisplay;
 /// again).</item>
 /// </list>
 ///
-/// <para><b>Starting after a hand back.</b> The Director sets the session to starting just before it starts the agent
-/// again, and it stays starting until the new process names its conversation. The event stream keeps one generation
-/// across a hand back, so in that window the newest connection event held here is still the ending from the take: read
+/// <para><b>Starting: a new session's first start, or a hand back.</b> The Director sets the session to starting while
+/// the agent process is starting - when a session is created (every crash continuation is one) and just before a hand
+/// back starts the agent again - and it stays starting until the process names its conversation. On a first start
+/// nothing is held yet, and without this rule the verdict would read "Idle - no turn yet" in red beside a row that reads
+/// busy. After a hand back the event stream keeps one generation across the switch, so in that window the newest connection event held here is still the ending from the take: read
 /// on its own it would say "idle, disconnected" in red while the row says the agent is busy starting. While the protocol
 /// process holds the conversation, no turn is open and the row says starting, the verdict is <c>starting</c> instead, so
 /// the two verdicts read one truth. The window has no upper bound: if the agent never names its conversation the row
@@ -89,8 +91,9 @@ public static class ApiModeSessionFold
         }
         else if (starting)
         {
-            // The Director's own report that the agent is starting (a hand back, before the new process names its
-            // conversation): no turn runs, and it is not idle either - a prompt sent now waits for it.
+            // The Director's own report that the agent process is starting (a new session's first start, or a hand
+            // back), before it names its conversation: no turn runs, and it is not idle either - a prompt sent now waits
+            // for it.
             working = false;
             activity = turnNumber is null ? "Starting - the agent is starting" : $"Starting - the agent is starting again after turn {turnNumber}";
         }

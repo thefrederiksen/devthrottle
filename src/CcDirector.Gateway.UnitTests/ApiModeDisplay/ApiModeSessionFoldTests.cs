@@ -447,6 +447,28 @@ public sealed class ApiModeSessionFoldTests
         Assert.Equal("Starting - the agent is starting", verdict.ActivityLabel);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Fold_ANewSessionsFirstStart_IsStartingAndNeutralNotIdleAndRed(bool feedComplete)
+    {
+        // Arrange: a brand-new session (or a crash continuation): the protocol holds the wheel, the Director reports the
+        // session starting, and nothing is held - the whole generation with no event yet, or, after a Gateway restart,
+        // an empty feed that is not complete. Before the starting rule this read red "Idle - no turn yet".
+        var held = feedComplete ? HeldWhole() : NothingHeld;
+
+        // Act
+        var verdict = ApiModeSessionFold.Fold(ConnectionModes.Api, WheelHolders.Protocol, sessionEnded: false, Array.Empty<ApiModeVerdictReceipt>(), held, agentStarting: true)!;
+
+        // Assert
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Equal("neutral", verdict.Tone);
+        Assert.False(verdict.Working);
+        Assert.Null(verdict.TurnNumber);
+        Assert.Equal("Starting - the agent is starting", verdict.ActivityLabel);
+        Assert.Equal("Agent starting", verdict.AgentLabel);
+    }
+
     [Fact]
     public void Fold_TheAgentIsStartingAndATurnIsOpen_IsStillWorking()
     {
@@ -779,6 +801,25 @@ public sealed class ApiModeSessionVerdictTests : IDisposable
         Assert.Equal("neutral", verdict.Tone);
         Assert.False(verdict.Working);
         Assert.Equal("Starting - the agent is starting again after turn 1", verdict.ActivityLabel);
+        Assert.Equal("Agent starting", verdict.AgentLabel);
+    }
+
+    [Fact]
+    public void Stamp_FirstStart_TheRowAndTheApiModeVerdictAgreeTheAgentIsStarting()
+    {
+        // Arrange: a brand-new session - nothing pushed to the feed yet, the protocol holds the wheel, and the Director
+        // reports the session starting until the process names its conversation.
+        var row = new SessionDto { SessionId = Sid, ConnectionMode = ConnectionModes.Api, WheelHolder = WheelHolders.Protocol, ActivityState = "Starting" };
+
+        // Act
+        ApiModeRowStamp.Stamp(new[] { row }, Facts(), Alice);
+
+        // Assert: the row is busy, and the verdict is starting and neutral - not the red "Idle - no turn yet".
+        Assert.Equal("blue", SessionOrdering.EffectiveColor(row));
+        var verdict = Assert.IsType<ApiModeSessionDisplay>(row.ApiMode);
+        Assert.Equal("starting", verdict.Kind);
+        Assert.Equal("neutral", verdict.Tone);
+        Assert.Equal("Starting - the agent is starting", verdict.ActivityLabel);
         Assert.Equal("Agent starting", verdict.AgentLabel);
     }
 
