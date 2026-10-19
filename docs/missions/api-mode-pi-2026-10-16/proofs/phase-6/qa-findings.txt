@@ -8,7 +8,7 @@ Both clients join a reply's lines into one paragraph.
 "Write the numbers from 1 to 600, one per line" shows as "1 2 3 ..." in the Cockpit and the phone; the reply Pi sent has a line per number.
 
 cc-devthrottle session prompt says "Held: ... may already be in" for a prompt API mode queued because the user has the wheel.
-The receipt already says "Queued, 1st in line: you have the wheel"; the command's words do not say what the Gateway knows.
+The receipt already says "Queued, 1st in line: you have the wheel"; the command's words do not say what the Gateway knows. Fixed by pull request #4244: the command now prints the receipt's own words.
 
 cc-devthrottle has no command for receipts, the live items, the wheel, Stop or typing into the terminal.
 The proof calls the Gateway's routes for those; the Delivery Lead has taken the missing commands as follow-up work outside this mission.
