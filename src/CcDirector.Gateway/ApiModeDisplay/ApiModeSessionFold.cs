@@ -22,7 +22,21 @@ namespace CcDirector.Gateway.ApiModeDisplay;
 /// latest <c>ConnectionReady</c> or <c>ConnectionEnded</c> this Gateway holds. Does NOT survive: the feed is empty after
 /// a restart. Then the verdict says what the Director's wheel report supports, and "not known" where it supports
 /// nothing.</item>
+/// <item>Whether the agent is starting: the Director's activity on the row (<see cref="SessionDto.ActivityState"/>
+/// <c>Starting</c>), the same fact the row's own colour, label and triage read. Survives (the Director pushes its roster
+/// again).</item>
 /// </list>
+///
+/// <para><b>Starting: a new session's first start, or a hand back.</b> The Director sets the session to starting while
+/// the agent process is starting - when a session is created (every crash continuation is one) and just before a hand
+/// back starts the agent again - and it stays starting until the process names its conversation. On a first start
+/// nothing is held yet, and without this rule the verdict would read "Idle - no turn yet" in red beside a row that reads
+/// busy. After a hand back the event stream keeps one generation across the switch, so in that window the newest connection event held here is still the ending from the take: read
+/// on its own it would say "idle, disconnected" in red while the row says the agent is busy starting. While the protocol
+/// process holds the conversation, no turn is open and the row says starting, the verdict is <c>starting</c> instead, so
+/// the two verdicts read one truth. The window has no upper bound: if the agent never names its conversation the row
+/// stays starting too, and the two still agree. A turn that is open still reads working; once the agent is ready the
+/// row leaves starting and the verdict is the ordinary one.</para>
 /// </summary>
 public static class ApiModeSessionFold
 {
@@ -37,7 +51,9 @@ public static class ApiModeSessionFold
     /// <param name="receipts">The session's stored receipts, oldest prompt first, as the receipt store reads them.</param>
     /// <param name="held">What the event feed holds for the session (<see cref="IApiModeEventFeed.Read"/> with no
     /// cursor).</param>
-    public static ApiModeSessionDisplay? Fold(string connectionMode, string wheelHolder, bool sessionEnded, IReadOnlyList<ApiModeVerdictReceipt> receipts, ApiModeEventReplay held)
+    /// <param name="agentStarting">Whether the Director reports the session starting
+    /// (<see cref="SessionDto.ActivityState"/> <c>Starting</c>), read off the row by the caller.</param>
+    public static ApiModeSessionDisplay? Fold(string connectionMode, string wheelHolder, bool sessionEnded, IReadOnlyList<ApiModeVerdictReceipt> receipts, ApiModeEventReplay held, bool agentStarting)
     {
         ArgumentNullException.ThrowIfNull(receipts);
         ArgumentNullException.ThrowIfNull(held);
@@ -64,13 +80,22 @@ public static class ApiModeSessionFold
         var latestTurnOpen = latestTurn is not null && !outcomeOf.ContainsKey(latestTurn);
         int? turnNumber = turnOrder.Count > 0 ? turnOrder.Count : null;
 
-        // ----- working or idle -----
+        // ----- working, starting or idle -----
+        var starting = agentStarting && !latestTurnOpen && wheelHolder == WheelHolders.Protocol;
         bool? working;
         string activity;
         if (latestTurnOpen && wheelHolder == WheelHolders.Protocol)
         {
             working = true;
             activity = $"Working - turn {turnNumber}";
+        }
+        else if (starting)
+        {
+            // The Director's own report that the agent process is starting (a new session's first start, or a hand
+            // back), before it names its conversation: no turn runs, and it is not idle either - a prompt sent now waits
+            // for it.
+            working = false;
+            activity = turnNumber is null ? "Starting - the agent is starting" : $"Starting - the agent is starting again after turn {turnNumber}";
         }
         else if (latestTurnOpen)
         {
@@ -102,17 +127,21 @@ public static class ApiModeSessionFold
 
         // ----- the agent process: a holder of user or none answers first (none followed by any held ending); otherwise
         // the latest connection event held here, else what the wheel supports -----
-        var (agentConnected, agentLabel) = Agent(wheelHolder, held);
+        var (agentConnected, agentLabel) = starting ? (false, AgentStarting) : Agent(wheelHolder, held);
 
         var kind = !wheelKnown ? "unknown"
             : userHasTheWheel ? "userHasTheWheel"
             : wheelHolder == WheelHolders.None ? "stopped"
+            : starting ? "starting"
             : working switch { true => "working", false => "idle", null => "unknown" };
         var tone = kind switch
         {
             "working" => "green",
             "userHasTheWheel" => "yellow",
             _ when lastTurnEnding is not null && latestTurn is not null && outcomeOf[latestTurn].TurnOutcome == "failed" => "red",
+            // Starting is not a lost connection: the ending held here is the take's, not the new process's. A last turn
+            // that failed stays red above, because that is still true.
+            "starting" => "neutral",
             _ when agentConnected == false && wheelHolder == WheelHolders.Protocol => "red",
             _ => "neutral",
         };
@@ -191,6 +220,9 @@ public static class ApiModeSessionFold
     internal const string NoConnectionEventHeld =
         "Not known: the Gateway holds no connection event for this session. The Director reports the agent process holds the conversation";
 
+    /// <summary>The agent label while the agent process has started and not yet named its conversation.</summary>
+    internal const string AgentStarting = "Agent starting";
+
     /// <summary>The agent label when no process holds the conversation (a wheel holder of <c>none</c>).</summary>
     internal const string NoAgentProcessIsRunning = "No agent process is running";
 
@@ -222,7 +254,7 @@ public static class ApiModeSessionFold
         // and it cannot tell WHY anything is missing either (a Gateway restart, the buffer letting the session go or
         // trimming its oldest events, a new generation), so the words state only what is known (review finding 2).
         return held.Complete
-            ? (false, "Agent starting")
+            ? (false, AgentStarting)
             : (null, NoConnectionEventHeld);
     }
 }
