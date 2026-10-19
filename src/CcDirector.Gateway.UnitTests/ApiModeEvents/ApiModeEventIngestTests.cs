@@ -482,19 +482,23 @@ public sealed class ApiModeEventIngestTests : IDisposable
     public void Accept_ManyProofsInOneGeneration_ReadTheStoreForTheProofOnce()
     {
         // Arrange: p1 queued in generation A, then ruled Unknown at generation B's first tool event (review of pull
-        // request #4209, finding 3).
-        Push(A(Ready(1), Queued(2, "p1")));
+        // request #4209, finding 3). The durable conversation records every tool card, so it is kept in a database file
+        // of its own here: the counter on the receipts' file then counts the receipt store's work alone.
+        using var conversationFile = new GatewayDbTestHarness();
+        var ingest = new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(conversationFile.Open(_ambient), () => T0.UtcDateTime), _boundary);
+        void PushHere(ApiModeEventBatch batch) => ingest.Accept(Alice, Director, batch);
+        PushHere(A(Ready(1), Queued(2, "p1")));
         int firstProof;
         using (var work = new DatabaseWork(_harness.DbPath))
         {
-            Push(B(Tool(1)));
+            PushHere(B(Tool(1)));
             firstProof = work.Transactions;
         }
 
         // Act: three more tool events of the same generation, each a proof.
         using var later = new DatabaseWork(_harness.DbPath);
-        Push(B(Tool(2), Tool(3)));
-        Push(B(Tool(4)));
+        PushHere(B(Tool(2), Tool(3)));
+        PushHere(B(Tool(4)));
 
         // Assert: the first proof ran in the store, and the later ones did not touch the database at all.
         Assert.Equal(1, firstProof);
