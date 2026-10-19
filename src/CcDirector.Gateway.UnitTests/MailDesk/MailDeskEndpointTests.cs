@@ -93,7 +93,8 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
 
     private MailDeskEndpoints.Parts Parts() => new(_channels, _rules, _decisions, new MailDeskSettingsStore(_db),
         new MailDeskChannelFold(_ => _triggers.ToList(), _ => _timeZone, _decisions, _checks),
-        FactoryOf, _ => _knownMachines.ToList(), () => _now);
+        FactoryOf, _ => _knownMachines.ToList(), () => _now,
+        tenant => MailDeskSpend.Of(tenant, _decisions, new MailDeskSettingsStore(_db)));
 
     private async Task StartAsync(Func<MailDeskEndpoints.Parts, MailDeskEndpoints.Parts>? adjust = null)
     {

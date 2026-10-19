@@ -48,8 +48,8 @@ public sealed class MailDeskDecisionStoreTests : IDisposable
 
         Assert.Equal(new[]
         {
-            "ChannelId", "Confidence", "CostMicros", "DecidedUtc", "Decision", "Id", "Layer", "MessageKey", "Mode", "Outcome",
-            "OutcomeDetail", "Reason", "ReceivedUtc", "RouteFactory", "RouteSeat", "SenderAddress", "Subject", "TenantId",
+            "AttemptCount", "ChannelId", "Confidence", "CostMicros", "DecidedUtc", "Decision", "Id", "Layer", "MessageKey", "Mode", "Outcome",
+            "OutcomeDetail", "Reason", "ReceivedUtc", "RouteFactory", "RouteSeat", "RulesVersion", "SenderAddress", "Subject", "TenantId",
         }, properties);
         Assert.DoesNotContain(typeof(MailDeskDecisionInput).GetProperties(), p =>
             p.Name.Contains("Body", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Preview", StringComparison.OrdinalIgnoreCase));

@@ -350,7 +350,8 @@ public static class FactoriesScreenFold
         var lines = a.WindowRows
             .Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, boss.Id)
                         && r.Outcome is not FactoryActivityOutcome.Started and not FactoryActivityOutcome.NothingToDo
-                            and not FactoryActivityOutcome.Paused and not FactoryActivityOutcome.Skipped)
+                            and not FactoryActivityOutcome.Paused and not FactoryActivityOutcome.Skipped
+                            and not FactoryActivityOutcome.Screened)
             .OrderByDescending(r => r.OccurredUtc)
             .Take(BossLines)
             .Select(r => $"{clock.When(r.OccurredUtc, a.NowUtc, capital: true, named: false)} - {r.What}")

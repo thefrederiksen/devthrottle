@@ -188,6 +188,14 @@ public sealed class MailDeskDecisionEntity : GatewayMintedKeyEntity
 
     /// <summary>When the Mail Desk decided (UTC).</summary>
     public DateTime DecidedUtc { get; set; }
+
+    /// <summary>The version of the account's rules document the email was decided by (phase 3, section 8); 0 is the
+    /// empty document.</summary>
+    public int RulesVersion { get; set; }
+
+    /// <summary>How many times the email has been screened (phase 3, sections 1 and 8): 1 for the first, raised each
+    /// time a <c>failed</c> decision is decided again. The third failed screening keeps it for the owner.</summary>
+    public int AttemptCount { get; set; }
 }
 
 /// <summary>

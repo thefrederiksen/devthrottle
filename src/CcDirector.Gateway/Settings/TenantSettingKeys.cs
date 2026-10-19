@@ -279,6 +279,12 @@ public static class TenantSettingKeys
     /// row means the default, 5.00. Written as <see cref="MailDeskRouteThreshold"/> is.</summary>
     public const string MailDeskSpendLimitUsd = "mail_desk_spend_limit_usd";
 
+    /// <summary>When the Mail Desk spend limit FIRST stopped a model question since the limit was last set (Mail Desk
+    /// phase 3, section 7), as a round-trip UTC time; no row means it has stopped none. Written only by the screening
+    /// (<c>MailDesk.MailDeskSettingsStore.MarkSpendStopped</c>) and removed by any change of the spend limit, in the same
+    /// save. The spend problem and <c>GET /gateway/mail-desk/settings</c> read it through one fold, <c>MailDeskSpend</c>.</summary>
+    public const string MailDeskSpendStoppedUtc = "mail_desk_spend_stopped_utc";
+
     /// <summary>
     /// The pause-everything switch (issue #3910): the moment the account's scheduler was paused, as a round-trip UTC
     /// time. No row means not paused. Read and written only by <c>Running.CronPauseSwitch</c>; it sits beside the
@@ -377,7 +383,7 @@ public static class TenantSettingKeys
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
-        MailDeskSwitch, MailDeskRouteThreshold, MailDeskSpamThreshold, MailDeskSpendLimitUsd,
+        MailDeskSwitch, MailDeskRouteThreshold, MailDeskSpamThreshold, MailDeskSpendLimitUsd, MailDeskSpendStoppedUtc,
         SchedulesPaused,
         FactoryManagerSessionId, FactoryManagerMachine, FactoryManagerFolder, FactoryManagerEarlierSessionIds,
         GatewayInstanceId,

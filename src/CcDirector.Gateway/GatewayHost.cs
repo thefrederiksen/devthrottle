@@ -297,6 +297,15 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The account's Mail Desk spend, the one value the spend problem and the 08:00 email's spend line read.</summary>
     internal Func<TenantId, MailDesk.MailDeskSpend> MailDeskSpendOf { get; }
 
+    /// <summary>Where a Mail Desk start's report is handed and screened (Mail Desk phase 3): the trigger service never
+    /// decides one on its count.</summary>
+    internal MailDesk.MailDeskService MailDeskScreening { get; }
+
+    /// <summary>The Mail Desk template's offer as a draft (phase 3, section 10): called when the administrator route
+    /// turns an account's switch on, and at Gateway start for every account whose switch is on. Made when the routes
+    /// are mapped, because it checks a draft with the account's skills and machines as the definition routes do.</summary>
+    internal MailDesk.MailDeskTemplateOffer MailDeskTemplateOffer { get; private set; } = null!;
+
     /// <summary>The append-only factory activity record. Constructed whatever the switch says, so the
     /// database shape does not depend on it; only the routes do.</summary>
     public Factory.FactoryActivityRecord FactoryActivity { get; }
@@ -2522,10 +2531,17 @@ public sealed class GatewayHost : IAsyncDisposable
         MailDeskSettings = new MailDesk.MailDeskSettingsStore(_gatewayDb);
         MailDeskChannelChecks = new MailDesk.MailDeskChannelCheckStore(_gatewayDb);
         // The account's spend (phase 3, section 7): what its decision rows cost, against the account's own spend limit
-        // (mail_desk_spend_limit_usd, 5.00 dollars when unset). No call has been stopped until the screening stops one
-        // and says when (phase 3, task F).
-        MailDeskSpendOf = tenant => new MailDesk.MailDeskSpend(MailDeskDecisions.SpentMicros(tenant),
-            MailDesk.MailDeskMoney.Micros(MailDeskSettings.Read(tenant).SpendLimitUsd), StoppedUtc: null);
+        // (mail_desk_spend_limit_usd, 5.00 dollars when unset), and when the limit first stopped a model question since
+        // it was last set - which only the screening writes. The spend problem, the 08:00 email and GET /settings all
+        // read this one fold.
+        MailDeskSpendOf = tenant => MailDesk.MailDeskSpend.Of(tenant, MailDeskDecisions, MailDeskSettings);
+        // The screening (phase 3): the four layers over every reported message, the model built per account on the
+        // Wingman endpoint behind the plan's gate (MailDeskModelFactory), nothing filed and nothing started.
+        MailDeskScreening = new MailDesk.MailDeskService(MailDeskChannels, MailDeskRules, MailDeskDecisions, MailDeskSettings,
+            MailDeskChannelChecks,
+            tenant => MailDesk.MailDeskModelFactory.Create(tenant, AiGate, name => _keyVault.Get(name),
+                Core.Configuration.TranscriptionModeConfig.Get()),
+            () => DateTime.UtcNow);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
@@ -2837,7 +2853,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Phase 5b, brief D item 8: a definition trigger's session is a seat start built from the published version.
             definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
             // Mail Desk phase 1: a Mail Desk screening check of an account Mail Desk is off for is refused, unrecorded.
-            mailDeskOn: MailDeskSwitch.IsOn);
+            mailDeskOn: MailDeskSwitch.IsOn,
+            // Mail Desk phase 3: every Mail Desk report is handed to the screening, never decided on its count.
+            mailDesk: MailDeskScreening);
         // A timed start's due check (phase 5b): handed out and reported through the same Director routes as a
         // trigger's, decided here, its session started through the schedule's own starter.
         DueChecks = new Factory.Triggers.DueCheckService(
@@ -5616,7 +5634,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Who Mail Desk is on for: the administrator route that switches ONE account on or off, recording who and why.
         // Same admin service token; exact-match public in AuthMiddleware. The Mail Desk routes themselves are mapped
         // into Api.MailDeskGate.Group(...), which answers 404 with no body for an account that is off.
-        Api.AdminMailDeskEndpoint.Map(_app, MailDeskSwitch, TenantRegistry);
+        // Turning the switch ON offers the Mail Desk template as a draft (phase 3, section 10); turning it off offers nothing.
+        MailDeskTemplateOffer = new MailDesk.MailDeskTemplateOffer(FactoryDefinitions,
+            new Api.FactoryDefinitionEndpoints.Account(FleetSkillIdsOf, ConnectedMachinesOf, AskFactoryMachinesAsync),
+            MailDeskSwitch.IsOn, () => DateTime.UtcNow);
+        Api.AdminMailDeskEndpoint.Map(_app, MailDeskSwitch, TenantRegistry, offerTemplate: tenant => MailDeskTemplateOffer.Offer(tenant));
         // The Mail Desk routes (phase 1 contract, sections 4 and 5): status, channels, rules and decisions, every one
         // inside the gate. The channel row is folded from the account's Mail Desk start's trigger and its time zone.
         Api.MailDeskEndpoints.Map(
@@ -5630,7 +5652,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 new MailDesk.MailDeskChannelFold(Triggers.Store.List, _tenantSettingsResolver.TimeZone, MailDeskDecisions, MailDeskChannelChecks),
                 _sessionHistory.FactoryOf,
                 KnownMachinesOf,
-                () => DateTime.UtcNow));
+                () => DateTime.UtcNow,
+                MailDeskSpendOf));
 
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.
@@ -6535,6 +6558,21 @@ public sealed class GatewayHost : IAsyncDisposable
         // The database and every store that loads from it. Named and called here, immediately after the
         // bind - see EnsureStoresReady for why the order matters.
         EnsureStoresReady();
+
+        // THE MAIL DESK TEMPLATE AT START (phase 3, section 10): every account whose switch is on is offered this
+        // binary's template as a draft, so a newer template after a deploy is offered. Off the start path: it reads the
+        // database and must never delay or fail the start; each account's failure is logged by the offer itself.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                MailDeskTemplateOffer.OfferToEverySwitchedOnAccount(TenantRegistry.AllTenantIds(), tenant => _tenantBoundary.EnterScope(tenant));
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayHost] the Mail Desk template offer at start FAILED ({ex.GetType().Name}): {ex.Message}");
+            }
+        });
 
         // Issue #2161: when the caller asked for an operating-system-assigned port, the number only exists
         // once Kestrel has bound - so read it back from the server itself. This is the whole point of the

@@ -248,8 +248,11 @@ public sealed class DueCheckServiceTests : IDisposable
         Assert.Empty(_recorded);                                  // no activity row owed
     }
 
+    // Mail Desk phase 3 (the Tech Lead's ruling of 18 October 2026): the screening is handed off only from an interval
+    // start, so a timed start of the screening check with Mail Desk ON and a count above zero starts nothing - the hard
+    // order holds on this path too. Refused mail_desk_not_ready, nothing recorded.
     [Fact]
-    public async Task Report_AMailDeskTimedStart_MailDeskOn_StartsAsBefore()
+    public async Task Report_AMailDeskTimedStart_MailDeskOn_IsRefusedNotReadyAndStartsNothing()
     {
         // Arrange
         var (job, runId) = await ADueCheck(factory: MailDeskTemplate.Factory, checkPath: MailDeskTemplate.CheckPath);
@@ -257,13 +260,19 @@ public sealed class DueCheckServiceTests : IDisposable
         service.AssignmentsFor(T, Capable, Machine);
 
         // Act
-        var result = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 2}""", state: """{"seen":"m-2"}"""));
-        var finished = await result.Starting!;
+        var refused = service.Report(T, Capable, Guid.Parse(runId), Report("""{"count": 2}""", state: """{"seen":"m-2"}"""));
 
         // Assert
-        Assert.Equal(DueCheckRefusal.None, result.Refusal);
-        Assert.Equal(job.Id, Assert.Single(_starter.Started).Job.Id);
-        Assert.Equal(CronRunResults.Pending, finished!.Result);
+        Assert.Equal(DueCheckRefusal.MailDeskNotReady, refused.Refusal);
+        Assert.Null(refused.Run);
+        Assert.Null(refused.Starting);
+        Assert.Contains("runs only on an interval start", refused.Error);
+        var run = Run(runId);
+        Assert.Equal(CronRunResults.Checking, run.Result);      // no result recorded
+        Assert.Null(run.CheckCount);
+        Assert.Empty(_starter.Started);                           // no session start
+        Assert.Null(_states.Newest(T, MailDeskTemplate.Factory, FactoryCheckStateStore.ScheduleOwner(job.Id)));  // no kept state
+        Assert.Empty(_recorded);                                  // no activity row owed
     }
 
     [Fact]
