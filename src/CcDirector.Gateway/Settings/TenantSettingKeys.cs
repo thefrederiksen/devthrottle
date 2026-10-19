@@ -264,6 +264,22 @@ public static class TenantSettingKeys
     public const string MailDeskSwitch = "mail_desk_switch";
 
     /// <summary>
+    /// The Mail Desk's route threshold (Mail Desk phase 3 contract, section 7): the confidence at or above which the
+    /// route question's answer routes an email, a number from 0.5 to 1.0. No row means the default, 0.90. Written only
+    /// by <c>POST /gateway/mail-desk/settings</c>, which records every change; see <c>MailDesk.MailDeskSettingsStore</c>.
+    /// </summary>
+    public const string MailDeskRouteThreshold = "mail_desk_route_threshold";
+
+    /// <summary>The Mail Desk's spam threshold: the confidence at or above which an unknown sender's "spam" answer junks
+    /// the email, a number from 0.5 to 1.0. No row means the default, 0.95. Written as
+    /// <see cref="MailDeskRouteThreshold"/> is.</summary>
+    public const string MailDeskSpamThreshold = "mail_desk_spam_threshold";
+
+    /// <summary>The Mail Desk's spend limit in US dollars, from 0 to 100: at or over it, no model question is asked. No
+    /// row means the default, 5.00. Written as <see cref="MailDeskRouteThreshold"/> is.</summary>
+    public const string MailDeskSpendLimitUsd = "mail_desk_spend_limit_usd";
+
+    /// <summary>
     /// The pause-everything switch (issue #3910): the moment the account's scheduler was paused, as a round-trip UTC
     /// time. No row means not paused. Read and written only by <c>Running.CronPauseSwitch</c>; it sits beside the
     /// schedules and never changes one.
@@ -361,7 +377,7 @@ public static class TenantSettingKeys
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
-        MailDeskSwitch,
+        MailDeskSwitch, MailDeskRouteThreshold, MailDeskSpamThreshold, MailDeskSpendLimitUsd,
         SchedulesPaused,
         FactoryManagerSessionId, FactoryManagerMachine, FactoryManagerFolder, FactoryManagerEarlierSessionIds,
         GatewayInstanceId,

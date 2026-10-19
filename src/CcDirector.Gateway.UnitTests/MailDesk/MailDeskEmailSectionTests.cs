@@ -314,10 +314,32 @@ public sealed class MailDeskEmailSectionTests : IDisposable
             var change = new MailDeskListChangeEntity
             {
                 Kind = kind, Action = action, Subject = "x@example.com",
-                Detail = kind == MailDeskWords.ChangeKinds.Mode ? "{\"from\":\"observe\",\"to\":\"live\"}" : "{}",
+                Detail = kind switch
+                {
+                    MailDeskWords.ChangeKinds.Mode => "{\"from\":\"observe\",\"to\":\"live\"}",
+                    MailDeskWords.ChangeKinds.Setting => "{\"from\":0.90,\"to\":0.85}",
+                    _ => "{}",
+                },
             };
             Assert.False(string.IsNullOrWhiteSpace(MailDeskEmailFold.WhatInWords(change)));
         }
+    }
+
+    [Fact]
+    public void WhatInWords_SettingChange_SaysTheSettingAndItsNumbersAsStored()
+    {
+        // Arrange: the row MailDeskSettingsStore writes.
+        var change = new MailDeskListChangeEntity
+        {
+            Kind = MailDeskWords.ChangeKinds.Setting, Action = MailDeskWords.ChangeActions.Set,
+            Subject = MailDeskSettingNames.RouteThreshold, Detail = "{\"from\":0.90,\"to\":0.85}",
+        };
+
+        // Act
+        var words = MailDeskEmailFold.WhatInWords(change);
+
+        // Assert
+        Assert.Equal("Setting route-threshold set: 0.90 to 0.85", words);
     }
 
     // ---------- 6. the spend ----------
