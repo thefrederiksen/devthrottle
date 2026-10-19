@@ -450,7 +450,7 @@ export function getLicenseOverview(signal?: AbortSignal): Promise<LicenseOvervie
   return readJson<LicenseOverview>("/gateway/licenses", "read the licenses", "accounts", signal);
 }
 
-/** One open license alarm (License Switching phase 6). `text` is the banner's whole line for it, as the Gateway wrote it. */
+/** One open license alarm. `text` is the detail shown on the Licenses page, as the Gateway wrote it. */
 export interface LicenseAlarm {
   alarmId: string;
   /** The short stable word of the check that raised it, for example `not-ready-at-80`. */
@@ -462,8 +462,8 @@ export interface LicenseAlarm {
 }
 
 /**
- * The license alarms open now, with the red banner's finished words. A shell shows `summary` when it is not null, then
- * every alarm's `text` in order, then `linkText` as the link to the Licenses page - and nothing at all when `count` is 0.
+ * The license alarms open now. The frame shows only `summary` and `linkText` on one line, and nothing when `count`
+ * is zero. Each alarm's full `text` is rendered on the Licenses page only.
  */
 export interface LicenseAlarms {
   asOfUtc: string;

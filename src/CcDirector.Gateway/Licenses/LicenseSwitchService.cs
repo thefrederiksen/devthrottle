@@ -90,17 +90,8 @@ public sealed record LicenseSwitchNowMachine(
 /// reason word for the same from and to, the machine is held out of the AUTOMATIC decision for a wait that grows: one
 /// minute, two, four, up to an hour (<see cref="LicenseStore.HoldAfterRepeatedFailure"/>). The hold is recorded on the
 /// failed row itself, so a Gateway that restarts keeps it. When every machine of a tired account that could be sent a
-/// switch is held, the engine treats it as the no-room case, so the owner is told once, by the one email of the
-/// event. Switch now ignores a hold, as it ignores a bar, and a Switch now that fails the same way again is one more
-/// failure of the run.
-///
-/// ONE OWNER EMAIL PER EVENT. The event is recorded as emailed only when the mail service confirmed the send. A send
-/// that failed is tried again on a later check, with the text rebuilt from that check's facts
-/// (<see cref="LicenseDecisionEngine.NoRoomEmail"/>); once it has gone out it never goes again. The tries of one
-/// event move apart - one minute, two, four, up to an hour, or longer when the mail service asks for longer - so a
-/// send that keeps being refused is not tried every minute for the days an event can last. A Gateway that stops
-/// between the service's confirmation and the row being marked would send once more after it restarts - the only way
-/// to rule that out would be to mark the row before sending, which would lose the email instead.
+/// switch is held, the engine treats it as the no-room case and records status on the Licenses page.
+/// Switch now ignores a hold, as it ignores a bar. No-room events send no email, including events opened by older versions.
 ///
 /// INERT UNTIL A DIRECTOR REPORTS. A tenant none of whose machines has ever sent a usage report is left alone: one
 /// quiet read, nothing written, no log line. A check that finds nothing to do writes no line of its own either.
@@ -112,35 +103,22 @@ public sealed class LicenseSwitchService
     private readonly LicenseStore _store;
     private readonly LicenseSnapshotSource _snapshots;
     private readonly DirectorCommandRouter.SendDirectorCommandAsync _send;
-    private readonly LicenseOwnerEmailSender _mail;
     private readonly Func<DateTime> _nowUtc;
 
     // What is decided and written for one tenant happens one at a time; never held across a send.
     private readonly ConcurrentDictionary<TenantId, SemaphoreSlim> _deciding = new();
-    // One minute check per tenant at a time, so one event's email can never be sent by two checks at once.
+    // One minute check per tenant at a time, so two checks never plan the same event together.
     private readonly ConcurrentDictionary<TenantId, byte> _ticking = new();
     // Switches whose send is in flight in THIS process: not sent again until that send has recorded its result.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SwitchId), byte> _inFlight = new();
     // Rows whose outcome is not known and which have had their one send after NotAfterUtc (contract section 5.5).
     private readonly ConcurrentDictionary<(TenantId Tenant, string SwitchId), byte> _sentAfterExpiry = new();
-    // The next try of this event's email is not before this time: the Gateway's own growing wait, or the mail
-    // service's when it asked for a longer one.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), DateTime> _emailNotBefore = new();
-    // How many tries of this event's email have failed in a row; it sets the growing wait.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), int> _emailFailures = new();
-    // Emails the mail service confirmed whose event's row is not marked yet: never sent again by this process. With
-    // when it went, and what the event's row says happened.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string AccountEmail), (DateTime SentAtUtc, string Happened)> _emailConfirmed = new();
-
-    /// <summary>The longest the Gateway itself waits between two tries of one event's owner email.</summary>
-    internal static readonly TimeSpan LongestOwnEmailWait = TimeSpan.FromHours(1);
-
     /// <param name="store">The switch log, the bars and the no-room events.</param>
     /// <param name="snapshots">The one place the engine's picture of a tenant is built from the store.</param>
     /// <param name="send">The one way a command goes down a Director's stream (<c>GatewayHost.SendCommandAsync</c>). It
     /// reads the tenant scope in effect, so <see cref="TickAsync"/> and <see cref="SwitchNowAsync"/> must be called
     /// inside the tenant's scope.</param>
-    /// <param name="mail">Sends the owner email (<see cref="LicenseOwnerMailer.SendAsync"/>).</param>
+    /// <param name="mail">Kept for existing construction sites. No-room events no longer send email.</param>
     /// <param name="nowUtc">The Gateway's clock.</param>
     internal LicenseSwitchService(LicenseStore store, LicenseSnapshotSource snapshots,
         DirectorCommandRouter.SendDirectorCommandAsync send, LicenseOwnerEmailSender mail, Func<DateTime> nowUtc)
@@ -148,7 +126,7 @@ public sealed class LicenseSwitchService
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _snapshots = snapshots ?? throw new ArgumentNullException(nameof(snapshots));
         _send = send ?? throw new ArgumentNullException(nameof(send));
-        _mail = mail ?? throw new ArgumentNullException(nameof(mail));
+        ArgumentNullException.ThrowIfNull(mail);
         _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
     }
 
@@ -227,13 +205,11 @@ public sealed class LicenseSwitchService
                 gate.Release();
             }
 
-            var work = plan.Sends.Select(send => SendAsync(tenant, send, ct))
-                .Concat(plan.Emails.Select(email => EmailAsync(tenant, email, ct)))
-                .ToList();
+            var work = plan.Sends.Select(send => SendAsync(tenant, send, ct)).ToList();
             await Task.WhenAll(work).ConfigureAwait(false);
             // A check that found nothing to do says nothing: it runs every minute for every tenant, for good.
-            if (plan.Sends.Count + plan.Emails.Count + plan.Written > 0)
-                FileLog.Write($"[LicenseSwitchService] TickAsync: tenant={tenant.ToLogString()}, sends={plan.Sends.Count}, emails={plan.Emails.Count}, written={plan.Written}");
+            if (plan.Sends.Count + plan.Written > 0)
+                FileLog.Write($"[LicenseSwitchService] TickAsync: tenant={tenant.ToLogString()}, sends={plan.Sends.Count}, written={plan.Written}");
         }
         catch (Exception ex)
         {
@@ -371,10 +347,9 @@ public sealed class LicenseSwitchService
     private sealed record PlannedSend(string SwitchId, Guid MachineId, string MachineName, string DirectorId,
         LicenseSwitchRequest Request, bool OutcomeUnknown, bool AfterExpiry);
 
-    private sealed record PlannedEmail(string AccountEmail, LicenseOwnerEmail Email);
 
     /// <param name="Written">How many rows, bars and events this plan wrote besides the sends' own rows.</param>
-    private sealed record TickPlan(List<PlannedSend> Sends, List<PlannedEmail> Emails, int Written);
+    private sealed record TickPlan(List<PlannedSend> Sends, int Written);
 
     /// <summary>Mark every planned send as in flight in this process. Called under the tenant's gate, after the whole
     /// plan was made. Returns what it marked, for <see cref="ClearInFlight"/>.</summary>
@@ -513,8 +488,7 @@ public sealed class LicenseSwitchService
         written += decisions.NewBars.Count + decisions.OpenedExhaustions.Count + decisions.ExtendedExhaustions.Count
                    + decisions.ClosedExhaustions.Count;
 
-        // 6. No-room events: opened, moved, closed - and the one owner email of each.
-        var emails = new List<PlannedEmail>();
+        // 6. No-room events: status on the Licenses page, never an email.
         foreach (var opened in decisions.OpenedExhaustions)
         {
             // An event is opened together with its one email, and the email says which of the two it is: no
@@ -525,36 +499,11 @@ public sealed class LicenseSwitchService
         foreach (var extended in decisions.ExtendedExhaustions)
             _store.ExtendNoRoom(tenant, extended.AccountEmail, extended.EndsAtUtc);
         foreach (var closed in decisions.ClosedExhaustions)
-        {
             _store.CloseNoRoom(tenant, closed, now);
-            ForgetEmailWait(tenant, LicenseStore.NormalizeEmail(closed));
-            _emailConfirmed.TryRemove((tenant, LicenseStore.NormalizeEmail(closed)), out _);
-        }
-        foreach (var email in decisions.Emails)
-            emails.Add(new PlannedEmail(LicenseStore.NormalizeEmail(email.AccountEmail), email));
-        // An event from an earlier check whose email has not gone out: try again, with the text of THIS check's facts.
-        var closedNow = decisions.ClosedExhaustions.Select(LicenseStore.NormalizeEmail).ToHashSet(StringComparer.Ordinal);
-        foreach (var row in noRoom)
-        {
-            var account = row.FromAccountEmail;
-            if (closedNow.Contains(account)
-                || row.ReasonCode is LicenseGatewayReasonCodes.OwnerEmailed or LicenseGatewayReasonCodes.NoOwnerAccount)
-                continue;
-            if (_emailConfirmed.ContainsKey((tenant, account)))
-            {
-                // The mail service confirmed this event's email on an earlier check and the row could not be marked
-                // then: mark it now, and never send it again.
-                MarkEmailConfirmed(tenant, account);
-                written++;
-                continue;
-            }
-            if (_emailNotBefore.TryGetValue((tenant, account), out var notBefore) && now < notBefore)
-                continue;
-            if (LicenseDecisionEngine.NoRoomEmail(snapshot, account) is { } again)
-                emails.Add(new PlannedEmail(account, again));
-        }
+        // No-room and usage limits are status on the Licenses page. Never plan a new email or retry an old one.
+        // The event rows above remain, because switching and the page still need their start and reset times.
 
-        return new TickPlan(sends, emails, written);
+        return new TickPlan(sends, written);
     }
 
     /// <summary>
@@ -776,78 +725,10 @@ public sealed class LicenseSwitchService
             : null;
     }
 
-    // ----- the owner email of one event -----
-
-    private async Task EmailAsync(TenantId tenant, PlannedEmail planned, CancellationToken ct)
-    {
-        LicenseOwnerEmailResult result;
-        try
-        {
-            result = await _mail(tenant, planned.Email, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // A sender that throws has sent nothing this Gateway knows of: a failed send, with the growing wait.
-            FileLog.Write($"[LicenseSwitchService] owner email for a no-room event: the sender FAILED ({ex.GetType().Name})");
-            result = new LicenseOwnerEmailResult(LicenseOwnerEmailOutcome.Failed, $"the mail sender failed ({ex.GetType().Name})");
-        }
-        var now = _nowUtc();
-        var account = planned.AccountEmail;
-        switch (result.Outcome)
-        {
-            case LicenseOwnerEmailOutcome.Sent:
-                // Remembered BEFORE the row is marked: if the mark fails, no later check of this process sends again.
-                _emailConfirmed[(tenant, account)] = (now, Happened(planned.Email));
-                MarkEmailConfirmed(tenant, account);
-                break;
-            case LicenseOwnerEmailOutcome.NoAccount:
-                _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.NoOwnerAccount,
-                    LicenseStore.EventMessage(Happened(planned.Email), $"no owner email was sent because {result.Detail}"), null);
-                ForgetEmailWait(tenant, account);
-                break;
-            default:
-                // The wait is set before the row is written, so a database that refuses the write still gets the wait.
-                _emailNotBefore[(tenant, account)] = now + NextEmailWait(tenant, account, result.RetryAfter);
-                _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailFailed,
-                    LicenseStore.EventMessage(Happened(planned.Email), $"the owner has not been emailed yet because {result.Detail}"), null);
-                break;
-        }
-        FileLog.Write($"[LicenseSwitchService] owner email for a no-room event: tenant={tenant.ToLogString()}, outcome={result.Outcome}");
-    }
-
-    /// <summary>Mark the open no-room event of an email the mail service confirmed. Forgotten only once the row is
-    /// marked, so a database that refuses the mark costs no second email while this Gateway runs.</summary>
-    private void MarkEmailConfirmed(TenantId tenant, string account)
-    {
-        var (sentAt, happened) = _emailConfirmed[(tenant, account)];
-        _store.RecordNoRoomEmail(tenant, account, LicenseGatewayReasonCodes.OwnerEmailed,
-            LicenseStore.EventMessage(happened, "the owner was emailed"), sentAt);
-        _emailConfirmed.TryRemove((tenant, account), out _);
-        ForgetEmailWait(tenant, account);
-    }
-
     /// <summary>What the event's row says happened, from the event's email: the engine writes it on every email of an
     /// exhaustion event, so one without it is a defect and is not replaced by a guessed sentence.</summary>
     private static string Happened(LicenseOwnerEmail email)
         => email.Happened ?? throw new InvalidOperationException("The email of an exhaustion event does not say what happened.");
-
-    /// <summary>
-    /// How long to wait before the next try of an event's owner email after a failed one: the Gateway's own wait,
-    /// which doubles with every failure in a row (one minute, two, four ... up to
-    /// <see cref="LongestOwnEmailWait"/>), or the mail service's when it asked for a longer one.
-    /// </summary>
-    private TimeSpan NextEmailWait(TenantId tenant, string account, TimeSpan? askedFor)
-    {
-        var failures = _emailFailures.AddOrUpdate((tenant, account), 1, (_, n) => n + 1);
-        var own = failures > 6 ? LongestOwnEmailWait : TimeSpan.FromMinutes(1 << (failures - 1));
-        return askedFor is { } asked && asked > own ? asked : own;
-    }
-
-    private void ForgetEmailWait(TenantId tenant, string account)
-    {
-        _emailNotBefore.TryRemove((tenant, account), out _);
-        _emailFailures.TryRemove((tenant, account), out _);
-    }
 
     // ----- small helpers -----
 

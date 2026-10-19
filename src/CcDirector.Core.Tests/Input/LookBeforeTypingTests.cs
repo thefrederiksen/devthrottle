@@ -6,6 +6,7 @@ using CcDirector.Core.Input;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Tests.Drivers;
 using CcDirector.Terminal.Core;
+using CcDirector.TestInfrastructure;
 using Xunit;
 
 namespace CcDirector.Core.Tests.Input;
@@ -80,11 +81,12 @@ public sealed class LookBeforeTypingTests : IDisposable
         public int? OverlayClosesAfterFrames { get; init; }
 
         /// <summary>Park an empty composer's cursor away from its prompt row, as an idle live screen can do.</summary>
-        public bool ParkEmptyCursorAway { get; init; }
+        public bool ParkEmptyCursorAway { get; }
         private int _framesRead;
 
-        public ClaudeScreen(string composer = "", string[]? overlay = null)
+        public ClaudeScreen(string composer = "", string[]? overlay = null, bool parkEmptyCursorAway = false)
         {
+            ParkEmptyCursorAway = parkEmptyCursorAway;
             _composer.Append(composer);
             _overlay = overlay;
             Redraw();
@@ -161,8 +163,10 @@ public sealed class LookBeforeTypingTests : IDisposable
     }
 
     /// <summary>The submit the Session runs for Claude Code, with the composer read the way the Session reads it.</summary>
-    private static Task<string> Send(ClaudeScreen screen, string text) =>
-        TerminalSubmit.SharedSubmitAsync(
+    private static Task<string> Send(ClaudeScreen screen, string text)
+    {
+        var clock = VirtualTime.NewClock();
+        return VirtualTime.RunAsync(clock, () => TerminalSubmit.SharedSubmitAsync(
             screen,
             text,
             AgentKind.ClaudeCode.ToString(),
@@ -176,7 +180,9 @@ public sealed class LookBeforeTypingTests : IDisposable
             },
             recordsProofFollows: true,
             composerSeen: () => DescribeComposer(screen),
-            composerRegion: () => DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, screen.Frame()));
+            composerRegion: () => DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, screen.Frame()),
+            clock: clock));
+    }
 
     private static string DescribeComposer(ClaudeScreen screen)
     {
@@ -247,7 +253,9 @@ public sealed class LookBeforeTypingTests : IDisposable
     [Fact]
     public async Task SharedSubmit_EmptyComposerWithCursorOnAnotherRow_SubmitsThePromptAlone()
     {
-        using var screen = new ClaudeScreen { ParkEmptyCursorAway = true };
+        using var screen = new ClaudeScreen(parkEmptyCursorAway: true);
+        var position = DoorbellSafety.ReadComposerPosition(AgentKind.ClaudeCode, screen.Frame());
+        Assert.NotEqual(position.PromptRow, position.CursorRow);
 
         await Send(screen, Prompt);
 

@@ -309,6 +309,10 @@ function ShellFrame() {
 
   return (
     <StopSessionProvider>
+      <div className="shell-frame">
+      {/* The notice has its own row above the whole frame, including at phone width. Only the height left after
+          it belongs to the rail and routed page. Its words describe the person's own licenses on team pages too. */}
+      <LicenseAlarmBanner enabled={!team.resolving} href="/licenses" onOpen={() => navigate("/licenses")} />
       <div className={shellClass}>
         <nav className="rail rail-left" aria-label="Primary">
           <div className="rail-head">
@@ -363,12 +367,7 @@ function ShellFrame() {
         </nav>
 
         <main className="main-pane" aria-label="Main">
-          {/* THE LICENSE ALARM (License Switching phase 6): red, above the page, on EVERY page while one is open - in the
-              frame, never per page, so no page can be without it. Also while a team's pages are on screen: the alarm is
-              about the person's own machines, read with their own key, whichever team is being shown (review finding
-              2). Only while the shell is still learning which team is on screen does it wait. The words are the
-              Gateway's; it draws nothing when no alarm is open. */}
-          <LicenseAlarmBanner enabled={!team.resolving} href="/licenses" onOpen={() => navigate("/licenses")} />
+          <div className="routed-page" data-testid="routed-page">
           {team.resolving && team.status === "error" ? (
             <TeamUnreadable error={team.error} onOwnAccount={team.openOwnAccountForThisLoad} />
           ) : team.resolving ? (
@@ -380,7 +379,9 @@ function ShellFrame() {
           ) : (
             <Outlet />
           )}
+          </div>
         </main>
+      </div>
       </div>
     </StopSessionProvider>
   );

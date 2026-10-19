@@ -110,6 +110,10 @@ public sealed class LicenseAlarmService
     /// </summary>
     public static readonly TimeSpan HoldDown = TimeSpan.FromHours(6);
 
+    // These conditions are status, not faults. The old mixed-window kind is retired too: its rows cannot prove
+    // whether the weekly window alone raised them. Short-window readiness now has its own kind.
+    private static readonly string[] RetiredKinds = ["machine-silent", "no-room-at-80", "not-ready-at-80"];
+
     private readonly GatewayDatabase _db;
     private readonly LicenseOwnerEmailSender _mail;
     private readonly LicenseAlarmPusher _push;
@@ -146,7 +150,9 @@ public sealed class LicenseAlarmService
     {
         ArgumentNullException.ThrowIfNull(kind);
         ArgumentNullException.ThrowIfNull(trueNow);
-        var wanted = trueNow.Select(Checked).ToList();
+        var wanted = RetiredKinds.Contains(kind.Key, StringComparer.Ordinal)
+            ? new List<LicenseAlarmCondition>()
+            : trueNow.Select(Checked).ToList();
         var duplicate = wanted.GroupBy(c => (c.MachineId, c.AccountEmail)).FirstOrDefault(g => g.Count() > 1);
         if (duplicate is not null)
             throw new ArgumentException($"Two alarms of kind '{kind.Key}' name the same machine and account.", nameof(trueNow));
@@ -179,6 +185,7 @@ public sealed class LicenseAlarmService
     /// by the route that asked.</remarks>
     public IReadOnlyList<LicenseAlarmEntity> ListOpen(TenantId tenant)
     {
+        CloseRetiredAlarms(tenant);
         using var ctx = _db.CreateContext(tenant);
         return ctx.LicenseAlarms.AsNoTracking()
             .Where(a => a.ClosedAtUtc == null)
@@ -239,6 +246,7 @@ public sealed class LicenseAlarmService
         }
         try
         {
+            CloseRetiredAlarms(tenant);
             var now = _nowUtc();
             var unsent = OpenUnsent(tenant);
             if (unsent.Count == 0)
@@ -262,6 +270,18 @@ public sealed class LicenseAlarmService
         {
             _emailing.TryRemove(tenant, out _);
         }
+    }
+
+    // The first page read or email check after deployment closes old rows even for a tenant with no machines left.
+    // This runs before reading emails, so a pending email from the previous version can never escape on startup.
+    private void CloseRetiredAlarms(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var now = Utc(_nowUtc());
+        var closed = ctx.LicenseAlarms.Where(a => a.ClosedAtUtc == null && Enumerable.Contains(RetiredKinds, a.Kind))
+            .ExecuteUpdate(update => update.SetProperty(a => a.ClosedAtUtc, now));
+        if (closed > 0)
+            FileLog.Write($"[LicenseAlarmService] CloseRetiredAlarms: tenant={tenant.ToLogString()}, closed={closed}");
     }
 
     // ----- the database part of a raise -----
