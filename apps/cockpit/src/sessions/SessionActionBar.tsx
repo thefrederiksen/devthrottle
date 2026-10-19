@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sendEscape, sendInterrupt, type SessionDto } from "@devthrottle/client-core/api/client";
-import { classifyOrNull } from "@devthrottle/client-core/sessions/ordering";
+import { isWorkingOrNull } from "@devthrottle/client-core/sessions/ordering";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 // The surface label on every client-error report from this bar, so the stored error
@@ -101,8 +101,9 @@ export function SessionActionBar({ sessionId, capabilities, session }: SessionAc
   // The Gateway's own ruling, read - never re-derived from a timer or a byte count here. Null means it
   // did not say, and this control renders that absence by staying quiet rather than by guessing. It is
   // deliberately the non-throwing door onto the same rule: an unstamped session must not take the whole
-  // composer area down with it, which is exactly what the throwing one did.
-  const working = session !== undefined && classifyOrNull(session) === "active";
+  // composer area down with it, which is exactly what the throwing one did. It is the working rule (blue),
+  // not the "active" bucket, which also holds a green Ready session that has not had a turn yet.
+  const working = session !== undefined && isWorkingOrNull(session) === true;
   const canStop = has("Cancel");
   const canEscalate = stopTried && working && has("Interrupt");
 

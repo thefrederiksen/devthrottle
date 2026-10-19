@@ -42,34 +42,49 @@ function sanitizeHref(href: string): string | null {
 // A configured marked instance. GFM gives autolinked URLs, tables, and fenced code; overriding the
 // `html` renderer to escape its token is how we DISABLE raw HTML (marked passes it through by
 // default). Code and codespans are already escaped by marked's built-in renderer.
-const md = new Marked({ gfm: true, breaks: false });
-md.use({
-  renderer: {
-    // Block- and inline-level raw HTML tokens both flow through here; escaping them makes any
-    // <script>, <img>, etc. show as literal text instead of executing - the DisableHtml behavior.
-    html(token: { text: string }): string {
-      return escapeHtml(token.text);
+//
+// Two instances, alike but for `breaks`. The history Chat keeps Markdown's own rule (a single line break joins
+// the lines into one paragraph), matching the desktop's Markdig. The API-mode live Chat keeps every line break
+// the agent sent: "one per line" has to arrive one per line (API mode phase 6 QA, finding 3).
+function configuredMarked(breaks: boolean): Marked {
+  const instance = new Marked({ gfm: true, breaks });
+  instance.use({
+    renderer: {
+      // Block- and inline-level raw HTML tokens both flow through here; escaping them makes any
+      // <script>, <img>, etc. show as literal text instead of executing - the DisableHtml behavior.
+      html(token: { text: string }): string {
+        return escapeHtml(token.text);
+      },
+      // Allowlist link schemes. When the href is unsafe (javascript:, data:, ...), drop the anchor and
+      // render only its inert text so a click can do nothing. Safe links render as marked's default
+      // would (this.parser.parseInline preserves any inline markup inside the link text).
+      link(token: Tokens.Link): string {
+        const text = this.parser.parseInline(token.tokens);
+        const href = sanitizeHref(token.href);
+        if (href === null) return text;
+        const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
+        return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
+      },
     },
-    // Allowlist link schemes. When the href is unsafe (javascript:, data:, ...), drop the anchor and
-    // render only its inert text so a click can do nothing. Safe links render as marked's default
-    // would (this.parser.parseInline preserves any inline markup inside the link text).
-    link(token: Tokens.Link): string {
-      const text = this.parser.parseInline(token.tokens);
-      const href = sanitizeHref(token.href);
-      if (href === null) return text;
-      const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-      return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
-    },
-  },
-});
+  });
+  return instance;
+}
+
+const md = configuredMarked(false);
+const mdKeepingLineBreaks = configuredMarked(true);
 
 // Add target/rel to every anchor that does not already declare a target, so links open in a new tab
 // and never leak the opener (Markdig emits <a href="...">, marked the same, so the insert is safe).
 const AnchorOpen = /<a (?![^>]*\btarget=)/gi;
 
+export interface MarkdownOptions {
+  /** Keep a single line break as a line break, instead of joining the lines into one paragraph. */
+  keepLineBreaks?: boolean;
+}
+
 /** Render Markdown text to sanitized HTML with new-tab anchors. Empty in -> empty out. */
-export function markdownToHtml(text: string | null | undefined): string {
+export function markdownToHtml(text: string | null | undefined, options?: MarkdownOptions): string {
   if (!text) return "";
-  const html = md.parse(text, { async: false }) as string;
+  const html = (options?.keepLineBreaks ? mdKeepingLineBreaks : md).parse(text, { async: false }) as string;
   return html.replace(AnchorOpen, '<a target="_blank" rel="noopener noreferrer" ');
 }

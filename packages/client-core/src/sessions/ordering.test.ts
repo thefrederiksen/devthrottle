@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionDto } from "../api/client";
-import { classify, contextLine, deletionReason, dotColor, dotHex, effectiveColor, groupByDirector, inBucket, inWaitingOrder, isDeferredHold, isInCalmBand, isWorking, machineCanBeActedOn, needsYouBadgeCount, pendingDeletion, snoozeCountdown, stateLabel } from "./ordering";
+import { classify, contextLine, deletionReason, dotColor, dotHex, effectiveColor, groupByDirector, inBucket, inWaitingOrder, isDeferredHold, isInCalmBand, isWorking, isWorkingOrNull, machineCanBeActedOn, needsYouBadgeCount, pendingDeletion, snoozeCountdown, stateLabel } from "./ordering";
 
 function session(fields: Partial<SessionDto> & { sessionId?: string } = {}): SessionDto {
   return {
@@ -392,5 +392,21 @@ describe("the needs-you BADGE count - visible is not the same question as nag", 
     expect(machineCanBeActedOn(session({ machineReachable: true }))).toBe(true);
     expect(machineCanBeActedOn(session())).toBe(true);
     expect(machineCanBeActedOn(session({ machineReachable: false }))).toBe(false);
+  });
+});
+
+describe("isWorkingOrNull", () => {
+  const row = (fields: Record<string, unknown>) => ({ sessionId: "s1", ...fields }) as unknown as SessionDto;
+
+  it("isWorkingOrNull_GreenReadyInTheActiveBucket_IsFalse", () => {
+    expect(isWorkingOrNull(row({ effectiveColor: "green", stateLabel: "Ready", triageBucket: "active" }))).toBe(false);
+  });
+
+  it("isWorkingOrNull_Blue_IsTrue", () => {
+    expect(isWorkingOrNull(row({ effectiveColor: "Blue", triageBucket: "active" }))).toBe(true);
+  });
+
+  it("isWorkingOrNull_NoColourStamped_IsNullNotAThrow", () => {
+    expect(isWorkingOrNull(row({ triageBucket: "active" }))).toBeNull();
   });
 });

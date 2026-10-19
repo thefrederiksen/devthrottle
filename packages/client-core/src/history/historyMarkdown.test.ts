@@ -76,3 +76,19 @@ describe("raw HTML stays disabled", () => {
     expect(markdownToHtml(undefined)).toBe("");
   });
 });
+
+describe("line breaks", () => {
+  it("markdownToHtml_SingleLineBreaksByDefault_JoinIntoOneParagraphAsTheHistoryChatHasAlwaysShownThem", () => {
+    expect(markdownToHtml("1\n2\n3")).toBe("<p>1\n2\n3</p>\n");
+  });
+
+  it("markdownToHtml_KeepLineBreaks_KeepsEverySingleLineBreak", () => {
+    expect(markdownToHtml("1\n2\n3", { keepLineBreaks: true })).toBe("<p>1<br>2<br>3</p>\n");
+  });
+
+  it("markdownToHtml_KeepLineBreaks_StillDisablesRawHtmlAndUnsafeLinks", () => {
+    const html = markdownToHtml("<script>x</script>\n[a](javascript:alert(1))", { keepLineBreaks: true });
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("javascript:");
+  });
+});
