@@ -78,6 +78,9 @@ public sealed class LookBeforeTypingTests : IDisposable
 
         /// <summary>After this many frames are read, the overlay closes by itself (a menu the owner answered).</summary>
         public int? OverlayClosesAfterFrames { get; init; }
+
+        /// <summary>Park an empty composer's cursor away from its prompt row, as an idle live screen can do.</summary>
+        public bool ParkEmptyCursorAway { get; init; }
         private int _framesRead;
 
         public ClaudeScreen(string composer = "", string[]? overlay = null)
@@ -138,12 +141,13 @@ public sealed class LookBeforeTypingTests : IDisposable
         private void Redraw()
         {
             var rule = new string('─', Cols);
+            var cursor = ParkEmptyCursorAway && _composer.Length == 0
+                ? "\x1b[2;20H"
+                : $"\x1b[4;{3 + _composer.Length}H";
             var body = _overlay is { } overlay
                 ? string.Join("\r\n", overlay)
                 : "● Shall I go ahead?\r\n\r\n" + rule + "\r\n❯ " + _composer + "\r\n" + rule +
-                  "\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle)" +
-                  // Claude Code leaves the cursor in the composer, straight after what it holds.
-                  $"\x1b[4;{3 + _composer.Length}H";
+                  "\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle)" + cursor;
             var bytes = Encoding.UTF8.GetBytes("\x1b[2J\x1b[H" + body);
             _parser.Parse(bytes);
             Buffer!.Write(bytes);
@@ -171,8 +175,17 @@ public sealed class LookBeforeTypingTests : IDisposable
                 return PromptArrival.ComposerHoldsNothing(reading, composerText);
             },
             recordsProofFollows: true,
-            composerSeen: () => DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, screen.Frame()).ToString(),
+            composerSeen: () => DescribeComposer(screen),
             composerRegion: () => DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, screen.Frame()));
+
+    private static string DescribeComposer(ClaudeScreen screen)
+    {
+        var frame = screen.Frame();
+        var position = DoorbellSafety.ReadComposerPosition(AgentKind.ClaudeCode, frame);
+        var reading = DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, frame).Reading;
+        return $"reading={reading}, cursorRow={position.CursorRow}, cursorCol={position.CursorCol}, " +
+               $"promptRow={position.PromptRow}, cursorVisible={position.CursorVisible}";
+    }
 
     private const string Prompt = "please run the release checklist now";
 
@@ -229,6 +242,32 @@ public sealed class LookBeforeTypingTests : IDisposable
         await Send(screen, Prompt);
 
         Assert.Equal([Prompt], screen.Submitted);
+    }
+
+    [Fact]
+    public async Task SharedSubmit_EmptyComposerWithCursorOnAnotherRow_SubmitsThePromptAlone()
+    {
+        using var screen = new ClaudeScreen { ParkEmptyCursorAway = true };
+
+        await Send(screen, Prompt);
+
+        Assert.Equal([Prompt], screen.Submitted);
+    }
+
+    [Fact]
+    public async Task SharedSubmit_WhitespaceDraft_RefusesWithWhitespaceWordingAndLogsCursorPosition()
+    {
+        using var screen = new ClaudeScreen(composer: "   ");
+        var position = DoorbellSafety.ReadComposerPosition(AgentKind.ClaudeCode, screen.Frame());
+        var trail = SendTrail.Begin();
+
+        var ex = await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Send(screen, Prompt));
+
+        Assert.Contains("holds unsent whitespace", ex.Message);
+        Assert.DoesNotContain("0 characters", ex.Message);
+        Assert.Empty(screen.Written);
+        var steps = string.Join("\n", trail.Steps);
+        Assert.Contains($"cursorRow={position.CursorRow}, cursorCol={position.CursorCol}, promptRow={position.PromptRow}", steps);
     }
 
     [Fact]
