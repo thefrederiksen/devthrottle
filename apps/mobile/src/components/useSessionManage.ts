@@ -6,6 +6,7 @@ import {
   type SessionDto,
   type SessionStopOutcome,
 } from "@devthrottle/client-core/api/client";
+import { renameSession } from "@devthrottle/client-core/fleet/fleetClient";
 import { classify, isDeferredHold, isWorking, snoozeCountdown } from "@devthrottle/client-core/sessions/ordering";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
 import {
@@ -119,6 +120,13 @@ export interface SessionManage {
    *  sheet open, because the error is already surfaced here on `error` and the operator is looking at
    *  the sheet. It throws on a failure. */
   stopSession: () => Promise<SessionStopOutcome>;
+  /** Rename the session: send the new display name to the Gateway (PATCH /sessions/{sid}, the same
+   *  endpoint the Cockpit's rename and the CLI's `session rename` take) and adopt it OPTIMISTICALLY on
+   *  the row, so the title on the screen changes the moment the Gateway answers - the next roster poll
+   *  confirms it. An empty or whitespace-only name is the CALLER's business (the sheet's Save refuses
+   *  it); the Gateway trims and echoes the applied name. Resolves true when the Gateway accepted it,
+   *  false when it failed - the error is already surfaced on `error`. */
+  rename: (name: string) => Promise<boolean>;
 }
 
 export function useSessionManage(sessionId: string | undefined): SessionManage {
@@ -142,6 +150,8 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   // Whether a STOP request is outstanding. A ref and not the `busy` flag: two rapid taps land in the
   // same tick and both read the same stale busy, so a state check lets the second one straight through.
   const stopInFlightRef = useRef(false);
+  // Whether a RENAME request is outstanding, for the same reason as the stop's ref.
+  const renameInFlightRef = useRef(false);
 
   // Hoisted out of the effect so toggleHold can call it for an IMMEDIATE re-sync after a snooze, instead
   // of leaving the button/pill stale until the next interval. Reads the SAME roster the Home page reads.
@@ -309,6 +319,36 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     }
   }, [sessionId]);
 
+  // The rename. Same write-path discipline as the stop: the busy guard lives on the ACTION (a ref, so
+  // two rapid taps in one tick cannot both read the same stale busy), the failure is the Gateway's own
+  // sentence on `error`, and on SUCCESS the row adopts the Gateway's applied name at once - the title
+  // row of the app bar renders the row's name, so the rename lands without waiting for the next poll,
+  // and the immediate re-sync below confirms it from the roster fold.
+  const doRename = useCallback(async (name: string): Promise<boolean> => {
+    if (!sessionId) return false;
+    if (renameInFlightRef.current) return false;
+    renameInFlightRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await renameSession(sessionId, name);
+      if (routeRef.current !== sessionId) return false;
+      // The row keeps everything the last read stamped on it (the Gateway's applied name is the one
+      // thing that changed) - a fresh full row arrives on the immediate re-sync below.
+      setSession((prev) =>
+        prev !== null && prev.sessionId === sessionId ? { ...prev, name: updated.name } : updated,
+      );
+      void refresh();
+      return true;
+    } catch (err) {
+      setError(describeAndReport(SURFACE, "rename the session", err, { sessionId }));
+      return false;
+    } finally {
+      renameInFlightRef.current = false;
+      setBusy(false);
+    }
+  }, [sessionId]);
+
   const refreshNow = useCallback(() => { void refresh(); }, [refresh]);
 
   return {
@@ -329,6 +369,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     toggleHold,
     holdFor,
     stopSession: doStopSession,
+    rename: doRename,
     refreshNow,
   };
 }
