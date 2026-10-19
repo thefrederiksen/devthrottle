@@ -473,8 +473,8 @@ public sealed class TriggerService
     /// <summary>
     /// THE MAIL DESK HAND-OFF, under the per-trigger lock (Mail Desk phase 3, sections 1 and 2). The report is NEVER read
     /// for its count: a failed check is recorded <c>failed</c> by the ordinary rule, memory not kept (the whole-run
-    /// failure of section 6); while a screening of this trigger runs a second report is <c>skipped-running</c>, memory
-    /// not kept; otherwise the screening is begun off the request, on the Gateway's lifetime, and records the run when it
+    /// failure of section 6); a paused start is recorded <c>paused</c> and screens nothing, memory not kept; while a
+    /// screening of this trigger runs a second report is <c>skipped-running</c>, memory not kept; otherwise the screening is begun off the request, on the Gateway's lifetime, and records the run when it
     /// ends. Answers the row recorded now, or the screening under way.
     /// </summary>
     private TriggerReportResult HandToMailDesk(TenantId tenant, TriggerEntity trigger,
@@ -488,6 +488,12 @@ public sealed class TriggerService
             // A check that failed because no channel names this machine says the fix, not phase 2's "no channels".
             outcome = TriggerRunOutcome.Failed;
             reason = _mailDesk!.NoChannelSentence(tenant, where) ?? reading.FailureReason;
+        }
+        else if (trigger.Paused)
+        {
+            // THE OWNER'S STOP BUTTON HOLDS FOR THE MAIL DESK TOO (review of 4243, finding 1): a paused start screens
+            // nothing - no model call, no decision, no spend - and keeps no memory, so its mail is read again once resumed.
+            outcome = TriggerRunOutcome.Paused;
         }
         else if (_screening.ContainsKey(trigger.Id))
         {
@@ -540,7 +546,7 @@ public sealed class TriggerService
         MailDesk.MailDeskScreeningRun run;
         try
         {
-            run = await _mailDesk!.ScreenAsync(p.Tenant, p.Where, p.Context, p.Returned, p.Kept, _startLifetime).ConfigureAwait(false);
+            run = await _mailDesk!.ScreenAsync(p.Tenant, p.Where, p.CheckedUtc, p.Context, p.Returned, p.Kept, _startLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

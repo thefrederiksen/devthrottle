@@ -253,20 +253,41 @@ public sealed class MailDeskSettingsEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SetSpendLimit_AfterAStop_ClearsTheStopSoTheNextStopIsRecordedAfresh()
+    public async Task SetSpendLimit_RaisedAboveWhatWasSpent_ClearsTheStopSoTheNextStopIsRecordedAfresh()
     {
         // Arrange
         Spent(5_000_300);
         _settings.MarkSpendStopped(A, _now);
 
-        // Act: lowered, still under what was spent, so a call would be stopped again - but none has been yet.
-        await Set(MailDeskSettingNames.SpendLimit, 4);
+        // Act
+        await Set(MailDeskSettingNames.SpendLimit, 10);
 
         // Assert
         Assert.Null(_settings.SpendStoppedUtc(A));
         Assert.False((await Get(P + "/settings")).Body.GetProperty("stopped").GetBoolean());
         Assert.True(_settings.MarkSpendStopped(A, _now.AddMinutes(5)));
         Assert.Equal(_now.AddMinutes(5), _settings.SpendStoppedUtc(A));
+    }
+
+    // Review of 4243, finding 4: the spend problem is open "until the limit is raised above what was spent" (section 7).
+    // A change that leaves the limit at or under the spend - set again, or lowered - keeps the stop and the problem.
+    [Theory]
+    [InlineData(5)]
+    [InlineData(4)]
+    [InlineData(5.0003)]
+    public async Task SetSpendLimit_AtOrUnderWhatWasSpent_KeepsTheStopAndTheSpendProblem(double limit)
+    {
+        // Arrange
+        Spent(5_000_300);
+        _settings.MarkSpendStopped(A, _now);
+
+        // Act
+        await Set(MailDeskSettingNames.SpendLimit, limit);
+
+        // Assert
+        Assert.Equal(_now, _settings.SpendStoppedUtc(A));
+        Assert.True((await Get(P + "/settings")).Body.GetProperty("stopped").GetBoolean());
+        Assert.NotNull(MailDeskProblems.SpendProblem(MailDeskSpend.Of(A, _decisions, _settings), TimeZoneInfo.Utc, _now));
     }
 
     [Fact]

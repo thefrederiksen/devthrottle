@@ -167,10 +167,13 @@ public sealed class MailDeskSettingsStore
                 row.Value = stored;
                 row.UpdatedAtUtc = nowUtc;
             }
-            // A change of the spend limit ends the stop the old limit made: the next stop is recorded afresh, so the
-            // spend problem is open only while the limit set now is the one that stopped a call.
+            // A spend limit RAISED ABOVE WHAT WAS SPENT ends the stop (section 7: the spend problem is open "until the limit
+            // is raised above what was spent"); the next stop is then recorded afresh. A change that leaves the limit at
+            // or under the spend keeps the stop and the problem (review of 4243, finding 4). Summed here, not in the
+            // database, as MailDeskDecisionStore.SpentMicros does.
             if (folded == MailDeskSettingNames.SpendLimit
-                && ctx.TenantSettings.FirstOrDefault(e => e.Key == TenantSettingKeys.MailDeskSpendStoppedUtc) is { } stoppedRow)
+                && ctx.TenantSettings.FirstOrDefault(e => e.Key == TenantSettingKeys.MailDeskSpendStoppedUtc) is { } stoppedRow
+                && MailDeskMoney.Micros(value) > ctx.MailDeskDecisions.AsNoTracking().Where(d => d.CostMicros != null).Select(d => d.CostMicros!.Value).ToList().Sum())
                 ctx.TenantSettings.Remove(stoppedRow);
             var detail = JsonSerializer.Serialize(new { from, to = value });
             var change = new MailDeskChange(MailDeskWords.ChangeKinds.Setting, MailDeskWords.ChangeActions.Set, folded, detail, who, reason)

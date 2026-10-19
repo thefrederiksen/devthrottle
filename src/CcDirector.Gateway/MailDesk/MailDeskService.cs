@@ -87,12 +87,13 @@ public sealed class MailDeskService
     /// </summary>
     /// <param name="tenant">The account.</param>
     /// <param name="machine">The machine of the Director that ran the check.</param>
+    /// <param name="checkedUtc">When the check ran: a channel added or changed after it is not expected in its report.</param>
     /// <param name="context">The context the check printed (phase 2, section 4.1).</param>
     /// <param name="returnedMemory">The memory the check wrote back.</param>
     /// <param name="keptMemory">The memory kept before this run.</param>
     /// <param name="lifetime">The Gateway's lifetime, cancelled only when it stops.</param>
-    public async Task<MailDeskScreeningRun> ScreenAsync(TenantId tenant, string machine, string? context, string? returnedMemory,
-        string? keptMemory, CancellationToken lifetime)
+    public async Task<MailDeskScreeningRun> ScreenAsync(TenantId tenant, string machine, DateTime checkedUtc, string? context,
+        string? returnedMemory, string? keptMemory, CancellationToken lifetime)
     {
         FileLog.Write($"[MailDeskService] ScreenAsync: account={tenant.ToLogString()}, machine={machine}");
         var now = _nowUtc();
@@ -106,9 +107,20 @@ public sealed class MailDeskService
             if (!byId.ContainsKey(section.ChannelId))
                 return MailDeskScreeningRun.Failed($"the screening check reported channel {section.ChannelId}, which is not a channel of this account");
         var handedIds = sections.Select(s => s.ChannelId).ToHashSet();
-        var expected = MailDeskMemory.HandedTo(all, machine).Select(c => c.Id).ToHashSet();
-        if (!expected.SetEquals(handedIds))
-            FileLog.Write($"[MailDeskService] ScreenAsync: the report holds {handedIds.Count} channels and {expected.Count} name {machine} now - a channel changed since the hand-off");
+        // A HANDED CHANNEL LEFT OUT IS A DEFECT, REFUSED (section 4; review of 4243, finding 2) - even when the context and
+        // the memory agree on leaving it out, or the mailbox would silently stop being read. Every active channel that
+        // names this machine and was neither added nor changed after the check ran was handed to it, so it must be in
+        // the report. One added or changed since is excused: that report could not have held it.
+        var at = DateTime.SpecifyKind(checkedUtc, DateTimeKind.Utc);
+        var missing = MailDeskMemory.HandedTo(all, machine)
+            .Where(c => !handedIds.Contains(c.Id)
+                        && DateTime.SpecifyKind(c.CreatedUtc, DateTimeKind.Utc) <= at
+                        && DateTime.SpecifyKind(c.ChangedUtc, DateTimeKind.Utc) <= at)
+            .ToList();
+        if (missing.Count > 0)
+            return MailDeskScreeningRun.Failed(
+                "the screening check left out " + string.Join(", ", missing.Select(c => $"channel {c.Id:D} ({c.Address})")) +
+                $", which it was handed on {machine}, so the report was not screened and no memory was kept");
 
         // The memory is checked BEFORE any email is screened: a check that dropped or invented a channel is a defect,
         // and its report is not screened at all.

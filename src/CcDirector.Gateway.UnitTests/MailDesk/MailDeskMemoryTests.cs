@@ -255,7 +255,8 @@ public sealed class MailDeskMemoryTests : IAsyncLifetime
         await AddThroughTheRoute(BoxB);
         var report = StandInCheck.Run(await _rig.PullAsync(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
         var memory = JsonNode.Parse(report.State!)!.AsObject();
-        memory["channels"]!.AsArray().RemoveAt(1);
+        var channels = memory["channels"]!.AsArray();
+        channels.Remove(channels.Single(c => c!["address"]!.GetValue<string>() == BoxB));
         report.State = memory.ToJsonString();
 
         // Act

@@ -191,6 +191,94 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         Assert.Empty(_rig.Starts);
     }
 
+    // Review of 4243, finding 1: pausing is the owner's stop button. A paused Mail Desk start screens nothing - no model
+    // call, no decision, no spend - and its memory is not kept, so the mail is read again once it is resumed.
+    [Fact]
+    public async Task ReportCheckAsync_APausedMailDeskStart_ScreensNothingAndIsRecordedPaused()
+    {
+        // Arrange
+        _rig.AddMailDeskTrigger();
+        var a = _rig.Channel(BoxA);
+        _rig.TriggerStore.SetPaused(MailDeskHandOffRig.Account, _rig.TriggerId.ToString("D"), true);
+
+        // Act
+        var report = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
+        var (result, run) = await _rig.ReportAsync(report);
+
+        // Assert
+        Assert.Null(result.Starting);
+        Assert.Equal(TriggerRunOutcome.Paused, run!.Outcome);
+        Assert.Equal(1, run.Count);
+        Assert.Empty(_rig.Model.Calls);
+        Assert.Empty(_rig.DecisionRows());
+        Assert.Equal(0, _rig.KeptMemoryRows());
+        Assert.Empty(_rig.Starts);
+
+        // And once resumed, the same mail is read again and screened.
+        _rig.TriggerStore.SetPaused(MailDeskHandOffRig.Account, _rig.TriggerId.ToString("D"), false);
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var resumed = await Screen(StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })));
+        Assert.Equal(TriggerRunOutcome.Screened, resumed!.Outcome);
+        Assert.Single(_rig.DecisionRows());
+        Assert.NotNull(Entry(_rig.KeptMemory(), a.Id));
+    }
+
+    // Review of 4243, finding 2: a check that leaves a handed channel out of BOTH its context and its memory is refused,
+    // not screened, so the mailbox that stopped being read shows as a problem.
+    [Fact]
+    public async Task ReportCheckAsync_AChannelDroppedFromContextAndMemoryAlike_IsRefusedAndRaisesAProblem()
+    {
+        // Arrange
+        _rig.AddMailDeskTrigger();
+        _rig.Channel(BoxA);
+        var b = _rig.Channel(BoxB);
+        var report = StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now);
+        // Mailbox B is taken out by its address: two channels added at one instant are in no fixed order.
+        var memory = JsonNode.Parse(report.State!)!.AsObject();
+        RemoveAddress(memory["channels"]!.AsArray(), BoxB);
+        report.State = memory.ToJsonString();
+        var output = JsonNode.Parse(report.Output!)!.AsObject();
+        var context = JsonNode.Parse(output["context"]!.GetValue<string>())!.AsObject();
+        RemoveAddress(context["channels"]!.AsArray(), BoxB);
+        output["context"] = context.ToJsonString();
+        report.Output = output.ToJsonString();
+
+        // Act
+        var (_, run) = await _rig.ReportAsync(report);
+
+        // Assert
+        Assert.Equal(TriggerRunOutcome.Failed, run!.Outcome);
+        Assert.Contains(b.Id.ToString("D"), run.Reason);
+        Assert.Contains(BoxB, run.Reason);
+        Assert.Empty(_rig.DecisionRows());
+        Assert.Equal(0, _rig.KeptMemoryRows());
+        Assert.Contains(_rig.OpenProblems(), p => p.Kind == CronRunProblems.CheckFailed && p.Sentence.Contains(BoxB));
+    }
+
+    // Review of 4243, finding 3: the channel row's last-check words name the screening, not a seat.
+    [Fact]
+    public async Task ChannelRow_AfterASkippedRunningScreening_SaysThePreviousScreeningIsStillRunning()
+    {
+        // Arrange: a screening held open, and a second report while it runs.
+        _rig.AddMailDeskTrigger();
+        _rig.Channel(BoxA);
+        _rig.Model.Hold = new TaskCompletionSource();
+        var first = await _rig.Triggers.ReportCheckAsync(MailDeskHandOffRig.Account, DirectorA, _rig.TriggerId.ToString("D"),
+            StandInCheck.Run(_rig.Handed(), StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now), CancellationToken.None, MachineA);
+        var second = await _rig.Triggers.ReportCheckAsync(MailDeskHandOffRig.Account, DirectorA, _rig.TriggerId.ToString("D"),
+            StandInCheck.Run(_rig.Handed(), StandInCheck.Reads(), _rig.Now), CancellationToken.None, MachineA);
+        Assert.Equal(TriggerRunOutcome.SkippedRunning, second.Run!.Outcome);
+
+        // Act
+        var label = (await _rig.PersonGetAsync(P + "/channels")).GetProperty("channels")[0].GetProperty("lastCheck").GetProperty("label").GetString();
+        _rig.Model.Hold.SetResult();
+        await first.Starting!;
+
+        // Assert
+        Assert.Contains("the previous screening is still running", label);
+        Assert.DoesNotContain("seat", label);
+    }
+
     [Fact]
     public async Task ReportCheckAsync_AFailedMailDeskCheck_IsFailedAndKeepsNoMemory()
     {
@@ -580,6 +668,12 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
     }
 
     // ---------- helpers ----------
+
+    private static void RemoveAddress(JsonArray channels, string address)
+    {
+        var entry = channels.Single(c => c!["address"]!.GetValue<string>() == address);
+        channels.Remove(entry);
+    }
 
     private static string Only(JsonObject entry, IReadOnlyList<string> fields)
     {

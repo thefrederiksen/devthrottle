@@ -161,7 +161,10 @@ public sealed class MailDeskChannelFold
     {
         TriggerRunOutcome.NothingToDo => "no new mail",
         TriggerRunOutcome.Started => "new mail, and the seat was started",
-        TriggerRunOutcome.Paused => "new mail, but the start is paused",
+        TriggerRunOutcome.Paused => "the start is paused, so no mail was screened",
+        // The Mail Desk start starts no seat; its one skipped-running is the screening's (review of 4243, finding 3).
+        TriggerRunOutcome.SkippedRunning when reason == Factory.Triggers.TriggerService.ScreeningStillRunning
+            => "the previous screening is still running, so this check was not screened",
         TriggerRunOutcome.SkippedRunning => "new mail, and the seat it started last is still running",
         TriggerRunOutcome.Failed => $"failed - {reason}",
         TriggerRunOutcome.Screened => "the mail it read was screened",
