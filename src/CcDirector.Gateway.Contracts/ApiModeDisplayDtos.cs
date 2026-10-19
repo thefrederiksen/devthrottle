@@ -99,7 +99,9 @@ public static class ApiModeLiveItemModes
 public sealed class ApiModeSessionDisplay
 {
     /// <summary>Machine-readable state key, for the client's style lookup only (never re-ruling): <c>working</c>,
-    /// <c>idle</c>, <c>userHasTheWheel</c>, <c>stopped</c> (no process holds the conversation), or <c>unknown</c>.</summary>
+    /// <c>idle</c>, <c>starting</c> (the agent process holds the conversation and has not named it yet: after a hand back,
+    /// until it is ready, the same window the row reads as starting), <c>userHasTheWheel</c>, <c>stopped</c> (no process
+    /// holds the conversation), or <c>unknown</c>.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>Render hint for the colour ONLY: <c>green</c>, <c>yellow</c>, <c>red</c> or <c>neutral</c>.</summary>
@@ -111,8 +113,9 @@ public sealed class ApiModeSessionDisplay
     /// <summary>True when the user holds the wheel (the agent's real terminal holds the conversation).</summary>
     public bool UserHasTheWheel { get; set; }
 
-    /// <summary>Working or idle, with the turn number, in words: "Working - turn 3", "Idle after turn 3", "Idle - no
-    /// turn yet", or the honest "Not known: ..." sentence.</summary>
+    /// <summary>Working, starting or idle, with the turn number, in words: "Working - turn 3", "Starting - the agent is
+    /// starting again after turn 3", "Idle after turn 3", "Idle - no turn yet", or the honest "Not known: ..."
+    /// sentence.</summary>
     public string ActivityLabel { get; set; } = "";
 
     /// <summary>True while a turn runs, false when idle, null when this Gateway cannot know.</summary>

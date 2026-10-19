@@ -78,6 +78,7 @@ internal static class ApiModeRowStamp
         var t = tenant!.Value;
         var receipts = facts!.ReadReceipts(t, apiRows.Select(s => s.SessionId).ToList());
         foreach (var s in apiRows)
-            s.ApiMode = ApiModeSessionFold.Fold(s.ConnectionMode, s.WheelHolder, GatewayDictationEndpoint.IsExited(s), receipts[s.SessionId], facts.Held(t, s.SessionId));
+            s.ApiMode = ApiModeSessionFold.Fold(s.ConnectionMode, s.WheelHolder, GatewayDictationEndpoint.IsExited(s), receipts[s.SessionId], facts.Held(t, s.SessionId),
+                agentStarting: string.Equals(s.ActivityState, "Starting", StringComparison.OrdinalIgnoreCase));
     }
 }
