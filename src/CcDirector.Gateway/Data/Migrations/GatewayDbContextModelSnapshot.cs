@@ -3109,6 +3109,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("INTEGER");
+
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("TEXT");
 
@@ -3164,6 +3167,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("RouteSeat")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("RulesVersion")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("SenderAddress")
                         .IsRequired()
