@@ -287,6 +287,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <inheritdoc cref="MailDeskChannels"/>
     internal MailDesk.MailDeskDecisionStore MailDeskDecisions { get; }
 
+    /// <inheritdoc cref="MailDeskChannels"/>
+    internal MailDesk.MailDeskSettingsStore MailDeskSettings { get; }
+
     /// <summary>Each mailbox's kept checks (Mail Desk phase 3, section 6.2): the mailbox problems and the channel row's
     /// <c>signedIn</c> are folded from them, and the screening writes them.</summary>
     internal MailDesk.MailDeskChannelCheckStore MailDeskChannelChecks { get; }
@@ -2516,11 +2519,13 @@ public sealed class GatewayHost : IAsyncDisposable
         MailDeskChannels = new MailDesk.MailDeskChannelStore(_gatewayDb);
         MailDeskRules = new MailDesk.MailDeskRulesStore(_gatewayDb);
         MailDeskDecisions = new MailDesk.MailDeskDecisionStore(_gatewayDb);
+        MailDeskSettings = new MailDesk.MailDeskSettingsStore(_gatewayDb);
         MailDeskChannelChecks = new MailDesk.MailDeskChannelCheckStore(_gatewayDb);
-        // The account's spend (phase 3, section 7): what its decision rows cost. The limit is the contract's default
-        // until the setting mail_desk_spend_limit_usd is read here (phase 3, task D), and no call has been stopped until
-        // the screening stops one and says when (phase 3, task F).
-        MailDeskSpendOf = tenant => new MailDesk.MailDeskSpend(MailDeskDecisions.SpentMicros(tenant), MailDesk.MailDeskSpend.DefaultLimitMicros, StoppedUtc: null);
+        // The account's spend (phase 3, section 7): what its decision rows cost, against the account's own spend limit
+        // (mail_desk_spend_limit_usd, 5.00 dollars when unset). No call has been stopped until the screening stops one
+        // and says when (phase 3, task F).
+        MailDeskSpendOf = tenant => new MailDesk.MailDeskSpend(MailDeskDecisions.SpentMicros(tenant),
+            MailDesk.MailDeskMoney.Micros(MailDeskSettings.Read(tenant).SpendLimitUsd), StoppedUtc: null);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
         FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
@@ -5621,6 +5626,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 MailDeskChannels,
                 MailDeskRules,
                 MailDeskDecisions,
+                MailDeskSettings,
                 new MailDesk.MailDeskChannelFold(Triggers.Store.List, _tenantSettingsResolver.TimeZone, MailDeskDecisions, MailDeskChannelChecks),
                 _sessionHistory.FactoryOf,
                 KnownMachinesOf,

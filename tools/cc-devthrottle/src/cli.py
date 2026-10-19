@@ -1594,6 +1594,20 @@ _ACTIONS = [
         "args": [],
     },
     {
+        "id": "maildesk-settings",
+        "description": "Show the Mail Desk's route and spam thresholds, its spend limit, what was spent, and whether it stopped.",
+        "command": "cc-devthrottle maildesk settings",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "maildesk-set",
+        "description": "Change a Mail Desk threshold or the spend limit; every change is recorded with who and why.",
+        "command": "cc-devthrottle maildesk set route-threshold|spam-threshold|spend-limit <value> --why \"<text>\"",
+        "mutatesState": True,
+        "args": [{"name": "name", "required": True}, {"name": "value", "required": True}, {"name": "why", "required": True}],
+    },
+    {
         "id": "skill-list",
         "description": "List the fleet's Skills - central capabilities held on the Gateway, one line each.",
         "command": "cc-devthrottle skill list",
@@ -5338,6 +5352,22 @@ def maildesk_mode(
 ) -> None:
     """Set a channel to observe or live."""
     maildesk_ops.mode(address, mode, why)
+
+
+@maildesk_app.command("settings")
+def maildesk_settings(json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON.")) -> None:
+    """The route and spam thresholds, the spend limit, and what was spent."""
+    maildesk_ops.settings(json_output)
+
+
+@maildesk_app.command("set")
+def maildesk_set(
+    name: str = typer.Argument(..., help="route-threshold, spam-threshold or spend-limit."),
+    value: str = typer.Argument(..., help="A threshold from 0.5 to 1.0, or a spend limit from 0 to 100 US dollars."),
+    why: Optional[str] = typer.Option(None, "--why", help=_WHY_HELP),
+) -> None:
+    """Change one Mail Desk setting; the change is recorded with who and why."""
+    maildesk_ops.set_setting(name, value, why)
 
 
 @maildesk_app.command("decisions")

@@ -165,11 +165,14 @@ public sealed class MailDeskEmailFold
             MailDeskWords.ChangeKinds.Route => "Route",
             MailDeskWords.ChangeKinds.Channel => "Mailbox",
             MailDeskWords.ChangeKinds.Mode => "Mode of",
+            MailDeskWords.ChangeKinds.Setting => "Setting",
             _ => throw new InvalidOperationException(
                 $"Mail Desk change {change.Id} is of the kind '{change.Kind}', which has no words. Add it to MailDeskEmailFold.WhatInWords."),
         };
         if (change.Kind == MailDeskWords.ChangeKinds.Mode)
             return $"Mode of {change.Subject} set: {ModeChange(change.Detail)}";
+        if (change.Kind == MailDeskWords.ChangeKinds.Setting)
+            return $"Setting {change.Subject} set: {SettingChange(change.Detail)}";
         var done = change.Action switch
         {
             MailDeskWords.ChangeActions.Add => "added",
@@ -179,6 +182,17 @@ public sealed class MailDeskEmailFold
                 $"Mail Desk change {change.Id} did '{change.Action}', which has no words. Add it to MailDeskEmailFold.WhatInWords."),
         };
         return $"{thing} {done}: {change.Subject}";
+    }
+
+    /// <summary>A recorded setting change's numbers, as stored (phase 3, section 7): "0.90 to 0.85".</summary>
+    private static string SettingChange(string detail)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(detail);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("from", out var from) || from.ValueKind != System.Text.Json.JsonValueKind.Number
+            || !root.TryGetProperty("to", out var to) || to.ValueKind != System.Text.Json.JsonValueKind.Number)
+            throw new InvalidOperationException($"A recorded Mail Desk setting change carries no numbers 'from' and 'to': {detail}");
+        return $"{from.GetRawText()} to {to.GetRawText()}";
     }
 
     private static string ModeChange(string detail)
