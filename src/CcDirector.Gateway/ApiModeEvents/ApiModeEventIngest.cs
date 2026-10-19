@@ -18,22 +18,27 @@ namespace CcDirector.Gateway.ApiModeEvents;
 ///  2. The buffer decides, under the session's lock, which events are new: an older generation is refused, a later
 ///     one replaces the session's, and inside one generation only sequences above the highest held are new - so a
 ///     duplicate or late batch stores nothing and cannot move a session backwards.
-///  3. The new events feed the durable receipt store (inside the tenant's scope), then the buffer appends them and
-///     hands them to its subscribers.
+///  3. The new events feed the durable receipt store and the durable conversation
+///     (<see cref="ApiModeConversation.ApiModeConversationStore"/>), inside the tenant's scope, then the buffer appends
+///     them and hands them to its subscribers. All of it under the buffer's session lock, which is what lets a reader's
+///     opening be read as an exact snapshot (<see cref="IApiModeEventFeed.Snapshot"/>).
 ///
-/// The receipts are idempotent on their own (each row keeps the position of the last event applied), so a batch the
+/// Both stores are idempotent on their own (each row keeps the position of the last event applied), so a batch the
 /// Gateway half-stored before an error is safe to send again.
 /// </summary>
 public sealed class ApiModeEventIngest
 {
     private readonly ApiModeEventBuffer _buffer;
     private readonly ApiModeReceiptStore _receipts;
+    private readonly ApiModeConversation.ApiModeConversationStore _conversation;
     private readonly HostedTenantBoundary _boundary;
 
-    public ApiModeEventIngest(ApiModeEventBuffer buffer, ApiModeReceiptStore receipts, HostedTenantBoundary boundary)
+    public ApiModeEventIngest(ApiModeEventBuffer buffer, ApiModeReceiptStore receipts,
+        ApiModeConversation.ApiModeConversationStore conversation, HostedTenantBoundary boundary)
     {
         _buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
         _receipts = receipts ?? throw new ArgumentNullException(nameof(receipts));
+        _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
         _boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
     }
 
@@ -55,7 +60,10 @@ public sealed class ApiModeEventIngest
             using (_boundary.EnterScope(tenant))
             {
                 foreach (var e in fresh)
+                {
                     FeedReceipts(directorId, e, position(e.Sequence));
+                    _conversation.Record(batch.SessionId, new ApiModeHeldEvent(batch.Generation, batch.GenerationStartedUtc, e));
+                }
             }
         });
 
@@ -167,6 +175,9 @@ public sealed class ApiModeEventIngest
                     throw new ArgumentException($"event {i} (TurnEnded {ApiModeEventIngest.Word(t.Outcome)}) carries no reason; every outcome but done must say why", "batch");
                 if (t.Reason is not null) Text(i, t.Reason, "reason");
                 break;
+            // A message, tool call or permission request id is not checked for length: the durable conversation does not
+            // keep an item whose id is longer than its column and goes on (ApiModeConversationStore), so one such id never
+            // costs the whole batch.
             case SessionTurnEvent other: Id(i, other.TurnId, "turnId"); break;
         }
     }

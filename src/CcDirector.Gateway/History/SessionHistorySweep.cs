@@ -33,14 +33,17 @@ public sealed class SessionHistorySweep : TenantScopedSweep
     private readonly SessionHistoryStore _store;
     private readonly SessionTurnStore _turns;
     private readonly Receipts.ApiModeReceiptStore _receipts;
+    private readonly ApiModeConversation.ApiModeConversationStore _conversation;
 
     public SessionHistorySweep(HostedTenantBoundary boundary, TenantRegistry tenants,
-        SessionHistoryStore store, SessionTurnStore turns, Receipts.ApiModeReceiptStore receipts)
+        SessionHistoryStore store, SessionTurnStore turns, Receipts.ApiModeReceiptStore receipts,
+        ApiModeConversation.ApiModeConversationStore conversation)
         : base(boundary, tenants)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _turns = turns ?? throw new ArgumentNullException(nameof(turns));
         _receipts = receipts ?? throw new ArgumentNullException(nameof(receipts));
+        _conversation = conversation ?? throw new ArgumentNullException(nameof(conversation));
     }
 
     public async Task SweepAsync(CancellationToken ct = default)
@@ -56,6 +59,9 @@ public sealed class SessionHistorySweep : TenantScopedSweep
             _turns.PurgeOlderThan(now - Retention);
             // An API-mode prompt's receipt lives as long as the conversation it was part of.
             _receipts.PurgeOlderThan(now - Receipts.ApiModeReceiptStore.Retention);
+            // An API-mode session's stored conversation lives as long as its receipts, per session (never a silent gap
+            // at the start of a session still in use).
+            _conversation.PurgeOlderThan(now - ApiModeConversation.ApiModeConversationStore.Retention);
             return Task.CompletedTask;
         }, ct).ConfigureAwait(false);
     }

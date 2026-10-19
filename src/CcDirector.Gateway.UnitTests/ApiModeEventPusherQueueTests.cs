@@ -2,6 +2,7 @@ using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.Core.ApiMode;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
@@ -50,7 +51,7 @@ public sealed class ApiModeEventPusherQueueTests : IAsyncDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _boundary = new HostedTenantBoundary(_ambient, new DeviceRegistry(_harness.Open(), path), hosted: false);
         _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => At.UtcDateTime);
-        _ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), _receipts, _boundary);
+        _ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), _receipts, new ApiModeConversationStore(_harness.Open(_ambient), () => At.UtcDateTime), _boundary);
         _current = _gatewayOff;
         // As the session manager wires it: the stream's sink is whichever the Director's setting makes current.
         _stream = new SessionEventStream(Sid, new ForwardingSessionEventSink(() => _current), new FakeTimeProvider(At));

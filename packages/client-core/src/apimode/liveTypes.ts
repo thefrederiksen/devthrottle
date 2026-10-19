@@ -9,8 +9,9 @@ import type { components } from "../api/schema";
 /** One thing the live view shows, ruled once on the Gateway (ApiModeLiveRuling). Found on screen by `itemId`; the
  *  later item with the same id appends its text to it or replaces it, as `mode` says. */
 export interface ApiModeLiveItem {
-  /** `reply:<messageId>`, `tool:<toolCallId>`, `turn:<turnId>`, `receipt:<promptId>`, `connection:<sequence>`,
-   *  `permission:<requestId>`. */
+  /** `reply:<messageId>`, `tool:<toolCallId>`, `turn:<turnId>`, `receipt:<promptId>`,
+   *  `connection:<generation>:<sequence>`, `permission:<requestId>`, and `conversation:earlier-not-kept` for the line
+   *  that opens a stored conversation whose oldest items were let go. */
   itemId: string;
   /** One of the kinds below, for layout and style lookup only. */
   kind: string;
@@ -43,6 +44,7 @@ export const LIVE_ITEM_KINDS = {
   receipt: "receipt",
   connection: "connection",
   permission: "permission",
+  notice: "notice",
 } as const;
 
 /** The values of `ApiModeLiveItem.mode` (ApiModeLiveItemModes). */
@@ -57,7 +59,9 @@ export interface ApiModeLiveReset {
   code: string;
   /** Why, as a sentence to show as it is. */
   message: string;
-  /** The routes to rebuild from, with the session id filled in. */
+  /** The routes to rebuild from, with the session id filled in: `/sessions/{sid}/live`, whose opening is the stored
+   *  conversation. On the stream that opening follows the reset at once, so the client lets go of what it holds and
+   *  applies what follows. */
   rebuildFrom: string[];
 }
 

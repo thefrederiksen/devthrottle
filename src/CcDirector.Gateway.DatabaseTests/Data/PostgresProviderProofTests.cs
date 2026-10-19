@@ -188,6 +188,11 @@ public sealed class PostgresProviderProofTests
         var expected = new[]
         {
             ("account_trials", "subject"),
+            // The durable conversation of an API mode session (mission #4070): the session, the item and the turn are
+            // exact keys - the session and the item make the primary key, and the turn ties an item to its receipt.
+            ("api_mode_conversation_items", "ItemId"),
+            ("api_mode_conversation_items", "SessionId"),
+            ("api_mode_conversation_items", "TurnId"),
             // The API mode prompt receipts: the session, the prompt and the turn are exact keys. Declared "C" when the
             // table was added and missed here (found by the license alarm pull request's run of this test).
             ("api_mode_receipts", "PromptId"),

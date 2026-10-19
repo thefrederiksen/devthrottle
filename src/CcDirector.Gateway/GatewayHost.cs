@@ -1274,6 +1274,7 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The API-mode prompt receipts (mission #4070, phase 2): queued, delivered with the agent's own
     /// acknowledgement, or refused with the reason, and the outcome of the turn that carried each prompt.</summary>
     private readonly Receipts.ApiModeReceiptStore _apiModeReceipts;
+    private readonly ApiModeConversation.ApiModeConversationStore _apiModeConversation;
     /// <summary>The recent API-mode events of every session, and their subscriptions (mission #4070, phase 2).</summary>
     private readonly ApiModeEvents.ApiModeEventBuffer _apiModeEventBuffer = new();
     /// <summary>What DirectorHub.PushApiModeEvents hands each batch to: receipts, then the buffer.</summary>
@@ -2218,7 +2219,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // hub writes through, never a second instance.
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         _apiModeReceipts = new Receipts.ApiModeReceiptStore(_gatewayDb, () => DateTime.UtcNow);
-        _apiModeEventIngest = new ApiModeEvents.ApiModeEventIngest(_apiModeEventBuffer, _apiModeReceipts, _tenantBoundary);
+        _apiModeConversation = new ApiModeConversation.ApiModeConversationStore(_gatewayDb, () => DateTime.UtcNow);
+        _apiModeEventIngest = new ApiModeEvents.ApiModeEventIngest(_apiModeEventBuffer, _apiModeReceipts, _apiModeConversation, _tenantBoundary);
         _apiModeDisplayFacts = new ApiModeDisplay.ApiModeDisplayFacts(_apiModeEventBuffer, new ApiModeDisplay.ApiModeVerdictReceipts(_gatewayDb));
         // The dev report store is built here, before the team gate, because the gate's ownership answer reads a report's
         // author (devthrottle_internal#2309): a report a person published in a team is theirs.
@@ -2974,7 +2976,7 @@ public sealed class GatewayHost : IAsyncDisposable
             _knownRepositories,
             (tenant, directorId) => Registry.Get(tenant, directorId)?.MachineName);
         _sessionHistorySweep = new History.SessionHistorySweep(
-            _tenantBoundary, TenantRegistry, _sessionHistory, _sessionTurns, _apiModeReceipts);
+            _tenantBoundary, TenantRegistry, _sessionHistory, _sessionTurns, _apiModeReceipts, _apiModeConversation);
 
         // Web Push (mobile app-icon "needs you" dot): load (or generate on first run) the VAPID key
         // pair and the set of subscribed devices. The notifier that fans out to these is built and
@@ -5342,7 +5344,7 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.SessionReceiptsEndpoint.Map(_app, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary);
         // The live relay of an API-mode session's events (mission #4070, phase 2): the stream and its poll form. Literal
         // routes, so they outrank the /sessions/{sid}/{**rest} catch-all and never travel to the Director.
-        Api.SessionLiveEndpoint.Map(_app, _apiModeEventBuffer, _apiModeReceipts, PushedSessions, _streamStaleAfter, _tenantBoundary, TimeProvider.System);
+        Api.SessionLiveEndpoint.Map(_app, _apiModeEventBuffer, _apiModeReceipts, _apiModeConversation, PushedSessions, _streamStaleAfter, _tenantBoundary, TimeProvider.System);
 
         GatewayWingmanVoiceEndpoint.Map(_app, Hosted, Registry, WingmanBrainAsync, _keyVault, _voiceService, _tenantSettingsResolver,
             // The manual "generate the narration now" route reads the stored conversation too, through the

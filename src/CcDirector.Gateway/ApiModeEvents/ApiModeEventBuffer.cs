@@ -44,6 +44,22 @@ public sealed class ApiModeEventBuffer : IApiModeEventFeed
     }
 
     /// <inheritdoc />
+    public T Snapshot<T>(TenantId tenant, string sessionId, Func<ApiModeEventReplay, T> withHeld)
+    {
+        ArgumentNullException.ThrowIfNull(withHeld);
+        var key = Key(tenant, sessionId);
+        while (true)
+        {
+            var state = GetOrCreate(key);
+            lock (state.Gate)
+            {
+                if (state.Evicted) continue;
+                return withHeld(ReplayOf(state, null));
+            }
+        }
+    }
+
+    /// <inheritdoc />
     public ApiModeEventSubscription Subscribe(TenantId tenant, string sessionId, ApiModeEventCursor? after, Action<ApiModeHeldEvent> onEvent)
     {
         ArgumentNullException.ThrowIfNull(onEvent);

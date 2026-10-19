@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
@@ -186,7 +187,7 @@ public sealed class ApiModeReceiptPromptTextTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var boundary = new HostedTenantBoundary(ambient, new DeviceRegistry(_harness.Open(), path), hosted: false);
         var receipts = new ApiModeReceiptStore(_harness.Open(ambient), () => T0);
-        var ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), receipts, boundary);
+        var ingest = new ApiModeEventIngest(new ApiModeEventBuffer(), receipts, new ApiModeConversationStore(_harness.Open(ambient), () => T0), boundary);
         var at = new DateTimeOffset(T0);
         SessionEvent[] events =
         {

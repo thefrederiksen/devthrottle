@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.ApiModeDisplay;
 using CcDirector.Gateway.ApiModeEvents;
@@ -231,7 +232,7 @@ public sealed class ApiModeVerdictOnTheRosterTests : IDisposable
     }
 
     private void Ingest(params SessionEvent[] events)
-        => Assert.NotNull(new ApiModeEventIngest(_buffer, _receipts, _boundary).Accept(TenantId.Local, DirectorId, A(events)));
+        => Assert.NotNull(new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(_db, () => T0.UtcDateTime), _boundary).Accept(TenantId.Local, DirectorId, A(events)));
 
     private static async Task<JsonElement> RowAsync(HttpClient http, string sid)
     {

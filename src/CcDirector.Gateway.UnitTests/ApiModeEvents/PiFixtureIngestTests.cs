@@ -2,6 +2,7 @@ using System.Text.Json;
 using CcDirector.Core.ApiMode;
 using CcDirector.Core.ApiMode.Pi;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.ApiModeConversation;
 using CcDirector.Gateway.ApiModeEvents;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Contracts.ApiMode;
@@ -42,7 +43,7 @@ public sealed class PiFixtureIngestTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _boundary = new HostedTenantBoundary(_ambient, new DeviceRegistry(_harness.Open(), path), hosted: false);
         _receipts = new ApiModeReceiptStore(_harness.Open(_ambient), () => RecordingStart.UtcDateTime);
-        _ingest = new ApiModeEventIngest(_buffer, _receipts, _boundary);
+        _ingest = new ApiModeEventIngest(_buffer, _receipts, new ApiModeConversationStore(_harness.Open(_ambient), () => RecordingStart.UtcDateTime), _boundary);
     }
 
     public void Dispose() => _harness.Dispose();
