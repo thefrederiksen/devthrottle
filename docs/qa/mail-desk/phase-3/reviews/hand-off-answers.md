@@ -72,6 +72,33 @@ spend problem stays open.
   it encoded the defect. It is replaced by `SetSpendLimit_RaisedAboveWhatWasSpent_ClearsTheStop...`, which raises the
   limit to $10.
 
+## 5. The excuse for a missing channel trusted the Director's clock - accepted, fixed
+
+Raised by the Tech Lead from the re-review (commit `924a4842d`).
+
+**The fix.** `MailDeskService` now records, on the Gateway's own clock, when it handed the Mail Desk memory to each
+account and machine (`HandMemory`). A channel missing from a report is excused only if its row was created or changed
+after that hand-out. The report's `CheckedAtUtc` is no longer read for this, so a Director whose clock runs behind
+excuses nothing.
+
+The hand-out time is kept in memory. After a Gateway restart has lost it, the time the report arrived stands in, as the
+Tech Lead allowed. That can refuse one honest report: a channel added after the hand-out but before the restart. The run
+after it is correct.
+
+The finding 2 answer above said the excuse used the time the check ran. That is replaced by this.
+
+**One case still judged wrong, once.** A Director asks for its assignments again while its last check is still running.
+That later hand-out moves the recorded time. So a channel added between the two hand-outs and missing from the running
+check's report is refused instead of excused, for that one run. The next run is correct.
+
+**The tests**, both run against the code before this fix, where both failed:
+- `MailDeskHandOffTests.ReportCheckAsync_AChannelAddedAfterTheHandOut_IsExcusedOnceThenRefusedWhenLeftOutAgain`: the
+  memory is handed out, a channel is added a minute later, and the report of that hand-out is screened. On the next run,
+  whose hand-out held the channel, leaving it out of the context and the memory alike is refused. The old code refused
+  even the first, honest report, because it judged by the check's time, which came after the channel was added.
+- `MailDeskHandOffTests.ReportCheckAsync_ADirectorStampDaysBehind_ExcusesNoDroppedChannel`: a report stamped two days
+  behind, leaving out a channel that existed before the hand-out, is refused. The old code excused it.
+
 ## The notes that are not findings
 
 No change. I agree with the reviewer's reading of each.
@@ -83,6 +110,9 @@ No change. I agree with the reviewer's reading of each.
   as for `mail_desk_off`.
 
 ## The numbers after the fixes
+
+After finding 5: the affected suites 1,161 of 1,161; `MailDeskHandOffTests` and `MailDeskMemoryTests` three runs in a
+row, 36 of 36 each. Before finding 5:
 
 - Mail Desk, trigger, due-check, factory email, cron result, factory activity, migration and setting-key tests:
   1,159 passed, 0 failed.

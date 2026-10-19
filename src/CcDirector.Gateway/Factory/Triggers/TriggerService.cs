@@ -546,7 +546,7 @@ public sealed class TriggerService
         MailDesk.MailDeskScreeningRun run;
         try
         {
-            run = await _mailDesk!.ScreenAsync(p.Tenant, p.Where, p.CheckedUtc, p.Context, p.Returned, p.Kept, _startLifetime).ConfigureAwait(false);
+            run = await _mailDesk!.ScreenAsync(p.Tenant, p.Where, p.Context, p.Returned, p.Kept, _startLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

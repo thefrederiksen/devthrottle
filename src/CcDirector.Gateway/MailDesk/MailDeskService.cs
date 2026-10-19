@@ -40,6 +40,10 @@ public sealed class MailDeskService
     private readonly Func<TenantId, IMailDeskModel> _modelFor;
     private readonly Func<DateTime> _nowUtc;
     private readonly TimeProvider _time;
+    // When this Gateway last handed the Mail Desk memory to each (account, machine), on the Gateway's own clock: what
+    // decides whether a channel missing from a report was handed at all (review of 4243, finding 5). Lost on a restart,
+    // when the report's arrival time stands in for it.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Tenant, string Machine), DateTime> _handedAt = new();
 
     /// <param name="modelFor">Builds the model for one account's screening (<see cref="MailDeskModelFactory.Create"/>
     /// in production); asked once per screening, and only when some email needs a model question.</param>
@@ -65,6 +69,7 @@ public sealed class MailDeskService
     public string HandMemory(TenantId tenant, string? kept, string machine)
     {
         var handed = MailDeskMemory.Hand(kept, _channels.List(tenant), machine);
+        _handedAt[HandedKey(tenant, machine)] = DateTime.SpecifyKind(_nowUtc(), DateTimeKind.Utc);
         FileLog.Write($"[MailDeskService] HandMemory: account={tenant.ToLogString()}, machine={machine}, channels={MailDeskMemory.HandedTo(_channels.List(tenant), machine).Count}");
         return handed;
     }
@@ -87,12 +92,11 @@ public sealed class MailDeskService
     /// </summary>
     /// <param name="tenant">The account.</param>
     /// <param name="machine">The machine of the Director that ran the check.</param>
-    /// <param name="checkedUtc">When the check ran: a channel added or changed after it is not expected in its report.</param>
     /// <param name="context">The context the check printed (phase 2, section 4.1).</param>
     /// <param name="returnedMemory">The memory the check wrote back.</param>
     /// <param name="keptMemory">The memory kept before this run.</param>
     /// <param name="lifetime">The Gateway's lifetime, cancelled only when it stops.</param>
-    public async Task<MailDeskScreeningRun> ScreenAsync(TenantId tenant, string machine, DateTime checkedUtc, string? context,
+    public async Task<MailDeskScreeningRun> ScreenAsync(TenantId tenant, string machine, string? context,
         string? returnedMemory, string? keptMemory, CancellationToken lifetime)
     {
         FileLog.Write($"[MailDeskService] ScreenAsync: account={tenant.ToLogString()}, machine={machine}");
@@ -109,18 +113,24 @@ public sealed class MailDeskService
         var handedIds = sections.Select(s => s.ChannelId).ToHashSet();
         // A HANDED CHANNEL LEFT OUT IS A DEFECT, REFUSED (section 4; review of 4243, finding 2) - even when the context and
         // the memory agree on leaving it out, or the mailbox would silently stop being read. Every active channel that
-        // names this machine and was neither added nor changed after the check ran was handed to it, so it must be in
-        // the report. One added or changed since is excused: that report could not have held it.
-        var at = DateTime.SpecifyKind(checkedUtc, DateTimeKind.Utc);
+        // names this machine and was neither added nor changed after the memory was HANDED OUT was in that memory, so it
+        // must be in the report; one added or changed since is excused, because that report could not have held it. The
+        // time is the Gateway's own - when it handed the memory out, or, after a restart lost that, when the report
+        // arrived - never the Director's stamp, so a Director whose clock runs behind excuses nothing (finding 5).
+        var handedAt = _handedAt.TryGetValue(HandedKey(tenant, machine), out var recorded) ? recorded : (DateTime?)null;
+        var at = handedAt ?? DateTime.SpecifyKind(now, DateTimeKind.Utc);
         var missing = MailDeskMemory.HandedTo(all, machine)
             .Where(c => !handedIds.Contains(c.Id)
                         && DateTime.SpecifyKind(c.CreatedUtc, DateTimeKind.Utc) <= at
                         && DateTime.SpecifyKind(c.ChangedUtc, DateTimeKind.Utc) <= at)
             .ToList();
         if (missing.Count > 0)
+        {
+            FileLog.Write($"[MailDeskService] ScreenAsync: {missing.Count} handed channels missing from the report, judged against the {(handedAt is null ? "report's arrival" : "hand-out")} at {at:O}");
             return MailDeskScreeningRun.Failed(
                 "the screening check left out " + string.Join(", ", missing.Select(c => $"channel {c.Id:D} ({c.Address})")) +
                 $", which it was handed on {machine}, so the report was not screened and no memory was kept");
+        }
 
         // The memory is checked BEFORE any email is screened: a check that dropped or invented a channel is a defect,
         // and its report is not screened at all.
@@ -249,6 +259,8 @@ public sealed class MailDeskService
         var written = _checks.RecordAll(tenant, inputs);
         FileLog.Write($"[MailDeskService] RecordChecks: account={tenant.ToLogString()}, run={runId}, checks={inputs.Count}, written={written.Count(w => w.Written)}");
     }
+
+    private static (string, string) HandedKey(TenantId tenant, string machine) => (tenant.Value, machine.ToUpperInvariant());
 
     /// <summary>"the model could not be asked about &lt;n&gt; of &lt;m&gt; emails on &lt;address&gt; (&lt;error kind&gt;); they are read again next run".</summary>
     internal static string ModelFailureSentence(int failed, int reported, string address, IEnumerable<string> errorKinds)

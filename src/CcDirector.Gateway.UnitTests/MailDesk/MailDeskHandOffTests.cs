@@ -255,6 +255,57 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
         Assert.Contains(_rig.OpenProblems(), p => p.Kind == CronRunProblems.CheckFailed && p.Sentence.Contains(BoxB));
     }
 
+    // Review of 4243, finding 5: the excuse for a channel missing from a report is judged by when the GATEWAY handed the
+    // memory out. A channel added after the hand-out is excused once - that report could not hold it - and refused on
+    // the next run, whose hand-out did hold it.
+    [Fact]
+    public async Task ReportCheckAsync_AChannelAddedAfterTheHandOut_IsExcusedOnceThenRefusedWhenLeftOutAgain()
+    {
+        // Arrange: the memory is handed out holding only A; B is added a minute later.
+        _rig.AddMailDeskTrigger();
+        _rig.Channel(BoxA);
+        var handedWithoutB = _rig.Handed();
+        _rig.Now = _rig.Now.AddMinutes(1);
+        _rig.Channel(BoxB);
+        _rig.Now = _rig.Now.AddMinutes(1);
+
+        // Act: the report of that hand-out, which cannot hold B.
+        var (_, excused) = await _rig.ReportAsync(StandInCheck.Run(handedWithoutB, StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now));
+
+        // Assert
+        Assert.Equal(TriggerRunOutcome.Screened, excused!.Outcome);
+
+        // Act again: the next hand-out holds B, and the check leaves it out of its context and memory alike.
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var report = DropFromReport(StandInCheck.Run(_rig.Handed(), StandInCheck.Reads(), _rig.Now), BoxB);
+        var (_, refused) = await _rig.ReportAsync(report);
+
+        // Assert
+        Assert.Equal(TriggerRunOutcome.Failed, refused!.Outcome);
+        Assert.Contains(BoxB, refused.Reason);
+    }
+
+    // Review of 4243, finding 5: a Director whose clock runs days behind excuses nothing - its stamp is never the judge.
+    [Fact]
+    public async Task ReportCheckAsync_ADirectorStampDaysBehind_ExcusesNoDroppedChannel()
+    {
+        // Arrange: both channels exist before the hand-out; the report says it was checked two days ago.
+        _rig.AddMailDeskTrigger();
+        _rig.Channel(BoxA);
+        _rig.Channel(BoxB);
+        _rig.Now = _rig.Now.AddMinutes(1);
+        var handed = _rig.Handed();
+        var report = DropFromReport(StandInCheck.Run(handed, StandInCheck.Reads((BoxA, new[] { Mail("a-1", 1) })), _rig.Now.AddDays(-2)), BoxB);
+
+        // Act
+        var (_, run) = await _rig.ReportAsync(report);
+
+        // Assert
+        Assert.Equal(TriggerRunOutcome.Failed, run!.Outcome);
+        Assert.Contains(BoxB, run.Reason);
+        Assert.Empty(_rig.DecisionRows());
+    }
+
     // Review of 4243, finding 3: the channel row's last-check words name the screening, not a seat.
     [Fact]
     public async Task ChannelRow_AfterASkippedRunningScreening_SaysThePreviousScreeningIsStillRunning()
@@ -668,6 +719,20 @@ public sealed class MailDeskHandOffTests : IAsyncLifetime
     }
 
     // ---------- helpers ----------
+
+    /// <summary>The report with the channel of <paramref name="address"/> left out of its memory and its context alike.</summary>
+    private static TriggerCheckReport DropFromReport(TriggerCheckReport report, string address)
+    {
+        var memory = JsonNode.Parse(report.State!)!.AsObject();
+        RemoveAddress(memory["channels"]!.AsArray(), address);
+        report.State = memory.ToJsonString();
+        var output = JsonNode.Parse(report.Output!)!.AsObject();
+        var context = JsonNode.Parse(output["context"]!.GetValue<string>())!.AsObject();
+        RemoveAddress(context["channels"]!.AsArray(), address);
+        output["context"] = context.ToJsonString();
+        report.Output = output.ToJsonString();
+        return report;
+    }
 
     private static void RemoveAddress(JsonArray channels, string address)
     {
