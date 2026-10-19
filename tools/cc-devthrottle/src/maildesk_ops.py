@@ -10,6 +10,8 @@ the decisions on the Gateway; this module reads and changes them under `/gateway
 - `maildesk rules show|history`                 the rules document by version, and every change with who and why
 - `maildesk allow|block|rule|route add|remove`  one entry of the rules document; each change is a new version
 - `maildesk decisions`                          what the desk decided, newest first, with every filter on the Gateway
+- `maildesk settings`                           the two thresholds, the spend limit, what was spent (phase 3)
+- `maildesk set <name> <value>`                 change one setting; every change is recorded with who and why
 
 THE GATEWAY RULES, THIS MODULE PRINTS (repository rule 7). Every label - a channel's mode, whether it is signed in,
 how its last check went - is printed as the Gateway wrote it, and every refusal is the Gateway's own `error` and
@@ -50,8 +52,17 @@ PREFIX = "/gateway/mail-desk"
 LAYERS = ("rule", "allow", "block", "sender-screen", "route-model")
 DECISIONS = ("route", "archive", "junk", "keep-for-owner", "mail-desk-agent", "failed")
 MODES = ("observe", "live")
-CHANGE_KINDS = ("rule", "allow", "block", "route", "channel", "mode")
+CHANGE_KINDS = ("rule", "allow", "block", "route", "channel", "mode", "setting")
 DO_WORDS = ("archive", "keep-for-owner")
+
+# The settings, as MailDeskSettingNames holds them, and each one's range (MailDeskSettings): checked here only so a
+# value out of range is refused before any request, naming the range at once.
+SETTING_RANGES = {
+    "route-threshold": (0.5, 1.0),
+    "spam-threshold": (0.5, 1.0),
+    "spend-limit": (0.0, 100.0),
+}
+SETTING_NAMES = tuple(SETTING_RANGES)
 
 #: The one sentence for a Mail Desk route that answers 404 with no body.
 SWITCHED_OFF = "Mail Desk is not switched on for this account."
@@ -65,6 +76,7 @@ _CHANNELS = f"{_TOOL} channel list"
 _RULES = f"{_TOOL} rules show"
 _HISTORY = f"{_TOOL} rules history"
 _DECISIONS = f"{_TOOL} decisions"
+_SETTINGS = f"{_TOOL} settings"
 _ROUTE_FORM = "<factory>/<seat>"
 
 
@@ -279,6 +291,7 @@ def status(json_output: bool) -> None:
         _line(f"rules-version: {answer.get('rulesVersion')}"),
         _line(f"today: {today.get('date')} ({today.get('timeZone')}) total {today.get('total')}"),
         _line(f"by-decision: {_by_decision(today.get('byDecision'))}"),
+        _line(f"spend: {_label(answer.get('spend')) or '-'}"),
         axi_output.render_list("channels", fields, records),
     )
     lines = [axi_cli.ascii_text(str(h)).strip() for h in (answer.get("help") or []) if str(h).strip()]
@@ -510,3 +523,54 @@ def route_remove(route: str, why: Optional[str]) -> None:
     require_why(why)
     parsed = parse_route(route, "route")
     rules_remove("route", f"{parsed['factory']}/{parsed['seat']}", why)
+
+
+# ---------- the settings (phase 3) ----------
+
+
+def settings(json_output: bool) -> None:
+    answer = _call(lambda: _client().get("/settings"), [_STATUS])
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    answer = answer if isinstance(answer, dict) else {}
+    _write(
+        _line(f"route-threshold: {answer.get('routeThreshold')}"),
+        _line(f"spam-threshold: {answer.get('spamThreshold')}"),
+        _line(f"spend-limit: {answer.get('spendLimitUsd')}"),
+        _line(f"spent: {answer.get('spentUsd')}"),
+        _line(f"stopped: {'yes' if answer.get('stopped') is True else 'no'}"),
+        _line(f"spend: {answer.get('label') or '-'}"),
+    )
+    axi_cli.print_next([f'{_TOOL} set <name> <value> --why "<text>"', f"{_HISTORY} --kind setting"])
+
+
+def parse_setting(name: str, value: str) -> float:
+    """The value for setting `name`, as a number in its range, or exit 2 naming the names or the range."""
+    require_one_of("setting", name, SETTING_NAMES)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = float("nan")
+    low, high = SETTING_RANGES[name]
+    if not (low <= number <= high):  # also refuses nan and inf
+        axi_cli.usage_error(f"{name} is a number from {low} to {high}; '{value}' is not.")
+    return number
+
+
+def set_setting(name: str, value: str, why: Optional[str]) -> None:
+    reason = require_why(why)
+    number = parse_setting(name, value)
+    body = {"name": name, "value": number, "why": reason}
+    answer = _call(lambda: _client().post("/settings", body), [_SETTINGS])
+    change = axi_cli.confirmed(answer, ["change"], f"the change of {name}", [_SETTINGS],
+                               accept=lambda c: isinstance(c, dict) and c.get("subject") == name)
+    detail = change.get("detail") if isinstance(change.get("detail"), dict) else {}
+    after = answer.get("settings") if isinstance(answer.get("settings"), dict) else {}
+    _write(
+        _line(f"Setting {name} changed from {detail.get('from')} to {detail.get('to')}."),
+        _line(f"who: {change.get('whoInWords') or '-'}"),
+        _line(f"why: {change.get('why') or '-'}"),
+        _line(f"spend: {after.get('label') or '-'}"),
+    )
+    axi_cli.print_next([_SETTINGS, f"{_HISTORY} --kind setting"])
