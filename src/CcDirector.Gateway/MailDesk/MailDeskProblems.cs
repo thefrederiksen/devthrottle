@@ -200,6 +200,18 @@ public sealed record MailDeskSpend(long SpentMicros, long LimitMicros, DateTime?
     /// <summary>The spend limit when the account has set none: 5.00 US dollars (phase 3 contract, section 1).</summary>
     public const long DefaultLimitMicros = 5_000_000;
 
+    /// <summary>
+    /// The account's spend, read from where it is kept: the decision rows' cost, the spend limit setting, and when the
+    /// limit stopped a call. The one way it is read, so the problem, the 08:00 email and the settings agree.
+    /// </summary>
+    public static MailDeskSpend Of(TenantId tenant, MailDeskDecisionStore decisions, MailDeskSettingsStore settings)
+    {
+        ArgumentNullException.ThrowIfNull(decisions);
+        ArgumentNullException.ThrowIfNull(settings);
+        return new MailDeskSpend(decisions.SpentMicros(tenant), MailDeskMoney.Micros(settings.Read(tenant).SpendLimitUsd),
+            settings.SpendStoppedUtc(tenant));
+    }
+
     /// <summary>True when what was spent is at or over the limit, so no further call is made.</summary>
     public bool LimitReached => SpentMicros >= LimitMicros;
 

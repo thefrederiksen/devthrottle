@@ -3195,6 +3195,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("uuid");
 
@@ -3253,6 +3256,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("RouteSeat")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<int>("RulesVersion")
+                        .HasColumnType("integer");
 
                     b.Property<string>("SenderAddress")
                         .IsRequired()

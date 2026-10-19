@@ -32,11 +32,13 @@ public static class FactoryActivityOutcome
     /// <summary>The owner talked with a seat of the factory (Factories screen mission): the line a talk session
     /// writes before it ends, which the factory's page shows as "Last talk with you".</summary>
     public const string Talked = "talked";
+    /// <summary>The Mail Desk screening check reported and the Gateway screened the mail it read; no session started.</summary>
+    public const string Screened = "screened";
 
     /// <summary>Every legal outcome, in the order the refusal lists them.</summary>
     public static readonly string[] All =
     {
-        Started, Allowed, Asked, Blocked, Escalated, Done, SentBack, NothingToDo, Paused, Skipped, Failed, Talked,
+        Started, Allowed, Asked, Blocked, Escalated, Done, SentBack, NothingToDo, Paused, Skipped, Failed, Talked, Screened,
     };
 }
 
