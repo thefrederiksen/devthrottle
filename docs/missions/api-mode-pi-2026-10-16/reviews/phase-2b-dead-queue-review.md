@@ -789,3 +789,53 @@ eight classes the review ran, each alone with no other test host on the machine,
 **Hold, on finding 6 only.** The code is right as it stands and nothing in checks 1 to 5 changes; the hold is for the
 test the Delivery Lead requires, which the branch does not have. With that test added and the ten classes green
 (the nine above plus the one it lands in, if different), approve without a further read.
+
+## Check of the move onto main
+
+Reviewer seat, a read-only check of how the branch approved at `dbe7fc1cc` (cut on #4179's pre-merge commits) was
+moved onto main at `11fb4f0b6` (#4200, the durable conversation). Head checked: `59009045e`. No tests were run; the
+gate is running on this head.
+
+**Nothing approved was dropped.** `git range-diff cdd81b9a6..dbe7fc1cc 11fb4f0b6..HEAD` pairs all eleven approved
+commits; eight are identical, and the three marked changed (`4e315d0dd`, `84d3e1403`, `944626c95`) differ only in
+context lines and in the extra conversation-store argument #4200 added to `SessionLiveEndpoint.Map` and the ingest's
+constructor. Stronger: every added and removed line of the approved net change (`cdd81b9a6..dbe7fc1cc`) is the same,
+line for line and in order, as the moved net change (`11fb4f0b6..511458509`) - same 24 files, 14,858 insertions,
+28 deletions, and an empty diff of the changed lines. Because no removed line of the moved change is one of #4200's
+lines, #4200's code is untouched.
+
+**The conflicts kept both behaviours whole.** In `ApiModeEventIngest.Accept`, each fresh event goes first to
+`FeedReceipts(tenant, ...)` (the Unknown proofs and the once-per-generation memory `_queueLeftProvenIn`) and then to
+`_conversation.Record(...)`, both inside the tenant scope and the session lock, as #4200 placed them. On the head:
+the stored conversation, the opening, the `connection:<generation>:<sequence>` ids, `ConversationItems` and the
+ruling's start from stored items are #4200's, unchanged; #4209's Unknown state, both proofs, `Words` and the carried
+wording "Not known - the record of its delivery was lost when the Director reconnected; a turn carrying it started",
+the overrides by a real later ending, and the Delivery Lead's rule that Delivered is shown only with a held
+`PromptDelivered` are all present as approved. The newer main commit `0e01cef94` (#4247) shares no file with this
+series and adds no migration.
+
+**The migration is right.** `AddApiModeReceiptDirectorIndex` is regenerated as `20261019020017` (SQLite) and
+`20261019020053` (PostgreSQL), each newer than `AddApiModeConversationItems` (`20261019001336`, `20261019001414`) and
+the newest in its folder. The migration bodies are byte-identical to the approved ones (a pure rename): they create
+and drop only `IX_api_mode_receipts_tenant_id_DirectorId_State` on tenant, Director id and state. Each designer
+carries the new migration id and includes the conversation items table, and each snapshot gains only the index.
+
+**The two commits added after the move weaken nothing.** `d18fea048` changes only the input of three place-in-line
+tests (their delivery, refusal and turn end are now handed held in generation A, as the feed hands them, since main's
+helper gives the queued receipts a position); every assertion is unchanged. `59009045e` gives the once-per-generation
+test a conversation store on a second database file so the counter on the receipts' file counts only the receipt
+store; the three assertions (one transaction for the first proof, `(0, 0, 0)` for the later ones, the receipt
+Unknown) are unchanged, and the separation makes the test measure what it claims rather than loosening it.
+
+**The new opening test is sound.** `Stream_NoCursorAfterAQueuedPromptWasRuledUnknown_OpensWithTheReceiptAsTheLiveReaderSawIt`
+(`a46b79a82`), for both the uncarried and the carried case, has a live reader see "Queued" and then the Unknown
+ruling, pins the live view's words, neutral tone and turn (the carrying turn's when carried), and then requires a
+fresh no-cursor opening, before and after a Gateway restart, to show the identical receipt item. It joins the
+receipt store and the durable conversation at the one place they meet, which neither branch tested alone. The same
+commit's change to the restart helper only supplies the new constructor argument.
+
+### Verdict
+
+**Approve.** The move is faithful: every approved line is present, #4200's behaviour is intact, the migration is
+newest on both providers and creates only the index, and the follow-on test changes keep every assertion. This
+check is by reading only; the gate's result on `59009045e` is the proof that the moved tests pass.
