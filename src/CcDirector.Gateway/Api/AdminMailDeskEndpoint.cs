@@ -43,8 +43,10 @@ internal static class AdminMailDeskEndpoint
         [property: JsonPropertyName("actor")] string? Actor,
         [property: JsonPropertyName("reason")] string? Reason);
 
+    /// <param name="offerTemplate">Offers the Mail Desk template to an account as a draft (<see cref="MailDeskTemplateOffer.Offer"/>),
+    /// called when this route turns the switch ON and never when it turns it off (phase 3, section 10). Null offers nothing.</param>
     public static void Map(IEndpointRouteBuilder app, MailDeskSwitch mailDeskSwitch, TenantRegistry tenants,
-        Func<DateTime>? nowUtc = null)
+        Func<DateTime>? nowUtc = null, Func<TenantId, MailDeskTemplateOfferResult>? offerTemplate = null)
     {
         ArgumentNullException.ThrowIfNull(mailDeskSwitch);
         ArgumentNullException.ThrowIfNull(tenants);
@@ -83,7 +85,7 @@ internal static class AdminMailDeskEndpoint
                     return Results.BadRequest(new { error = "the request body is not readable JSON" });
                 }
 
-                return Handle(ctx, body, mailDeskSwitch, tenants, clock());
+                return Handle(ctx, body, mailDeskSwitch, tenants, clock(), offerTemplate);
             }
             catch (Exception ex)
             {
@@ -118,7 +120,7 @@ internal static class AdminMailDeskEndpoint
 
     /// <summary>Internal so every refusal can be tested directly, without standing a host up per case.</summary>
     internal static IResult Handle(HttpContext ctx, SetRequest? body, MailDeskSwitch mailDeskSwitch,
-        TenantRegistry tenants, DateTime nowUtc)
+        TenantRegistry tenants, DateTime nowUtc, Func<TenantId, MailDeskTemplateOfferResult>? offerTemplate = null)
     {
         if (AdminTrialEndpoint.ServiceTokenDenial(ctx) is { } denial) return denial;
 
@@ -138,7 +140,25 @@ internal static class AdminMailDeskEndpoint
             return Results.BadRequest(new { error = UnknownAccount(body.Account) });
 
         var decision = mailDeskSwitch.Set(tenant, enabled, body.Actor, body.Reason, nowUtc);
-        return Results.Json(new { outcome = OutcomeRecorded, account = tenant.Value, enabled = decision.Enabled });
+        // THE TEMPLATE IS OFFERED WHEN THE SWITCH TURNS ON (phase 3, section 10), never when it turns off. The switch is
+        // already recorded, so an offer that fails is said in the answer and the log, not turned into a failed switch.
+        string? offered = null, offerSentence = null;
+        if (decision.Enabled && offerTemplate is not null)
+        {
+            try
+            {
+                var offer = offerTemplate(tenant);
+                offered = offer.Outcome.ToString();
+                offerSentence = offer.Sentence;
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[AdminMailDeskEndpoint] the Mail Desk template offer FAILED for account {tenant.ToLogString()} ({ex.GetType().Name}): {ex.Message}");
+                offered = "Failed";
+                offerSentence = $"The switch is on, but the Mail Desk template could not be offered: {ex.Message}";
+            }
+        }
+        return Results.Json(new { outcome = OutcomeRecorded, account = tenant.Value, enabled = decision.Enabled, templateOffer = offered, templateOfferSentence = offerSentence });
     }
 
     // Only an account this Gateway actually has. A mistyped identifier recorded as a decision would name nothing and

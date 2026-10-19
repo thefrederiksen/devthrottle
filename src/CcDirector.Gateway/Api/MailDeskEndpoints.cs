@@ -89,7 +89,8 @@ internal static class MailDeskEndpoints
         MailDeskChannelFold Fold,
         Func<string, SessionFactoryLookup> SessionFactoryOf,
         Func<TenantId, IReadOnlyCollection<string>> KnownMachinesOf,
-        Func<DateTime> NowUtc)
+        Func<DateTime> NowUtc,
+        Func<TenantId, MailDeskSpend> SpendOf)
     {
         /// <summary>Where a rules change reads the newest document from. The store, unless a test stands between
         /// the read and the save to play a second writer.</summary>
@@ -404,7 +405,7 @@ internal static class MailDeskEndpoints
 
     /// <summary>The account's settings and spend, folded once (<see cref="MailDeskSpendView"/>).</summary>
     private static MailDeskSpendView Spend(TenantId tenant, Parts parts)
-        => MailDeskSpendView.Fold(parts.Settings.Read(tenant), parts.Decisions.SpentMicros(tenant));
+        => MailDeskSpendView.Fold(parts.Settings.Read(tenant), parts.SpendOf(tenant));
 
     private static object SpendRow(MailDeskSpendView spend) => new
     {
@@ -622,6 +623,8 @@ internal static class MailDeskEndpoints
         outcome = d.Outcome,
         outcomeDetail = d.OutcomeDetail,
         decidedUtc = Utc(d.DecidedUtc),
+        rulesVersion = d.RulesVersion,
+        attemptCount = d.AttemptCount,
     };
 
     internal static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
