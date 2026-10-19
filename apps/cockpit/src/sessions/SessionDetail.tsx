@@ -78,7 +78,7 @@ function tabFromAddress(raw: string | null): MainTab {
 export function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { sessions, refreshNow } = useOutletContext<SessionsOutletContext>();
+  const { sessions, rosterError, refreshNow } = useOutletContext<SessionsOutletContext>();
   const selected = sessions?.find((s) => s.sessionId === sessionId);
   const { openStop } = useStopSession();
 
@@ -276,10 +276,11 @@ export function SessionDetail() {
               {/* An API-mode session's Chat is the live conversation from the Gateway's stream (mission #4070, phase
                   3); the row carries the Gateway's verdict only in API mode. A terminal-mode session is unchanged.
                   Before the roster's first answer the mode is not known, so neither Chat is mounted: mounting the
-                  history Chat there started a /history read for an API-mode session (phase 6 QA). */}
+                  history Chat there started a /history read for an API-mode session (phase 6 QA). A failed read is
+                  an answer - no row is coming - so the history Chat loads then, as on the phone. */}
               {selected?.apiMode ? (
                 <ApiModeLiveChat sessionId={sessionId} display={selected.apiMode} />
-              ) : sessions === null ? (
+              ) : sessions === null && !rosterError ? (
                 <div className="chat-tab">
                   <div className="chat-empty" role="status">Loading session...</div>
                 </div>

@@ -58,6 +58,7 @@ afterEach(() => {
   cleanup();
   historyReadFor.mockClear();
   rosterRead = () => Promise.resolve(roster);
+  vi.useRealTimers();
 });
 
 function renderChat() {
@@ -111,6 +112,33 @@ describe("the phone Chat screen", () => {
 
     await waitFor(() => expect(historyReadFor).toHaveBeenCalledWith(SID));
     expect(screen.queryByTestId("live-chat")).toBeNull();
+  });
+
+  it("Chat_ApiModeSessionThenARosterPollFails_KeepsTheLiveChatAndReadsNoHistory", async () => {
+    // Arrange: the first reads answer with the API-mode row; every read after that fails.
+    vi.useFakeTimers();
+    roster = [{ ...row, sessionId: SID, name: "pi", connectionMode: "api", apiMode: { kind: "idle", activityLabel: "Idle after turn 1" } }];
+    let good = 2;
+    let failed = 0;
+    rosterRead = () => {
+      if (good > 0) {
+        good -= 1;
+        return Promise.resolve(roster);
+      }
+      failed += 1;
+      return Promise.reject(new Error("the Gateway could not be reached"));
+    };
+    renderChat();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByTestId("live-chat")).toBeTruthy();
+
+    // Act: the next poll fails.
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+
+    // Assert: the session is still in API mode, so the live Chat stays and /history is never read.
+    expect(failed).toBeGreaterThan(0);
+    expect(screen.getByTestId("live-chat").textContent).toBe(`${SID} Idle after turn 1`);
+    expect(historyReadFor).not.toHaveBeenCalledWith(SID);
   });
 
   it("Chat_TerminalModeRow_KeepsTheHistoryChat", async () => {
