@@ -19,7 +19,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
 {
     private static readonly TenantId One = new("acct-one");
     private static readonly TenantId Two = new("acct-two");
-    private static readonly LicenseAlarmKind NotReady = new("not-ready-at-80", "Not ready to switch");
+    private static readonly LicenseAlarmKind NotReady = new("not-ready-five-hour", "Not ready to switch");
     private static readonly LicenseAlarmKind Stopped = new("stopped-reporting", "Stopped reporting");
     private static readonly Guid MachineA = Guid.Parse("0f8e6a1c-2b3d-4e5f-8a9b-0c1d2e3f4a5b");
     private static readonly Guid MachineB = Guid.Parse("1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d");
@@ -40,6 +40,44 @@ public sealed class LicenseAlarmServiceTests : IDisposable
     }
 
     public void Dispose() => _harness.Dispose();
+
+    [Theory]
+    [InlineData("machine-silent")]
+    [InlineData("no-room-at-80")]
+    [InlineData("not-ready-at-80")]
+    public async Task RetiredKind_StoredBeforeDeployment_ClosesBeforeReadingOrSending(string kind)
+    {
+        var identifiers = new Dictionary<TenantId, Guid>();
+        foreach (var tenant in new[] { One, Two })
+        {
+            using var ctx = _db.CreateContext(tenant);
+            Assert.NotNull(ctx.ActiveTenant);
+            var row = new CcDirector.Gateway.Data.Entities.LicenseAlarmEntity
+            {
+                Kind = kind, MachineId = MachineA, MachineName = "machine-a", AccountEmail = "alice@example.com",
+                Problem = "An old condition.", Action = "An old action.", OpenedAtUtc = T0,
+                TenantId = ctx.ActiveTenant,
+            };
+            ctx.LicenseAlarms.Add(row);
+            ctx.SaveChanges();
+            identifiers[tenant] = row.Id;
+        }
+
+        Assert.Equal(0, await _alarms.SendDueEmailAsync(One, CancellationToken.None));
+        Assert.Empty(_alarms.ListOpen(One));
+        using (var ctx = _db.CreateContext(One))
+            Assert.Equal(T0, ctx.LicenseAlarms.Single(a => a.Id == identifiers[One]).ClosedAtUtc);
+        using (var ctx = _db.CreateContext(Two))
+            Assert.Null(ctx.LicenseAlarms.Single(a => a.Id == identifiers[Two]).ClosedAtUtc);
+
+        Assert.Empty(_alarms.ListOpen(Two));
+        using (var ctx = _db.CreateContext(Two))
+            Assert.Equal(T0, ctx.LicenseAlarms.Single(a => a.Id == identifiers[Two]).ClosedAtUtc);
+        var raised = await Raise(One, new LicenseAlarmKind(kind, "Retired condition"), OnMachineA());
+        Assert.Equal(new LicenseAlarmRaised(0, 0, 0), raised);
+        Assert.Empty(_pushed);
+        Assert.Empty(_sent);
+    }
 
     private Task<LicenseOwnerEmailResult> Mail(TenantId tenant, LicenseOwnerEmail email, CancellationToken ct)
     {
@@ -83,7 +121,7 @@ public sealed class LicenseAlarmServiceTests : IDisposable
 
         Assert.Equal(new LicenseAlarmRaised(1, 0, 0), raised);
         var open = Assert.Single(_alarms.ListOpen(One));
-        Assert.Equal(("not-ready-at-80", MachineA, "machine-a", "alice@example.com"), (open.Kind, open.MachineId, open.MachineName, open.AccountEmail));
+        Assert.Equal(("not-ready-five-hour", MachineA, "machine-a", "alice@example.com"), (open.Kind, open.MachineId, open.MachineName, open.AccountEmail));
         Assert.Equal(T0, open.OpenedAtUtc);
         Assert.Equal(LicenseGatewayReasonCodes.OwnerEmailed, open.EmailState);
         var log = Assert.Single(AlarmLog(One));

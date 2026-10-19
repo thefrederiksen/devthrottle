@@ -879,10 +879,8 @@ public sealed class LicenseSwitchNowSkippedDto
 // ---- GET /gateway/licenses/alarms ----
 
 /// <summary>
-/// The license alarms open now (License Switching phase 6), as the red banner on every Cockpit page and on the phone
-/// shows them. Every word is the Gateway's: the shell renders <see cref="Summary"/> when it is not null, then the
-/// <see cref="LicenseAlarmDto.Text"/> of every alarm in order, then <see cref="LinkText"/> as the link to the Licenses
-/// page - and shows nothing at all when <see cref="Count"/> is 0.
+/// The license alarms open now. The frame renders only <see cref="Summary"/> and <see cref="LinkText"/> on one line,
+/// and nothing when <see cref="Count"/> is zero. Full sentences are rendered only on the Licenses page.
 /// </summary>
 public sealed class LicenseAlarmsResponse
 {
@@ -891,7 +889,7 @@ public sealed class LicenseAlarmsResponse
     /// <summary>How many alarms are open. 0: no banner.</summary>
     public int Count { get; set; }
 
-    /// <summary>The line above the alarms when more than one is open; null otherwise.</summary>
+    /// <summary>The frame's summary for one or more alarms; null when none is open.</summary>
     public string? Summary { get; set; }
 
     /// <summary>The words of the banner's link to the Licenses page; null when no alarm is open.</summary>
@@ -916,7 +914,7 @@ public sealed class LicenseAlarmDto
     /// <summary>The account it is about; null for an alarm about no one account.</summary>
     public string? AccountEmail { get; set; }
 
-    /// <summary>The banner's line for it: what is wrong, then the one thing to do.</summary>
+    /// <summary>The detail on the Licenses page: what is wrong, then the one thing to do.</summary>
     public string Text { get; set; } = "";
 
     public DateTime OpenedAtUtc { get; set; }

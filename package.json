@@ -12,6 +12,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "build": "npm run build --workspace @devthrottle/mobile",
     "lint": "eslint .",
+    "test:license-layout": "node scripts/qa/build-license-alarm-layout.mjs && browser-harness < scripts/qa/check-license-alarm-layout.py",
     "gen:api": "npm run gen:api --workspace @devthrottle/client-core"
   },
   "devDependencies": {

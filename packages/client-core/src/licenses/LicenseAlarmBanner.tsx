@@ -8,7 +8,7 @@ import { getLicenseAlarms, type LicenseAlarms } from "./licensesClient";
 // with licenses is meant to be LOUD and to STAY until it is fixed; a banner on one page only would be a window to catch.
 //
 // THE CLIENT IS DUMB (CLAUDE.md rule 7). Every word is the Gateway's (GET /gateway/licenses/alarms, folded by
-// LicenseAlarmFold): the summary line when there are several, one line per alarm, and the link's words. This decides
+// LicenseAlarmFold): one summary line and the link's words. Full sentences belong on the Licenses page. This decides
 // nothing - not whether a problem is serious, not how to phrase it, not when it is over. Count 0 is no banner.
 //
 // The shell supplies only where the link goes: the Cockpit's own Licenses route, or, on the phone, the Cockpit's page
@@ -74,20 +74,10 @@ export function LicenseAlarmBannerView({
   return (
     <div className="license-alarm-banner" role="alert" data-testid="license-alarm-banner">
       {/* error-report-exempt: shows the Gateway's own open license alarms and the words it folded (rule 7) - a problem with the owner's licenses, not a failure in this client */}
-      <div className="license-alarm-banner-text">
-        {alarms.summary !== null && (
-          <p className="license-alarm-banner-summary" data-testid="license-alarm-summary">
-            {alarms.summary}
-          </p>
-        )}
-        <ul className="license-alarm-banner-lines">
-          {alarms.alarms.map((alarm) => (
-            <li key={alarm.alarmId} data-testid="license-alarm-line">
-              {alarm.text}
-            </li>
-          ))}
-        </ul>
-      </div>
+      <span className="license-alarm-banner-summary" data-testid="license-alarm-summary">
+        {alarms.summary}
+      </span>
+      <span aria-hidden="true"> - </span>
       {alarms.linkText !== null && (
         <a className="license-alarm-banner-link" href={href} onClick={open} data-testid="license-alarm-link">
           {alarms.linkText}

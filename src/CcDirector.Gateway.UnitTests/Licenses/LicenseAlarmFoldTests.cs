@@ -48,7 +48,7 @@ public sealed class LicenseAlarmFoldTests
         }, T0);
 
         Assert.Equal(1, banner.Count);
-        Assert.Null(banner.Summary);
+        Assert.Equal("1 license problem", banner.Summary);
         Assert.Equal("Open Licenses", banner.LinkText);
         var line = Assert.Single(banner.Alarms);
         Assert.Equal("machine-a holds no spare that could take it off alice@example.com. Sign machine-a in to a second account.", line.Text);
@@ -97,7 +97,7 @@ public sealed class LicenseAlarmFoldTests
         }, T0);
 
         Assert.Equal(3, banner.Count);
-        Assert.Equal("3 license problems need you.", banner.Summary);
+        Assert.Equal("3 license problems", banner.Summary);
         Assert.Equal(new[] { "First problem. First thing to do.", "Second problem. Second thing to do.", "Third problem. Third thing to do." },
             banner.Alarms.Select(a => a.Text));
         // An alarm about no one machine, or no one account, says so with null - never an empty name.
@@ -146,7 +146,7 @@ public sealed class LicenseAlarmFoldTests
         Assert.Equal(
             "machine-a holds no spare that could take it off alice@example.com.\r\n\r\n"
             + "Sign machine-a in to a second account.\r\n\r\n"
-            + "Each problem is shown in red at the top of every page of the Cockpit until it is fixed, and on its Licenses page.\r\n"
+            + "Open the Licenses page for the details of each problem. The Cockpit shows their count until they are fixed.\r\n"
             + "\r\nThis is the only email for this problem. Another is sent only if a problem is fixed and then comes back more than 6 hours later.",
             email.BodyText);
     }

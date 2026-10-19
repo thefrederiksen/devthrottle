@@ -12,6 +12,7 @@ import type { LicenseLogEntry } from "@devthrottle/client-core/licenses/licenses
 //   - a failed switch is in the log with its reason;
 //   - Switch now sends nothing until it is confirmed, sends the account and the picked target, and shows a
 //     refusal in the Gateway's own sentence.
+const getLicenseAlarms = vi.fn();
 const getLicenseOverview = vi.fn();
 const getLicenseForecast = vi.fn();
 const getLicenseLog = vi.fn();
@@ -19,6 +20,7 @@ const switchLicenseNow = vi.fn();
 const setLicenseRenewalDate = vi.fn();
 const getLicenseApprovers = vi.fn();
 vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
+  getLicenseAlarms: (...args: unknown[]) => getLicenseAlarms(...args),
   getLicenseOverview: (...args: unknown[]) => getLicenseOverview(...args),
   getLicenseForecast: (...args: unknown[]) => getLicenseForecast(...args),
   getLicenseLog: (...args: unknown[]) => getLicenseLog(...args),
@@ -40,6 +42,7 @@ const ACCOUNT_B = "account-b@example.com";
 const ACCOUNT_C = "account-c@example.com";
 
 beforeEach(() => {
+  getLicenseAlarms.mockResolvedValue({ count: 0, summary: null, linkText: null, alarms: [] });
   getLicenseOverview.mockResolvedValue(copyOf(OVERVIEW));
   getLicenseForecast.mockResolvedValue(copyOf(FORECAST));
   getLicenseLog.mockResolvedValue(copyOf(LOG_PAGE));
@@ -66,6 +69,18 @@ describe("LicensesView: an account whose machines have never reported", () => {
     expect(screen.queryByTestId("lic-schedule")).toBeNull();
     expect(screen.queryByTestId("lic-log")).toBeNull();
     expect(screen.queryByRole("button", { name: "Switch now" })).toBeNull();
+  });
+});
+
+describe("LicensesView: the alarm details", () => {
+  it("shows the full sentences on the Licenses page", async () => {
+    getLicenseAlarms.mockResolvedValue({ count: 1, summary: "1 license problem", linkText: "Open Licenses", alarms: [
+      { alarmId: "a1", text: "A report was refused. Correct the report on the machine." },
+    ] });
+    render(<LicensesView />);
+    const details = await screen.findByTestId("license-alarm-details");
+    expect(details.textContent).toContain("1 license problem");
+    expect(within(details).getByText("A report was refused. Correct the report on the machine.")).toBeTruthy();
   });
 });
 

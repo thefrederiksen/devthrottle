@@ -21,8 +21,8 @@ public static class LicenseAlarmFold
     /// <summary>The banner's line for one alarm: what is wrong, then the one thing to do.</summary>
     public static string Line(string problem, string action) => $"{problem} {action}";
 
-    /// <summary>The line above the alarms when more than one is open; null for none or one.</summary>
-    public static string? Summary(int count) => count > 1 ? $"{count} license problems need you." : null;
+    /// <summary>The frame's single summary line. Full details belong on the Licenses page.</summary>
+    public static string? Summary(int count) => count > 0 ? $"{count} license problem{(count == 1 ? "" : "s")}" : null;
 
     /// <summary>
     /// The sentence added to the banner's line of an alarm that has come and gone, held back from the owner's email and
@@ -108,7 +108,7 @@ public static class LicenseAlarmFold
                 body.Append(CultureInfo.InvariantCulture, $"- {Line(alarm.Problem, alarm.Action)}\r\n");
             body.Append("\r\n");
         }
-        body.Append("Each problem is shown in red at the top of every page of the Cockpit until it is fixed, and on its Licenses page.\r\n");
+        body.Append("Open the Licenses page for the details of each problem. The Cockpit shows their count until they are fixed.\r\n");
         body.Append("\r\nThis is the only email for ");
         body.Append(alarms.Count == 1 ? "this problem" : "these problems");
         body.Append(CultureInfo.InvariantCulture, $". Another is sent only if a problem is fixed and then comes back more than {HoldDownWords} later.");

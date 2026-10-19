@@ -130,7 +130,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
     }
 
     [Fact]
-    public async Task AMachineSilentPastTheDeadLimit_OpensOneAlarm_AndReportingAgainClosesIt()
+    public async Task AMachineSilentPastTheDeadLimit_IsStatusWithoutAnAlarmOrNotification()
     {
         Push(Good());
         _now = T0 + LicenseStore.SilentAfter;
@@ -145,11 +145,11 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
         await _switches.TickAsync(Tenant, CancellationToken.None);
         await Raise();
 
-        var alarm = Assert.Single(Open(LicenseMachineHealthAlarm.Silent.Key));
-        Assert.Equal("machine-a", alarm.MachineName);
-        Assert.Equal("machine-a has sent no report since 2026-10-11 03:12 UTC, so it is not switched: its Director may have stopped.", alarm.Problem);
-        Assert.Equal("Start the Director on machine-a, or check that machine-a is on and connected.", alarm.Action);
-        Assert.Single(_pushed);
+        var status = Assert.Single(_store.ListOpenMachineHealth(Tenant));
+        Assert.Equal(("machine-a", LicenseLogKinds.MachineSilent), (status.MachineName, status.Kind));
+        Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
+        Assert.Empty(_pushed);
+        Assert.Empty(_mailed);
 
         Push(Good());
         await _switches.TickAsync(Tenant, CancellationToken.None);
@@ -163,7 +163,8 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
         _now = T0 + LicenseStore.SilentAfter + TimeSpan.FromMinutes(1);
         await _switches.TickAsync(Tenant, CancellationToken.None);
         await Raise();
-        Assert.Single(Open(LicenseMachineHealthAlarm.Silent.Key));
+        Assert.Single(_store.ListOpenMachineHealth(Tenant), row => row.Kind == LicenseLogKinds.MachineSilent);
+        Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
     }
 
     [Fact]
@@ -196,7 +197,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
     }
 
     [Fact]
-    public async Task TwoSilentMachinesWithTheLongestNames_AreBothAlarmed_InSentencesAnAlarmHolds()
+    public async Task TwoSilentMachinesWithTheLongestNames_AreBothStatusWithoutAlarms()
     {
         // The review of pull request 4172, finding 2: two machines of one 128-character name, told apart by their
         // 128-character users, are labelled "name (user)", and the silent action names the label twice.
@@ -213,14 +214,14 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
 
         await Raise();
 
-        var alarms = Open(LicenseMachineHealthAlarm.Silent.Key);
-        Assert.Equal(2, alarms.Count);
-        Assert.All(alarms, a => Assert.True(a.Problem.Length <= LicenseAlarmService.MaxSentenceLength && a.Action.Length <= LicenseAlarmService.MaxSentenceLength));
-        Assert.All(alarms, a => Assert.Equal($"Start the Director on {a.MachineName}.", a.Action));
+        Assert.Equal(2, _store.ListOpenMachineHealth(Tenant).Count(row => row.Kind == LicenseLogKinds.MachineSilent));
+        Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
+        Assert.Empty(_pushed);
+        Assert.Empty(_mailed);
     }
 
     [Fact]
-    public async Task ARefusedRaiseThatFails_StillRaisesTheSilentKind_AndThenFails()
+    public async Task ARefusedRaiseThatFails_DoesNotTurnSilenceIntoAnAlarm()
     {
         // The review of pull request 4172, finding 2: the two kinds were raised in one try, so a refused raise that
         // threw left the silent kind unraised every minute. A row no real report could write stands in for a raise
@@ -248,7 +249,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
 
         await Assert.ThrowsAsync<AggregateException>(() => Raise());
 
-        Assert.Single(Open(LicenseMachineHealthAlarm.Silent.Key));
+        Assert.Empty(Open(LicenseMachineHealthAlarm.Silent.Key));
         Assert.Empty(Open(LicenseMachineHealthAlarm.Refused.Key));
     }
 
@@ -256,7 +257,7 @@ public sealed class LicenseMachineHealthAlarmTests : IDisposable
     public async Task NothingOpen_RaisesNothing_AndClosesNoOtherKind()
     {
         Push(Good());
-        await _alarms.RaiseAsync(Tenant, new LicenseAlarmKind("not-ready-at-80", "Not ready to switch"), new[]
+        await _alarms.RaiseAsync(Tenant, new LicenseAlarmKind("another-fault", "Another fault"), new[]
         {
             new LicenseAlarmCondition(null, null, A, "machine-a holds no spare.", "Sign machine-a in to a second account."),
         }, CancellationToken.None);

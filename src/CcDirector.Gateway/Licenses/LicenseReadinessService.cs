@@ -18,9 +18,8 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 }
 
 /// <summary>
-/// READINESS ON EVERY MINUTE, FIXED AT ONCE, LOUD AT 80% (License Switching phase 6, Track A). The owner, 16 October
-/// 2026: "Check all the time; start fixing at once, alarm loudly only if it is still not ready at 80%." On the 15th and
-/// the 16th a machine with no spare was found only at 97%, and nothing fixed it.
+/// Readiness is checked every minute and missing sign-ins are fixed at once. Only a readiness gap at high five-hour
+/// use can raise an alarm. Weekly use and no room are status on the Licenses page.
 ///
 /// Once a minute, for each tenant, <see cref="TickAsync"/>:
 /// 1. judges every machine on an account against the account it would switch to next (<see cref="LicenseReadinessFold"/>);
@@ -29,13 +28,8 @@ public sealed record LicenseReadinessTick(IReadOnlyList<LicenseMachineReadiness>
 ///    <see cref="LicenseSignInReasons.AutomaticSpare"/> or <see cref="LicenseSignInReasons.AutomaticRenewal"/>, so the
 ///    Licenses log says it was automatic. That service refuses a second sign-in while one is open for the same machine
 ///    and account, and this check relies on it;
-/// 3. raises the license alarm (<see cref="LicenseAlarmService"/>, the one mechanism) with every machine still not ready
-///    while its account is at or above 80% - so the alarm opens once, stays while the condition holds, and closes by
-///    itself when the machine is ready or the account falls back under 80%;
-/// 4. raises the no-room alarm, through the same mechanism, with every account in use at or above 80% while no other
-///    account has room for its machines - one alarm for the account, not one for each machine - so the owner is warned
-///    while there is still time to act, not only by the no-room email at the switch threshold. Each kind is raised on
-///    its own: a kind whose raise fails is logged, the other kind is still raised, and then the failure is thrown.
+/// 3. raises the short-window readiness alarm and closes retired weekly and no-room alarms. Each kind is reconciled
+///    independently so a failure cannot stop the other kinds from closing.
 ///
 /// The Licenses page reads <see cref="Judge"/>, the same function on the same facts.
 ///
@@ -157,15 +151,19 @@ public sealed class LicenseReadinessService
 
             var open = _alarms.ListOpen(tenant);
             var failures = new List<Exception>();
+            // The old kind mixed weekly and short-window conditions. Emptying it closes every stored weekly alarm.
+            var retired = await RaiseKindAsync(tenant, LicenseReadinessFold.RetiredAlarmKind,
+                Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
             var alarms = await RaiseKindAsync(tenant, LicenseReadinessFold.AlarmKind,
                 LicenseReadinessFold.AlarmConditions(picture.Snapshot, judged, open), failures, ct).ConfigureAwait(false);
+            // No room is status on the Licenses page. Emptying the retired kind closes its stored rows.
             var noRoom = await RaiseKindAsync(tenant, LicenseReadinessFold.NoRoomAlarmKind,
-                LicenseReadinessFold.NoRoomAlarmConditions(picture.Snapshot, judged, open), failures, ct).ConfigureAwait(false);
-            if (started.Count + Changed(alarms) + Changed(noRoom) > 0)
+                Array.Empty<LicenseAlarmCondition>(), failures, ct).ConfigureAwait(false);
+            if (started.Count + Changed(retired) + Changed(alarms) + Changed(noRoom) > 0)
                 FileLog.Write($"[LicenseReadinessService] TickAsync: tenant={tenant.ToLogString()}, judged={judged.Count}, "
-                              + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, alarmsOpened={alarms?.Opened}, "
-                              + $"alarmsStillOpen={alarms?.StillOpen}, alarmsClosed={alarms?.Closed}, noRoomOpened={noRoom?.Opened}, "
-                              + $"noRoomStillOpen={noRoom?.StillOpen}, noRoomClosed={noRoom?.Closed}");
+                              + $"notReady={judged.Count(j => j.IsGap)}, started={started.Count}, retiredClosed={retired?.Closed}, "
+                              + $"alarmsOpened={alarms?.Opened}, alarmsStillOpen={alarms?.StillOpen}, alarmsClosed={alarms?.Closed}, "
+                              + $"noRoomClosed={noRoom?.Closed}");
             if (failures.Count > 0)
                 throw new AggregateException($"The raise of {failures.Count} license alarm kind(s) failed for tenant {tenant.ToLogString()}.", failures);
             return new LicenseReadinessTick(judged, started, alarms, noRoom);

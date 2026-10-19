@@ -876,7 +876,7 @@ public sealed class LicenseStore
             FromAccountEmail = email,
             Reason = LicenseSwitchReasons.Threshold,
             State = LicenseLogStates.Open,
-            Message = Cap(EventMessage(happened ?? NoRoomHappened(email), "the owner has not been emailed yet"), MaxMessageLength),
+            Message = Cap($"{happened ?? NoRoomHappened(email)}.", MaxMessageLength),
             CreatedAtUtc = Utc(startedAtUtc),
             NotAfterUtc = Utc(endsAtUtc),
             TenantId = ctx.ActiveTenant!,
