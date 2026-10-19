@@ -133,6 +133,13 @@ describe("sendPrompt reads the Gateway's delivery id", () => {
     expect(await sendPrompt(SID, "typed", true)).toEqual({ delivering: false, deliveryId: DELIVERY_ID });
   });
 
+  it("a 200 the Director answered with nothing typed carries its sentence as the refusal, verbatim", async () => {
+    const reason = "This session's protocol holds the conversation, so it has no terminal and keystrokes cannot be typed.";
+    mockFetch(() => fakeResponse(200, { accepted: false, deliveryStateReason: reason, deliveryId: DELIVERY_ID }));
+
+    expect(await sendPrompt(SID, "a", false)).toEqual({ delivering: false, deliveryId: DELIVERY_ID, refusal: reason });
+  });
+
   it("a 502 throws exactly as before", async () => {
     mockFetch(() => fakeResponse(502, { error: "refused", deliveryId: DELIVERY_ID }));
 

@@ -934,6 +934,10 @@ export interface PromptSendResult {
    *  ruled on (voice delivery phase 5, review finding 2): a second press of the same claim answers the record's
    *  current state, so the words are shown back rather than delivered, and the reason says which. */
   shownBack?: { reason: string; offerSendAnyway: boolean; transcript: string | null };
+  /** The Director's sentence when it answered and typed nothing (`accepted: false` with a not-delivered reason): an
+   *  API-mode session with no terminal open, or a usage-limit dialog only a person at the machine may answer. Shown
+   *  verbatim; a caller never words its own (CLAUDE.md rule 7). */
+  refusal?: string;
 }
 
 export async function sendPrompt(
@@ -965,6 +969,8 @@ export async function sendPrompt(
     throw await GatewayError.from(res, "send that to the session");
   }
   const answer = (await res.json().catch(() => ({}))) as {
+    accepted?: boolean;
+    deliveryStateReason?: string | null;
     directorState?: string;
     deliveryId?: string | null;
     unconfirmed?: boolean;
@@ -991,7 +997,10 @@ export async function sendPrompt(
         transcript: typeof answer.transcript === "string" ? answer.transcript : null,
       }
     : undefined;
-  return { delivering: false, deliveryId, shownBack };
+  const refusal = answer.accepted === false && typeof answer.deliveryStateReason === "string" && answer.deliveryStateReason !== ""
+    ? answer.deliveryStateReason
+    : undefined;
+  return { delivering: false, deliveryId, shownBack, refusal };
 }
 
 // What a session's live screen is right now (GET /sessions/{sid}/wingman/waiting-screen). "menu" means a

@@ -377,7 +377,7 @@ public sealed class ApiModeSessionBackend : ISessionBackend
 
     /// <summary>The user's terminal's typed text. Refused while the protocol holds the conversation: there is no terminal.</summary>
     public Task SendTextAsync(string text) =>
-        _terminal is { } terminal ? terminal.SendTextAsync(text) : throw NoTerminal("typed text");
+        _terminal is { } terminal ? terminal.SendTextAsync(text) : throw NoTerminal("text");
 
     /// <summary>The user's terminal's Enter. Refused while the protocol holds the conversation: there is no terminal.</summary>
     public Task SendEnterAsync() =>
@@ -586,10 +586,14 @@ public sealed class ApiModeSessionBackend : ISessionBackend
         StatusChanged?.Invoke(status);
     }
 
-    private InvalidOperationException NoTerminal(string what)
+    // The sentence names who holds the conversation as it is now: "take the wheel" is offered only while the protocol
+    // holds it, because with nothing holding it the button beside the terminal is "Hand back" (phase 4 review, note 3).
+    private ApiModeNoTerminalException NoTerminal(string what)
     {
-        FileLog.Write($"[ApiModeSessionBackend] refused {what}: session={_sessionId} is in API mode and the protocol holds the conversation");
-        return new InvalidOperationException(
-            $"Session {_sessionId} is in API mode and its protocol holds the conversation: it has no terminal, so {what} cannot be sent. Prompts go through the session's send; take the wheel to type into its terminal.");
+        var holder = _wheelHolder;
+        FileLog.Write($"[ApiModeSessionBackend] refused {what}: session={_sessionId} is in API mode with no terminal open, holder={holder}");
+        return new ApiModeNoTerminalException(holder == SessionWheelHolder.Protocol
+            ? $"This session's protocol holds the conversation, so it has no terminal and {what} cannot be typed. Take the wheel to type into its terminal, or send a prompt in the chat."
+            : $"This session has no terminal open and nothing holds its conversation, so {what} cannot be typed. Hand back to start the agent again, or send a prompt in the chat.");
     }
 }

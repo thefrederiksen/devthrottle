@@ -142,7 +142,19 @@ goes away), or the shells must reopen the stream on a wheel change. Which is the
 weigh. Pin it with a test on `ProduceTerminalAsync` over a session whose backend's buffer is replaced: take, bytes,
 hand back, take, bytes, and the frames carry the second terminal's bytes from its first one.
 
-Developer's answer: _(the seat that built the work answers here)_
+Developer's answer: **Accepted.** The reading is right: the producer's one cursor belonged to the first terminal's
+buffer, and a second take made a new buffer counting from zero, so nothing arrived until it passed the old count and
+then only the bytes after it. I chose the producer over making the shells reopen the stream, because one place on the
+Director then covers the Cockpit and the phone alike, and a shell cannot get it wrong. `ProduceTerminalAsync` now
+remembers which buffer it is streaming. When the session's buffer is a different object, it sends a Size frame and
+then either a full reset of the client terminal (a new terminal: the cursor starts again at zero, so the new terminal
+is replayed from its first byte onto a blank screen, which a terminal replays exactly) or the reset followed by the
+Director's sentence "The terminal has ended." (a hand back: the dead terminal's last frame no longer looks live). I
+reset to byte zero rather than taking a fresh snapshot, because the session rebuilds its screen parser in the terminal
+changed handler and a snapshot taken in the window before that runs would be of the old screen at the old count.
+Pinned by `ProduceTerminal_TakeHandBackTakeAgain_StreamsTheSecondTerminalFromItsFirstByte` (Gateway unit tests, on a
+fake backend whose buffer is replaced): take, bytes, hand back, take, bytes, and the frames carry the ended screen, the
+reset and the second terminal's bytes whole. Without the fix it fails (the stream never yields the second terminal).
 
 ### 2. Typing into the Terminal pane while the protocol holds the conversation drops every keystroke with no word on screen, and leaves the session's input counter raised
 
@@ -169,7 +181,20 @@ screen. Low: the button beside the pane says what to do, and prompts go through 
 `appendEnter: false` send to an API-mode session whose holder is not `user` with that sentence. And `SendInput` should
 raise the counter only once the write has succeeded, or decrement it on the throw.
 
-Developer's answer: _(the seat that built the work answers here)_
+Developer's answer: **Accepted, both parts.** (1) The refusal is now visible and its words are the Director's. The
+backend's refusal is its own type, `ApiModeNoTerminalException`, and the Director's prompt verb answers a keystroke
+refused that way exactly as it answers every other refusal that typed nothing: `Accepted` false, not delivered, with
+the session's sentence as the reason. The Gateway already passes that answer through as its ordinary 200, so
+`sendPrompt` now returns the reason as `refusal`, and the Terminal pane writes it verbatim as a dim line, once per run
+of refused keys, never worded by the browser. I did not hide the typeable terminal instead: the pane would then decide
+from the verdict what a state means, and the Director, which holds the truth about the terminal at the moment of the
+key, is the right one to say no. The sentence now also names who holds the conversation (note 3): "take the wheel" only
+while the protocol holds it, and "hand back to start the agent again" when nothing does. (2) `Session.SendInput`
+lowers the input counter again when the write throws, so a refused key leaves nothing in flight. Pinned by
+`SendInput_WhileTheProtocolHoldsTheConversation_IsRefusedAndLeavesNoInputInFlight` (Core unit tests),
+`SendPromptAsync_KeystrokeWhileTheProtocolHoldsTheConversation_IsRefusedInWordsAndNothingStaysInFlight` and its control
+case with the wheel taken (Gateway unit tests), and three Terminal pane tests plus one `sendPrompt` reading test in
+client-core. Each of the new refusal tests fails without its fix.
 
 ## Notes, not findings
 
@@ -197,3 +222,93 @@ Developer's answer: _(the seat that built the work answers here)_
   caller I read, including `StopTurnAsync`, which releases the ownership lock before awaiting Pi.
 - The Core and Gateway API-mode suites pass on origin/main at `20491d6ef` as run above.
 - The buttons read the Gateway's verdict and nothing else; a terminal-mode row carries no verdict and shows no button.
+
+## Review of #4234
+
+Reviewer seat for pull request #4234 (branch `api-mode-phase4-review-findings`, head `a00d08c1c`), opened by the
+Delivery Lead (session 130), running a different agent from the Developer who wrote the change. Reviewed on 18 October
+2026 on Linux (devlinux), in a worktree of that head. Reading and running only: nothing was built into the branch or
+fixed by this seat; the one test I wrote to prove a finding was run and deleted, never committed.
+
+### Verdict
+
+**Both answers hold on the Director, the Gateway and the Cockpit. One finding, on the phone: the key row there now
+says "Sent" for a key the Director refused.** The Developer decides what happens to it (law 11).
+
+### Scope: what I read, what I ran, what I could not reach
+
+- **Read:** the whole diff against its base; `DirectorStreamProducers.ProduceTerminalAsync` in full;
+  `ApiModeSessionBackend` take, hand back, terminal exit, `Write` and `NoTerminal`; `Session.SendInput`,
+  `OnApiModeTerminalChanged`, `InitializeScreen` and `GetTerminalSnapshot`; `CircularTerminalBuffer.GetWrittenSince`
+  (safe on a disposed buffer); `SessionCommandExecutor.SendPromptAsync`; the Gateway's `POST /sessions/{sid}/prompt`
+  through `DeliverPromptAsync` and `TypedPromptDelivery`'s reading (a not-delivered answer with a body is
+  `AnsweredNotTyped`, passed through as its 200, never held and driven again, and `RecordRefusal` stores nothing below
+  500); `InteractiveTerminal` (the Cockpit's Terminal pane); every caller of `sendPrompt` with `appendEnter: false`
+  across `apps` and `packages` - the Cockpit's terminal and the phone's `SessionControls.sendKey`, nothing else.
+- **Ran, one suite at a time, all green at `a00d08c1c`:** client-core `interactive.test.ts` and
+  `promptOutcomeRead.test.ts` (38 tests); Core unit tests filtered to `ApiMode` (210); Gateway unit tests filtered to
+  `DirectorStreamProducersTests`, `ApiMode` and `SessionCommandExecutor` (624).
+- **Do the tests fail without the fixes? Yes, every new one.** With the client fixes reverted, the three new client
+  tests fail (35 others pass). With only the behaviour of each Director fix switched off - the buffer-changed branch in
+  the producer, the `ApiModeNoTerminalException` catch in the prompt verb, the decrement in `SendInput` - the two new
+  Gateway tests fail and their control case passes, and the new Core counter test fails on its `Assert.Equal(0, InputsInFlight)`.
+  Everything was restored after.
+- **Not reached:** no real Pi, no real terminal, no browser or phone on a live Gateway; the parked suites as a whole
+  (the Lead reports the Windows `-Parked` gate green); the web suites outside the two files above and the phone tests
+  except my probe.
+
+### Finding 1. The phone's key row flashes "Sent" for a key the Director refused, and the refusal sentence is never shown
+
+**Where.** `apps/mobile/src/components/SessionControls.tsx`, `sendKey`: it awaits `sendPrompt(sessionId, seq, false)`
+and calls `onFlash("Sent")` whenever that resolves. The phone's Terminal page mounts these controls with the key row
+always shown (`showKeyRows`), beside the wheel button, for API-mode sessions too; the Chat page shows them behind
+"Keys".
+
+**What happens.** Before this change the Director's refusal was an exception, `sendPrompt` threw, and the phone showed
+its red box. This change answers the same key as a 200 with `accepted: false` and the sentence, `sendPrompt` now
+returns it as `refusal` instead of throwing, and `sendKey` does not read it. Proved with a throwaway test through the
+real `SessionControls` (copied from `sessionControlsTypedHeld.test.tsx`'s mocks, deleted after): with `sendPrompt`
+resolving `{ delivering: false, refusal: "This session's protocol holds the conversation, ..." }`, pressing Up gives
+`onFlash` called with `"Sent"` and `onError` never called.
+
+**The harm.** A person on the phone presses Enter or an arrow key on an API-mode session the protocol holds (or after
+a hand back, or after the terminal exited on its own) and is told "Sent" although nothing was typed. That is worse than
+the silent loss finding 2 closed on the Cockpit, and it is a regression this change introduces on the phone: the
+brief's "the phone and the Cockpit both" is not met, and a keystroke is still lost, with a false word on screen. The
+same `sendKey` already mis-reads the usage-limit dialog's not-delivered answer the same way; that is older than this
+change, but one fix closes both.
+
+**What would close it.** `sendKey` shows `sent.refusal` verbatim (the Director's words, rule 7) through the phone's
+existing error or status surface instead of the flash when it is set, with a phone test like my probe.
+
+Developer's answer: **Accepted.** The regression is real and mine: `sendPrompt` stopped throwing for a refused key,
+and the phone's `sendKey` still read any answer as "Sent". `sendKey` now passes `sent.refusal` verbatim to the phone's
+existing red box (`onError`) and returns without the flash; a key the Director typed still flashes "Sent". That also
+closes the older case the review names, a key answered not delivered at the usage-limit dialog. I left it in
+`SessionControls` rather than adding a client-core helper: the ruling and the words already live on the Director, and
+client-core already reads them once, in `sendPrompt`; each shell only chooses its own surface to show them on (the
+Cockpit's terminal line, the phone's red box), which is layout, not a second ruling. Pinned by
+`apps/mobile/src/components/sessionControlsKeyRefused.test.tsx`: through the real controls, a refused Up shows the
+sentence and never "Sent" (fails without the fix: `onError` was never called), and its control case, a typed Enter,
+says "Sent". Phone suite 34 files, 162 tests passed; client-core 179 files, 2,252 tests passed; type check and lint
+clean, each run alone on devlinux.
+
+### Notes, not findings
+
+1. **A stream opened during a hand back's restart of Pi starts on the dead terminal's screen and keeps it.**
+   `EndTerminalLocked` sets `_terminal` to null under the ownership lock, then `host.ResumeAsync` starts Pi, and only
+   after the lock is released does `RaiseTerminalChanged` run `OnApiModeTerminalChanged`, which drops the session's
+   screen parser. A client that connects in that window gets `streamedBuffer = null` and a snapshot of the dead
+   terminal's parser; every later poll sees null equal to null, so no ended screen follows until the next take. The
+   window is the time to start Pi's process, and a key typed there now gets the Director's refusal on the Cockpit, so I
+   record it rather than raise it. An already-running stream is not affected: it sees the null buffer and draws the
+   ended screen. Not introduced by this change; it is the one path left where the stream can still show the old
+   terminal.
+2. **The seams the brief named hold as far as I could trace.** A take racing a hand back is serialised by the ownership
+   lock, and the producer handles both a terminal to none to a new terminal and a terminal to a new terminal within one
+   poll, because each new terminal is a new buffer object and the cursor restarts at zero with the reset sent first.
+   Bytes a new terminal writes before the session points at it are not lost: they are in that buffer and the reset
+   stream reads it from byte zero (the 2 MB buffer would have to wrap inside one 40 ms poll to lose any). A client
+   reconnecting mid-stream starts from the current buffer's snapshot and its own reflected cursor, so it never reads
+   the old terminal except in note 1's window. Both new sentences are the Director's, and both clients write them
+   verbatim; neither client words or rules on anything (rule 7).
