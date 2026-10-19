@@ -132,8 +132,14 @@ def test_session_prompt_held_with_no_receipt_for_it_keeps_the_held_sentence(serv
     assert "Delivered" not in result.output
 
 
-def test_session_prompt_held_when_the_receipts_cannot_be_read_says_so_and_still_exits_zero(serve):
-    # Arrange
+@pytest.mark.parametrize("colour", [False, True])
+def test_session_prompt_held_when_the_receipts_cannot_be_read_says_so_and_still_exits_zero(serve, plain, monkeypatch, colour):
+    # Arrange: exercise both renderings explicitly, rather than depending on the machine's colour setting.
+    from rich.console import Console
+
+    monkeypatch.setattr(session_ops, "console", Console(
+        force_terminal=colour, color_system="standard" if colour else None, width=400, height=25,
+    ))
     serve({"delivering": True, "directorState": "no-answer", "deliveryId": DELIVERY_ID}, receipts_error="the Gateway answered 502")
 
     # Act
@@ -141,8 +147,11 @@ def test_session_prompt_held_when_the_receipts_cannot_be_read_says_so_and_still_
 
     # Assert: the prompt was accepted, so the command does not fail; the failed read is said, not hidden.
     assert result.exit_code == 0, result.output
-    assert "Held" in result.output
-    assert "Its receipt could not be read: the Gateway answered 502" in result.output
+    if colour:
+        assert "\x1b[" in result.output
+    output = plain(result.output)
+    assert "Held" in output
+    assert "Its receipt could not be read: the Gateway answered 502" in output
 
 
 def test_session_prompt_delivered_answer_still_reports_sent(serve):
