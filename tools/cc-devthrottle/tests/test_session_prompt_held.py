@@ -95,6 +95,27 @@ def test_session_prompt_queued_in_api_mode_says_the_receipts_own_words(serve):
     assert [c["path"] for c in calls] == [f"sessions/{SESSION_ID}/prompt", f"sessions/{SESSION_ID}/receipts"]
 
 
+@pytest.mark.parametrize("state,words", [
+    ("Delivered", "Delivered"),
+    ("Refused", "Refused by Pi: Agent is already processing"),
+])
+def test_session_prompt_held_whose_receipt_is_no_longer_queued_prints_only_its_words(serve, state, words):
+    # Arrange: by the time the held answer came, the Gateway's receipt already says how the prompt ended.
+    serve(
+        {"delivering": True, "directorState": "delivering", "deliveryId": DELIVERY_ID},
+        receipts={"sessionId": SESSION_ID, "count": 1, "receipts": [{"promptId": DELIVERY_ID, "state": state, "words": words}]},
+    )
+
+    # Act
+    result = runner.invoke(app, ["session", "prompt", SESSION_ID, "hello there"])
+
+    # Assert: its words, and nothing that is only true of a queued prompt.
+    assert result.exit_code == 0, result.output
+    assert words in result.output
+    assert "sends it on its own" not in result.output
+    assert "Held" not in result.output
+
+
 def test_session_prompt_held_with_no_receipt_for_it_keeps_the_held_sentence(serve):
     # Arrange: receipts exist, but none for this delivery id.
     serve(

@@ -715,11 +715,14 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
         # Gateway already knows more: the prompt's receipt says "Queued, 1st in line: you have the wheel". Its words are
         # the Gateway's ruling and are printed as they are. A terminal-mode session has no receipts, and keeps the
         # held sentence below.
-        words, unread = _receipt_words(sid, resp.get("deliveryId"))
-        if words is not None:
+        receipt, unread = _receipt_of(sid, resp.get("deliveryId"))
+        if receipt is not None:
+            # Only a QUEUED prompt is still to go out on its own. A receipt that already says Delivered or Refused is
+            # printed in its own words alone: "sends it on its own" would be false beside either.
+            queued = receipt.get("state") == "Queued"
             console.print(
-                f"[yellow]{axi_cli.ascii_text(words)}[/yellow]: the prompt to {sid} (delivery id {delivery_id}). "
-                "The Director sends it on its own; do not send it again."
+                f"[yellow]{axi_cli.ascii_text(str(receipt['words']))}[/yellow]: the prompt to {sid} (delivery id {delivery_id})."
+                + (" The Director sends it on its own; do not send it again." if queued else "")
             )
             axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
             return resp
@@ -740,11 +743,12 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
     return resp if isinstance(resp, dict) else {}
 
 
-def _receipt_words(sid: str, delivery_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
-    """The Gateway's words on the receipt of the prompt with this delivery id, and why it could not be read.
+def _receipt_of(sid: str, delivery_id: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """The Gateway's receipt of the prompt with this delivery id (only one that carries words), and why it could not
+    be read.
 
     The Gateway's delivery id IS the API-mode receipt's prompt id (event-model.md, "What a promptId is"). Returns
-    (words, None) when the session has that receipt, (None, None) when it has none - a terminal-mode session has no
+    (receipt, None) when the session has that receipt, (None, None) when it has none - a terminal-mode session has no
     receipts - and (None, reason) when the read failed. The prompt was accepted either way, so a failed read is said,
     never raised: the held answer is still true.
     """
@@ -757,7 +761,7 @@ def _receipt_words(sid: str, delivery_id: Optional[str]) -> Tuple[Optional[str],
     receipts = answer.get("receipts") if isinstance(answer, dict) else None
     for receipt in receipts or []:
         if isinstance(receipt, dict) and receipt.get("promptId") == delivery_id and receipt.get("words"):
-            return str(receipt["words"]), None
+            return receipt, None
     return None, None
 
 
