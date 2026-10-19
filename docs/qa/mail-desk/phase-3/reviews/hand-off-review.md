@@ -175,3 +175,61 @@ its snapshot lines in the diff summary only), the Director side of a 409 `mail_d
 and the Open problems card with the new spend stop (folds read, not run end to end), the `trigger runs` command and
 `factory_ops.py` beyond its outcome list, and the Cockpit and phone, which this pull request does not touch. I did not
 read the `.Designer.cs` files.
+
+## Re-review
+
+Re-reviewed commit `f06f48ebe` on `mail-desk-p3-hand-off`, against the four findings above and the answers in
+`docs/qa/mail-desk/phase-3/reviews/hand-off-answers.md`. The commits since this review was first pushed (`fbff5d909`) are
+the merge of the phase branch, which brings only the contract's timed-start row, and the answer commit. The answer commit
+touches only `TriggerService.cs`, `MailDeskService.cs`, `MailDeskChannelFold.cs`, `MailDeskSettings.cs`, three test
+files, the answers file and nothing else, so nothing outside the four findings moved.
+
+### The four findings: all four closed
+
+1. **A paused start.** `HandToMailDesk` now records a paused start `paused`, with its count, before the
+   screening-running check, and keeps no memory. My finding-1 probe, rerun with the opposite expectations, passed: the run
+   is `paused`, the scripted model has no calls, there are no decision rows, no starts and no kept memory. The pull
+   request's own test `ReportCheckAsync_APausedMailDeskStart_ScreensNothingAndIsRecordedPaused` holds it.
+2. **A dropped channel.** `ScreenAsync` now refuses a report that leaves out any active channel naming the machine,
+   before the memory check and before any email is screened. My finding-2 probe (channel B removed from both the context
+   and the memory) now gets a `failed` run naming B, with no model call and no decision row.
+3. **The channel row.** The fold now says "the previous screening is still running, so this check was not screened"
+   when the run's reason is `TriggerService.ScreeningStillRunning`, and the paused label no longer claims there was new
+   mail. A test reads the row after a skipped-running screening.
+4. **The spend stop.** The stop row is removed only when the new limit, in millionths, is strictly above the sum of every
+   decision row's cost, which is the contract's "raised above what was spent". The sum is read in the same tenant-scoped
+   context, so it is the account's own spend. Tests cover a limit raised above the spend and limits at or under it.
+
+### The new excuse: "created or changed after the check ran"
+
+A missing channel is excused when its `CreatedUtc` or its `ChangedUtc` is later than the report's `CheckedAtUtc`. I
+checked whether this can hide a check that really dropped a channel.
+
+- **Only three writes move `ChangedUtc`:** adding a channel, removing it (a removed channel is never expected anyway),
+  and changing its mode (`MailDeskChannelStore`, lines 103, 149 and 179). So on a Director whose clock is right, the
+  excuse covers a channel added after the check ran (correct: it could not have been handed) and a channel whose mode
+  changed after the check ran although it had been handed. **That second case is excused for one run only.** My third
+  probe dropped B from a report, changed B's mode one minute after the check's time (the run was excused and
+  `screened`), then dropped B again on the next run: that run was refused, naming B. A really dropped channel therefore
+  costs at most one unnoticed run per mode change, and its mail is read on the next good run, because its kept fields
+  were never touched.
+- **The excuse trusts the Director's clock, and that is a gap, not a finding.** `CheckedAtUtc` is the Director's own
+  time, and no Gateway code I found checks it against the Gateway's clock. My fourth probe reported a check stamped two
+  days earlier than the Gateway's time: a channel created on the Gateway's day, then dropped from both context and
+  memory, was excused and the run was `screened`. While a Director's clock is behind, every channel added or switched in
+  mode within that gap is excused on every run, so a mailbox dropped in that window is not noticed until the gap has
+  passed. It needs a machine whose clock is wrong by more than one interval, which is a misconfiguration, so I have not
+  numbered it. Using the Gateway's own time the assignment was handed out (or the Gateway's receive time) instead of the
+  Director's `CheckedAtUtc` would close it. The Tech Lead decides.
+- **The excuse has no test of its own.** The pull request's new test covers a dropped channel that is refused; none covers
+  the excused case, so a change that widened the excuse (to every change, say) would pass the suite. My third probe is
+  the shape such a test could take.
+
+### Scope of the re-review
+
+**Read:** the full diff `fbff5d909..f06f48ebe` of the Gateway code and the test project, the names of the six new tests,
+the contract change brought in by the merge, and the three writes of `ChangedUtc` in `MailDeskChannelStore.cs`.
+**Ran:** the same filtered unit-test command as before: 892 passed, 0 failed, 0 skipped (886 before, plus the six new
+tests). Four throwaway probes over the pull request's rig (findings 1 and 2 rerun, the excuse lasting one run, a clock
+behind by two days), all passed; deleted afterwards and the tree checked clean. **Could not reach:** the database script,
+which this change does not touch, and how the Director stamps `CheckedAtUtc` in practice.
