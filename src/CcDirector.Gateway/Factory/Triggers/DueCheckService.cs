@@ -21,6 +21,10 @@ public enum DueCheckRefusal
     /// <summary>A timed start of the Mail Desk screening check (<see cref="MailDesk.MailDeskStart.Is(CronJobDto)"/>)
     /// reported for an account Mail Desk is not switched on for. Nothing is recorded.</summary>
     MailDeskOff,
+    /// <summary>A timed start of the Mail Desk screening check reported while Mail Desk is on (Mail Desk phase 3): the
+    /// screening runs only on an interval start, so this report is refused and nothing is recorded or started - a count
+    /// can never start the seat.</summary>
+    MailDeskNotReady,
 }
 
 /// <summary>The answer to one due check's report: the run as it now stands, or why nothing was recorded.</summary>
@@ -187,6 +191,15 @@ public sealed class DueCheckService
             FileLog.Write($"[DueCheckService] Report: run={id}, schedule={job.Id} is a Mail Desk check and Mail Desk is off for account {tenant.ToLogString()} - refused, nothing recorded");
             return DueCheckReportResult.Refused(DueCheckRefusal.MailDeskOff,
                 $"run {id} is the Mail Desk screening check, and Mail Desk is not switched on for this account; this report was not recorded and nothing was started");
+        }
+        // THE HARD ORDER ON A TIMED START (Mail Desk phase 3, the Tech Lead's ruling of 18 October 2026): the screening
+        // is handed off only from an interval start, so a timed start of the screening check is never decided on its
+        // count. Refused, nothing recorded; the run stays waiting on its check.
+        if (job is not null && MailDesk.MailDeskStart.Is(job))
+        {
+            FileLog.Write($"[DueCheckService] Report: run={id}, schedule={job.Id} is a timed start of the Mail Desk check - refused, nothing recorded");
+            return DueCheckReportResult.Refused(DueCheckRefusal.MailDeskNotReady,
+                $"run {id} is the Mail Desk screening check on a timed start; the Mail Desk screening runs only on an interval start (every:), so this report was not recorded and nothing was started");
         }
         var reading = TriggerCheckContract.Read(report, definitionCheck: true);
         var now = _nowUtc();

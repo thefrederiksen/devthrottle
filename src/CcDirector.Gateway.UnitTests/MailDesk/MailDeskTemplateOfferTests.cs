@@ -356,4 +356,53 @@ public sealed class MailDeskTemplateOfferTests : IDisposable
         Assert.Throws<ArgumentException>(() =>
             _store.Publish(A, MailDeskTemplate.Factory, 1, FactoryDefinitionStore.GatewayAuthorKind, MailDeskTemplateOffer.AuthorId, Now));
     }
+
+    // ---------- the two callers (phase 3, section 10; task F) ----------
+
+    [Fact]
+    public void OfferToEverySwitchedOnAccount_GatewayStart_OffersToAnOnAccountAndNotToAnOffOne()
+    {
+        // Arrange: A is switched on, B is not.
+        var offer = Offer();
+
+        // Act
+        var results = offer.OfferToEverySwitchedOnAccount(new[] { A, B });
+
+        // Assert
+        var (tenant, result) = Assert.Single(results);
+        Assert.Equal(A, tenant);
+        Assert.Equal(MailDeskTemplateOfferOutcome.Offered, result!.Outcome);
+        Assert.Equal(1, _store.Standing(A, MailDeskTemplate.Factory).Newest!.Version);
+        Assert.Null(_store.Standing(B, MailDeskTemplate.Factory).Newest);
+    }
+
+    [Fact]
+    public void OfferToEverySwitchedOnAccount_ANewerTemplateAfterADeploy_IsOfferedAtStartAsANewDraft()
+    {
+        // Arrange: the account was offered the template before this deploy.
+        Offer().OfferToEverySwitchedOnAccount(new[] { A });
+
+        // Act: the Gateway starts again with a newer template in its binary.
+        var results = Offer(NewerTemplate()).OfferToEverySwitchedOnAccount(new[] { A });
+
+        // Assert
+        Assert.Equal(MailDeskTemplateOfferOutcome.Offered, Assert.Single(results).Result!.Outcome);
+        var standing = _store.Standing(A, MailDeskTemplate.Factory);
+        Assert.Equal(2, standing.Newest!.Version);
+        Assert.Equal(FactoryDefinitionStates.Draft, standing.Newest.State);
+    }
+
+    [Fact]
+    public void OfferToEverySwitchedOnAccount_TheSameTemplateAtTheNextStart_OffersNothingNew()
+    {
+        // Arrange
+        Offer().OfferToEverySwitchedOnAccount(new[] { A });
+
+        // Act
+        var results = Offer().OfferToEverySwitchedOnAccount(new[] { A });
+
+        // Assert
+        Assert.Equal(MailDeskTemplateOfferOutcome.AlreadyOffered, Assert.Single(results).Result!.Outcome);
+        Assert.Equal(1, _store.Standing(A, MailDeskTemplate.Factory).Newest!.Version);
+    }
 }

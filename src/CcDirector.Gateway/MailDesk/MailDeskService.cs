@@ -1,0 +1,371 @@
+using System.Globalization;
+using System.Text.Json;
+using CcDirector.Core.Tenancy;
+using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Data.Entities;
+
+namespace CcDirector.Gateway.MailDesk;
+
+/// <summary>
+/// THE MAIL DESK HAND-OFF (Mail Desk phase 3 contract, sections 1 to 4 and 8). A Mail Desk start's report never reaches
+/// the trigger's count rule: <see cref="Factory.Triggers.TriggerService"/> hands every one to this service, which reads
+/// the check's context (version 2), screens every message through the four layers, records one decision row per email,
+/// records each mailbox's check, and makes up the memory to keep. It starts nothing, files nothing and queues no filing
+/// in any mode: a live channel's decisions are recorded with mode live and nothing more (phase 4 acts on them).
+///
+/// RETRIED NEXT RUN, NEVER GUESSED. A model question that fails leaves that email <c>failed</c>, and that email's MAILBOX
+/// has its check fields written back exactly as the memory held them before this run, so the check reads that mailbox's
+/// same mail again; every other mailbox moves on. A reread costs nothing for an email already decided: a decision that
+/// is not <c>failed</c> is never decided again. The third failed screening keeps the email for the owner and lets its
+/// mailbox move on, so one email the model always refuses can never block a mailbox.
+///
+/// Nothing of an email is logged: counts, channel ids, kinds and times only. The preview is shown to the model and
+/// dropped; no table has a place for it.
+/// </summary>
+public sealed class MailDeskService
+{
+    /// <summary>How long one whole screening may ask the model for; a question not asked by then fails that email,
+    /// which is read again next run (phase 3, section 5).</summary>
+    public static readonly TimeSpan ScreeningDeadline = TimeSpan.FromMinutes(4);
+
+    /// <summary>The context version this service reads (phase 2 section 4.2, changed in phase 3).</summary>
+    public const int ContextVersion = 2;
+
+    private readonly MailDeskChannelStore _channels;
+    private readonly MailDeskRulesStore _rules;
+    private readonly MailDeskDecisionStore _decisions;
+    private readonly MailDeskSettingsStore _settings;
+    private readonly MailDeskChannelCheckStore _checks;
+    private readonly Func<TenantId, IMailDeskModel> _modelFor;
+    private readonly Func<DateTime> _nowUtc;
+    private readonly TimeProvider _time;
+
+    /// <param name="modelFor">Builds the model for one account's screening (<see cref="MailDeskModelFactory.Create"/>
+    /// in production); asked once per screening, and only when some email needs a model question.</param>
+    /// <param name="nowUtc">The clock decisions and checks are stamped with.</param>
+    /// <param name="time">The clock the screening's deadline runs on; the system clock when null.</param>
+    public MailDeskService(MailDeskChannelStore channels, MailDeskRulesStore rules, MailDeskDecisionStore decisions,
+        MailDeskSettingsStore settings, MailDeskChannelCheckStore checks, Func<TenantId, IMailDeskModel> modelFor,
+        Func<DateTime> nowUtc, TimeProvider? time = null)
+    {
+        _channels = channels ?? throw new ArgumentNullException(nameof(channels));
+        _rules = rules ?? throw new ArgumentNullException(nameof(rules));
+        _decisions = decisions ?? throw new ArgumentNullException(nameof(decisions));
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _checks = checks ?? throw new ArgumentNullException(nameof(checks));
+        _modelFor = modelFor ?? throw new ArgumentNullException(nameof(modelFor));
+        _nowUtc = nowUtc ?? throw new ArgumentNullException(nameof(nowUtc));
+        _time = time ?? TimeProvider.System;
+    }
+
+    // ---------- the memory handed to the check (section 4) ----------
+
+    /// <summary>The memory a Director on <paramref name="machine"/> is handed with the Mail Desk start.</summary>
+    public string HandMemory(TenantId tenant, string? kept, string machine)
+    {
+        var handed = MailDeskMemory.Hand(kept, _channels.List(tenant), machine);
+        FileLog.Write($"[MailDeskService] HandMemory: account={tenant.ToLogString()}, machine={machine}, channels={MailDeskMemory.HandedTo(_channels.List(tenant), machine).Count}");
+        return handed;
+    }
+
+    /// <summary>
+    /// The sentence a failed Mail Desk check is recorded with when no active channel names the reporting machine - the
+    /// check then fails with phase 2's "no channels" sentence, and this says the fix instead. Null when one does.
+    /// </summary>
+    public string? NoChannelSentence(TenantId tenant, string machine)
+        => MailDeskMemory.HandedTo(_channels.List(tenant), machine).Count > 0
+            ? null
+            : $"the Mail Desk start runs on {machine}, but no channel names it: add it with maildesk channel add <address> --provider outlook --machine {machine} --why \"<text>\"";
+
+    // ---------- the screening (sections 1, 3 and 8) ----------
+
+    /// <summary>
+    /// Screen one successful report of the Mail Desk start. Answers what the run came to - <c>screened</c>, or
+    /// <c>failed</c> when the report broke its contract or the memory could not be kept - with the memory to keep and
+    /// each mailbox's check. Never throws for a report: a report it cannot read is a <c>failed</c> run with the reason.
+    /// </summary>
+    /// <param name="tenant">The account.</param>
+    /// <param name="machine">The machine of the Director that ran the check.</param>
+    /// <param name="context">The context the check printed (phase 2, section 4.1).</param>
+    /// <param name="returnedMemory">The memory the check wrote back.</param>
+    /// <param name="keptMemory">The memory kept before this run.</param>
+    /// <param name="lifetime">The Gateway's lifetime, cancelled only when it stops.</param>
+    public async Task<MailDeskScreeningRun> ScreenAsync(TenantId tenant, string machine, string? context, string? returnedMemory,
+        string? keptMemory, CancellationToken lifetime)
+    {
+        FileLog.Write($"[MailDeskService] ScreenAsync: account={tenant.ToLogString()}, machine={machine}");
+        var now = _nowUtc();
+        var all = _channels.List(tenant, includeRemoved: true);
+        var byId = all.ToDictionary(c => c.Id);
+
+        var (sections, unreadable) = MailDeskReport.Read(context);
+        if (unreadable is not null)
+            return MailDeskScreeningRun.Failed(unreadable);
+        foreach (var section in sections)
+            if (!byId.ContainsKey(section.ChannelId))
+                return MailDeskScreeningRun.Failed($"the screening check reported channel {section.ChannelId}, which is not a channel of this account");
+        var handedIds = sections.Select(s => s.ChannelId).ToHashSet();
+        var expected = MailDeskMemory.HandedTo(all, machine).Select(c => c.Id).ToHashSet();
+        if (!expected.SetEquals(handedIds))
+            FileLog.Write($"[MailDeskService] ScreenAsync: the report holds {handedIds.Count} channels and {expected.Count} name {machine} now - a channel changed since the hand-off");
+
+        // The memory is checked BEFORE any email is screened: a check that dropped or invented a channel is a defect,
+        // and its report is not screened at all.
+        var precheck = MailDeskMemory.Merge(keptMemory, returnedMemory, handedIds, Array.Empty<Guid>(), all, now);
+        if (precheck.Refusal is { } broken)
+            return MailDeskScreeningRun.Failed(broken);
+
+        var rules = _rules.Newest(tenant);
+        var settings = _settings.Read(tenant);
+        var spend = MailDeskSpendLedger.Start(settings, _decisions.SpentMicros(tenant));
+        IMailDeskModel? model = null;
+        using var deadline = new CancellationTokenSource(ScreeningDeadline, _time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, lifetime);
+
+        var tally = sections.ToDictionary(s => s.ChannelId, _ => new MailboxTally());
+        var spendStopped = false;
+        var ordered = sections.Where(s => s.Failure is null)
+            .SelectMany(s => s.Messages.Select(m => (Section: s, Message: m)))
+            .OrderBy(x => x.Message.ReceivedUtc)
+            .ToList();
+        foreach (var (section, message) in ordered)
+        {
+            var channel = byId[section.ChannelId];
+            var t = tally[channel.Id];
+            t.Reported++;
+            var kept = _decisions.Find(tenant, channel.Id, message.MessageKey);
+            if (kept is not null && kept.Decision != MailDeskWords.Decisions.Failed)
+            {
+                t.AlreadyDecided++;
+                continue;
+            }
+
+            model ??= _modelFor(tenant);
+            var decision = await MailDeskScreening.DecideAsync(message, rules, settings, model, spend, linked.Token).ConfigureAwait(false);
+            var attempt = (kept?.AttemptCount ?? 0) + 1;
+            var cost = AddCost(kept?.CostMicros, decision.CostMicros);
+            var layer = decision.Layer;
+            var word = decision.Decision;
+            var reason = decision.Reason;
+            if (decision.ModelQuestionFailed)
+            {
+                var kind = decision.ErrorKind ?? MailDeskModelErrorKinds.Unexpected;
+                if (attempt >= MailDeskReasons.FailuresBeforeKept)
+                {
+                    word = MailDeskWords.Decisions.KeepForOwner;
+                    reason = MailDeskReasons.KeptAfterFailures(kind);
+                    t.KeptAfterFailures++;
+                }
+                else
+                {
+                    t.ModelFailed++;
+                    t.ErrorKinds.Add(kind);
+                }
+            }
+            else if (decision.SpendLimitReached)
+            {
+                spendStopped = true;
+                t.SpendStopped++;
+            }
+            else
+            {
+                t.Decided++;
+            }
+
+            _decisions.Record(tenant, new MailDeskDecisionInput(
+                ChannelId: channel.Id,
+                MessageKey: message.MessageKey,
+                ReceivedUtc: message.ReceivedUtc,
+                SenderAddress: message.Sender,
+                Subject: message.Subject,
+                Layer: layer,
+                Decision: word,
+                RouteFactory: word == MailDeskWords.Decisions.Route ? decision.RouteFactory : null,
+                RouteSeat: word == MailDeskWords.Decisions.Route ? decision.RouteSeat : null,
+                Reason: reason,
+                Confidence: word == decision.Decision ? decision.Confidence : null,
+                CostMicros: cost,
+                Mode: channel.Mode,
+                Outcome: null,
+                OutcomeDetail: null,
+                DecidedUtc: _nowUtc(),
+                RulesVersion: rules.Version,
+                AttemptCount: attempt));
+        }
+
+        if (spendStopped)
+            _settings.MarkSpendStopped(tenant, _nowUtc());
+
+        var writtenBack = tally.Where(kv => kv.Value.ModelFailed > 0).Select(kv => kv.Key).ToHashSet();
+        var checks = new List<MailDeskMailboxCheck>();
+        foreach (var section in sections)
+        {
+            var t = tally[section.ChannelId];
+            if (section.Failure is { } failure)
+                checks.Add(new MailDeskMailboxCheck(section.ChannelId, false, failure.Sentence, failure.Detail));
+            else if (t.ModelFailed > 0)
+                checks.Add(new MailDeskMailboxCheck(section.ChannelId, false,
+                    ModelFailureSentence(t.ModelFailed, t.Reported, byId[section.ChannelId].Address, t.ErrorKinds), ""));
+            else
+                checks.Add(new MailDeskMailboxCheck(section.ChannelId, true, null, null));
+        }
+
+        var merged = MailDeskMemory.Merge(keptMemory, returnedMemory, handedIds, writtenBack, all, now);
+        var sum = tally.Values.Aggregate(new MailboxTally(), (a, b) => a.Add(b));
+        var summary = $"{sum.Decided} decided, {sum.AlreadyDecided} already decided, {sum.ModelFailed} to read again, " +
+                      $"{sum.KeptAfterFailures} kept after 3 failures, {sum.SpendStopped} stopped by the spend limit, " +
+                      $"{checks.Count(c => !c.Ok)} of {checks.Count} mailboxes failing";
+        FileLog.Write($"[MailDeskService] ScreenAsync: account={tenant.ToLogString()}, machine={machine}, rules v{rules.Version}: {summary}; memory {(merged.Refusal is null ? "kept" : "NOT kept")}");
+        return merged.Refusal is { } refused
+            ? new MailDeskScreeningRun(TriggerRunOutcome.Failed, refused, null, checks)
+            : new MailDeskScreeningRun(TriggerRunOutcome.Screened, summary, merged.Memory, checks);
+    }
+
+    /// <summary>
+    /// Record each mailbox's check of one run (section 6.2): every failed check, and a good check after a failure or as
+    /// a mailbox's first. Called once the run row exists, so each row names its run.
+    /// </summary>
+    public void RecordChecks(TenantId tenant, Guid runId, DateTime checkedUtc, string machine, IReadOnlyList<MailDeskMailboxCheck> checks)
+    {
+        ArgumentNullException.ThrowIfNull(checks);
+        if (checks.Count == 0) return;
+        var inputs = checks.Select(c => c.Ok
+                ? MailDeskChannelCheckInput.Read(c.ChannelId, runId, checkedUtc, machine)
+                : MailDeskChannelCheckInput.Failed(c.ChannelId, runId, checkedUtc, machine, c.Sentence!, c.Detail))
+            .ToList();
+        var written = _checks.RecordAll(tenant, inputs);
+        FileLog.Write($"[MailDeskService] RecordChecks: account={tenant.ToLogString()}, run={runId}, checks={inputs.Count}, written={written.Count(w => w.Written)}");
+    }
+
+    /// <summary>"the model could not be asked about &lt;n&gt; of &lt;m&gt; emails on &lt;address&gt; (&lt;error kind&gt;); they are read again next run".</summary>
+    internal static string ModelFailureSentence(int failed, int reported, string address, IEnumerable<string> errorKinds)
+        => $"the model could not be asked about {failed.ToString(CultureInfo.InvariantCulture)} of {reported.ToString(CultureInfo.InvariantCulture)} " +
+           $"emails on {address} ({string.Join(", ", errorKinds.Distinct(StringComparer.Ordinal))}); they are read again next run";
+
+    private static long? AddCost(long? before, long? now)
+        => before is null && now is null ? null : (before ?? 0) + (now ?? 0);
+
+    private sealed class MailboxTally
+    {
+        public int Reported;
+        public int AlreadyDecided;
+        public int Decided;
+        public int ModelFailed;
+        public int KeptAfterFailures;
+        public int SpendStopped;
+        public readonly List<string> ErrorKinds = new();
+
+        public MailboxTally Add(MailboxTally other)
+        {
+            Reported += other.Reported;
+            AlreadyDecided += other.AlreadyDecided;
+            Decided += other.Decided;
+            ModelFailed += other.ModelFailed;
+            KeptAfterFailures += other.KeptAfterFailures;
+            SpendStopped += other.SpendStopped;
+            return this;
+        }
+    }
+}
+
+/// <summary>What one screening came to, for <see cref="Factory.Triggers.TriggerService"/> to record.</summary>
+/// <param name="Outcome"><see cref="TriggerRunOutcome.Screened"/> or <see cref="TriggerRunOutcome.Failed"/>.</param>
+/// <param name="Reason">What the screening did, in counts; or why it failed.</param>
+/// <param name="Memory">The memory to keep, or null when none may be kept.</param>
+/// <param name="Checks">Each mailbox's check of this run.</param>
+public sealed record MailDeskScreeningRun(string Outcome, string? Reason, string? Memory, IReadOnlyList<MailDeskMailboxCheck> Checks)
+{
+    public static MailDeskScreeningRun Failed(string reason)
+        => new(TriggerRunOutcome.Failed, reason, null, Array.Empty<MailDeskMailboxCheck>());
+}
+
+/// <summary>One mailbox's check in one run: read, or failed with the sentence that names the fix.</summary>
+public sealed record MailDeskMailboxCheck(Guid ChannelId, bool Ok, string? Sentence, string? Detail);
+
+/// <summary>
+/// The screening check's context, version 2 (phase 2 contract, section 4.1): one section per channel it was handed,
+/// each with its messages or the failure that stopped that channel. Every section names its channel id, because the
+/// Gateway hands every channel with one.
+/// </summary>
+public static class MailDeskReport
+{
+    /// <summary>One channel's section.</summary>
+    public sealed record Section(Guid ChannelId, IReadOnlyList<MailDeskMessage> Messages, MailDeskReportFailure? Failure);
+
+    /// <summary>Read the context. Answers the sections, or why the context breaks the contract.</summary>
+    public static (IReadOnlyList<Section> Sections, string? Refusal) Read(string? context)
+    {
+        if (string.IsNullOrWhiteSpace(context))
+            return (Array.Empty<Section>(), "the screening check printed no context, so nothing could be screened");
+        try
+        {
+            using var doc = JsonDocument.Parse(context);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return Refused("its context is not a JSON object");
+            if (!root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.Number
+                || !version.TryGetInt32(out var v) || v != MailDeskService.ContextVersion)
+                return Refused($"its context is not version {MailDeskService.ContextVersion}");
+            if (!root.TryGetProperty("channels", out var channels) || channels.ValueKind != JsonValueKind.Array)
+                return Refused("its context has no channels list");
+
+            var sections = new List<Section>();
+            foreach (var c in channels.EnumerateArray())
+            {
+                if (!Guid.TryParse(Text(c, "id"), out var id))
+                    return Refused("a channel section of its context names no channel id");
+                if (sections.Any(s => s.ChannelId == id))
+                    return Refused($"channel {id} has two sections in its context");
+                MailDeskReportFailure? failure = null;
+                if (c.TryGetProperty("failure", out var f) && f.ValueKind == JsonValueKind.Object)
+                {
+                    var sentence = Text(f, "sentence");
+                    if (string.IsNullOrWhiteSpace(sentence))
+                        return Refused($"the failure of channel {id} has no sentence");
+                    failure = new MailDeskReportFailure(sentence, Text(f, "detail") ?? "");
+                }
+                var messages = new List<MailDeskMessage>();
+                if (c.TryGetProperty("messages", out var ms) && ms.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var m in ms.EnumerateArray())
+                    {
+                        var key = Text(m, "messageKey");
+                        if (string.IsNullOrWhiteSpace(key))
+                            return Refused($"a message of channel {id} has no message key");
+                        if (!DateTime.TryParse(Text(m, "receivedUtc"), CultureInfo.InvariantCulture,
+                                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var received))
+                            return Refused($"message {key} of channel {id} has no receive time");
+                        messages.Add(new MailDeskMessage(
+                            MessageKey: key,
+                            ReceivedUtc: DateTime.SpecifyKind(received, DateTimeKind.Utc),
+                            Sender: (Text(m, "sender") ?? "").Trim().ToLowerInvariant(),
+                            SenderName: Text(m, "senderName") ?? "",
+                            Subject: Text(m, "subject") ?? "",
+                            KnownSender: m.TryGetProperty("knownSender", out var known) && known.ValueKind == JsonValueKind.True,
+                            Preview: Text(m, "preview") ?? ""));
+                    }
+                }
+                else if (failure is null)
+                    return Refused($"channel {id} has no messages list");
+                if (failure is not null && messages.Count > 0)
+                    return Refused($"channel {id} reports messages and a failure");
+                sections.Add(new Section(id, messages, failure));
+            }
+            return (sections, null);
+        }
+        catch (JsonException)
+        {
+            return Refused("its context is not JSON");
+        }
+    }
+
+    private static (IReadOnlyList<Section>, string?) Refused(string what)
+        => (Array.Empty<Section>(), $"the screening check broke its contract: {what}");
+
+    private static string? Text(JsonElement e, string name)
+        => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+}
+
+/// <summary>A channel's failure in the context: the check's sentence (which names the fix) and its detail.</summary>
+public sealed record MailDeskReportFailure(string Sentence, string Detail);

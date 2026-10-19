@@ -167,6 +167,11 @@ public sealed class MailDeskSettingsStore
                 row.Value = stored;
                 row.UpdatedAtUtc = nowUtc;
             }
+            // A change of the spend limit ends the stop the old limit made: the next stop is recorded afresh, so the
+            // spend problem is open only while the limit set now is the one that stopped a call.
+            if (folded == MailDeskSettingNames.SpendLimit
+                && ctx.TenantSettings.FirstOrDefault(e => e.Key == TenantSettingKeys.MailDeskSpendStoppedUtc) is { } stoppedRow)
+                ctx.TenantSettings.Remove(stoppedRow);
             var detail = JsonSerializer.Serialize(new { from, to = value });
             var change = new MailDeskChange(MailDeskWords.ChangeKinds.Setting, MailDeskWords.ChangeActions.Set, folded, detail, who, reason)
                 .ToEntity(tenant.Value, nowUtc, null, null);
@@ -174,6 +179,49 @@ public sealed class MailDeskSettingsStore
             ctx.SaveChanges();
             FileLog.Write($"[MailDeskSettingsStore] Set: account={tenant.ToLogString()} {folded} {MailDeskSettings.Number(from)} -> {stored} by {who.Kind} {who.Id}");
             return new MailDeskSettingWrite(MailDeskSettingOutcome.Set, before.With(folded, value), change, null);
+        }
+    }
+
+    /// <summary>
+    /// When the spend limit first stopped a model question since it was last set, or null when it has stopped none.
+    /// A stored time that cannot be read is a damaged row and throws.
+    /// </summary>
+    public DateTime? SpendStoppedUtc(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var text = ctx.TenantSettings.AsNoTracking().Where(e => e.Key == TenantSettingKeys.MailDeskSpendStoppedUtc)
+                .Select(e => e.Value).FirstOrDefault();
+            if (text is null) return null;
+            if (!DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at))
+                throw new InvalidOperationException(
+                    $"The Mail Desk spend stop stored for account {tenant.ToLogString()} cannot be read as a time: '{text}'.");
+            return DateTime.SpecifyKind(at.ToUniversalTime(), DateTimeKind.Utc);
+        }
+    }
+
+    /// <summary>
+    /// Record that the spend limit stopped a model question at <paramref name="nowUtc"/> - only the FIRST stop since the
+    /// limit was last set is kept, so the spend problem names when the Mail Desk stopped. Answers whether it wrote.
+    /// </summary>
+    public bool MarkSpendStopped(TenantId tenant, DateTime nowUtc)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            if (ctx.TenantSettings.Any(e => e.Key == TenantSettingKeys.MailDeskSpendStoppedUtc)) return false;
+            var at = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
+            ctx.TenantSettings.Add(new TenantSettingEntity
+            {
+                TenantId = tenant.Value,
+                Key = TenantSettingKeys.MailDeskSpendStoppedUtc,
+                Value = at.ToString("O", CultureInfo.InvariantCulture),
+                UpdatedAtUtc = at,
+            });
+            ctx.SaveChanges();
+            FileLog.Write($"[MailDeskSettingsStore] MarkSpendStopped: account={tenant.ToLogString()} the spend limit stopped a model question at {at:O}");
+            return true;
         }
     }
 
@@ -208,22 +256,23 @@ public sealed record MailDeskSpendView(
     bool Stopped,
     string Label)
 {
-    /// <summary>Fold <paramref name="settings"/> and the spend so far, in millionths of a dollar.</summary>
-    public static MailDeskSpendView Fold(MailDeskSettings settings, long spentMicros)
+    /// <summary>
+    /// Fold the thresholds of <paramref name="settings"/> and the account's <paramref name="spend"/>. Everything about
+    /// the money - the limit, what was spent, whether the Mail Desk has stopped and the sentence saying so - comes from
+    /// <see cref="MailDeskSpend"/>, the one fold the spend problem reads too, so the settings and the Open problems card
+    /// can never disagree (phase 3, rule 7).
+    /// </summary>
+    public static MailDeskSpendView Fold(MailDeskSettings settings, MailDeskSpend spend)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        var spent = spentMicros / 1_000_000m;
-        var stopped = spent >= settings.SpendLimitUsd;
-        var label = stopped
-            ? StoppedSentence(settings.SpendLimitUsd, spent)
-            : $"{MailDeskMoney.Dollars(spent)} spent of the {MailDeskMoney.Dollars(settings.SpendLimitUsd)} spend limit";
-        return new MailDeskSpendView(settings.RouteThreshold, settings.SpamThreshold, settings.SpendLimitUsd, spent, stopped, label);
+        ArgumentNullException.ThrowIfNull(spend);
+        var spent = spend.SpentMicros / 1_000_000m;
+        var limit = spend.LimitMicros / 1_000_000m;
+        var label = spend.Stopped
+            ? spend.StoppedSentence
+            : $"{MailDeskMoney.Dollars(spent)} spent of the {MailDeskMoney.Dollars(limit)} spend limit";
+        return new MailDeskSpendView(settings.RouteThreshold, settings.SpamThreshold, limit, spent, spend.Stopped, label);
     }
-
-    /// <summary>The spend problem's sentence (section 7): the limit, what was spent, and the command that raises it.</summary>
-    public static string StoppedSentence(decimal limitUsd, decimal spentUsd)
-        => $"Mail Desk stopped asking the model: the spend limit of {MailDeskMoney.Dollars(limitUsd)} is reached " +
-           $"({MailDeskMoney.Dollars(spentUsd)} spent). Raise it with maildesk set spend-limit <dollars> --why \"<text>\"";
 }
 
 /// <summary>Money as the Mail Desk writes it: dollars, at least two places, up to six (a call costs about $0.0001).</summary>

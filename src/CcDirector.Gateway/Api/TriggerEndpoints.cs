@@ -281,6 +281,7 @@ internal static class TriggerEndpoints
                 // The shape the Mail Desk phase 1 contract names, { error, detail }: the error is the code a reader
                 // matches on, the detail is the sentence.
                 TriggerReportRefusal.MailDeskOff => MailDeskOff(result.Error!),
+                TriggerReportRefusal.MailDeskNotReady => MailDeskNotReady(result.Error!),
                 TriggerReportRefusal.MachineNotOnTheList =>
                     Refuse(StatusCodes.Status409Conflict, "machine_not_on_the_list", result.Error!),
                 _ => throw new InvalidOperationException($"unhandled trigger report refusal: {result.Refusal}"),
@@ -305,6 +306,7 @@ internal static class TriggerEndpoints
             DueCheckRefusal.HeldByAnotherDirector => Refuse(StatusCodes.Status409Conflict, "held_by_another_director", result.Error!),
             DueCheckRefusal.CannotRunDefinitionChecks => Refuse(StatusCodes.Status409Conflict, "cannot_run_definition_checks", result.Error!),
             DueCheckRefusal.MailDeskOff => MailDeskOff(result.Error!),
+            DueCheckRefusal.MailDeskNotReady => MailDeskNotReady(result.Error!),
             _ => throw new InvalidOperationException($"unhandled due check refusal: {result.Refusal}"),
         };
     }
@@ -364,6 +366,10 @@ internal static class TriggerEndpoints
     // detail is the sentence. One place, so a trigger's refusal and a timed start's cannot drift apart.
     private static IResult MailDeskOff(string sentence)
         => Results.Json(new { error = "mail_desk_off", detail = sentence }, statusCode: StatusCodes.Status409Conflict);
+
+    // Mail Desk phase 3: a Mail Desk report that cannot be screened here, in the same { error, detail } shape.
+    private static IResult MailDeskNotReady(string sentence)
+        => Results.Json(new { error = "mail_desk_not_ready", detail = sentence }, statusCode: StatusCodes.Status409Conflict);
 
     private static IResult Refuse(int status, string code, string sentence)
         => Results.Json(new { code, error = sentence }, statusCode: status);

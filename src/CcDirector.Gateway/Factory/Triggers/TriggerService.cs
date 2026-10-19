@@ -24,6 +24,9 @@ public enum TriggerReportRefusal
     /// <summary>A Mail Desk screening check (<see cref="MailDesk.MailDeskStart.Is"/>) reported for an account Mail Desk
     /// is not switched on for. Nothing is recorded.</summary>
     MailDeskOff,
+    /// <summary>A Mail Desk screening check reported to a Gateway with no Mail Desk service wired (Mail Desk phase 3,
+    /// section 2): refused, nothing recorded, so a count can never start the seat.</summary>
+    MailDeskNotReady,
     /// <summary>The reporting Director's machine is not on the trigger's list - its own machine and its backups - such
     /// as a backup a republish removed whose check was still running (Mail Desk, phase 5).</summary>
     MachineNotOnTheList,
@@ -118,6 +121,12 @@ public sealed class TriggerService
     private readonly Func<TenantId, string, bool> _machineRunsDefinitionChecks;
     private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
     private readonly Func<TenantId, bool> _mailDeskOn;
+    private readonly MailDesk.MailDeskService? _mailDesk;
+    // The Mail Desk starts whose screening is running right now on this Gateway (phase 3, section 2): a second report
+    // of one is skipped-running, its memory not kept.
+    private readonly ConcurrentDictionary<Guid, byte> _screening = new();
+    // The newest screening begun per trigger - read only by tests, which wait on it instead of sleeping; never decides.
+    private readonly ConcurrentDictionary<Guid, Task<TriggerRunEntity?>> _lastScreening = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
     // The triggers whose start is running right now on this Gateway. A lock with no session that is NOT in here is a
     // start that ended with its outcome unknown (or one a stopped Gateway left behind): the check looks for its session.
@@ -141,12 +150,17 @@ public sealed class TriggerService
     /// brief D item 8); a command trigger never reads it.</param>
     /// <param name="mailDeskOn">Whether Mail Desk is switched on for the account (<see cref="MailDesk.MailDeskSwitch.IsOn"/>).
     /// A Mail Desk screening check reported for an account it is off for is refused before anything is recorded.</param>
+    /// <param name="mailDesk">Where a Mail Desk start's report is handed (Mail Desk phase 3, section 2). Null in a
+    /// Gateway built without it: a Mail Desk report is then refused <see cref="TriggerReportRefusal.MailDeskNotReady"/>,
+    /// never decided on its count.</param>
     public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
         Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks,
-        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf, Func<TenantId, bool> mailDeskOn)
+        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf, Func<TenantId, bool> mailDeskOn,
+        MailDesk.MailDeskService? mailDesk = null)
     {
+        _mailDesk = mailDesk;
         _startLifetime = startLifetime;
         _mailDeskOn = mailDeskOn ?? throw new ArgumentNullException(nameof(mailDeskOn));
         _definitionOf = definitionOf ?? throw new ArgumentNullException(nameof(definitionOf));
@@ -229,7 +243,7 @@ public sealed class TriggerService
         FileLog.Write($"[TriggerService] AssignmentsFor: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}");
         var runsDefinitionChecks = _directorRunsDefinitionChecks(tenant, directorId);
         return _store.ClaimForDirector(tenant, directorId, machine, _nowUtc(), runsDefinitionChecks)
-            .Select(t => t.IsDefinitionCheck ? DefinitionAssignment(tenant, t) : new TriggerAssignmentDto
+            .Select(t => t.IsDefinitionCheck ? DefinitionAssignment(tenant, t, machine) : new TriggerAssignmentDto
             {
                 Id = t.Id.ToString("D"),
                 Name = t.Name,
@@ -241,7 +255,7 @@ public sealed class TriggerService
             .ToList();
     }
 
-    private TriggerAssignmentDto DefinitionAssignment(TenantId tenant, TriggerEntity t) => new()
+    private TriggerAssignmentDto DefinitionAssignment(TenantId tenant, TriggerEntity t, string machine) => new()
     {
         Id = t.Id.ToString("D"),
         Name = t.Name,
@@ -256,8 +270,19 @@ public sealed class TriggerService
         CheckPath = t.CheckPath,
         Secrets = SecretsOf(t),
         DueRunId = null,
-        State = _store.CheckStates.StateFor(tenant, t.Factory, FactoryCheckStateStore.TriggerOwner(t.Id)),
+        State = StateHandedTo(tenant, t, machine),
     };
+
+    /// <summary>
+    /// The memory a definition trigger's check is handed: the newest state its check left - or, for the Mail Desk start
+    /// with its service wired, the memory MADE UP for this machine (phase 3, section 4): the active channels that name
+    /// it, each with its kept fields, so a channel added since is read as a first run and a removed one is not read.
+    /// </summary>
+    private string? StateHandedTo(TenantId tenant, TriggerEntity t, string machine)
+    {
+        var kept = _store.CheckStates.StateFor(tenant, t.Factory, FactoryCheckStateStore.TriggerOwner(t.Id));
+        return _mailDesk is not null && MailDesk.MailDeskStart.Is(t) ? _mailDesk.HandMemory(tenant, kept, machine) : kept;
+    }
 
     /// <summary>The cc-secrets entry names a definition trigger's check declares, in declared order.</summary>
     internal static List<string> SecretsOf(TriggerEntity t)
@@ -352,6 +377,15 @@ public sealed class TriggerService
             return TriggerReportResult.Refused(TriggerReportRefusal.MailDeskOff,
                 $"trigger '{found.Name}' is the Mail Desk screening check, and Mail Desk is not switched on for this account; this report was not recorded and nothing was started");
         }
+        // THE HARD ORDER (Mail Desk phase 3, section 2): a Mail Desk start's report is never decided on its count. With
+        // no Mail Desk service wired there is nowhere to hand it, so it is refused before anything is written.
+        var mailDesk = MailDesk.MailDeskStart.Is(found);
+        if (mailDesk && _mailDesk is null)
+        {
+            FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={found.Name} is a Mail Desk check and this Gateway has no Mail Desk service - refused, nothing recorded");
+            return TriggerReportResult.Refused(TriggerReportRefusal.MailDeskNotReady,
+                $"trigger '{found.Name}' is the Mail Desk screening check, and this Gateway cannot screen mail; this report was not recorded and nothing was started");
+        }
         if (found.IsDefinitionCheck && !_directorRunsDefinitionChecks(tenant, directorId))
             return TriggerReportResult.Refused(TriggerReportRefusal.CannotRunDefinitionChecks,
                 $"trigger '{found.Name}' runs a check from the definition of {found.Factory}, and Director {directorId} has not said it runs those; this report was not recorded");
@@ -387,6 +421,10 @@ public sealed class TriggerService
             if (trigger is null)
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"no trigger '{triggerIdOrName}' in this account");
+
+            // The screening is begun here, under the lock, and takes the lock again only to record its run when it ends.
+            if (mailDesk)
+                return HandToMailDesk(tenant, trigger, directorId, machine, report);
 
             var decision = Decide(tenant, trigger, directorId, report, now);
             if (decision.Start is null)
@@ -430,6 +468,118 @@ public sealed class TriggerService
         // the request's - so the Director going away cannot cancel a start that is already under way.
         var starting = Task.Run(() => FinishStartAsync(pending), CancellationToken.None);
         return TriggerReportResult.StartingIn(starting, pending.Count);
+    }
+
+    /// <summary>
+    /// THE MAIL DESK HAND-OFF, under the per-trigger lock (Mail Desk phase 3, sections 1 and 2). The report is NEVER read
+    /// for its count: a failed check is recorded <c>failed</c> by the ordinary rule, memory not kept (the whole-run
+    /// failure of section 6); while a screening of this trigger runs a second report is <c>skipped-running</c>, memory
+    /// not kept; otherwise the screening is begun off the request, on the Gateway's lifetime, and records the run when it
+    /// ends. Answers the row recorded now, or the screening under way.
+    /// </summary>
+    private TriggerReportResult HandToMailDesk(TenantId tenant, TriggerEntity trigger,
+        string directorId, string? machine, TriggerCheckReport report)
+    {
+        var where = machine ?? trigger.Machine;
+        var reading = TriggerCheckContract.Read(report, definitionCheck: true);
+        string? outcome = null, reason = null;
+        if (reading.Failed)
+        {
+            // A check that failed because no channel names this machine says the fix, not phase 2's "no channels".
+            outcome = TriggerRunOutcome.Failed;
+            reason = _mailDesk!.NoChannelSentence(tenant, where) ?? reading.FailureReason;
+        }
+        else if (_screening.ContainsKey(trigger.Id))
+        {
+            outcome = TriggerRunOutcome.SkippedRunning;
+            reason = ScreeningStillRunning;
+        }
+        if (outcome is not null)
+        {
+            var recorded = _store.RecordCheck(tenant, trigger.Id, directorId, report.CheckedAtUtc, outcome,
+                reading.Failed ? null : reading.Count, null, reason, _nowUtc(), machine);
+            if (recorded is null)
+                return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
+                    $"trigger '{trigger.Name}' was deleted while its check was being recorded");
+            _activity.Append(tenant, ActivityFor(trigger, recorded.Run), callingActor: null);
+            FileLog.Write($"[TriggerService] ReportCheckAsync: Mail Desk trigger={trigger.Name}, outcome={outcome}, reason={reason}");
+            return new TriggerReportResult(TriggerReportRefusal.None, recorded.Run, null);
+        }
+
+        _screening[trigger.Id] = 0;
+        var kept = _store.CheckStates.StateFor(tenant, trigger.Factory, FactoryCheckStateStore.TriggerOwner(trigger.Id));
+        FileLog.Write($"[TriggerService] ReportCheckAsync: Mail Desk trigger={trigger.Name}, count={reading.Count!.Value.ToString(CultureInfo.InvariantCulture)}, screening off the request on {where}");
+        var pending = new PendingScreening(tenant, trigger, directorId, machine, where, report.CheckedAtUtc, reading.Count!.Value,
+            reading.Context, report.State, kept);
+        var screening = Task.Run(() => FinishScreeningAsync(pending), CancellationToken.None);
+        _lastScreening[trigger.Id] = screening;
+        return TriggerReportResult.StartingIn(screening, pending.Count);
+    }
+
+    /// <summary>The newest screening begun for a trigger, or null - what a test awaits after a report through the
+    /// route, which answers before the screening ends.</summary>
+    internal Task<TriggerRunEntity?>? LastScreeningForTest(Guid triggerId)
+        => _lastScreening.TryGetValue(triggerId, out var task) ? task : null;
+
+    /// <summary>The reason a Mail Desk report that arrives while its last screening runs is recorded with.</summary>
+    public const string ScreeningStillRunning = "the previous screening is still running";
+
+    /// <param name="Machine">The reporting Director's machine as the report said it, or null.</param>
+    /// <param name="Where">The machine the check ran on: the report's, or the trigger's own when the report did not say.</param>
+    private sealed record PendingScreening(TenantId Tenant, TriggerEntity Trigger, string DirectorId, string? Machine,
+        string Where, DateTime CheckedUtc, int Count, string? Context, string? Returned, string? Kept);
+
+    /// <summary>
+    /// Run one screening begun by <see cref="ReportCheckAsync"/> and write the check's one run row: <c>screened</c>,
+    /// keeping the memory the screening made up, or <c>failed</c>, keeping none. Then each mailbox's check, naming the
+    /// run. Nothing awaits this in production, so it is an entry point: every failure ends as a logged failed row.
+    /// </summary>
+    private async Task<TriggerRunEntity?> FinishScreeningAsync(PendingScreening p)
+    {
+        var name = p.Trigger.Name;
+        MailDesk.MailDeskScreeningRun run;
+        try
+        {
+            run = await _mailDesk!.ScreenAsync(p.Tenant, p.Where, p.Context, p.Returned, p.Kept, _startLifetime).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TriggerService] FinishScreeningAsync: trigger={name}, the screening threw {ex.GetType().Name}: {ex.Message}");
+            run = MailDesk.MailDeskScreeningRun.Failed($"the screening could not be finished: {ex.Message}");
+        }
+
+        try
+        {
+            var gate = GateFor(p.Tenant, p.Trigger.Id);
+            await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                var recorded = _store.RecordCheck(p.Tenant, p.Trigger.Id, p.DirectorId, p.CheckedUtc, run.Outcome, p.Count,
+                    null, run.Reason, _nowUtc(), p.Machine);
+                if (recorded is null)
+                {
+                    FileLog.Write($"[TriggerService] FinishScreeningAsync: trigger={name} was deleted while its mail was screened; the run is not recorded");
+                    return null;
+                }
+                _activity.Append(p.Tenant, ActivityFor(p.Trigger, recorded.Run), callingActor: null);
+                if (run.Memory is not null)
+                    KeepState(p.Tenant, p.Trigger, p.DirectorId, run.Memory, recorded.Run.Id.ToString("D"));
+                _mailDesk!.RecordChecks(p.Tenant, recorded.Run.Id, p.CheckedUtc, p.Where, run.Checks);
+                FileLog.Write($"[TriggerService] FinishScreeningAsync: trigger={name}, outcome={run.Outcome}, count={p.Count.ToString(CultureInfo.InvariantCulture)}, memory={(run.Memory is null ? "not kept" : "kept")}");
+                return recorded.Run;
+            }
+            finally
+            {
+                _screening.TryRemove(p.Trigger.Id, out _);
+                gate.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            _screening.TryRemove(p.Trigger.Id, out _);
+            FileLog.Write($"[TriggerService] FinishScreeningAsync FAILED to record: trigger={name}, {ex.Message}");
+            return null;
+        }
     }
 
     private SemaphoreSlim GateFor(TenantId tenant, Guid triggerId)
@@ -735,10 +885,14 @@ public sealed class TriggerService
                 $"Checked {name} - {counted}, started session {run.SessionId}"),
             TriggerRunOutcome.Paused => (FactoryActivityOutcome.Paused,
                 $"Checked {name} - {counted}, but the trigger is paused, so nothing started"),
-            TriggerRunOutcome.SkippedRunning => (FactoryActivityOutcome.Skipped, string.IsNullOrEmpty(run.SessionId)
+            TriggerRunOutcome.SkippedRunning => (FactoryActivityOutcome.Skipped, run.Reason == ScreeningStillRunning
+                ? $"Checked {name} - {counted}, but {ScreeningStillRunning}, so this report was not screened"
+                : string.IsNullOrEmpty(run.SessionId)
                 ? $"Checked {name} - {counted}, but its session is still being started, so nothing started"
                 : $"Checked {name} - {counted}, but its last session {run.SessionId} is still running, so nothing started"),
             TriggerRunOutcome.Failed => (FactoryActivityOutcome.Failed, FailedSentence(name, run)),
+            TriggerRunOutcome.Screened => (FactoryActivityOutcome.Screened,
+                $"Checked {name} - {counted}, and the mail it read was screened; no session was started"),
             _ => throw new InvalidOperationException($"Trigger run outcome '{run.Outcome}' has no factory activity outcome."),
         };
 

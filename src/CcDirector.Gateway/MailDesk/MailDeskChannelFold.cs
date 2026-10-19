@@ -164,6 +164,7 @@ public sealed class MailDeskChannelFold
         TriggerRunOutcome.Paused => "new mail, but the start is paused",
         TriggerRunOutcome.SkippedRunning => "new mail, and the seat it started last is still running",
         TriggerRunOutcome.Failed => $"failed - {reason}",
+        TriggerRunOutcome.Screened => "the mail it read was screened",
         _ => $"'{outcome}'",
     };
 

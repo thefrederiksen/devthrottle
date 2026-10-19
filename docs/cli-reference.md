@@ -1754,10 +1754,10 @@ COMMANDS:
 ```
 
 `OUTCOME` is exactly one of `started`, `allowed`, `asked`, `blocked`, `escalated`, `done`,
-`sent-back`, `nothing-to-do`, `paused`, `skipped`, `failed`, `talked`. Any other word is refused by the
+`sent-back`, `nothing-to-do`, `paused`, `skipped`, `failed`, `talked`, `screened`. Any other word is refused by the
 Gateway with the list. `skipped` is a trigger check that did not start a session because the one it started
 last is still running. `talked` is the line a talk with the owner leaves; the factory's page shows the
-newest as "Last talk with you". `--what` is one plain sentence of at most 500 characters.
+newest as "Last talk with you". `screened` is a Mail Desk screening check the Gateway screened. `--what` is one plain sentence of at most 500 characters.
 
 `record` prints the new row's id on its first line (`--json` prints the whole row) and exits 0 ONLY
 when the Gateway returned that id. It exits 1 with the reason whenever the row was not written: the
@@ -2332,11 +2332,13 @@ is recorded. The product knows nothing about any particular tool; this is all it
   A trigger never has two sessions running at once; the next start waits until that session has
   ended.
 - `failed` - the check broke the contract, or the session could not be started, with the reason.
+- `screened` - only the Mail Desk screening check: the Gateway decided every message the check read and
+  recorded each decision, whatever the count, and started no session.
 
 Every check is also written to the factory activity record (`cc-devthrottle factory activity`) as one
 row: the trigger's factory and factory agent, the actor `trigger:<trigger id>`, the outcome
-(`nothing-to-do`, `started` with the session id, `paused`, `skipped` for `skipped-running`, or
-`failed`), and one plain sentence such as `Checked website-new-mail - nothing to do`.
+(`nothing-to-do`, `started` with the session id, `paused`, `skipped` for `skipped-running`,
+`screened`, or `failed`), and one plain sentence such as `Checked website-new-mail - nothing to do`.
 
 **Status.** `list` and `show` print the status the Gateway decided: `OK`, `RED - check failed:
 <reason>`, `RED - start failed: <reason>`, `RED - no checks ran` when no check has been recorded

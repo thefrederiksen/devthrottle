@@ -79,7 +79,7 @@ public sealed class MailDeskSettingsEndpointTests : IAsyncLifetime
         });
         var parts = new MailDeskEndpoints.Parts(_channels, _rules, _decisions, _settings,
             new MailDeskChannelFold(_ => new List<TriggerEntity>(), _ => "UTC", _decisions, new MailDeskChannelCheckStore(_db)),
-            FactoryOf, _ => new List<string>(), () => _now);
+            FactoryOf, _ => new List<string>(), () => _now, tenant => MailDeskSpend.Of(tenant, _decisions, _settings));
         MailDeskEndpoints.Map(MailDeskGate.Group(app, _switch, Resolve), Resolve, parts);
         await app.StartAsync();
         _app = app;
@@ -206,8 +206,9 @@ public sealed class MailDeskSettingsEndpointTests : IAsyncLifetime
     [Fact]
     public async Task GetSettings_SpentOverTheLimit_IsStoppedWithTheSpendSentence()
     {
-        // Arrange
+        // Arrange: the spend is over the limit and the screening recorded that the limit stopped a call.
         Spent(5_000_300);
+        _settings.MarkSpendStopped(A, _now);
 
         // Act
         var (_, body) = await Get(P + "/settings");
@@ -215,7 +216,70 @@ public sealed class MailDeskSettingsEndpointTests : IAsyncLifetime
         // Assert
         Assert.True(body.GetProperty("stopped").GetBoolean());
         Assert.Equal("Mail Desk stopped asking the model: the spend limit of $5.00 is reached ($5.0003 spent). " +
-                     "Raise it with maildesk set spend-limit <dollars> --why \"<text>\"", body.GetProperty("label").GetString());
+                     "Raise it with maildesk set spend-limit <dollars> --why \"<reason>\".", body.GetProperty("label").GetString());
+    }
+
+    // Phase 3, rule 7 (task F): GET /settings reads "stopped" and its sentence from the SAME fold as the spend problem
+    // (MailDeskSpend), so the two can never disagree - here the limit is reached but no call was ever stopped, so
+    // neither the settings nor the problem list says the Mail Desk stopped.
+    [Fact]
+    public async Task GetSettings_SpentOverTheLimitButNoCallStopped_IsNotStoppedAndHasNoSpendProblem()
+    {
+        // Arrange
+        Spent(5_000_300);
+
+        // Act
+        var (_, body) = await Get(P + "/settings");
+
+        // Assert
+        Assert.False(body.GetProperty("stopped").GetBoolean());
+        Assert.Null(MailDeskProblems.SpendProblem(MailDeskSpend.Of(A, _decisions, _settings), TimeZoneInfo.Utc, _now));
+    }
+
+    [Fact]
+    public async Task GetSettings_Stopped_LabelIsTheSpendProblemsSentence()
+    {
+        // Arrange
+        Spent(5_000_300);
+        _settings.MarkSpendStopped(A, _now);
+
+        // Act
+        var (_, body) = await Get(P + "/settings");
+        var problem = MailDeskProblems.SpendProblem(MailDeskSpend.Of(A, _decisions, _settings), TimeZoneInfo.Utc, _now);
+
+        // Assert
+        Assert.NotNull(problem);
+        Assert.Equal(problem!.Sentence, body.GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task SetSpendLimit_AfterAStop_ClearsTheStopSoTheNextStopIsRecordedAfresh()
+    {
+        // Arrange
+        Spent(5_000_300);
+        _settings.MarkSpendStopped(A, _now);
+
+        // Act: lowered, still under what was spent, so a call would be stopped again - but none has been yet.
+        await Set(MailDeskSettingNames.SpendLimit, 4);
+
+        // Assert
+        Assert.Null(_settings.SpendStoppedUtc(A));
+        Assert.False((await Get(P + "/settings")).Body.GetProperty("stopped").GetBoolean());
+        Assert.True(_settings.MarkSpendStopped(A, _now.AddMinutes(5)));
+        Assert.Equal(_now.AddMinutes(5), _settings.SpendStoppedUtc(A));
+    }
+
+    [Fact]
+    public void MarkSpendStopped_Twice_KeepsTheFirstStop()
+    {
+        // Act
+        var first = _settings.MarkSpendStopped(A, _now);
+        var second = _settings.MarkSpendStopped(A, _now.AddMinutes(5));
+
+        // Assert
+        Assert.True(first);
+        Assert.False(second);
+        Assert.Equal(_now, _settings.SpendStoppedUtc(A));
     }
 
     [Fact]
@@ -223,6 +287,7 @@ public sealed class MailDeskSettingsEndpointTests : IAsyncLifetime
     {
         // Arrange
         Spent(5_000_000);
+        _settings.MarkSpendStopped(A, _now);
 
         // Act
         var (_, body) = await Get(P + "/settings");

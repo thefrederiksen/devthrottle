@@ -38,6 +38,7 @@ public static class FactoryTriggerSource
         TriggerRunOutcome.Paused => "work waiting, paused",
         TriggerRunOutcome.SkippedRunning => "work waiting, its last session still running",
         TriggerRunOutcome.Failed => "failed",
+        TriggerRunOutcome.Screened => "mail screened",
         _ => throw new InvalidOperationException($"Trigger run outcome '{outcome}' has no words on the Factory Agents pages."),
     };
 
