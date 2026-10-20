@@ -8,8 +8,9 @@ Four scenarios, in the order the capture takes them on ONE Gateway and ONE accou
                                                                        -> every card: "Not checked yet - the mail-desk
                                                                           factory is not published", "Not known yet"
   on           the factory published, one screening run's last check, its kept checks and today's decisions
-                                                                       -> each card its own signed-in state beside the
-                                                                          account's "Checked <time>: ..."
+                                                                       -> each card its own signed-in state; the last
+                                                                          check names the account's run, and on the
+                                                                          failing mailbox says it has not been read since
   off          the switch OFF again                                    -> /mail-desk is "Page not found", no entry
 
 The three mailboxes (contract section 4: one signed in with decisions today, one NOT signed in whose last check
@@ -226,14 +227,26 @@ def write_last_check(c, checked):
     say(f"the Mail Desk start's last check: screened, {RUN_SUMMARY}")
 
 
+def minutes_ago(now, minutes):
+    """`minutes` before `now`, squeezed so it is still TODAY. The page counts decisions since local midnight in the
+    account's time zone, which on a throwaway Gateway is this machine's own (TimeZoneConfig). Taken shortly after
+    midnight, the seed's 95 minutes would fall on yesterday and the pictures would show the wrong counts, so every time
+    is scaled into the time since local midnight, keeping its order. Later in the day nothing is scaled."""
+    local_now = now.astimezone()
+    since = (local_now - local_now.replace(hour=0, minute=0, second=0, microsecond=0)).total_seconds() / 60
+    longest = max(m for *_, m, _, _ in DECISIONS) + 1  # the received time is one minute before the decision
+    scale = 1.0 if since > longest + 1 else since * 0.9 / longest
+    return now - timedelta(minutes=minutes * scale)
+
+
 def write_decisions(c, ids, now):
     for n, (address, decision, layer, minutes, sender, subject) in enumerate(DECISIONS, start=1):
         cid = ids[address]
         live = address == LIVE_BOX
-        at = now - timedelta(minutes=minutes)
+        at = minutes_ago(now, minutes)
         insert(c, "mail_desk_decisions", {
             "Id": new_id(cid), "tenant_id": ACCOUNT_ID, "ChannelId": cid, "MessageKey": f"qa-phase-7-message-{n}",
-            "ReceivedUtc": stamp(at - timedelta(minutes=1)), "SenderAddress": sender, "Subject": subject,
+            "ReceivedUtc": stamp(minutes_ago(now, minutes + 1)), "SenderAddress": sender, "Subject": subject,
             "Layer": layer, "Decision": decision,
             "RouteFactory": "qa-orders" if decision == "route" else None,
             "RouteSeat": "orders-desk" if decision == "route" else None,
@@ -310,7 +323,7 @@ def main():
             fail("the on scenario follows the unpublished one: the three mailboxes must already be on the desk")
         publish_factory(gateway, key)
         now = datetime.now(timezone.utc)
-        checked = now - timedelta(minutes=RUN_MINUTES_AGO)
+        checked = minutes_ago(now, RUN_MINUTES_AGO)
         write_last_check(c, checked)
         write_checks(c, ids, checked)
         write_decisions(c, ids, now)

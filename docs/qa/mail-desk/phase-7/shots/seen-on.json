@@ -1,16 +1,16 @@
 {
   "scenario": "on",
-  "gateway": "http://127.0.0.1:59757",
-  "takenUtc": "2026-10-20T03:33:12.272Z",
+  "gateway": "http://127.0.0.1:33319",
+  "takenUtc": "2026-10-20T04:46:50.302Z",
   "desktop": {
     "address": "/mail-desk",
     "headings": [
       "Mail Desk"
     ],
     "cards": [
-      "email@devthrottle.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux\nSigned in\nSigned in - the last check read the mailbox\nLast check\nChecked 2026-10-19 23:29: the mail it read was screened\n7 emails decided today\nRoute to a seat\n2\nArchive\n3\nJunk\n1\nKeep for you\n1\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
-      "desk@example.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux or qa-north, whichever runs the Mail Desk check\nSigned in\nFailing - the last check could not read the mailbox: desk@example.com is not signed in on devlinux: run cc-outlook -a desk-example auth\nLast check\nChecked 2026-10-19 23:29: the mail it read was screened\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
-      "letters@example.org\nOutlook\nMode\nLive - decides and acts: files each email and starts the seat it routes to\nMachines\nqa-north, qa-south or devlinux, whichever runs the Mail Desk check\nSigned in\nSigned in - the last check read the mailbox\nLast check\nChecked 2026-10-19 23:29: the mail it read was screened\n1 email decided today\nRoute to a seat\n0\nArchive\n1\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0"
+      "email@devthrottle.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux\nSigned in\nSigned in - the last check read the mailbox\nLast check\nThe Mail Desk check last ran 2026-10-20 00:45: the mail it read was screened\n7 emails decided today\nRoute to a seat\n2\nArchive\n3\nJunk\n1\nKeep for you\n1\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "desk@example.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux or qa-north, whichever runs the Mail Desk check\nSigned in\nFailing - the last check could not read the mailbox: desk@example.com is not signed in on devlinux: run cc-outlook -a desk-example auth\nLast check\nThe Mail Desk check last ran 2026-10-20 00:45. This mailbox has not been read since its check failed at 2026-10-20 00:45\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "letters@example.org\nOutlook\nMode\nLive - decides and acts: files each email and starts the seat it routes to\nMachines\nqa-north, qa-south or devlinux, whichever runs the Mail Desk check\nSigned in\nSigned in - the last check read the mailbox\nLast check\nThe Mail Desk check last ran 2026-10-20 00:45: the mail it read was screened\n1 email decided today\nRoute to a seat\n0\nArchive\n1\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0"
     ],
     "empty": null,
     "controls": 0,
@@ -32,9 +32,9 @@
       "Mail Desk"
     ],
     "cards": [
-      "email@devthrottle.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux\nSigned in\nSigned in - the last check read the mailbox\nLast check\nChecked 2026-10-19 23:29: the mail it read was screened\n7 emails decided today\nRoute to a seat\n2\nArchive\n3\nJunk\n1\nKeep for you\n1\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
-      "desk@example.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux or qa-north, whichever runs the Mail Desk check\nSigned in\nFailing - the last check could not read the mailbox: desk@example.com is not signed in on devlinux: run cc-outlook -a desk-example auth\nLast check\nChecked 2026-10-19 23:29: the mail it read was screened\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
-      "letters@example.org\nOutlook\nMode\nLive - decides and acts: files each email and starts the seat it routes to\nMachines\nqa-north, qa-south or devlinux, whichever runs the Mail Desk check\nSigned in\nSigned in - the last check read the mailbox\nLast check\nChecked 2026-10-19 23:29: the mail it read was screened\n1 email decided today\nRoute to a seat\n0\nArchive\n1\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0"
+      "email@devthrottle.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux\nSigned in\nSigned in - the last check read the mailbox\nLast check\nThe Mail Desk check last ran 2026-10-20 00:45: the mail it read was screened\n7 emails decided today\nRoute to a seat\n2\nArchive\n3\nJunk\n1\nKeep for you\n1\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "desk@example.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux or qa-north, whichever runs the Mail Desk check\nSigned in\nFailing - the last check could not read the mailbox: desk@example.com is not signed in on devlinux: run cc-outlook -a desk-example auth\nLast check\nThe Mail Desk check last ran 2026-10-20 00:45. This mailbox has not been read since its check failed at 2026-10-20 00:45\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "letters@example.org\nOutlook\nMode\nLive - decides and acts: files each email and starts the seat it routes to\nMachines\nqa-north, qa-south or devlinux, whichever runs the Mail Desk check\nSigned in\nSigned in - the last check read the mailbox\nLast check\nThe Mail Desk check last ran 2026-10-20 00:45: the mail it read was screened\n1 email decided today\nRoute to a seat\n0\nArchive\n1\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0"
     ],
     "empty": null,
     "controls": 0,

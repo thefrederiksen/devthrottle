@@ -18,8 +18,10 @@ origin/main `66658a098` (Mail Desk phases 3 and 5 in).
   `cc-devthrottle maildesk` command's `--json` keeps its shape. A tone or label the fold does not know throws, never
   falls back to a colour.
 - **Hidden with the switch off.** The page and its entry read the same route; its 404 (the Mail Desk gate) means off,
-  and the page is then the shell's ordinary "Page not found" with no entry in the rail or the menu. Any other failure
-  keeps the entry, shows the error and reports it, and asks again, as the Cockpit's Mentor entry does.
+  and the page is then the shell's ordinary "Page not found" with no entry in the rail or the menu. The entry is drawn
+  ONLY after a read that succeeded: any other failure (offline, a timeout, a 5xx, a broken answer) draws no entry,
+  reports it and asks again, and the page itself, reached by its address, shows the error (corrected after the phase
+  review, finding F1; `reviews/phase-review-answers.md`).
 
 ## The proof
 
@@ -82,7 +84,7 @@ each screen showed, read from the page itself. `answer-<scenario>.json` holds th
 | [`desktop-empty.png`](shots/desktop-empty.png), [`phone-empty.png`](shots/phone-empty.png) | Switch on, no mailbox. The page shows the Gateway's title, summary and empty sentence verbatim. The Cockpit rail's Work section has "Mail Desk" directly after Factories, and it is the active row. |
 | [`phone-drawer-empty.png`](shots/phone-drawer-empty.png), [`phone-drawer-unpublished.png`](shots/phone-drawer-unpublished.png), [`phone-drawer-on.png`](shots/phone-drawer-on.png) | Switch on. The phone's menu has "Mail Desk" after Repos. The three pictures are the same image (the same checksum): the menu does not change with the mailboxes. |
 | [`desktop-unpublished.png`](shots/desktop-unpublished.png), [`phone-unpublished.png`](shots/phone-unpublished.png) | Three mailboxes, the mail-desk factory still a draft. Every card is drawn in the Gateway's order with every field. Nothing has checked a mailbox yet, and both lines say so: "Not known yet - no check has read the mailbox" and "Not checked yet - the mail-desk factory is not published", both neutral. Every decision count is listed, zeros included. Live mode is amber on `letters@example.org` only. |
-| [`desktop-on.png`](shots/desktop-on.png), [`phone-on.png`](shots/phone-on.png) | The factory published and one screening run done. Each card shows its own signed-in state beside the account's "Checked 2026-10-19 23:29: the mail it read was screened". `email@devthrottle.com` is signed in (green), in observe mode, with 7 emails decided today: Route to a seat 2, Archive 3, Junk 1, Keep for you 1. `desk@example.com` is NOT signed in (red), with the check's own sentence naming the fix. `letters@example.org` is signed in and live, with 1 email decided today. The machines sentences read one, two and three machines. Every card is shown whole, and the third is not cut off. |
+| [`desktop-on.png`](shots/desktop-on.png), [`phone-on.png`](shots/phone-on.png) | The factory published and one screening run done. Each card shows its own signed-in state. A signed-in card's last check names the account's run: "The Mail Desk check last ran 2026-10-20 00:45: the mail it read was screened" (green). `email@devthrottle.com` is signed in (green), in observe mode, with 7 emails decided today: Route to a seat 2, Archive 3, Junk 1, Keep for you 1. `desk@example.com` is NOT signed in (red), with the check's own sentence naming the fix, and its last check says so too, in red: "The Mail Desk check last ran 2026-10-20 00:45. This mailbox has not been read since its check failed at 2026-10-20 00:45" - the card no longer says "Failing" in red beside a green "screened" (the ruling of 20 October 2026, contract section 2). `letters@example.org` is signed in and live, with 1 email decided today. The machines sentences read one, two and three machines. Every card is shown whole, and the third is not cut off. |
 | [`desktop-off.png`](shots/desktop-off.png), [`phone-off.png`](shots/phone-off.png) | Switch off. `/mail-desk` is the shell's ordinary "Page not found", exactly as an unknown address shows it, and the Cockpit rail has no Mail Desk row. |
 | [`phone-drawer-off.png`](shots/phone-drawer-off.png) | Switch off. The phone's menu has no Mail Desk entry: Repos is followed directly by the separator and Account. |
 
@@ -107,19 +109,24 @@ PYTHONDONTWRITEBYTECODE=1 NODE_PATH=$HOME/.local/share/devthrottle/qa-tools/node
   python3 docs/qa/mail-desk/phase-7/capture.py <a rig folder outside the checkout> docs/qa/mail-desk/phase-7/shots
 ```
 
-The times on the cards are the time of the run, so a new run differs from these pictures there and nowhere else.
+The times on the cards are the time of the run, so a new run differs from these pictures there and nowhere else. The
+pictures may be taken at any hour: the page counts decisions since local midnight in the account's time zone (on the
+throwaway Gateway, this machine's), so `seed.py` places the run and every decision between local midnight and now -
+taken shortly after midnight, it squeezes their "minutes ago" into the time since midnight, keeping their order. The
+pictures here were taken at 00:45, which is why both the run and the failed check read 2026-10-20 00:45.
 
 ### The tests behind the page
 
-Run on the same tree (`a2cbfdc29`):
+Run on the tree with the last-check and entry fixes (`5f2c4c47e`, branch `mail-desk-p7-lastcheck`):
 
 | Command | Result |
 |---|---|
-| `npx tsc --noEmit` in `packages/client-core`, `apps/cockpit`, `apps/mobile` | clean, all three |
-| `npx vitest run --minWorkers=1 --maxWorkers=2` in `packages/client-core` | 2,297 passed of 2,297 (182 files) |
-| the same in `apps/cockpit` | 1,334 passed of 1,334 (126 files) |
-| the same in `apps/mobile` | 183 passed of 183 (37 files) |
-| `dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~MailDesk"` (with `DOTNET_USE_POLLING_FILE_WATCHER=1` and a scratch `LOCALAPPDATA`) | 540 passed of 540 |
+| `npm run typecheck` at the repository root (client-core, cc-assistant, cockpit, mobile) | clean, exit 0 |
+| `npx vitest run --minWorkers=1 --maxWorkers=2` in `packages/client-core` | 2,302 passed of 2,302 (182 files) |
+| the same in `apps/cockpit` | 1,335 passed of 1,335 (126 files) |
+| the same in `apps/mobile` | 186 passed of 186 (37 files) |
+| `dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~MailDesk"` (with `DOTNET_USE_POLLING_FILE_WATCHER=1` and a scratch `LOCALAPPDATA`) | 549 passed of 549 |
+| `python3 -m pytest tests/test_maildesk_ops.py` in `tools/cc-devthrottle` | 122 passed of 122 |
 
 ### What is NOT proven
 
@@ -159,7 +166,7 @@ One Gateway and one account, `email@devthrottle.com`, in this order:
 |---|---|---|
 | `empty` | The Mail Desk switched on, no mailbox | The Gateway's empty sentence; the entry in the rail and the menu |
 | `unpublished` | Three mailboxes; the mail-desk factory still the draft the switch offered | Three cards, each "Not known yet - no check has read the mailbox" and "Not checked yet - the mail-desk factory is not published" |
-| `on` | The factory published, one screening run's last check, its kept checks, today's decisions | Each card its own signed-in state beside the account's "Checked <time>: ..." |
+| `on` | The factory published, one screening run's last check, its kept checks, today's decisions | Each card its own signed-in state; the last check names the account's run ("The Mail Desk check last ran <time>: ..."), and on the failing mailbox says it has not been read since its check failed, in red |
 | `off` | The switch off again | "Page not found" on both shells; no entry in the rail or the menu |
 
 The three mailboxes:
@@ -191,8 +198,8 @@ How each part is written:
 
 ### Last check is per account, by design
 
-Every card shows the same "Last check", taken from the account's Mail Desk start. "Signed in" is the mailbox's own.
-That is deliberate (the phase 7 Tech Lead's ruling, 19 October 2026):
+Every card's "Last check" is taken from the account's Mail Desk start, and its words say so: "The Mail Desk check last
+ran <time>: ...". "Signed in" is the mailbox's own. That is deliberate (the phase 7 Tech Lead's ruling, 19 October 2026):
 
 - **One run of the Mail Desk start checks every mailbox.** So the start's last check is each mailbox's last check;
   there is no per-mailbox time that could differ from it.
@@ -203,6 +210,12 @@ That is deliberate (the phase 7 Tech Lead's ruling, 19 October 2026):
   factory is not published" - a contradiction the seed made, not one the product can. The seed now publishes the
   factory first, and the `unpublished` scenario shows the honest state before any check: neither line knows anything
   yet.
+- **A failing mailbox's last check says it has not been read since** (ruling of 20 October 2026, contract section 2).
+  The first pictures showed `desk@example.com` as "Failing" in red beside a green "Checked ...: the mail it read was
+  screened" - two contradictory statements about one mailbox. Now, when a mailbox's `signedIn` is `failing`, its last
+  check gives both times - the run's, and its own failed check's from phase 3's kept checks - and its tone is bad,
+  whatever the run's outcome. The run's time and outcome are unchanged in the answer; only the words and the tone
+  are the mailbox's. Before the run has a time (not published, or never checked) the label stays as it was.
 
 ### What the dry runs found about the tools
 

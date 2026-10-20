@@ -4,7 +4,7 @@
     "count": 3,
     "channels": [
       {
-        "id": "bbc96d93-429d-4ca7-bf4e-f417a711630b",
+        "id": "ee10e8eb-8604-47db-8683-0692d579b6c6",
         "kind": "email",
         "provider": "outlook",
         "address": "email@devthrottle.com",
@@ -21,9 +21,9 @@
           "tone": "good"
         },
         "lastCheck": {
-          "utc": "2026-10-20T03:29:11.527933Z",
+          "utc": "2026-10-20T04:45:04.313566Z",
           "outcome": "screened",
-          "label": "Checked 2026-10-19 23:29: the mail it read was screened",
+          "label": "The Mail Desk check last ran 2026-10-20 00:45: the mail it read was screened",
           "tone": "good"
         },
         "today": {
@@ -70,9 +70,9 @@
             }
           ]
         },
-        "createdUtc": "2026-10-20T03:33:03.3194415Z",
+        "createdUtc": "2026-10-20T04:46:41.9072565Z",
         "createdBy": "device browser qa-phase-7-browser",
-        "changedUtc": "2026-10-20T03:33:03.3194415Z",
+        "changedUtc": "2026-10-20T04:46:41.9072565Z",
         "changedBy": "device browser qa-phase-7-browser",
         "removedUtc": null,
         "providerLabel": "Outlook",
@@ -80,7 +80,7 @@
         "modeTone": "neutral"
       },
       {
-        "id": "462cfe26-6efa-4399-93b2-7f3e7b66481e",
+        "id": "243e472d-e26f-4282-a910-964b566f6eb8",
         "kind": "email",
         "provider": "outlook",
         "address": "desk@example.com",
@@ -98,10 +98,10 @@
           "tone": "bad"
         },
         "lastCheck": {
-          "utc": "2026-10-20T03:29:11.527933Z",
+          "utc": "2026-10-20T04:45:04.313566Z",
           "outcome": "screened",
-          "label": "Checked 2026-10-19 23:29: the mail it read was screened",
-          "tone": "good"
+          "label": "The Mail Desk check last ran 2026-10-20 00:45. This mailbox has not been read since its check failed at 2026-10-20 00:45",
+          "tone": "bad"
         },
         "today": {
           "total": 0,
@@ -147,9 +147,9 @@
             }
           ]
         },
-        "createdUtc": "2026-10-20T03:33:03.4380588Z",
+        "createdUtc": "2026-10-20T04:46:41.9939551Z",
         "createdBy": "device browser qa-phase-7-browser",
-        "changedUtc": "2026-10-20T03:33:03.4380588Z",
+        "changedUtc": "2026-10-20T04:46:41.9939551Z",
         "changedBy": "device browser qa-phase-7-browser",
         "removedUtc": null,
         "providerLabel": "Outlook",
@@ -157,7 +157,7 @@
         "modeTone": "neutral"
       },
       {
-        "id": "0e7c6b4e-e611-4ec3-9edf-47eeb67e9a0b",
+        "id": "fe82a98d-cd05-492a-9daf-91f8da3e4777",
         "kind": "email",
         "provider": "outlook",
         "address": "letters@example.org",
@@ -176,9 +176,9 @@
           "tone": "good"
         },
         "lastCheck": {
-          "utc": "2026-10-20T03:29:11.527933Z",
+          "utc": "2026-10-20T04:45:04.313566Z",
           "outcome": "screened",
-          "label": "Checked 2026-10-19 23:29: the mail it read was screened",
+          "label": "The Mail Desk check last ran 2026-10-20 00:45: the mail it read was screened",
           "tone": "good"
         },
         "today": {
@@ -225,9 +225,9 @@
             }
           ]
         },
-        "createdUtc": "2026-10-20T03:33:03.4600717Z",
+        "createdUtc": "2026-10-20T04:46:42.0058455Z",
         "createdBy": "device browser qa-phase-7-browser",
-        "changedUtc": "2026-10-20T03:33:03.4820086Z",
+        "changedUtc": "2026-10-20T04:46:42.0197908Z",
         "changedBy": "device browser qa-phase-7-browser",
         "removedUtc": null,
         "providerLabel": "Outlook",

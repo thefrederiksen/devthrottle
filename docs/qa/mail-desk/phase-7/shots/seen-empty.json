@@ -1,7 +1,7 @@
 {
   "scenario": "empty",
-  "gateway": "http://127.0.0.1:59757",
-  "takenUtc": "2026-10-20T03:32:49.311Z",
+  "gateway": "http://127.0.0.1:33319",
+  "takenUtc": "2026-10-20T04:46:35.623Z",
   "desktop": {
     "address": "/mail-desk",
     "headings": [
