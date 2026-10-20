@@ -143,8 +143,12 @@ In order:
 - Built by `FactorySeatStart.Build` from the **target factory's** published definition and the target seat, exactly as
   `TriggerService.DefinedStart` does: the seat's agent, model, repository or home, and its kit.
 - `Factory` = the target factory (the session is born into it). `Director` = the Director that ran the check.
-  `AutoDismiss` = true. `Origin` = schedule, `OriginSurface` = a new surface word `mail-desk`, added beside
-  `SessionOriginSurfaces.Trigger`.
+  `AutoDismiss` = true. `Origin` = schedule, `OriginSurface` = `SessionOriginSurfaces.Trigger`, the trigger's own
+  surface. **Not a new surface word:** the Director refuses a create whose surface is not in its own fixed list
+  (`SessionCommandExecutor`, "unknown origin surface"), so a new word would make every Director released before this
+  phase refuse every Mail Desk start - a desktop release this mission is not granted (found by the routing Developer,
+  ruled by the Tech Lead, 19 October 2026). What tells a Mail Desk session from a trigger's is its routed rows and its
+  name.
 - **Name:** `Mail Desk - <factory>/<seat> - <n> emails - <yyyy-MM-dd HH:mm>` in the account's time zone, with "1 email"
   for one. The name is stored in each row's `StartName`.
 - **Prompt:** the seat's own start prompt is not used (this is not one of the seat's starts). The prompt is the Mail
