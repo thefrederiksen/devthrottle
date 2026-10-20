@@ -47,10 +47,40 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
         Assert.Equal("^(Bash|PowerShell)$", (string?)preToolUse["matcher"]);
         var hook = Assert.Single(preToolUse["hooks"]!.AsArray())!;
         Assert.Equal("command", (string?)hook["type"]);
-        // The absolute path, quoted for the spaces in per-user folders.
-        Assert.Equal($"\"{written}\"", (string?)hook["command"]);
         Assert.True(Path.IsPathFullyQualified(written));
         Assert.Equal(10, (int)hook["timeout"]!);
+        AssertExecForm(hook, written);
+    }
+
+    /// <summary>
+    /// Whole-phase review finding 1. A hook with no <c>args</c> is SHELL form: Claude Code hands the string
+    /// to sh on Linux and macOS, to Git Bash on Windows, and to PowerShell on a Windows machine without Git
+    /// Bash - where a quoted path is a string expression, not a call, and where the vendor documents that a
+    /// failing shell-form PreToolUse hook can BLOCK the tool call. EXEC form - <c>args</c> present, even
+    /// empty - spawns <c>command</c> directly as the program, with no shell on any platform. So the
+    /// evaluator is registered as its bare absolute path (no quotes, which nothing would strip), an empty
+    /// argument list, and no <c>shell</c> field.
+    /// </summary>
+    private static void AssertExecForm(JsonNode hook, string evaluatorPath)
+    {
+        Assert.Equal(evaluatorPath, (string?)hook["command"]);
+        var args = Assert.IsType<JsonArray>(hook["args"]);
+        Assert.Empty(args);
+        Assert.Null(hook["shell"]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EnsureInstalled_RuleHookCarried_RegistersItInExecFormWithNoShell(bool forWindows)
+    {
+        var settings = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows, HookBytes)!;
+
+        // Read from the file as Claude Code reads it: the args key must be there, as an empty array.
+        var hook = Hooks(settings)["PreToolUse"]![0]!["hooks"]![0]!.AsObject();
+        Assert.True(hook.ContainsKey("args"));
+        Assert.Equal(["type", "command", "args", "timeout"], hook.Select(p => p.Key));
+        AssertExecForm(hook, ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows));
     }
 
     [Theory]
@@ -144,7 +174,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         Assert.NotNull(settings);
         Assert.Equal(OlderHookBytes, File.ReadAllBytes(path));
-        Assert.Equal($"\"{path}\"", (string?)Hooks(settings)["PreToolUse"]![0]!["hooks"]![0]!["command"]);
+        AssertExecForm(Hooks(settings)["PreToolUse"]![0]!["hooks"]![0]!, path);
         Assert.DoesNotContain(Directory.GetFiles(HooksDirectory), f => f.EndsWith(".tmp", StringComparison.Ordinal));
     }
 
@@ -192,7 +222,7 @@ public sealed class ClaudeRuleHookRegistrationTests : IDisposable
 
         var path = ClaudeHookInstaller.RuleHookPathIn(HooksDirectory, forWindows);
         Assert.Equal(HookBytes, File.ReadAllBytes(path));
-        Assert.Equal($"\"{path}\"", (string?)Hooks(own)["PreToolUse"]![0]!["hooks"]![0]!["command"]);
+        AssertExecForm(Hooks(own)["PreToolUse"]![0]!["hooks"]![0]!, path);
 
         // And the shared install that follows agrees with it.
         var shared = ClaudeHookInstaller.EnsureInstalled(HooksDirectory, forWindows, HookBytes)!;
