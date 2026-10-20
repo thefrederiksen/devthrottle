@@ -73,6 +73,8 @@ fake Graph is not an http address on 127.0.0.1. `tests/test_wrapper.py` proves e
   reports through the Director routes, running the same wrapper. devlinux has one host name and this account may not
   make a namespace to change it, so a second real Director would be the same machine. The check's own sentences name
   devlinux; the Gateway's claim names `qa-backup`.
+- **Not a released Director.** The rig's Director is built from this tree, so it does not prove that a Director
+  already released accepts the routed sessions the Gateway starts.
 - **Not the 08:00 email's delivery.** The section is read from what the Gateway composed; the rig's Gateway holds no
   account sign-in, so nothing is sent.
 - **The seats' sign-in is the owner's Claude Code sign-in.** The scratch home links `~/.claude` and `~/.claude.json`

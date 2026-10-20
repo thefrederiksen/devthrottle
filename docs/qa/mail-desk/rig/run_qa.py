@@ -1421,9 +1421,11 @@ def section_backup():
     check(status in (200, 202), "the stand-in's report was accepted")
     wait_for("the stand-in's email was not decided",
              lambda: decision_of("Invoice 90 while the first machine is away", ONE), seconds=120, every=3)
-    newest = runs()[-1]
-    record("the newest run (Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId)", f"  {newest}")
-    check(newest[7].lower() == stand_in.director_id.lower(), "the run is recorded for the stand-in Director")
+    theirs = wait_for("no run was recorded for the stand-in Director", lambda: [
+        r for r in runs() if (r[7] or "").lower() == stand_in.director_id.lower()], seconds=120, every=3)
+    record("the stand-in's run (Id, CheckedUtc, RecordedUtc, Outcome, Count, SessionId, Reason, DirectorId)",
+           "\n".join(f"  {r}" for r in theirs))
+    check(len(theirs) == 1 and theirs[0][3] == "screened", "the run is recorded, screened, for the stand-in Director")
     rows("the trigger's claim", "SELECT ClaimedByDirectorId, ClaimedByMachine, BackupMachinesJson FROM triggers WHERE "
          "Id = ? COLLATE NOCASE", (STATE["trigger"],))
     check(len([d for d in decisions(ONE, 500) if d["subject"] == "Invoice 1042 for October"]) <= 1,
