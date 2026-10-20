@@ -17,14 +17,14 @@ blocks. The Director forwards each decision to the Gateway, where it becomes a f
 
 ## 1. Unit and contract tests - RAN BY THE TECH LEAD on Linux
 
-On `40124743d` (the branch after merging origin/main; the later commits add only the rig script and
-documents), .NET 10.0.301, `DOTNET_USE_POLLING_FILE_WATCHER=1`:
+On `7f8420187` (the branch level with origin/main, with `AddSessionRuleKindsAndHookFirings` regenerated
+after main's API mode migrations), .NET 10.0.301, `DOTNET_USE_POLLING_FILE_WATCHER=1`:
 
 | Command | Result |
 |---|---|
 | `dotnet test src/CcDirector.RuleHook.Tests` | 70 passed, 0 failed, exit 0 |
 | `dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~Hook\|FullyQualifiedName~SessionPointerDrop\|FullyQualifiedName~Rules"` | 163 passed, 0 failed, exit 0 (includes `HookScriptContractTests`) |
-| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Rules\|FullyQualifiedName~SessionRuleKindsMigration\|..."` | 642 passed, 0 failed, exit 0 (includes `RulesTypeNothingGuardTests`) |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Rules\|FullyQualifiedName~SessionRuleKindsMigration\|FullyQualifiedName~GatewayHostBootSmoke\|FullyQualifiedName~MigrationChain"` | 678 passed, 0 failed, exit 0 (with `GatewayHostBootSmoke` and `MigrationChain`: no pending model changes on either provider; includes `RulesTypeNothingGuardTests`) |
 
 Before the main merge, on `4f21e04a7`, the wider Core filter (adding FactoryKitLaunch, FactorySeat,
 Architecture) was 212 passed, 0 failed.
@@ -34,8 +34,8 @@ fail on Linux; the Tech Lead ran them on the untouched base and they fail identi
 
 **Taken from Developers, not re-run by the Tech Lead:** the Postgres migration test
 `SessionRuleKindsPostgresTests` 1 of 1 passed on a hand-built `postgres:16` container shaped like
-`scripts/test-database.ps1` (no PowerShell on this machine), after the migration was regenerated on top
-of main's `AddMailDesk`; both providers reporting no pending model changes.
+`scripts/test-database.ps1` (no PowerShell on this machine), each time the migration was regenerated on top
+of main (after `AddMailDesk`, then after `AddApiModeReceiptDirectorIndex`).
 
 ## 2. Tests and the repository gate on Windows - from the Windows Developer
 
