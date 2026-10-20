@@ -1,0 +1,242 @@
+{
+  "status": 200,
+  "body": {
+    "count": 3,
+    "channels": [
+      {
+        "id": "bbc96d93-429d-4ca7-bf4e-f417a711630b",
+        "kind": "email",
+        "provider": "outlook",
+        "address": "email@devthrottle.com",
+        "machines": [
+          "devlinux"
+        ],
+        "mode": "observe",
+        "modeLabel": "Observe - decides and records, changes nothing",
+        "factory": "mail-desk",
+        "seat": "mail-desk",
+        "signedIn": {
+          "state": "unknown",
+          "label": "Not known yet - no check has read the mailbox",
+          "tone": "neutral"
+        },
+        "lastCheck": {
+          "utc": null,
+          "outcome": null,
+          "label": "Not checked yet - the mail-desk factory is not published",
+          "tone": "neutral"
+        },
+        "today": {
+          "total": 0,
+          "byDecision": {
+            "route": 0,
+            "archive": 0,
+            "junk": 0,
+            "keep-for-owner": 0,
+            "mail-desk-agent": 0,
+            "failed": 0
+          },
+          "label": "No emails decided today",
+          "counts": [
+            {
+              "decision": "route",
+              "label": "Route to a seat",
+              "count": 0
+            },
+            {
+              "decision": "archive",
+              "label": "Archive",
+              "count": 0
+            },
+            {
+              "decision": "junk",
+              "label": "Junk",
+              "count": 0
+            },
+            {
+              "decision": "keep-for-owner",
+              "label": "Keep for you",
+              "count": 0
+            },
+            {
+              "decision": "mail-desk-agent",
+              "label": "Hand to the Mail Desk agent",
+              "count": 0
+            },
+            {
+              "decision": "failed",
+              "label": "Could not be screened",
+              "count": 0
+            }
+          ]
+        },
+        "createdUtc": "2026-10-20T03:33:03.3194415Z",
+        "createdBy": "device browser qa-phase-7-browser",
+        "changedUtc": "2026-10-20T03:33:03.3194415Z",
+        "changedBy": "device browser qa-phase-7-browser",
+        "removedUtc": null,
+        "providerLabel": "Outlook",
+        "machinesLabel": "devlinux",
+        "modeTone": "neutral"
+      },
+      {
+        "id": "462cfe26-6efa-4399-93b2-7f3e7b66481e",
+        "kind": "email",
+        "provider": "outlook",
+        "address": "desk@example.com",
+        "machines": [
+          "devlinux",
+          "qa-north"
+        ],
+        "mode": "observe",
+        "modeLabel": "Observe - decides and records, changes nothing",
+        "factory": "mail-desk",
+        "seat": "mail-desk",
+        "signedIn": {
+          "state": "unknown",
+          "label": "Not known yet - no check has read the mailbox",
+          "tone": "neutral"
+        },
+        "lastCheck": {
+          "utc": null,
+          "outcome": null,
+          "label": "Not checked yet - the mail-desk factory is not published",
+          "tone": "neutral"
+        },
+        "today": {
+          "total": 0,
+          "byDecision": {
+            "route": 0,
+            "archive": 0,
+            "junk": 0,
+            "keep-for-owner": 0,
+            "mail-desk-agent": 0,
+            "failed": 0
+          },
+          "label": "No emails decided today",
+          "counts": [
+            {
+              "decision": "route",
+              "label": "Route to a seat",
+              "count": 0
+            },
+            {
+              "decision": "archive",
+              "label": "Archive",
+              "count": 0
+            },
+            {
+              "decision": "junk",
+              "label": "Junk",
+              "count": 0
+            },
+            {
+              "decision": "keep-for-owner",
+              "label": "Keep for you",
+              "count": 0
+            },
+            {
+              "decision": "mail-desk-agent",
+              "label": "Hand to the Mail Desk agent",
+              "count": 0
+            },
+            {
+              "decision": "failed",
+              "label": "Could not be screened",
+              "count": 0
+            }
+          ]
+        },
+        "createdUtc": "2026-10-20T03:33:03.4380588Z",
+        "createdBy": "device browser qa-phase-7-browser",
+        "changedUtc": "2026-10-20T03:33:03.4380588Z",
+        "changedBy": "device browser qa-phase-7-browser",
+        "removedUtc": null,
+        "providerLabel": "Outlook",
+        "machinesLabel": "devlinux or qa-north, whichever runs the Mail Desk check",
+        "modeTone": "neutral"
+      },
+      {
+        "id": "0e7c6b4e-e611-4ec3-9edf-47eeb67e9a0b",
+        "kind": "email",
+        "provider": "outlook",
+        "address": "letters@example.org",
+        "machines": [
+          "qa-north",
+          "qa-south",
+          "devlinux"
+        ],
+        "mode": "live",
+        "modeLabel": "Live - decides and acts: files each email and starts the seat it routes to",
+        "factory": "mail-desk",
+        "seat": "mail-desk",
+        "signedIn": {
+          "state": "unknown",
+          "label": "Not known yet - no check has read the mailbox",
+          "tone": "neutral"
+        },
+        "lastCheck": {
+          "utc": null,
+          "outcome": null,
+          "label": "Not checked yet - the mail-desk factory is not published",
+          "tone": "neutral"
+        },
+        "today": {
+          "total": 0,
+          "byDecision": {
+            "route": 0,
+            "archive": 0,
+            "junk": 0,
+            "keep-for-owner": 0,
+            "mail-desk-agent": 0,
+            "failed": 0
+          },
+          "label": "No emails decided today",
+          "counts": [
+            {
+              "decision": "route",
+              "label": "Route to a seat",
+              "count": 0
+            },
+            {
+              "decision": "archive",
+              "label": "Archive",
+              "count": 0
+            },
+            {
+              "decision": "junk",
+              "label": "Junk",
+              "count": 0
+            },
+            {
+              "decision": "keep-for-owner",
+              "label": "Keep for you",
+              "count": 0
+            },
+            {
+              "decision": "mail-desk-agent",
+              "label": "Hand to the Mail Desk agent",
+              "count": 0
+            },
+            {
+              "decision": "failed",
+              "label": "Could not be screened",
+              "count": 0
+            }
+          ]
+        },
+        "createdUtc": "2026-10-20T03:33:03.4600717Z",
+        "createdBy": "device browser qa-phase-7-browser",
+        "changedUtc": "2026-10-20T03:33:03.4820086Z",
+        "changedBy": "device browser qa-phase-7-browser",
+        "removedUtc": null,
+        "providerLabel": "Outlook",
+        "machinesLabel": "qa-north, qa-south or devlinux, whichever runs the Mail Desk check",
+        "modeTone": "attention"
+      }
+    ],
+    "title": "Mail Desk",
+    "summary": "The mailboxes the Mail Desk screens. A check reads each one every few minutes. A mailbox in observe mode only records what was decided and changes nothing in it; a mailbox in live mode files each email and starts the seat it is routed to.",
+    "emptyLabel": "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<why>\""
+  }
+}

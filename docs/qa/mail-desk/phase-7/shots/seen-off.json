@@ -1,0 +1,80 @@
+{
+  "scenario": "off",
+  "gateway": "http://127.0.0.1:59757",
+  "takenUtc": "2026-10-20T03:33:19.879Z",
+  "desktop": {
+    "address": "/mail-desk",
+    "headings": [
+      "Page not found"
+    ],
+    "cards": [],
+    "empty": null,
+    "controls": 0,
+    "mailDeskLinks": 0,
+    "work": [
+      "Sessions",
+      "Fleet Map",
+      "Fleet Manager",
+      "Factories",
+      "History",
+      "Voice Recorder",
+      "Reports"
+    ]
+  },
+  "phone": {
+    "address": "/mobile/mail-desk",
+    "headings": [
+      "Page not found"
+    ],
+    "cards": [],
+    "empty": null,
+    "controls": 0,
+    "mailDeskLinks": 0
+  },
+  "drawer": [
+    [
+      "email@devthrottle.comSigned in",
+      "/mobile/account"
+    ],
+    [
+      "Sessions",
+      "/mobile"
+    ],
+    [
+      "New session",
+      "/mobile/new"
+    ],
+    [
+      "Voice Recorder",
+      "/mobile/recorder"
+    ],
+    [
+      "Your Throttle",
+      "/mobile/throttle"
+    ],
+    [
+      "Repos",
+      "/mobile/repos"
+    ],
+    [
+      "Account",
+      "/mobile/account"
+    ],
+    [
+      "Settings",
+      "/mobile/settings"
+    ],
+    [
+      "Diagnostics",
+      "/mobile/diagnostics"
+    ],
+    [
+      "About",
+      "/mobile/about"
+    ],
+    [
+      "Sign out",
+      "/mobile/account"
+    ]
+  ]
+}

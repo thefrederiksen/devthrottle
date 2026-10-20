@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "body": {
+    "count": 0,
+    "channels": [],
+    "title": "Mail Desk",
+    "summary": "The mailboxes the Mail Desk screens. A check reads each one every few minutes. A mailbox in observe mode only records what was decided and changes nothing in it; a mailbox in live mode files each email and starts the seat it is routed to.",
+    "emptyLabel": "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<why>\""
+  }
+}

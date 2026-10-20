@@ -3,9 +3,70 @@
 Contract: `docs/qa/mail-desk/phase-7/CONTRACT.md`, section 4. Mission: `docs/missions/mail-desk-2026-10-18/MISSION.md`
 (issue #4213).
 
-**The final pictures are not taken yet.** They wait for Mail Desk phase 3 to be merged into this phase. Until then the
-scripts below have been run as dry runs only, on a local branch that merges `origin/mail-desk-phase-3` into this one.
-This file gains the pictures and what each one shows when they are taken.
+Taken on devlinux on 19 October 2026 at 23:33 by the machine's clock (03:33 UTC on the 20th), from `origin/mail-desk-phase-7` at
+`a2cbfdc29`. That commit is phase 7 rebased onto main with Mail Desk phase 3 in, on the branch `mail-desk-p7-shots`.
+The pictures and what each screen showed are in [`shots/`](shots/).
+
+## What each picture proves
+
+The Cockpit is 1440 wide; the phone app is 390 wide, drawn at twice the pixels. `seen-<scenario>.json` holds what
+each screen showed, read from the page itself. `answer-<scenario>.json` holds the Gateway's answer to
+`GET /gateway/mail-desk/channels` at that moment.
+
+| Picture | What it proves |
+|---|---|
+| [`desktop-empty.png`](shots/desktop-empty.png), [`phone-empty.png`](shots/phone-empty.png) | Switch on, no mailbox. The page shows the Gateway's title, summary and empty sentence verbatim. The Cockpit rail's Work section has "Mail Desk" directly after Factories, and it is the active row. |
+| [`phone-drawer-empty.png`](shots/phone-drawer-empty.png), [`phone-drawer-unpublished.png`](shots/phone-drawer-unpublished.png), [`phone-drawer-on.png`](shots/phone-drawer-on.png) | Switch on. The phone's menu has "Mail Desk" after Repos. The three pictures are the same image (the same checksum): the menu does not change with the mailboxes. |
+| [`desktop-unpublished.png`](shots/desktop-unpublished.png), [`phone-unpublished.png`](shots/phone-unpublished.png) | Three mailboxes, the mail-desk factory still a draft. Every card is drawn in the Gateway's order with every field. Nothing has checked a mailbox yet, and both lines say so: "Not known yet - no check has read the mailbox" and "Not checked yet - the mail-desk factory is not published", both neutral. Every decision count is listed, zeros included. Live mode is amber on `letters@example.org` only. |
+| [`desktop-on.png`](shots/desktop-on.png), [`phone-on.png`](shots/phone-on.png) | The factory published and one screening run done. Each card shows its own signed-in state beside the account's "Checked 2026-10-19 23:29: the mail it read was screened". `email@devthrottle.com` is signed in (green), in observe mode, with 7 emails decided today: Route to a seat 2, Archive 3, Junk 1, Keep for you 1. `desk@example.com` is NOT signed in (red), with the check's own sentence naming the fix. `letters@example.org` is signed in and live, with 1 email decided today. The machines sentences read one, two and three machines. Every card is shown whole, and the third is not cut off. |
+| [`desktop-off.png`](shots/desktop-off.png), [`phone-off.png`](shots/phone-off.png) | Switch off. `/mail-desk` is the shell's ordinary "Page not found", exactly as an unknown address shows it, and the Cockpit rail has no Mail Desk row. |
+| [`phone-drawer-off.png`](shots/phone-drawer-off.png) | Switch off. The phone's menu has no Mail Desk entry: Repos is followed directly by the separator and Account. |
+
+In no picture does the page have a button, a field or any other control (`controls: 0` in every `seen-*.json`). The
+only addresses anywhere are `email@devthrottle.com` and the reserved example domains.
+
+## Reproduce
+
+On devlinux (.NET 10 at `~/.dotnet`, Node 22 at `~/.local/share/node/bin`), from the repository root of a checkout of
+`origin/mail-desk-phase-7`:
+
+```
+export DOTNET_ROOT=$HOME/.dotnet PATH=$HOME/.dotnet:$HOME/.local/share/node/bin:$PATH
+dotnet build src/CcDirector.Gateway/CcDirector.Gateway.csproj -p:EnableWindowsTargeting=true
+(cd apps/cockpit && npx vite build) && (cd apps/mobile && npx vite build)
+
+# Once per machine: the web-site skill's tools (Playwright 1.60.0).
+T=$HOME/.local/share/devthrottle/qa-tools; mkdir -p $T && cd $T && echo '{"name":"web-qa-tools","private":true}' > package.json \
+  && npm install --no-audit --no-fund playwright@1.60.0 @axe-core/playwright@4.14.0 && cd -
+
+PYTHONDONTWRITEBYTECODE=1 NODE_PATH=$HOME/.local/share/devthrottle/qa-tools/node_modules \
+  python3 docs/qa/mail-desk/phase-7/capture.py <a rig folder outside the checkout> docs/qa/mail-desk/phase-7/shots
+```
+
+The times on the cards are the time of the run, so a new run differs from these pictures there and nowhere else.
+
+## The tests behind the page
+
+Run on the same tree (`a2cbfdc29`):
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` in `packages/client-core`, `apps/cockpit`, `apps/mobile` | clean, all three |
+| `npx vitest run --minWorkers=1 --maxWorkers=2` in `packages/client-core` | 2,297 passed of 2,297 (182 files) |
+| the same in `apps/cockpit` | 1,334 passed of 1,334 (126 files) |
+| the same in `apps/mobile` | 183 passed of 183 (37 files) |
+| `dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~MailDesk"` (with `DOTNET_USE_POLLING_FILE_WATCHER=1` and a scratch `LOCALAPPDATA`) | 540 passed of 540 |
+
+## What is NOT proven
+
+- **No real mailbox.** Nothing here read or screened mail. The last check, the kept checks and the decisions are rows
+  written the way a screening run writes them (below), not a screening run's own output.
+- **No hosted Gateway.** Every picture is of a throwaway self-hosted Gateway on devlinux, built from this tree.
+- **No light variant.** Neither shell has a light theme today; both define dark tokens only. The tones map to the
+  shells' own tokens, so a light theme would carry them, but nothing here shows one.
+- **Last check is per account, by design** (below). The pictures cannot show a mailbox's own last-check time, because
+  there is no such time.
+- **No other browser.** The pictures are headless Chromium only; no Safari, Firefox or real phone.
 
 ## How the pictures are made
 
