@@ -378,6 +378,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "maildesk-decisions",
     # Mail Desk phase 3: the thresholds and the spend limit.
     "maildesk-settings", "maildesk-set",
+    # Mail Desk phase 4: the emails routed to seats, done and returned.
+    "maildesk-routed", "maildesk-done", "maildesk-return",
     # The Factories screen mission, phase A: the factory registry and the goal number a boss posts.
     "factory-register", "factory-list", "factory-purpose", "factory-goal-number-post", "factory-goal-number-show",
     # Issue #3685: a factory's boss reads its own Factories screen.

@@ -3382,6 +3382,17 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<string>("EarlierReturnNote")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("EarlierReturnedFrom")
+                        .HasMaxLength(129)
+                        .HasColumnType("character varying(129)");
+
+                    b.Property<DateTime?>("EarlierReturnedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Factory")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -3391,8 +3402,22 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
 
+                    b.Property<DateTime?>("OwnerUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("RerouteCount")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ResolvedUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ReturnNote")
                         .HasMaxLength(4000)
@@ -3400,6 +3425,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<int>("ReturnedCount")
                         .HasColumnType("integer");
+
+                    b.Property<string>("ReturnedFrom")
+                        .HasMaxLength(129)
+                        .HasColumnType("character varying(129)");
+
+                    b.Property<DateTime?>("ReturnedUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Seat")
                         .IsRequired()

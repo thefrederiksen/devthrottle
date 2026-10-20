@@ -19,7 +19,9 @@ namespace CcDirector.Gateway.MailDesk;
 ///      retried), and every email kept for the owner after three failed screenings, with the reason;
 ///   5. every recorded change to the Mail Desk in the window: what, who in words, and why;
 ///   6. the spend and the limit, and the spend sentence when the limit stopped the model;
-///   7. a line saying nothing was moved, when every mailbox is in observe mode.
+///   7. a line saying nothing was moved, when every mailbox is in observe mode;
+///   8. Returned and routed (phase 4, section 4.2): every email returned in the window, every email handed to the owner
+///      in it, and counts of emails routed, done and still open (<see cref="MailDeskRoutedFold.ReturnedAndRouted"/>).
 /// In live mode (phase 4, section 2.3) each live mailbox also says how many of its emails were moved to Archive and to
 /// Junk Email, and a junked email that was moved says "moved" beside it.
 ///
@@ -52,15 +54,18 @@ public sealed class MailDeskEmailFold
     private readonly MailDeskDecisionStore _decisions;
     private readonly MailDeskRulesStore _rules;
     private readonly Func<TenantId, MailDeskSpend> _spendOf;
+    private readonly MailDeskRoutedStore _routed;
 
     /// <param name="isOn">The account's Mail Desk switch.</param>
     /// <param name="channels">The account's channels.</param>
     /// <param name="decisions">The decisions of the window.</param>
     /// <param name="rules">Where the recorded changes are read.</param>
     /// <param name="spendOf">The account's spend - the same value the spend problem is folded from.</param>
+    /// <param name="routed">The emails routed to seats (phase 4).</param>
     public MailDeskEmailFold(Func<TenantId, bool> isOn, MailDeskChannelStore channels, MailDeskDecisionStore decisions,
-        MailDeskRulesStore rules, Func<TenantId, MailDeskSpend> spendOf)
+        MailDeskRulesStore rules, Func<TenantId, MailDeskSpend> spendOf, MailDeskRoutedStore routed)
     {
+        _routed = routed ?? throw new ArgumentNullException(nameof(routed));
         _isOn = isOn ?? throw new ArgumentNullException(nameof(isOn));
         _channels = channels ?? throw new ArgumentNullException(nameof(channels));
         _decisions = decisions ?? throw new ArgumentNullException(nameof(decisions));
@@ -82,21 +87,24 @@ public sealed class MailDeskEmailFold
 
         var decided = _decisions.DecidedBetween(tenant, fromUtc, toUtc);
         var changes = _rules.ChangesBetween(tenant, fromUtc, toUtc);
-        var section = Fold(every, decided, changes, _spendOf(tenant), zone, _decisions.FiledBetween(tenant, fromUtc, toUtc));
-        FileLog.Write($"[MailDeskEmailFold] Section: tenant={tenant.ToLogString()}, mailboxes={section.Mailboxes.Count}, decided={section.Total.Total}, junked={section.Junked.Count}, changes={section.Changes.Count}");
+        var routed = MailDeskRoutedFold.ReturnedAndRouted(_routed.Emails(tenant, _routed.TouchedBetween(tenant, fromUtc, toUtc)), fromUtc, toUtc);
+        var section = Fold(every, decided, changes, _spendOf(tenant), zone, routed, _decisions.FiledBetween(tenant, fromUtc, toUtc));
+        FileLog.Write($"[MailDeskEmailFold] Section: tenant={tenant.ToLogString()}, mailboxes={section.Mailboxes.Count}, decided={section.Total.Total}, junked={section.Junked.Count}, changes={section.Changes.Count}, returned={routed.Returned.Count}, handed={routed.HandedToOwner.Count}");
         return section;
     }
 
     /// <summary>
     /// The pure fold of the section from its facts. <paramref name="channels"/> holds every channel of the account,
     /// removed ones too: a removed mailbox is counted when it decided an email in the window, and its emails are named
-    /// by its address. It must hold at least one active channel. <paramref name="filed"/> holds the decisions filed in
+    /// by its address. It must hold at least one active channel. <paramref name="returnedAndRouted"/> is part 8, folded
+    /// by <see cref="MailDeskRoutedFold.ReturnedAndRouted"/>. <paramref name="filed"/> holds the decisions filed in
     /// the window, whenever they were decided; none when null.
     /// </summary>
     public static MailDeskEmailSection Fold(IReadOnlyList<MailDeskChannelEntity> channels, IReadOnlyList<MailDeskDecisionEntity> decided,
-        IReadOnlyList<MailDeskListChangeEntity> changes, MailDeskSpend spend, TimeZoneInfo zone,
+        IReadOnlyList<MailDeskListChangeEntity> changes, MailDeskSpend spend, TimeZoneInfo zone, MailDeskEmailRouted returnedAndRouted,
         IReadOnlyList<MailDeskDecisionEntity>? filed = null)
     {
+        ArgumentNullException.ThrowIfNull(returnedAndRouted);
         filed ??= Array.Empty<MailDeskDecisionEntity>();
         ArgumentNullException.ThrowIfNull(channels);
         ArgumentNullException.ThrowIfNull(decided);
@@ -154,7 +162,8 @@ public sealed class MailDeskEmailFold
             Changes: changeRows,
             SpendLine: spend.Line,
             SpendStoppedSentence: spend.Stopped ? spend.StoppedSentence : null,
-            ObserveLine: observe);
+            ObserveLine: observe,
+            ReturnedAndRouted: returnedAndRouted);
     }
 
     /// <summary>
@@ -269,6 +278,7 @@ public static class MailDeskReasons
 /// <param name="SpendLine">Part 6: the spend and the limit.</param>
 /// <param name="SpendStoppedSentence">Part 6: the spend problem's sentence, when the limit stopped the model.</param>
 /// <param name="ObserveLine">Part 7: said when every mailbox is in observe mode, otherwise null.</param>
+/// <param name="ReturnedAndRouted">Part 8: the emails returned and handed to the owner, and the routed counts.</param>
 public sealed record MailDeskEmailSection(
     string Factory,
     IReadOnlyList<MailDeskEmailMailbox> Mailboxes,
@@ -279,7 +289,8 @@ public sealed record MailDeskEmailSection(
     IReadOnlyList<MailDeskEmailChange> Changes,
     string SpendLine,
     string? SpendStoppedSentence,
-    string? ObserveLine);
+    string? ObserveLine,
+    MailDeskEmailRouted ReturnedAndRouted);
 
 /// <summary>One mailbox's counts, under its address, and for a live mailbox what was moved (null in observe mode).</summary>
 public sealed record MailDeskEmailMailbox(string Address, MailDeskEmailCounts Counts, string? FiledLine = null);

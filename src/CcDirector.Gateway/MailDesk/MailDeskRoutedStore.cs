@@ -347,8 +347,7 @@ public sealed class MailDeskRoutedStore
             }
             else
             {
-                row.Factory = channel.Factory;
-                row.Seat = channel.Seat;
+                ToNewSeat(row, channel);
                 row.ReturnNote = Cut(reason, MaxNoteLength);
                 Queue(row, nowUtc);
             }
@@ -420,8 +419,17 @@ public sealed class MailDeskRoutedStore
             if (Refuse(row, callerSessionId) is { } refused) return Log("Return", id, refused);
             var channel = ChannelOf(ctx, row!);
             var said = Cut(note.Trim(), MaxNoteLength);
-            row!.ReturnedCount++;
+            if (row!.ReturnedUtc is not null)
+            {
+                // The return before this one is kept, so the 08:00 email can list both.
+                row.EarlierReturnedUtc = row.ReturnedUtc;
+                row.EarlierReturnedFrom = row.ReturnedFrom;
+                row.EarlierReturnNote = row.ReturnNote;
+            }
+            row.ReturnedCount++;
             row.ReturnNote = said;
+            row.ReturnedUtc = nowUtc;
+            row.ReturnedFrom = $"{row.Factory}/{row.Seat}";
             if (IsMailDeskSeat(row, channel))
             {
                 ToOwner(ctx, row, Cut(MailDeskRoutedReasons.MailDeskAgentReturned(said), MaxNoteLength), failDecision: false, nowUtc);
@@ -432,13 +440,107 @@ public sealed class MailDeskRoutedStore
             }
             else
             {
-                row.Factory = channel.Factory;
-                row.Seat = channel.Seat;
+                ToNewSeat(row, channel);
                 Queue(row, nowUtc);
             }
             ctx.SaveChanges();
             FileLog.Write($"[MailDeskRoutedStore] Return: {row.Id} by session {callerSessionId}; returned={row.ReturnedCount}, state={row.State} at {row.Factory}/{row.Seat}");
             return MailDeskRoutedAnswer.Written(row);
+        }
+    }
+
+    /// <summary>
+    /// The routed rows with what each is about (<see cref="MailDeskRoutedEmail"/>): its decision, and the mailbox it
+    /// came in on with that mailbox's factory and seat - removed mailboxes too. A row whose decision or channel the
+    /// account does not have is a broken table, and throws.
+    /// </summary>
+    public IReadOnlyList<MailDeskRoutedEmail> Emails(TenantId tenant, IReadOnlyList<MailDeskRoutedEntity> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        if (rows.Count == 0) return Array.Empty<MailDeskRoutedEmail>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            // Every routed decision of the account in one read: a list Contains is translated differently by the two
+            // providers on this runtime.
+            var decisions = ctx.MailDeskDecisions.AsNoTracking()
+                .Where(d => ctx.MailDeskRouted.Any(r => r.DecisionId == d.Id))
+                .ToDictionary(d => d.Id);
+            var channels = ctx.MailDeskChannels.AsNoTracking().ToDictionary(c => c.Id);
+            return rows.Select(r =>
+            {
+                if (!decisions.TryGetValue(r.DecisionId, out var decision))
+                    throw new InvalidOperationException($"Routed email {r.Id} names decision {r.DecisionId}, which this account does not have.");
+                if (!channels.TryGetValue(r.ChannelId, out var channel))
+                    throw new InvalidOperationException($"Routed email {r.Id} names channel {r.ChannelId}, which this account does not have.");
+                return new MailDeskRoutedEmail(r, decision, channel.Address, channel.Factory, channel.Seat);
+            }).ToList();
+        }
+    }
+
+    // ---------- the owner (section 4.2) ----------
+
+    /// <summary>Every row handed to the owner (state <c>returned</c>), resolved or not, oldest hand first - what the
+    /// owner's problems are folded from.</summary>
+    public IReadOnlyList<MailDeskRoutedEntity> WithOwner(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskRouted.AsNoTracking()
+                .Where(r => r.State == MailDeskWords.RoutedStates.Returned)
+                .OrderBy(r => r.OwnerUtc).ThenBy(r => r.Id)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// Every row something happened to in the window from <paramref name="fromUtc"/> to <paramref name="toUtc"/>
+    /// (exclusive) - routed, returned, handed to the owner, or done - with every row still open, for the 08:00 email's
+    /// "Returned and routed" part (section 4.2).
+    /// </summary>
+    public IReadOnlyList<MailDeskRoutedEntity> TouchedBetween(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskRouted.AsNoTracking()
+                .Where(r => r.State == MailDeskWords.RoutedStates.Open
+                            || (r.CreatedUtc >= fromUtc && r.CreatedUtc < toUtc)
+                            || (r.ChangedUtc >= fromUtc && r.ChangedUtc < toUtc)
+                            || (r.ReturnedUtc >= fromUtc && r.ReturnedUtc < toUtc)
+                            || (r.EarlierReturnedUtc >= fromUtc && r.EarlierReturnedUtc < toUtc)
+                            || (r.OwnerUtc >= fromUtc && r.OwnerUtc < toUtc))
+                .OrderBy(r => r.CreatedUtc).ThenBy(r => r.Id)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// THE OWNER RESOLVES THE PROBLEM BY HAND (section 4.2, like every problem): the row handed to the owner keeps
+    /// who resolved it and the one-line reason. Its state stays <c>returned</c> - the email is still the owner's; only
+    /// the problem is closed. False, writing nothing, when the row is not with the owner or is already resolved.
+    /// </summary>
+    public bool Resolve(TenantId tenant, Guid id, string resolvedBy, string reason, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(resolvedBy);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.MailDeskRouted.FirstOrDefault(r => r.Id == id);
+            if (row is null || row.State != MailDeskWords.RoutedStates.Returned || row.ResolvedUtc is not null)
+            {
+                FileLog.Write($"[MailDeskRoutedStore] Resolve REFUSED: {id}, state={row?.State ?? "none"}, resolved={row?.ResolvedUtc is not null}");
+                return false;
+            }
+            row.ResolvedUtc = nowUtc;
+            row.ResolvedBy = resolvedBy;
+            row.ResolvedReason = Cut(reason.Trim(), Running.CronRunResultFold.MaxReasonChars);
+            row.ChangedUtc = nowUtc;
+            ctx.SaveChanges();
+            FileLog.Write($"[MailDeskRoutedStore] Resolve: {row.Id}, the owner's problem resolved by {resolvedBy}");
+            return true;
         }
     }
 
@@ -465,15 +567,32 @@ public sealed class MailDeskRoutedStore
     {
         row.State = MailDeskWords.RoutedStates.Returned;
         row.OwnerReason = reason;
+        row.OwnerUtc = nowUtc;
         row.StartName = null;
         row.ChangedUtc = nowUtc;
-        if (failDecision && ctx.MailDeskDecisions.FirstOrDefault(d => d.Id == row.DecisionId) is { } decision)
+        // An email that reached a seat keeps its seat-started outcome: "failed" says it never reached one (review of
+        // 4278, finding 1), and a seat that had it and returned it did.
+        if (failDecision && ctx.MailDeskDecisions.FirstOrDefault(d => d.Id == row.DecisionId) is { } decision
+            && decision.Outcome != MailDeskWords.Outcomes.SeatStarted)
         {
             decision.Outcome = MailDeskWords.Outcomes.Failed;
             decision.OutcomeDetail = Cut(reason, MailDeskDecisionStore.MaxReasonLength);
             decision.OutcomeUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
         }
         FileLog.Write($"[MailDeskRoutedStore] ToOwner: {row.Id} handed to the owner (decision {row.DecisionId}, failed decision={failDecision})");
+    }
+
+    /// <summary>
+    /// The email moves to its channel's Mail Desk seat (a return, or a seat that cannot take it). The failed starts and
+    /// the re-route are counted AT ONE SEAT (review of 4278, finding 1), so the new seat starts with none of the old
+    /// seat's: three failed starts and one re-route of its own before the owner.
+    /// </summary>
+    private static void ToNewSeat(MailDeskRoutedEntity row, MailDeskChannelEntity channel)
+    {
+        row.Factory = channel.Factory;
+        row.Seat = channel.Seat;
+        row.StartFailures = 0;
+        row.RerouteCount = 0;
     }
 
     /// <summary>Back to waiting for a session of its seat: no session, no start.</summary>

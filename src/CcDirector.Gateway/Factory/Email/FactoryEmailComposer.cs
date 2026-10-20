@@ -200,6 +200,18 @@ public static class FactoryEmailComposer
             html.Append($"<div style=\"font-size:13.5px;color:{Bad};padding-top:3px;font-weight:600;\">{E(md.SpendStoppedSentence)}</div>\n");
         if (md.ObserveLine is not null)
             html.Append($"<div style=\"font-size:13.5px;color:{Muted};padding-top:10px;\">{E(md.ObserveLine)}</div>\n");
+
+        var rr = md.ReturnedAndRouted;
+        SubHeading(html, MailDeskRoutedFold.ReturnedAndRoutedHeading);
+        html.Append($"<div style=\"font-size:13.5px;color:{Ink};padding-top:3px;\">{E(rr.CountsLine)}</div>\n");
+        SubHeading(html, $"Returned ({rr.Returned.Count.ToString(CultureInfo.InvariantCulture)})");
+        if (rr.Returned.Count == 0) None(html);
+        foreach (var r in rr.Returned)
+            Item(html, $"{r.Sender} - {r.Subject}", $"{r.Mailbox} - returned by {r.ReturnedBy}: {r.Note}");
+        SubHeading(html, $"Handed to you ({rr.HandedToOwner.Count.ToString(CultureInfo.InvariantCulture)})");
+        if (rr.HandedToOwner.Count == 0) None(html);
+        foreach (var h in rr.HandedToOwner)
+            Item(html, $"{h.Sender} - {h.Subject}", $"{h.Mailbox} - {h.Reason}");
         html.Append("</td></tr>\n");
     }
 
@@ -253,6 +265,16 @@ public static class FactoryEmailComposer
         text.AppendLine($"Spend: {md.SpendLine}");
         if (md.SpendStoppedSentence is not null) text.AppendLine(md.SpendStoppedSentence);
         if (md.ObserveLine is not null) text.AppendLine(md.ObserveLine);
+        var rr = md.ReturnedAndRouted;
+        text.AppendLine($"{MailDeskRoutedFold.ReturnedAndRoutedHeading}: {rr.CountsLine}");
+        text.AppendLine($"Returned ({rr.Returned.Count.ToString(CultureInfo.InvariantCulture)}):");
+        if (rr.Returned.Count == 0) text.AppendLine("  None.");
+        foreach (var r in rr.Returned)
+            text.AppendLine($"- {OneLine(r.Sender)} - {OneLine(r.Subject)}").AppendLine($"  {OneLine($"{r.Mailbox} - returned by {r.ReturnedBy}: {r.Note}")}");
+        text.AppendLine($"Handed to you ({rr.HandedToOwner.Count.ToString(CultureInfo.InvariantCulture)}):");
+        if (rr.HandedToOwner.Count == 0) text.AppendLine("  None.");
+        foreach (var h in rr.HandedToOwner)
+            text.AppendLine($"- {OneLine(h.Sender)} - {OneLine(h.Subject)}").AppendLine($"  {OneLine($"{h.Mailbox} - {h.Reason}")}");
         text.AppendLine();
     }
 
