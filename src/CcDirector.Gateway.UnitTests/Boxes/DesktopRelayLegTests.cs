@@ -295,6 +295,21 @@ public sealed class DesktopRelayLegTests : IAsyncLifetime
         Assert.Equal("the main host's sessions", await response.Content.ReadAsStringAsync());
     }
 
+    [Fact]
+    public async Task DesktopPage_OnAHostedGateway_SendsTheOpenInsideTheBoxSessionsAccount()
+    {
+        // The desktop host runs before the sign-in and the tenant-scope middleware. The rig's command send, like a hosted
+        // Gateway's, drops a command sent with no tenant scope (review finding 1 on pull request #4280).
+        var cookie = await _rig.SignInToDesktopAsync(_rig.KeyA).Within();
+        using var desktop = _rig.Desktop(cookie);
+
+        var page = await desktop.GetAsync("/boxes/box-one/desktop/").Within();
+
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Equal(0, _rig.UnscopedCommands);
+        Assert.Equal(new[] { _rig.TenantA }, _rig.CommandTenants.ToArray());
+    }
+
     // -------------------------------------------------------------------------- the allow-list ----
 
     [Fact]

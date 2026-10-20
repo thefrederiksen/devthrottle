@@ -64,6 +64,14 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
     /// <summary>How many open-desktop-stream commands reached the Director.</summary>
     public int OpenCommands;
 
+    /// <summary>Commands the Gateway tried to send with no tenant scope in effect (a hosted Gateway drops them).</summary>
+    public int UnscopedCommands;
+
+    /// <summary>The tenant scope in effect for each command the Gateway sent.</summary>
+    public ConcurrentQueue<TenantId> CommandTenants { get; } = new();
+
+    private readonly AsyncLocalTenantContext _scope = new();
+
     public TenantId TenantA { get; private set; }
     public TenantId TenantB { get; private set; }
     public string KeyA { get; private set; } = "";
@@ -90,7 +98,7 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
         TenantB = new TenantId("tenant-b-" + Guid.NewGuid().ToString("N")[..8]);
         KeyA = devices.RegisterForTenant(TenantA, "subject-a", "browser-a", "laptop-a", deviceType: "browser").DeviceKey;
         KeyB = devices.RegisterForTenant(TenantB, "subject-b", "browser-b", "laptop-b", deviceType: "browser").DeviceKey;
-        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices, hosted: true);
+        var boundary = new HostedTenantBoundary(_scope, devices, hosted: true);
 
         Hosts.Hosted[(TenantA.Value, BoxId)] = DirectorId;
         Feature.Enabled.Add(TenantA.Value);
@@ -106,7 +114,7 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
         builder.WebHost.UseTestServer();
         builder.Services.AddRouting();
         var app = builder.Build();
-        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts.LocateDirector, Feature.IsEnabled, Tickets, Legs, GatewayAddress);
+        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts.LocateDirector, Feature.IsEnabled, Tickets, Legs, boundary, GatewayAddress);
         var gate = new AuthMiddleware.RequireToken { Hosted = true, Token = "", Devices = devices, Boundary = boundary };
         app.Use((ctx, next) => AuthMiddleware.Run(ctx, gate, () => next(ctx)));
         app.MapGet("/healthz", () => "healthy");
@@ -116,9 +124,18 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
         _gateway = app;
     }
 
-    // The Gateway's command send, as the tunnel would carry it: the open goes to the real Director handler.
+    // The Gateway's command send, as the tunnel would carry it: the open goes to the real Director handler. Like
+    // GatewayHost.SendCommandAsync on a hosted Gateway, it sends NOTHING when no tenant scope is in effect, and it finds
+    // the Director only in the scope's own account.
     private async Task<DirectorCommandResult?> SendCommandAsync(string directorId, DirectorCommand command, CancellationToken ct)
     {
+        if (_scope.CurrentOrNull is not { } scopeTenant)
+        {
+            Interlocked.Increment(ref UnscopedCommands);
+            return null;
+        }
+        CommandTenants.Enqueue(scopeTenant);
+        if (scopeTenant != TenantA) return null;
         if (directorId != DirectorId || DirectorConnection.IsCancellationRequested) return null;
         if (command.Verb != DesktopRelayProtocol.OpenVerb)
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {command.Verb}");
