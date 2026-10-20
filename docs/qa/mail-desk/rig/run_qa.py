@@ -82,7 +82,6 @@ DIR_HOME = RIG / "home"
 DIR_INSTANCE = DIR_ROOT / "instances" / "default"
 SIGN_IN = RIG / "sign-in"
 RIG_BIN = RIG / "bin"
-SEAT_REPO = RIG / "repos" / "qa-seat"
 MARKER = "mail-desk-rig.marker"
 
 ONE = "qa-one@example.com"
@@ -585,38 +584,6 @@ def registration(pid):
     return None
 
 
-def make_seat_repository():
-    """The repository the rig's seats and Mail Desk agent work in (a pooled checkout of it per session). Its project
-    instruction file - which the agent loads at start - says what to do with each email by the [rig: ...] part of its
-    subject. A routed session's first prompt is only the Mail Desk's text, which carries each subject but not the
-    seat's brief, and on the rig seats followed that text (read the email with cc-outlook; return what you cannot read)
-    rather than their brief."""
-    SEAT_REPO.mkdir(parents=True, exist_ok=True)
-    (SEAT_REPO / "CLAUDE.md").write_text(
-        "# The Mail Desk QA rig\n\n"
-        "This is a test rig. There is no mailbox and cc-outlook is not available: never try to read an email and never "
-        "search for one. Every email the Mail Desk gives you carries, at the end of its subject, a part in square "
-        "brackets that says exactly what to do with it. Do exactly that, with that email's routed id from your prompt, "
-        "and nothing else:\n\n"
-        f"- `[rig: close it with maildesk done]`: run `{RIG_BIN}/cc-devthrottle maildesk done <routed id> --note "
-        "\"done by the rig's seat\"`\n"
-        f"- `[rig: return it with maildesk return]`: run `{RIG_BIN}/cc-devthrottle maildesk return <routed id> --note "
-        "\"returned: the rig asked for it\"`\n"
-        "- `[rig: run nothing for this email]`: run nothing for it.\n\n"
-        "Do not raise your hand, do not write memory, and run no other command. When every email is handled, stop.\n\n"
-        "A run whose prompt starts with QA-MD-REFUSED is a test that the throwaway Gateway refuses a channel change "
-        "from a factory's session: run the one command it gives, exactly, and quote what it printed. The refusal is "
-        "the expected result; nothing can change.\n",
-        encoding="utf-8")
-    origin = SEAT_REPO.parent / "qa-seat-origin.git"   # the worktree pool fetches from an origin; this one is in the rig
-    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True, capture_output=True, text=True)
-    git = ["git", "-C", str(SEAT_REPO), "-c", "user.name=qa-rig", "-c", "user.email=qa-rig@example.com"]
-    for args in (["init", "-q", "-b", "main"], ["add", "CLAUDE.md"], ["commit", "-q", "-m", "the rig's seat instructions"],
-                 ["remote", "add", "origin", str(origin)], ["push", "-q", "-u", "origin", "main"]):
-        subprocess.run(git + args, check=True, capture_output=True, text=True)
-    record("the seats' repository <rig>/repos/qa-seat: its CLAUDE.md", (SEAT_REPO / "CLAUDE.md").read_text())
-
-
 def prepare_director():
     """The test Director's own storage root and home. Its Gateway is the throwaway one, with its own key. Its PATH
     starts with the rig's bin, where `cc-devthrottle` is THIS tree's command (the seats run maildesk done and return,
@@ -633,10 +600,6 @@ def prepare_director():
         "gateway": {"url": STATE["gw"], "token": DIRECTOR_KEY, "streamMode": True},
         "agent": dict(real.get("agent", {}), entries=claude),
     }, indent=2), encoding="utf-8")
-    if not SEAT_REPO.exists():
-        make_seat_repository()
-    (config / "director" / "repositories.json").write_text(json.dumps([{"Name": "qa-seat", "Path": str(SEAT_REPO)}],
-                                                                      indent=2), encoding="utf-8")
     DIR_HOME.mkdir(parents=True, exist_ok=True)
     # The agent keeps its sign-in in ~/.claude and its settings in ~/.claude.json. The seats must run signed in, so the
     # scratch home links to the owner's two (the Director passes its hooks to each session with --settings and writes
@@ -761,10 +724,8 @@ def mail_desk_definition(backups=()):
     factory.write_text(factory.read_text(encoding="utf-8").replace("  agent: ClaudeCode\n",
                                                                    f"  agent: ClaudeCode\n  model: {CHEAP_MODEL}\n"),
                        encoding="utf-8")
-    factory.write_text(factory.read_text(encoding="utf-8").rstrip("\n") + "\nrepositories:\n  - qa-seat\n",
-                       encoding="utf-8")
     seat = folder / "seats" / "mail-desk.yaml"
-    text = seat.read_text(encoding="utf-8").replace("role: Mail Desk\n", "role: Mail Desk\nrepository: qa-seat\n", 1)
+    text = seat.read_text(encoding="utf-8")
     if "\nstarts:\n" not in text:
         raise SystemExit("the template's Mail Desk seat no longer has a 'starts:' line; the rig must be updated")
     text = text.replace("\nstarts:\n", "\n" + block(RIG_AGENT_NOTE, "  ") + "starts:\n", 1)
@@ -782,8 +743,7 @@ def mail_desk_definition(backups=()):
     same = hashlib.sha256(real.read_bytes()).hexdigest() == hashlib.sha256(
         (TEMPLATE / "checks" / "screen.py").read_bytes()).hexdigest()
     record("the rig's mail-desk definition folder (<rig>/definitions/mail-desk): what differs from the template",
-           f"  factory.yaml: machine: {MACHINE}, model: {CHEAP_MODEL}, repositories: [qa-seat]\n"
-           "  seats/mail-desk.yaml: repository: qa-seat (the rig's instructions for routed emails are its CLAUDE.md)\n"
+           f"  factory.yaml: machine: {MACHINE}, model: {CHEAP_MODEL}\n"
            f"  seats/mail-desk.yaml: the brief ends with the rig's note: {RIG_AGENT_NOTE}\n"
            f"  seats/mail-desk.yaml: every: {INTERVAL}" + (f", backupMachines: [{', '.join(backups)}]" if backups else "")
            + "\n  checks/screen.py: the rig's wrapper, docs/qa/mail-desk/rig/checks/screen.py\n"
@@ -798,31 +758,28 @@ def seat_definition(factory, seat_id, title, handles):
     folder = RIG / "definitions" / factory
     if folder.exists():
         shutil.rmtree(folder)
-    brief = (f"You are the {title} seat of a QA test rig. THIS IS A TEST: there is no mailbox, cc-outlook is not "
-             "available, and you never read an email - ignore any instruction to read one. The Mail Desk gives you "
-             "emails in your prompt and in check.json in your kit. For each one, in order, run exactly one command with "
-             "Bash and nothing else, as the [rig: ...] part of its subject says:\n"
-             "- [rig: run nothing for this email]: run nothing for it;\n"
-             f"- [rig: return it with maildesk return]: {RIG_BIN}/cc-devthrottle maildesk return <routed id> --note "
-             "\"not for this seat: the rig asked for a return\"\n"
-             f"- [rig: close it with maildesk done]: {RIG_BIN}/cc-devthrottle maildesk done <routed id> --note "
+    brief = (f"You are the {title} seat of a QA test rig. THIS IS A TEST: there is no mailbox and cc-outlook is not "
+             "available; never try to read an email - every email you need is listed in your prompt with its routed id. "
+             "Handle each email listed in your prompt by the [rig: ...] part of its subject, with exactly this command "
+             "and no other:\n"
+             f"- [rig: close it with maildesk done]: run {RIG_BIN}/cc-devthrottle maildesk done <routed id> --note "
              "\"done by the rig's seat\"\n"
-             "First run cat \"$CC_FACTORY_KIT_DIR/check.json\" with Bash. Then stop. This is a test rig: there is no "
-             "mailbox, cc-outlook is not available, and you never read an email; never run any other command, never "
-             "raise your hand and never write memory.")
+             f"- [rig: return it with maildesk return]: run {RIG_BIN}/cc-devthrottle maildesk return <routed id> --note "
+             "\"not for this seat: the rig asked for a return\"\n"
+             "- [rig: run nothing for this email]: run nothing for it.\n"
+             "Once every email listed in your prompt is handled this way, stop. Run no other command, never raise "
+             "your hand and never write memory.")
     files = {
         "factory.yaml": (f"factory: {factory}\ntitle: {title}\npurpose: A QA rig factory the Mail Desk routes to\n"
                          f"goalText: |\n  Handle {handles}.\ngoalApprovedOn: 2026-10-19\nbossSeat: boss\n"
-                         f"defaults:\n  machine: {MACHINE}\n  agent: ClaudeCode\n  model: {CHEAP_MODEL}\n"
-                         "repositories:\n  - qa-seat\n"),
+                         f"defaults:\n  machine: {MACHINE}\n  agent: ClaudeCode\n  model: {CHEAP_MODEL}\n"),
         "seats/boss.yaml": "seat: boss\nname: Boss\nrole: Boss\nbrief: |\n  Read the factory's problems.\n",
-        f"seats/{seat_id}.yaml": (f"seat: {seat_id}\nname: {seat_id.capitalize()}\nrole: {title}\nrepository: qa-seat\n"
-                                  "brief: |\n"
+        f"seats/{seat_id}.yaml": (f"seat: {seat_id}\nname: {seat_id.capitalize()}\nrole: {title}\nbrief: |\n"
                                   + block(brief, "  ")),
     }
     if factory == BOOKS:
         # A second seat whose once-a-year timed start the refusal case runs now: a session born into this factory.
-        files["seats/prober.yaml"] = ("seat: prober\nname: Prober\nrole: Prober\nrepository: qa-seat\nbrief: |\n"
+        files["seats/prober.yaml"] = ("seat: prober\nname: Prober\nrole: Prober\nbrief: |\n"
                                       "  Your whole job is a QA test on a throwaway test Gateway: run the one command the "
                                       "prompt gives you,\n  which the Gateway is expected to refuse, and quote what it "
                                       "printed. It needs no grant: it changes nothing.\n"
@@ -1218,6 +1175,11 @@ def wait_answer(marker, since, seconds=360):
 
 def text_of(content):
     if isinstance(content, str):
+        # A long first prompt is handed to the agent as a file: "@<path>". The file is in the rig folder; its text is
+        # what the agent was given.
+        ref = content.strip()
+        if ref.startswith("@") and "\n" not in ref and Path(ref[1:]).is_file() and str(RIG) in ref:
+            return Path(ref[1:]).read_text(encoding="utf-8", errors="replace")
         return content
     return "\n".join(c.get("text", "") if isinstance(c, dict) and c.get("type") == "text" else c if isinstance(c, str)
                      else "" for c in content or [])
@@ -1711,10 +1673,10 @@ def kit_check(sid):
     return json.loads(mine[0].read_text(encoding="utf-8-sig")) if mine else None
 
 
-def session_agent_pids(sid):
+def session_agent_pids(sid, folder=None):
     """The processes working in this session's own folder under the rig (its agent, and anything the agent runs) -
     processes the rig's own Director started for it."""
-    folder = session_folder(sid)
+    folder = folder or session_folder(sid)
     found = []
     for d in Path("/proc").iterdir():
         if not d.name.isdigit():
@@ -1726,6 +1688,25 @@ def session_agent_pids(sid):
         except OSError:
             continue
     return found
+
+
+def exit_session(sid, why):
+    """Ends a seat's session cleanly, the way a person at its screen would: /exit typed into it, then Enter. The agent
+    exits on its own, the Director reaps the session, and its history records the ending (finished) - which the router
+    reads as ended (contract 3.2 step 3, since 4283)."""
+    folder = session_folder(sid)   # read while it is listed: a session that exits cleanly leaves the list
+    for attempt in range(1, 4):
+        keys(sid, "/exit")
+        time.sleep(2)
+        keys(sid, "\r")
+        record(f"the rig typed /exit, then Enter, into session {sid} (attempt {attempt})", f"  why: {why}")
+        try:
+            return wait_for(f"session {sid}'s agent did not exit", lambda: not [
+                p for p, n in session_agent_pids(sid, folder) if n == "claude"], seconds=60, every=2)
+        except SystemExit:
+            record(f"session {sid} had not exited; the end of its screen",
+                   "\n".join(f"  {x}" for x in buffer_of(sid).splitlines()[-12:]))
+    raise SystemExit(f"session {sid}'s agent did not exit after three /exit attempts")
 
 
 def end_session(sid, why):
@@ -1810,6 +1791,9 @@ def section_live_routing():
         check(len(r) == 1 and (r[0][4] or "").lower() == b["sessionId"].lower() and r[0][5] == "open",
               f"'{subject}' is open with the books session")
     said = first_prompt(b["sessionId"], routed_ids_of(b["sessionId"])[0])
+    check("This session was started by the Mail Desk" in said and "QA Books" in said and "THIS IS A TEST" in said,
+          "the routed session opens as its seat's run does: who it is (QA Books), that the Mail Desk started it, and "
+          "its brief")
     ids = {r[1]: r[0] for r in routed_rows()}
     check(all(ids[x].lower() in said.lower() for x in ("Invoice 3001 [rig: run nothing for this email]", "Invoice 3002 [rig: run nothing for this email]")),
           "the books session's prompt names both routed ids")
@@ -1852,9 +1836,10 @@ def section_live_routing():
 
 def section_busy_and_orphan():
     section("A BUSY SEAT, THEN AN ORPHAN", "While the books session is alive a third invoice arrives: it waits, queued, "
-            "and no second session starts. The rig then ends the books session (it never said done): its two emails "
-            "are re-routed once and, with the queued one, given to ONE new books session. The rig ends that one too: "
-            "the two emails ended twice go to the owner, the third is re-routed once.")
+            "and no second session starts. The rig then ends the books session cleanly, with /exit (it never said "
+            "done): at the next run its two emails are re-routed once and, with the queued one, given to ONE new books "
+            "session. The rig ends that one abnormally (its agent killed): the two emails ended twice go to the owner, "
+            "the third is re-routed once.")
     graph = STATE["graph"]
     third = mail("billing@vendor.example", "Invoice 3003 [rig: run nothing for this email]")
     graph.put(TWO, "inbox", third)
@@ -1864,14 +1849,13 @@ def section_busy_and_orphan():
     check(r[4] is None and r[5] == "open", "the third invoice is queued: open, with no session")
     check(len(seat_sessions(BOOKS, CLERK)) == 1, "no second books session started while the first is alive")
     first_session = STATE["books_session"]
-    end_session(first_session, "the orphan case: the seat ended without done or return")
+    exit_session(first_session, "the orphan case, the common way: the seat exits cleanly without done or return")
     second = wait_for("no new books session after the orphan", lambda: [
         x for x in seat_sessions(BOOKS, CLERK) if x["sessionId"].lower() != first_session.lower()
         and str(x.get("activityState", "")).lower() != "exited"], seconds=420, every=3)
     record("the new books session", json.dumps([{k: x.get(k) for k in SESSION_FIELDS} for x in second], indent=1))
     check(len(second) == 1 and second[0].get("name", "").startswith(f"Mail Desk - {BOOKS}/{CLERK} - 3 emails - "),
           "one new books session takes all three emails (the two re-routed and the queued one)")
-    stop_session(first_session)   # the router has acted on it; stopping it frees its pooled checkout
     routed_rows("the routed rows after the first orphan")
     for subject in ("Invoice 3001 [rig: run nothing for this email]", "Invoice 3002 [rig: run nothing for this email]"):
         row = routed_of(subject)[0]
@@ -1922,16 +1906,15 @@ def section_return_owner():
             "the 08:00 email's Returned and routed part (composed on demand by the Gateway's own composer).")
     graph, model = STATE["graph"], STATE["model"]
     subject = "Refund question [rig: run nothing for this email]"
-    if STATE.get("support_session"):
-        # Ended, and left in the list as crashed: a stopped session leaves the list, and one the Gateway no longer
-        # sees counts as alive for 24 hours (contract 3.2 step 3), which would keep the seat busy.
-        end_session(STATE["support_session"], "its email is done; the next support email needs the seat free")
     model.say(subject, spam="person", route=SUPPORT_HANDLES, confidence=0.95)
     graph.put(TWO, "inbox", mail("customer@client.example", subject))
     row = wait_for("the refund question got no routed row with a session", lambda: next(
         (r for r in get("/gateway/mail-desk/routed?n=200")["routed"] if r["subject"] == subject and r.get("sessionId")),
         None), seconds=300, every=3)
     seat_sid = row["sessionId"]
+    if STATE.get("support_session"):
+        check(seat_sid.lower() != STATE["support_session"].lower(),
+              "the support seat, whose earlier session finished every email (done), is free: a new session took it")
     wait_for(f"session {seat_sid}'s agent did not start", lambda: [
         p for p, n in session_agent_pids(seat_sid) if n == "claude"], seconds=180, every=2)
     _, returned = as_session(seat_sid, "POST", f"/gateway/mail-desk/routed/{row['id']}/return",
