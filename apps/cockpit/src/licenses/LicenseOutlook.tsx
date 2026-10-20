@@ -38,6 +38,12 @@ export function localMidnights(start: Date, end: Date): Date[] {
   return days;
 }
 
+/** The start of a yyyy-MM-dd day in the viewer's time zone, as an instant. Layout, like the day lines. */
+export function localDayStart(date: string): Date {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 /** The alert, or the calm line, above everything else. */
 export function LicenseOutlookHeadline({ outlook }: { outlook: LicenseOutlook }) {
   const { headline } = outlook;
@@ -156,9 +162,9 @@ export function LicenseOutlookChart({ outlook }: { outlook: LicenseOutlook }) {
                   );
                 })}
                 {row.marks.map((mark) => {
-                  const at = x(mark.atUtc);
+                  const at = x(localDayStart(mark.renewsOn).toISOString());
                   return (
-                    <g key={mark.atUtc} data-testid="lic-tl-mark">
+                    <g key={mark.renewsOn} data-testid="lic-tl-mark">
                       <line className="lic-tl-mark" x1={at} y1={top - 4} x2={at} y2={top + BAR + 4} />
                       <text className="lic-tl-mark-text" x={at + 4} y={top + BAR + 12}>
                         {mark.text}

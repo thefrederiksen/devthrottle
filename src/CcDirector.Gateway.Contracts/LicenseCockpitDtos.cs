@@ -763,10 +763,13 @@ public sealed class LicenseOutlookSpanDto
     public string Text { get; set; } = "";
 }
 
-/// <summary>A mark on a row: the day the account's subscription renews.</summary>
+/// <summary>A mark on a row: the day the account's subscription renews. The date has no time and no zone, so the page
+/// places it at the start of that day in the viewer's own time zone - where its day lines are - and at the axis start
+/// when that is earlier.</summary>
 public sealed class LicenseOutlookMarkDto
 {
-    public DateTime AtUtc { get; set; }
+    /// <summary>"yyyy-MM-dd", the date as a person stored it.</summary>
+    public string RenewsOn { get; set; } = "";
 
     /// <summary>"Renews today, 20 Oct", "Renews 22 Oct".</summary>
     public string Text { get; set; } = "";

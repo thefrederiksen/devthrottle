@@ -879,7 +879,7 @@ than any window lasts - is not expected to reach it, whatever its reset time.
       }
     ],
     "gaps": [],
-    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
   }
 }
 ```
@@ -896,8 +896,8 @@ time beside the Gateway's words.
 | `outlook.axisStartUtc`, `.axisEndUtc` | Now, and seven days later. |
 | `outlook.headline` | `text`, `detail` (or null), `tone`, `isAlert`. With a gap, `isAlert` is true and `text` is "account-a@example.com runs out in about 21 hours, and no other account has room for about 1 day 8 hours after that." (or "No account has room now, ..." when the gap starts now); `detail` says the same at the slower weekly average pace. Without one, a calm sentence: "account-a@example.com runs out in about 3 hours 28 minutes, and account-b@example.com has room then.", "No account in use is expected to run out in the next 7 days." The page shows the alert only when `isAlert`. |
 | `outlook.runsOut`, `.nextRoom`, `.nextRenewal` | The three tiles: `label`, `valueText` ("In about 21 hours", "Now", "Today, 20 Oct", "Not set"), `atUtc` (the moment the value is about, or null), `detailText`, `tone`. The renewal tile is read from the dates a person stored; "Not set" when none is stored, "None ahead" when every one has passed. |
-| `outlook.rows[]` | Per account, in email order: `accountEmail`, `spans` back to back from axis start to end, each `startUtc`, `endUtc`, `kind` and `text`, and `marks` (the stored renewal date when it falls inside the axis: `atUtc`, `text`). |
-| `spans[].kind` | `room`; `forecast` - an account in use is forecast to reach 97% of its weekly limit somewhere in this span, from the time its current pace reaches it to the time its slower weekly average pace (use so far this week over the hours since the week began) does; `at-limit` - at or over 97% of a window until it resets; `unknown` - never read, a reading too old to trust, a window with no number, or a window at its limit whose reset has passed since the reading. |
+| `outlook.rows[]` | Per account, in email order: `accountEmail`, `spans` back to back from axis start to end, each `startUtc`, `endUtc`, `kind` and `text`, and `marks` (the stored renewal date when its day overlaps the axis: `renewsOn` as yyyy-MM-dd, which the page places at the start of that day in the viewer's own time zone, and `text`). |
+| `spans[].kind` | `room`; `forecast` - an account in use is forecast to reach 97% of its weekly limit somewhere in this span, from the time its current pace reaches it to the time its slower weekly average pace (use so far this week over the hours since the week began) does (only when that average pace is slower; otherwise the row goes from `room` straight to `at-limit`); `at-limit` - at or over 97% of a window until it resets, or, for an account not in use, left out of the automatic choice until the window that triggered a switch resets (a bar); `unknown` - never read, a reading too old to trust, a window with no number, or a window at its limit whose reset has passed since the reading. |
 | `outlook.gaps[]` | Every span where no account has room (a `forecast` span is not room): `startUtc`, `endUtc`, `text` ("No account has room for about 1 day 8 hours."). Empty when there is none. |
 | `outlook.legendText` | The line under the chart. Everything is on today's numbers: an account with room is not shown being used up by the machines that would move to it. |
 | `accounts[].rows` | The card's Forecast box, each `label`, `text`, `atUtc` (or null), `tone`. In use: "Pace", "Reaches 97%", "Then switches to" (the account with room at that moment, or "Nobody has room for about ..."). At its limit: "Has room again", and "Next in line" for the first account to have room again. Has room: "Has room" / "Now". Not known: "Forecast" and why. |
@@ -1205,7 +1205,7 @@ and rising 2.5% an hour; B at 98% of its weekly limit until 22 October 21:00, wi
         ],
         "marks": [
           {
-            "atUtc": "2026-10-20T15:22:00Z",
+            "renewsOn": "2026-10-20",
             "text": "Renews today, 20 Oct"
           }
         ]
@@ -1248,7 +1248,7 @@ and rising 2.5% an hour; B at 98% of its weekly limit until 22 October 21:00, wi
         "text": "No account has room for about 1 day 8 hours."
       }
     ],
-    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
   }
 }
 ```

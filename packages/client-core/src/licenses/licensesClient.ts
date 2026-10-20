@@ -289,7 +289,8 @@ export interface LicenseOutlookSpan {
 }
 
 export interface LicenseOutlookMark {
-  atUtc: string;
+  /** yyyy-MM-dd: placed at the start of that day in the viewer's own time zone. */
+  renewsOn: string;
   text: string;
 }
 

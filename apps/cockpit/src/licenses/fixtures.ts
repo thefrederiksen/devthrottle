@@ -703,7 +703,7 @@ export const FORECAST: LicenseForecast = {
       }
     ],
     "gaps": [],
-    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
   }
 };
 
@@ -1002,7 +1002,7 @@ export const FORECAST_GAP: LicenseForecast = {
         ],
         "marks": [
           {
-            "atUtc": "2026-10-20T15:22:00Z",
+            "renewsOn": "2026-10-20",
             "text": "Renews today, 20 Oct"
           }
         ]
@@ -1045,7 +1045,7 @@ export const FORECAST_GAP: LicenseForecast = {
         "text": "No account has room for about 1 day 8 hours."
       }
     ],
-    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
   }
 };
 

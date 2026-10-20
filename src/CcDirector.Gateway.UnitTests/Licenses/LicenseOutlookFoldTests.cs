@@ -217,7 +217,7 @@ public sealed class LicenseOutlookFoldTests : IDisposable
 
         Assert.Equal(("Next renewal", "Tomorrow, 12 Oct", $"{B}, Max.", LicenseTones.Warning), Tile(outlook.NextRenewal));
         var mark = Assert.Single(outlook.Rows.Single(r => r.AccountEmail == B).Marks);
-        Assert.Equal((new DateTime(2026, 10, 12, 0, 0, 0, DateTimeKind.Utc), "Renews 12 Oct"), (mark.AtUtc, mark.Text));
+        Assert.Equal(("2026-10-12", "Renews 12 Oct"), (mark.RenewsOn, mark.Text));
         // A's date has passed and C's is after the outlook ends: neither is marked.
         Assert.Empty(outlook.Rows.Single(r => r.AccountEmail == A).Marks);
         Assert.Empty(outlook.Rows.Single(r => r.AccountEmail == C).Marks);
@@ -225,8 +225,105 @@ public sealed class LicenseOutlookFoldTests : IDisposable
         Assert.True(_store.SetRenewalDate(Tenant, B, new DateOnly(2026, 10, 11)));
         outlook = Forecast(T0).Outlook;
         Assert.Equal(("Next renewal", "Today, 11 Oct", $"{B}, Max.", LicenseTones.Warning), Tile(outlook.NextRenewal));
-        // Today's mark is drawn at now: the day began before the outlook did.
-        Assert.Equal(T0, outlook.Rows.Single(r => r.AccountEmail == B).Marks.Single().AtUtc);
+        // Today is marked too: the page places it at the start of the day, clamped to the axis start.
+        Assert.Equal("2026-10-11", outlook.Rows.Single(r => r.AccountEmail == B).Marks.Single().RenewsOn);
+    }
+
+    // The review of pull request 4299, finding 1: B's week reset 30 seconds after A runs out made a stretch with no room
+    // too short to be called a gap, and the calm headline then found nobody with room at the run-out and threw - so the
+    // whole forecast route failed. Within a minute counts as "then", as the gaps count it.
+    [Fact]
+    public void Outlook_AnotherAccountHasRoomSecondsAfterTheRunOut_IsNoGap_AndNamesThatAccount_AndNeverThrows()
+    {
+        ApplyRising(Week(Holding(B, false, 10, 98), RunsOut.AddSeconds(30)));
+
+        var forecast = Forecast(T0);
+
+        Assert.Empty(forecast.Outlook.Gaps);
+        Assert.False(forecast.Outlook.Headline.IsAlert);
+        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and {B} has room then.", forecast.Outlook.Headline.Text);
+        Assert.Equal(("Then switches to", B, LicenseTones.Good), Rows(forecast, A)[2]);
+    }
+
+    // The review's finding 2: the engine does not choose a barred account as a target, so the outlook must not draw it
+    // with room, count it against a gap, or name it next.
+    [Fact]
+    public void Outlook_ABarredSpare_IsAtTheLimitUntilItsBarEnds_SoItIsNeitherRoomNorNext()
+    {
+        ApplyRising(Holding(B, false, 4, 22));
+        _store.Bar(Tenant, B, LicenseWindowNames.SevenDay, T0.AddDays(1), T0);
+
+        var forecast = Forecast(T0);
+        var outlook = forecast.Outlook;
+
+        Assert.Equal(new[] { (LicenseOutlookSpanKinds.AtLimit, T0, T0.AddDays(1)), (LicenseOutlookSpanKinds.Room, T0.AddDays(1), T0.AddDays(7)) }, Spans(outlook, B));
+        Assert.Equal("Left out of the automatic choice until its weekly limit resets: it triggered a switch",
+            outlook.Rows.Single(r => r.AccountEmail == B).Spans[0].Text);
+        var gap = Assert.Single(outlook.Gaps);
+        Close(RunsOut, gap.StartUtc);
+        Assert.Equal(T0.AddDays(1), gap.EndUtc);
+        Assert.True(outlook.Headline.IsAlert);
+        Assert.Equal(("In about 1 day", $"{B}, when its weekly limit resets."), (outlook.NextRoom.ValueText, outlook.NextRoom.DetailText));
+        Assert.Equal(("Then switches to", "Nobody has room for about 20 hours 32 minutes", LicenseTones.Bad), Rows(forecast, A)[2]);
+    }
+
+    [Fact]
+    public void Outlook_AnAccountAtItsLimitWhoseResetHasPassedSinceTheReading_IsNotKnown()
+    {
+        _store.ApplyReport(Tenant, "dir-1", 1, Report("m1", Holding(A, true, 10, 45), Week(Holding(B, false, 10, 99), T0.AddMinutes(-1))), T0, TimeSpan.Zero);
+
+        var outlook = Forecast(T0).Outlook;
+
+        Assert.Equal(new[] { (LicenseOutlookSpanKinds.Unknown, T0, T0.AddDays(7)) }, Spans(outlook, B));
+        Assert.Equal("Not known: it was at a limit, and that limit has reset since the reading", outlook.Rows.Single(r => r.AccountEmail == B).Spans[0].Text);
+    }
+
+    [Fact]
+    public void Outlook_AnAccountAtItsLimitWithNoResetTime_IsAtTheLimitAllWeek_AndNoAccountHasRoomAgain()
+    {
+        var noReset = Holding(B, false, 10, 99);
+        noReset.SevenDay!.ResetsAtUtc = null;
+        _store.ApplyReport(Tenant, "dir-1", 1, Report("m1", Holding(A, true, 98, 45), noReset), T0, TimeSpan.Zero);
+
+        var forecast = Forecast(T0);
+        var outlook = forecast.Outlook;
+
+        Assert.Equal(new[] { (LicenseOutlookSpanKinds.AtLimit, T0, T0.AddDays(7)) }, Spans(outlook, B));
+        Assert.Equal("At its weekly limit, and the reset time is not known", outlook.Rows.Single(r => r.AccountEmail == B).Spans[0].Text);
+        Assert.Equal(("None in the next 7 days", LicenseTones.Bad), (outlook.NextRoom.ValueText, outlook.NextRoom.Tone));
+        Assert.Equal(new[] { ("Has room again", "Not in the next 7 days", LicenseTones.Bad) }, Rows(forecast, B));
+    }
+
+    [Fact]
+    public void Outlook_WhenTheSlowerPaceWouldNotReach97BeforeTheReset_TheForecastSpanRunsToTheReset_AndNoAtLimitSpanFollows()
+    {
+        // A's week resets at T0 + 30 hours, so it began 138 hours ago: 45% over 138 hours would need 159 more hours.
+        _history.Record(Tenant, Report("m1", Week(Holding(A, true, 10, 40, readAt: T0.AddMinutes(-20)), T0.AddHours(30))), TimeSpan.Zero, T0);
+        _history.Record(Tenant, Report("m1", Week(Holding(A, true, 10, 45), T0.AddHours(30))), TimeSpan.Zero, T0);
+        _store.ApplyReport(Tenant, "dir-1", 1, Report("m1", Week(Holding(A, true, 10, 45), T0.AddHours(30)), Week(Holding(B, false, 10, 98), T0.AddDays(2))), T0, TimeSpan.Zero);
+
+        var outlook = Forecast(T0).Outlook;
+
+        var a = Spans(outlook, A);
+        Assert.Equal(new[] { LicenseOutlookSpanKinds.Room, LicenseOutlookSpanKinds.Forecast, LicenseOutlookSpanKinds.Room }, a.Select(s => s.Kind));
+        Close(RunsOut, a[1].Start);
+        Assert.Equal(T0.AddHours(30), a[1].End);
+        Assert.Equal("At its slower weekly average pace it does not run out before its weekly limit resets.", outlook.Headline.Detail);
+    }
+
+    [Fact]
+    public void Outlook_TwoAccountsInUse_TheOneThatHasRoomCountsAsRoom_AndIsNeverTheNextAccountWithRoom()
+    {
+        ApplyRising(Week(Holding(B, false, 10, 98), T0.AddDays(2)));
+        _store.ApplyReport(Tenant, "dir-2", 1, Report("m2", Holding(C, true, 10, 20)), T0, TimeSpan.Zero);
+
+        var outlook = Forecast(T0).Outlook;
+
+        Assert.Equal(new[] { (LicenseOutlookSpanKinds.Room, T0, T0.AddDays(7)) }, Spans(outlook, C));
+        Assert.Empty(outlook.Gaps);
+        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and {C} has room then.", outlook.Headline.Text);
+        // The next account with room is one not in use: B, when its week resets - not C.
+        Assert.Equal(("In about 2 days", $"{B}, when its weekly limit resets."), (outlook.NextRoom.ValueText, outlook.NextRoom.DetailText));
     }
 
     private static (string, string, string, string) Tile(LicenseOutlookTileDto tile) => (tile.Label, tile.ValueText, tile.DetailText, tile.Tone);

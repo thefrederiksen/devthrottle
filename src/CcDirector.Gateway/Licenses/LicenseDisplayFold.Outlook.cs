@@ -21,14 +21,22 @@ namespace CcDirector.Gateway.Licenses;
 /// week began) reaches the threshold is <c>forecast</c>: it is expected to run out somewhere in it. Then it is at the
 /// limit until the window resets. When the average pace would not reach it before the reset, the forecast span runs to
 /// the reset and no at-limit span follows;</item>
-/// <item>every other account has room all week.</item>
+/// <item>every other account has room all week;</item>
+/// <item>an account that is not in use and is BARRED - it triggered a switch, so the engine leaves it out of the automatic
+/// choice until that window resets (<see cref="LicenseBar"/>) - is <c>at-limit</c> wherever it would have had room before
+/// the bar ends, because the engine would not move a machine to it there.</item>
 /// </list>
+///
+/// The forecast span exists only when the average pace is SLOWER than the current pace; when it is as fast or faster, the
+/// row goes from room straight to at the limit at the current pace, and the headline has no second sentence.
 ///
 /// ON TODAY'S NUMBERS. An account that has room is not projected to be used up by the machines that would move to it,
 /// exactly as the forecaster names a target on today's numbers. The legend says so.
 ///
-/// A GAP is a span where no row has room; a forecast span is not room. The headline names the first gap; its second
-/// sentence says the same at the slower pace, where a forecast span counts as room.
+/// A GAP is a span where no row has room; a forecast span is not room. One shorter than a minute is not called a gap,
+/// and an account with room within a minute of a moment counts as having room at it, so the two always agree. The
+/// headline names the first gap; its second sentence says the same at the slower pace, where a forecast span counts as
+/// room.
 /// </summary>
 public static partial class LicenseDisplayFold
 {
@@ -40,7 +48,7 @@ public static partial class LicenseDisplayFold
 
     public const string OutlookLegendText =
         "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. "
-        + "Red: at a limit until it resets. Grey: not known. A dashed red band: no account has room. "
+        + "Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. "
         + "On today's numbers: an account with room is not shown being used up by the machines that would move to it.";
 
     private sealed record OutlookSpan(DateTime Start, DateTime End, string Kind, string Text);
@@ -54,6 +62,10 @@ public static partial class LicenseDisplayFold
     {
         public bool HasRoomAt(DateTime at, bool forecastIsRoom) => Spans.Any(s => s.Start <= at && at < s.End
             && (s.Kind == LicenseOutlookSpanKinds.Room || (forecastIsRoom && s.Kind == LicenseOutlookSpanKinds.Forecast)));
+
+        /// <summary>True when it has room at some moment from <paramref name="at"/> to a minute after: a gap shorter than
+        /// that is not called one, so this is the question the gaps answer.</summary>
+        public bool HasRoomNear(DateTime at) => Spans.Any(s => s.Kind == LicenseOutlookSpanKinds.Room && s.Start < at + ShortestGap && at < s.End);
 
         /// <summary>The start of its first span with room, or null when it has none in the outlook.</summary>
         public DateTime? FirstRoom => Spans.FirstOrDefault(s => s.Kind == LicenseOutlookSpanKinds.Room)?.Start;
@@ -70,7 +82,7 @@ public static partial class LicenseDisplayFold
         var inUse = LicenseDecisionEngine.AccountsInUse(snapshot).ToHashSet(StringComparer.Ordinal);
         var readings = snapshot.Accounts.ToDictionary(r => r.AccountEmail, StringComparer.Ordinal);
         var outlooks = forecast.Accounts
-            .Select(a => AccountOutlookOf(readings[a.AccountEmail], a, inUse.Contains(a.AccountEmail), now, end))
+            .Select(a => Barred(AccountOutlookOf(readings[a.AccountEmail], a, inUse.Contains(a.AccountEmail), now, end), snapshot, now))
             .ToList();
 
         var gaps = NoRoom(outlooks, now, end, forecastIsRoom: false);
@@ -192,6 +204,38 @@ public static partial class LicenseDisplayFold
     }
 
     /// <summary>
+    /// <paramref name="row"/> with every span of room before its bar ends drawn at the limit: the engine does not choose a
+    /// barred account as a target until the bar has passed (<see cref="LicenseDecisionEngine.FirstBackWithRoom"/> pushes its
+    /// return past the bar the same way). An account in use is not a target, so its row is left as it is.
+    /// </summary>
+    private static AccountOutlook Barred(AccountOutlook row, LicenseSnapshot snapshot, DateTime now)
+    {
+        if (row.InUse)
+            return row;
+        var bar = snapshot.Bars
+            .Where(b => string.Equals(b.AccountEmail.Trim(), row.AccountEmail, StringComparison.OrdinalIgnoreCase) && Utc(b.BarredUntilUtc) > now)
+            .MaxBy(b => Utc(b.BarredUntilUtc));
+        if (bar is null)
+            return row;
+        var until = Utc(bar.BarredUntilUtc);
+        var text = $"Left out of the automatic choice until its {WindowLabel(bar.Window)} resets: it triggered a switch";
+        var spans = new List<OutlookSpan>();
+        foreach (var span in row.Spans)
+        {
+            if (span.Kind != LicenseOutlookSpanKinds.Room || span.Start >= until)
+            {
+                spans.Add(span);
+                continue;
+            }
+            spans.Add(span with { End = span.End < until ? span.End : until, Kind = LicenseOutlookSpanKinds.AtLimit, Text = text });
+            if (span.End > until)
+                spans.Add(span with { Start = until });
+        }
+        var movedRoom = row.FirstRoom is { } first && first < until;
+        return row with { Spans = spans, LimitWindow = movedRoom ? bar.Window : row.LimitWindow };
+    }
+
+    /// <summary>
     /// When the weekly window reaches the threshold at its average pace so far this week: its use over the hours since
     /// the week began (its reset time less seven days). Null when that cannot be told - no reset time, under an hour
     /// into the week, no use yet - or when it would take longer than a week.
@@ -248,10 +292,10 @@ public static partial class LicenseDisplayFold
         if (runner is not null)
             text = $"{runner.AccountEmail} runs out {When(gap.Start, now)}, and no other account has room "
                    + (toEnd ? "in the rest of the 7 days." : $"for about {Span(gap.End - gap.Start)} after that.");
-        else if (gap.Start <= now)
-            text = "No account has room now, " + (toEnd ? "and none has room again in the next 7 days." : $"and none has room for about {Span(gap.End - gap.Start)}.");
         else
-            text = $"No account has room {When(gap.Start, now)}, " + (toEnd ? "to the end of the next 7 days." : $"for about {Span(gap.End - gap.Start)}.");
+            // Room only ever ends where an account in use runs out, so a gap with no runner starts now. The sentence
+            // reads true either way.
+            text = $"No account has room {When(gap.Start, now)}, " + (toEnd ? "and none has room again in the next 7 days." : $"and none has room for about {Span(gap.End - gap.Start)}.");
 
         var detail = new List<string>();
         if (runner is not null && outlooks.First(o => o.AccountEmail == runner.AccountEmail).Spans.Any(s => s.Kind == LicenseOutlookSpanKinds.Forecast))
@@ -266,8 +310,6 @@ public static partial class LicenseDisplayFold
                     : $"At its slower weekly average pace it runs out in about {Span(slowAt - now)}, and no account has room for about {Span(slowGap.End - slowGap.Start)}.");
             }
         }
-        if (gaps.Count > 1)
-            detail.Add($"{Count(gaps.Count - 1, "more span")} with no account with room in the next 7 days.");
         return new LicenseOutlookHeadlineDto
         {
             Text = text,
@@ -288,22 +330,30 @@ public static partial class LicenseDisplayFold
                 Tone = LicenseTones.Good,
             };
         var at = Utc(next.ExpectedAtUtc);
-        var then = RoomAt(outlooks, next.FromAccountEmail, at, snapshot) ?? throw new InvalidOperationException(
-            "The outlook finds no gap, and no account with room when the account in use runs out.");
+        // With no gap, another account has room within a minute of the run-out: the gaps and RoomAt ask the same
+        // question. The one case left is an account in use that is the only account in the outlook.
+        var then = RoomAt(outlooks, next.FromAccountEmail, at, snapshot);
         return new LicenseOutlookHeadlineDto
         {
-            Text = at <= now
-                ? $"{next.FromAccountEmail} has reached its limit, and {then} has room."
-                : $"{next.FromAccountEmail} runs out {When(at, now)}, and {then} has room then.",
-            Tone = LicenseTones.Good,
+            Text = (at <= now, then) switch
+            {
+                (_, null) => $"{next.FromAccountEmail} runs out {When(at, now)}, and it is the only account.",
+                (true, _) => $"{next.FromAccountEmail} has reached its limit, and {then} has room.",
+                _ => $"{next.FromAccountEmail} runs out {When(at, now)}, and {then} has room then.",
+            },
+            Tone = then is null ? LicenseTones.Warning : LicenseTones.Good,
         };
     }
 
-    /// <summary>The account other than <paramref name="source"/> with room at <paramref name="at"/>: the engine's own
-    /// choice when it has room then, else the first by email. Null when none has.</summary>
+    /// <summary>The account other than <paramref name="source"/> with room at <paramref name="at"/> (within a minute, as
+    /// the gaps count it): the engine's own choice when it has room then, else the one whose room starts first, then by
+    /// email. A barred account has no room here, as the engine would not choose it. Null when none has.</summary>
     private static string? RoomAt(IReadOnlyList<AccountOutlook> outlooks, string source, DateTime at, LicenseSnapshot snapshot)
     {
-        var candidates = outlooks.Where(o => o.AccountEmail != source && o.HasRoomAt(at, forecastIsRoom: false)).Select(o => o.AccountEmail).ToList();
+        var candidates = outlooks.Where(o => o.AccountEmail != source && o.HasRoomNear(at))
+            .OrderBy(o => o.Spans.First(s => s.Kind == LicenseOutlookSpanKinds.Room && s.End > at).Start)
+            .ThenBy(o => o.AccountEmail, StringComparer.Ordinal)
+            .Select(o => o.AccountEmail).ToList();
         var engine = LicenseDecisionEngine.NextTarget(snapshot, source);
         return engine is not null && candidates.Contains(engine) ? engine : candidates.FirstOrDefault();
     }
@@ -405,14 +455,14 @@ public static partial class LicenseDisplayFold
         return tile;
     }
 
-    /// <summary>The mark of a renewal date on its row: at the start of that day in Coordinated Universal Time, or at the
-    /// axis start when the day has begun. Null when the day is outside the axis.</summary>
+    /// <summary>The mark of a renewal date on its row, when that day overlaps the axis; null otherwise. The page places it
+    /// at the start of the day in the viewer's own time zone.</summary>
     private static LicenseOutlookMarkDto? RenewalMark(DateOnly renewsOn, DateTime now, DateTime end)
     {
         var dayStart = renewsOn.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
         if (dayStart >= end || dayStart.AddDays(1) <= now)
             return null;
-        return new LicenseOutlookMarkDto { AtUtc = dayStart < now ? now : dayStart, Text = RenewsText(renewsOn, now) };
+        return new LicenseOutlookMarkDto { RenewsOn = renewsOn.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), Text = RenewsText(renewsOn, now) };
     }
 
     // ----- the Forecast box of a card -----
