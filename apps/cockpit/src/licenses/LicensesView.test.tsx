@@ -196,7 +196,8 @@ describe("LicensesView: the accounts", () => {
     render(<LicensesView />);
 
     const b = await card(ACCOUNT_B);
-    expect(within(b).getByText("Max - Renews 17 Oct")).toBeTruthy();
+    expect(within(b).getByTestId("lic-account-renewal").textContent).toBe("Renews 17 Oct");
+    expect(within(b).getByTestId("lic-account-plan").textContent).toBe("Max");
     const failed = within(b).getAllByTestId("lic-holding-renewal-failed");
     expect(failed.length).toBe(1);
     expect(failed[0].textContent).toBe("The last renewal of this sign-in failed 3 hours ago.");
@@ -204,7 +205,7 @@ describe("LicensesView: the accounts", () => {
     // Nothing is drawn for a sign-in whose last renewal worked: the Gateway sends null for it.
     expect(within(await card(ACCOUNT_A)).queryByTestId("lic-holding-renewal-failed")).toBeNull();
     // An account with no date set says so, in the Gateway's sentence - never a blank.
-    expect(within(await card(ACCOUNT_A)).getByText("Max - Renewal date not set")).toBeTruthy();
+    expect(within(await card(ACCOUNT_A)).getByTestId("lic-account-renewal").textContent).toBe("Renewal date not set");
   });
 });
 

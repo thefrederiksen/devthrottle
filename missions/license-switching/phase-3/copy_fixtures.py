@@ -27,6 +27,8 @@ WANTED = [
     ("OVERVIEW", "LicenseOverview", "GET /gateway/licenses: three accounts (in use, sign-in expires soon, at limit) on two machines.", "machines", False),
     ("BARRED_FIELDS", 'Pick<LicenseAccount, "barredUntilUtc" | "barredText">', "The last two fields of an account that is barred from the automatic choice of a target.", "barredText", True),
     ("FORECAST", "LicenseForecast", "GET /gateway/licenses/forecast for the same picture.", "nextSwitchText", False),
+    ("FORECAST_GAP", "LicenseForecast", "GET /gateway/licenses/forecast with a gap: the account in use runs out while no other account has room, a stale account, a renewal today.", "outlook", False),
+    (None, None, None, "accounts", False),  # the overview of the picture with a gap, which only the layout check draws
     ("LOG_PAGE", "LicenseLogPage", "GET /gateway/licenses/log?limit=4: a spare added, a switch that FAILED, a spare removed, a switch that worked; older rows exist.", "entries", False),
     ("EMPTY_OVERVIEW", "LicenseOverview", "GET /gateway/licenses for an account whose machines have never reported.", "emptyText", False),
     (None, None, None, "code", False),  # the refusal of a log limit

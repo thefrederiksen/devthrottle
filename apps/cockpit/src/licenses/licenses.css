@@ -55,7 +55,7 @@
 /* ---- Account cards ---- */
 .lic-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr));
   gap: 12px;
 }
 
@@ -421,4 +421,212 @@
 }
 .lic-approver-todo {
   font-weight: 600;
+}
+
+/* ---- The next seven days: the alert, the tiles and the timeline (the Gateway's outlook) ---- */
+.lic-outlook-alert {
+  background: color-mix(in srgb, var(--attention) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--attention) 45%, transparent);
+  border-left: 4px solid var(--attention);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  font-size: 14px;
+}
+.lic-outlook-alert strong {
+  color: var(--text);
+}
+.lic-outlook-alert-detail {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.lic-outlook-calm {
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+.lic-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+.lic-tile {
+  flex: 1 1 220px;
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.lic-tile-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.lic-tile-value {
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 3px;
+}
+.lic-tile-value.lic-tone-neutral {
+  color: var(--text);
+}
+.lic-tile-at,
+.lic-tile-detail {
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.lic-outlook {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0 0 16px;
+}
+.lic-outlook-title {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+/* The chart scrolls inside its own box on a narrow screen; the page never does. */
+.lic-tl-scroll {
+  overflow-x: auto;
+}
+/* Drawn at most a little over its own size, so the words in it stay the size of the page's. */
+.lic-tl {
+  display: block;
+  max-width: 1000px;
+}
+.lic-tl text {
+  font-family: inherit;
+}
+.lic-tl-grid {
+  stroke: var(--border);
+}
+.lic-tl-day-label {
+  fill: var(--text-dim);
+  font-size: 12px;
+}
+.lic-tl-row-label {
+  fill: var(--text);
+  font-size: 12.5px;
+}
+.lic-tl-room {
+  fill: var(--ok);
+}
+.lic-tl-forecast {
+  fill: url(#lic-tl-stripes);
+}
+.lic-tl-stripe {
+  fill: var(--warn);
+}
+.lic-tl-stripe-back {
+  fill: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.lic-tl-at-limit {
+  fill: var(--attention);
+}
+.lic-tl-unknown {
+  fill: color-mix(in srgb, var(--text-dim) 45%, var(--surface-2));
+}
+.lic-tl-span-text {
+  fill: var(--text);
+  font-size: 11px;
+}
+.lic-tl-mark {
+  stroke: var(--accent-text);
+  stroke-width: 2;
+}
+.lic-tl-mark-text {
+  fill: var(--accent-text);
+  font-size: 10.5px;
+}
+.lic-tl-gap {
+  fill: color-mix(in srgb, var(--attention) 12%, transparent);
+  stroke: var(--attention);
+  stroke-dasharray: 4 3;
+}
+.lic-tl-gap-text {
+  fill: var(--danger-text);
+  font-size: 12px;
+}
+.lic-tl-now {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.lic-tl-now-text {
+  fill: var(--accent);
+  font-size: 11px;
+}
+.lic-outlook-legend {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* ---- The Forecast and Subscription boxes of a card ---- */
+.lic-box {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 10px 0;
+}
+.lic-box-tag {
+  color: var(--accent-text);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+.lic-box-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0;
+  font-size: 13px;
+}
+.lic-box-label {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.lic-box-value {
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.lic-box-value.lic-tone-neutral {
+  color: var(--text);
+}
+.lic-box-foot {
+  margin: 4px 0 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* The forecast's projected part of the weekly bar: striped, beneath the fill, up to where the Gateway says it gets. */
+.lic-bar {
+  position: relative;
+}
+.lic-bar-projected {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 4px;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--warn) 0 4px,
+    color-mix(in srgb, var(--warn) 35%, transparent) 4px 8px
+  );
+}
+.lic-bar-projected + .lic-bar-fill {
+  position: relative;
 }

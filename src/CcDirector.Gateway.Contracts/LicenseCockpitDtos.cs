@@ -569,6 +569,10 @@ public sealed class LicenseForecastResponse
 
     /// <summary>In machine name order.</summary>
     public List<LicenseMachineForecastDto> Machines { get; set; } = new();
+
+    /// <summary>The next seven days: which account has room when, the gaps where none has, the headline and the three
+    /// tiles above the account cards.</summary>
+    public LicenseOutlookDto Outlook { get; set; } = new();
 }
 
 /// <summary>The soonest expected switch.</summary>
@@ -618,6 +622,167 @@ public sealed class LicenseAccountForecastDto
 
     /// <summary>The sentence for this account's next switch.</summary>
     public string NextSwitchText { get; set; } = "";
+
+    /// <summary>The rows of the account card's Forecast box, in order: "Pace", "Reaches 97%", "Then switches to" for an
+    /// account in use; "Has room again" and "Next in line" for one at its limit; and so on. Never empty.</summary>
+    public List<LicenseForecastRowDto> Rows { get; set; } = new();
+
+    /// <summary>Where the weekly bar's projected part ends, in percent: 97 while the weekly limit of an account in use is
+    /// expected to reach 97% before it resets; null otherwise, and then no projected part is drawn.</summary>
+    public double? ProjectedWeekPercent { get; set; }
+}
+
+/// <summary>One row of an account card's Forecast box: a label and its finished words.</summary>
+public sealed class LicenseForecastRowDto
+{
+    /// <summary>"Pace", "Reaches 97%", "Then switches to", "Has room again", "Next in line", "Has room", "Forecast".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>"2.5% an hour on its weekly limit", "In about 21 hours", "Nobody has room", "Now" and so on.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>The moment <see cref="Text"/> is about, for the page to give its clock time; null when there is none.</summary>
+    public DateTime? AtUtc { get; set; }
+
+    /// <summary>One of <see cref="LicenseTones"/>.</summary>
+    public string Tone { get; set; } = "";
+}
+
+/// <summary>What one span of an account's row in the outlook means.</summary>
+public static class LicenseOutlookSpanKinds
+{
+    /// <summary>The account has room.</summary>
+    public const string Room = "room";
+
+    /// <summary>The account is forecast to reach 97% somewhere in this span: from the time its current pace reaches it
+    /// to the time its slower weekly average pace does.</summary>
+    public const string Forecast = "forecast";
+
+    /// <summary>The account is at or over 97% of a window until that window resets.</summary>
+    public const string AtLimit = "at-limit";
+
+    /// <summary>Whether the account has room is not known: its reading is too old, it was never read, or a window has
+    /// no number or no reset time ahead.</summary>
+    public const string Unknown = "unknown";
+}
+
+/// <summary>
+/// The next seven days of every account, folded on the Gateway. The page maps each time to a position between
+/// <see cref="AxisStartUtc"/> and <see cref="AxisEndUtc"/> - that is layout - and draws the day lines at midnight in the
+/// viewer's own time zone, which only the page knows. Which account has room when, where no account has room, and every
+/// sentence are decided here. Everything is on today's numbers: an account is not projected to be used up by the
+/// machines that would move to it.
+/// </summary>
+public sealed class LicenseOutlookDto
+{
+    /// <summary>The start of the chart: the Gateway's clock when it folded the answer, which is also "now".</summary>
+    public DateTime AxisStartUtc { get; set; }
+
+    /// <summary>Seven days after <see cref="AxisStartUtc"/>.</summary>
+    public DateTime AxisEndUtc { get; set; }
+
+    public LicenseOutlookHeadlineDto Headline { get; set; } = new();
+
+    /// <summary>When the account in use runs out.</summary>
+    public LicenseOutlookTileDto RunsOut { get; set; } = new();
+
+    /// <summary>When an account that is not in use next has room.</summary>
+    public LicenseOutlookTileDto NextRoom { get; set; } = new();
+
+    /// <summary>The next subscription renewal among the dates a person stored.</summary>
+    public LicenseOutlookTileDto NextRenewal { get; set; } = new();
+
+    /// <summary>One row per account, in account email order.</summary>
+    public List<LicenseOutlookRowDto> Rows { get; set; } = new();
+
+    /// <summary>Every span inside the axis where no account has room, earliest first; empty when there is none.</summary>
+    public List<LicenseOutlookGapDto> Gaps { get; set; } = new();
+
+    /// <summary>The line under the chart saying what each colour means.</summary>
+    public string LegendText { get; set; } = "";
+}
+
+/// <summary>The sentence above the chart.</summary>
+public sealed class LicenseOutlookHeadlineDto
+{
+    /// <summary>"account-a@example.com runs out in about 21 hours, and no other account has room for about 1 day 8 hours
+    /// after that." when there is a gap; a calm sentence otherwise.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>A second sentence: the same at the slower weekly average pace; null when there is nothing more to say.</summary>
+    public string? Detail { get; set; }
+
+    /// <summary>One of <see cref="LicenseTones"/>.</summary>
+    public string Tone { get; set; } = "";
+
+    /// <summary>True when there is a gap: the page shows the headline as an alert. False: a plain line.</summary>
+    public bool IsAlert { get; set; }
+}
+
+/// <summary>One of the three tiles above the account cards.</summary>
+public sealed class LicenseOutlookTileDto
+{
+    /// <summary>"Active account runs out", "Next account with room", "Next renewal".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>"In about 21 hours", "Now", "Today, 20 Oct", "Not set" and so on.</summary>
+    public string ValueText { get; set; } = "";
+
+    /// <summary>The moment <see cref="ValueText"/> is about, for the page to give its clock time; null when there is none.</summary>
+    public DateTime? AtUtc { get; set; }
+
+    /// <summary>The line under the value: whose it is and why.</summary>
+    public string DetailText { get; set; } = "";
+
+    /// <summary>One of <see cref="LicenseTones"/>, for the value.</summary>
+    public string Tone { get; set; } = "";
+}
+
+/// <summary>One account's row of the outlook.</summary>
+public sealed class LicenseOutlookRowDto
+{
+    public string AccountEmail { get; set; } = "";
+
+    /// <summary>Back to back from the axis start to the axis end, earliest first.</summary>
+    public List<LicenseOutlookSpanDto> Spans { get; set; } = new();
+
+    /// <summary>The renewal date stored for the account when it falls inside the axis; empty otherwise.</summary>
+    public List<LicenseOutlookMarkDto> Marks { get; set; } = new();
+}
+
+/// <summary>One span of one account's row.</summary>
+public sealed class LicenseOutlookSpanDto
+{
+    public DateTime StartUtc { get; set; }
+    public DateTime EndUtc { get; set; }
+
+    /// <summary>One of <see cref="LicenseOutlookSpanKinds"/>.</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>What the span means, in words: "Has room", "At its weekly limit until it resets" and so on.</summary>
+    public string Text { get; set; } = "";
+}
+
+/// <summary>A mark on a row: the day the account's subscription renews. The date has no time and no zone, so the page
+/// places it at the start of that day in the viewer's own time zone - where its day lines are - and at the axis start
+/// when that is earlier.</summary>
+public sealed class LicenseOutlookMarkDto
+{
+    /// <summary>"yyyy-MM-dd", the date as a person stored it.</summary>
+    public string RenewsOn { get; set; } = "";
+
+    /// <summary>"Renews today, 20 Oct", "Renews 22 Oct".</summary>
+    public string Text { get; set; } = "";
+}
+
+/// <summary>A span where no account has room.</summary>
+public sealed class LicenseOutlookGapDto
+{
+    public DateTime StartUtc { get; set; }
+    public DateTime EndUtc { get; set; }
+
+    /// <summary>"No account has room for about 1 day 8 hours."</summary>
+    public string Text { get; set; } = "";
 }
 
 /// <summary>The forecast for one window of one account.</summary>

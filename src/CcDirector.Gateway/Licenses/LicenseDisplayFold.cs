@@ -42,7 +42,7 @@ namespace CcDirector.Gateway.Licenses;
 /// switch was decided. For the same reason the fold asks the engine through
 /// <see cref="LicenseDecisionEngine.PreviewManual"/>, which answers as Switch now would and logs nothing.
 /// </summary>
-public static class LicenseDisplayFold
+public static partial class LicenseDisplayFold
 {
     /// <summary>The log kind the minute check writes when no account had room. Spelled here as well as where it is
     /// written, because this fold must read the row whether or not that code is in the same build.</summary>
@@ -722,7 +722,8 @@ public static class LicenseDisplayFold
             Accounts = accounts,
             Machines = picture.Overview.Machines.Select(m => MachineForecast(m, names, moves, expectedByAccount, HoldInForce(snapshot, m), now)).ToList(),
         };
-        FileLog.Write($"[LicenseDisplayFold] Forecast: empty={empty}, machines={response.Machines.Count}");
+        ApplyOutlook(response, picture, snapshot, forecast);
+        FileLog.Write($"[LicenseDisplayFold] Forecast: empty={empty}, machines={response.Machines.Count}, gaps={response.Outlook.Gaps.Count}");
         return response;
     }
 

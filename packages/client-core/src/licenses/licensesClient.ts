@@ -264,6 +264,75 @@ export interface LicenseAccountForecast {
   expectedText: string;
   nextSwitchTargetAccountEmail: string | null;
   nextSwitchText: string;
+  /** The card's Forecast box, in order. */
+  rows: LicenseForecastRow[];
+  /** Where the weekly bar's projected part ends, in percent; null when none is drawn. */
+  projectedWeekPercent: number | null;
+}
+
+/** One row of a card's Forecast box: the Gateway's label, words and tone; atUtc is shown as a clock time. */
+export interface LicenseForecastRow {
+  label: string;
+  text: string;
+  atUtc: string | null;
+  tone: LicenseTone;
+}
+
+/** What one span of an outlook row means. A kind this build does not know is drawn as not known. */
+export type LicenseOutlookSpanKind = "room" | "forecast" | "at-limit" | "unknown";
+
+export interface LicenseOutlookSpan {
+  startUtc: string;
+  endUtc: string;
+  kind: LicenseOutlookSpanKind;
+  text: string;
+}
+
+export interface LicenseOutlookMark {
+  /** yyyy-MM-dd: placed at the start of that day in the viewer's own time zone. */
+  renewsOn: string;
+  text: string;
+}
+
+export interface LicenseOutlookRow {
+  accountEmail: string;
+  spans: LicenseOutlookSpan[];
+  marks: LicenseOutlookMark[];
+}
+
+export interface LicenseOutlookGap {
+  startUtc: string;
+  endUtc: string;
+  text: string;
+}
+
+export interface LicenseOutlookTile {
+  label: string;
+  valueText: string;
+  atUtc: string | null;
+  detailText: string;
+  tone: LicenseTone;
+}
+
+export interface LicenseOutlookHeadline {
+  text: string;
+  detail: string | null;
+  tone: LicenseTone;
+  /** A gap: show the headline as an alert. */
+  isAlert: boolean;
+}
+
+/** The next seven days, folded on the Gateway. The page only places each time between axisStartUtc and axisEndUtc. */
+export interface LicenseOutlook {
+  axisStartUtc: string;
+  axisEndUtc: string;
+  headline: LicenseOutlookHeadline;
+  runsOut: LicenseOutlookTile;
+  nextRoom: LicenseOutlookTile;
+  nextRenewal: LicenseOutlookTile;
+  rows: LicenseOutlookRow[];
+  gaps: LicenseOutlookGap[];
+  legendText: string;
 }
 
 export interface LicenseMachineForecast extends LicenseMachineRef {
@@ -292,6 +361,7 @@ export interface LicenseForecast {
   nextSwitchText: string;
   accounts: LicenseAccountForecast[];
   machines: LicenseMachineForecast[];
+  outlook: LicenseOutlook;
 }
 
 /** One row of the switch log. A kind or a state this build does not know is still a row: show its words. */

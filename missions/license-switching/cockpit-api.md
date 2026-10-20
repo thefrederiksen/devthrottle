@@ -666,7 +666,28 @@ than any window lasts - is not expected to reach it, whatever its reset time.
       "expectedAtLimitUtc": "2026-10-11T03:14:04.1052631Z",
       "expectedText": "Expected to reach 97% of its 5-hour window in about 2 minutes.",
       "nextSwitchTargetAccountEmail": "account-b@example.com",
-      "nextSwitchText": "Next: account-b@example.com, in about 2 minutes."
+      "nextSwitchText": "Next: account-b@example.com, in about 2 minutes.",
+      "rows": [
+        {
+          "label": "Pace",
+          "text": "28.5% an hour on its 5-hour window",
+          "atUtc": null,
+          "tone": "neutral"
+        },
+        {
+          "label": "Reaches 97%",
+          "text": "In about 2 minutes",
+          "atUtc": "2026-10-11T03:14:04.1052631Z",
+          "tone": "warning"
+        },
+        {
+          "label": "Then switches to",
+          "text": "account-b@example.com",
+          "atUtc": null,
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
     },
     {
       "accountEmail": "account-b@example.com",
@@ -697,7 +718,16 @@ than any window lasts - is not expected to reach it, whatever its reset time.
       "expectedAtLimitUtc": null,
       "expectedText": "Not expected to reach its limit.",
       "nextSwitchTargetAccountEmail": null,
-      "nextSwitchText": "Not in use, so there is nothing to switch."
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room",
+          "text": "Now",
+          "atUtc": null,
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
     },
     {
       "accountEmail": "account-c@example.com",
@@ -728,7 +758,16 @@ than any window lasts - is not expected to reach it, whatever its reset time.
       "expectedAtLimitUtc": "2026-10-11T03:12:00Z",
       "expectedText": "Has reached 97% of its 5-hour window.",
       "nextSwitchTargetAccountEmail": null,
-      "nextSwitchText": "Not in use, so there is nothing to switch."
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room again",
+          "text": "In about 1 hour 48 minutes",
+          "atUtc": "2026-10-11T05:00:00Z",
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
     }
   ],
   "machines": [
@@ -751,6 +790,953 @@ than any window lasts - is not expected to reach it, whatever its reset time.
       "nextAccountEmail": "account-b@example.com",
       "expectedSwitchAtUtc": "2026-10-11T03:14:04.1052631Z",
       "text": "Next: account-b@example.com, in about 2 minutes."
+    }
+  ],
+  "outlook": {
+    "axisStartUtc": "2026-10-11T03:12:00Z",
+    "axisEndUtc": "2026-10-18T03:12:00Z",
+    "headline": {
+      "text": "account-a@example.com runs out in about 2 minutes, and account-b@example.com has room then.",
+      "detail": null,
+      "tone": "good",
+      "isAlert": false
+    },
+    "runsOut": {
+      "label": "Active account runs out",
+      "valueText": "In about 2 minutes",
+      "atUtc": "2026-10-11T03:14:04.1052631Z",
+      "detailText": "account-a@example.com: 96% of its 5-hour window now, rising 28.5% an hour.",
+      "tone": "warning"
+    },
+    "nextRoom": {
+      "label": "Next account with room",
+      "valueText": "Now",
+      "atUtc": null,
+      "detailText": "account-b@example.com has room.",
+      "tone": "good"
+    },
+    "nextRenewal": {
+      "label": "Next renewal",
+      "valueText": "Not set",
+      "atUtc": null,
+      "detailText": "No account has a renewal date stored. Set one on its card.",
+      "tone": "neutral"
+    },
+    "rows": [
+      {
+        "accountEmail": "account-a@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-11T03:12:00Z",
+            "endUtc": "2026-10-11T03:14:04.1052631Z",
+            "kind": "room",
+            "text": "Has room"
+          },
+          {
+            "startUtc": "2026-10-11T03:14:04.1052631Z",
+            "endUtc": "2026-10-11T05:00:00Z",
+            "kind": "at-limit",
+            "text": "At its 5-hour window until it resets"
+          },
+          {
+            "startUtc": "2026-10-11T05:00:00Z",
+            "endUtc": "2026-10-18T03:12:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-b@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-11T03:12:00Z",
+            "endUtc": "2026-10-18T03:12:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-c@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-11T03:12:00Z",
+            "endUtc": "2026-10-11T05:00:00Z",
+            "kind": "at-limit",
+            "text": "At its 5-hour window until it resets"
+          },
+          {
+            "startUtc": "2026-10-11T05:00:00Z",
+            "endUtc": "2026-10-18T03:12:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      }
+    ],
+    "gaps": [],
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+  }
+}
+```
+
+### The next seven days (`outlook`) and each card's Forecast box
+
+Added on 20 October 2026 for the forecast timeline of the Licenses page. Every judgement is the Gateway's
+(`LicenseDisplayFold.Outlook.cs`); the page maps a time to a position between `axisStartUtc` and `axisEndUtc`, draws
+the day lines at midnight in the viewer's own time zone (only the page knows it), and shows each `atUtc` as a clock
+time beside the Gateway's words.
+
+| Field | Meaning |
+|---|---|
+| `outlook.axisStartUtc`, `.axisEndUtc` | Now, and seven days later. |
+| `outlook.headline` | `text`, `detail` (or null), `tone`, `isAlert`. With a gap, `isAlert` is true and `text` is "account-a@example.com runs out in about 21 hours, and no other account has room for about 1 day 8 hours after that." (or "No account has room now, ..." when the gap starts now); `detail` says the same at the slower weekly average pace. Without one, a calm sentence: "account-a@example.com runs out in about 3 hours 28 minutes, and account-b@example.com has room then.", "No account in use is expected to run out in the next 7 days." The page shows the alert only when `isAlert`. |
+| `outlook.runsOut`, `.nextRoom`, `.nextRenewal` | The three tiles: `label`, `valueText` ("In about 21 hours", "Now", "Today, 20 Oct", "Not set"), `atUtc` (the moment the value is about, or null), `detailText`, `tone`. The renewal tile is read from the dates a person stored; "Not set" when none is stored, "None ahead" when every one has passed. |
+| `outlook.rows[]` | Per account, in email order: `accountEmail`, `spans` back to back from axis start to end, each `startUtc`, `endUtc`, `kind` and `text`, and `marks` (the stored renewal date when its day overlaps the axis: `renewsOn` as yyyy-MM-dd, which the page places at the start of that day in the viewer's own time zone, and `text`). |
+| `spans[].kind` | `room`; `forecast` - an account in use is forecast to reach 97% of its weekly limit somewhere in this span, from the time its current pace reaches it to the time its slower weekly average pace (use so far this week over the hours since the week began) does (only when that average pace is slower; otherwise the row goes from `room` straight to `at-limit`); `at-limit` - at or over 97% of a window until it resets, or, for an account not in use, left out of the automatic choice until the window that triggered a switch resets (a bar); `unknown` - never read, a reading too old to trust, a window with no number, or a window at its limit whose reset has passed since the reading. |
+| `outlook.gaps[]` | Every span where no account has room (a `forecast` span is not room): `startUtc`, `endUtc`, `text` ("No account has room for about 1 day 8 hours."). Empty when there is none. |
+| `outlook.legendText` | The line under the chart. Everything is on today's numbers: an account with room is not shown being used up by the machines that would move to it. |
+| `accounts[].rows` | The card's Forecast box, each `label`, `text`, `atUtc` (or null), `tone`. In use: "Pace", "Reaches 97%", "Then switches to" (the account with room at that moment, or "Nobody has room for about ..."). At its limit: "Has room again", and "Next in line" for the first account to have room again. Has room: "Has room" / "Now". Not known: "Forecast" and why. |
+| `accounts[].projectedWeekPercent` | 97 while an account in use is expected to reach 97% of its weekly limit before it resets: the page draws the weekly bar's projected part, striped, up to it. Null otherwise. |
+
+### Example: the next seven days with a gap
+
+The picture the timeline was designed from, at 2026-10-20 15:22:00 UTC: account A in use at 44% of its weekly limit
+and rising 2.5% an hour; B at 98% of its weekly limit until 22 October 21:00, with its renewal date set to today; C at
+100% until 24 October 18:59, with its renewal date set to 3 November; D last read two hours ago. Produced by
+`phase-3/forecast-example/produce_forecast_example.py`, like the example above.
+
+```json
+{
+  "asOfUtc": "2026-10-20T15:22:00Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "nextSwitch": {
+    "fromAccountEmail": "account-a@example.com",
+    "expectedAtUtc": "2026-10-21T12:31:49.7999999Z",
+    "window": "seven-day",
+    "windowText": "weekly limit",
+    "targetAccountEmail": null,
+    "machines": []
+  },
+  "nextSwitchText": "account-a@example.com is expected to reach 97% of its weekly limit in about 21 hours 9 minutes. No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room. Nothing would be switched.",
+  "accounts": [
+    {
+      "accountEmail": "account-a@example.com",
+      "isInUse": true,
+      "isStale": false,
+      "fiveHour": {
+        "utilization": 12,
+        "utilizationText": "12%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": 0,
+        "rateText": "Not rising",
+        "expectedAtLimitUtc": null,
+        "expectedText": "Not rising, so not expected to reach 97%."
+      },
+      "sevenDay": {
+        "utilization": 44,
+        "utilizationText": "44%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-25T21:59:00Z",
+        "resetsText": "Resets in 5 days 6 hours",
+        "percentPerHour": 2.5041736227045077,
+        "rateText": "2.5% an hour",
+        "expectedAtLimitUtc": "2026-10-21T12:31:49.7999999Z",
+        "expectedText": "Expected to reach 97% in about 21 hours 9 minutes."
+      },
+      "expectedAtLimitUtc": "2026-10-21T12:31:49.7999999Z",
+      "expectedText": "Expected to reach 97% of its weekly limit in about 21 hours 9 minutes.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room. It reaches its limit in about 21 hours 9 minutes.",
+      "rows": [
+        {
+          "label": "Pace",
+          "text": "2.5% an hour on its weekly limit",
+          "atUtc": null,
+          "tone": "neutral"
+        },
+        {
+          "label": "Reaches 97%",
+          "text": "In about 21 hours 9 minutes",
+          "atUtc": "2026-10-21T12:31:49.7999999Z",
+          "tone": "warning"
+        },
+        {
+          "label": "Then switches to",
+          "text": "Nobody has room for about 1 day 8 hours",
+          "atUtc": null,
+          "tone": "bad"
+        }
+      ],
+      "projectedWeekPercent": 97
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "isInUse": false,
+      "isStale": false,
+      "fiveHour": {
+        "utilization": 3,
+        "utilizationText": "3%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": 0,
+        "rateText": "Not rising",
+        "expectedAtLimitUtc": null,
+        "expectedText": "Not rising, so not expected to reach 97%."
+      },
+      "sevenDay": {
+        "utilization": 98,
+        "utilizationText": "98%",
+        "level": "at-limit",
+        "resetsAtUtc": "2026-10-22T21:00:00Z",
+        "resetsText": "Resets in 2 days 5 hours",
+        "percentPerHour": 0,
+        "rateText": "Not rising",
+        "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+        "expectedText": "Has reached 97%."
+      },
+      "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+      "expectedText": "Has reached 97% of its weekly limit.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room again",
+          "text": "In about 2 days 5 hours",
+          "atUtc": "2026-10-22T21:00:00Z",
+          "tone": "good"
+        },
+        {
+          "label": "Next in line",
+          "text": "Yes - the first account to have room again",
+          "atUtc": null,
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
+    },
+    {
+      "accountEmail": "account-c@example.com",
+      "isInUse": false,
+      "isStale": false,
+      "fiveHour": {
+        "utilization": 0,
+        "utilizationText": "0%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": null,
+        "expectedText": "No forecast yet: there are not enough readings to show a rate."
+      },
+      "sevenDay": {
+        "utilization": 100,
+        "utilizationText": "100%",
+        "level": "at-limit",
+        "resetsAtUtc": "2026-10-24T18:59:00Z",
+        "resetsText": "Resets in 4 days 3 hours",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+        "expectedText": "Has reached 97%."
+      },
+      "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+      "expectedText": "Has reached 97% of its weekly limit.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room again",
+          "text": "In about 4 days 3 hours",
+          "atUtc": "2026-10-24T18:59:00Z",
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
+    },
+    {
+      "accountEmail": "account-d@example.com",
+      "isInUse": false,
+      "isStale": true,
+      "fiveHour": {
+        "utilization": 0,
+        "utilizationText": "0%",
+        "level": "stale",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": null,
+        "expectedText": "No forecast: the latest reading is too old."
+      },
+      "sevenDay": {
+        "utilization": 30,
+        "utilizationText": "30%",
+        "level": "stale",
+        "resetsAtUtc": "2026-10-23T12:00:00Z",
+        "resetsText": "Resets in 2 days 20 hours",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": null,
+        "expectedText": "No forecast: the latest reading is too old."
+      },
+      "expectedAtLimitUtc": null,
+      "expectedText": "No forecast: the latest reading is too old.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Forecast",
+          "text": "Not known: the latest reading is too old.",
+          "atUtc": null,
+          "tone": "neutral"
+        }
+      ],
+      "projectedWeekPercent": null
+    }
+  ],
+  "machines": [
+    {
+      "machineId": "94ebcb15a4bf40438dca738dd31189d9",
+      "machineName": "the-mac",
+      "osUser": "owner",
+      "label": "the-mac",
+      "activeAccountEmail": "account-a@example.com",
+      "nextAccountEmail": null,
+      "expectedSwitchAtUtc": null,
+      "text": "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room."
+    },
+    {
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "activeAccountEmail": "account-a@example.com",
+      "nextAccountEmail": null,
+      "expectedSwitchAtUtc": null,
+      "text": "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room."
+    }
+  ],
+  "outlook": {
+    "axisStartUtc": "2026-10-20T15:22:00Z",
+    "axisEndUtc": "2026-10-27T15:22:00Z",
+    "headline": {
+      "text": "account-a@example.com runs out in about 21 hours 9 minutes, and no other account has room for about 1 day 8 hours after that.",
+      "detail": "At its slower weekly average pace it runs out in about 2 days 1 hour, and no account has room for about 3 hours 47 minutes.",
+      "tone": "bad",
+      "isAlert": true
+    },
+    "runsOut": {
+      "label": "Active account runs out",
+      "valueText": "In about 21 hours 9 minutes",
+      "atUtc": "2026-10-21T12:31:49.7999999Z",
+      "detailText": "account-a@example.com: 44% of its weekly limit now, rising 2.5% an hour.",
+      "tone": "warning"
+    },
+    "nextRoom": {
+      "label": "Next account with room",
+      "valueText": "In about 2 days 5 hours",
+      "atUtc": "2026-10-22T21:00:00Z",
+      "detailText": "account-b@example.com, when its weekly limit resets.",
+      "tone": "neutral"
+    },
+    "nextRenewal": {
+      "label": "Next renewal",
+      "valueText": "Today, 20 Oct",
+      "atUtc": null,
+      "detailText": "account-b@example.com, Max.",
+      "tone": "warning"
+    },
+    "rows": [
+      {
+        "accountEmail": "account-a@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-21T12:31:49.7999999Z",
+            "kind": "room",
+            "text": "Has room"
+          },
+          {
+            "startUtc": "2026-10-21T12:31:49.7999999Z",
+            "endUtc": "2026-10-22T17:12:46.5681818Z",
+            "kind": "forecast",
+            "text": "Forecast to reach 97% of its weekly limit in this span"
+          },
+          {
+            "startUtc": "2026-10-22T17:12:46.5681818Z",
+            "endUtc": "2026-10-25T21:59:00Z",
+            "kind": "at-limit",
+            "text": "At its weekly limit until it resets"
+          },
+          {
+            "startUtc": "2026-10-25T21:59:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-b@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-22T21:00:00Z",
+            "kind": "at-limit",
+            "text": "At its weekly limit until it resets"
+          },
+          {
+            "startUtc": "2026-10-22T21:00:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": [
+          {
+            "renewsOn": "2026-10-20",
+            "text": "Renews today, 20 Oct"
+          }
+        ]
+      },
+      {
+        "accountEmail": "account-c@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-24T18:59:00Z",
+            "kind": "at-limit",
+            "text": "At its weekly limit until it resets"
+          },
+          {
+            "startUtc": "2026-10-24T18:59:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-d@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "unknown",
+            "text": "Not known: the latest reading is too old"
+          }
+        ],
+        "marks": []
+      }
+    ],
+    "gaps": [
+      {
+        "startUtc": "2026-10-21T12:31:49.7999999Z",
+        "endUtc": "2026-10-22T21:00:00Z",
+        "text": "No account has room for about 1 day 8 hours."
+      }
+    ],
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+  }
+}
+```
+
+The overview of the same picture (`GET /gateway/licenses`), which the layout check draws the cards from:
+
+```json
+{
+  "asOfUtc": "2026-10-20T15:22:00Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "accounts": [
+    {
+      "accountEmail": "account-a@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": "default_claude_max_20x",
+      "status": "in-use",
+      "statusText": "In use",
+      "statusTone": "good",
+      "statusDetail": "In use on the-mac and the-windows-machine.",
+      "isInUse": true,
+      "fiveHour": {
+        "utilization": 12,
+        "utilizationText": "12%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes"
+      },
+      "sevenDay": {
+        "utilization": 44,
+        "utilizationText": "44%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-25T21:59:00Z",
+        "resetsText": "Resets in 5 days 6 hours"
+      },
+      "isStale": false,
+      "readAtUtc": "2026-10-20T15:21:57Z",
+      "readAgeText": "Read less than a minute ago on the-windows-machine",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "off",
+        "text": "Paid extra usage is off",
+        "utilization": null
+      },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-07T15:22:00Z",
+        "machine": {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 18 days",
+        "tone": "good"
+      },
+      "activeOnMachines": [
+        {
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "spareOnMachines": [],
+      "canSwitchNow": false,
+      "switchNowText": "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room.",
+      "switchNowTargetAccountEmail": null,
+      "switchTargets": [
+        {
+          "accountEmail": "account-b@example.com",
+          "canChoose": false,
+          "unavailableText": "account-b@example.com has no room: it is at 98% of its weekly limit.",
+          "isAutomaticChoice": false
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "canChoose": false,
+          "unavailableText": "account-c@example.com has no room: it is at 100% of its weekly limit.",
+          "isAutomaticChoice": false
+        },
+        {
+          "accountEmail": "account-d@example.com",
+          "canChoose": false,
+          "unavailableText": "The latest reading of account-d@example.com is too old to show it has room.",
+          "isAutomaticChoice": false
+        }
+      ],
+      "barredUntilUtc": null,
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": "default_claude_max_20x",
+      "status": "at-limit",
+      "statusText": "At limit",
+      "statusTone": "bad",
+      "statusDetail": "At 98% of its weekly limit, which resets in 2 days 5 hours.",
+      "isInUse": false,
+      "fiveHour": {
+        "utilization": 3,
+        "utilizationText": "3%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes"
+      },
+      "sevenDay": {
+        "utilization": 98,
+        "utilizationText": "98%",
+        "level": "at-limit",
+        "resetsAtUtc": "2026-10-22T21:00:00Z",
+        "resetsText": "Resets in 2 days 5 hours"
+      },
+      "isStale": false,
+      "readAtUtc": "2026-10-20T15:16:00Z",
+      "readAgeText": "Read 6 minutes ago on the-mac",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "off",
+        "text": "Paid extra usage is off",
+        "utilization": null
+      },
+      "renewsOn": "2026-10-20",
+      "renewsText": "Renews today, 20 Oct",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-10T15:22:00Z",
+        "machine": {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 21 days",
+        "tone": "good"
+      },
+      "activeOnMachines": [],
+      "spareOnMachines": [
+        {
+          "machineId": "94ebcb15a4bf40438dca738dd31189d9",
+          "machineName": "the-mac",
+          "osUser": "owner",
+          "label": "the-mac"
+        },
+        {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "canSwitchNow": false,
+      "switchNowText": "No machine on account-b@example.com can be switched now: none is on it.",
+      "switchNowTargetAccountEmail": null,
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
+    },
+    {
+      "accountEmail": "account-c@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": "default_claude_max_20x",
+      "status": "at-limit",
+      "statusText": "At limit",
+      "statusTone": "bad",
+      "statusDetail": "At 100% of its weekly limit, which resets in 4 days 3 hours.",
+      "isInUse": false,
+      "fiveHour": {
+        "utilization": 0,
+        "utilizationText": "0%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes"
+      },
+      "sevenDay": {
+        "utilization": 100,
+        "utilizationText": "100%",
+        "level": "at-limit",
+        "resetsAtUtc": "2026-10-24T18:59:00Z",
+        "resetsText": "Resets in 4 days 3 hours"
+      },
+      "isStale": false,
+      "readAtUtc": "2026-10-20T15:14:00Z",
+      "readAgeText": "Read 8 minutes ago on the-windows-machine",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "off",
+        "text": "Paid extra usage is off",
+        "utilization": null
+      },
+      "renewsOn": "2026-11-03",
+      "renewsText": "Renews 3 Nov",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-17T15:22:00Z",
+        "machine": {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 28 days",
+        "tone": "good"
+      },
+      "activeOnMachines": [],
+      "spareOnMachines": [
+        {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "canSwitchNow": false,
+      "switchNowText": "No machine on account-c@example.com can be switched now: none is on it.",
+      "switchNowTargetAccountEmail": null,
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
+    },
+    {
+      "accountEmail": "account-d@example.com",
+      "plan": "max",
+      "planText": "Max",
+      "rateLimitTier": "default_claude_max_20x",
+      "status": "stale",
+      "statusText": "Stale",
+      "statusTone": "warning",
+      "statusDetail": "The latest reading is 2 hours old, so its use now is not known.",
+      "isInUse": false,
+      "fiveHour": {
+        "utilization": 0,
+        "utilizationText": "0%",
+        "level": "stale",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes"
+      },
+      "sevenDay": {
+        "utilization": 30,
+        "utilizationText": "30%",
+        "level": "stale",
+        "resetsAtUtc": "2026-10-23T12:00:00Z",
+        "resetsText": "Resets in 2 days 20 hours"
+      },
+      "isStale": true,
+      "readAtUtc": "2026-10-20T13:22:00Z",
+      "readAgeText": "Read 2 hours ago on the-windows-machine",
+      "readError": null,
+      "readErrorText": null,
+      "extraUsage": {
+        "state": "off",
+        "text": "Paid extra usage is off",
+        "utilization": null
+      },
+      "renewsOn": null,
+      "renewsText": "Renewal date not set",
+      "signInExpiry": {
+        "expiresAtUtc": "2026-11-09T15:22:00Z",
+        "machine": {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        },
+        "verdict": "fine",
+        "text": "Sign-in on the-windows-machine expires in 20 days",
+        "tone": "good"
+      },
+      "activeOnMachines": [],
+      "spareOnMachines": [
+        {
+          "machineId": "f26a799d85a244129a27ba10b8cb3427",
+          "machineName": "the-windows-machine",
+          "osUser": "owner",
+          "label": "the-windows-machine"
+        }
+      ],
+      "canSwitchNow": false,
+      "switchNowText": "No machine on account-d@example.com can be switched now: none is on it.",
+      "switchNowTargetAccountEmail": null,
+      "switchTargets": [],
+      "barredUntilUtc": null,
+      "barredText": null,
+      "approver": null,
+      "approverText": "No machine is set to approve sign-ins for this account. A machine that has its own browser profile for it approves there.",
+      "approverTone": "neutral"
+    }
+  ],
+  "machines": [
+    {
+      "machineId": "94ebcb15a4bf40438dca738dd31189d9",
+      "machineName": "the-mac",
+      "osUser": "owner",
+      "label": "the-mac",
+      "activeAccountEmail": "account-a@example.com",
+      "status": "reporting",
+      "statusText": "Reporting",
+      "statusTone": "good",
+      "statusDetail": null,
+      "isStale": false,
+      "lastReportAtUtc": "2026-10-20T15:21:00Z",
+      "lastReportText": "Last report 1 minute ago",
+      "active": {
+        "accountEmail": "account-a@example.com",
+        "isActive": true,
+        "roleText": "Active",
+        "signedInAtUtc": "2026-10-09T15:22:00Z",
+        "signedInText": "Signed in 11 days ago",
+        "signInExpiresAtUtc": "2026-11-08T15:22:00Z",
+        "expiryVerdict": "fine",
+        "expiryText": "Sign-in expires in 19 days",
+        "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
+        "isReadingStale": false,
+        "readError": null,
+        "readErrorText": null,
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
+      },
+      "spares": [
+        {
+          "accountEmail": "account-b@example.com",
+          "isActive": false,
+          "roleText": "Spare",
+          "signedInAtUtc": "2026-10-16T15:22:00Z",
+          "signedInText": "Signed in 4 days ago",
+          "signInExpiresAtUtc": "2026-11-15T15:22:00Z",
+          "expiryVerdict": "fine",
+          "expiryText": "Sign-in expires in 26 days",
+          "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
+          "isReadingStale": false,
+          "readError": null,
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-mac is not connected, so a sign-in cannot be started there."
+        }
+      ],
+      "switchInProgress": null,
+      "heldUntilUtc": null,
+      "heldText": null,
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-mac is not connected, so a sign-in cannot be started there.",
+      "canForget": false,
+      "forgetText": "the-mac is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.",
+      "signInsInProgress": [],
+      "directorId": "dir-mac",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-mac's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "no-room",
+      "readinessTargetAccountEmail": null,
+      "readinessText": "No other account has room for it to switch to.",
+      "readinessTone": "neutral"
+    },
+    {
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "activeAccountEmail": "account-a@example.com",
+      "status": "reporting",
+      "statusText": "Reporting",
+      "statusTone": "good",
+      "statusDetail": null,
+      "isStale": false,
+      "lastReportAtUtc": "2026-10-20T15:22:00Z",
+      "lastReportText": "Last report less than a minute ago",
+      "active": {
+        "accountEmail": "account-a@example.com",
+        "isActive": true,
+        "roleText": "Active",
+        "signedInAtUtc": "2026-10-08T15:22:00Z",
+        "signedInText": "Signed in 12 days ago",
+        "signInExpiresAtUtc": "2026-11-07T15:22:00Z",
+        "expiryVerdict": "fine",
+        "expiryText": "Sign-in expires in 18 days",
+        "expiryTone": "good",
+        "renewalFailedAtUtc": null,
+        "renewalFailedText": null,
+        "renewalFailedTone": null,
+        "isReadingStale": false,
+        "readError": null,
+        "readErrorText": null,
+        "canRenewNow": false,
+        "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
+      },
+      "spares": [
+        {
+          "accountEmail": "account-b@example.com",
+          "isActive": false,
+          "roleText": "Spare",
+          "signedInAtUtc": "2026-10-11T15:22:00Z",
+          "signedInText": "Signed in 9 days ago",
+          "signInExpiresAtUtc": "2026-11-10T15:22:00Z",
+          "expiryVerdict": "fine",
+          "expiryText": "Sign-in expires in 21 days",
+          "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
+          "isReadingStale": false,
+          "readError": null,
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
+        },
+        {
+          "accountEmail": "account-c@example.com",
+          "isActive": false,
+          "roleText": "Spare",
+          "signedInAtUtc": "2026-10-18T15:22:00Z",
+          "signedInText": "Signed in 2 days ago",
+          "signInExpiresAtUtc": "2026-11-17T15:22:00Z",
+          "expiryVerdict": "fine",
+          "expiryText": "Sign-in expires in 28 days",
+          "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
+          "isReadingStale": false,
+          "readError": null,
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
+        },
+        {
+          "accountEmail": "account-d@example.com",
+          "isActive": false,
+          "roleText": "Spare",
+          "signedInAtUtc": "2026-10-10T15:22:00Z",
+          "signedInText": "Signed in 10 days ago",
+          "signInExpiresAtUtc": "2026-11-09T15:22:00Z",
+          "expiryVerdict": "fine",
+          "expiryText": "Sign-in expires in 20 days",
+          "expiryTone": "good",
+          "renewalFailedAtUtc": null,
+          "renewalFailedText": null,
+          "renewalFailedTone": null,
+          "isReadingStale": true,
+          "readError": null,
+          "readErrorText": null,
+          "canRenewNow": false,
+          "renewNowText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there."
+        }
+      ],
+      "switchInProgress": null,
+      "heldUntilUtc": null,
+      "heldText": null,
+      "canAddSpare": false,
+      "addSpareText": "The Director on the-windows-machine is not connected, so a sign-in cannot be started there.",
+      "canForget": false,
+      "forgetText": "the-windows-machine is reporting, so it is not forgotten: only a machine that has stopped reporting, or whose reports are refused, can be.",
+      "signInsInProgress": [],
+      "directorId": "dir-windows",
+      "canListBrowserProfiles": false,
+      "browserProfilesText": "the-windows-machine's Director is not connected, so its browser profiles cannot be listed.",
+      "readiness": "no-room",
+      "readinessTargetAccountEmail": null,
+      "readinessText": "No other account has room for it to switch to.",
+      "readinessTone": "neutral"
     }
   ]
 }

@@ -9,8 +9,9 @@ import { describeAndReport } from "@devthrottle/client-core/errors/reportClientE
 import { Button } from "../components";
 import { LICENSES_SURFACE, LocalTime, TonePill, WindowBar, toneClass } from "./licenseParts";
 
-// One Claude account as a card: its status, the day its subscription is billed again and the control that sets it,
-// its two usage windows as bars, what the Gateway says about it, the sign-in each machine holds for it and when that
+// One Claude account as a card: its status, its two usage windows as bars (the weekly one with the forecast's projected
+// part when the Gateway sends one), the Forecast box (the Gateway's rows), the Subscription box (the plan, the day it is
+// billed again and the control that sets it), what the Gateway says about it, the sign-in each machine holds for it and when that
 // sign-in expires, who approves a sign-in for it, Renew now on each sign-in, and Switch now.
 
 interface HeldOn {
@@ -126,22 +127,62 @@ export function LicenseAccountCard({
         <span className="lic-card-name">{account.accountEmail}</span>
         <TonePill text={account.statusText} tone={account.statusTone} testId="lic-account-status" />
       </div>
-      <div className="lic-card-meta">
-        <span data-testid="lic-account-renewal">
-          {account.planText} - {account.renewsText}
-        </span>
+      <WindowBar label="5-hour window" window={account.fiveHour} testId="lic-window-five-hour" />
+      <WindowBar
+        label="Week"
+        window={account.sevenDay}
+        testId="lic-window-seven-day"
+        projectedPercent={forecast?.projectedWeekPercent ?? null}
+      />
+
+      {/* The Forecast box: the Gateway's rows in its tones, each time it names in the viewer's own time zone. */}
+      {forecast !== undefined && (
+        <div className="lic-box" data-testid="lic-account-forecast">
+          <div className="lic-box-tag">Forecast</div>
+          {forecast.rows.map((row) => (
+            <div key={row.label} className="lic-box-row" data-testid="lic-forecast-row">
+              <span className="lic-box-label">{row.label}</span>
+              <span className={`lic-box-value ${toneClass(row.tone)}`}>
+                {row.text}
+                {row.atUtc !== null && (
+                  <>
+                    {" "}
+                    (<LocalTime iso={row.atUtc} />)
+                  </>
+                )}
+              </span>
+            </div>
+          ))}
+          <p className="lic-box-foot" data-testid="lic-account-expected">
+            {forecast.expectedText}
+          </p>
+        </div>
+      )}
+
+      {/* The Subscription box: the plan, and the day it is billed again as a person set it. */}
+      <div className="lic-box" data-testid="lic-account-subscription">
+        <div className="lic-box-tag">Subscription</div>
+        <div className="lic-box-row">
+          <span className="lic-box-label">Plan</span>
+          <span className="lic-box-value" data-testid="lic-account-plan">
+            {account.planText}
+          </span>
+        </div>
+        <div className="lic-box-row">
+          <span className="lic-box-label">Renews</span>
+          <span className="lic-box-value" data-testid="lic-account-renewal">
+            {account.renewsText}
+          </span>
+        </div>
         {!editingRenewal && (
           <Button variant="ghost" onClick={() => setEditingRenewal(true)}>
             Set renewal date
           </Button>
         )}
+        {editingRenewal && (
+          <RenewalDateEditor account={account} onSetRenewalDate={onSetRenewalDate} onClose={() => setEditingRenewal(false)} />
+        )}
       </div>
-      {editingRenewal && (
-        <RenewalDateEditor account={account} onSetRenewalDate={onSetRenewalDate} onClose={() => setEditingRenewal(false)} />
-      )}
-
-      <WindowBar label="5-hour window" window={account.fiveHour} testId="lic-window-five-hour" />
-      <WindowBar label="Week" window={account.sevenDay} testId="lic-window-seven-day" />
 
       <p className="lic-card-detail">{account.statusDetail}</p>
       {/* Barred from the automatic choice: the Gateway's sentence, and the time it gave in the viewer's time zone.
@@ -155,11 +196,6 @@ export function LicenseAccountCard({
               (<LocalTime iso={account.barredUntilUtc} />)
             </>
           )}
-        </p>
-      )}
-      {forecast !== undefined && (
-        <p className="lic-card-line" data-testid="lic-account-expected">
-          {forecast.expectedText}
         </p>
       )}
       <p className="lic-card-line">{account.extraUsage.text}</p>

@@ -490,7 +490,28 @@ export const FORECAST: LicenseForecast = {
       "expectedAtLimitUtc": "2026-10-11T03:14:04.1052631Z",
       "expectedText": "Expected to reach 97% of its 5-hour window in about 2 minutes.",
       "nextSwitchTargetAccountEmail": "account-b@example.com",
-      "nextSwitchText": "Next: account-b@example.com, in about 2 minutes."
+      "nextSwitchText": "Next: account-b@example.com, in about 2 minutes.",
+      "rows": [
+        {
+          "label": "Pace",
+          "text": "28.5% an hour on its 5-hour window",
+          "atUtc": null,
+          "tone": "neutral"
+        },
+        {
+          "label": "Reaches 97%",
+          "text": "In about 2 minutes",
+          "atUtc": "2026-10-11T03:14:04.1052631Z",
+          "tone": "warning"
+        },
+        {
+          "label": "Then switches to",
+          "text": "account-b@example.com",
+          "atUtc": null,
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
     },
     {
       "accountEmail": "account-b@example.com",
@@ -521,7 +542,16 @@ export const FORECAST: LicenseForecast = {
       "expectedAtLimitUtc": null,
       "expectedText": "Not expected to reach its limit.",
       "nextSwitchTargetAccountEmail": null,
-      "nextSwitchText": "Not in use, so there is nothing to switch."
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room",
+          "text": "Now",
+          "atUtc": null,
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
     },
     {
       "accountEmail": "account-c@example.com",
@@ -552,7 +582,16 @@ export const FORECAST: LicenseForecast = {
       "expectedAtLimitUtc": "2026-10-11T03:12:00Z",
       "expectedText": "Has reached 97% of its 5-hour window.",
       "nextSwitchTargetAccountEmail": null,
-      "nextSwitchText": "Not in use, so there is nothing to switch."
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room again",
+          "text": "In about 1 hour 48 minutes",
+          "atUtc": "2026-10-11T05:00:00Z",
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
     }
   ],
   "machines": [
@@ -576,7 +615,438 @@ export const FORECAST: LicenseForecast = {
       "expectedSwitchAtUtc": "2026-10-11T03:14:04.1052631Z",
       "text": "Next: account-b@example.com, in about 2 minutes."
     }
-  ]
+  ],
+  "outlook": {
+    "axisStartUtc": "2026-10-11T03:12:00Z",
+    "axisEndUtc": "2026-10-18T03:12:00Z",
+    "headline": {
+      "text": "account-a@example.com runs out in about 2 minutes, and account-b@example.com has room then.",
+      "detail": null,
+      "tone": "good",
+      "isAlert": false
+    },
+    "runsOut": {
+      "label": "Active account runs out",
+      "valueText": "In about 2 minutes",
+      "atUtc": "2026-10-11T03:14:04.1052631Z",
+      "detailText": "account-a@example.com: 96% of its 5-hour window now, rising 28.5% an hour.",
+      "tone": "warning"
+    },
+    "nextRoom": {
+      "label": "Next account with room",
+      "valueText": "Now",
+      "atUtc": null,
+      "detailText": "account-b@example.com has room.",
+      "tone": "good"
+    },
+    "nextRenewal": {
+      "label": "Next renewal",
+      "valueText": "Not set",
+      "atUtc": null,
+      "detailText": "No account has a renewal date stored. Set one on its card.",
+      "tone": "neutral"
+    },
+    "rows": [
+      {
+        "accountEmail": "account-a@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-11T03:12:00Z",
+            "endUtc": "2026-10-11T03:14:04.1052631Z",
+            "kind": "room",
+            "text": "Has room"
+          },
+          {
+            "startUtc": "2026-10-11T03:14:04.1052631Z",
+            "endUtc": "2026-10-11T05:00:00Z",
+            "kind": "at-limit",
+            "text": "At its 5-hour window until it resets"
+          },
+          {
+            "startUtc": "2026-10-11T05:00:00Z",
+            "endUtc": "2026-10-18T03:12:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-b@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-11T03:12:00Z",
+            "endUtc": "2026-10-18T03:12:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-c@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-11T03:12:00Z",
+            "endUtc": "2026-10-11T05:00:00Z",
+            "kind": "at-limit",
+            "text": "At its 5-hour window until it resets"
+          },
+          {
+            "startUtc": "2026-10-11T05:00:00Z",
+            "endUtc": "2026-10-18T03:12:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      }
+    ],
+    "gaps": [],
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+  }
+};
+
+/** GET /gateway/licenses/forecast with a gap: the account in use runs out while no other account has room, a stale account, a renewal today. */
+export const FORECAST_GAP: LicenseForecast = {
+  "asOfUtc": "2026-10-20T15:22:00Z",
+  "isEmpty": false,
+  "emptyText": null,
+  "nextSwitch": {
+    "fromAccountEmail": "account-a@example.com",
+    "expectedAtUtc": "2026-10-21T12:31:49.7999999Z",
+    "window": "seven-day",
+    "windowText": "weekly limit",
+    "targetAccountEmail": null,
+    "machines": []
+  },
+  "nextSwitchText": "account-a@example.com is expected to reach 97% of its weekly limit in about 21 hours 9 minutes. No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room. Nothing would be switched.",
+  "accounts": [
+    {
+      "accountEmail": "account-a@example.com",
+      "isInUse": true,
+      "isStale": false,
+      "fiveHour": {
+        "utilization": 12,
+        "utilizationText": "12%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": 0,
+        "rateText": "Not rising",
+        "expectedAtLimitUtc": null,
+        "expectedText": "Not rising, so not expected to reach 97%."
+      },
+      "sevenDay": {
+        "utilization": 44,
+        "utilizationText": "44%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-25T21:59:00Z",
+        "resetsText": "Resets in 5 days 6 hours",
+        "percentPerHour": 2.5041736227045077,
+        "rateText": "2.5% an hour",
+        "expectedAtLimitUtc": "2026-10-21T12:31:49.7999999Z",
+        "expectedText": "Expected to reach 97% in about 21 hours 9 minutes."
+      },
+      "expectedAtLimitUtc": "2026-10-21T12:31:49.7999999Z",
+      "expectedText": "Expected to reach 97% of its weekly limit in about 21 hours 9 minutes.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room. It reaches its limit in about 21 hours 9 minutes.",
+      "rows": [
+        {
+          "label": "Pace",
+          "text": "2.5% an hour on its weekly limit",
+          "atUtc": null,
+          "tone": "neutral"
+        },
+        {
+          "label": "Reaches 97%",
+          "text": "In about 21 hours 9 minutes",
+          "atUtc": "2026-10-21T12:31:49.7999999Z",
+          "tone": "warning"
+        },
+        {
+          "label": "Then switches to",
+          "text": "Nobody has room for about 1 day 8 hours",
+          "atUtc": null,
+          "tone": "bad"
+        }
+      ],
+      "projectedWeekPercent": 97
+    },
+    {
+      "accountEmail": "account-b@example.com",
+      "isInUse": false,
+      "isStale": false,
+      "fiveHour": {
+        "utilization": 3,
+        "utilizationText": "3%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": 0,
+        "rateText": "Not rising",
+        "expectedAtLimitUtc": null,
+        "expectedText": "Not rising, so not expected to reach 97%."
+      },
+      "sevenDay": {
+        "utilization": 98,
+        "utilizationText": "98%",
+        "level": "at-limit",
+        "resetsAtUtc": "2026-10-22T21:00:00Z",
+        "resetsText": "Resets in 2 days 5 hours",
+        "percentPerHour": 0,
+        "rateText": "Not rising",
+        "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+        "expectedText": "Has reached 97%."
+      },
+      "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+      "expectedText": "Has reached 97% of its weekly limit.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room again",
+          "text": "In about 2 days 5 hours",
+          "atUtc": "2026-10-22T21:00:00Z",
+          "tone": "good"
+        },
+        {
+          "label": "Next in line",
+          "text": "Yes - the first account to have room again",
+          "atUtc": null,
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
+    },
+    {
+      "accountEmail": "account-c@example.com",
+      "isInUse": false,
+      "isStale": false,
+      "fiveHour": {
+        "utilization": 0,
+        "utilizationText": "0%",
+        "level": "normal",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": null,
+        "expectedText": "No forecast yet: there are not enough readings to show a rate."
+      },
+      "sevenDay": {
+        "utilization": 100,
+        "utilizationText": "100%",
+        "level": "at-limit",
+        "resetsAtUtc": "2026-10-24T18:59:00Z",
+        "resetsText": "Resets in 4 days 3 hours",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+        "expectedText": "Has reached 97%."
+      },
+      "expectedAtLimitUtc": "2026-10-20T15:22:00Z",
+      "expectedText": "Has reached 97% of its weekly limit.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Has room again",
+          "text": "In about 4 days 3 hours",
+          "atUtc": "2026-10-24T18:59:00Z",
+          "tone": "good"
+        }
+      ],
+      "projectedWeekPercent": null
+    },
+    {
+      "accountEmail": "account-d@example.com",
+      "isInUse": false,
+      "isStale": true,
+      "fiveHour": {
+        "utilization": 0,
+        "utilizationText": "0%",
+        "level": "stale",
+        "resetsAtUtc": "2026-10-20T18:00:00Z",
+        "resetsText": "Resets in 2 hours 38 minutes",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": null,
+        "expectedText": "No forecast: the latest reading is too old."
+      },
+      "sevenDay": {
+        "utilization": 30,
+        "utilizationText": "30%",
+        "level": "stale",
+        "resetsAtUtc": "2026-10-23T12:00:00Z",
+        "resetsText": "Resets in 2 days 20 hours",
+        "percentPerHour": null,
+        "rateText": "No rate yet",
+        "expectedAtLimitUtc": null,
+        "expectedText": "No forecast: the latest reading is too old."
+      },
+      "expectedAtLimitUtc": null,
+      "expectedText": "No forecast: the latest reading is too old.",
+      "nextSwitchTargetAccountEmail": null,
+      "nextSwitchText": "Not in use, so there is nothing to switch.",
+      "rows": [
+        {
+          "label": "Forecast",
+          "text": "Not known: the latest reading is too old.",
+          "atUtc": null,
+          "tone": "neutral"
+        }
+      ],
+      "projectedWeekPercent": null
+    }
+  ],
+  "machines": [
+    {
+      "machineId": "94ebcb15a4bf40438dca738dd31189d9",
+      "machineName": "the-mac",
+      "osUser": "owner",
+      "label": "the-mac",
+      "activeAccountEmail": "account-a@example.com",
+      "nextAccountEmail": null,
+      "expectedSwitchAtUtc": null,
+      "text": "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room."
+    },
+    {
+      "machineId": "f26a799d85a244129a27ba10b8cb3427",
+      "machineName": "the-windows-machine",
+      "osUser": "owner",
+      "label": "the-windows-machine",
+      "activeAccountEmail": "account-a@example.com",
+      "nextAccountEmail": null,
+      "expectedSwitchAtUtc": null,
+      "text": "No other account has room for the machines on account-a@example.com: for account-b@example.com, it is at 98% of its weekly limit; for account-c@example.com, it is at 100% of its weekly limit; for account-d@example.com, its latest reading is too old to show it has room."
+    }
+  ],
+  "outlook": {
+    "axisStartUtc": "2026-10-20T15:22:00Z",
+    "axisEndUtc": "2026-10-27T15:22:00Z",
+    "headline": {
+      "text": "account-a@example.com runs out in about 21 hours 9 minutes, and no other account has room for about 1 day 8 hours after that.",
+      "detail": "At its slower weekly average pace it runs out in about 2 days 1 hour, and no account has room for about 3 hours 47 minutes.",
+      "tone": "bad",
+      "isAlert": true
+    },
+    "runsOut": {
+      "label": "Active account runs out",
+      "valueText": "In about 21 hours 9 minutes",
+      "atUtc": "2026-10-21T12:31:49.7999999Z",
+      "detailText": "account-a@example.com: 44% of its weekly limit now, rising 2.5% an hour.",
+      "tone": "warning"
+    },
+    "nextRoom": {
+      "label": "Next account with room",
+      "valueText": "In about 2 days 5 hours",
+      "atUtc": "2026-10-22T21:00:00Z",
+      "detailText": "account-b@example.com, when its weekly limit resets.",
+      "tone": "neutral"
+    },
+    "nextRenewal": {
+      "label": "Next renewal",
+      "valueText": "Today, 20 Oct",
+      "atUtc": null,
+      "detailText": "account-b@example.com, Max.",
+      "tone": "warning"
+    },
+    "rows": [
+      {
+        "accountEmail": "account-a@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-21T12:31:49.7999999Z",
+            "kind": "room",
+            "text": "Has room"
+          },
+          {
+            "startUtc": "2026-10-21T12:31:49.7999999Z",
+            "endUtc": "2026-10-22T17:12:46.5681818Z",
+            "kind": "forecast",
+            "text": "Forecast to reach 97% of its weekly limit in this span"
+          },
+          {
+            "startUtc": "2026-10-22T17:12:46.5681818Z",
+            "endUtc": "2026-10-25T21:59:00Z",
+            "kind": "at-limit",
+            "text": "At its weekly limit until it resets"
+          },
+          {
+            "startUtc": "2026-10-25T21:59:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-b@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-22T21:00:00Z",
+            "kind": "at-limit",
+            "text": "At its weekly limit until it resets"
+          },
+          {
+            "startUtc": "2026-10-22T21:00:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": [
+          {
+            "renewsOn": "2026-10-20",
+            "text": "Renews today, 20 Oct"
+          }
+        ]
+      },
+      {
+        "accountEmail": "account-c@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-24T18:59:00Z",
+            "kind": "at-limit",
+            "text": "At its weekly limit until it resets"
+          },
+          {
+            "startUtc": "2026-10-24T18:59:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "room",
+            "text": "Has room"
+          }
+        ],
+        "marks": []
+      },
+      {
+        "accountEmail": "account-d@example.com",
+        "spans": [
+          {
+            "startUtc": "2026-10-20T15:22:00Z",
+            "endUtc": "2026-10-27T15:22:00Z",
+            "kind": "unknown",
+            "text": "Not known: the latest reading is too old"
+          }
+        ],
+        "marks": []
+      }
+    ],
+    "gaps": [
+      {
+        "startUtc": "2026-10-21T12:31:49.7999999Z",
+        "endUtc": "2026-10-22T21:00:00Z",
+        "text": "No account has room for about 1 day 8 hours."
+      }
+    ],
+    "legendText": "Green: has room. Amber: forecast to reach 97% somewhere in this span, between its current pace and its slower weekly average pace. Red: at a limit, or left out of the automatic choice, until it resets. Grey: not known. A dashed red band: no account has room. On today's numbers: an account with room is not shown being used up by the machines that would move to it."
+  }
 };
 
 /** GET /gateway/licenses/log?limit=4: a spare added, a switch that FAILED, a spare removed, a switch that worked; older rows exist. */
