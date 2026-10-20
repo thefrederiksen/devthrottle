@@ -75,3 +75,45 @@ Passed!  - Failed:     0, Passed:  1091, Skipped:     0, Total:  1091
 dotnet test src/CcDirector.Core.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~GateTestsDoNotDependOnTheMachine"
 Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11
 ```
+
+## Second review (`ended-answers-review.md`), finding 1 - the router runs before the owner brings the session back: STOPPED, waiting on the Tech Lead
+
+The Tech Lead ruled that an ending written because a Director stopped or restarted must wait like `interrupted`, and
+only an ending a person or the agent itself made ends a routed session at once - first establishing whether the history
+record can tell them apart. **It cannot, for a Smart Restart.** What each path records (read on this branch, which is
+`mail-desk-phase-4` plus this pull request; none of these files is changed by it):
+
+- **A plain Director shutdown writes `director-stopped`, and that can be told apart.** `App.OnShutdown`
+  (`src/CcDirector.Avalonia/App.axaml.cs`) sends the Gateway farewell FIRST, before the sessions are killed; the hub's
+  `DirectorStopping` stamps every open row of that Director `director-stopped` (`SessionHistoryStore.MarkDirectorStopped`),
+  and a per-session remove arriving during the kill keeps that first ruling.
+- **A Smart Restart's drain writes `closed` or `finished` - the same as a person or the agent.** The drain ends each seat
+  BEFORE the process stops: a seat that handed over is flagged for deletion and the reaper removes it
+  (`DirectorDrain.cs` line 1254, `MarkForDeletion`); a seat still present at the time limit is ended
+  (`DirectorDrain.cs` line 1750, `EndAsync`). Either way the Gateway gets a plain per-session remove
+  (`DirectorHub.RemoveSession`), which carries no reason. `SessionHistoryRecorder.ObserveRemoval` rules `finished` when
+  the last pushed state was Exited or Failed or the dismiss verdict was done, and `closed` otherwise - exactly what a
+  person closing the session, or the reaper after the agent's own `session done`, records. The farewell that follows
+  finds no open row left, so no `director-stopped` is written for them.
+- "Shut down and ignore all sessions" (`DirectorSmartShutdown.cs` line 302) also ends each session `closed`, with
+  `keepKitForRestore: false` - nothing is brought back, so ending those at once is right.
+
+**What the Gateway does hold that could tell them apart: the restart record.** The drain saves the record to the
+Gateway before it ends each seat (`SaveAsync` at `DirectorDrain.cs` line 1247 before line 1254, and at line 1744 before
+line 1750). Each seat (`WorkspaceSeat`, `src/CcDirector.Gateway.Contracts/WorkspaceDtos.cs`) carries the OLD
+`SessionId`, the name, the restore decision, and - once brought back - `ReopenedSessionId`
+(`WorkspaceStore.RecordRestoredByClaim`). So a routed session whose id is a seat on a restart record still owed could
+wait (seat busy, not re-routed), and be followed to `ReopenedSessionId` when the seat is brought back - an exact follow,
+not by name. When the owner decides not to bring it back, or after the 24 hours, it ends as before.
+
+Recommendation, for the Tech Lead to rule on:
+
+1. Treat `director-stopped` like `interrupted` (wait; followed if it comes back; 24 hours). Straightforward, as ruled.
+2. For a Smart Restart, read the restart record: add a delegate "is this session a seat on a restart record of this
+   account, and if it was brought back, as which session" (`WorkspaceStore`), asked once per run with the same ids as
+   the history endings. A seat still owed: wait. Brought back: follow `ReopenedSessionId`. Not to be brought back:
+   ended at once.
+3. Keep the follow by name as it is, for a restore whose record mark was not written (`MarkReopenedAsync` failing is
+   logged and tolerated by the Director).
+
+Not built: nothing for this finding is in the code until the Tech Lead rules. The review file is merged in.
