@@ -1843,10 +1843,10 @@ ZONE_CANDIDATES = ["Asia/Kolkata", "Asia/Kathmandu", "Asia/Yangon", "Asia/Tehran
                                              for n in range(-14, 13)]
 
 
-def zone_with_morning_ahead(low=20, high=50):
+def zone_with_morning_ahead(low=25, high=85):
     """A real time zone in which the next 08:00 is between `low` and `high` minutes from now, so the account's 08:00
     email falls due after the owner case has run. Whole-hour zones plus the half- and quarter-hour ones always leave
-    one in any half hour."""
+    one in any hour."""
     import zoneinfo
     best = None
     for name in ZONE_CANDIDATES:
@@ -1875,8 +1875,9 @@ def section_return_owner():
     raw("PUT", "/gateway/time-zone", {"timeZone": zone}, 200)
     cli(["factory", "email", "on"], None)
     if STATE.get("support_session"):
+        # Ended, and left in the list as crashed: a stopped session leaves the list, and one the Gateway no longer
+        # sees counts as alive for 24 hours (contract 3.2 step 3), which would keep the seat busy.
         end_session(STATE["support_session"], "its email is done; the next support email needs the seat free")
-        stop_session(STATE["support_session"])
     model.say("Refund question [rig: return it with maildesk return]", spam="person", route=SUPPORT_HANDLES, confidence=0.95)
     graph.put(TWO, "inbox", mail("customer@client.example", "Refund question [rig: return it with maildesk return]"))
     returned = wait_for("the support seat did not return the email", lambda: next(
@@ -1908,10 +1909,11 @@ def section_return_owner():
     check(len(mine) == 1, "the email handed to the owner is one Open problem, kind mail-handed-to-owner")
     note(f"waiting for the account's 08:00 ({zone}) and the factory email sweep (every 2 minutes, 5 minutes after the hour)")
     email = wait_for("no 08:00 email was composed", lambda: next(
-        (e for e in get("/gateway/factory-emails?state=all&limit=20").get("emails", []) if e.get("kind") == "morning"),
+        (e for e in get("/gateway/factory-emails?state=all&limit=20").get("emails", []) if str(e.get("kind", "")).startswith("morning")),
         None), seconds=int(ahead * 60) + 900, every=15)
     full = get(f"/gateway/factory-emails/{email['id']}")
-    text = full.get("text") or full.get("html") or ""
+    import html as html_text
+    text = html_text.unescape(re.sub(r"\s*\n\s*", "\n", re.sub(r"<[^>]+>", "\n", full.get("html") or "")))
     start = text.find("Returned and routed")
     record("the composed 08:00 email: its state and its Mail Desk part (from 'Returned and routed')",
            f"  state: {email.get('state')}, detail: {email.get('detail')}\n"
