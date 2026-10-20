@@ -227,7 +227,7 @@ public sealed class RestartOnlyIfEmptyTests
         }
         finally
         {
-            try { if (!director.HasExited) director.Kill(entireProcessTree: true); } catch { }
+            Rig.Kill(director);
             try { Directory.Delete(root, recursive: true); } catch { }
         }
     }
@@ -470,10 +470,28 @@ public sealed class RestartOnlyIfEmptyTests
             try { Directory.Delete(_root, recursive: true); } catch { /* a temp directory */ }
         }
 
-        private static void Kill(Process p)
+        /// <summary>
+        /// End a stand-in and release what listens for it. The release is done HERE, before the process is
+        /// disposed, and not only from its Exited event: a disposed process does not reliably raise Exited
+        /// (measured by the review of #4311 at 16 in 20), and a stand-in nobody signalled would otherwise keep
+        /// its named event and its thread-pool wait until the test host exits.
+        /// </summary>
+        internal static void Kill(Process p)
         {
             try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            ReleaseListener(p.Id);
             p.Dispose();
+        }
+
+        /// <summary>The shutdown signal each live stand-in's test is holding, by the stand-in's process id.</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, (EventWaitHandle Signal, RegisteredWaitHandle Wait)> Listeners = new();
+
+        /// <summary>Release the signal held for one stand-in. Safe to call more than once.</summary>
+        private static void ReleaseListener(int processId)
+        {
+            if (!Listeners.TryRemove(processId, out var held)) return;
+            held.Wait.Unregister(null);
+            held.Signal.Dispose();
         }
 
         /// <summary>
@@ -511,12 +529,10 @@ public sealed class RestartOnlyIfEmptyTests
                 catch (InvalidOperationException) { /* already gone */ }
             }, null, Timeout.Infinite, executeOnlyOnce: true);
 
+            Listeners[helper.Id] = (listening, raised);
+            var id = helper.Id;
             helper.EnableRaisingEvents = true;
-            helper.Exited += (_, _) =>
-            {
-                raised.Unregister(null);
-                listening.Dispose();
-            };
+            helper.Exited += (_, _) => ReleaseListener(id);
             return helper;
         }
     }
