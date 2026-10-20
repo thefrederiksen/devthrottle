@@ -1,0 +1,49 @@
+command: pwsh -NoProfile -File scripts\measure-rule-hook.ps1 -Hook <run 39421736490 artifact>\cc-rule-hook.exe -Runs 300
+script: origin/main 0eb3a64bc, unchanged
+hook sha256: B859F729889BB6FB40AB214EB16DC8D6D466F564C78C598C8E7291125788758A
+processor load before: 10 percent, after: 100 percent
+
+cc-rule-hook: D:\ReposFred\devthrottle-session-rules-p1-winrows\scripts\local-build-downloads\cc-rule-hook-win-x64\cc-rule-hook.exe (2552832 bytes)
+event: D:\ReposFred\devthrottle-session-rules-winrows-main\src\CcDirector.RuleHook.Tests\Fixtures\claude-code-2.1.302-windows-pretooluse-bash.json
+baseline program: C:\Program Files\Git\usr\bin\true.exe; through-a-shell row: C:\Program Files\Git\bin\bash.exe -c /usr/bin/true
+runs per row: 300, on SOREN_NORTH, Microsoft Windows 10.0.26200, 24 processors
+
+baseline         median   11.68 ms   95th percentile   38.25 ms
+through a shell  median   38.03 ms   95th percentile  220.35 ms
+no-session       median   12.66 ms   95th percentile   26.07 ms
+no-rules-file    median   14.74 ms   95th percentile   30.87 ms
+0 rules          median   13.91 ms   95th percentile  140.87 ms
+1 rule           median   12.47 ms   95th percentile   15.02 ms
+50 rules         median   19.33 ms   95th percentile  232.39 ms
+
+decision files written: 604 (expected 604 from the 1-rule and 50-rule rows)
+evaluation log absent: 302 lines, last: 2026-10-20T13:42:11.1997389Z	shell	rules=0	matched=0	no_rules_file	1110us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log zero: 302 lines, last: 2026-10-20T13:42:19.6085861Z	shell	rules=0	matched=0	no_match	1682us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log one: 302 lines, last: 2026-10-20T13:42:23.9074568Z	shell	rules=1	matched=1	would_deny	1777us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log fifty: 302 lines, last: 2026-10-20T13:42:46.1606095Z	shell	rules=50	matched=1	would_deny	4136us	toolu_01WizwWtYmE55YUkHNxpqfSD
+
+exit code: 0
+
+==== second run
+processor load before: 40 percent, after: 50 percent
+
+cc-rule-hook: D:\ReposFred\devthrottle-session-rules-p1-winrows\scripts\local-build-downloads\cc-rule-hook-win-x64\cc-rule-hook.exe (2552832 bytes)
+event: D:\ReposFred\devthrottle-session-rules-winrows-main\src\CcDirector.RuleHook.Tests\Fixtures\claude-code-2.1.302-windows-pretooluse-bash.json
+baseline program: C:\Program Files\Git\usr\bin\true.exe; through-a-shell row: C:\Program Files\Git\bin\bash.exe -c /usr/bin/true
+runs per row: 300, on SOREN_NORTH, Microsoft Windows 10.0.26200, 24 processors
+
+baseline         median   15.15 ms   95th percentile   29.01 ms
+through a shell  median   58.57 ms   95th percentile  202.85 ms
+no-session       median   15.40 ms   95th percentile   24.28 ms
+no-rules-file    median   14.80 ms   95th percentile   27.71 ms
+0 rules          median   14.13 ms   95th percentile   21.38 ms
+1 rule           median   17.79 ms   95th percentile   29.29 ms
+50 rules         median   17.90 ms   95th percentile   26.56 ms
+
+decision files written: 604 (expected 604 from the 1-rule and 50-rule rows)
+evaluation log absent: 302 lines, last: 2026-10-20T13:43:51.8405064Z	shell	rules=0	matched=0	no_rules_file	708us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log zero: 302 lines, last: 2026-10-20T13:43:56.8539555Z	shell	rules=0	matched=0	no_match	2105us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log one: 302 lines, last: 2026-10-20T13:44:04.1519874Z	shell	rules=1	matched=1	would_deny	3068us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log fifty: 302 lines, last: 2026-10-20T13:44:10.4365916Z	shell	rules=50	matched=1	would_deny	4134us	toolu_01WizwWtYmE55YUkHNxpqfSD
+
+exit code: 0

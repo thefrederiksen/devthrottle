@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \u0022C:\\Users\\soren\\AppData\\Local\\session-rules-rig-win\\root\\instances\\default\\claude-hooks\\report-session.ps1\u0022",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \u0022C:\\Users\\soren\\AppData\\Local\\session-rules-rig-win\\root\\instances\\default\\claude-hooks\\report-session.ps1\u0022",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \u0022C:\\Users\\soren\\AppData\\Local\\session-rules-rig-win\\root\\instances\\default\\claude-hooks\\report-session.ps1\u0022",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \u0022C:\\Users\\soren\\AppData\\Local\\session-rules-rig-win\\root\\instances\\default\\claude-hooks\\report-session.ps1\u0022",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|PowerShell)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Users\\soren\\AppData\\Local\\session-rules-rig-win\\root\\instances\\default\\claude-hooks\\cc-rule-hook.exe",
+            "args": [],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
