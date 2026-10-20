@@ -3292,6 +3292,17 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("EarlierReturnNote")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EarlierReturnedFrom")
+                        .HasMaxLength(129)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EarlierReturnedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Factory")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -3301,8 +3312,22 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("OwnerUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("RerouteCount")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ResolvedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("ReturnNote")
                         .HasMaxLength(4000)
@@ -3310,6 +3335,13 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<int>("ReturnedCount")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReturnedFrom")
+                        .HasMaxLength(129)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReturnedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Seat")
                         .IsRequired()

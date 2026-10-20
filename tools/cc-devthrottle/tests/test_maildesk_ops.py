@@ -942,3 +942,258 @@ def test_set_SwitchOff_SaysMailDeskIsNotSwitchedOn(fake_gateway):
     # Assert
     assert result.exit_code == 1, result.output
     assert maildesk_ops.SWITCHED_OFF in result.output
+
+
+# ---------- emails routed to seats (phase 4, contract sections 4.1 and 4.3) ----------
+
+ROUTED_ID = "9b2c1f00-0000-4000-8000-000000000001"
+HOLDER = "eeeeeeee-0000-4000-8000-000000000001"
+
+ROUTED = {
+    "id": ROUTED_ID,
+    "decisionId": "e0e0e0e0-0000-4000-8000-000000000003",
+    "channel": LONG_ADDRESS,
+    "messageKey": "message-1",
+    "sender": "someone-with-a-long-sender-address@another-subdomain.example.org",
+    "subject": "Your invoice",
+    "receivedUtc": "2026-10-19T07:00:00Z",
+    "factory": "qa-books",
+    "seat": "clerk",
+    "sessionId": HOLDER,
+    "state": "open",
+    "stateLabel": f"Open - with session {HOLDER}",
+    "queued": False,
+    "returnNote": None,
+    "returnedCount": 0,
+    "rerouteCount": 0,
+    "startFailures": 0,
+    "ownerReason": None,
+    "doneNote": None,
+    "createdUtc": "2026-10-19T07:01:00Z",
+    "changedUtc": "2026-10-19T07:01:00Z",
+}
+
+
+def test_routed_PrintsEveryRowWithTheGatewaysLabelAndIdsInFull(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/routed", 200, {"count": 1, "total": 1, "routed": [ROUTED]})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "routed"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    call = _only_call(fake_gateway)
+    assert (call["method"], call["path"], call["query"]) == ("GET", "/gateway/mail-desk/routed", {})
+    assert result.stdout.startswith("count: 1\n")
+    assert ROUTED_ID in result.stdout
+    assert HOLDER in result.stdout
+    assert LONG_ADDRESS in result.stdout
+    assert ROUTED["stateLabel"] in result.stdout
+    assert "qa-books/clerk" in result.stdout
+    assert "help[" in result.stdout
+    assert result.stdout.isascii()
+
+
+def test_routed_EveryFilter_ReachesTheQuery(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/routed", 200, {"count": 0, "total": 0, "routed": []})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "routed", "--state", "open", "--queued", "--factory", "qa-books",
+                                 "--seat", "clerk", "-n", "5"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert _only_call(fake_gateway)["query"] == {"state": "open", "queued": "true", "factory": "qa-books",
+                                                  "seat": "clerk", "n": "5"}
+
+
+def test_routed_Json_WithAFilter_SendsTheFilterAndPrintsTheAnswerInItsOwnShape(fake_gateway):
+    # Arrange
+    answer = {"count": 1, "total": 3, "routed": [ROUTED]}
+    fake_gateway.answer("GET", "/routed", 200, answer)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "routed", "--state", "open", "--json"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert _only_call(fake_gateway)["query"] == {"state": "open"}
+    assert json.loads(result.stdout) == answer
+
+
+def test_routed_Empty_SaysCountZero(fake_gateway):
+    # Arrange
+    fake_gateway.answer("GET", "/routed", 200, {"count": 0, "total": 0, "routed": []})
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "routed", "--state", "returned"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("count: 0\n")
+
+
+def test_routed_UnknownState_ExitsTwoListingTheStatesAndSendsNothing(fake_gateway):
+    # Act
+    result = runner.invoke(app, ["maildesk", "routed", "--state", "lost"])
+
+    # Assert
+    assert result.exit_code == 2, result.output
+    assert "Valid states: open, done, returned" in result.output
+    assert fake_gateway.calls == []
+
+
+@pytest.mark.parametrize("args, sent", [
+    (["--note", "paid it"], {"note": "paid it"}),
+    ([], {}),
+])
+def test_done_PostsTheNoteOnlyWhenGiven_AndPrintsTheGatewaysLabel(fake_gateway, args, sent):
+    # Arrange
+    fake_gateway.answer("POST", f"/routed/{ROUTED_ID}/done", 200,
+                        dict(ROUTED, state="done", stateLabel="Done", doneNote=sent.get("note")))
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "done", ROUTED_ID, *args])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    call = _only_call(fake_gateway)
+    assert (call["method"], call["path"], call["body"]) == ("POST", f"/gateway/mail-desk/routed/{ROUTED_ID}/done", sent)
+    assert call["headers"]["Authorization"] == "Bearer session-key"
+    assert f"Routed email {ROUTED_ID}: Done." in result.stdout
+
+
+def test_return_PostsTheNote_AndPrintsWhereItWent(fake_gateway):
+    # Arrange
+    label = "Queued - waiting for mail-desk/mail-desk"
+    fake_gateway.answer("POST", f"/routed/{ROUTED_ID}/return", 200,
+                        dict(ROUTED, factory="mail-desk", seat="mail-desk", sessionId=None, queued=True,
+                             stateLabel=label, returnedCount=1, returnNote="a support question"))
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "return", ROUTED_ID, "--note", "  a support question  "])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    call = _only_call(fake_gateway)
+    assert (call["path"], call["body"]) == (f"/gateway/mail-desk/routed/{ROUTED_ID}/return", {"note": "a support question"})
+    assert f"Routed email {ROUTED_ID}: {label}." in result.stdout
+
+
+def test_return_HandedToTheOwner_PrintsTheGatewaysLabel(fake_gateway):
+    # Arrange
+    label = "With you - the Mail Desk agent returned it: no seat fits"
+    fake_gateway.answer("POST", f"/routed/{ROUTED_ID}/return", 200, dict(ROUTED, state="returned", stateLabel=label))
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "return", ROUTED_ID, "--note", "no seat fits"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert label in result.stdout
+
+
+@pytest.mark.parametrize("args", [
+    ["return", ROUTED_ID],
+    ["return", ROUTED_ID, "--note", ""],
+    ["return", ROUTED_ID, "--note", "   "],
+])
+def test_return_WithoutANote_ExitsTwoAndSendsNothing(fake_gateway, args):
+    # Act
+    result = runner.invoke(app, ["maildesk", *args])
+
+    # Assert
+    assert result.exit_code == 2, result.output
+    assert "--note is required" in result.output
+    assert fake_gateway.calls == []
+
+
+@pytest.mark.parametrize("args, path, status, body, printed", [
+    (["done", ROUTED_ID], f"/routed/{ROUTED_ID}/done", 403,
+     {"error": "not_your_email", "detail": f"This email is with session {HOLDER}; only that session may answer for it."},
+     f"not_your_email - This email is with session {HOLDER}; only that session may answer for it. (HTTP 403)"),
+    (["done", ROUTED_ID], f"/routed/{ROUTED_ID}/done", 409,
+     {"error": "not_open", "detail": "This email is already done."},
+     "not_open - This email is already done. (HTTP 409)"),
+    (["return", ROUTED_ID, "--note", "not mine"], f"/routed/{ROUTED_ID}/return", 404,
+     {"error": "no_such_routed_email"}, "no_such_routed_email (HTTP 404)"),
+    (["return", ROUTED_ID, "--note", "not mine"], f"/routed/{ROUTED_ID}/return", 400,
+     {"error": "note_required"}, "note_required (HTTP 400)"),
+])
+def test_doneOrReturn_GatewayRefusal_PrintsItsSentenceAndExitsOne(fake_gateway, args, path, status, body, printed):
+    # Arrange
+    fake_gateway.answer("POST", path, status, body)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", *args])
+
+    # Assert
+    assert result.exit_code == 1, result.output
+    assert printed in result.output
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("args, method, path", [
+    (["routed"], "GET", "/routed"),
+    (["done", ROUTED_ID], "POST", f"/routed/{ROUTED_ID}/done"),
+    (["return", ROUTED_ID, "--note", "not mine"], "POST", f"/routed/{ROUTED_ID}/return"),
+])
+def test_routedCommands_SwitchOff_SayMailDeskIsNotSwitchedOnAndExitOne(fake_gateway, args, method, path):
+    # Arrange
+    fake_gateway.answer(method, path, 404, None)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", *args])
+
+    # Assert
+    assert result.exit_code == 1, result.output
+    assert "Mail Desk is not switched on for this account." in result.output
+
+
+def test_done_AnswerThatIsNotDone_IsNotReportedAsDone(fake_gateway):
+    # Arrange - the Gateway answered a row that is still open
+    fake_gateway.answer("POST", f"/routed/{ROUTED_ID}/done", 200, ROUTED)
+
+    # Act
+    result = runner.invoke(app, ["maildesk", "done", ROUTED_ID])
+
+    # Assert
+    assert result.exit_code == 1, result.output
+    assert "Routed email" not in result.stdout
+
+
+@pytest.mark.parametrize("args", [
+    ["routed", "--sender", "a@example.com"],
+    ["done", ROUTED_ID, "--why", "x"],
+    ["return", ROUTED_ID, "--reason", "x"],
+])
+def test_routedCommands_UnknownFlag_ExitTwoAndSendNothing(fake_gateway, args):
+    # Act
+    result = runner.invoke(app, ["maildesk", *args])
+
+    # Assert
+    assert result.exit_code == 2, result.output
+    assert "No such option" in result.output
+    assert fake_gateway.calls == []
+
+
+@pytest.mark.parametrize("args", [["routed"], ["done"], ["return"]])
+def test_routedCommands_HaveHelp(args):
+    # Act
+    result = runner.invoke(app, ["maildesk", *args, "--help"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert "Usage:" in result.output
+
+
+def test_actions_ListTheRoutedCommands():
+    # Act
+    result = runner.invoke(app, ["actions", "--json"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    ids = {a["id"] for a in json.loads(result.stdout)["actions"]}
+    assert {"maildesk-routed", "maildesk-done", "maildesk-return"} <= ids

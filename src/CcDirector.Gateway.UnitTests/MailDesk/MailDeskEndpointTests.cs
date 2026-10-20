@@ -94,7 +94,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     private MailDeskEndpoints.Parts Parts() => new(_channels, _rules, _decisions, new MailDeskSettingsStore(_db),
         new MailDeskChannelFold(_ => _triggers.ToList(), _ => _timeZone, _decisions, _checks),
         FactoryOf, _ => _knownMachines.ToList(), () => _now,
-        tenant => MailDeskSpend.Of(tenant, _decisions, new MailDeskSettingsStore(_db)));
+        tenant => MailDeskSpend.Of(tenant, _decisions, new MailDeskSettingsStore(_db)), new MailDeskRoutedStore(_db));
 
     private async Task StartAsync(Func<MailDeskEndpoints.Parts, MailDeskEndpoints.Parts>? adjust = null)
     {
@@ -1131,13 +1131,13 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         var before = Recorded();
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
+        Assert.Equal(15, routes.Count); // phase 1's ten, phase 3's GET and POST /settings, and phase 4's three /routed routes
 
         // Act + Assert
         foreach (var endpoint in routes)
         {
             var method = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Single();
-            var path = endpoint.RoutePattern.RawText!.Replace("{list}", "allow");
+            var path = endpoint.RoutePattern.RawText!.Replace("{list}", "allow").Replace("{id}", Guid.NewGuid().ToString("D"));
             using var request = new HttpRequestMessage(new HttpMethod(method), path);
             request.Headers.Add(TenantHeader, A.Value);
             request.Headers.Add(CallerHeader, Person);
@@ -1160,13 +1160,13 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     {
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
+        Assert.Equal(15, routes.Count); // phase 1's ten, phase 3's GET and POST /settings, and phase 4's three /routed routes
         foreach (var endpoint in routes)
         {
             var method = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Single();
             foreach (var list in MailDeskEndpoints.Lists)
             {
-                var path = endpoint.RoutePattern.RawText!.Replace("{list}", list);
+                var path = endpoint.RoutePattern.RawText!.Replace("{list}", list).Replace("{id}", Guid.NewGuid().ToString("D"));
                 Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} is mapped and the session key guard refuses it");
             }
         }

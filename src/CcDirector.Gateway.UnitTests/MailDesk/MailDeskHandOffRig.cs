@@ -115,7 +115,7 @@ internal sealed class MailDeskHandOffRig : IAsyncDisposable
             triggers: TriggerStore,
             scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
             settleLastStatus: (_, _, _) => false,
-            mailDesk: new MailDeskProblemSource(Switch.IsOn, Channels, Checks, t => MailDeskSpend.Of(t, Decisions, Settings)));
+            mailDesk: new MailDeskProblemSource(Switch.IsOn, Channels, Checks, t => MailDeskSpend.Of(t, Decisions, Settings), new MailDeskRoutedStore(Db)));
     }
 
     public async ValueTask DisposeAsync()
@@ -270,7 +270,7 @@ internal sealed class MailDeskHandOffRig : IAsyncDisposable
             Channels, Rules, decisions, Settings,
             new MailDeskChannelFold(t => TriggerStore.List(t), _ => "UTC", decisions, Checks),
             _ => SessionFactoryLookup.NotKnown, _ => new[] { MachineA, MachineB }, () => Now,
-            t => MailDeskSpend.Of(t, decisions, Settings)));
+            t => MailDeskSpend.Of(t, decisions, Settings), new MailDeskRoutedStore(Db)));
         await app.StartAsync();
         _app = app;
         _client = app.GetTestClient();

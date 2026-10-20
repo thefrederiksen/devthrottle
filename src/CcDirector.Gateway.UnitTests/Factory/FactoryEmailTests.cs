@@ -67,7 +67,7 @@ public sealed class FactoryEmailTests : IDisposable
         settleLastStatus: (_, _, _) => false,
         mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
             new CcDirector.Gateway.MailDesk.MailDeskChannelStore(Db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(Db),
-            _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend));
+            _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend, new CcDirector.Gateway.MailDesk.MailDeskRoutedStore(Db)));
 
     private CcDirector.Gateway.Factory.Triggers.TriggerStore? _triggers;
     private CcDirector.Gateway.Factory.Triggers.TriggerStore Triggers => _triggers ??= new(Db);

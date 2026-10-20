@@ -438,6 +438,9 @@ public sealed class CronRunResultService
             // problem is cleared only by raising the limit.
             if (_mailDesk.Checks.Find(tenant, id) is { } mailboxCheck)
                 return ResolveMailboxCheck(tenant, id, mailboxCheck, resolvedBy, reason!.Trim());
+            // A routed email handed to the owner is resolved by the routed email's id (phase 4, section 4.2).
+            if (_mailDesk.Routed.Get(tenant, id) is { } routed)
+                return ResolveOwnerEmail(tenant, id, routed, resolvedBy, reason!.Trim());
             if (MailDesk.MailDeskProblems.SpendProblem(_mailDesk.Facts(tenant).Spend, _zoneOf(tenant), _nowUtc()) is { } spend
                 && spend.RunId == id.ToString("D"))
                 return CronRunResultOutcome<CronRunProblemDto>.Refused(MailDesk.MailDeskProblems.SpendNotResolvableSentence, 409);
@@ -519,6 +522,35 @@ public sealed class CronRunResultService
         FileLog.Write($"[CronRunResultService] Resolve: mailbox check={id}, channel={check.ChannelId}, by={resolvedBy}");
         return CronRunResultOutcome<CronRunProblemDto>.Ok(MailboxProblemOf(tenant, check.ChannelId, id)!);
     }
+
+    /// <summary>
+    /// Resolve the problem of a routed email handed to the owner (Mail Desk mission, phase 4, section 4.2). The email
+    /// stays with the owner; only the problem is closed, with who resolved it and why.
+    /// </summary>
+    private CronRunResultOutcome<CronRunProblemDto> ResolveOwnerEmail(TenantId tenant, Guid id,
+        Data.Entities.MailDeskRoutedEntity routed, string resolvedBy, string reason)
+    {
+        if (routed.State != MailDesk.MailDeskWords.RoutedStates.Returned)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Routed email {id} is not with you, so it has no problem to resolve: {MailDesk.MailDeskRoutedFold.StateLabel(routed)}.", 409);
+        var problem = OwnerProblemOf(tenant, id);
+        if (problem is null)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Routed email {id} is not on the problems list: Mail Desk is not switched on for this account.", 409);
+        if (problem.State == CronRunProblemStates.Resolved)
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Routed email {id}'s problem is already resolved - {problem.StateText}.", 409);
+        if (!_mailDesk.Routed.Resolve(tenant, id, resolvedBy, reason, _nowUtc()))
+            return CronRunResultOutcome<CronRunProblemDto>.Refused(
+                $"Routed email {id}'s problem is already resolved - {OwnerProblemOf(tenant, id)?.StateText}.", 409);
+
+        FileLog.Write($"[CronRunResultService] Resolve: routed email={id}, by={resolvedBy}");
+        return CronRunResultOutcome<CronRunProblemDto>.Ok(OwnerProblemOf(tenant, id)!);
+    }
+
+    private CronRunProblemDto? OwnerProblemOf(TenantId tenant, Guid routedId)
+        => MailDesk.MailDeskRoutedFold.OwnerProblems(_mailDesk.Facts(tenant).WithOwner, _zoneOf(tenant), _nowUtc())
+            .FirstOrDefault(p => p.RunId == routedId.ToString("D"));
 
     private CronRunProblemDto? MailboxProblemOf(TenantId tenant, Guid channelId, Guid headId)
     {

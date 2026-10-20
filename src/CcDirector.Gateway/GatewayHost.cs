@@ -2749,6 +2749,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // history and the activity record are told the account explicitly.
         // The trigger store is read by the problems fold too: a definition trigger's failed check is a problem (phase 5b).
         var triggerStore = new Factory.Triggers.TriggerStore(_gatewayDb);
+        // Mail Desk phase 4: the emails routed to seats. Made here, before the problems fold and the 08:00 email, which
+        // read the ones handed to the owner; the router that writes them is made further down.
+        MailDeskRouted = new MailDesk.MailDeskRoutedStore(_gatewayDb);
         _cronRunResults = new Running.CronRunResultService(
             _cronRuns,
             jobById: id => _cronJobs.Get(id),
@@ -2764,8 +2767,9 @@ public sealed class GatewayHost : IAsyncDisposable
             scheduleSessionsByName: (tenant, directorId, name) =>
                 Api.GatewayEndpoints.LastKnownScheduleSessionsByName(PushedSessions, tenant, directorId, name),
             settleLastStatus: (jobId, firedUtc, status) => _cronJobs.SettleLastStatus(jobId, firedUtc, status),
-            // The third source (Mail Desk phase 3, section 6.2): a mailbox that could not be checked, and the spend limit.
-            mailDesk: new MailDesk.MailDeskProblemSource(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskChannelChecks, MailDeskSpendOf));
+            // The third source (Mail Desk phase 3, section 6.2): a mailbox that could not be checked, and the spend limit;
+            // and (phase 4, section 4.2) every routed email handed to the owner.
+            mailDesk: new MailDesk.MailDeskProblemSource(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskChannelChecks, MailDeskSpendOf, MailDeskRouted));
         _cronPause = new Running.CronPauseSwitch(_tenantSettings);
         // ONE cron starter: the engine starts a schedule's sessions through it, and so does a timed start's due check
         // when its check counts work (phase 5b), so a checked run is given exactly what a scheduled run is.
@@ -2821,7 +2825,7 @@ public sealed class GatewayHost : IAsyncDisposable
             baseUrl: () => GatewayPublicUrl.ResolveBase(Hosted),
             store: FactoryEmailReports,
             sender: factoryEmailSender,
-            mailDesk: new MailDesk.MailDeskEmailFold(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskDecisions, MailDeskRules, MailDeskSpendOf).Section);
+            mailDesk: new MailDesk.MailDeskEmailFold(MailDeskSwitch.IsOn, MailDeskChannels, MailDeskDecisions, MailDeskRules, MailDeskSpendOf, MailDeskRouted).Section);
 
         _cronSweep = new Running.CronTenantSweep(_tenantBoundary, TenantRegistry, _cronEngine,
             sweepResults: () =>
@@ -2848,7 +2852,6 @@ public sealed class GatewayHost : IAsyncDisposable
             (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory);
         // Mail Desk phase 4: live mail routed to seats, started through the trigger's own starter, session list and
         // published definitions, and the same lookup by name for a start whose outcome was not known.
-        MailDeskRouted = new MailDesk.MailDeskRoutedStore(_gatewayDb);
         var mailDeskRouter = new MailDesk.MailDeskRouter(MailDeskRouted, MailDeskChannels, MailDeskDecisions,
             triggerStarter,
             findSession,
@@ -5674,7 +5677,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 _sessionHistory.FactoryOf,
                 KnownMachinesOf,
                 () => DateTime.UtcNow,
-                MailDeskSpendOf));
+                MailDeskSpendOf,
+                MailDeskRouted));
 
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.

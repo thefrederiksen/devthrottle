@@ -1328,6 +1328,8 @@ public static class SessionKeyGuard
     /// itself decides who may act: every session reads; any session may change the rules (D7: "freely, every change
     /// recorded"); a session in no factory may add and remove a channel, switch its mode and change a setting (phase 3),
     /// and a factory's own session is refused those by the route, in words. Every route also answers 404 for an account Mail Desk is off for.
+    /// A routed email (phase 4) is read by every session, and only the session it is with may say done or return it -
+    /// the route refuses every other caller, in words.
     /// </summary>
     private static bool IsMailDeskRoute(string verb, string[] s)
     {
@@ -1339,7 +1341,7 @@ public static class SessionKeyGuard
             // /status and /decisions are reads; /channels is read and added to; /rules is a read.
             3 => s[2] switch
             {
-                "status" or "decisions" or "rules" => read,
+                "status" or "decisions" or "rules" or "routed" => read,
                 "channels" => read || write,
                 // /settings - the thresholds and the spend limit: read, and changed (phase 3).
                 "settings" => read || write,
@@ -1350,6 +1352,8 @@ public static class SessionKeyGuard
             4 when s[2] == "rules" => read && s[3] == "history",
             // /rules/{list}/add and /rules/{list}/remove - an unknown list is refused by the route, in words.
             5 when s[2] == "rules" => write && s[4] is "add" or "remove",
+            // /routed/{id}/done and /routed/{id}/return (phase 4) - only the holding session; the route refuses the rest.
+            5 when s[2] == "routed" => write && s[4] is "done" or "return",
             _ => false,
         };
     }
