@@ -24,6 +24,7 @@ internal interface IDirectorHubCalls
     Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct);
     Task RevokeSessionKeyAsync(string sessionId);
     Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories);
+    Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops);
 }
 
 /// <summary>The production <see cref="IDirectorHubCalls"/>: each call is the hub method of the same name.</summary>
@@ -64,4 +65,7 @@ internal sealed class HubConnectionCalls : IDirectorHubCalls
 
     public Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories)
         => _connection.InvokeAsync("PushRepoSnapshot", sequence, repositories);
+
+    public Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops)
+        => _connection.InvokeAsync(GatewayStreamClient.PushHostedDesktopsMethod, sequence, desktops);
 }

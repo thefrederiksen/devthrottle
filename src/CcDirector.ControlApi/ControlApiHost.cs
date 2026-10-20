@@ -51,6 +51,15 @@ public sealed class ControlApiHost : IAsyncDisposable
     // Issue #1176 (Phase 1a): the outbound push-stream client, running alongside _gatewayClient when
     // gateway.streamMode is on. Null when stream mode is off, so the Director behaves exactly as today.
     private GatewayStreamClient? _streamClient;
+
+    /// <summary>
+    /// The desktops this Director hosts (the Factory Boxes mission, phase 1), read from
+    /// <see cref="Core.Storage.CcStorage.HostedDesktopsFile"/>. Re-read on every tunnel reseed, so an edit to the file
+    /// reaches the Gateway within ten seconds. The desktop relay resolves a box id to a port ONLY through
+    /// <see cref="Core.Boxes.HostedDesktopRegistry.Resolve"/> on this instance.
+    /// </summary>
+    public Core.Boxes.HostedDesktopRegistry HostedDesktops { get; } =
+        new(Core.Boxes.HostedDesktopRegistry.ReadFileAt(Core.Storage.CcStorage.HostedDesktopsFile()));
     /// <summary>The turn-push mission's Director side: keeps the Gateway's stored conversation current for
     /// every session by pushing what it has not seen. Null when there is no Gateway.</summary>
     private TurnPusher? _turnPusher;
@@ -725,6 +734,7 @@ public sealed class ControlApiHost : IAsyncDisposable
         }
         _turnPusher = BuildTurnPusher(gatewayConfig);
         UseApiModeEventSink(gatewayConfig);
+        HostedDesktops.Reload();
         _streamClient = BuildStreamClient(gatewayConfig);
         AttachLicenseReporting(_streamClient);
         _streamClient?.Start();
@@ -1269,7 +1279,14 @@ public sealed class ControlApiHost : IAsyncDisposable
             // The Secret Handoff mission, phase 4: this machine's public key for receiving a secret, read from
             // cc-secrets once on the thread pool, started here so it is usually ready by the first Hello. Until it
             // is, and for good when cc-secrets is missing or too old, the Hello offers no key.
-            secretTransferPublicKey: StartSecretTransferMachineKey());
+            secretTransferPublicKey: StartSecretTransferMachineKey(),
+            // The Factory Boxes mission, phase 1: the hosted-desktop list rides every reseed. Re-read from its file
+            // each time, so the Gateway learns of a change within one re-push interval; box ids and names only.
+            hostedDesktops: () =>
+            {
+                HostedDesktops.Reload();
+                return HostedDesktops.Desktops;
+            });
     }
 
     /// <summary>The Secret Handoff mission: starts the one read of this machine's public key and returns the

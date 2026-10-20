@@ -71,12 +71,16 @@ internal static class AccountStatusEndpoint
     /// Null disables that lookup, which yields a signed-in answer with the identity absent - never a
     /// signed-out one.
     /// </param>
+    /// <param name="boxes">
+    /// Whether Factory Boxes is on for the caller's account (the Factory Boxes mission). Answered as <c>boxes</c>, so
+    /// the Cockpit shows the Boxes screen from the Gateway's ruling and never its own. Null answers false.
+    /// </param>
     public static void Map(IEndpointRouteBuilder app, bool hosted, DevThrottleAccountService? account,
         // REQUIRED AND NON-NULLABLE (finding I1-01), and moved AHEAD of the optional nickname client so it
         // cannot sit in a defaulted tail: a forgotten boundary must be a compile error, never a silent
         // default. Self-host callers construct it over the SingleTenantContext.
         Tenancy.HostedTenantBoundary tenantBoundary, AccountNicknameClient? nickname = null,
-        Tenancy.TenantRegistry? tenants = null)
+        Tenancy.TenantRegistry? tenants = null, Boxes.BoxesSwitch? boxes = null)
     {
         // Per-account nickname cache so this hard-polled endpoint hits the cloud at most once per TTL.
         // Captured in the closure (Map runs once per host) and guarded by its own lock.
@@ -110,7 +114,11 @@ internal static class AccountStatusEndpoint
             // independent hosted-mode signal instead means a hosted Gateway can never silently take the
             // self-host answer; if the boundary is missing it FAILS CLOSED inside HostedStatus.
             if (hosted)
-                return HostedStatus(ctx, tenantBoundary, tenants);
+                return HostedStatus(ctx, tenantBoundary, tenants, boxes);
+
+            // The Factory Boxes ruling, for the self-host answers below: the same switch and the same resolution
+            // (Local) GET /boxes takes, so the screen is shown exactly when the route answers.
+            var boxesOn = BoxesOn(ctx, tenantBoundary, boxes);
 
             // No credential service on this host (a non-Windows host where the operating-system
             // credential store is not yet implemented): the Gateway holds no account credential, so the
@@ -118,7 +126,7 @@ internal static class AccountStatusEndpoint
             if (account is null)
             {
                 FileLog.Write("[AccountStatusEndpoint] GET /account/status: no credential service on this host -> signedIn=false");
-                return Results.Json(new AccountStatusResponse(false, null, null, null, GatewaySignIn: true));
+                return Results.Json(new AccountStatusResponse(false, null, null, null, GatewaySignIn: true, Boxes: boxesOn));
             }
 
             // Both reads are entirely local (no network call): IsLoggedIn validates the cached token's
@@ -127,7 +135,7 @@ internal static class AccountStatusEndpoint
             if (!signedIn)
             {
                 FileLog.Write("[AccountStatusEndpoint] GET /account/status: signedIn=false (no valid credential)");
-                return Results.Json(new AccountStatusResponse(false, null, null, null, GatewaySignIn: true));
+                return Results.Json(new AccountStatusResponse(false, null, null, null, GatewaySignIn: true, Boxes: boxesOn));
             }
 
             var identity = account.GetIdentity();
@@ -135,7 +143,7 @@ internal static class AccountStatusEndpoint
             // The identity is only logged as resolved / unavailable - the email itself is user identity,
             // not a token, but we keep the log minimal and never log any credential material.
             FileLog.Write($"[AccountStatusEndpoint] GET /account/status: signedIn=true (identity {(identity is null ? "unavailable" : "resolved")}, nickname {(resolvedNickname is null ? "unset" : "resolved")})");
-            return Results.Json(new AccountStatusResponse(true, identity?.Email, identity?.Provider, resolvedNickname, GatewaySignIn: true));
+            return Results.Json(new AccountStatusResponse(true, identity?.Email, identity?.Provider, resolvedNickname, GatewaySignIn: true, Boxes: boxesOn));
         });
     }
 
@@ -158,7 +166,8 @@ internal static class AccountStatusEndpoint
     /// tenant row, and the nickname read needs an account token this Gateway does not hold for the caller -
     /// using its OWN would answer with the wrong person's nickname.
     /// </summary>
-    private static IResult HostedStatus(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary, Tenancy.TenantRegistry? tenants)
+    private static IResult HostedStatus(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary, Tenancy.TenantRegistry? tenants,
+        Boxes.BoxesSwitch? boxes)
     {
         // FAIL CLOSED on a miswired host. This Gateway is in hosted mode but has no usable tenant boundary, so
         // it cannot tell who is asking. There is no honest answer to give and there is certainly not a
@@ -186,11 +195,17 @@ internal static class AccountStatusEndpoint
         // what it may see - and the route it unlocks asks StaffAccess the same question for itself, so hiding
         // the tab and refusing the read are two separate answers and neither depends on the other.
         var staff = StaffAccess.IsStaff(email);
+        // Whether the Cockpit shows the Boxes screen: the same switch the Boxes routes' gate asks, for this account.
+        var boxesOn = boxes?.IsOn(tenant.Value) == true;
         // Logged as resolved / unavailable only - the email is user identity and is never written to the log,
         // and neither is the tenant id.
-        FileLog.Write($"[AccountStatusEndpoint] GET /account/status (hosted): signedIn=true (identity {(email is null ? "unavailable" : "resolved")}, staff={staff})");
-        return Results.Json(new AccountStatusResponse(true, email, null, null, staff));
+        FileLog.Write($"[AccountStatusEndpoint] GET /account/status (hosted): signedIn=true (identity {(email is null ? "unavailable" : "resolved")}, staff={staff}, boxes={boxesOn})");
+        return Results.Json(new AccountStatusResponse(true, email, null, null, staff, Boxes: boxesOn));
     }
+
+    /// <summary>Whether Factory Boxes is on for the account this request resolves to. False with no switch or no account.</summary>
+    private static bool BoxesOn(HttpContext ctx, Tenancy.HostedTenantBoundary? boundary, Boxes.BoxesSwitch? boxes)
+        => boxes is not null && boundary?.ResolveRequestTenant(ctx) is { } tenant && boxes.IsOn(tenant);
 
     /// <summary>How long a resolved nickname is reused before the next status read re-reads the cloud.</summary>
     private static readonly TimeSpan NicknameCacheTtl = TimeSpan.FromMinutes(15);
@@ -290,5 +305,9 @@ internal static class AccountStatusEndpoint
         /// offers the Gateway's own Log out only when this is true (devthrottle#3681): the Gateway rules, the
         /// client never infers "hosted" from anything else (rule 7).</summary>
         [property: System.Text.Json.Serialization.JsonPropertyName("gatewaySignIn")]
-        bool GatewaySignIn = false);
+        bool GatewaySignIn = false,
+        /// <summary>True when Factory Boxes is on for this account (<see cref="Boxes.BoxesSwitch"/>): the Cockpit shows
+        /// the Boxes screen only then, and <c>GET /boxes</c> answers 404 otherwise. The Gateway rules (rule 7).</summary>
+        [property: System.Text.Json.Serialization.JsonPropertyName("boxes")]
+        bool Boxes = false);
 }

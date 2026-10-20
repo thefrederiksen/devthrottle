@@ -41,6 +41,16 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// repositories change slowly, so there is no delta path.
     /// </summary>
     private readonly Func<List<RepoStatusDto>>? _repoSnapshot;
+
+    /// <summary>
+    /// The desktops this Director hosts (the Factory Boxes mission, phase 1): box id and display name, never a port.
+    /// Null on a host that has no hosted-desktop list (tests, older callers): the push is then skipped. Read on every
+    /// reseed, so a change to the list reaches the Gateway within one re-push interval (ten seconds).
+    /// </summary>
+    private readonly Func<IReadOnlyList<HostedDesktopDto>>? _hostedDesktops;
+
+    /// <summary>The hub method that carries the hosted-desktop list up.</summary>
+    internal const string PushHostedDesktopsMethod = "PushHostedDesktops";
     private readonly Func<DirectorCommand, Task<DirectorCommandResult>>? _commandDispatcher;
     private readonly TimeSpan _rePushInterval;
 
@@ -220,8 +230,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Action? onNewConnection = null,
         Func<string, string?>? teamNameForKey = null,
         Func<Task>? redialDelay = null,
-        Func<string>? secretTransferPublicKey = null)
+        Func<string>? secretTransferPublicKey = null,
+        Func<IReadOnlyList<HostedDesktopDto>>? hostedDesktops = null)
     {
+        _hostedDesktops = hostedDesktops;
         _secretTransferPublicKey = secretTransferPublicKey;
         _redialDelay = redialDelay ?? (() => Task.Delay(RestartDelay));
         _teamNameForKey = teamNameForKey;
@@ -1167,7 +1179,34 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
         }
 
+        await PushHostedDesktopsAsync(hub);
+
         return new ReseedReport(build, sendKeys, awaitGateway, completed, failure);
+    }
+
+    /// <summary>
+    /// Send the hosted-desktop list up (the Factory Boxes mission, phase 1), in its OWN try/catch like the repository
+    /// leg, so a failure here never takes the session reseed down. Sent on every reseed - the first connect, every
+    /// reconnect and the ten-second re-push - so the Gateway holds the current list within one interval of a change,
+    /// and an empty list is sent too, so a desktop removed from the file disappears from the Gateway.
+    ///
+    /// Only to a Gateway that says it has the method: a Gateway built before it would answer every ten seconds with a
+    /// missing-method error that says nothing a person needs to hear.
+    /// </summary>
+    internal async Task PushHostedDesktopsAsync(IDirectorHubCalls hub)
+    {
+        if (_hostedDesktops is null || !hub.IsConnected) return;
+        if (!GatewaySupports(PushHostedDesktopsMethod)) return;
+        try
+        {
+            var desktops = _hostedDesktops().ToArray();
+            var seq = Interlocked.Increment(ref _sequence);
+            await hub.PushHostedDesktopsAsync(seq, desktops);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayStreamClient] hosted-desktop push FAILED: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>
