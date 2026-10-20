@@ -1,3 +1,4 @@
+using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 
 namespace CcDirector.Gateway.Rules;
@@ -32,6 +33,14 @@ namespace CcDirector.Gateway.Rules;
 ///    from ordinary rules code, and the guard named it.
 ///  - A grant names ONE rule and is SINGLE USE. It is consumed by the promotion it was obtained for, so a
 ///    grant cannot be captured and replayed, and cannot be turned on a different instruction.
+///
+/// WHO MAY ASK, SINCE OWNER DECISION D7 (Session Rules part 2, 2026-10-18): "Any agent should be able to change
+/// and set up the rules" - promotion included. So an agent SESSION, calling with its own key, may now obtain a
+/// grant too; it is named "session:&lt;id&gt;" exactly as a device is named "device:&lt;id&gt;", and the
+/// promotion is recorded in the rule's change history with that session and its agent. What has NOT changed is
+/// the point of this type: a grant still comes only from an inbound request the Gateway authenticated, so the
+/// evaluator - which has no inbound request - still cannot promote a rule, and a rule still cannot promote
+/// itself.
 ///
 /// WHAT IT DOES NOT ENFORCE. It is not proof that a human being was at a keyboard - nothing inside a
 /// process can be. Within one assembly, access modifiers cannot make a capability physically unreachable
@@ -92,8 +101,8 @@ public sealed class RulePromotionGrant
         var actor = CallerOf(http);
         if (actor is null)
             throw new RuleRejectedException(
-                "a rule is moved out of dry run by a person, and this request has no caller the Gateway " +
-                "could name. Nothing that runs on its own can promote a rule.");
+                "a rule is moved out of dry run by a person or an agent session the Gateway can name, and this " +
+                "request has no caller it could name. Nothing that runs on its own can promote a rule.");
 
         var said = (acknowledgement ?? "").Trim();
         if (said.Length == 0)
@@ -106,11 +115,21 @@ public sealed class RulePromotionGrant
 
     /// <summary>
     /// Who the request pipeline resolved this caller to be, or null when it resolved nobody. It READS what
-    /// the pipeline already decided - the authenticated principal, or the device the key middleware
-    /// matched - and decides nothing itself: a second answer to a question the pipeline has answered is a
-    /// second place for the two to disagree.
+    /// the pipeline already decided - the authenticated principal, the device the key middleware matched, or
+    /// the session whose key it verified - and decides nothing itself: a second answer to a question the
+    /// pipeline has answered is a second place for the two to disagree.
+    ///
+    /// THE DEVICE USED TO BE READ FROM AN ITEM NOTHING WROTE. This read <c>Items["DeviceKeyId"]</c>, which only
+    /// the unit tests ever set; the middleware stamps the device under <see cref="AuthMiddleware.AuthenticatedDeviceItemKey"/>.
+    /// So over real HTTP a device-key promotion named nobody and was refused, while the tests that built their
+    /// own request passed. It now reads the identity the middleware actually records (Session Rules part 2,
+    /// phase 2), and the tests build their requests through the same item.
+    ///
+    /// A SESSION NAMES ITSELF since owner decision D7 (2026-10-18): "Any agent should be able to change and set
+    /// up the rules", promotion included. A session key's request is named "session:&lt;id&gt;", and the same
+    /// name goes on the rule's PromotedBy and in its change history.
     /// </summary>
-    private static string? CallerOf(HttpContext? http)
+    internal static string? CallerOf(HttpContext? http)
     {
         if (http is null) return null;
 
@@ -118,13 +137,19 @@ public sealed class RulePromotionGrant
         if (identity is { IsAuthenticated: true } && !string.IsNullOrWhiteSpace(identity.Name))
             return identity.Name!.Trim();
 
-        if (http.Items.TryGetValue(DeviceKeyItem, out var device) && device is string deviceId
-            && !string.IsNullOrWhiteSpace(deviceId))
-            return deviceId.Trim();
+        if (AuthMiddleware.AuthenticatedDevice(http) is { } device && !string.IsNullOrWhiteSpace(device.DeviceId))
+            return DevicePrefix + device.DeviceId.Trim();
+
+        if (AuthMiddleware.CallingSession(http) is { } session)
+            return SessionPrefix + session.SessionId;
 
         return null;
     }
 
-    /// <summary>Where the device-key middleware leaves the device it authenticated.</summary>
-    internal const string DeviceKeyItem = "DeviceKeyId";
+    /// <summary>How a device caller is written on a rule and in its history.</summary>
+    internal const string DevicePrefix = "device:";
+
+    /// <summary>How a session caller is written on a rule and in its history - the same form the factory activity
+    /// record uses.</summary>
+    internal const string SessionPrefix = "session:";
 }

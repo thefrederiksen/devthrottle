@@ -403,4 +403,33 @@ internal static class SessionRuleRecordRules
             throw new RuleRejectedException(
                 "the record is the product, so a firing has to say " + what + ".");
     }
+
+    /// <summary>
+    /// Everything a stored change has to be. The history is how an account finds out which session changed one
+    /// of its rules, so a row that does not say what was done, by whom, or what the rule was is refused rather
+    /// than written - a reader trusts the row.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The row is not a record of a change; the reason says why.</exception>
+    internal static void CheckChange(SessionRuleChangeEntity change)
+    {
+        if (!RuleChangeActions.All.Contains(change.Action, StringComparer.Ordinal))
+            throw new RuleRejectedException(
+                $"a change to a rule is one of {string.Join(", ", RuleChangeActions.All)}, and this one says " +
+                $"'{change.Action}'.");
+
+        if (string.IsNullOrWhiteSpace(change.ChangedBy))
+            throw new RuleRejectedException(
+                "a change to a rule has to say who made it. That is the whole of what the history is for.");
+
+        var isCreate = change.Action == RuleChangeActions.Create;
+        var isDelete = change.Action == RuleChangeActions.Delete;
+        if (isCreate != string.IsNullOrEmpty(change.Before))
+            throw new RuleRejectedException(isCreate
+                ? "a rule that was just created had no earlier form, so its change record cannot carry one."
+                : "a change record has to carry the rule as it was before the change.");
+        if (isDelete != string.IsNullOrEmpty(change.After))
+            throw new RuleRejectedException(isDelete
+                ? "a rule that was deleted has no later form, so its change record cannot carry one."
+                : "a change record has to carry the rule as it is after the change.");
+    }
 }

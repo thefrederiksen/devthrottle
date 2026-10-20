@@ -36,7 +36,7 @@ public sealed class HookRuleStoreTests : IDisposable
         string handler = HookRuleWords.Match,
         IEnumerable<string>? match = null,
         string result = HookRuleWords.Deny) =>
-        store.CreateHook(Sentence, appliesTo, hookEvent, tool, handler, match ?? new[] { "echo RULE-PROBE" }, result, Now);
+        store.CreateHook(Sentence, appliesTo, hookEvent, tool, handler, match ?? new[] { "echo RULE-PROBE" }, result, Now, AnActor.Owner);
 
     private static List<RulePrimitiveCall> GoodCalls() => new()
     {
@@ -49,7 +49,7 @@ public sealed class HookRuleStoreTests : IDisposable
     private static SessionRule CreateScreen(SessionRuleStore store, RuleAppliesTo? appliesTo = null) => store.Create(
         "When I run out of allowance, switch me to Opus.",
         "A session stopped on a provider allowance notice.",
-        new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now, appliesTo);
+        new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now, AnActor.Owner, appliesTo);
 
     // ---- creating ----------------------------------------------------------------------------------
 
@@ -233,7 +233,7 @@ public sealed class HookRuleStoreTests : IDisposable
         var grant = RulePromotionGrant.FromAuthenticatedRequest(
             rule.Id, AnInboundRequest.FromDevice(), "I have read this rule's dry-run record and I am making it live.", Now);
 
-        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(rule.Id, grant, Now));
+        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(rule.Id, grant, Now, AnActor.Owner));
         Assert.Contains("phase 4", ex.Reason, StringComparison.Ordinal);
         Assert.Equal(RuleState.DryRun, store.Get(rule.Id)!.State);
     }
@@ -299,7 +299,19 @@ public sealed class HookRuleStoreTests : IDisposable
     {
         using (var ctx = Db.CreateContext())
         {
-            ctx.SessionRules.Add(StraightHook(ctx.ActiveTenant!));
+            var hook = StraightHook(ctx.ActiveTenant!);
+            ctx.SessionRules.Add(hook);
+            // Every rule write carries its history row in the same save (Session Rules part 2, phase 2), whatever
+            // its kind - a hook rule written round the store is no exception.
+            ctx.SessionRuleChanges.Add(new SessionRuleChangeEntity
+            {
+                TenantId = ctx.ActiveTenant!,
+                RuleId = hook.Id,
+                Action = RuleChangeActions.Create,
+                ChangedBy = AnActor.Owner.ChangedBy,
+                OccurredUtc = Now,
+                After = "{}",
+            });
             ctx.SaveChanges();
         }
         Assert.Equal(RuleKinds.Hook, Assert.Single(new SessionRuleStore(Db).All()).Kind);

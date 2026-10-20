@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261020013524_AddSessionRuleKindsAndHookFirings")]
-    partial class AddSessionRuleKindsAndHookFirings
+    [Migration("20261020002835_AddSessionRuleChanges")]
+    partial class AddSessionRuleChanges
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -3842,29 +3842,67 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("session_keys", (string)null);
                 });
 
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleEntity", b =>
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleChangeEntity", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
-                    b.PrimitiveCollection<string>("AppliesToExceptMachines")
+                    b.Property<string>("Action")
                         .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AppliesToKind")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
                         .HasMaxLength(32)
-                        .HasColumnType("TEXT")
-                        .HasDefaultValue("everywhere");
+                        .HasColumnType("TEXT");
 
-                    b.PrimitiveCollection<string>("AppliesToMachines")
+                    b.Property<string>("After")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AppliesToRepo")
+                    b.Property<string>("Agent")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Before")
                         .IsRequired()
-                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Sequence");
+
+                    b.HasIndex("TenantId", "RuleId", "Sequence");
+
+                    b.HasIndex("TenantId", "SessionId", "Sequence");
+
+                    b.ToTable("session_rule_changes", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("CooldownSeconds")
@@ -3876,40 +3914,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<int>("DailyCap")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("HookEvent")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("HookHandler")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.PrimitiveCollection<string>("HookMatch")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("HookResult")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("HookTool")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Instruction")
                         .IsRequired()
                         .HasColumnType("TEXT");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT")
-                        .HasDefaultValue("screen");
 
                     b.Property<string>("PromotedBy")
                         .IsRequired()
@@ -3962,60 +3969,12 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Agent")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AgentEvent")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AgentTool")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Decision")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("DecisionId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("EvaluationMicroseconds")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("Grounding")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("HookEvent")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("HookTool")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT")
-                        .HasDefaultValue("screen");
-
-                    b.Property<string>("Machine")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.PrimitiveCollection<string>("MatchedRuleIds")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -4026,17 +3985,8 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.PrimitiveCollection<string>("OverriddenRuleIds")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Reason")
                         .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Repo")
-                        .IsRequired()
-                        .HasMaxLength(512)
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("RuleId")
@@ -4049,11 +3999,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Subject")
-                        .IsRequired()
-                        .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TenantId")
@@ -4072,9 +4017,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "DecisionId")
-                        .IsUnique();
 
                     b.HasIndex("TenantId", "RuleId", "OccurredUtc");
 

@@ -35,6 +35,7 @@ from . import maildesk_ops
 from . import mission_ops
 from . import schedule_ops
 from . import trigger_ops
+from . import rule_ops
 from . import settings_ops
 from . import setup_ops
 from . import skill_ops
@@ -264,6 +265,16 @@ maildesk_app.add_typer(maildesk_allow_app, name="allow")
 maildesk_app.add_typer(maildesk_block_app, name="block")
 maildesk_app.add_typer(maildesk_rule_app, name="rule")
 maildesk_app.add_typer(maildesk_route_app, name="route")
+rules_app = typer.Typer(
+    cls=AxiGroup,
+    help=(
+        "Session Rules: standing instructions about your sessions.\n\n"
+        "List, read, create, change, promote and delete them, and read who changed what. A rule starts in "
+        "dry run, and any change puts it back there."
+    ),
+    add_completion=False,
+    no_args_is_help=True,
+)
 workflow_app = typer.Typer(
     cls=AxiGroup,
     help="Read and author the fleet's shared Workflows on the Gateway.",
@@ -349,6 +360,7 @@ app.add_typer(schedule_app, name="schedule")
 app.add_typer(factory_app, name="factory")
 app.add_typer(trigger_app, name="trigger")
 app.add_typer(maildesk_app, name="maildesk")
+app.add_typer(rules_app, name="rules")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(skill_app, name="skill")
 app.add_typer(setup_app, name="setup")
@@ -5485,6 +5497,122 @@ def maildesk_route_remove(
 ) -> None:
     """Remove a route."""
     maildesk_ops.route_remove(route, why)
+
+
+@rules_app.callback()
+def rules_main(
+    gateway: Optional[str] = typer.Option(None, "--gateway", help="Override the Gateway base URL."),
+) -> None:
+    """Session Rules: standing instructions about your sessions, and who changed them."""
+    rule_ops.set_gateway_override(gateway)
+
+
+_RULE_REF_HELP = "The rule: its id, or an unambiguous start of it."
+_BODY_HELP = (
+    "Any fields of the rule as one JSON object, e.g. '{\"dailyCap\": 3}'. The flags below are laid over it. "
+    "Fields: instruction, screenDescription, triggerWords, checks, scope, cooldownSeconds, dailyCap."
+)
+
+
+@rules_app.command("list")
+def rules_list(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."),
+    state: Optional[str] = typer.Option(None, "--state", help="Show only this state: dry_run or live."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Fields to show, comma separated. Default: id,state,scope,instruction. Valid: "
+        + ", ".join(rule_ops.RULE_LIST_FIELDS) + "."),
+) -> None:
+    """List this account's rules, newest first: id, state, scope and instruction."""
+    rule_ops.list_rules(json_output, state, fields)
+
+
+@rules_app.command("show")
+def rules_show(
+    rule: str = typer.Argument(..., help=_RULE_REF_HELP),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON: the rule and its firings."),
+) -> None:
+    """Show one rule in full and how often it has fired."""
+    rule_ops.show(rule, json_output)
+
+
+@rules_app.command("create")
+def rules_create(
+    body: Optional[str] = typer.Option(None, "--body", help=_BODY_HELP),
+    body_file: Optional[str] = typer.Option(None, "--file", help="Read the JSON object of --body from this file."),
+    instruction: Optional[str] = typer.Option(None, "--instruction", help="The rule's sentence - the authority."),
+    screen_description: Optional[str] = typer.Option(None, "--screen-description", help="What the rule watches for, in plain words."),
+    trigger_word: Optional[List[str]] = typer.Option(None, "--trigger-word", help="A word that must be on the screen; repeat for more."),
+    checks: Optional[str] = typer.Option(None, "--checks", help="The shipped checks to run, as a JSON list. Default: [] (none)."),
+    scope: Optional[str] = typer.Option(None, "--scope", help="all-sessions, or key=value pairs, e.g. repository=github.com/acme/app,machine=devlinux."),
+    cooldown: Optional[str] = typer.Option(None, "--cooldown", help="Wait before acting on the same session again: 90s, 5m, 1h."),
+    daily_cap: Optional[int] = typer.Option(None, "--daily-cap", help="Most times a day it may act on one session."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Create a rule. It always starts in dry run.
+
+    In dry run it records what it would do and types nothing.
+    """
+    rule_ops.create(
+        rule_ops.build_body(body, body_file, instruction, screen_description, trigger_word, checks, scope, cooldown, daily_cap),
+        json_output)
+
+
+@rules_app.command("change")
+def rules_change(
+    rule: str = typer.Argument(..., help=_RULE_REF_HELP),
+    body: Optional[str] = typer.Option(None, "--body", help=_BODY_HELP),
+    body_file: Optional[str] = typer.Option(None, "--file", help="Read the JSON object of --body from this file."),
+    instruction: Optional[str] = typer.Option(None, "--instruction", help="A new sentence for the rule."),
+    screen_description: Optional[str] = typer.Option(None, "--screen-description", help="What the rule watches for, in plain words."),
+    trigger_word: Optional[List[str]] = typer.Option(None, "--trigger-word", help="Replace the trigger words; repeat for more."),
+    checks: Optional[str] = typer.Option(None, "--checks", help="Replace the checks, as a JSON list."),
+    scope: Optional[str] = typer.Option(None, "--scope", help="all-sessions, or key=value pairs."),
+    cooldown: Optional[str] = typer.Option(None, "--cooldown", help="90s, 5m, 1h."),
+    daily_cap: Optional[int] = typer.Option(None, "--daily-cap", help="Most times a day it may act on one session."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Change some fields of a rule and keep the rest. The rule goes back to dry run."""
+    rule_ops.change(
+        rule,
+        rule_ops.build_body(body, body_file, instruction, screen_description, trigger_word, checks, scope, cooldown, daily_cap),
+        json_output)
+
+
+@rules_app.command("promote")
+def rules_promote(
+    rule: str = typer.Argument(..., help=_RULE_REF_HELP),
+    acknowledgement: str = typer.Option(..., "--acknowledgement", "-m", help="What you are agreeing to by making it live."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Move a rule out of dry run, so it acts for real. Recorded with who did it."""
+    rule_ops.promote(rule, acknowledgement, json_output)
+
+
+@rules_app.command("delete")
+def rules_delete(
+    rule: str = typer.Argument(..., help=_RULE_REF_HELP),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking. Required when there is no terminal."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Delete a rule. Its firing record and its history are kept."""
+    rule_ops.delete(rule, yes, json_output)
+
+
+@rules_app.command("history")
+def rules_history(
+    rule: Optional[str] = typer.Argument(None, help="Only this rule (its id - a full id for a deleted rule)."),
+    session: Optional[str] = typer.Option(None, "--session", help="Only changes made by this session id, or 'me'."),
+    action: Optional[str] = typer.Option(None, "--action", help="Only this change: create, change, promote or delete."),
+    count: int = typer.Option(rule_ops.DEFAULT_HISTORY_COUNT, "--count", "-n", help="Most changes to show, newest first: 1 to 500."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON. Filters still apply."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Fields to show, comma separated. Default: when,action,rule,session,agent. Valid: "
+        + ", ".join(rule_ops.HISTORY_FIELDS) + "."),
+) -> None:
+    """Who created, changed, promoted and deleted which rule, newest first."""
+    rule_ops.history(rule, session, action, count, json_output, fields)
 
 
 @setup_app.command("status")

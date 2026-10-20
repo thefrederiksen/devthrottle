@@ -61,7 +61,7 @@ public sealed class HookRuleWireTests : IDisposable
     [Fact]
     public void CreateFromBody_SeptemberScreenBodyUnchanged_StillCreatesAScreenRuleThatAppliesEverywhere()
     {
-        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(SeptemberScreenBody), Now);
+        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(SeptemberScreenBody), Now, AnActor.Owner);
 
         Assert.Equal(RuleKinds.Screen, rule.Kind);
         Assert.Equal(RuleAppliesToKinds.Everywhere, rule.AppliesTo.Kind);
@@ -72,7 +72,7 @@ public sealed class HookRuleWireTests : IDisposable
     [Fact]
     public void CreateFromBody_HookBody_CreatesADryRunHookRuleWithItsRepositoryNormalised()
     {
-        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(HookBody), Now);
+        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(HookBody), Now, AnActor.Owner);
 
         Assert.Equal(RuleKinds.Hook, rule.Kind);
         Assert.Equal(RuleState.DryRun, rule.State);
@@ -88,15 +88,15 @@ public sealed class HookRuleWireTests : IDisposable
         var store = new SessionRuleStore(Db);
 
         var sessionStart = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store,
-            Body("""{ "kind": "session_start", "instruction": "Tell me when the licence is missing." }"""), Now));
+            Body("""{ "kind": "session_start", "instruction": "Tell me when the licence is missing." }"""), Now, AnActor.Owner));
         Assert.Contains("phase 5", sessionStart.Reason, StringComparison.Ordinal);
 
         var unknown = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store,
-            Body("""{ "kind": "telepathy", "instruction": "x" }"""), Now));
+            Body("""{ "kind": "telepathy", "instruction": "x" }"""), Now, AnActor.Owner));
         Assert.Contains("telepathy", unknown.Reason, StringComparison.Ordinal);
 
         var notText = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store,
-            Body("""{ "kind": 3, "instruction": "x" }"""), Now));
+            Body("""{ "kind": 3, "instruction": "x" }"""), Now, AnActor.Owner));
         Assert.Contains("kind", notText.Reason, StringComparison.Ordinal);
 
         Assert.Empty(store.All());
@@ -108,21 +108,21 @@ public sealed class HookRuleWireTests : IDisposable
         var store = new SessionRuleStore(Db);
         var withChecks = HookBody.Replace("\"result\": \"deny\"",
             "\"result\": \"deny\", \"checks\": [ { \"name\": \"matches_any\", \"arguments\": { \"text\": \"<screen_text>\", \"terms\": [\"x\"] } } ]");
-        var ex = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withChecks), Now));
+        var ex = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withChecks), Now, AnActor.Owner));
         Assert.Contains("phase 4", ex.Reason, StringComparison.Ordinal);
 
         var withScope = HookBody.Replace("\"result\": \"deny\"", "\"result\": \"deny\", \"scope\": { \"agent\": \"claude_code\" }");
-        var scoped = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withScope), Now));
+        var scoped = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withScope), Now, AnActor.Owner));
         Assert.Contains("scope", scoped.Reason, StringComparison.OrdinalIgnoreCase);
 
         var withWords = HookBody.Replace("\"result\": \"deny\"", "\"result\": \"deny\", \"triggerWords\": [\"limit\"]");
-        Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withWords), Now));
+        Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withWords), Now, AnActor.Owner));
 
         // A bound the caller wrote is refused, never silently dropped: they believed the rule would carry it.
         foreach (var bound in new[] { "cooldownSeconds", "dailyCap" })
         {
             var withBound = HookBody.Replace("\"result\": \"deny\"", $"\"result\": \"deny\", \"{bound}\": 1");
-            var refused = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withBound), Now));
+            var refused = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(withBound), Now, AnActor.Owner));
             Assert.Contains(bound, refused.Reason, StringComparison.Ordinal);
         }
 
@@ -135,7 +135,7 @@ public sealed class HookRuleWireTests : IDisposable
         var store = new SessionRuleStore(Db);
         var asText = HookBody.Replace(
             "{ \"kind\": \"repo\", \"repo\": \"git@github.com:TheFrederiksen/devthrottle.git\" }", "\"everywhere\"");
-        var ex = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(asText), Now));
+        var ex = Assert.Throws<RuleRejectedException>(() => SessionRuleWire.CreateFromBody(store, Body(asText), Now, AnActor.Owner));
         Assert.Contains("appliesTo", ex.Reason, StringComparison.Ordinal);
     }
 
@@ -144,7 +144,7 @@ public sealed class HookRuleWireTests : IDisposable
     [Fact]
     public void Project_HookRule_CarriesKindAppliesToAndTheTrigger()
     {
-        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(HookBody), Now);
+        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(HookBody), Now, AnActor.Owner);
         var wire = AsWire(SessionRuleWire.Project(rule));
 
         Assert.Equal("hook", wire.GetProperty("kind").GetString());
@@ -163,7 +163,7 @@ public sealed class HookRuleWireTests : IDisposable
     [Fact]
     public void Project_ScreenRule_SaysScreenAndEverywhere()
     {
-        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(SeptemberScreenBody), Now);
+        var rule = SessionRuleWire.CreateFromBody(new SessionRuleStore(Db), Body(SeptemberScreenBody), Now, AnActor.Owner);
         var wire = AsWire(SessionRuleWire.Project(rule));
 
         Assert.Equal("screen", wire.GetProperty("kind").GetString());
@@ -199,7 +199,7 @@ public sealed class HookRuleWireTests : IDisposable
     public void ProjectEffective_HookRule_IsTheW1AndW2ItemShape()
     {
         var store = new SessionRuleStore(Db);
-        var rule = SessionRuleWire.CreateFromBody(store, Body(HookBody), Now);
+        var rule = SessionRuleWire.CreateFromBody(store, Body(HookBody), Now, AnActor.Owner);
 
         var wire = AsWire(SessionRuleWire.ProjectEffective("devlinux", Repo, store.EffectiveHookRules("devlinux", Repo)));
 
@@ -349,7 +349,7 @@ public sealed class HookRuleWireTests : IDisposable
     public void ProjectFiring_HookFiring_CarriesTheDecisionFields()
     {
         var store = new SessionRuleStore(Db);
-        var rule = SessionRuleWire.CreateFromBody(store, Body(HookBody), Now);
+        var rule = SessionRuleWire.CreateFromBody(store, Body(HookBody), Now, AnActor.Owner);
         var unreadable = new List<HookFiringRefusal>();
         var decisions = SessionRuleWire.ReadHookDecisions(
             Body($$"""{ "decisions": [ {{W3("d-wire", rule.Id.ToString())}} ] }"""), unreadable);
