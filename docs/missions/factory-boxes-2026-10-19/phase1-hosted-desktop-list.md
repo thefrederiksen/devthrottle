@@ -5,9 +5,20 @@ name and shape below is pinned by a test; the test is named beside it.
 
 ## 1. The Director's configuration file
 
-**Where:** `config/director/hosted-desktops.json` under the Director's storage root
-(`CcStorage.HostedDesktopsFile()`, so `CC_DIRECTOR_ROOT` moves it for a test). Absent on a Director that hosts no
-desktop, which is nearly every Director - absent is not an error.
+**Where:** `<shared root>/instances/<instance>/config/director/hosted-desktops.json` - for the default instance,
+`<shared root>/instances/default/config/director/hosted-desktops.json`. `CcStorage.HostedDesktopsFile()` is
+`config/director/hosted-desktops.json` under the storage root, but at start the Director sets `CC_DIRECTOR_ROOT` to its
+instance home, `<shared root>/instances/<instance>` (`Program.cs`, `InstanceContext.InstanceHome`), so that is the root
+it reads under. The shared root is `CC_DIRECTOR_ROOT` as the Director was started with it, or the platform default
+(`~/.local/share/cc-director` on Linux). A file at `<shared root>/config/director/` is never read. (Corrected 20 October
+2026; it said `config/director/hosted-desktops.json` under the storage root, which a test Director on a scratch root
+read as `<root>/config/director/` - see `test-director-on-devlinux.md`.) Absent on a Director that hosts no desktop,
+which is nearly every Director - absent is not an error.
+
+**An absent file logs nothing today** - nor does a file in the wrong folder, which looks the same to the Director:
+`HostedDesktopRegistry.Reload` writes a line only when the list changes, and it starts empty, so there is no
+`[HostedDesktopRegistry]` line at all. A known gap for phase 2: the only sign the file was found is the line
+`Reload: this Director hosts N desktop(s): ...`.
 
 **Format:**
 
@@ -154,8 +165,8 @@ Test: `BoxesEndpointTests.GetBoxes_FlaggedAccount_GetsItsListInTheContractShape`
 
 1. Put the owner's account id in `DEVTHROTTLE_BOXES_TENANT_IDS` on the hosted Gateway (deploy through the
    `deploy-hosted-gateway` skill only).
-2. On devlinux, write `config/director/hosted-desktops.json` for the Director that hosts `demo-desktop-soren`, with the
-   desktop's local port.
+2. On devlinux, write `instances/<instance>/config/director/hosted-desktops.json` under the shared root of the
+   Director that hosts `demo-desktop-soren`, with the desktop's local port.
 3. Within ten seconds `GET /boxes` lists it.
 
 ## Developer's answers
