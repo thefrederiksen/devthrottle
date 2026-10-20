@@ -60,13 +60,15 @@ public static class GatewayResponseCompression
 
     /// <summary>
     /// The paths whose responses are a live stream and must never pass through a compressor: the events feed,
-    /// an API-mode session's live relay, and both SignalR hubs (including their negotiate and transport sub-paths).
+    /// an API-mode session's live relay, both SignalR hubs (including their negotiate and transport sub-paths), and a
+    /// box's desktop (Factory Boxes), which the relay carries byte for byte with the box's own headers.
     /// </summary>
     public static bool IsStreamingPath(PathString path) =>
         path.Equals("/events", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/director-stream", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/launcher-stream", StringComparison.OrdinalIgnoreCase)
-        || IsSessionLiveStream(path);
+        || IsSessionLiveStream(path)
+        || Boxes.BoxDesktopEndpoints.IsDesktopPath(path);
 
     /// <summary>
     /// <c>/sessions/{sid}/live</c> exactly: an API-mode session's live relay (mission #4070). Its poll form,

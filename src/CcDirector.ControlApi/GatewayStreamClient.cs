@@ -68,6 +68,13 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private readonly DirectorUpStreamHandler? _upStreamHandler;
 
     /// <summary>
+    /// Factory Boxes (issue #4258): the Director's half of the desktop relay leg. Always built, so a desktop open
+    /// that reaches a Director with no hosted-desktop list is refused (and logged) by the allow-list check rather
+    /// than declined for want of a handler.
+    /// </summary>
+    private readonly Boxes.DirectorDesktopRelayHandler _desktopRelay;
+
+    /// <summary>
     /// The Gateway's "Command" call, whole: a stream verb to the up-stream handler, every other verb to the unary
     /// dispatcher. A boundary, so it catches: a dispatcher fault becomes an Error result the Gateway can fall back on,
     /// never a faulted hub invocation. A command that sends a prompt runs inside its error context
@@ -75,7 +82,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// command id like every other line the failure caused (issue #3675).
     /// </summary>
     internal static async Task<DirectorCommandResult> HandleCommandAsync(DirectorCommand? cmd,
-        DirectorUpStreamHandler? upStreamHandler, Func<DirectorCommand, Task<DirectorCommandResult>>? commandDispatcher)
+        DirectorUpStreamHandler? upStreamHandler, Func<DirectorCommand, Task<DirectorCommandResult>>? commandDispatcher,
+        Boxes.DirectorDesktopRelayHandler? desktopRelay = null)
     {
         using var errorContext = PromptPathErrorContext.ForCommand(cmd);
         try
@@ -97,6 +105,21 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 var streamResult = upStreamHandler.Handle(cmd);
                 streamResult.CommandId = cmd.CommandId;
                 return streamResult;
+            }
+
+            // Factory Boxes (issue #4258): the desktop relay's open is connection-bound too - the stream it starts
+            // rides this connection - so it branches here as well, before the unary dispatcher.
+            if (Boxes.DirectorDesktopRelayHandler.IsDesktopVerb(cmd.Verb))
+            {
+                if (desktopRelay is null)
+                {
+                    FileLog.Write($"[GatewayStreamClient] desktop verb declined (no desktop relay): cmdId={cmd.CommandId}");
+                    return DirectorCommandResult.Fail(DirectorCommandStatus.Error, "director has no desktop relay");
+                }
+                FileLog.Write($"[GatewayStreamClient] desktop verb received: verb={cmd.Verb}, cmdId={cmd.CommandId}");
+                var desktopResult = await desktopRelay.HandleAsync(cmd);
+                desktopResult.CommandId = cmd.CommandId;
+                return desktopResult;
             }
 
             if (commandDispatcher is null)
@@ -231,7 +254,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Func<string, string?>? teamNameForKey = null,
         Func<Task>? redialDelay = null,
         Func<string>? secretTransferPublicKey = null,
-        Func<IReadOnlyList<HostedDesktopDto>>? hostedDesktops = null)
+        Func<IReadOnlyList<HostedDesktopDto>>? hostedDesktops = null,
+        Boxes.IHostedDesktopLookup? hostedDesktopLookup = null)
     {
         _hostedDesktops = hostedDesktops;
         _secretTransferPublicKey = secretTransferPublicKey;
@@ -255,6 +279,12 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         _upStreamHandler = sessionManager is null
             ? null
             : new DirectorUpStreamHandler(sessionManager, (streamId, frames) => _connection!.SendAsync("StreamUp", streamId, frames));
+        // STAND-IN: HostsNoDesktops until the hosted-desktop list task merges and is passed in here.
+        _desktopRelay = new Boxes.DirectorDesktopRelayHandler(
+            hostedDesktopLookup ?? Boxes.HostsNoDesktops.Instance,
+            Boxes.LoopbackDesktopConnector.Instance,
+            (streamId, up, ct) => _connection!.StreamAsync<DesktopRelayFrame>(DesktopRelayProtocol.HubMethod, streamId, up, ct),
+            TimeProvider.System);
     }
 
     /// <summary>
@@ -501,6 +531,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             // Gateway Cleanup Phase 0 (Architect ruling A): the tunnel dropped, so no frame can reach the
             // Gateway - tear down every live up-stream instead of leaving a producer sending into a dead socket.
             _upStreamHandler?.CancelAll();
+            _desktopRelay.CancelAll("the tunnel is reconnecting");
             _monitor?.MarkTunnelConnecting();
             return Task.CompletedTask;
         };
@@ -508,7 +539,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // Also tear streams down on a full close (auto-reconnect gave up); the supervise loop then re-dials.
         // The capabilities go with the connection: the next dial may reach a different (older) Gateway, and a
         // caller must not act on the last one's answer until the new Hello has answered.
-        _connection.Closed += _ => { MarkConnectionLost(); _capabilities = null; _upStreamHandler?.CancelAll(); _monitor?.MarkTunnelConnecting(); return Task.CompletedTask; };
+        _connection.Closed += _ => { MarkConnectionLost(); _capabilities = null; _upStreamHandler?.CancelAll(); _desktopRelay.CancelAll("the tunnel closed"); _monitor?.MarkTunnelConnecting(); return Task.CompletedTask; };
 
         // Issue #1176 (Phase 1b): the down-channel proof. The Gateway can call this and await the reply
         // over the same connection (SignalR client results), demonstrating request-both-ways on one
@@ -530,7 +561,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // handler on this connection may wait on anything. Measured out of tree, not by a test here:
         // missions/license-switching/review-phases-2-and-4-whole.md.
         _connection.On<DirectorCommand, DirectorCommandResult>("Command",
-            cmd => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher));
+            cmd => HandleCommandAsync(cmd, _upStreamHandler, _commandDispatcher, _desktopRelay));
 
         while (!_disposed)
         {
