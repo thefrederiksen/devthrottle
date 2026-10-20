@@ -57,7 +57,7 @@ public sealed class ToolRunner
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(exePath) ?? Environment.CurrentDirectory,
+            WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(exePath) ?? ProcessWorkingDirectory.CurrentOrAppDirectory(),
             // The cc-* tools emit UTF-8 (rich/python and .NET alike); decoding with the default
             // ANSI codepage mangles box-drawing/non-ASCII output, so pin UTF-8 end-to-end.
             StandardOutputEncoding = System.Text.Encoding.UTF8,

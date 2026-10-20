@@ -5226,6 +5226,31 @@ public partial class MainWindow : Window
         bool onBrowsersTab = false, bool openBrowserCreate = false)
     {
         FileLog.Write($"[MainWindow] OpenSettingsAsync: onGatewayTab={onGatewayTab}, onToolsTab={onToolsTab}, onBrowsersTab={onBrowsersTab}");
+        try
+        {
+            await ShowSettingsDialogAsync(onGatewayTab, onToolsTab, onBrowsersTab, openBrowserCreate);
+        }
+        catch (Exception ex)
+        {
+            // The catch is HERE, not on the button, because four of the six ways into Settings are
+            // fire-and-forget (`_ = OpenSettingsAsync(...)`) and cannot catch anything: on macOS after
+            // a self-update, building the dialog threw (see ProcessWorkingDirectory) and the whole
+            // action vanished into an unhandled user-interface exception and an unobserved task. A
+            // Settings dialog that cannot be built has to SAY so - the user cannot report "nothing
+            // happened".
+            await ShownErrorBox.ShowAsync(this, "main window", "open Settings",
+                "Settings Could Not Open", ex.Message, ex);
+        }
+    }
+
+    /// <summary>
+    /// Build the Settings dialog, wire the tabs that write back to this window, and show it. Separated
+    /// from <see cref="OpenSettingsAsync"/> only so that method is the one place every way into Settings
+    /// is reported from.
+    /// </summary>
+    private async Task ShowSettingsDialogAsync(
+        bool onGatewayTab, bool onToolsTab, bool onBrowsersTab, bool openBrowserCreate)
+    {
         var dialog = new SettingsDialog(ReloadScreenshotsPanelAsync);
         // Live-sync the pinned rail group with every change made on the Browsers tab, so the rail
         // behind the open dialog never shows a browser that was just renamed or removed.

@@ -128,20 +128,31 @@ public partial class SpeakDialog : Window
     /// <summary>
     /// TEST SEAM (issue #3672): whether this machine can capture from a microphone. Null in production, where
     /// the answer is <see cref="CaptureUnavailableMessage"/>: Windows captures through NAudio, Linux through the
-    /// sound system's own recorder, and macOS has no capture, so every device query there throws "COM is not
-    /// supported".
+    /// sound system's own recorder, and macOS through AudioQueue. Anything else has no capture at all, and
+    /// every device query there throws "COM is not supported".
     /// </summary>
     internal Func<bool>? CaptureSupportedForTests;
 
-    private const string CaptureNotOfferedMessage = "Desktop dictation is not available on this system yet. It works on Windows and Linux.";
+    private const string CaptureNotOfferedMessage = "Desktop dictation is not available on this system yet. It works on Windows, macOS and Linux.";
 
     /// <summary>
     /// Why this machine cannot capture from a microphone, in words for the user, or null when it can. Windows
-    /// always can. Linux can when PipeWire's or ALSA's recorder is installed. Nothing else can yet.
+    /// always can. Linux can when PipeWire's or ALSA's recorder is installed. macOS can when there is an input
+    /// device to record from - AudioQueue is part of the system, so there is nothing to install. Nothing else
+    /// can yet.
     /// </summary>
-    internal static string? CaptureUnavailableMessage(bool isWindows, bool isLinux, bool linuxCaptureToolsPresent)
+    internal static string? CaptureUnavailableMessage(bool isWindows, bool isLinux, bool linuxCaptureToolsPresent,
+        bool isMacOS = false, bool macHasInputDevice = false)
     {
         if (isWindows) return null;
+        if (isMacOS)
+        {
+            // macOS records through AudioQueue, which is part of the OS: there is no tool to
+            // install, so the only thing that can be missing is a microphone to record from.
+            return macHasInputDevice
+                ? null
+                : "Desktop dictation found no microphone. Connect one, then pick it in System Settings > Sound > Input and open Dictate again.";
+        }
         if (!isLinux) return CaptureNotOfferedMessage;
         return linuxCaptureToolsPresent
             ? null
@@ -307,7 +318,8 @@ public partial class SpeakDialog : Window
             // Issue #3672: a machine that cannot capture says so before any hosted-AI check or device query,
             // instead of letting the first COM call fail with "COM is not supported".
             var captureUnavailable = CaptureUnavailableMessage(
-                OperatingSystem.IsWindows(), OperatingSystem.IsLinux(), OperatingSystem.IsLinux() && LinuxAudioTools.CaptureToolsPresent);
+                OperatingSystem.IsWindows(), OperatingSystem.IsLinux(), OperatingSystem.IsLinux() && LinuxAudioTools.CaptureToolsPresent,
+                OperatingSystem.IsMacOS(), OperatingSystem.IsMacOS() && MacMicDevices.HasDefaultInput());
             var captureSupported = CaptureSupportedForTests is not null ? CaptureSupportedForTests() : captureUnavailable is null;
             if (!captureSupported)
             {

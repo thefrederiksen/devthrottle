@@ -83,6 +83,16 @@ public static class BackgroundDictationSend
                 FileLog.Write($"[BackgroundDictationSend] no audio captured for session {target.Id}: {ex.Message}");
                 return;
             }
+            catch (SilentCaptureException ex)
+            {
+                // An error, unlike the gate above: bytes DID arrive and every one of them was silent, which
+                // is the machine refusing the microphone rather than the speaker saying nothing. Staying
+                // quiet here is what left the user with an unexplained empty transcript, so this one is
+                // reported, and the message already names the device and where to grant access.
+                FileLog.Write($"[BackgroundDictationSend] silent capture for session {target.Id}: {ex.Message}");
+                onFailed?.Invoke(ex.Message, null);
+                return;
+            }
 
             // 1b. Disk safety net (issue #1130): persist the WAV BEFORE the single transcription
             //     attempt, so a failed or slow transcription can never lose the recording. Saving is

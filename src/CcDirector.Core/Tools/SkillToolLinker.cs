@@ -168,8 +168,14 @@ public sealed partial class SkillToolLinker
         if (!string.IsNullOrEmpty(userProfile))
             roots.Add(Path.Combine(userProfile, ".claude", "skills"));
 
-        foreach (var seed in new[] { AppContext.BaseDirectory, Environment.CurrentDirectory })
+        // The working directory is only a place to start looking from, and on macOS it can be gone -
+        // the updater replaces the application bundle this process is sitting in, and getcwd then
+        // fails. Reading it unguarded here took the whole Settings dialog down with an unhandled
+        // exception after every update (see ProcessWorkingDirectory). A seed we cannot name is simply
+        // one fewer place to search.
+        foreach (var seed in new[] { AppContext.BaseDirectory, ProcessWorkingDirectory.CurrentOrNull() })
         {
+            if (string.IsNullOrEmpty(seed)) continue;
             var repoSkills = FindNearestRepoSkills(seed);
             if (repoSkills is not null && !roots.Contains(repoSkills, StringComparer.OrdinalIgnoreCase))
                 roots.Add(repoSkills);

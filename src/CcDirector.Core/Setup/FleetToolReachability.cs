@@ -280,7 +280,7 @@ public sealed class FleetToolReachability
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = Path.GetDirectoryName(toolPath) ?? Environment.CurrentDirectory,
+            WorkingDirectory = Path.GetDirectoryName(toolPath) ?? ProcessWorkingDirectory.CurrentOrAppDirectory(),
         };
         foreach (var arg in ProbeArgs) psi.ArgumentList.Add(arg);
 
