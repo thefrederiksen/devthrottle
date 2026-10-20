@@ -57,7 +57,7 @@ AXI standard). Every new field is decided in `MailDeskChannelFold` and nowhere e
   the check, and the order of failover, belong to the Mail Desk start (mission 5.9). So the order was a claim the
   Gateway does not decide.
 - `tone` is the ONLY thing a client turns into a colour. `signedIn`: `yes` -> good, `failing` -> bad, `unknown` ->
-  neutral. `lastCheck`: no check yet -> neutral, a failed check -> bad, any other outcome -> good. `modeTone`:
+  neutral. `lastCheck`: no check yet -> neutral; nothing-to-do, started and screened -> good; paused and skipped-running -> neutral; failed -> bad; any other outcome throws, so a new outcome cannot show as green unseen (review finding F2, `reviews/gateway-fold-answers.md`). `modeTone`:
   `observe` -> neutral, `live` -> attention (live mode acts on the mailbox; it must stand out).
 - `today.label`: "No emails decided today", "1 email decided today", "N emails decided today".
 - `today.counts`: every decision word in the order `MailDeskWords` lists them, zeros included, each with its label.
