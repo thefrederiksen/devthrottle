@@ -21,3 +21,4 @@
 - WAITING ON THE OWNER: terminal 162 (devlinux sudo, inotify limit) and terminal 115 (SOREN_NORTH, C++ build tools). D and W poll for these and will message the Tech Lead when unblocked.
 - Remaining after unblock: D proves rig on merged code; Tech Lead runs live rows 1 and 2 on Linux (positive, other repo, other machine), September screen rule; W does Windows native build, timing, live rows; review W's and D's branch changes; write phase-1-proof.md; one pull request to main.
 - W gate on Windows (Release): 2 mission defects found and fixed 64c41f86e; only red is main's DefinitionFormatDocumentTests (fixed by #4218). Merged W branch. Review W's script changes with its final steps.
+- Pull request 4268 opened (61678bca9). Not merged. Open: Windows native build/timing/live rows (owner: C++ build tools), September screen rule live (inference key; Linux shell turn end).
