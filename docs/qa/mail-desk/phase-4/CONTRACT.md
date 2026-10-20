@@ -150,7 +150,12 @@ In order:
    which the drain saves on the Gateway before it ends each seat: a seat still owed a Bring back is not ended and
    its seat counts busy; one brought back is followed to its new session id by the record's own mapping; one marked
    not to be brought back is ended at once. The follow by name stays as the fallback. `director-stopped` waits like
-   `interrupted`. (Found by the task Developer in the code, approved by the Tech Lead.) A session the Gateway cannot see at all is
+   `interrupted`. (Found by the task Developer in the code, approved by the Tech Lead.) A seat brought back as a new
+   session is judged by that session's own state, with the ordinary rules; a `done` row never makes a seat busy, and
+   nothing waits for ever. A seat still owed a Bring back waits while the record still owes it; if the record never
+   resolves, 72 hours after the RESTART (the record's time, never the session's start) the routed email is handed to
+   the OWNER - never re-routed, so two sessions can never work one email. A record cancelled with "Cancel and keep
+   working" is not a restart and is ignored. (Review of the restart record work, 20 October 2026.) A session the Gateway cannot see at all is
    NOT ended by its absence - after a Gateway restart, or while its Director is away (a backup takeover), a live
    session is invisible for a while, and re-routing it would put two sessions on one email. Absence alone counts as
    ended only **24 hours** after the start (`MailDeskRouter.UnseenSessionEndsAfter`), so an email whose Director died
