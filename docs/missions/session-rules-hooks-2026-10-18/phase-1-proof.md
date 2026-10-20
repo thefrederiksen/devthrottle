@@ -145,39 +145,47 @@ on a throwaway `postgres:16`, and the command line tool's suite 5109 passed, 2 s
 ## 4. Timing - added time per shell command
 
 **Linux - re-measured 2026-10-20 by the Developer who answered the whole-phase review**, after the
-evaluator's registration moved to exec form (commit `bdcf94e39`): `scripts/measure-rule-hook.sh --runs 300`
-at this branch, which now starts the evaluator directly with no shell, as the agent does with the exec-form
-registration. devlinux, 32 processors, load average 2.16 at the start and 1.98 at the end; the evaluator
-published from this branch (2,704,056 bytes); 604 decision files written, as expected; exit 0.
+evaluator's registration moved to exec form (commit `bdcf94e39`) and the timing scripts were corrected by
+the timing scripts review (`reviews/phase-1-timing-scripts-review.md`): `scripts/measure-rule-hook.sh
+--runs 300` at commit `1c3b51176`, which starts the evaluator directly in every hook row - no shell and no
+other program in front of it - as the agent does with the exec-form registration. devlinux, 32 processors,
+load average 6.77 at the start and 6.41 at the end; the evaluator published from this branch (2,704,056
+bytes); 604 decision files written, as expected; exit 0. **The full output of this run is
+`evidence/timing-linux-sh-2026-10-20.txt`**; every number below is copied from it.
 
 | Row | Median | 95th percentile | Added (median) |
 |---|---|---|---|
-| baseline, `/bin/true` started directly | 1.61 ms | 1.86 ms | - |
-| for comparison only: `/bin/sh -c /bin/true` (the shell start, not paid any more) | 2.69 ms | 3.02 ms | - |
-| outside a Director session | 5.96 ms | 6.58 ms | 4.4 ms |
-| rules file not there | 6.23 ms | 6.78 ms | 4.6 ms |
-| 0 rules | 6.52 ms | 7.11 ms | 4.9 ms |
-| 1 rule, matching | 7.07 ms | 7.72 ms | 5.5 ms |
-| 50 rules, last matching | 7.27 ms | 8.00 ms | 5.7 ms |
+| baseline, `/bin/true` started directly | 1.48 ms | 2.11 ms | - |
+| for comparison only: through a shell, `/bin/sh -c /bin/true` (what shell form paid; not paid any more) | 2.64 ms | 3.59 ms | - |
+| outside a Director session | 5.25 ms | 6.32 ms | 3.8 ms |
+| rules file not there | 6.56 ms | 7.52 ms | 5.1 ms |
+| 0 rules | 6.88 ms | 7.85 ms | 5.4 ms |
+| 1 rule, matching | 7.46 ms | 8.29 ms | 6.0 ms |
+| 50 rules, last matching | 7.61 ms | 8.68 ms | 6.1 ms |
 
 "Added" is the row minus the direct baseline. **The numbers this table replaces included a shell start.**
 They were taken on 2026-10-18 with the earlier shell-form registration, so every hook row ran the evaluator
 through `/bin/sh -c`, against a `/bin/sh -c /bin/true` baseline: their absolute times carried the cost of
 starting a shell that the shipped hook no longer pays, on a machine at load average 23 to 25. Their "added"
-column was close to this one (4.2 to 6.4 ms), because the shell was in the baseline too. The last line of
-each evaluation log in this run put the evaluator's own time at 0.9 to 1.9 ms per decision; most of the added
-time is the process starting.
+column was close to this one (4.2 to 6.4 ms), because the shell was in the baseline too. An intermediate
+table, from commit `c3c5e96b6`, was also replaced: its "outside a Director session" row started the
+evaluator through `env`, which put about 0.9 ms of another program's start into that row. The last line of
+each evaluation log in this run puts the evaluator's own time at 0.9 to 2.0 ms per decision; most of the
+added time is the process starting. This run was on a busier machine than the 2026-10-20 run it replaces
+(load average 6.8 against 2.2), so the rows are a little higher.
 
-The PowerShell version of the script, changed the same way, was also run here on Linux
-(`pwsh 7.4.11 -File scripts/measure-rule-hook.ps1 -Runs 300`), which exercises its non-Windows path only:
-baseline 0.96 ms, 0 rules 6.34 ms, 1 rule 6.84 ms, 50 rules 7.16 ms (medians), 604 decision files, exit 0.
-Its Windows path is not run.
+The PowerShell version of the script, changed the same way, was also run here on Linux at the same commit,
+which exercises its non-Windows path only: **full output `evidence/timing-linux-ps1-2026-10-20.txt`** -
+baseline 1.15 ms, through a shell 2.36 ms, outside a session 4.75 ms, rules file not there 4.91 ms, 0 rules
+5.06 ms, 1 rule 6.94 ms, 50 rules 7.34 ms (medians), 604 decision files, exit 0. Its Windows path is not run.
 
 **Windows - NOT PROVEN.** No native build was possible (below). What is known: Claude Code on Windows runs
 a SHELL-form hook command through Git Bash, and Git Bash alone costs about 60 ms per hook call (median
 59.93 ms, 95th percentile 77.86 ms, 30 runs) before any hook program starts. Since `bdcf94e39` the
-evaluator is registered in exec form and is started with no shell, so that 60 ms is no longer part of its
-cost; the Windows number is still to be measured with the changed `scripts/measure-rule-hook.ps1`.
+evaluator is registered in exec form. By the vendor's documentation the agent starts an exec-form hook with
+no shell on Windows too, so that 60 ms is EXPECTED no longer to be part of its cost - expected, not
+measured: no Windows run has shown it yet. The Windows run of the changed `scripts/measure-rule-hook.ps1`
+is to measure it, and to commit its full output under `evidence/` as the Linux runs above did.
 
 ## 5. The September usage-limit screen rule - NOT PROVEN live
 
