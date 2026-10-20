@@ -433,7 +433,9 @@ function Start-TestDirector([string]$PiPath) {
             Stop-Setup "a scheduled task named $taskName already exists and was not made by this script; it is left alone - remove or rename it, then run again"
         }
         $command = "`$env:CC_DIRECTOR_ROOT = '$root'; & '$exe'"
-        $action = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument "-NoProfile -WindowStyle Hidden -Command `"$command`"" -WorkingDirectory (Split-Path $exe)
+        # The PowerShell running this script, by its full path: the task does not see this session's PATH, and a
+        # machine whose PowerShell 7 is not installed system-wide failed the launch with "file not found".
+        $action = New-ScheduledTaskAction -Execute ([Environment]::ProcessPath) -Argument "-NoProfile -WindowStyle Hidden -Command `"$command`"" -WorkingDirectory (Split-Path $exe)
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddYears(5)
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Description 'API mode proof test Director' -Force | Out-Null
         Start-ScheduledTask -TaskName $taskName
