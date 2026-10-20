@@ -228,5 +228,6 @@ public sealed class SecretTransferMachineKeyTests
         public Task<ApiModeEventWatermark?> PushApiModeEventsAsync(ApiModeEventBatch batch, CancellationToken ct) => Task.FromResult<ApiModeEventWatermark?>(null);
         public Task RevokeSessionKeyAsync(string sessionId) => Task.CompletedTask;
         public Task PushRepoSnapshotAsync(long sequence, RepoStatusDto[] repositories) => Task.CompletedTask;
+        public Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops) => Task.CompletedTask;
     }
 }

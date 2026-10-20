@@ -761,6 +761,13 @@ public static class CcStorage
     /// <summary>Named-session definitions directory: config/director/named-sessions/</summary>
     public static string NamedSessions() => Path.Combine(ToolConfig("director"), "named-sessions");
 
+    /// <summary>
+    /// The desktops this Director hosts (the Factory Boxes mission, phase 1): config/director/hosted-desktops.json.
+    /// Each entry is a box id, a display name and a local port; the file never holds a host. Absent on a Director
+    /// that hosts no desktop, which is nearly every Director. See <c>Boxes.HostedDesktopRegistry</c>.
+    /// </summary>
+    public static string HostedDesktopsFile() => Path.Combine(ToolConfig("director"), "hosted-desktops.json");
+
     // -- Browser Connections --
 
     /// <summary>Browser connections directory: base/connections/</summary>
