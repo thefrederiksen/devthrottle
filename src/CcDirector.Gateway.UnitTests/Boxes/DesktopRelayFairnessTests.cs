@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
@@ -16,6 +15,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Time.Testing;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -52,6 +52,9 @@ public sealed class DesktopRelayFairnessTests : IAsyncLifetime
     private WebApplication? _app;
     private HubConnection? _director;
     private int _commandsAnswered;
+
+    // A clock nobody moves: nothing in this test is timed, it is counted.
+    private readonly FakeTimeProvider _clock = new();
 
     public DesktopRelayFairnessTests(ITestOutputHelper output) => _output = output;
 
@@ -106,7 +109,7 @@ public sealed class DesktopRelayFairnessTests : IAsyncLifetime
         await _director.StartAsync().Within();
         await _director.InvokeAsync<GatewayCapabilities?>("Hello", new DirectorStreamHello
         {
-            DirectorId = DirectorId, Version = "test", MachineName = "fairness", User = "test", Pid = 1, StartedAt = DateTime.UtcNow,
+            DirectorId = DirectorId, Version = "test", MachineName = "fairness", User = "test", Pid = 1, StartedAt = new DateTime(2026, 10, 20, 9, 0, 0, DateTimeKind.Utc),
         }).Within();
     }
 
@@ -132,42 +135,38 @@ public sealed class DesktopRelayFairnessTests : IAsyncLifetime
         var up = Channel.CreateUnbounded<DesktopRelayFrame>();
         var down = _director!.StreamAsync<DesktopRelayFrame>(DesktopRelayProtocol.HubMethod, "desktop", up.Reader.ReadAllAsync());
         var directorPump = new DesktopRelayPump(box, up.Writer, new DesktopRelayUsage("box", "desktop", "director"), new DesktopRelayBoxTally(),
-            endpointIsBrowser: false, TimeProvider.System, idleTimeout: null, outboundLimit: null, "gateway gone", "box gone");
+            endpointIsBrowser: false, _clock, idleTimeout: null, outboundLimit: null, "gateway gone", "box gone");
         var directorRun = directorPump.RunAsync(down, CancellationToken.None, CancellationToken.None);
 
         var attachment = await pending.Attached.Within();
         var browser = new StalledBrowser();
         var gatewayPump = new DesktopRelayPump(browser, pending.Down.Writer, new DesktopRelayUsage("box", "desktop", "gateway"), new DesktopRelayBoxTally(),
-            endpointIsBrowser: true, TimeProvider.System, idleTimeout: null, outboundLimit: null, "director gone", "browser gone");
+            endpointIsBrowser: true, _clock, idleTimeout: null, outboundLimit: null, "director gone", "browser gone");
         var gatewayRun = gatewayPump.RunAsync(attachment.Up, attachment.HubCancellation, CancellationToken.None);
 
         // Saturated: the Director has used its whole window and the box's next frame is waiting for credit.
-        await Until(() => directorPump.SendWindowAvailable < DesktopRelayLimits.MaxFrameBytes + DesktopRelayLimits.FrameOverheadBytes
+        await Watchdog.Eventually(() => directorPump.SendWindowAvailable < DesktopRelayLimits.MaxFrameBytes + DesktopRelayLimits.FrameOverheadBytes
                           && box.WaitingForTheRelay);
         var producedAtSaturation = box.FramesProduced;
 
         // ---- the terminal, on the SAME connection, while the desktop is saturated ----
         var terminal = new CountingSink(TerminalFrames);
         _streams.Register("terminal", owner, terminal);
-        var watch = Stopwatch.StartNew();
         _ = _director!.SendAsync("StreamUp", "terminal", TerminalOutput());
         await terminal.AllArrived.Task.Within();
-        var terminalElapsed = watch.Elapsed;
 
         // ---- a command from the Gateway to the Director, on the same connection ----
         var hub = _app!.Services.GetRequiredService<IHubContext<DirectorHub>>();
         var connectionId = _director!.ConnectionId!;
-        watch.Restart();
         var reply = await hub.Clients.Client(connectionId).InvokeAsync<DirectorCommandResult>("Command",
             new DirectorCommand { CommandId = "c1", Verb = "ping", SessionId = "" }, CancellationToken.None).Within();
-        var commandElapsed = watch.Elapsed;
 
         // The desktop is still saturated and nothing more of it was produced: it was slowed, not queued without limit.
         var producedAfter = box.FramesProduced;
         _output.WriteLine($"desktop frames produced before the window closed: {producedAtSaturation} (cost {DesktopRelayLimits.MaxFrameBytes + DesktopRelayLimits.FrameOverheadBytes} bytes each, window {DesktopRelayLimits.WindowBytes} bytes)");
         _output.WriteLine($"desktop frames delivered to the stalled browser: {browser.Delivered}");
-        _output.WriteLine($"terminal frames delivered while the desktop was saturated: {terminal.Count} of {TerminalFrames}, in {terminalElapsed.TotalMilliseconds:F1} milliseconds");
-        _output.WriteLine($"command answered while the desktop was saturated: {reply.Ok}, in {commandElapsed.TotalMilliseconds:F1} milliseconds");
+        _output.WriteLine($"terminal frames delivered while the desktop was saturated: {terminal.Count} of {TerminalFrames}");
+        _output.WriteLine($"command answered while the desktop was saturated: {reply.Ok}");
 
         Assert.Equal(TerminalFrames, terminal.Count);
         Assert.True(reply.Ok);
@@ -179,7 +178,7 @@ public sealed class DesktopRelayFairnessTests : IAsyncLifetime
 
         // ---- the browser starts reading again: the desktop resumes (it was slowed, never dropped) ----
         browser.Release();
-        await Until(() => browser.Delivered >= producedAtSaturation + 20);
+        await Watchdog.Eventually(() => browser.Delivered >= producedAtSaturation + 20);
         Assert.True(box.FramesProduced > producedAtSaturation);
         Assert.Equal(DesktopRelayFrameKind.Data, browser.FirstKind);
 
@@ -195,16 +194,6 @@ public sealed class DesktopRelayFairnessTests : IAsyncLifetime
             yield return new DirectorStreamFrame { Kind = DirectorStreamFrameType.Binary, Data = new byte[100] };
         }
         yield return new DirectorStreamFrame { Kind = DirectorStreamFrameType.Closed, Reason = "done" };
-    }
-
-    private static async Task Until(Func<bool> condition)
-    {
-        var watchdog = Stopwatch.StartNew();
-        while (!condition())
-        {
-            if (watchdog.Elapsed > Watchdog.Limit) throw new TimeoutException("the relay never reached the expected state");
-            await Task.Yield();
-        }
     }
 
     /// <summary>A box whose desktop floods full frames for as long as the relay takes them.</summary>

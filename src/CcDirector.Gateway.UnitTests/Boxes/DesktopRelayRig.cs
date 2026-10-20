@@ -285,4 +285,24 @@ internal static class Watchdog
 
     public static Task<T> Within<T>(this Task<T> task) => task.WaitAsync(Limit);
     public static Task Within(this Task task) => task.WaitAsync(Limit);
+
+    /// <summary>
+    /// Wait for a state the relay reaches on its own with no event to await (an end freed after the browser already
+    /// has its answer). It looks again each time the thread pool comes round, and only the watchdog bounds it.
+    /// </summary>
+    public static async Task Eventually(Func<bool> condition)
+    {
+        using var stop = new CancellationTokenSource();
+        try
+        {
+            await Task.Run(async () =>
+            {
+                while (!condition() && !stop.IsCancellationRequested) await Task.Yield();
+            }).Within();
+        }
+        finally
+        {
+            stop.Cancel();
+        }
+    }
 }

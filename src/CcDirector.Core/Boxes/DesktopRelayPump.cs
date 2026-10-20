@@ -148,6 +148,8 @@ public sealed class DesktopRelayPump
         }
         catch (Exception ex)
         {
+            // The endpoint is closed below with the reason the person is owed.
+            // not-an-error: a dropped connection - a Director disconnect - ends the far side's frames with an error.
             FileLog.Write($"[DesktopRelayPump] stream={_usage.StreamId}: the far side's frames ended with an error: {ex.Message}");
             await FinishAsync(_peerGoneReason, sendClosed: false, DesktopRelayEndpointClose.GoingAway).ConfigureAwait(false);
         }
