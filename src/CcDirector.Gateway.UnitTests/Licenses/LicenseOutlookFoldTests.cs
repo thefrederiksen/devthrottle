@@ -326,5 +326,23 @@ public sealed class LicenseOutlookFoldTests : IDisposable
         Assert.Equal(("In about 2 days", $"{B}, when its weekly limit resets."), (outlook.NextRoom.ValueText, outlook.NextRoom.DetailText));
     }
 
+    // The re-review of pull request 4299, finding 3: an account in use on another machine can be barred too. Its row is
+    // drawn as it is - its own machines still work on it - but it is never named as where A's machines go.
+    [Fact]
+    public void Outlook_AnAccountInUseThatIsBarred_IsNeverNamedAsTheTarget()
+    {
+        ApplyRising(Week(Holding(B, false, 10, 98), T0.AddDays(2)));
+        _store.ApplyReport(Tenant, "dir-2", 1, Report("m2", Holding(C, true, 10, 20)), T0, TimeSpan.Zero);
+        _store.Bar(Tenant, C, LicenseWindowNames.SevenDay, T0.AddDays(1), T0);
+
+        var forecast = Forecast(T0);
+
+        Assert.Equal(new[] { (LicenseOutlookSpanKinds.Room, T0, T0.AddDays(7)) }, Spans(forecast.Outlook, C));
+        Assert.Equal($"{A} runs out in about 3 hours 28 minutes, and no other account can take its machines then: the one with room is left out of the automatic choice.",
+            forecast.Outlook.Headline.Text);
+        Assert.Equal(LicenseTones.Warning, forecast.Outlook.Headline.Tone);
+        Assert.Equal(("Then switches to", "No account can be chosen", LicenseTones.Bad), Rows(forecast, A)[2]);
+    }
+
     private static (string, string, string, string) Tile(LicenseOutlookTileDto tile) => (tile.Label, tile.ValueText, tile.DetailText, tile.Tone);
 }

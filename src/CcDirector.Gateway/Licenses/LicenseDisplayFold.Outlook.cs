@@ -337,7 +337,8 @@ public static partial class LicenseDisplayFold
         {
             Text = (at <= now, then) switch
             {
-                (_, null) => $"{next.FromAccountEmail} runs out {When(at, now)}, and it is the only account.",
+                (_, null) when outlooks.Count == 1 => $"{next.FromAccountEmail} runs out {When(at, now)}, and it is the only account.",
+                (_, null) => $"{next.FromAccountEmail} runs out {When(at, now)}, and no other account can take its machines then: the one with room is left out of the automatic choice.",
                 (true, _) => $"{next.FromAccountEmail} has reached its limit, and {then} has room.",
                 _ => $"{next.FromAccountEmail} runs out {When(at, now)}, and {then} has room then.",
             },
@@ -350,13 +351,17 @@ public static partial class LicenseDisplayFold
     /// email. A barred account has no room here, as the engine would not choose it. Null when none has.</summary>
     private static string? RoomAt(IReadOnlyList<AccountOutlook> outlooks, string source, DateTime at, LicenseSnapshot snapshot)
     {
-        var candidates = outlooks.Where(o => o.AccountEmail != source && o.HasRoomNear(at))
+        // An account in use is drawn as it is, so a bar on it is applied here: the engine would not choose it either.
+        var candidates = outlooks.Where(o => o.AccountEmail != source && o.HasRoomNear(at) && !IsBarredAt(snapshot, o.AccountEmail, at))
             .OrderBy(o => o.Spans.First(s => s.Kind == LicenseOutlookSpanKinds.Room && s.End > at).Start)
             .ThenBy(o => o.AccountEmail, StringComparer.Ordinal)
             .Select(o => o.AccountEmail).ToList();
         var engine = LicenseDecisionEngine.NextTarget(snapshot, source);
         return engine is not null && candidates.Contains(engine) ? engine : candidates.FirstOrDefault();
     }
+
+    private static bool IsBarredAt(LicenseSnapshot snapshot, string accountEmail, DateTime at)
+        => snapshot.Bars.Any(b => string.Equals(b.AccountEmail.Trim(), accountEmail, StringComparison.OrdinalIgnoreCase) && Utc(b.BarredUntilUtc) > at);
 
     // ----- the tiles -----
 
@@ -516,7 +521,7 @@ public static partial class LicenseDisplayFold
         else
         {
             var gap = gaps.FirstOrDefault(g => g.Start <= runsOut && runsOut < g.End);
-            Row("Then switches to", gap == default ? "Nobody has room" : $"Nobody has room for about {Span(gap.End - runsOut)}", LicenseTones.Bad);
+            Row("Then switches to", gap == default ? "No account can be chosen" : $"Nobody has room for about {Span(gap.End - runsOut)}", LicenseTones.Bad);
         }
         return rows;
     }
