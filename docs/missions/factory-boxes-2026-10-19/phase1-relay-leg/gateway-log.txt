@@ -1,0 +1,348 @@
+2026-10-19 23:06:54.531 [BoxDesktopOrigin] box desktops are served only on http://localhost:7996
+2026-10-19 23:06:54.566 [BoxesSwitch] Factory Boxes is on for 1 configured account(s) (DEVTHROTTLE_BOXES_TENANT_IDS)
+2026-10-19 23:08:38.938 [BoxDesktopEndpoints] desktop-ticket: box=relay-proof
+2026-10-19 23:08:38.940 [BoxDesktopTickets] Mint: box=relay-proof tenant=local expires=2026-10-20T03:09:38.9405627+00:00
+2026-10-19 23:08:39.064 [BoxDesktopTickets] Redeem: box=relay-proof tenant=local session until 2026-10-20T11:08:39.0648903+00:00
+2026-10-19 23:08:39.123 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /
+2026-10-19 23:08:39.125 [DesktopRelayRegistry] registered stream 2d74c8f4eb0b492fa1238e7fbdf59bfd (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:08:39.251 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=2d74c8f4eb0b492fa1238e7fbdf59bfd, conn=37sAHHEX
+2026-10-19 23:08:39.252 [DesktopRelayRegistry] attached stream 2d74c8f4eb0b492fa1238e7fbdf59bfd (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:39.321 [DesktopRelayPump] RunAsync: box=relay-proof stream=2d74c8f4eb0b492fa1238e7fbdf59bfd side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:08:39.403 [DesktopRelayPump] stream=2d74c8f4eb0b492fa1238e7fbdf59bfd box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:08:39.406 [DesktopRelayUsage] box=relay-proof stream=2d74c8f4eb0b492fa1238e7fbdf59bfd side=gateway closed: toBrowser=406 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.407 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=406 bytes, toBox=0 bytes
+2026-10-19 23:08:39.407 [DesktopRelayLegs] stream=2d74c8f4eb0b492fa1238e7fbdf59bfd box=relay-proof ended: eof
+2026-10-19 23:08:39.408 [DesktopRelayRegistry] removed stream 2d74c8f4eb0b492fa1238e7fbdf59bfd (live=0)
+2026-10-19 23:08:39.413 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/index-D97fjY6g.css
+2026-10-19 23:08:39.413 [DesktopRelayRegistry] registered stream ae45b667cb1e4e4eba75efd69f929f6f (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:08:39.415 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/index-CPWh3fQ6.js
+2026-10-19 23:08:39.415 [DesktopRelayRegistry] registered stream 810e8005f3e64024b4a4fb9b29abaa27 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:08:39.417 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=ae45b667cb1e4e4eba75efd69f929f6f, conn=37sAHHEX
+2026-10-19 23:08:39.417 [DesktopRelayRegistry] attached stream ae45b667cb1e4e4eba75efd69f929f6f (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:39.418 [DesktopRelayPump] RunAsync: box=relay-proof stream=ae45b667cb1e4e4eba75efd69f929f6f side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:08:39.419 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=810e8005f3e64024b4a4fb9b29abaa27, conn=37sAHHEX
+2026-10-19 23:08:39.419 [DesktopRelayRegistry] attached stream 810e8005f3e64024b4a4fb9b29abaa27 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:39.419 [DesktopRelayPump] RunAsync: box=relay-proof stream=810e8005f3e64024b4a4fb9b29abaa27 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:08:39.439 [DesktopRelayPump] stream=ae45b667cb1e4e4eba75efd69f929f6f box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:08:39.439 [DesktopRelayUsage] box=relay-proof stream=ae45b667cb1e4e4eba75efd69f929f6f side=gateway closed: toBrowser=34393 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.439 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=87782 bytes, toBox=0 bytes
+2026-10-19 23:08:39.439 [DesktopRelayLegs] stream=ae45b667cb1e4e4eba75efd69f929f6f box=relay-proof ended: eof
+2026-10-19 23:08:39.440 [DesktopRelayRegistry] removed stream ae45b667cb1e4e4eba75efd69f929f6f (live=1)
+2026-10-19 23:08:39.453 [DesktopRelayPump] stream=810e8005f3e64024b4a4fb9b29abaa27 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:08:39.453 [DesktopRelayUsage] box=relay-proof stream=810e8005f3e64024b4a4fb9b29abaa27 side=gateway closed: toBrowser=650022 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.453 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=684821 bytes, toBox=0 bytes
+2026-10-19 23:08:39.453 [DesktopRelayLegs] stream=810e8005f3e64024b4a4fb9b29abaa27 box=relay-proof ended: eof
+2026-10-19 23:08:39.453 [DesktopRelayRegistry] removed stream 810e8005f3e64024b4a4fb9b29abaa27 (live=0)
+2026-10-19 23:08:39.511 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /api/status
+2026-10-19 23:08:39.511 [DesktopRelayRegistry] registered stream cd6f94aaa7434ae48e50cd0337775685 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:08:39.515 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=cd6f94aaa7434ae48e50cd0337775685, conn=37sAHHEX
+2026-10-19 23:08:39.515 [DesktopRelayRegistry] attached stream cd6f94aaa7434ae48e50cd0337775685 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:39.518 [DesktopRelayPump] RunAsync: box=relay-proof stream=cd6f94aaa7434ae48e50cd0337775685 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:08:39.519 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /icon.png
+2026-10-19 23:08:39.520 [DesktopRelayRegistry] registered stream f5c2eba17105407b83aff59061ed8099 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:08:39.523 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=f5c2eba17105407b83aff59061ed8099, conn=37sAHHEX
+2026-10-19 23:08:39.523 [DesktopRelayRegistry] attached stream f5c2eba17105407b83aff59061ed8099 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:39.524 [DesktopRelayPump] RunAsync: box=relay-proof stream=f5c2eba17105407b83aff59061ed8099 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:08:39.527 [DesktopRelayPump] stream=f5c2eba17105407b83aff59061ed8099 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:08:39.527 [DesktopRelayUsage] box=relay-proof stream=f5c2eba17105407b83aff59061ed8099 side=gateway closed: toBrowser=55164 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.527 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=739985 bytes, toBox=0 bytes
+2026-10-19 23:08:39.527 [DesktopRelayLegs] stream=f5c2eba17105407b83aff59061ed8099 box=relay-proof ended: eof
+2026-10-19 23:08:39.527 [DesktopRelayRegistry] removed stream f5c2eba17105407b83aff59061ed8099 (live=1)
+2026-10-19 23:08:39.937 [DesktopRelayPump] stream=cd6f94aaa7434ae48e50cd0337775685 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:08:39.937 [DesktopRelayUsage] box=relay-proof stream=cd6f94aaa7434ae48e50cd0337775685 side=gateway closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.937 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=740087 bytes, toBox=0 bytes
+2026-10-19 23:08:39.937 [DesktopRelayLegs] stream=cd6f94aaa7434ae48e50cd0337775685 box=relay-proof ended: eof
+2026-10-19 23:08:39.937 [DesktopRelayRegistry] removed stream cd6f94aaa7434ae48e50cd0337775685 (live=0)
+2026-10-19 23:08:39.941 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/selkies-core-BbKps5RD.js
+2026-10-19 23:08:39.941 [DesktopRelayRegistry] registered stream f86bcea3badd46079a3791e81209975d (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:08:39.943 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=f86bcea3badd46079a3791e81209975d, conn=37sAHHEX
+2026-10-19 23:08:39.943 [DesktopRelayRegistry] attached stream f86bcea3badd46079a3791e81209975d (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:39.943 [DesktopRelayPump] RunAsync: box=relay-proof stream=f86bcea3badd46079a3791e81209975d side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:08:39.954 [DesktopRelayPump] stream=f86bcea3badd46079a3791e81209975d box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:08:39.954 [DesktopRelayUsage] box=relay-proof stream=f86bcea3badd46079a3791e81209975d side=gateway closed: toBrowser=426262 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.954 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=1166349 bytes, toBox=0 bytes
+2026-10-19 23:08:39.954 [DesktopRelayLegs] stream=f86bcea3badd46079a3791e81209975d box=relay-proof ended: eof
+2026-10-19 23:08:39.954 [DesktopRelayRegistry] removed stream f86bcea3badd46079a3791e81209975d (live=0)
+2026-10-19 23:08:39.982 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /manifest.json
+2026-10-19 23:08:39.982 [DesktopRelayRegistry] registered stream 62a897b50985486eb7ec0a64144cbcb7 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:08:39.984 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=62a897b50985486eb7ec0a64144cbcb7, conn=37sAHHEX
+2026-10-19 23:08:39.984 [DesktopRelayRegistry] attached stream 62a897b50985486eb7ec0a64144cbcb7 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:39.984 [DesktopRelayPump] RunAsync: box=relay-proof stream=62a897b50985486eb7ec0a64144cbcb7 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:08:39.986 [DesktopRelayPump] stream=62a897b50985486eb7ec0a64144cbcb7 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:08:39.986 [DesktopRelayUsage] box=relay-proof stream=62a897b50985486eb7ec0a64144cbcb7 side=gateway closed: toBrowser=333 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.986 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=1166682 bytes, toBox=0 bytes
+2026-10-19 23:08:39.986 [DesktopRelayLegs] stream=62a897b50985486eb7ec0a64144cbcb7 box=relay-proof ended: eof
+2026-10-19 23:08:39.986 [DesktopRelayRegistry] removed stream 62a897b50985486eb7ec0a64144cbcb7 (live=0)
+2026-10-19 23:08:40.076 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 websocket /api/websockets
+2026-10-19 23:08:40.076 [DesktopRelayRegistry] registered stream 57e244ac9d1948478d83e06031b2d8ad (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:08:40.270 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=57e244ac9d1948478d83e06031b2d8ad, conn=37sAHHEX
+2026-10-19 23:08:40.270 [DesktopRelayRegistry] attached stream 57e244ac9d1948478d83e06031b2d8ad (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:08:40.282 [DesktopRelayPump] RunAsync: box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=gateway idleTimeout=01:00:00 rateCap=none
+2026-10-19 23:09:04.500 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 POST /api/upload
+2026-10-19 23:09:04.500 [DesktopRelayRegistry] registered stream 70054a0cde694fc28b9c7014882b5ff0 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:09:04.502 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=70054a0cde694fc28b9c7014882b5ff0, conn=37sAHHEX
+2026-10-19 23:09:04.503 [DesktopRelayRegistry] attached stream 70054a0cde694fc28b9c7014882b5ff0 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:09:04.507 [DesktopRelayPump] RunAsync: box=relay-proof stream=70054a0cde694fc28b9c7014882b5ff0 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:09:06.416 [DesktopRelayPump] stream=70054a0cde694fc28b9c7014882b5ff0 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:09:06.416 [DesktopRelayUsage] box=relay-proof stream=70054a0cde694fc28b9c7014882b5ff0 side=gateway closed: toBrowser=40 bytes, toBox=67108864 bytes reason=eof
+2026-10-19 23:09:06.416 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=1838673 bytes, toBox=67112347 bytes
+2026-10-19 23:09:06.416 [DesktopRelayLegs] stream=70054a0cde694fc28b9c7014882b5ff0 box=relay-proof ended: eof
+2026-10-19 23:09:06.416 [DesktopRelayRegistry] removed stream 70054a0cde694fc28b9c7014882b5ff0 (live=1)
+2026-10-19 23:09:12.376 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 POST /api/upload
+2026-10-19 23:09:12.376 [DesktopRelayRegistry] registered stream 8535ead1e2184e93b4e2622235ca682c (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:09:12.378 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=8535ead1e2184e93b4e2622235ca682c, conn=37sAHHEX
+2026-10-19 23:09:12.378 [DesktopRelayRegistry] attached stream 8535ead1e2184e93b4e2622235ca682c (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:09:12.378 [DesktopRelayPump] RunAsync: box=relay-proof stream=8535ead1e2184e93b4e2622235ca682c side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:09:12.435 [DesktopRelayPump] stream=8535ead1e2184e93b4e2622235ca682c box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:09:12.436 [DesktopRelayUsage] box=relay-proof stream=8535ead1e2184e93b4e2622235ca682c side=gateway closed: toBrowser=39 bytes, toBox=8388608 bytes reason=eof
+2026-10-19 23:09:12.436 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=1897688 bytes, toBox=75500955 bytes
+2026-10-19 23:09:12.436 [DesktopRelayLegs] stream=8535ead1e2184e93b4e2622235ca682c box=relay-proof ended: eof
+2026-10-19 23:09:12.436 [DesktopRelayRegistry] removed stream 8535ead1e2184e93b4e2622235ca682c (live=1)
+2026-10-19 23:09:13.400 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /api/files/
+2026-10-19 23:09:13.401 [DesktopRelayRegistry] registered stream 3d1822547df04a15934f30e551546c33 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:09:13.403 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=3d1822547df04a15934f30e551546c33, conn=37sAHHEX
+2026-10-19 23:09:13.403 [DesktopRelayRegistry] attached stream 3d1822547df04a15934f30e551546c33 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:09:13.403 [DesktopRelayPump] RunAsync: box=relay-proof stream=3d1822547df04a15934f30e551546c33 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:09:13.412 [DesktopRelayPump] stream=3d1822547df04a15934f30e551546c33 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:09:13.413 [DesktopRelayUsage] box=relay-proof stream=3d1822547df04a15934f30e551546c33 side=gateway closed: toBrowser=5321 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:09:13.413 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=1970556 bytes, toBox=75500994 bytes
+2026-10-19 23:09:13.413 [DesktopRelayLegs] stream=3d1822547df04a15934f30e551546c33 box=relay-proof ended: eof
+2026-10-19 23:09:13.413 [DesktopRelayRegistry] removed stream 3d1822547df04a15934f30e551546c33 (live=1)
+2026-10-19 23:09:13.473 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /api/files/relay-upload-8mb.bin
+2026-10-19 23:09:13.473 [DesktopRelayRegistry] registered stream 916e708bc3a94b1da5f4a05b8932556f (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:09:13.475 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=916e708bc3a94b1da5f4a05b8932556f, conn=37sAHHEX
+2026-10-19 23:09:13.475 [DesktopRelayRegistry] attached stream 916e708bc3a94b1da5f4a05b8932556f (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:09:13.476 [DesktopRelayPump] RunAsync: box=relay-proof stream=916e708bc3a94b1da5f4a05b8932556f side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:09:20.889 [DesktopRelayPump] stream=916e708bc3a94b1da5f4a05b8932556f box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:09:20.889 [DesktopRelayUsage] box=relay-proof stream=916e708bc3a94b1da5f4a05b8932556f side=gateway closed: toBrowser=8388608 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:09:20.889 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=10426761 bytes, toBox=75501247 bytes
+2026-10-19 23:09:20.889 [DesktopRelayLegs] stream=916e708bc3a94b1da5f4a05b8932556f box=relay-proof ended: eof
+2026-10-19 23:09:20.889 [DesktopRelayRegistry] removed stream 916e708bc3a94b1da5f4a05b8932556f (live=1)
+2026-10-19 23:09:40.283 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=gateway open: toBrowser=866071 bytes, toBox=4259 bytes
+2026-10-19 23:09:40.283 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=10426761 bytes, toBox=75501731 bytes
+2026-10-19 23:10:40.282 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=gateway open: toBrowser=1244091 bytes, toBox=11145 bytes
+2026-10-19 23:10:40.282 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=10804781 bytes, toBox=75508617 bytes
+2026-10-19 23:11:40.282 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=gateway open: toBrowser=2332662 bytes, toBox=29735 bytes
+2026-10-19 23:11:40.282 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=11893352 bytes, toBox=75527207 bytes
+2026-10-19 23:12:40.282 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=gateway open: toBrowser=25199515 bytes, toBox=41502 bytes
+2026-10-19 23:12:40.282 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=34760205 bytes, toBox=75538974 bytes
+2026-10-19 23:13:40.282 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=gateway open: toBrowser=70809445 bytes, toBox=63594 bytes
+2026-10-19 23:13:40.282 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=80370135 bytes, toBox=75561066 bytes
+2026-10-19 23:13:45.298 [WebSocketRelayEndpoint] browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad: closed by its own side, status=1001, reason=
+2026-10-19 23:13:45.298 [DesktopRelayPump] stream=57e244ac9d1948478d83e06031b2d8ad box=relay-proof side=gateway ending: status=1001, reason=the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection, tellFarSide=True
+2026-10-19 23:13:45.300 [WebSocketRelayEndpoint] browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad: closing, status=1001, reason=the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection
+2026-10-19 23:13:45.315 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=gateway closed: toBrowser=70809445 bytes, toBox=63729 bytes reason=the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection
+2026-10-19 23:13:45.315 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=80370135 bytes, toBox=75561201 bytes
+2026-10-19 23:13:45.315 [DesktopRelayLegs] stream=57e244ac9d1948478d83e06031b2d8ad box=relay-proof ended: the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection
+2026-10-19 23:13:45.315 [DesktopRelayRegistry] removed stream 57e244ac9d1948478d83e06031b2d8ad (live=0)
+2026-10-19 23:14:28.596 [BoxDesktopEndpoints] box=relay-proof: no desktop session for this box on the request -> 401
+2026-10-19 23:14:28.623 [BoxDesktopEndpoints] box=relay-proof: no desktop session for this box on the request -> 401
+2026-10-19 23:14:28.643 [BoxDesktopEndpoints] box=relay-proof: no desktop session for this box on the request -> 401
+2026-10-19 23:14:28.667 [BoxDesktopEndpoints] desktop-ticket: box=no-such-box
+2026-10-19 23:14:28.667 [BoxDesktopEndpoints] desktop-ticket: box=no-such-box: no connected Director in tenant local hosts it -> 404
+2026-10-19 23:14:28.691 [BoxDesktopEndpoints] desktop-ticket: box=Not_A_Box
+2026-10-19 23:14:28.715 [BoxDesktopEndpoints] desktop path on 127.0.0.1:7996 (not the desktop host) -> 404
+2026-10-19 23:14:28.809 [BoxDesktopEndpoints] desktop-ticket: box=relay-proof
+2026-10-19 23:14:28.809 [BoxDesktopTickets] Mint: box=relay-proof tenant=local expires=2026-10-20T03:15:28.8099002+00:00
+2026-10-19 23:14:28.827 [BoxDesktopTickets] Redeem: box=relay-proof tenant=local session until 2026-10-20T11:14:28.8274259+00:00
+2026-10-19 23:14:28.855 [BoxDesktopTickets] Redeem REFUSED: box=relay-proof: no such ticket (unknown, already used, or expired)
+2026-10-19 23:14:28.876 [BoxDesktopEndpoints] desktop-ticket: box=relay-proof
+2026-10-19 23:14:28.876 [BoxDesktopTickets] Mint: box=relay-proof tenant=local expires=2026-10-20T03:15:28.8769664+00:00
+2026-10-19 23:14:28.886 [BoxDesktopTickets] Redeem: box=relay-proof tenant=local session until 2026-10-20T11:14:28.8867885+00:00
+2026-10-19 23:14:28.903 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /api/status
+2026-10-19 23:14:28.903 [DesktopRelayRegistry] registered stream 2b0cbf87e4694ca8bb7fd17bcd493c84 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:14:28.905 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=2b0cbf87e4694ca8bb7fd17bcd493c84, conn=37sAHHEX
+2026-10-19 23:14:28.905 [DesktopRelayRegistry] attached stream 2b0cbf87e4694ca8bb7fd17bcd493c84 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:14:28.906 [DesktopRelayPump] RunAsync: box=relay-proof stream=2b0cbf87e4694ca8bb7fd17bcd493c84 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:14:28.926 [DesktopRelayPump] stream=2b0cbf87e4694ca8bb7fd17bcd493c84 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:14:28.926 [DesktopRelayUsage] box=relay-proof stream=2b0cbf87e4694ca8bb7fd17bcd493c84 side=gateway closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:14:28.926 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=80370237 bytes, toBox=75561201 bytes
+2026-10-19 23:14:28.926 [DesktopRelayLegs] stream=2b0cbf87e4694ca8bb7fd17bcd493c84 box=relay-proof ended: eof
+2026-10-19 23:14:28.926 [DesktopRelayRegistry] removed stream 2b0cbf87e4694ca8bb7fd17bcd493c84 (live=0)
+2026-10-19 23:14:28.949 [BoxDesktopEndpoints] box=other-box: no desktop session for this box on the request -> 401
+2026-10-19 23:15:18.250 [BoxDesktopEndpoints] desktop-ticket: box=relay-proof
+2026-10-19 23:15:18.250 [BoxDesktopTickets] Mint: box=relay-proof tenant=local expires=2026-10-20T03:16:18.2502954+00:00
+2026-10-19 23:15:18.309 [BoxDesktopTickets] Redeem: box=relay-proof tenant=local session until 2026-10-20T11:15:18.3095655+00:00
+2026-10-19 23:15:18.348 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /
+2026-10-19 23:15:18.348 [DesktopRelayRegistry] registered stream 5aef5343dd8347f480432c29c11d2503 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:15:18.349 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=5aef5343dd8347f480432c29c11d2503, conn=37sAHHEX
+2026-10-19 23:15:18.349 [DesktopRelayRegistry] attached stream 5aef5343dd8347f480432c29c11d2503 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.349 [DesktopRelayPump] RunAsync: box=relay-proof stream=5aef5343dd8347f480432c29c11d2503 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:15:18.352 [DesktopRelayPump] stream=5aef5343dd8347f480432c29c11d2503 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:15:18.352 [DesktopRelayUsage] box=relay-proof stream=5aef5343dd8347f480432c29c11d2503 side=gateway closed: toBrowser=406 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.352 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=80370643 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.352 [DesktopRelayLegs] stream=5aef5343dd8347f480432c29c11d2503 box=relay-proof ended: eof
+2026-10-19 23:15:18.352 [DesktopRelayRegistry] removed stream 5aef5343dd8347f480432c29c11d2503 (live=0)
+2026-10-19 23:15:18.361 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/index-CPWh3fQ6.js
+2026-10-19 23:15:18.361 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/index-D97fjY6g.css
+2026-10-19 23:15:18.361 [DesktopRelayRegistry] registered stream a9d1df369eb649a9abad0a0a38649076 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:15:18.361 [DesktopRelayRegistry] registered stream 2717947e5d6749f38d5e92a46a5a1695 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:15:18.362 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=a9d1df369eb649a9abad0a0a38649076, conn=37sAHHEX
+2026-10-19 23:15:18.363 [DesktopRelayRegistry] attached stream a9d1df369eb649a9abad0a0a38649076 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.363 [DesktopRelayPump] RunAsync: box=relay-proof stream=a9d1df369eb649a9abad0a0a38649076 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:15:18.364 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=2717947e5d6749f38d5e92a46a5a1695, conn=37sAHHEX
+2026-10-19 23:15:18.364 [DesktopRelayRegistry] attached stream 2717947e5d6749f38d5e92a46a5a1695 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.364 [DesktopRelayPump] RunAsync: box=relay-proof stream=2717947e5d6749f38d5e92a46a5a1695 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:15:18.365 [DesktopRelayPump] stream=a9d1df369eb649a9abad0a0a38649076 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:15:18.365 [DesktopRelayUsage] box=relay-proof stream=a9d1df369eb649a9abad0a0a38649076 side=gateway closed: toBrowser=34393 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.365 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=80405036 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.365 [DesktopRelayLegs] stream=a9d1df369eb649a9abad0a0a38649076 box=relay-proof ended: eof
+2026-10-19 23:15:18.365 [DesktopRelayRegistry] removed stream a9d1df369eb649a9abad0a0a38649076 (live=1)
+2026-10-19 23:15:18.406 [DesktopRelayPump] stream=2717947e5d6749f38d5e92a46a5a1695 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:15:18.406 [DesktopRelayUsage] box=relay-proof stream=2717947e5d6749f38d5e92a46a5a1695 side=gateway closed: toBrowser=650022 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.406 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=81055058 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.406 [DesktopRelayLegs] stream=2717947e5d6749f38d5e92a46a5a1695 box=relay-proof ended: eof
+2026-10-19 23:15:18.406 [DesktopRelayRegistry] removed stream 2717947e5d6749f38d5e92a46a5a1695 (live=0)
+2026-10-19 23:15:18.504 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /api/status
+2026-10-19 23:15:18.504 [DesktopRelayRegistry] registered stream 28d950b16bb844369731701397d95b69 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:15:18.506 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=28d950b16bb844369731701397d95b69, conn=37sAHHEX
+2026-10-19 23:15:18.506 [DesktopRelayRegistry] attached stream 28d950b16bb844369731701397d95b69 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.506 [DesktopRelayPump] RunAsync: box=relay-proof stream=28d950b16bb844369731701397d95b69 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:15:18.506 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /icon.png
+2026-10-19 23:15:18.507 [DesktopRelayRegistry] registered stream 6c8cf0ea6c0a43a381b2aaf4f806e0bd (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:15:18.508 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd, conn=37sAHHEX
+2026-10-19 23:15:18.508 [DesktopRelayRegistry] attached stream 6c8cf0ea6c0a43a381b2aaf4f806e0bd (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.508 [DesktopRelayPump] RunAsync: box=relay-proof stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:15:18.509 [DesktopRelayPump] stream=28d950b16bb844369731701397d95b69 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:15:18.509 [DesktopRelayUsage] box=relay-proof stream=28d950b16bb844369731701397d95b69 side=gateway closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.509 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=81055160 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.509 [DesktopRelayLegs] stream=28d950b16bb844369731701397d95b69 box=relay-proof ended: eof
+2026-10-19 23:15:18.509 [DesktopRelayRegistry] removed stream 28d950b16bb844369731701397d95b69 (live=1)
+2026-10-19 23:15:18.513 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/selkies-core-BbKps5RD.js
+2026-10-19 23:15:18.514 [DesktopRelayRegistry] registered stream 76276d86f7474b6792f9f7d098e01037 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:15:18.517 [DesktopRelayPump] stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:15:18.517 [DesktopRelayUsage] box=relay-proof stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd side=gateway closed: toBrowser=55164 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.517 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=81110324 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.517 [DesktopRelayLegs] stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd box=relay-proof ended: eof
+2026-10-19 23:15:18.517 [DesktopRelayRegistry] removed stream 6c8cf0ea6c0a43a381b2aaf4f806e0bd (live=1)
+2026-10-19 23:15:18.520 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=76276d86f7474b6792f9f7d098e01037, conn=37sAHHEX
+2026-10-19 23:15:18.520 [DesktopRelayRegistry] attached stream 76276d86f7474b6792f9f7d098e01037 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.520 [DesktopRelayPump] RunAsync: box=relay-proof stream=76276d86f7474b6792f9f7d098e01037 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:15:18.530 [DesktopRelayPump] stream=76276d86f7474b6792f9f7d098e01037 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:15:18.530 [DesktopRelayUsage] box=relay-proof stream=76276d86f7474b6792f9f7d098e01037 side=gateway closed: toBrowser=426262 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.530 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=81536586 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.530 [DesktopRelayLegs] stream=76276d86f7474b6792f9f7d098e01037 box=relay-proof ended: eof
+2026-10-19 23:15:18.530 [DesktopRelayRegistry] removed stream 76276d86f7474b6792f9f7d098e01037 (live=0)
+2026-10-19 23:15:18.560 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /manifest.json
+2026-10-19 23:15:18.560 [DesktopRelayRegistry] registered stream 9d6fc8a5fa0c4e4d8054cb5834e6c73b (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:15:18.561 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b, conn=37sAHHEX
+2026-10-19 23:15:18.561 [DesktopRelayRegistry] attached stream 9d6fc8a5fa0c4e4d8054cb5834e6c73b (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.561 [DesktopRelayPump] RunAsync: box=relay-proof stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:15:18.563 [DesktopRelayPump] stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:15:18.564 [DesktopRelayUsage] box=relay-proof stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b side=gateway closed: toBrowser=333 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.564 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=81536919 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.564 [DesktopRelayLegs] stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b box=relay-proof ended: eof
+2026-10-19 23:15:18.564 [DesktopRelayRegistry] removed stream 9d6fc8a5fa0c4e4d8054cb5834e6c73b (live=0)
+2026-10-19 23:15:18.634 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 websocket /api/websockets
+2026-10-19 23:15:18.634 [DesktopRelayRegistry] registered stream b5fb40a8e73e4f36b2bb2ece53caad8c (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:15:18.659 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=b5fb40a8e73e4f36b2bb2ece53caad8c, conn=37sAHHEX
+2026-10-19 23:15:18.659 [DesktopRelayRegistry] attached stream b5fb40a8e73e4f36b2bb2ece53caad8c (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:15:18.659 [DesktopRelayPump] RunAsync: box=relay-proof stream=b5fb40a8e73e4f36b2bb2ece53caad8c side=gateway idleTimeout=01:00:00 rateCap=none
+2026-10-19 23:15:29.377 [DesktopRelayPump] stream=b5fb40a8e73e4f36b2bb2ece53caad8c box=relay-proof side=gateway ending: status=1001, reason=The Director hosting this box disconnected., tellFarSide=False
+2026-10-19 23:15:29.377 [WebSocketRelayEndpoint] browser box relay-proof stream b5fb40a8e73e4f36b2bb2ece53caad8c: closing, status=1001, reason=The Director hosting this box disconnected.
+2026-10-19 23:15:29.380 [PushedHostedDesktopStore] disconnected: director=c526507a-f1be-40e8-8546-a8e7b73f06a5 - its 1 desktop(s) dropped
+2026-10-19 23:15:29.382 [DirectorHub] disconnected: conn=37sAHHEX, director=c526507a-f1be-40e8-8546-a8e7b73f06a5 (clean)
+2026-10-19 23:15:29.387 [DesktopRelayUsage] box=relay-proof stream=b5fb40a8e73e4f36b2bb2ece53caad8c side=gateway closed: toBrowser=129920 bytes, toBox=798 bytes reason=The Director hosting this box disconnected.
+2026-10-19 23:15:29.387 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=81666839 bytes, toBox=75561999 bytes
+2026-10-19 23:15:29.387 [DesktopRelayLegs] stream=b5fb40a8e73e4f36b2bb2ece53caad8c box=relay-proof ended: The Director hosting this box disconnected.
+2026-10-19 23:15:29.387 [DesktopRelayRegistry] removed stream b5fb40a8e73e4f36b2bb2ece53caad8c (live=0)
+2026-10-19 23:15:29.389 [BoxDesktopEndpoints] box=relay-proof: no connected Director in tenant local hosts it -> 404
+2026-10-19 23:15:34.425 [BoxDesktopEndpoints] box=relay-proof: no connected Director in tenant local hosts it -> 404
+2026-10-19 23:18:23.317 [BoxDesktopEndpoints] desktop-ticket: box=relay-proof
+2026-10-19 23:18:23.322 [BoxDesktopTickets] Mint: box=relay-proof tenant=local expires=2026-10-20T03:19:23.3229040+00:00
+2026-10-19 23:18:23.466 [BoxDesktopTickets] Redeem: box=relay-proof tenant=local session until 2026-10-20T11:18:23.4662061+00:00
+2026-10-19 23:18:23.516 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /
+2026-10-19 23:18:23.517 [DesktopRelayRegistry] registered stream 3243fe4a859840f383fbdb7cc3dd7604 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:18:23.638 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=3243fe4a859840f383fbdb7cc3dd7604, conn=JXxW-dFR
+2026-10-19 23:18:23.638 [DesktopRelayRegistry] attached stream 3243fe4a859840f383fbdb7cc3dd7604 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:23.676 [DesktopRelayPump] RunAsync: box=relay-proof stream=3243fe4a859840f383fbdb7cc3dd7604 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:18:23.780 [DesktopRelayPump] stream=3243fe4a859840f383fbdb7cc3dd7604 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:18:23.780 [DesktopRelayUsage] box=relay-proof stream=3243fe4a859840f383fbdb7cc3dd7604 side=gateway closed: toBrowser=406 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.780 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=81667245 bytes, toBox=75561999 bytes
+2026-10-19 23:18:23.780 [DesktopRelayLegs] stream=3243fe4a859840f383fbdb7cc3dd7604 box=relay-proof ended: eof
+2026-10-19 23:18:23.780 [DesktopRelayRegistry] removed stream 3243fe4a859840f383fbdb7cc3dd7604 (live=0)
+2026-10-19 23:18:23.799 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/index-CPWh3fQ6.js
+2026-10-19 23:18:23.799 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/index-D97fjY6g.css
+2026-10-19 23:18:23.799 [DesktopRelayRegistry] registered stream aa25cbf503534107a821e15c7dab4516 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:18:23.799 [DesktopRelayRegistry] registered stream d4b2f04b61c14ca6952a72f7063c71d8 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:18:23.801 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=aa25cbf503534107a821e15c7dab4516, conn=JXxW-dFR
+2026-10-19 23:18:23.801 [DesktopRelayRegistry] attached stream aa25cbf503534107a821e15c7dab4516 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:23.802 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=d4b2f04b61c14ca6952a72f7063c71d8, conn=JXxW-dFR
+2026-10-19 23:18:23.802 [DesktopRelayPump] RunAsync: box=relay-proof stream=aa25cbf503534107a821e15c7dab4516 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:18:23.802 [DesktopRelayRegistry] attached stream d4b2f04b61c14ca6952a72f7063c71d8 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:23.802 [DesktopRelayPump] RunAsync: box=relay-proof stream=d4b2f04b61c14ca6952a72f7063c71d8 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:18:23.879 [DesktopRelayPump] stream=d4b2f04b61c14ca6952a72f7063c71d8 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:18:23.879 [DesktopRelayPump] stream=aa25cbf503534107a821e15c7dab4516 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:18:23.879 [DesktopRelayUsage] box=relay-proof stream=d4b2f04b61c14ca6952a72f7063c71d8 side=gateway closed: toBrowser=34393 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.879 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=82351660 bytes, toBox=75561999 bytes
+2026-10-19 23:18:23.879 [DesktopRelayUsage] box=relay-proof stream=aa25cbf503534107a821e15c7dab4516 side=gateway closed: toBrowser=650022 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.879 [DesktopRelayLegs] stream=d4b2f04b61c14ca6952a72f7063c71d8 box=relay-proof ended: eof
+2026-10-19 23:18:23.879 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=82351660 bytes, toBox=75561999 bytes
+2026-10-19 23:18:23.879 [DesktopRelayLegs] stream=aa25cbf503534107a821e15c7dab4516 box=relay-proof ended: eof
+2026-10-19 23:18:23.879 [DesktopRelayRegistry] removed stream d4b2f04b61c14ca6952a72f7063c71d8 (live=1)
+2026-10-19 23:18:23.879 [DesktopRelayRegistry] removed stream aa25cbf503534107a821e15c7dab4516 (live=0)
+2026-10-19 23:18:23.958 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /api/status
+2026-10-19 23:18:23.958 [DesktopRelayRegistry] registered stream d1c3ee7befe443aca351b3f8910a8a9b (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:18:23.960 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=d1c3ee7befe443aca351b3f8910a8a9b, conn=JXxW-dFR
+2026-10-19 23:18:23.960 [DesktopRelayRegistry] attached stream d1c3ee7befe443aca351b3f8910a8a9b (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:23.960 [DesktopRelayPump] RunAsync: box=relay-proof stream=d1c3ee7befe443aca351b3f8910a8a9b side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:18:23.962 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /icon.png
+2026-10-19 23:18:23.962 [DesktopRelayRegistry] registered stream ed9575a75ec24227899e16e271e20568 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:18:23.964 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=ed9575a75ec24227899e16e271e20568, conn=JXxW-dFR
+2026-10-19 23:18:23.964 [DesktopRelayRegistry] attached stream ed9575a75ec24227899e16e271e20568 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:23.965 [DesktopRelayPump] RunAsync: box=relay-proof stream=ed9575a75ec24227899e16e271e20568 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:18:23.967 [DesktopRelayPump] stream=ed9575a75ec24227899e16e271e20568 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:18:23.967 [DesktopRelayUsage] box=relay-proof stream=ed9575a75ec24227899e16e271e20568 side=gateway closed: toBrowser=55164 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.967 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=82406824 bytes, toBox=75561999 bytes
+2026-10-19 23:18:23.967 [DesktopRelayLegs] stream=ed9575a75ec24227899e16e271e20568 box=relay-proof ended: eof
+2026-10-19 23:18:23.967 [DesktopRelayRegistry] removed stream ed9575a75ec24227899e16e271e20568 (live=1)
+2026-10-19 23:18:24.684 [DesktopRelayPump] stream=d1c3ee7befe443aca351b3f8910a8a9b box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:18:24.684 [DesktopRelayUsage] box=relay-proof stream=d1c3ee7befe443aca351b3f8910a8a9b side=gateway closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:24.684 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=82406926 bytes, toBox=75561999 bytes
+2026-10-19 23:18:24.684 [DesktopRelayLegs] stream=d1c3ee7befe443aca351b3f8910a8a9b box=relay-proof ended: eof
+2026-10-19 23:18:24.684 [DesktopRelayRegistry] removed stream d1c3ee7befe443aca351b3f8910a8a9b (live=0)
+2026-10-19 23:18:24.688 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /assets/selkies-core-BbKps5RD.js
+2026-10-19 23:18:24.688 [DesktopRelayRegistry] registered stream 48f53bd40e5d4dbb9cdc962b5758ae5f (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:18:24.689 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=48f53bd40e5d4dbb9cdc962b5758ae5f, conn=JXxW-dFR
+2026-10-19 23:18:24.689 [DesktopRelayRegistry] attached stream 48f53bd40e5d4dbb9cdc962b5758ae5f (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:24.689 [DesktopRelayPump] RunAsync: box=relay-proof stream=48f53bd40e5d4dbb9cdc962b5758ae5f side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:18:24.712 [DesktopRelayPump] stream=48f53bd40e5d4dbb9cdc962b5758ae5f box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:18:24.713 [DesktopRelayUsage] box=relay-proof stream=48f53bd40e5d4dbb9cdc962b5758ae5f side=gateway closed: toBrowser=426262 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:24.713 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=82833188 bytes, toBox=75561999 bytes
+2026-10-19 23:18:24.713 [DesktopRelayLegs] stream=48f53bd40e5d4dbb9cdc962b5758ae5f box=relay-proof ended: eof
+2026-10-19 23:18:24.713 [DesktopRelayRegistry] removed stream 48f53bd40e5d4dbb9cdc962b5758ae5f (live=0)
+2026-10-19 23:18:24.740 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 GET /manifest.json
+2026-10-19 23:18:24.740 [DesktopRelayRegistry] registered stream 8f1d7c5d0a474af89cfc1cc4fcb93683 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:18:24.742 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=8f1d7c5d0a474af89cfc1cc4fcb93683, conn=JXxW-dFR
+2026-10-19 23:18:24.742 [DesktopRelayRegistry] attached stream 8f1d7c5d0a474af89cfc1cc4fcb93683 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:24.742 [DesktopRelayPump] RunAsync: box=relay-proof stream=8f1d7c5d0a474af89cfc1cc4fcb93683 side=gateway idleTimeout=none rateCap=none
+2026-10-19 23:18:24.743 [DesktopRelayPump] stream=8f1d7c5d0a474af89cfc1cc4fcb93683 box=relay-proof side=gateway ending: status=1000, reason=eof, tellFarSide=False
+2026-10-19 23:18:24.743 [DesktopRelayUsage] box=relay-proof stream=8f1d7c5d0a474af89cfc1cc4fcb93683 side=gateway closed: toBrowser=333 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:24.743 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=82833521 bytes, toBox=75561999 bytes
+2026-10-19 23:18:24.743 [DesktopRelayLegs] stream=8f1d7c5d0a474af89cfc1cc4fcb93683 box=relay-proof ended: eof
+2026-10-19 23:18:24.743 [DesktopRelayRegistry] removed stream 8f1d7c5d0a474af89cfc1cc4fcb93683 (live=0)
+2026-10-19 23:18:24.837 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 websocket /api/websockets
+2026-10-19 23:18:24.837 [DesktopRelayRegistry] registered stream 8575bddeebed4b34920726c7bc9b21d5 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=1)
+2026-10-19 23:18:24.935 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=8575bddeebed4b34920726c7bc9b21d5, conn=JXxW-dFR
+2026-10-19 23:18:24.935 [DesktopRelayRegistry] attached stream 8575bddeebed4b34920726c7bc9b21d5 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:24.942 [DesktopRelayPump] RunAsync: box=relay-proof stream=8575bddeebed4b34920726c7bc9b21d5 side=gateway idleTimeout=01:00:00 rateCap=none
+2026-10-19 23:18:34.007 [DesktopRelayLegs] ServeAsync: box=relay-proof director=c526507a-f1be-40e8-8546-a8e7b73f06a5 websocket /api/websockets
+2026-10-19 23:18:34.007 [DesktopRelayRegistry] registered stream a29d9b803d1e48d5b072ac53455d6469 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5, live=2)
+2026-10-19 23:18:34.034 [DirectorHub] DesktopRelay: director=c526507a-f1be-40e8-8546-a8e7b73f06a5, stream=a29d9b803d1e48d5b072ac53455d6469, conn=JXxW-dFR
+2026-10-19 23:18:34.034 [DesktopRelayRegistry] attached stream a29d9b803d1e48d5b072ac53455d6469 (tenant=local, director=c526507a-f1be-40e8-8546-a8e7b73f06a5)
+2026-10-19 23:18:34.035 [DesktopRelayPump] RunAsync: box=relay-proof stream=a29d9b803d1e48d5b072ac53455d6469 side=gateway idleTimeout=01:00:00 rateCap=none
+2026-10-19 23:18:35.436 [PushedHostedDesktopStore] disconnected: director=c526507a-f1be-40e8-8546-a8e7b73f06a5 - its 1 desktop(s) dropped
+2026-10-19 23:18:35.436 [DirectorHub] disconnected: conn=JXxW-dFR, director=c526507a-f1be-40e8-8546-a8e7b73f06a5 (clean)
+2026-10-19 23:18:35.437 [DesktopRelayPump] stream=a29d9b803d1e48d5b072ac53455d6469 box=relay-proof side=gateway ending: status=1001, reason=The Director hosting this box disconnected., tellFarSide=False
+2026-10-19 23:18:35.437 [DesktopRelayPump] stream=8575bddeebed4b34920726c7bc9b21d5 box=relay-proof side=gateway ending: status=1001, reason=The Director hosting this box disconnected., tellFarSide=False
+2026-10-19 23:18:35.437 [WebSocketRelayEndpoint] browser box relay-proof stream a29d9b803d1e48d5b072ac53455d6469: closing, status=1001, reason=The Director hosting this box disconnected.
+2026-10-19 23:18:35.438 [WebSocketRelayEndpoint] browser box relay-proof stream 8575bddeebed4b34920726c7bc9b21d5: closing, status=1001, reason=The Director hosting this box disconnected.
+2026-10-19 23:18:35.443 [DesktopRelayUsage] box=relay-proof stream=a29d9b803d1e48d5b072ac53455d6469 side=gateway closed: toBrowser=113888 bytes, toBox=0 bytes reason=The Director hosting this box disconnected.
+2026-10-19 23:18:35.443 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=83228022 bytes, toBox=75562820 bytes
+2026-10-19 23:18:35.443 [DesktopRelayLegs] stream=a29d9b803d1e48d5b072ac53455d6469 box=relay-proof ended: The Director hosting this box disconnected.
+2026-10-19 23:18:35.443 [DesktopRelayRegistry] removed stream a29d9b803d1e48d5b072ac53455d6469 (live=1)
+2026-10-19 23:18:35.443 [DesktopRelayUsage] box=relay-proof stream=8575bddeebed4b34920726c7bc9b21d5 side=gateway closed: toBrowser=280613 bytes, toBox=821 bytes reason=The Director hosting this box disconnected.
+2026-10-19 23:18:35.443 [DesktopRelayUsage] box=relay-proof side=gateway total since start: toBrowser=83228022 bytes, toBox=75562820 bytes
+2026-10-19 23:18:35.443 [DesktopRelayLegs] stream=8575bddeebed4b34920726c7bc9b21d5 box=relay-proof ended: The Director hosting this box disconnected.
+2026-10-19 23:18:35.443 [DesktopRelayRegistry] removed stream 8575bddeebed4b34920726c7bc9b21d5 (live=0)
+2026-10-19 23:18:35.457 [BoxDesktopEndpoints] box=relay-proof: no connected Director in tenant local hosts it -> 404

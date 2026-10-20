@@ -1,0 +1,322 @@
+2026-10-19 23:18:09.259 [LifecycleSignal] Listen: name=cc-director-shutdown-c526507a-f1be-40e8-8546-a8e7b73f06a5
+2026-10-19 23:18:09.266 [LifecycleSignal] Listen: name=cc-director-update-check-c526507a-f1be-40e8-8546-a8e7b73f06a5
+2026-10-19 23:18:09.682 [HostedDesktopRegistry] Reload: this Director hosts 1 desktop(s): relay-proof on port 3140
+2026-10-19 23:18:23.596 [DirectorDesktopRelayHandler] HandleAsync: cmdId=18508b3e7d3446379abee1eedb305df8
+2026-10-19 23:18:23.618 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 3243fe4a859840f383fbdb7cc3dd7604
+2026-10-19 23:18:23.621 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET / stream=3243fe4a859840f383fbdb7cc3dd7604 (sockets=0, requests=1)
+2026-10-19 23:18:23.625 [DesktopRateLimiter] ForBox: ceiling=1000000 bytes a second, burst=1000000
+2026-10-19 23:18:23.628 [DesktopRelayPump] RunAsync: box=relay-proof stream=3243fe4a859840f383fbdb7cc3dd7604 side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:23.685 [BoxHttpRelayEndpoint] box relay-proof stream 3243fe4a859840f383fbdb7cc3dd7604: GET / -> 200
+2026-10-19 23:18:23.725 [DesktopRelayPump] stream=3243fe4a859840f383fbdb7cc3dd7604 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:18:23.725 [BoxHttpRelayEndpoint] box relay-proof stream 3243fe4a859840f383fbdb7cc3dd7604: closing (eof)
+2026-10-19 23:18:23.727 [DesktopRelayUsage] box=relay-proof stream=3243fe4a859840f383fbdb7cc3dd7604 side=director closed: toBrowser=406 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.728 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=406 bytes, toBox=0 bytes
+2026-10-19 23:18:23.728 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=3243fe4a859840f383fbdb7cc3dd7604 reason=eof
+2026-10-19 23:18:23.800 [DirectorDesktopRelayHandler] HandleAsync: cmdId=daadf544445e433e9903a291f196f6fa
+2026-10-19 23:18:23.800 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream aa25cbf503534107a821e15c7dab4516
+2026-10-19 23:18:23.800 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/index-CPWh3fQ6.js stream=aa25cbf503534107a821e15c7dab4516 (sockets=0, requests=1)
+2026-10-19 23:18:23.800 [DesktopRelayPump] RunAsync: box=relay-proof stream=aa25cbf503534107a821e15c7dab4516 side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:23.801 [DirectorDesktopRelayHandler] HandleAsync: cmdId=abb07a17a5194e6296f86a88761d0ab1
+2026-10-19 23:18:23.802 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream d4b2f04b61c14ca6952a72f7063c71d8
+2026-10-19 23:18:23.802 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/index-D97fjY6g.css stream=d4b2f04b61c14ca6952a72f7063c71d8 (sockets=0, requests=2)
+2026-10-19 23:18:23.802 [DesktopRelayPump] RunAsync: box=relay-proof stream=d4b2f04b61c14ca6952a72f7063c71d8 side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:23.802 [BoxHttpRelayEndpoint] box relay-proof stream aa25cbf503534107a821e15c7dab4516: GET /assets/index-CPWh3fQ6.js -> 200
+2026-10-19 23:18:23.804 [DesktopRelayPump] stream=aa25cbf503534107a821e15c7dab4516 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:18:23.804 [BoxHttpRelayEndpoint] box relay-proof stream aa25cbf503534107a821e15c7dab4516: closing (eof)
+2026-10-19 23:18:23.804 [DesktopRelayUsage] box=relay-proof stream=aa25cbf503534107a821e15c7dab4516 side=director closed: toBrowser=650022 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.804 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=650428 bytes, toBox=0 bytes
+2026-10-19 23:18:23.804 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=aa25cbf503534107a821e15c7dab4516 reason=eof
+2026-10-19 23:18:23.825 [BoxHttpRelayEndpoint] box relay-proof stream d4b2f04b61c14ca6952a72f7063c71d8: GET /assets/index-D97fjY6g.css -> 200
+2026-10-19 23:18:23.829 [DesktopRelayPump] stream=d4b2f04b61c14ca6952a72f7063c71d8 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:18:23.829 [BoxHttpRelayEndpoint] box relay-proof stream d4b2f04b61c14ca6952a72f7063c71d8: closing (eof)
+2026-10-19 23:18:23.829 [DesktopRelayUsage] box=relay-proof stream=d4b2f04b61c14ca6952a72f7063c71d8 side=director closed: toBrowser=34393 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.829 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=684821 bytes, toBox=0 bytes
+2026-10-19 23:18:23.829 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=d4b2f04b61c14ca6952a72f7063c71d8 reason=eof
+2026-10-19 23:18:23.959 [DirectorDesktopRelayHandler] HandleAsync: cmdId=2f674d6ddedd4a4a986593178276f8f9
+2026-10-19 23:18:23.959 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream d1c3ee7befe443aca351b3f8910a8a9b
+2026-10-19 23:18:23.959 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /api/status stream=d1c3ee7befe443aca351b3f8910a8a9b (sockets=0, requests=1)
+2026-10-19 23:18:23.959 [DesktopRelayPump] RunAsync: box=relay-proof stream=d1c3ee7befe443aca351b3f8910a8a9b side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:23.963 [DirectorDesktopRelayHandler] HandleAsync: cmdId=836ae894220043f896b6b2ae85363605
+2026-10-19 23:18:23.963 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream ed9575a75ec24227899e16e271e20568
+2026-10-19 23:18:23.963 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /icon.png stream=ed9575a75ec24227899e16e271e20568 (sockets=0, requests=2)
+2026-10-19 23:18:23.964 [DesktopRelayPump] RunAsync: box=relay-proof stream=ed9575a75ec24227899e16e271e20568 side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:23.966 [BoxHttpRelayEndpoint] box relay-proof stream ed9575a75ec24227899e16e271e20568: GET /icon.png -> 200
+2026-10-19 23:18:23.966 [DesktopRelayPump] stream=ed9575a75ec24227899e16e271e20568 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:18:23.966 [BoxHttpRelayEndpoint] box relay-proof stream ed9575a75ec24227899e16e271e20568: closing (eof)
+2026-10-19 23:18:23.967 [DesktopRelayUsage] box=relay-proof stream=ed9575a75ec24227899e16e271e20568 side=director closed: toBrowser=55164 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:23.967 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=739985 bytes, toBox=0 bytes
+2026-10-19 23:18:23.967 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=ed9575a75ec24227899e16e271e20568 reason=eof
+2026-10-19 23:18:24.683 [BoxHttpRelayEndpoint] box relay-proof stream d1c3ee7befe443aca351b3f8910a8a9b: GET /api/status -> 200
+2026-10-19 23:18:24.683 [DesktopRelayPump] stream=d1c3ee7befe443aca351b3f8910a8a9b box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:18:24.683 [BoxHttpRelayEndpoint] box relay-proof stream d1c3ee7befe443aca351b3f8910a8a9b: closing (eof)
+2026-10-19 23:18:24.683 [DesktopRelayUsage] box=relay-proof stream=d1c3ee7befe443aca351b3f8910a8a9b side=director closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:24.683 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=740087 bytes, toBox=0 bytes
+2026-10-19 23:18:24.683 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=d1c3ee7befe443aca351b3f8910a8a9b reason=eof
+2026-10-19 23:18:24.688 [DirectorDesktopRelayHandler] HandleAsync: cmdId=71e4cec83e7e4a7c9983858164b13e82
+2026-10-19 23:18:24.688 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 48f53bd40e5d4dbb9cdc962b5758ae5f
+2026-10-19 23:18:24.688 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/selkies-core-BbKps5RD.js stream=48f53bd40e5d4dbb9cdc962b5758ae5f (sockets=0, requests=1)
+2026-10-19 23:18:24.688 [DesktopRelayPump] RunAsync: box=relay-proof stream=48f53bd40e5d4dbb9cdc962b5758ae5f side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:24.691 [BoxHttpRelayEndpoint] box relay-proof stream 48f53bd40e5d4dbb9cdc962b5758ae5f: GET /assets/selkies-core-BbKps5RD.js -> 200
+2026-10-19 23:18:24.696 [DesktopRelayPump] stream=48f53bd40e5d4dbb9cdc962b5758ae5f box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:18:24.696 [BoxHttpRelayEndpoint] box relay-proof stream 48f53bd40e5d4dbb9cdc962b5758ae5f: closing (eof)
+2026-10-19 23:18:24.696 [DesktopRelayUsage] box=relay-proof stream=48f53bd40e5d4dbb9cdc962b5758ae5f side=director closed: toBrowser=426262 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:24.696 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1166349 bytes, toBox=0 bytes
+2026-10-19 23:18:24.696 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=48f53bd40e5d4dbb9cdc962b5758ae5f reason=eof
+2026-10-19 23:18:24.741 [DirectorDesktopRelayHandler] HandleAsync: cmdId=ddeb5aa6cd324782934f2e44e3facc36
+2026-10-19 23:18:24.741 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 8f1d7c5d0a474af89cfc1cc4fcb93683
+2026-10-19 23:18:24.741 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /manifest.json stream=8f1d7c5d0a474af89cfc1cc4fcb93683 (sockets=0, requests=1)
+2026-10-19 23:18:24.741 [DesktopRelayPump] RunAsync: box=relay-proof stream=8f1d7c5d0a474af89cfc1cc4fcb93683 side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:24.743 [BoxHttpRelayEndpoint] box relay-proof stream 8f1d7c5d0a474af89cfc1cc4fcb93683: GET /manifest.json -> 200
+2026-10-19 23:18:24.743 [DesktopRelayPump] stream=8f1d7c5d0a474af89cfc1cc4fcb93683 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:18:24.743 [BoxHttpRelayEndpoint] box relay-proof stream 8f1d7c5d0a474af89cfc1cc4fcb93683: closing (eof)
+2026-10-19 23:18:24.743 [DesktopRelayUsage] box=relay-proof stream=8f1d7c5d0a474af89cfc1cc4fcb93683 side=director closed: toBrowser=333 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:18:24.743 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1166682 bytes, toBox=0 bytes
+2026-10-19 23:18:24.743 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=8f1d7c5d0a474af89cfc1cc4fcb93683 reason=eof
+2026-10-19 23:18:24.838 [DirectorDesktopRelayHandler] HandleAsync: cmdId=9ada07d5cb8d41de93157519192d2c0a
+2026-10-19 23:18:24.838 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 8575bddeebed4b34920726c7bc9b21d5
+2026-10-19 23:18:24.935 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=WebSocket GET /api/websockets stream=8575bddeebed4b34920726c7bc9b21d5 (sockets=1, requests=0)
+2026-10-19 23:18:24.935 [DesktopRelayPump] RunAsync: box=relay-proof stream=8575bddeebed4b34920726c7bc9b21d5 side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:34.008 [DirectorDesktopRelayHandler] HandleAsync: cmdId=8e491960c14845bdadb17faefa9f6937
+2026-10-19 23:18:34.008 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream a29d9b803d1e48d5b072ac53455d6469
+2026-10-19 23:18:34.027 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=WebSocket GET /api/websockets stream=a29d9b803d1e48d5b072ac53455d6469 (sockets=2, requests=0)
+2026-10-19 23:18:34.027 [DesktopRelayPump] RunAsync: box=relay-proof stream=a29d9b803d1e48d5b072ac53455d6469 side=director idleTimeout=none rateCap=on
+2026-10-19 23:18:35.318 [LifecycleSignal] cc-director-shutdown-c526507a-f1be-40e8-8546-a8e7b73f06a5: signalled
+2026-10-19 23:18:35.447 [DesktopRelayPump] stream=8575bddeebed4b34920726c7bc9b21d5 box=relay-proof side=director ending: status=1001, reason=the connection to the Gateway ended, tellFarSide=False
+2026-10-19 23:18:35.448 [DesktopRelayPump] stream=a29d9b803d1e48d5b072ac53455d6469 box=relay-proof side=director ending: status=1001, reason=the connection to the Gateway ended, tellFarSide=False
+2026-10-19 23:18:35.449 [WebSocketRelayEndpoint] box relay-proof stream 8575bddeebed4b34920726c7bc9b21d5: closing, status=1001, reason=the connection to the Gateway ended
+2026-10-19 23:18:35.449 [WebSocketRelayEndpoint] box relay-proof stream a29d9b803d1e48d5b072ac53455d6469: closing, status=1001, reason=the connection to the Gateway ended
+2026-10-19 23:18:35.457 [DesktopRelayUsage] box=relay-proof stream=8575bddeebed4b34920726c7bc9b21d5 side=director closed: toBrowser=280613 bytes, toBox=821 bytes reason=the connection to the Gateway ended
+2026-10-19 23:18:35.457 [DesktopRelayUsage] box=relay-proof stream=a29d9b803d1e48d5b072ac53455d6469 side=director closed: toBrowser=113888 bytes, toBox=0 bytes reason=the connection to the Gateway ended
+2026-10-19 23:18:35.457 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1561183 bytes, toBox=821 bytes
+2026-10-19 23:18:35.457 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1561183 bytes, toBox=821 bytes
+2026-10-19 23:18:35.457 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=8575bddeebed4b34920726c7bc9b21d5 reason=the connection to the Gateway ended
+2026-10-19 23:18:35.457 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=a29d9b803d1e48d5b072ac53455d6469 reason=the connection to the Gateway ended
+2026-10-19 23:18:35.458 [DirectorDesktopRelayHandler] CancelAll: 1 desktop stream(s) closed (the tunnel closed)
+2026-10-19 23:18:37.504 [LifecycleSignal] stopped listening for cc-director-shutdown-c526507a-f1be-40e8-8546-a8e7b73f06a5
+2026-10-19 23:18:37.504 [LifecycleSignal] stopped listening for cc-director-update-check-c526507a-f1be-40e8-8546-a8e7b73f06a5
+2026-10-19 23:07:18.205 [LifecycleSignal] Listen: name=cc-director-shutdown-c526507a-f1be-40e8-8546-a8e7b73f06a5
+2026-10-19 23:07:18.206 [LifecycleSignal] Listen: name=cc-director-update-check-c526507a-f1be-40e8-8546-a8e7b73f06a5
+2026-10-19 23:07:18.483 [HostedDesktopRegistry] Reload: this Director hosts 1 desktop(s): relay-proof on port 3140
+2026-10-19 23:08:39.217 [DirectorDesktopRelayHandler] HandleAsync: cmdId=4e04dfbeb5094abdbb4cd1d9ef6f98dc
+2026-10-19 23:08:39.233 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 2d74c8f4eb0b492fa1238e7fbdf59bfd
+2026-10-19 23:08:39.235 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET / stream=2d74c8f4eb0b492fa1238e7fbdf59bfd (sockets=0, requests=1)
+2026-10-19 23:08:39.239 [DesktopRateLimiter] ForBox: ceiling=1000000 bytes a second, burst=1000000
+2026-10-19 23:08:39.242 [DesktopRelayPump] RunAsync: box=relay-proof stream=2d74c8f4eb0b492fa1238e7fbdf59bfd side=director idleTimeout=none rateCap=on
+2026-10-19 23:08:39.268 [BoxHttpRelayEndpoint] box relay-proof stream 2d74c8f4eb0b492fa1238e7fbdf59bfd: GET / -> 200
+2026-10-19 23:08:39.279 [DesktopRelayPump] stream=2d74c8f4eb0b492fa1238e7fbdf59bfd box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:08:39.279 [BoxHttpRelayEndpoint] box relay-proof stream 2d74c8f4eb0b492fa1238e7fbdf59bfd: closing (eof)
+2026-10-19 23:08:39.281 [DesktopRelayUsage] box=relay-proof stream=2d74c8f4eb0b492fa1238e7fbdf59bfd side=director closed: toBrowser=406 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.282 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=406 bytes, toBox=0 bytes
+2026-10-19 23:08:39.282 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=2d74c8f4eb0b492fa1238e7fbdf59bfd reason=eof
+2026-10-19 23:08:39.415 [DirectorDesktopRelayHandler] HandleAsync: cmdId=08031bc34b93459a8ef5aebc30969aa0
+2026-10-19 23:08:39.416 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream ae45b667cb1e4e4eba75efd69f929f6f
+2026-10-19 23:08:39.416 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/index-D97fjY6g.css stream=ae45b667cb1e4e4eba75efd69f929f6f (sockets=0, requests=1)
+2026-10-19 23:08:39.416 [DesktopRelayPump] RunAsync: box=relay-proof stream=ae45b667cb1e4e4eba75efd69f929f6f side=director idleTimeout=none rateCap=on
+2026-10-19 23:08:39.418 [DirectorDesktopRelayHandler] HandleAsync: cmdId=78982c41bab44c1188f31f77e75afb2f
+2026-10-19 23:08:39.418 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 810e8005f3e64024b4a4fb9b29abaa27
+2026-10-19 23:08:39.418 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/index-CPWh3fQ6.js stream=810e8005f3e64024b4a4fb9b29abaa27 (sockets=0, requests=2)
+2026-10-19 23:08:39.418 [DesktopRelayPump] RunAsync: box=relay-proof stream=810e8005f3e64024b4a4fb9b29abaa27 side=director idleTimeout=none rateCap=on
+2026-10-19 23:08:39.426 [BoxHttpRelayEndpoint] box relay-proof stream ae45b667cb1e4e4eba75efd69f929f6f: GET /assets/index-D97fjY6g.css -> 200
+2026-10-19 23:08:39.427 [BoxHttpRelayEndpoint] box relay-proof stream 810e8005f3e64024b4a4fb9b29abaa27: GET /assets/index-CPWh3fQ6.js -> 200
+2026-10-19 23:08:39.432 [DesktopRelayPump] stream=ae45b667cb1e4e4eba75efd69f929f6f box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:08:39.432 [BoxHttpRelayEndpoint] box relay-proof stream ae45b667cb1e4e4eba75efd69f929f6f: closing (eof)
+2026-10-19 23:08:39.433 [DesktopRelayUsage] box=relay-proof stream=ae45b667cb1e4e4eba75efd69f929f6f side=director closed: toBrowser=34393 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.433 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=530150 bytes, toBox=0 bytes
+2026-10-19 23:08:39.433 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=ae45b667cb1e4e4eba75efd69f929f6f reason=eof
+2026-10-19 23:08:39.433 [DesktopRelayPump] stream=810e8005f3e64024b4a4fb9b29abaa27 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:08:39.433 [BoxHttpRelayEndpoint] box relay-proof stream 810e8005f3e64024b4a4fb9b29abaa27: closing (eof)
+2026-10-19 23:08:39.433 [DesktopRelayUsage] box=relay-proof stream=810e8005f3e64024b4a4fb9b29abaa27 side=director closed: toBrowser=650022 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.433 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=684821 bytes, toBox=0 bytes
+2026-10-19 23:08:39.433 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=810e8005f3e64024b4a4fb9b29abaa27 reason=eof
+2026-10-19 23:08:39.514 [DirectorDesktopRelayHandler] HandleAsync: cmdId=fc1fdb18f59a436e8681307bf27c494b
+2026-10-19 23:08:39.514 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream cd6f94aaa7434ae48e50cd0337775685
+2026-10-19 23:08:39.514 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /api/status stream=cd6f94aaa7434ae48e50cd0337775685 (sockets=0, requests=1)
+2026-10-19 23:08:39.514 [DesktopRelayPump] RunAsync: box=relay-proof stream=cd6f94aaa7434ae48e50cd0337775685 side=director idleTimeout=none rateCap=on
+2026-10-19 23:08:39.522 [DirectorDesktopRelayHandler] HandleAsync: cmdId=4344eeb20f794306832feeb38b7ede63
+2026-10-19 23:08:39.522 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream f5c2eba17105407b83aff59061ed8099
+2026-10-19 23:08:39.522 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /icon.png stream=f5c2eba17105407b83aff59061ed8099 (sockets=0, requests=2)
+2026-10-19 23:08:39.522 [DesktopRelayPump] RunAsync: box=relay-proof stream=f5c2eba17105407b83aff59061ed8099 side=director idleTimeout=none rateCap=on
+2026-10-19 23:08:39.525 [BoxHttpRelayEndpoint] box relay-proof stream f5c2eba17105407b83aff59061ed8099: GET /icon.png -> 200
+2026-10-19 23:08:39.526 [DesktopRelayPump] stream=f5c2eba17105407b83aff59061ed8099 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:08:39.526 [BoxHttpRelayEndpoint] box relay-proof stream f5c2eba17105407b83aff59061ed8099: closing (eof)
+2026-10-19 23:08:39.526 [DesktopRelayUsage] box=relay-proof stream=f5c2eba17105407b83aff59061ed8099 side=director closed: toBrowser=55164 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.526 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=739985 bytes, toBox=0 bytes
+2026-10-19 23:08:39.526 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=f5c2eba17105407b83aff59061ed8099 reason=eof
+2026-10-19 23:08:39.935 [BoxHttpRelayEndpoint] box relay-proof stream cd6f94aaa7434ae48e50cd0337775685: GET /api/status -> 200
+2026-10-19 23:08:39.936 [DesktopRelayPump] stream=cd6f94aaa7434ae48e50cd0337775685 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:08:39.936 [BoxHttpRelayEndpoint] box relay-proof stream cd6f94aaa7434ae48e50cd0337775685: closing (eof)
+2026-10-19 23:08:39.936 [DesktopRelayUsage] box=relay-proof stream=cd6f94aaa7434ae48e50cd0337775685 side=director closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.936 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=740087 bytes, toBox=0 bytes
+2026-10-19 23:08:39.936 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=cd6f94aaa7434ae48e50cd0337775685 reason=eof
+2026-10-19 23:08:39.942 [DirectorDesktopRelayHandler] HandleAsync: cmdId=6fdb7fb5efd44fc1a316ea8e8fc4a421
+2026-10-19 23:08:39.942 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream f86bcea3badd46079a3791e81209975d
+2026-10-19 23:08:39.942 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/selkies-core-BbKps5RD.js stream=f86bcea3badd46079a3791e81209975d (sockets=0, requests=1)
+2026-10-19 23:08:39.942 [DesktopRelayPump] RunAsync: box=relay-proof stream=f86bcea3badd46079a3791e81209975d side=director idleTimeout=none rateCap=on
+2026-10-19 23:08:39.945 [BoxHttpRelayEndpoint] box relay-proof stream f86bcea3badd46079a3791e81209975d: GET /assets/selkies-core-BbKps5RD.js -> 200
+2026-10-19 23:08:39.951 [DesktopRelayPump] stream=f86bcea3badd46079a3791e81209975d box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:08:39.951 [BoxHttpRelayEndpoint] box relay-proof stream f86bcea3badd46079a3791e81209975d: closing (eof)
+2026-10-19 23:08:39.952 [DesktopRelayUsage] box=relay-proof stream=f86bcea3badd46079a3791e81209975d side=director closed: toBrowser=426262 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.952 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1166349 bytes, toBox=0 bytes
+2026-10-19 23:08:39.952 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=f86bcea3badd46079a3791e81209975d reason=eof
+2026-10-19 23:08:39.983 [DirectorDesktopRelayHandler] HandleAsync: cmdId=8157efa0efc741858309563e46710f93
+2026-10-19 23:08:39.983 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 62a897b50985486eb7ec0a64144cbcb7
+2026-10-19 23:08:39.983 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /manifest.json stream=62a897b50985486eb7ec0a64144cbcb7 (sockets=0, requests=1)
+2026-10-19 23:08:39.983 [DesktopRelayPump] RunAsync: box=relay-proof stream=62a897b50985486eb7ec0a64144cbcb7 side=director idleTimeout=none rateCap=on
+2026-10-19 23:08:39.985 [BoxHttpRelayEndpoint] box relay-proof stream 62a897b50985486eb7ec0a64144cbcb7: GET /manifest.json -> 200
+2026-10-19 23:08:39.985 [DesktopRelayPump] stream=62a897b50985486eb7ec0a64144cbcb7 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:08:39.985 [BoxHttpRelayEndpoint] box relay-proof stream 62a897b50985486eb7ec0a64144cbcb7: closing (eof)
+2026-10-19 23:08:39.985 [DesktopRelayUsage] box=relay-proof stream=62a897b50985486eb7ec0a64144cbcb7 side=director closed: toBrowser=333 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:08:39.985 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1166682 bytes, toBox=0 bytes
+2026-10-19 23:08:39.985 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=62a897b50985486eb7ec0a64144cbcb7 reason=eof
+2026-10-19 23:08:40.077 [DirectorDesktopRelayHandler] HandleAsync: cmdId=b477f95aa4854b4b9f5d26908c3fd449
+2026-10-19 23:08:40.077 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 57e244ac9d1948478d83e06031b2d8ad
+2026-10-19 23:08:40.269 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=WebSocket GET /api/websockets stream=57e244ac9d1948478d83e06031b2d8ad (sockets=1, requests=0)
+2026-10-19 23:08:40.270 [DesktopRelayPump] RunAsync: box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=director idleTimeout=none rateCap=on
+2026-10-19 23:09:04.501 [DirectorDesktopRelayHandler] HandleAsync: cmdId=db0ab6c11e7d4630a241383608410790
+2026-10-19 23:09:04.501 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 70054a0cde694fc28b9c7014882b5ff0
+2026-10-19 23:09:04.501 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http POST /api/upload stream=70054a0cde694fc28b9c7014882b5ff0 (sockets=1, requests=1)
+2026-10-19 23:09:04.501 [DesktopRelayPump] RunAsync: box=relay-proof stream=70054a0cde694fc28b9c7014882b5ff0 side=director idleTimeout=none rateCap=on
+2026-10-19 23:09:06.415 [BoxHttpRelayEndpoint] box relay-proof stream 70054a0cde694fc28b9c7014882b5ff0: POST /api/upload -> 200
+2026-10-19 23:09:06.415 [DesktopRelayPump] stream=70054a0cde694fc28b9c7014882b5ff0 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:09:06.415 [BoxHttpRelayEndpoint] box relay-proof stream 70054a0cde694fc28b9c7014882b5ff0: closing (eof)
+2026-10-19 23:09:06.416 [DesktopRelayUsage] box=relay-proof stream=70054a0cde694fc28b9c7014882b5ff0 side=director closed: toBrowser=40 bytes, toBox=67108864 bytes reason=eof
+2026-10-19 23:09:06.416 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1838673 bytes, toBox=67112347 bytes
+2026-10-19 23:09:06.416 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=70054a0cde694fc28b9c7014882b5ff0 reason=eof
+2026-10-19 23:09:12.377 [DirectorDesktopRelayHandler] HandleAsync: cmdId=27e011b59fae4939a0617b4e4363945f
+2026-10-19 23:09:12.377 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 8535ead1e2184e93b4e2622235ca682c
+2026-10-19 23:09:12.377 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http POST /api/upload stream=8535ead1e2184e93b4e2622235ca682c (sockets=1, requests=1)
+2026-10-19 23:09:12.377 [DesktopRelayPump] RunAsync: box=relay-proof stream=8535ead1e2184e93b4e2622235ca682c side=director idleTimeout=none rateCap=on
+2026-10-19 23:09:12.435 [BoxHttpRelayEndpoint] box relay-proof stream 8535ead1e2184e93b4e2622235ca682c: POST /api/upload -> 200
+2026-10-19 23:09:12.435 [DesktopRelayPump] stream=8535ead1e2184e93b4e2622235ca682c box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:09:12.435 [BoxHttpRelayEndpoint] box relay-proof stream 8535ead1e2184e93b4e2622235ca682c: closing (eof)
+2026-10-19 23:09:12.435 [DesktopRelayUsage] box=relay-proof stream=8535ead1e2184e93b4e2622235ca682c side=director closed: toBrowser=39 bytes, toBox=8388608 bytes reason=eof
+2026-10-19 23:09:12.435 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1897688 bytes, toBox=75500955 bytes
+2026-10-19 23:09:12.435 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=8535ead1e2184e93b4e2622235ca682c reason=eof
+2026-10-19 23:09:13.402 [DirectorDesktopRelayHandler] HandleAsync: cmdId=1dce570b998249378998170a4640e281
+2026-10-19 23:09:13.402 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 3d1822547df04a15934f30e551546c33
+2026-10-19 23:09:13.402 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /api/files/ stream=3d1822547df04a15934f30e551546c33 (sockets=1, requests=1)
+2026-10-19 23:09:13.402 [DesktopRelayPump] RunAsync: box=relay-proof stream=3d1822547df04a15934f30e551546c33 side=director idleTimeout=none rateCap=on
+2026-10-19 23:09:13.410 [BoxHttpRelayEndpoint] box relay-proof stream 3d1822547df04a15934f30e551546c33: GET /api/files/ -> 200
+2026-10-19 23:09:13.411 [DesktopRelayPump] stream=3d1822547df04a15934f30e551546c33 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:09:13.411 [BoxHttpRelayEndpoint] box relay-proof stream 3d1822547df04a15934f30e551546c33: closing (eof)
+2026-10-19 23:09:13.412 [DesktopRelayUsage] box=relay-proof stream=3d1822547df04a15934f30e551546c33 side=director closed: toBrowser=5321 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:09:13.412 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=1970556 bytes, toBox=75500994 bytes
+2026-10-19 23:09:13.412 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=3d1822547df04a15934f30e551546c33 reason=eof
+2026-10-19 23:09:13.474 [DirectorDesktopRelayHandler] HandleAsync: cmdId=1d0290f3ecbb4fa9840aa43be56a9213
+2026-10-19 23:09:13.474 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 916e708bc3a94b1da5f4a05b8932556f
+2026-10-19 23:09:13.474 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /api/files/relay-upload-8mb.bin stream=916e708bc3a94b1da5f4a05b8932556f (sockets=1, requests=1)
+2026-10-19 23:09:13.474 [DesktopRelayPump] RunAsync: box=relay-proof stream=916e708bc3a94b1da5f4a05b8932556f side=director idleTimeout=none rateCap=on
+2026-10-19 23:09:13.499 [BoxHttpRelayEndpoint] box relay-proof stream 916e708bc3a94b1da5f4a05b8932556f: GET /api/files/relay-upload-8mb.bin -> 200
+2026-10-19 23:09:20.888 [DesktopRelayPump] stream=916e708bc3a94b1da5f4a05b8932556f box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:09:20.888 [BoxHttpRelayEndpoint] box relay-proof stream 916e708bc3a94b1da5f4a05b8932556f: closing (eof)
+2026-10-19 23:09:20.888 [DesktopRelayUsage] box=relay-proof stream=916e708bc3a94b1da5f4a05b8932556f side=director closed: toBrowser=8388608 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:09:20.888 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=10426761 bytes, toBox=75501247 bytes
+2026-10-19 23:09:20.888 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=916e708bc3a94b1da5f4a05b8932556f reason=eof
+2026-10-19 23:09:40.271 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=director open: toBrowser=866071 bytes, toBox=4259 bytes
+2026-10-19 23:09:40.271 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=10426761 bytes, toBox=75501731 bytes
+2026-10-19 23:10:40.270 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=director open: toBrowser=1244091 bytes, toBox=11139 bytes
+2026-10-19 23:10:40.270 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=10804781 bytes, toBox=75508611 bytes
+2026-10-19 23:11:40.270 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=director open: toBrowser=2331201 bytes, toBox=29735 bytes
+2026-10-19 23:11:40.270 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=11891891 bytes, toBox=75527207 bytes
+2026-10-19 23:12:40.269 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=director open: toBrowser=25199515 bytes, toBox=41502 bytes
+2026-10-19 23:12:40.269 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=34760205 bytes, toBox=75538974 bytes
+2026-10-19 23:13:40.269 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=director open: toBrowser=70809445 bytes, toBox=63594 bytes
+2026-10-19 23:13:40.269 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=80370135 bytes, toBox=75561066 bytes
+2026-10-19 23:13:45.299 [DesktopRelayPump] stream=57e244ac9d1948478d83e06031b2d8ad box=relay-proof side=director ending: status=1001, reason=the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection, tellFarSide=False
+2026-10-19 23:13:45.304 [WebSocketRelayEndpoint] box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad: closing, status=1001, reason=the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection
+2026-10-19 23:13:45.333 [DesktopRelayUsage] box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad side=director closed: toBrowser=70809445 bytes, toBox=63729 bytes reason=the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection
+2026-10-19 23:13:45.333 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=80370135 bytes, toBox=75561201 bytes
+2026-10-19 23:13:45.333 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=57e244ac9d1948478d83e06031b2d8ad reason=the browser box relay-proof stream 57e244ac9d1948478d83e06031b2d8ad closed the connection
+2026-10-19 23:14:28.904 [DirectorDesktopRelayHandler] HandleAsync: cmdId=2462f31475414266a620ae760477e2f2
+2026-10-19 23:14:28.905 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 2b0cbf87e4694ca8bb7fd17bcd493c84
+2026-10-19 23:14:28.905 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /api/status stream=2b0cbf87e4694ca8bb7fd17bcd493c84 (sockets=0, requests=1)
+2026-10-19 23:14:28.905 [DesktopRelayPump] RunAsync: box=relay-proof stream=2b0cbf87e4694ca8bb7fd17bcd493c84 side=director idleTimeout=none rateCap=on
+2026-10-19 23:14:28.925 [BoxHttpRelayEndpoint] box relay-proof stream 2b0cbf87e4694ca8bb7fd17bcd493c84: GET /api/status -> 200
+2026-10-19 23:14:28.925 [DesktopRelayPump] stream=2b0cbf87e4694ca8bb7fd17bcd493c84 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:14:28.925 [BoxHttpRelayEndpoint] box relay-proof stream 2b0cbf87e4694ca8bb7fd17bcd493c84: closing (eof)
+2026-10-19 23:14:28.925 [DesktopRelayUsage] box=relay-proof stream=2b0cbf87e4694ca8bb7fd17bcd493c84 side=director closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:14:28.925 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=80370237 bytes, toBox=75561201 bytes
+2026-10-19 23:14:28.925 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=2b0cbf87e4694ca8bb7fd17bcd493c84 reason=eof
+2026-10-19 23:15:18.348 [DirectorDesktopRelayHandler] HandleAsync: cmdId=3a371900e58f4423a6aae7d58d970a67
+2026-10-19 23:15:18.348 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 5aef5343dd8347f480432c29c11d2503
+2026-10-19 23:15:18.348 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET / stream=5aef5343dd8347f480432c29c11d2503 (sockets=0, requests=1)
+2026-10-19 23:15:18.348 [DesktopRelayPump] RunAsync: box=relay-proof stream=5aef5343dd8347f480432c29c11d2503 side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:18.351 [BoxHttpRelayEndpoint] box relay-proof stream 5aef5343dd8347f480432c29c11d2503: GET / -> 200
+2026-10-19 23:15:18.351 [DesktopRelayPump] stream=5aef5343dd8347f480432c29c11d2503 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:15:18.351 [BoxHttpRelayEndpoint] box relay-proof stream 5aef5343dd8347f480432c29c11d2503: closing (eof)
+2026-10-19 23:15:18.351 [DesktopRelayUsage] box=relay-proof stream=5aef5343dd8347f480432c29c11d2503 side=director closed: toBrowser=406 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.351 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=80370643 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.351 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=5aef5343dd8347f480432c29c11d2503 reason=eof
+2026-10-19 23:15:18.362 [DirectorDesktopRelayHandler] HandleAsync: cmdId=ac94cae4e2ff4854bbbb31bf8198be96
+2026-10-19 23:15:18.362 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream a9d1df369eb649a9abad0a0a38649076
+2026-10-19 23:15:18.362 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/index-D97fjY6g.css stream=a9d1df369eb649a9abad0a0a38649076 (sockets=0, requests=1)
+2026-10-19 23:15:18.362 [DesktopRelayPump] RunAsync: box=relay-proof stream=a9d1df369eb649a9abad0a0a38649076 side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:18.363 [DirectorDesktopRelayHandler] HandleAsync: cmdId=add920c2c6444ceca19d7a584147bca8
+2026-10-19 23:15:18.363 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 2717947e5d6749f38d5e92a46a5a1695
+2026-10-19 23:15:18.363 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/index-CPWh3fQ6.js stream=2717947e5d6749f38d5e92a46a5a1695 (sockets=0, requests=2)
+2026-10-19 23:15:18.363 [DesktopRelayPump] RunAsync: box=relay-proof stream=2717947e5d6749f38d5e92a46a5a1695 side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:18.363 [BoxHttpRelayEndpoint] box relay-proof stream a9d1df369eb649a9abad0a0a38649076: GET /assets/index-D97fjY6g.css -> 200
+2026-10-19 23:15:18.364 [DesktopRelayPump] stream=a9d1df369eb649a9abad0a0a38649076 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:15:18.364 [BoxHttpRelayEndpoint] box relay-proof stream a9d1df369eb649a9abad0a0a38649076: closing (eof)
+2026-10-19 23:15:18.364 [DesktopRelayUsage] box=relay-proof stream=a9d1df369eb649a9abad0a0a38649076 side=director closed: toBrowser=34393 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.364 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=80405036 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.364 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=a9d1df369eb649a9abad0a0a38649076 reason=eof
+2026-10-19 23:15:18.398 [BoxHttpRelayEndpoint] box relay-proof stream 2717947e5d6749f38d5e92a46a5a1695: GET /assets/index-CPWh3fQ6.js -> 200
+2026-10-19 23:15:18.406 [DesktopRelayPump] stream=2717947e5d6749f38d5e92a46a5a1695 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:15:18.406 [BoxHttpRelayEndpoint] box relay-proof stream 2717947e5d6749f38d5e92a46a5a1695: closing (eof)
+2026-10-19 23:15:18.406 [DesktopRelayUsage] box=relay-proof stream=2717947e5d6749f38d5e92a46a5a1695 side=director closed: toBrowser=650022 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.406 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=81055058 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.406 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=2717947e5d6749f38d5e92a46a5a1695 reason=eof
+2026-10-19 23:15:18.505 [DirectorDesktopRelayHandler] HandleAsync: cmdId=99196b6c4278478a97fa8fff5e54121b
+2026-10-19 23:15:18.505 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 28d950b16bb844369731701397d95b69
+2026-10-19 23:15:18.505 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /api/status stream=28d950b16bb844369731701397d95b69 (sockets=0, requests=1)
+2026-10-19 23:15:18.505 [DesktopRelayPump] RunAsync: box=relay-proof stream=28d950b16bb844369731701397d95b69 side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:18.507 [DirectorDesktopRelayHandler] HandleAsync: cmdId=08b15cb64ba74e54845d0e9c328e0be8
+2026-10-19 23:15:18.507 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 6c8cf0ea6c0a43a381b2aaf4f806e0bd
+2026-10-19 23:15:18.507 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /icon.png stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd (sockets=0, requests=2)
+2026-10-19 23:15:18.507 [DesktopRelayPump] RunAsync: box=relay-proof stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:18.509 [BoxHttpRelayEndpoint] box relay-proof stream 28d950b16bb844369731701397d95b69: GET /api/status -> 200
+2026-10-19 23:15:18.509 [DesktopRelayPump] stream=28d950b16bb844369731701397d95b69 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:15:18.509 [BoxHttpRelayEndpoint] box relay-proof stream 28d950b16bb844369731701397d95b69: closing (eof)
+2026-10-19 23:15:18.509 [DesktopRelayUsage] box=relay-proof stream=28d950b16bb844369731701397d95b69 side=director closed: toBrowser=102 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.509 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=81055160 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.509 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=28d950b16bb844369731701397d95b69 reason=eof
+2026-10-19 23:15:18.513 [BoxHttpRelayEndpoint] box relay-proof stream 6c8cf0ea6c0a43a381b2aaf4f806e0bd: GET /icon.png -> 200
+2026-10-19 23:15:18.516 [DesktopRelayPump] stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:15:18.516 [BoxHttpRelayEndpoint] box relay-proof stream 6c8cf0ea6c0a43a381b2aaf4f806e0bd: closing (eof)
+2026-10-19 23:15:18.516 [DesktopRelayUsage] box=relay-proof stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd side=director closed: toBrowser=55164 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.516 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=81110324 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.516 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=6c8cf0ea6c0a43a381b2aaf4f806e0bd reason=eof
+2026-10-19 23:15:18.519 [DirectorDesktopRelayHandler] HandleAsync: cmdId=a401e4a6bf104abe924d99c1e4ae61ea
+2026-10-19 23:15:18.519 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 76276d86f7474b6792f9f7d098e01037
+2026-10-19 23:15:18.519 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /assets/selkies-core-BbKps5RD.js stream=76276d86f7474b6792f9f7d098e01037 (sockets=0, requests=1)
+2026-10-19 23:15:18.519 [DesktopRelayPump] RunAsync: box=relay-proof stream=76276d86f7474b6792f9f7d098e01037 side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:18.523 [BoxHttpRelayEndpoint] box relay-proof stream 76276d86f7474b6792f9f7d098e01037: GET /assets/selkies-core-BbKps5RD.js -> 200
+2026-10-19 23:15:18.530 [DesktopRelayPump] stream=76276d86f7474b6792f9f7d098e01037 box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:15:18.530 [BoxHttpRelayEndpoint] box relay-proof stream 76276d86f7474b6792f9f7d098e01037: closing (eof)
+2026-10-19 23:15:18.530 [DesktopRelayUsage] box=relay-proof stream=76276d86f7474b6792f9f7d098e01037 side=director closed: toBrowser=426262 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.530 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=81536586 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.530 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=76276d86f7474b6792f9f7d098e01037 reason=eof
+2026-10-19 23:15:18.561 [DirectorDesktopRelayHandler] HandleAsync: cmdId=b0476fb4f18d46d0a7ceabf83e66d92b
+2026-10-19 23:15:18.561 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream 9d6fc8a5fa0c4e4d8054cb5834e6c73b
+2026-10-19 23:15:18.561 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=Http GET /manifest.json stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b (sockets=0, requests=1)
+2026-10-19 23:15:18.561 [DesktopRelayPump] RunAsync: box=relay-proof stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:18.563 [BoxHttpRelayEndpoint] box relay-proof stream 9d6fc8a5fa0c4e4d8054cb5834e6c73b: GET /manifest.json -> 200
+2026-10-19 23:15:18.563 [DesktopRelayPump] stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b box=relay-proof side=director ending: status=1000, reason=eof, tellFarSide=True
+2026-10-19 23:15:18.563 [BoxHttpRelayEndpoint] box relay-proof stream 9d6fc8a5fa0c4e4d8054cb5834e6c73b: closing (eof)
+2026-10-19 23:15:18.563 [DesktopRelayUsage] box=relay-proof stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b side=director closed: toBrowser=333 bytes, toBox=0 bytes reason=eof
+2026-10-19 23:15:18.563 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=81536919 bytes, toBox=75561201 bytes
+2026-10-19 23:15:18.563 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=9d6fc8a5fa0c4e4d8054cb5834e6c73b reason=eof
+2026-10-19 23:15:18.635 [DirectorDesktopRelayHandler] HandleAsync: cmdId=1f533800f7a644e69f52f388b8e2d61a
+2026-10-19 23:15:18.635 [HostedDesktopRegistry] Resolve: box=relay-proof -> 127.0.0.1:3140, requester=desktop stream b5fb40a8e73e4f36b2bb2ece53caad8c
+2026-10-19 23:15:18.658 [DirectorDesktopRelayHandler] open: box=relay-proof port=3140 mode=WebSocket GET /api/websockets stream=b5fb40a8e73e4f36b2bb2ece53caad8c (sockets=1, requests=0)
+2026-10-19 23:15:18.658 [DesktopRelayPump] RunAsync: box=relay-proof stream=b5fb40a8e73e4f36b2bb2ece53caad8c side=director idleTimeout=none rateCap=on
+2026-10-19 23:15:29.241 [LifecycleSignal] cc-director-shutdown-c526507a-f1be-40e8-8546-a8e7b73f06a5: signalled
+2026-10-19 23:15:29.405 [DesktopRelayPump] stream=b5fb40a8e73e4f36b2bb2ece53caad8c box=relay-proof side=director ending: status=1001, reason=the connection to the Gateway ended, tellFarSide=False
+2026-10-19 23:15:29.405 [WebSocketRelayEndpoint] box relay-proof stream b5fb40a8e73e4f36b2bb2ece53caad8c: closing, status=1001, reason=the connection to the Gateway ended
+2026-10-19 23:15:29.406 [DesktopRelayUsage] box=relay-proof stream=b5fb40a8e73e4f36b2bb2ece53caad8c side=director closed: toBrowser=129920 bytes, toBox=798 bytes reason=the connection to the Gateway ended
+2026-10-19 23:15:29.406 [DesktopRelayUsage] box=relay-proof side=director total since start: toBrowser=81666839 bytes, toBox=75561999 bytes
+2026-10-19 23:15:29.406 [DirectorDesktopRelayHandler] stream ended: box=relay-proof stream=b5fb40a8e73e4f36b2bb2ece53caad8c reason=the connection to the Gateway ended
+2026-10-19 23:15:29.410 [DirectorDesktopRelayHandler] CancelAll: 0 desktop stream(s) closed (the tunnel closed)
+2026-10-19 23:15:31.488 [LifecycleSignal] stopped listening for cc-director-shutdown-c526507a-f1be-40e8-8546-a8e7b73f06a5
+2026-10-19 23:15:31.488 [LifecycleSignal] stopped listening for cc-director-update-check-c526507a-f1be-40e8-8546-a8e7b73f06a5

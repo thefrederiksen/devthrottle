@@ -1,0 +1,479 @@
+diff --git a/src/CcDirector.ControlApi/Boxes/DirectorDesktopRelayHandler.cs b/src/CcDirector.ControlApi/Boxes/DirectorDesktopRelayHandler.cs
+index 7866feb60..6c8c408e5 100644
+--- a/src/CcDirector.ControlApi/Boxes/DirectorDesktopRelayHandler.cs
++++ b/src/CcDirector.ControlApi/Boxes/DirectorDesktopRelayHandler.cs
+@@ -27,7 +27,7 @@ internal sealed class DirectorDesktopRelayHandler
+     /// <summary>How long the Director waits for a box's desktop to accept a WebSocket before refusing the open.</summary>
+     public static readonly TimeSpan BoxConnectTimeout = TimeSpan.FromSeconds(10);
+ 
+-    private readonly IHostedDesktopLookup _desktops;
++    private readonly HostedDesktopRegistry _desktops;
+     private readonly IDesktopBoxConnector _connector;
+     private readonly RelayCall _relay;
+     private readonly TimeProvider _time;
+@@ -38,13 +38,14 @@ internal sealed class DirectorDesktopRelayHandler
+     private int _sockets;
+     private int _requests;
+ 
+-    /// <param name="desktops">The Director's hosted-desktop list: the allow-list.</param>
++    /// <param name="desktops">The Director's hosted-desktop list (<see cref="HostedDesktopRegistry"/>): the allow-list, and the only
++    /// way to a port.</param>
+     /// <param name="connector">How the box is reached; production is the loopback connector.</param>
+     /// <param name="relay">Carries one stream over the tunnel.</param>
+     /// <param name="time">The clock for the rate cap, the connect timeout and the usage lines.</param>
+     /// <param name="maxBoxBytesPerSecond">The per-box ceiling toward the browser; production passes nothing and gets
+     /// <see cref="DesktopRelayLimits.MaxBoxBytesPerSecond"/>. A test that moves megabytes without a clock passes more.</param>
+-    public DirectorDesktopRelayHandler(IHostedDesktopLookup desktops, IDesktopBoxConnector connector, RelayCall relay, TimeProvider time,
++    public DirectorDesktopRelayHandler(HostedDesktopRegistry desktops, IDesktopBoxConnector connector, RelayCall relay, TimeProvider time,
+         long maxBoxBytesPerSecond = DesktopRelayLimits.MaxBoxBytesPerSecond)
+     {
+         _maxBoxBytesPerSecond = maxBoxBytesPerSecond;
+@@ -73,13 +74,16 @@ internal sealed class DirectorDesktopRelayHandler
+         var request = SessionCommandExecutor.Deserialize<OpenDesktopStreamRequest>(command.PayloadJson);
+         if (request is null || string.IsNullOrEmpty(request.StreamId))
+             return Refuse(DirectorCommandStatus.BadRequest, "A desktop stream needs a stream id.", request);
+-        if (!DesktopRelayBoxIds.IsValid(request.BoxId))
++        if (!BoxIdRule.IsValid(request.BoxId))
+             return Refuse(DirectorCommandStatus.BadRequest, "That is not a box id.", request);
+ 
+         // THE ALLOW-LIST CHECK. The Director forwards only to a port its own list holds for this one box id, so a
+         // Gateway that was fooled into asking for another box, or for any other port, is refused here.
+-        if (!_desktops.TryResolvePort(request.BoxId, out var port))
++        // The list's own lookup logs its refusal and its reason; the relay logs its own line beside it.
++        var resolution = _desktops.Resolve(request.BoxId, $"desktop stream {request.StreamId}");
++        if (!resolution.Allowed)
+             return Refuse(DirectorCommandStatus.NotFound, "This Director does not host a desktop for that box.", request);
++        var port = resolution.Port;
+ 
+         var isSocket = request.Mode == DesktopRelayMode.WebSocket;
+         Uri address;
+diff --git a/src/CcDirector.ControlApi/Boxes/IHostedDesktopLookup.cs b/src/CcDirector.ControlApi/Boxes/IHostedDesktopLookup.cs
+deleted file mode 100644
+index 79b628ef2..000000000
+--- a/src/CcDirector.ControlApi/Boxes/IHostedDesktopLookup.cs
++++ /dev/null
+@@ -1,34 +0,0 @@
+-using CcDirector.Core.Utilities;
+-
+-namespace CcDirector.ControlApi.Boxes;
+-
+-/// <summary>
+-/// The relay leg's view of the Director's hosted-desktop list: resolve a box id to the local port its desktop
+-/// listens on, or refuse. NARROW ON PURPOSE, and a STAND-IN for the real list, which the hosted-desktop list task
+-/// (branch boxes/phase1-hosted-desktop-list) owns. The relay never keeps a list of its own; when that task merges,
+-/// this is wired to its one lookup and <see cref="HostsNoDesktops"/> is deleted.
+-/// </summary>
+-public interface IHostedDesktopLookup
+-{
+-    /// <summary>
+-    /// The port on 127.0.0.1 where this Director hosts <paramref name="boxId"/>'s desktop, or false when this
+-    /// Director does not host that box. A port is only ever this list's answer - never anything a caller supplied.
+-    /// </summary>
+-    bool TryResolvePort(string boxId, out int port);
+-}
+-
+-/// <summary>
+-/// STAND-IN until the hosted-desktop list merges: a Director that hosts no desktop. Every box id is refused (and the
+-/// relay logs the refusal), which is the safe answer for a Director that has not been given a list.
+-/// </summary>
+-public sealed class HostsNoDesktops : IHostedDesktopLookup
+-{
+-    public static readonly HostsNoDesktops Instance = new();
+-
+-    public bool TryResolvePort(string boxId, out int port)
+-    {
+-        FileLog.Write($"[HostsNoDesktops] TryResolvePort: box={boxId} -> this Director has no hosted-desktop list yet");
+-        port = 0;
+-        return false;
+-    }
+-}
+diff --git a/src/CcDirector.ControlApi/ControlApiHost.cs b/src/CcDirector.ControlApi/ControlApiHost.cs
+index f79b0e381..9ba6ac02a 100644
+--- a/src/CcDirector.ControlApi/ControlApiHost.cs
++++ b/src/CcDirector.ControlApi/ControlApiHost.cs
+@@ -1286,7 +1286,9 @@ public sealed class ControlApiHost : IAsyncDisposable
+             {
+                 HostedDesktops.Reload();
+                 return HostedDesktops.Desktops;
+-            });
++            },
++            // The desktop relay resolves a box id to its port through this same list, and nothing else.
++            hostedDesktopRegistry: HostedDesktops);
+     }
+ 
+     /// <summary>The Secret Handoff mission: starts the one read of this machine's public key and returns the
+diff --git a/src/CcDirector.ControlApi/GatewayStreamClient.cs b/src/CcDirector.ControlApi/GatewayStreamClient.cs
+index a02498543..491b25e96 100644
+--- a/src/CcDirector.ControlApi/GatewayStreamClient.cs
++++ b/src/CcDirector.ControlApi/GatewayStreamClient.cs
+@@ -5,6 +5,7 @@ using CcDirector.Core.GatewayConnection;
+ using CcDirector.Core.Machine;
+ using CcDirector.Core.Network;
+ using CcDirector.Core.Sessions;
++using CcDirector.Core.Boxes;
+ using CcDirector.Core.Utilities;
+ using CcDirector.Gateway.Contracts;
+ using Microsoft.AspNetCore.SignalR.Client;
+@@ -255,7 +256,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
+         Func<Task>? redialDelay = null,
+         Func<string>? secretTransferPublicKey = null,
+         Func<IReadOnlyList<HostedDesktopDto>>? hostedDesktops = null,
+-        Boxes.IHostedDesktopLookup? hostedDesktopLookup = null)
++        HostedDesktopRegistry? hostedDesktopRegistry = null)
+     {
+         _hostedDesktops = hostedDesktops;
+         _secretTransferPublicKey = secretTransferPublicKey;
+@@ -279,9 +280,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
+         _upStreamHandler = sessionManager is null
+             ? null
+             : new DirectorUpStreamHandler(sessionManager, (streamId, frames) => _connection!.SendAsync("StreamUp", streamId, frames));
+-        // STAND-IN: HostsNoDesktops until the hosted-desktop list task merges and is passed in here.
++        // The relay resolves a box id ONLY through the Director's hosted-desktop list. A client built without one
++        // (tests, older callers) gets an empty list, so every desktop open is refused - and logged - by that list.
+         _desktopRelay = new Boxes.DirectorDesktopRelayHandler(
+-            hostedDesktopLookup ?? Boxes.HostsNoDesktops.Instance,
++            hostedDesktopRegistry ?? new HostedDesktopRegistry(() => null),
+             Boxes.LoopbackDesktopConnector.Instance,
+             (streamId, up, ct) => _connection!.StreamAsync<DesktopRelayFrame>(DesktopRelayProtocol.HubMethod, streamId, up, ct),
+             TimeProvider.System);
+diff --git a/src/CcDirector.Gateway.Contracts/DesktopRelayMessages.cs b/src/CcDirector.Gateway.Contracts/DesktopRelayMessages.cs
+index cd956f3bb..2a07fa338 100644
+--- a/src/CcDirector.Gateway.Contracts/DesktopRelayMessages.cs
++++ b/src/CcDirector.Gateway.Contracts/DesktopRelayMessages.cs
+@@ -210,20 +210,3 @@ public sealed class OpenDesktopStreamResponse
+     /// <summary>For a WebSocket: the subprotocol the box accepted, which the Gateway accepts the browser with. Null for none.</summary>
+     public string? SubProtocol { get; set; }
+ }
+-
+-/// <summary>
+-/// STAND-IN until the hosted-desktop list task merges (branch boxes/phase1-hosted-desktop-list): the shape a box id
+-/// must have. That task owns the rule; when it merges, this is deleted and both ends call its validator instead.
+-/// </summary>
+-public static class DesktopRelayBoxIds
+-{
+-    /// <summary>One to 64 characters of lower-case letters, digits and hyphens, starting with a letter or a digit.</summary>
+-    public static bool IsValid(string? boxId)
+-    {
+-        if (string.IsNullOrEmpty(boxId) || boxId.Length > 64) return false;
+-        if (!char.IsAsciiLetterLower(boxId[0]) && !char.IsAsciiDigit(boxId[0])) return false;
+-        foreach (var c in boxId)
+-            if (!char.IsAsciiLetterLower(c) && !char.IsAsciiDigit(c) && c != '-') return false;
+-        return true;
+-    }
+-}
+diff --git a/src/CcDirector.Gateway.UnitTests/Boxes/DesktopRelayRig.cs b/src/CcDirector.Gateway.UnitTests/Boxes/DesktopRelayRig.cs
+index 196cc6052..3decee68e 100644
+--- a/src/CcDirector.Gateway.UnitTests/Boxes/DesktopRelayRig.cs
++++ b/src/CcDirector.Gateway.UnitTests/Boxes/DesktopRelayRig.cs
+@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
+ using System.Net.WebSockets;
+ using System.Runtime.CompilerServices;
+ using CcDirector.ControlApi.Boxes;
++using CcDirector.Core.Boxes;
+ using CcDirector.Core.Tenancy;
+ using CcDirector.Gateway.Boxes;
+ using CcDirector.Gateway.Contracts;
+@@ -47,7 +48,7 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
+     public DesktopRelayRegistry Registry { get; } = new();
+     public DirectorDesktopRelayHandler Director { get; private set; } = null!;
+     public DesktopRelayLegs Legs { get; private set; } = null!;
+-    public FakeHostedDesktops Desktops { get; } = new();
++    public HostedDesktopRegistry Desktops { get; } = TestHostedDesktops.ListOf((BoxId, BoxPort));
+     public FakeBoxHosts Hosts { get; } = new();
+     public FakeBoxesFeature Feature { get; } = new();
+     public RecordingConnector Connector { get; private set; } = null!;
+@@ -90,7 +91,6 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
+         KeyB = devices.RegisterForTenant(TenantB, "subject-b", "browser-b", "laptop-b", deviceType: "browser").DeviceKey;
+         var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), devices, hosted: true);
+ 
+-        Desktops.Ports[BoxId] = BoxPort;
+         Hosts.Hosted[(TenantA.Value, BoxId)] = DirectorId;
+         Feature.Enabled.Add(TenantA.Value);
+         Feature.Enabled.Add(TenantB.Value);
+@@ -105,12 +105,12 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
+         builder.WebHost.UseTestServer();
+         builder.Services.AddRouting();
+         var app = builder.Build();
+-        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts, Feature, Tickets, Legs);
++        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts.LocateDirector, Feature.IsEnabled, Tickets, Legs);
+         var gate = new AuthMiddleware.RequireToken { Hosted = true, Token = "", Devices = devices, Boundary = boundary };
+         app.Use((ctx, next) => AuthMiddleware.Run(ctx, gate, () => next(ctx)));
+         app.MapGet("/healthz", () => "healthy");
+         app.MapGet("/sessions", () => "the main host's sessions");
+-        BoxDesktopEndpoints.MapTicket(app, DesktopOrigin, Hosts, Feature, Tickets, boundary);
++        BoxDesktopEndpoints.MapTicket(app, DesktopOrigin, Hosts.LocateDirector, Feature.IsEnabled, Tickets, boundary);
+         await app.StartAsync();
+         _gateway = app;
+     }
+@@ -208,15 +208,21 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
+     }
+ }
+ 
+-/// <summary>A hosted-desktop list the test fills: box id to port.</summary>
+-internal sealed class FakeHostedDesktops : IHostedDesktopLookup
++/// <summary>The Director's real hosted-desktop list, read from a file's text the test writes instead of from disk.</summary>
++internal static class TestHostedDesktops
+ {
+-    public ConcurrentDictionary<string, int> Ports { get; } = new();
+-    public bool TryResolvePort(string boxId, out int port) => Ports.TryGetValue(boxId, out port);
++    public static HostedDesktopRegistry ListOf(params (string BoxId, int Port)[] desktops)
++    {
++        var entries = string.Join(",", desktops.Select(d => $"{{\"boxId\":\"{d.BoxId}\",\"displayName\":\"{d.BoxId}\",\"port\":{d.Port}}}"));
++        var registry = new HostedDesktopRegistry(() => $"{{\"desktops\":[{entries}]}}");
++        if (!registry.Reload() && registry.LoadError is not null)
++            throw new InvalidOperationException($"the test's hosted-desktop list was refused: {registry.LoadError}");
++        return registry;
++    }
+ }
+ 
+ /// <summary>Which Director hosts which box, per account.</summary>
+-internal sealed class FakeBoxHosts : IBoxDesktopHosts
++internal sealed class FakeBoxHosts
+ {
+     public ConcurrentDictionary<(string Tenant, string Box), string> Hosted { get; } = new();
+     public ConcurrentQueue<(TenantId Tenant, string Box)> Asked { get; } = new();
+@@ -229,7 +235,7 @@ internal sealed class FakeBoxHosts : IBoxDesktopHosts
+ }
+ 
+ /// <summary>The Boxes flag, per account.</summary>
+-internal sealed class FakeBoxesFeature : IBoxesFeature
++internal sealed class FakeBoxesFeature
+ {
+     public ConcurrentBag<string> Enabled { get; } = new();
+     public bool IsEnabled(TenantId tenant) => Enabled.Contains(tenant.Value);
+diff --git a/src/CcDirector.Gateway.UnitTests/Boxes/DirectorDesktopRelayHandlerTests.cs b/src/CcDirector.Gateway.UnitTests/Boxes/DirectorDesktopRelayHandlerTests.cs
+index 8e937b873..ca5fdef17 100644
+--- a/src/CcDirector.Gateway.UnitTests/Boxes/DirectorDesktopRelayHandlerTests.cs
++++ b/src/CcDirector.Gateway.UnitTests/Boxes/DirectorDesktopRelayHandlerTests.cs
+@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.UnitTests.Boxes;
+ public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
+ {
+     private readonly FakeDesktop _box = new();
+-    private readonly FakeHostedDesktops _desktops = new();
++    private readonly CcDirector.Core.Boxes.HostedDesktopRegistry _desktops = TestHostedDesktops.ListOf(("box-one", 3110));
+     private readonly FakeTimeProvider _time = new();
+     private RecordingConnector _connector = null!;
+     private int _relayCalls;
+@@ -26,7 +26,6 @@ public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
+     {
+         await _box.StartAsync();
+         _connector = new RecordingConnector(_box.Server);
+-        _desktops.Ports["box-one"] = 3110;
+     }
+ 
+     public async Task DisposeAsync() => await _box.DisposeAsync();
+@@ -71,6 +70,7 @@ public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
+         Assert.Equal(DirectorCommandStatus.NotFound, result.Status);
+         Assert.Equal("This Director does not host a desktop for that box.", result.Error);
+         Assert.Contains(log.Lines(), l => l.Contains("[DirectorDesktopRelayHandler] REFUSED (NotFound): box=box-two"));
++        Assert.Contains(log.Lines(), l => l.Contains("[HostedDesktopRegistry] Resolve REFUSED: box=box-two"));
+         Assert.Empty(_connector.Addresses);
+         Assert.Equal(0, _relayCalls);
+     }
+diff --git a/src/CcDirector.Gateway/Boxes/BoxDesktopEndpoints.cs b/src/CcDirector.Gateway/Boxes/BoxDesktopEndpoints.cs
+index 6dd5502f2..b055d3963 100644
+--- a/src/CcDirector.Gateway/Boxes/BoxDesktopEndpoints.cs
++++ b/src/CcDirector.Gateway/Boxes/BoxDesktopEndpoints.cs
+@@ -53,12 +53,18 @@ internal static class BoxDesktopEndpoints
+ 
+     // ------------------------------------------------------------------------------ the main host ----
+ 
+-    /// <summary>Map the ticket route on the Gateway's own host.</summary>
+-    public static void MapTicket(IEndpointRouteBuilder app, Uri? desktopOrigin, IBoxDesktopHosts hosts, IBoxesFeature feature,
++    /// <summary>
++    /// Map the ticket route on the Gateway's own host. Pass the Boxes gate's group (<see cref="BoxesGate.Group"/>), so an
++    /// account Boxes is off for meets the same 404 as every other Boxes route.
++    /// </summary>
++    /// <param name="locateDirector">Which connected Director of the account hosts the box, or null
++    /// (<c>PushedHostedDesktopStore.TryLocate</c>).</param>
++    /// <param name="boxesOn">Whether Boxes is on for the account (<c>BoxesSwitch.IsOn</c>).</param>
++    public static void MapTicket(IEndpointRouteBuilder app, Uri? desktopOrigin, Func<TenantId, string, string?> locateDirector, Func<TenantId, bool> boxesOn,
+         BoxDesktopTickets tickets, Tenancy.HostedTenantBoundary tenantBoundary)
+     {
+-        ArgumentNullException.ThrowIfNull(hosts);
+-        ArgumentNullException.ThrowIfNull(feature);
++        ArgumentNullException.ThrowIfNull(locateDirector);
++        ArgumentNullException.ThrowIfNull(boxesOn);
+         ArgumentNullException.ThrowIfNull(tickets);
+         ArgumentNullException.ThrowIfNull(tenantBoundary);
+ 
+@@ -78,12 +84,12 @@ internal static class BoxDesktopEndpoints
+                 await ctx.Response.WriteAsJsonAsync(new { error = "no tenant is bound to this request" });
+                 return;
+             }
+-            if (!feature.IsEnabled(t))
++            if (!boxesOn(t))
+             {
+                 ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                 return;
+             }
+-            if (!DesktopRelayBoxIds.IsValid(boxId))
++            if (!BoxIdRule.IsValid(boxId))
+             {
+                 ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+                 await ctx.Response.WriteAsJsonAsync(new { error = "That is not a box id." });
+@@ -96,7 +102,7 @@ internal static class BoxDesktopEndpoints
+                 await ctx.Response.WriteAsJsonAsync(new { error = "This Gateway has no desktop host set, so it cannot open a box's desktop." });
+                 return;
+             }
+-            if (hosts.LocateDirector(t, boxId) is null)
++            if (locateDirector(t, boxId) is null)
+             {
+                 FileLog.Write($"[BoxDesktopEndpoints] desktop-ticket: box={boxId}: no connected Director in tenant {t.ToLogString()} hosts it -> 404");
+                 ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+@@ -112,15 +118,17 @@ internal static class BoxDesktopEndpoints
+     // ---------------------------------------------------------------------------- the desktop host ----
+ 
+     /// <summary>
+-    /// Put the desktop host in the pipeline. Call it BEFORE the Gateway's sign-in middleware: a request on the desktop
++    /// Put the desktop host in the pipeline. The Boxes gate cannot guard it - that gate reads the account from the
++    /// Gateway's sign-in, which never reaches the desktop host - so the same switch is asked here, of the account the
++    /// box session belongs to. Call it BEFORE the Gateway's sign-in middleware: a request on the desktop
+     /// host never meets the Gateway's sign-in, because it never carries the Gateway's credentials. With no desktop
+     /// host set, the desktop route is refused on every host and nothing else changes.
+     /// </summary>
+-    public static void UseDesktopHost(IApplicationBuilder app, Uri? desktopOrigin, IBoxDesktopHosts hosts, IBoxesFeature feature,
++    public static void UseDesktopHost(IApplicationBuilder app, Uri? desktopOrigin, Func<TenantId, string, string?> locateDirector, Func<TenantId, bool> boxesOn,
+         BoxDesktopTickets tickets, DesktopRelayLegs legs)
+     {
+-        ArgumentNullException.ThrowIfNull(hosts);
+-        ArgumentNullException.ThrowIfNull(feature);
++        ArgumentNullException.ThrowIfNull(locateDirector);
++        ArgumentNullException.ThrowIfNull(boxesOn);
+         ArgumentNullException.ThrowIfNull(tickets);
+         ArgumentNullException.ThrowIfNull(legs);
+ 
+@@ -131,7 +139,7 @@ internal static class BoxDesktopEndpoints
+             app.UseWhen(ctx => BoxDesktopOrigin.IsDesktopHost(desktopOrigin, ctx.Request) && !IsHealthCheck(ctx.Request), desktop =>
+             {
+                 desktop.UseWebSockets();
+-                desktop.Run(ctx => ServeDesktopHostAsync(ctx, hosts, feature, tickets, legs));
++                desktop.Run(ctx => ServeDesktopHostAsync(ctx, locateDirector, boxesOn, tickets, legs));
+             });
+         }
+ 
+@@ -148,7 +156,7 @@ internal static class BoxDesktopEndpoints
+         });
+     }
+ 
+-    private static async Task ServeDesktopHostAsync(HttpContext ctx, IBoxDesktopHosts hosts, IBoxesFeature feature,
++    private static async Task ServeDesktopHostAsync(HttpContext ctx, Func<TenantId, string, string?> locateDirector, Func<TenantId, bool> boxesOn,
+         BoxDesktopTickets tickets, DesktopRelayLegs legs)
+     {
+         var path = ctx.Request.Path;
+@@ -159,7 +167,7 @@ internal static class BoxDesktopEndpoints
+             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+             return;
+         }
+-        if (!DesktopRelayBoxIds.IsValid(boxId))
++        if (!BoxIdRule.IsValid(boxId))
+         {
+             ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
+             await ctx.Response.WriteAsJsonAsync(new { error = "That is not a box id." });
+@@ -194,12 +202,12 @@ internal static class BoxDesktopEndpoints
+             await ctx.Response.WriteAsJsonAsync(new { error = "Open this desktop from the Cockpit." });
+             return;
+         }
+-        if (!feature.IsEnabled(session.Tenant))
++        if (!boxesOn(session.Tenant))
+         {
+             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+             return;
+         }
+-        var directorId = hosts.LocateDirector(session.Tenant, boxId);
++        var directorId = locateDirector(session.Tenant, boxId);
+         if (directorId is null)
+         {
+             FileLog.Write($"[BoxDesktopEndpoints] box={boxId}: no connected Director in tenant {session.Tenant.ToLogString()} hosts it -> 404");
+diff --git a/src/CcDirector.Gateway/Boxes/BoxDesktopSeams.cs b/src/CcDirector.Gateway/Boxes/BoxDesktopSeams.cs
+deleted file mode 100644
+index 27d2dd4b6..000000000
+--- a/src/CcDirector.Gateway/Boxes/BoxDesktopSeams.cs
++++ /dev/null
+@@ -1,49 +0,0 @@
+-using CcDirector.Core.Tenancy;
+-using CcDirector.Core.Utilities;
+-
+-namespace CcDirector.Gateway.Boxes;
+-
+-/// <summary>
+-/// The relay leg's view of which connected Director hosts a box. NARROW ON PURPOSE, and a STAND-IN: the
+-/// hosted-desktop list task (branch boxes/phase1-hosted-desktop-list) builds the pushed list and the one way to
+-/// locate a box's Director. When it merges, this is wired to that locate and the stand-in below is deleted.
+-/// </summary>
+-public interface IBoxDesktopHosts
+-{
+-    /// <summary>
+-    /// The id of the stream-connected Director that hosts <paramref name="boxId"/> in <paramref name="tenant"/>, or
+-    /// null when no Director of that tenant hosts it. A box hosted only in another tenant is null here - exactly
+-    /// like a box that does not exist - so another account's box is never located.
+-    /// </summary>
+-    string? LocateDirector(TenantId tenant, string boxId);
+-}
+-
+-/// <summary>
+-/// The relay leg's view of the owner-tenant "Boxes" feature flag. A STAND-IN for the flag the hosted-desktop list
+-/// task adds; when it merges, this is wired to that flag and <see cref="BoxesFeatureOff"/> is deleted.
+-/// </summary>
+-public interface IBoxesFeature
+-{
+-    /// <summary>True when Boxes is turned on for <paramref name="tenant"/>.</summary>
+-    bool IsEnabled(TenantId tenant);
+-}
+-
+-/// <summary>STAND-IN until the hosted-desktop list merges: no Director hosts any box.</summary>
+-public sealed class NoBoxDesktopHosts : IBoxDesktopHosts
+-{
+-    public static readonly NoBoxDesktopHosts Instance = new();
+-
+-    public string? LocateDirector(TenantId tenant, string boxId)
+-    {
+-        FileLog.Write($"[NoBoxDesktopHosts] LocateDirector: box={boxId} tenant={tenant.ToLogString()} -> the hosted-desktop list is not wired yet");
+-        return null;
+-    }
+-}
+-
+-/// <summary>STAND-IN until the Boxes flag merges: Boxes is off for every tenant, so the desktop routes answer 404.</summary>
+-public sealed class BoxesFeatureOff : IBoxesFeature
+-{
+-    public static readonly BoxesFeatureOff Instance = new();
+-
+-    public bool IsEnabled(TenantId tenant) => false;
+-}
+diff --git a/src/CcDirector.Gateway/GatewayHost.cs b/src/CcDirector.Gateway/GatewayHost.cs
+index fadc347ad..bd2a5ab96 100644
+--- a/src/CcDirector.Gateway/GatewayHost.cs
++++ b/src/CcDirector.Gateway/GatewayHost.cs
+@@ -4788,10 +4788,9 @@ public sealed class GatewayHost : IAsyncDisposable
+         // Factory Boxes (issue #4258): the desktop host. A box's desktop is served ONLY on that separate site, and that
+         // site serves nothing else but /healthz. BEFORE authentication: a request there never carries the Gateway's
+         // sign-in (it is another site), and is let in by a box-only cookie instead. Anywhere else, a desktop path is 404.
+-        // STAND-INS until the hosted-desktop list task merges (see MapTicket below).
+         Boxes.BoxDesktopEndpoints.UseDesktopHost(_app, BoxesDesktopOrigin,
+-            hosts: Boxes.NoBoxDesktopHosts.Instance,
+-            feature: Boxes.BoxesFeatureOff.Instance,
++            locateDirector: (tenant, boxId) => PushedHostedDesktops.TryLocate(tenant, boxId)?.DirectorId,
++            boxesOn: BoxesSwitch.IsOn,
+             tickets: BoxDesktopTickets,
+             legs: DesktopRelayLegs);
+ 
+@@ -5312,12 +5311,13 @@ public sealed class GatewayHost : IAsyncDisposable
+             tenantBoundary: _tenantBoundary);
+ 
+         // Factory Boxes (issue #4258), phase 1: the Cockpit's way into a box's desktop - a single-use ticket for the
+-        // desktop host (the desktop itself is served there, see UseDesktopHost in the pipeline above). STAND-INS until
+-        // the hosted-desktop list task merges: no Director hosts a box and the Boxes flag is off for every tenant, so
+-        // this answers 404 everywhere until that task wires its list and its flag in here.
+-        Boxes.BoxDesktopEndpoints.MapTicket(_app, BoxesDesktopOrigin,
+-            hosts: Boxes.NoBoxDesktopHosts.Instance,
+-            feature: Boxes.BoxesFeatureOff.Instance,
++        // desktop host (the desktop itself is served there, see UseDesktopHost in the pipeline above). Inside the Boxes
++        // gate, like every Boxes route on this host.
++        Boxes.BoxDesktopEndpoints.MapTicket(
++            Boxes.BoxesGate.Group(_app, BoxesSwitch, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)),
++            BoxesDesktopOrigin,
++            locateDirector: (tenant, boxId) => PushedHostedDesktops.TryLocate(tenant, boxId)?.DirectorId,
++            boxesOn: BoxesSwitch.IsOn,
+             tickets: BoxDesktopTickets,
+             tenantBoundary: _tenantBoundary);
+ 
