@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261020014715_AddSessionRuleKindsAndHookFirings")]
+    [Migration("20261020114915_AddSessionRuleKindsAndHookFirings")]
     partial class AddSessionRuleKindsAndHookFirings
     {
         /// <inheritdoc />
@@ -3054,6 +3054,61 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("license_switch_log", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelCheckEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CheckedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Machine")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<bool>("Ok")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ResolvedReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("ResolvedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Sentence")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid?>("TriggerRunId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ChannelId", "CheckedUtc");
+
+                    b.ToTable("mail_desk_channel_checks", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3143,6 +3198,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("uuid");
 
@@ -3201,6 +3259,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("RouteSeat")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<int>("RulesVersion")
+                        .HasColumnType("integer");
 
                     b.Property<string>("SenderAddress")
                         .IsRequired()
@@ -5426,6 +5487,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("BackupMachinesJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)")
+                        .HasDefaultValue("[]");
+
                     b.Property<string>("CheckCommand")
                         .IsRequired()
                         .HasMaxLength(2048)
@@ -5439,6 +5507,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ClaimedByMachine")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasDefaultValue("");
 
                     b.Property<DateTime?>("ClaimedUtc")
                         .HasColumnType("timestamp with time zone");
