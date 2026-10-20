@@ -61,8 +61,9 @@ public sealed class MacMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnos
     private long _capturedBytes;
     private int _callbackCount;
     private double _lastCallbackStartMs = -1.0;
-    // Capture clock reading of the FIRST buffer; negative until one arrives. The wait for it
-    // is device-open time, not lost audio, so the expected byte count starts here.
+    // Capture clock reading of where the FIRST buffer's audio BEGAN - its callback time less the
+    // audio it carried - and negative until one arrives. The wait for it is device-open time, not
+    // lost audio, so the expected byte count starts here.
     private double _firstAudioMs = -1.0;
     private double _maxCallbackGapMs;
     private int _longGapCount;
@@ -302,7 +303,7 @@ public sealed class MacMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnos
             if (gap > _maxCallbackGapMs) _maxCallbackGapMs = gap;
             if (gap > _dropRiskGapMs) _longGapCount++;
         }
-        if (_firstAudioMs < 0) _firstAudioMs = startMs;
+        if (_firstAudioMs < 0) _firstAudioMs = MicAudioCapture.FirstAudioStartMs(startMs, chunk.Length);
         _lastCallbackStartMs = startMs;
         _callbackCount++;
         _capturedBytes += chunk.Length;
@@ -334,7 +335,7 @@ public sealed class MacMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnos
         FileLog.Write($"[MacMicAudioCapture] capture-health: capturedBytes={h.CapturedBytes}, expectedBytes={h.ExpectedBytes}, "
             + $"deficit={h.DeficitFraction:P1}, callbacks={h.CallbackCount}, maxGapMs={h.MaxCallbackGapMs:F0}, "
             + $"longGaps(>{_dropRiskGapMs:F0}ms)={h.LongGapCount}, maxHandlerMs={h.MaxHandlerMs:F1}, "
-            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, firstAudioMs={h.FirstAudioMs:F0}, deliveringMs={h.DeliveringMs:F0}, device=\"{Description}\"");
+            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, firstAudioMs={h.FirstAudioMs:F0}, deliveringMs={h.DeliveringMs:F0}, unaccountedAtStart={h.UnaccountedAtStartFraction:P1}, device=\"{Description}\"");
 
         if (h.CapturedBytes > 0 && !SawSound)
             FileLog.Write("[MacMicAudioCapture] every captured sample was zero - the microphone is muted, or "

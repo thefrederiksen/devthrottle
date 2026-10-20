@@ -106,6 +106,34 @@ public readonly record struct CaptureHealth(
     public double DeliveringMs => FirstAudioMs < 0 ? 0 : Math.Max(0.0, ElapsedMs - FirstAudioMs);
 
     /// <summary>
+    /// The portion of the capture clock with no audio behind it: the wait for the first buffer as a
+    /// fraction of the whole recording (0 = the device delivered from the first millisecond).
+    ///
+    /// This is the signal the old whole-clock deficit was really carrying, reported in its own right
+    /// instead of folded into a loss figure. Nothing at this layer can tell a slow device open from
+    /// audio the device never delivered - both are exactly a late first callback - so this number
+    /// makes no judgement about which it was. It states how much of the recording is unaccounted for
+    /// and leaves the reading to whoever is diagnosing: a quarter of the clip gone before the first
+    /// buffer is worth explaining whatever caused it, and a microphone permission prompt explains it.
+    ///
+    /// Deliberately not a threshold and not a verdict. A flag that said "normal" below some cutoff
+    /// would hand back a clean answer for an unexplained wait just under it, which is the blind spot
+    /// this whole change exists to remove rather than relocate.
+    ///
+    /// When NO buffer ever arrived this is the whole recording, not nothing. That case has no
+    /// delivering window at all, so <see cref="DeficitFraction"/> has nothing to measure and reads
+    /// zero; if this read zero as well, a capture that produced not one byte would report itself
+    /// clean on both numbers, which is the one reading it must never give.
+    ///
+    /// Both inputs are <see cref="System.Diagnostics.Stopwatch"/> readings, so they are finite by
+    /// construction and no guard against infinity or not-a-number belongs here.
+    /// </summary>
+    public double UnaccountedAtStartFraction
+        => ElapsedMs <= 0 ? 0
+         : FirstAudioMs < 0 ? 1.0
+         : Math.Min(1.0, FirstAudioMs / ElapsedMs);
+
+    /// <summary>
     /// Fraction of the expected audio that never made it into the clip (0 = nothing
     /// lost), over the window the device was delivering. Clamped at 0 so the small
     /// positive tail NAudio delivers after the stopwatch math (the drain tail) never
@@ -180,8 +208,9 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     private long _capturedBytes;
     private int _callbackCount;
     private double _lastCallbackStartMs = -1.0;
-    // Capture clock reading of the FIRST buffer; negative until one arrives. The wait for it
-    // is device-open time, not lost audio, so the expected byte count starts here.
+    // Capture clock reading of where the FIRST buffer's audio BEGAN - its callback time less the
+    // audio it carried - and negative until one arrives. The wait for it is device-open time, not
+    // lost audio, so the expected byte count starts here.
     private double _firstAudioMs = -1.0;
     private double _maxCallbackGapMs;
     private int _longGapCount;
@@ -329,7 +358,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
             if (gap > _maxCallbackGapMs) _maxCallbackGapMs = gap;
             if (gap > _dropRiskGapMs) _longGapCount++;
         }
-        if (_firstAudioMs < 0) _firstAudioMs = startMs;
+        if (_firstAudioMs < 0) _firstAudioMs = FirstAudioStartMs(startMs, e.BytesRecorded);
         _lastCallbackStartMs = startMs;
         _callbackCount++;
         _capturedBytes += e.BytesRecorded;
@@ -397,6 +426,24 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     internal static long ExpectedBytesWhileDelivering(double elapsedMs, double firstAudioMs)
         => firstAudioMs < 0 ? 0 : ExpectedBytes(Math.Max(0.0, elapsedMs - firstAudioMs));
 
+    /// <summary>Milliseconds of audio held in a chunk of PCM at the fixed capture format.</summary>
+    internal static double MillisecondsOfBytes(long bytes)
+        => bytes * 1000.0 / (SampleRate * Channels * (BitsPerSample / 8));
+
+    /// <summary>
+    /// When the FIRST buffer's audio BEGAN, worked out from the moment its callback ran and how much
+    /// audio that buffer carried.
+    ///
+    /// A callback timestamp marks DELIVERY, not recording. A 50 millisecond buffer handed over at
+    /// 2282 milliseconds holds audio the device recorded from 2232. Starting the delivering window at
+    /// the callback instead would leave that buffer's bytes in the captured count while dropping its
+    /// time out of the expectation, so every recording would be handed a whole buffer of free
+    /// headroom - enough to hide a loss at the very start, which is the half of the clip this change
+    /// is already asking the deficit to stop guessing about.
+    /// </summary>
+    internal static double FirstAudioStartMs(double callbackMs, long chunkBytes)
+        => Math.Max(0.0, callbackMs - MillisecondsOfBytes(chunkBytes));
+
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
     {
         // Freeze the capture clock at the true end of capture so the elapsed-vs-captured
@@ -412,7 +459,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
         FileLog.Write($"[MicAudioCapture] capture-health: capturedBytes={h.CapturedBytes}, expectedBytes={h.ExpectedBytes}, "
             + $"deficit={h.DeficitFraction:P1}, callbacks={h.CallbackCount}, maxGapMs={h.MaxCallbackGapMs:F0}, "
             + $"longGaps(>{_dropRiskGapMs:F0}ms)={h.LongGapCount}, maxHandlerMs={h.MaxHandlerMs:F1}, "
-            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, firstAudioMs={h.FirstAudioMs:F0}, deliveringMs={h.DeliveringMs:F0}, "
+            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, firstAudioMs={h.FirstAudioMs:F0}, deliveringMs={h.DeliveringMs:F0}, unaccountedAtStart={h.UnaccountedAtStartFraction:P1}, "
             + $"buffers={h.NumberOfBuffers}x{h.BufferMilliseconds}ms, device=\"{Description}\"");
 
         _stoppedSignal?.TrySetResult(true);
