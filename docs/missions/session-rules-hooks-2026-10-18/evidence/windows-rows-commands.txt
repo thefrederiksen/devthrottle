@@ -1,0 +1,21 @@
+--- C:\Users\soren\.claude\projects\C--Users-soren-AppData-Local-session-rules-rig-win-repos-repo-a\8ece6e9f-5cbf-483c-b8a6-009ad085a2ba.jsonl
+2026-10-20T12:51:02.625Z  toolu_01NBQfM43c7ELULDaDdJ6AtP  Bash: echo RULE-PROBE
+  toolu_01NBQfM43c7ELULDaDdJ6AtP  result: RULE-PROBE
+2026-10-20T12:51:13.458Z  toolu_01NBQfM43c7ELULDaDdJ6AtP  result: RULE-PROBE
+--- C:\Users\soren\.claude\projects\C--Users-soren-AppData-Local-session-rules-rig-win-repos-repo-a\4a04f1ab-caf0-4a6b-94f1-5fa551e37ce0.jsonl
+2026-10-20T13:00:38.317Z  toolu_011TrYyYiUYum12eMv9odkKs  PowerShell: Write-Output NOBASH-PROBE $env:CLAUDE_CODE_GIT_BASH_PATH
+  toolu_011TrYyYiUYum12eMv9odkKs  result: NOBASH-PROBE
+2026-10-20T13:00:39.305Z  toolu_011TrYyYiUYum12eMv9odkKs  result: NOBASH-PROBE
+--- C:\Users\soren\.claude\projects\C--Users-soren-AppData-Local-session-rules-rig-win-repos-repo-b\eaad70d3-20b8-4c99-894b-bf40081efb54.jsonl
+2026-10-20T12:52:02.246Z  toolu_01PHi8WARcaUEJ8X5feju88n  Bash: echo RULE-PROBE
+  toolu_01PHi8WARcaUEJ8X5feju88n  result: RULE-PROBE
+2026-10-20T12:52:24.717Z  toolu_01PHi8WARcaUEJ8X5feju88n  result: RULE-PROBE
+2026-10-20T12:52:26.821Z  toolu_01HhdCb4bXCzzo1mbWdRZ82B  Bash: echo ELSEWHERE-PROBE
+  toolu_01HhdCb4bXCzzo1mbWdRZ82B  result: ELSEWHERE-PROBE
+2026-10-20T12:52:34.045Z  toolu_01HhdCb4bXCzzo1mbWdRZ82B  result: ELSEWHERE-PROBE
+2026-10-20T12:52:35.748Z  toolu_01H64z4q1NEFiXxxBpS4TfMi  Bash: echo NOTHERE-PROBE
+  toolu_01H64z4q1NEFiXxxBpS4TfMi  result: NOTHERE-PROBE
+2026-10-20T12:52:41.957Z  toolu_01H64z4q1NEFiXxxBpS4TfMi  result: NOTHERE-PROBE
+2026-10-20T12:52:43.713Z  toolu_01DpBbUQxFHjC74pvB5JUJW9  Bash: echo HERE-PROBE
+  toolu_01DpBbUQxFHjC74pvB5JUJW9  result: HERE-PROBE
+2026-10-20T12:52:47.646Z  toolu_01DpBbUQxFHjC74pvB5JUJW9  result: HERE-PROBE

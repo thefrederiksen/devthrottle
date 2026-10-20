@@ -1,0 +1,16 @@
+﻿2026-10-20 08:43:46.400 [RuleEvaluator] no-rules: this account has no screen rules - its rules are decided by the agent's hook, not by the screen.
+2026-10-20 08:43:49.254 [RuleEvaluator] no-rules: this account has no screen rules - its rules are decided by the agent's hook, not by the screen.
+2026-10-20 08:50:12.141 [RuleEvaluator] no-rules: this account has no screen rules - its rules are decided by the agent's hook, not by the screen.
+2026-10-20 08:50:43.788 [RuleEvaluator] no-rules: this account has no screen rules - its rules are decided by the agent's hook, not by the screen.
+2026-10-20 08:51:26.080 [RuleEvaluator] no-rules: this account has no screen rules - its rules are decided by the agent's hook, not by the screen.
+2026-10-20 08:51:29.321 [RuleEvaluator] no-rules: this account has no screen rules - its rules are decided by the agent's hook, not by the screen.
+2026-10-20 08:53:00.913 [RuleEvaluator] no-rules: this account has no screen rules - its rules are decided by the agent's hook, not by the screen.
+2026-10-20 08:53:56.237 [RuleEvaluator] no-candidates: none of the words this rule watches for are on the screen: limit, usage-credits, allowance, out of credits. this is a hook rule, and only screen rules are evaluated against a screen - a hook rule is decided by the agent's hook on its own machine. this is a hook rule, and only screen rules are evaluated against a screen - a hook rule is decided by the agent's hook on its own machine. this is a hook rule, and only screen rules are evaluated against a screen - a hook rule is decided by the agent's hook on its own machine. this is a hook rule, and only screen rules are evaluated against a screen - a hook rule is decided by the agent's hook on its own machine.
+2026-10-20 08:55:24.741 [RuleEvaluator] sid=af84abbe-d9e0-4608-9864-727536692a5c: 1 rule(s) worth asking about
+2026-10-20 08:55:36.714 [HostedInferenceBrain] chat/completions model=devthrottle/wingman OK: 525 chars in 11.6s
+2026-10-20 08:55:36.740 [RuleEvaluator] firing: rule=df72b4b6-a464-43c3-a82c-6f8f903d12d0 sid=af84abbe-d9e0-4608-9864-727536692a5c decision=refused typed=no
+2026-10-20 08:55:36.819 [RuleEvaluator] sid=af84abbe-d9e0-4608-9864-727536692a5c: act REFUSED, grounding: the reason cites nothing from the screen, so there is nothing on it that can be checked. Nothing it said was contradicted; nothing it said was verifiable either.
+2026-10-20 08:57:43.611 [RuleEvaluator] sid=af84abbe-d9e0-4608-9864-727536692a5c: 1 rule(s) worth asking about
+2026-10-20 08:58:02.667 [HostedInferenceBrain] chat/completions model=devthrottle/wingman OK: 596 chars in 19.1s
+2026-10-20 08:58:02.668 [RuleEvaluator] firing: rule=df72b4b6-a464-43c3-a82c-6f8f903d12d0 sid=af84abbe-d9e0-4608-9864-727536692a5c decision=refused typed=no
+2026-10-20 08:58:02.674 [RuleEvaluator] sid=af84abbe-d9e0-4608-9864-727536692a5c: act REFUSED, grounding: the reason cites text this screen does not contain: '), which matches the instruction'.

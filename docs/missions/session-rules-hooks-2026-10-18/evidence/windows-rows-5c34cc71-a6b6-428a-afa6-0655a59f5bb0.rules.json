@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "sessionId": "5c34cc71-a6b6-428a-afa6-0655a59f5bb0",
+  "machine": "SOREN_NORTH",
+  "repo": "github.com/session-rules-rig/repo-a",
+  "generatedUtc": "2026-10-20T12:43:46.3685329Z",
+  "rules": [
+    {
+      "id": "56a25cf0-f08a-4263-bbfc-99c715cb6350",
+      "rank": 3,
+      "appliesTo": "repo",
+      "event": "before_command",
+      "tool": "shell",
+      "match": [
+        "echo RULE-PROBE"
+      ],
+      "result": "deny",
+      "reason": "Live rig probe: a shell command containing \u0027echo RULE-PROBE\u0027 is refused (repo).",
+      "state": "dry_run"
+    },
+    {
+      "id": "8d11e7b5-2acf-4365-b803-05226663ac65",
+      "rank": 2,
+      "appliesTo": "machine",
+      "event": "before_command",
+      "tool": "shell",
+      "match": [
+        "echo HERE-PROBE"
+      ],
+      "result": "deny",
+      "reason": "Live rig probe: a shell command containing \u0027echo HERE-PROBE\u0027 is refused (machine).",
+      "state": "dry_run"
+    }
+  ]
+}

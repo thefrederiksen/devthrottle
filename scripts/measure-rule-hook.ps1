@@ -5,10 +5,9 @@
 
 .DESCRIPTION
     Claude Code runs cc-rule-hook before EVERY shell command of every Director session (Session Rules
-    part 2, phase 1, ruling P9), so its cost is paid per command. This script runs the EXACT command the
-    Director registers - the quoted absolute path, handed to the system shell as one command string
-    (Git Bash on Windows, /bin/sh elsewhere) - with a real Claude Code PreToolUse event on standard input,
-    many times, and prints the median and the 95th percentile for:
+    part 2, phase 1, ruling P9), so its cost is paid per command. This script starts the evaluator the
+    way Claude Code starts it, with a real Claude Code PreToolUse event on standard input, many times, and
+    prints the median and the 95th percentile for:
 
       baseline        a plain shell command - what any hook costs before it does anything
       no-session      the hook outside a Director session (no CC_SESSION_RULES_FILE): it does nothing
@@ -21,7 +20,12 @@
     cost of starting a process from PowerShell is in every row, the baseline included, and cancels out of
     the difference. Everything is written under a scratch folder deleted at the end.
 
-    On Windows the command string goes through Git Bash, because that is what Claude Code does: checked
+    -Form exec (the default) is what the Director registers: exec form, a bare path and an empty args
+    list, which Claude Code spawns directly with no shell on any platform (ClaudeHookInstaller, after the
+    whole-phase review's finding 1). The baseline is then a trivial program started the same way.
+
+    -Form shell is the earlier registration, a quoted path in one command string, which Claude Code
+    hands to a shell. Kept so the two can be compared. On Windows that shell is Git Bash: checked
     on Claude Code 2.1.302 on SOREN_NORTH with a hook that recorded its own shell ($0 was /usr/bin/bash,
     BASH_VERSION 5.2.37, %COMSPEC% left unexpanded), with and without SHELL set in the environment.
     Git Bash is found as Claude Code finds it: CLAUDE_CODE_GIT_BASH_PATH when set, otherwise the
@@ -40,7 +44,9 @@
 param(
     [string]$Hook = "",
     [int]$Runs = 300,
-    [string]$EventFile = ""
+    [string]$EventFile = "",
+    [ValidateSet("exec", "shell")]
+    [string]$Form = "exec"
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,12 +82,12 @@ $rulesDir = Join-Path $scratch "session-rules"
 $decisionDir = Join-Path $scratch "decisions"
 New-Item -ItemType Directory -Path $rulesDir, $decisionDir | Out-Null
 
-# The command string the Director registers (ClaudeHookInstaller): the absolute path, quoted.
-$hookCommand = '"' + $Hook + '"'
+# Exec form: the bare path is the program. Shell form: the quoted path is a command string for a shell.
+$hookCommand = if ($Form -eq "exec") { $Hook } else { '"' + $Hook + '"' }
 
-# The shell Claude Code hands a hook command string to on Windows: Git Bash, never cmd.exe.
+# The shell Claude Code hands a shell-form hook command string to on Windows: Git Bash, never cmd.exe.
 $gitBash = $null
-if ($IsWindows) {
+if ($IsWindows -and $Form -eq "shell") {
     if ($env:CLAUDE_CODE_GIT_BASH_PATH) {
         $gitBash = $env:CLAUDE_CODE_GIT_BASH_PATH
     } else {
@@ -110,10 +116,13 @@ function Write-Rules([int]$count, [string]$path) {
     [System.IO.File]::WriteAllText($path, ($file | ConvertTo-Json -Depth 5))
 }
 
-# One run of a command string through the system shell, the event on standard input. Returns elapsed ticks.
+# One run, the event on standard input. Exec form starts $commandString as the program itself, with no
+# arguments; shell form hands it to the system shell. Returns elapsed milliseconds.
 function Invoke-Once([string]$commandString, [hashtable]$environment) {
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    if ($IsWindows) {
+    if ($Form -eq "exec") {
+        $psi.FileName = $commandString
+    } elseif ($IsWindows) {
         $psi.FileName = $gitBash
         $psi.ArgumentList.Add("-c"); $psi.ArgumentList.Add($commandString)
     } else {
@@ -157,12 +166,20 @@ function Session([string]$rulesFile) { @{ CC_SESSION_RULES_FILE = $rulesFile; CC
 try {
     Write-Host "cc-rule-hook: $Hook ($((Get-Item -LiteralPath $Hook).Length) bytes)"
     Write-Host "event: $EventFile"
-    if ($IsWindows) { Write-Host "shell: $gitBash -c" }
+    if ($Form -eq "exec") { Write-Host "form: exec (started directly, no shell)" }
+    elseif ($IsWindows) { Write-Host "form: shell ($gitBash -c)" }
+    else { Write-Host "form: shell (/bin/sh -c)" }
     Write-Host "runs per row: $Runs, on $([Environment]::MachineName), $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription), $([Environment]::ProcessorCount) processors"
     Write-Host ""
 
     # The baseline starts a real program, as every hook row does, so the difference is the hook's own work.
-    $baseline = if ($IsWindows) { "/usr/bin/true" } else { "true" }
+    $baseline = if ($Form -eq "exec") {
+        # rundll32 with no arguments does nothing and exits 0. Git's true.exe is not used here: it loads
+        # the msys runtime, and measured slower than the evaluator itself (median 20 ms on SOREN_NORTH).
+        if ($IsWindows) { Join-Path ([Environment]::SystemDirectory) "rundll32.exe" }
+        else { (Get-Command true -CommandType Application | Select-Object -First 1).Source }
+    } elseif ($IsWindows) { "/usr/bin/true" } else { "true" }
+    if ($Form -eq "exec" -and -not (Test-Path -LiteralPath $baseline)) { throw "No baseline program at $baseline" }
     Measure-Row "baseline" $baseline @{}
     Measure-Row "no-session" $hookCommand @{}
     Measure-Row "no-rules-file" $hookCommand (Session (Join-Path $rulesDir "absent.json"))
