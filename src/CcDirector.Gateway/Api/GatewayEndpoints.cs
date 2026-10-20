@@ -6147,6 +6147,26 @@ internal static partial class GatewayEndpoints
     }
 
     /// <summary>
+    /// Every row the Directors of the account last reported under exactly this name, from ANY origin surface, holders'
+    /// rows only. How the Mail Desk follows a routed session a Smart Restart brought back under a new id: a restore keeps
+    /// the name, the factory and the seat, but creates the session on the API surface, so the trigger lookup by name
+    /// (<see cref="LastKnownTriggerSessionByName"/>) cannot see it (Mail Desk phase 4, review of 4283, finding 2).
+    /// </summary>
+    internal static IReadOnlyList<SessionDto> LastKnownSessionsByName(
+        DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string name)
+    {
+        if (pushedSessions is null || string.IsNullOrEmpty(name)) return Array.Empty<SessionDto>();
+        var found = new List<SessionDto>();
+        foreach (var d in registry.ListDirectors(tenant))
+        {
+            found.AddRange(pushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions
+                .Where(s => string.Equals(s.Name, name, StringComparison.Ordinal)
+                            && pushedSessions.IsHoldersRow(tenant, d.DirectorId, s.SessionId)));
+        }
+        return found;
+    }
+
+    /// <summary>
     /// Every session ONE Director of the account reports under exactly this name with a SCHEDULE's origin, in the
     /// roster's order (review of P10, and its follow-up findings 1 and 2). How a scheduled run whose start's outcome was
     /// not known finds the session the Director created anyway: the name carries the schedule and the minute of the run,

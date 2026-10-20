@@ -741,7 +741,7 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
         _rig.Published.Clear();
         var rig = _rig;
         var throwing = new MailDeskRouter(rig.Routed, rig.Channels, rig.Decisions,
-            (_, _, _) => Task.FromResult(TriggerStartAttempt.Started("x")), (_, _) => null, (_, _) => null, NoEndings,
+            (_, _, _) => Task.FromResult(TriggerStartAttempt.Started("x")), (_, _) => null, (_, _) => null, (_, _) => Array.Empty<SessionDto>(), NoEndings,
             (_, _) => throw new TimeoutException("the definition store did not answer"), _ => TimeZoneInfo.Utc, () => rig.Now,
             CancellationToken.None);
         var triggers = new TriggerService(rig.TriggerStore, new CcDirector.Gateway.Factory.FactoryActivityRecord(rig.Db),
@@ -798,7 +798,7 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
         var gate = new TaskCompletionSource<TriggerStartAttempt>(TaskCreationOptions.RunContinuationsAsynchronously);
         var rig = _rig;
         var router = new MailDeskRouter(rig.Routed, rig.Channels, rig.Decisions, (_, _, _) => gate.Task, (_, _) => null, (_, _) => null,
-            NoEndings, (_, f) => rig.Published.GetValueOrDefault(f), _ => TimeZoneInfo.Utc, () => rig.Now, CancellationToken.None);
+            (_, _) => Array.Empty<SessionDto>(), NoEndings, (_, f) => rig.Published.GetValueOrDefault(f), _ => TimeZoneInfo.Utc, () => rig.Now, CancellationToken.None);
         var first = router.RouteAsync(MailDeskRoutingRig.Account, rig.Trigger(), DirectorA, MachineA, rig.Now);
 
         // Act

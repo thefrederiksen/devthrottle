@@ -2,12 +2,14 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.MailDesk;
 using CcDirector.Gateway.Settings;
+using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Tests.Factory.Definition;
 using Xunit;
@@ -113,6 +115,7 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
         };
         SessionDto? Find(TenantId _, string id) => Sessions.GetValueOrDefault(id);
         SessionDto? FindByName(TenantId _, string name) => Sessions.Values.FirstOrDefault(s => s.Name == name);
+        IReadOnlyList<SessionDto> FindAllByName(TenantId _, string name) => Sessions.Values.Where(s => s.Name == name).ToList();
         PublishedFactoryDefinition? DefinitionOf(TenantId _, string factory) => Published.GetValueOrDefault(factory);
         IReadOnlyDictionary<string, SessionEndingFact> EndingsOf(TenantId _, IReadOnlyCollection<string> ids)
         {
@@ -122,7 +125,8 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
         }
         (_find, _findByName, _definitionOf) = (Find, FindByName, DefinitionOf);
 
-        _newRouter = () => new MailDeskRouter(Routed, Channels, Decisions, starter, Find, FindByName, EndingsOf, DefinitionOf,
+        _newRouter = () => new MailDeskRouter(Routed, Channels, Decisions, starter, Find, FindByName, FindAllByName, EndingsOf,
+            DefinitionOf,
             _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
         Router = _newRouter();
         Triggers = new TriggerService(TriggerStore, new FactoryActivityRecord(Db),
@@ -258,11 +262,32 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
 
     /// <summary>
     /// Build the router EXACTLY as GatewayHost does (<see cref="GatewayHost.NewMailDeskRouter"/>), reading the sessions'
-    /// history endings from the real <paramref name="history"/> store over this rig's database instead of the fake.
+    /// history endings from the real <paramref name="history"/> store over this rig's database, and finding a session by
+    /// name in a real Director registry and pushed-session store (<see cref="ListOnTheGateway"/>), instead of the fakes.
     /// </summary>
     public void UseGatewayHostWiring(SessionHistoryStore history)
-        => Router = GatewayHost.NewMailDeskRouter(Routed, Channels, Decisions, _starter, _find, _findByName, history,
-            _definitionOf, _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
+    {
+        _directors ??= new DirectorRegistry(_h.LegacyPath("instances"));
+        Router = GatewayHost.NewMailDeskRouter(Routed, Channels, Decisions, _starter, _find, _findByName, history,
+            _directors, _pushed, _definitionOf, _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
+    }
+
+    private DirectorRegistry? _directors;
+    private readonly PushedSessionStore _pushed = new();
+    private long _snapshot;
+
+    /// <summary>Director A, connected to the real registry and pushed-session store, now lists exactly these
+    /// sessions - as its snapshot reaches the Gateway. Call <see cref="UseGatewayHostWiring"/> first.</summary>
+    public void ListOnTheGateway(params SessionDto[] sessions)
+    {
+        var directors = _directors ?? throw new InvalidOperationException("Call UseGatewayHostWiring first.");
+        if (_snapshot == 0)
+        {
+            directors.RegisterFromStream(DirectorA, MachineA, "qa", "1.0", 1, Now, Account);
+            _pushed.RegisterConnection(Account, DirectorA, "conn-a");
+        }
+        Assert.True(_pushed.ApplySnapshot(Account, DirectorA, "conn-a", ++_snapshot, sessions));
+    }
 
     // ---------- running ----------
 
