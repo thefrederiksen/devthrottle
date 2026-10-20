@@ -52,6 +52,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     /// <summary>Whether the restore asked the reporting Director to drop the journal row.</summary>
     private bool _journalRowRemoved;
     private NewSessionRequest? _machineDoorSaw;
+    private WorkspaceStore? _workspaces;
 
     public ConnectionChoiceTests()
     {
@@ -238,7 +239,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         var agents = ReportedAgents();
 
         // Act
-        var offered = ConnectionChoiceFold.Offer(agents, apiModeOffered: true);
+        var offered = ConnectionChoiceFold.Offer(agents, apiModeOffered: true, DirectorOf("2.25.0"));
 
         // Assert
         Assert.Equal(new[] { "Terminal", "API mode" }, offered.Single(a => a.Type == "Pi").Connections.Select(c => c.Label));
@@ -255,10 +256,41 @@ public sealed class ConnectionChoiceTests : IDisposable
         var agents = ReportedAgents();
 
         // Act
-        var offered = ConnectionChoiceFold.Offer(agents, apiModeOffered: false);
+        var offered = ConnectionChoiceFold.Offer(agents, apiModeOffered: false, DirectorOf("2.25.0"));
 
         // Assert
         Assert.All(offered, a => Assert.Equal(new[] { ConnectionModes.Terminal }, a.Connections.Select(c => c.Mode)));
+    }
+
+    [Theory]
+    [InlineData("2.23.0")]
+    [InlineData("2.24.0")]
+    [InlineData("v2.24.9+68fd9d7")]
+    [InlineData("")]
+    [InlineData("dev")]
+    public void Offer_ADirectorOlderThan2_25OrUnreadable_GivesEveryAgentTerminalAloneEvenWhereTheWrapperDeclaresApi(string version)
+    {
+        // Arrange: v2.24.0 declares API mode for Pi, and the create would be refused (the #4257 review, finding 1).
+        var agents = ReportedAgents();
+
+        // Act
+        var offered = ConnectionChoiceFold.Offer(agents, apiModeOffered: true, DirectorOf(version));
+
+        // Assert
+        Assert.All(offered, a => Assert.Equal(new[] { ConnectionModes.Terminal }, a.Connections.Select(c => c.Mode)));
+    }
+
+    [Theory]
+    [InlineData("2.25.0")]
+    [InlineData("v2.25.0+1a2b3c4")]
+    [InlineData("2.26.1")]
+    public void Offer_ADirectorOf2_25OrLater_GivesPiApiMode(string version)
+    {
+        // Act
+        var offered = ConnectionChoiceFold.Offer(ReportedAgents(), apiModeOffered: true, DirectorOf(version));
+
+        // Assert
+        Assert.Equal(new[] { ConnectionModes.Terminal, ConnectionModes.Api }, offered.Single(a => a.Type == "Pi").Connections.Select(c => c.Mode));
     }
 
     [Theory]
@@ -657,7 +689,140 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.Equal("s-1", _directorDoorSaw.RestoreClaim?.SeatSessionId);
     }
 
+    [Fact]
+    public async Task GetAgents_ADirectorOf2_24_ServesTerminalAloneEvenForPi()
+    {
+        // Arrange: the same Director answer as above, from a v2.24.0 Director that declares API mode for Pi.
+        await StartAsync(directorVersion: "2.24.0");
+        _reportedAgents = ReportedAgents();
+
+        // Act
+        using var response = await _http!.GetAsync($"/directors/{DirectorId}/agents");
+
+        // Assert: the Cockpit and the phone are never offered what the create would refuse.
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.All(doc.RootElement.EnumerateArray(), a => Assert.Equal(new[] { "terminal" },
+            a.GetProperty("connections").EnumerateArray().Select(c => c.GetProperty("mode").GetString())));
+    }
+
+    // ---- a released v2.23 or v2.24 Director reopening its own API-mode seat (the #4257 review, finding 2) -----------
+
+    [Fact]
+    public async Task PostDirectorSessions_ARefusedReopenOfAnApiModeSeat_GivesTheClaimBack_SoTheSeatCanBeReopenedLater()
+    {
+        // Arrange: a v2.24.0 Director claims its API-mode seat on the record, as its way up does, then sends the reopen.
+        await StartAsync(directorVersion: "2.24.0");
+        SeedClaimedApiModeSeat();
+
+        // Act
+        using var response = await SendReopen(asTheDirector: true);
+
+        // Assert: refused, nothing started, and the claim is gone, so the updated Director may claim and reopen it.
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("Update this Director to 2.25.0 or later", await response.Content.ReadAsStringAsync());
+        Assert.Null(_directorDoorSaw);
+        Assert.Null(SeatOfTheRecord().Restore!.ReopenedAtUtc);
+        _workspaces!.RecordRestoreMark(ReopenWorkspace, ReopenMark(), DateTime.UtcNow);
+        Assert.Equal(DirectorId, SeatOfTheRecord().Restore!.ReopenedByDirectorId);
+    }
+
+    [Fact]
+    public async Task PostDirectorSessions_ARefusedApiModeCreateFromADevice_LeavesTheClaimStanding()
+    {
+        // Arrange: the same create, but from a person's device - only the Director itself may have its claim given back.
+        await StartAsync(directorVersion: "2.24.0");
+        SeedClaimedApiModeSeat();
+
+        // Act
+        using var response = await SendReopen(asTheDirector: false);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.NotNull(SeatOfTheRecord().Restore!.ReopenedAtUtc);
+    }
+
+    [Fact]
+    public async Task PostDirectorSessions_AReopenOfAnApiModeSeatOn2_25_GoesOn_AndTheClaimStands()
+    {
+        // Arrange
+        await StartAsync(directorVersion: "2.25.0");
+        SeedClaimedApiModeSeat();
+
+        // Act
+        using var response = await SendReopen(asTheDirector: true);
+
+        // Assert
+        Assert.True(response.IsSuccessStatusCode, $"director door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.Equal(ConnectionModes.Api, _directorDoorSaw?.ConnectionMode);
+        Assert.NotNull(SeatOfTheRecord().Restore!.ReopenedAtUtc);
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------------------------
+
+    private const string ReopenWorkspace = "smart-shutdown-api";
+    private const string ReopenSeat = "a0000000-0000-0000-0000-000000000001";
+    private const string SavedConversation = "the-saved-pi-conversation";
+
+    private static DirectorDto DirectorOf(string version) => new() { DirectorId = "d-1", MachineName = "SOME-PC", Version = version };
+
+    private static WorkspaceRestoreMark ReopenMark() => new()
+    {
+        DirectorId = DirectorId,
+        Kind = WorkspaceRestoreMarkKinds.Reopened,
+        SeatSessionId = ReopenSeat,
+    };
+
+    /// <summary>A captured record with one API-mode Pi seat, claimed for a reopen by this Director just now.</summary>
+    private void SeedClaimedApiModeSeat()
+    {
+        var now = DateTime.UtcNow;
+        _workspaces!.Create(new WorkspaceDocument
+        {
+            Id = ReopenWorkspace,
+            Name = "Smart shutdown",
+            Origin = WorkspaceOrigins.Captured,
+            Machine = Machine,
+            DirectorId = DirectorId,
+            ShutdownKind = WorkspaceShutdownKinds.SmartShutdown,
+            Seats = new()
+            {
+                new WorkspaceSeat
+                {
+                    SessionId = ReopenSeat,
+                    Name = "A Pi seat",
+                    Agent = "Pi",
+                    RepoPath = "/repos/devthrottle",
+                    DrainState = WorkspaceDrainStates.EndedAtLimit,
+                    ClaudeSessionId = SavedConversation,
+                    ConnectionMode = ConnectionModes.Api,
+                    Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided },
+                },
+            },
+        }, now);
+        _workspaces.RecordRestoreMark(ReopenWorkspace, ReopenMark(), now);
+    }
+
+    private WorkspaceSeat SeatOfTheRecord() => _workspaces!.Get(ReopenWorkspace)!.Seats.Single();
+
+    /// <summary>The create a released Director's way up sends for a reopen: the saved conversation, no restore claim.</summary>
+    private Task<HttpResponseMessage> SendReopen(bool asTheDirector)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/directors/{DirectorId}/sessions")
+        {
+            Content = JsonContent.Create(new NewSessionRequest
+            {
+                RepoPath = "/repos/devthrottle",
+                Agent = "Pi",
+                Name = "A Pi seat",
+                ResumeSessionId = SavedConversation,
+                ConnectionMode = ConnectionModes.Api,
+            }, options: Web),
+        };
+        if (asTheDirector) request.Headers.Add(DirectorCredentialHeader, "yes");
+        else request.Headers.Add(DeviceHeader, "desktop");
+        return _http!.SendAsync(request);
+    }
 
     /// <summary>A restore claim as any caller could write one: nothing about it says who sent it.</summary>
     private static WorkspaceRestoreClaim ForgedClaim() => new() { WorkspaceId = "forged", SeatSessionId = "forged" };
@@ -747,7 +912,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, aiGate: TenantAiGate.SelfHost,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, sendCommand: send,
-            workspaces: new WorkspaceStore(_db.Open()));
+            workspaces: _workspaces = new WorkspaceStore(_db.Open()));
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, directors: _registry);
         await app.StartAsync();

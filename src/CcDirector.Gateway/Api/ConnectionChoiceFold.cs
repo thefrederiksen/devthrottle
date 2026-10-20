@@ -14,18 +14,23 @@ internal static class ConnectionChoiceFold
 {
     /// <summary>
     /// Replace each Director-reported agent's declared connections with the OFFERED ones, labelled (Terminal always, API
-    /// mode only for a wrapper that declares it while <paramref name="apiModeOffered"/> is on), each with the sentence the
-    /// row shows while it is selected. An older Director that reports no connections gets Terminal alone. Mutates and
-    /// returns <paramref name="agents"/>.
+    /// mode only for a wrapper that declares it while <paramref name="apiModeOffered"/> is on and the Director is new
+    /// enough to carry it), each with the sentence the row shows while it is selected. An older Director that reports no
+    /// connections gets Terminal alone, and so does a Director below <see cref="FirstDirectorThatCarriesApiMode"/> whatever
+    /// it declares: v2.24.0 declares API mode for Pi, and offering it there would offer a create
+    /// <see cref="DirectorCannotCarry(NewSessionRequest, DirectorDto)"/> then refuses (the #4257 review, finding 1).
+    /// Mutates and returns <paramref name="agents"/>.
     /// </summary>
-    public static List<AgentChoiceDto> Offer(List<AgentChoiceDto> agents, bool apiModeOffered)
+    public static List<AgentChoiceDto> Offer(List<AgentChoiceDto> agents, bool apiModeOffered, DirectorDto director)
     {
+        var carries = CarriesApiMode(director);
         foreach (var agent in agents)
         {
             var declared = agent.Connections.Select(c => c.Mode).ToList();
-            agent.Connections = ConnectionChoiceDto.For(ConnectionModes.Offered(declared, apiModeOffered), agent.DisplayName);
+            agent.Connections = ConnectionChoiceDto.For(ConnectionModes.Offered(declared, apiModeOffered && carries), agent.DisplayName);
         }
         FileLog.Write($"[ConnectionChoiceFold] Offer: {agents.Count} agent(s), apiModeOffered={apiModeOffered}, " +
+                      $"director={director?.DirectorId}, version={director?.Version}, carriesApiMode={carries}, " +
                       $"with API mode={agents.Count(a => a.Connections.Count > 1)}");
         return agents;
     }
@@ -58,9 +63,14 @@ internal static class ConnectionChoiceFold
     }
 
     /// <summary>The first Director release that carries the whole of API mode. The create field and the API-mode code first
-    /// shipped in v2.23.0, but v2.23.0 has no event push, and v2.24.0 has neither the terminal following the wheel (#4234)
-    /// nor the Chat's durable opening (#4247), so API mode only half works on either. v2.25.0 is the first with all of it.</summary>
+    /// shipped in v2.23.0, but v2.23.0 has no event push (#4090), and v2.24.0 does not have the terminal following the
+    /// wheel (#4234), so API mode only half works on either. v2.25.0 is the first with all of it.</summary>
     internal static readonly Version FirstDirectorThatCarriesApiMode = new(2, 25, 0);
+
+    /// <summary>Whether <paramref name="director"/> is a release that carries API mode. A version that cannot be read is
+    /// not: whether it carries the mode cannot be told. The one version rule, read by the offer and by every guard.</summary>
+    internal static bool CarriesApiMode(DirectorDto? director)
+        => director is not null && SpawnFactory.ReleaseOf(director.Version) is { } version && version >= FirstDirectorThatCarriesApiMode;
 
     /// <summary>
     /// The refusal for an API-mode create going to a Director too old to honour it, or null when the create may go. An
@@ -73,8 +83,7 @@ internal static class ConnectionChoiceFold
     internal static string? DirectorCannotCarry(NewSessionRequest req, DirectorDto director)
     {
         if (req?.ConnectionMode != ConnectionModes.Api || director is null) return null;
-        var version = SpawnFactory.ReleaseOf(director.Version);
-        if (version is not null && version >= FirstDirectorThatCarriesApiMode) return null;
+        if (CarriesApiMode(director)) return null;
 
         var name = string.IsNullOrWhiteSpace(director.MachineName) ? director.DirectorId : director.MachineName;
         var shown = string.IsNullOrWhiteSpace(director.Version) ? "a version it does not report" : $"version {director.Version.Trim()}";

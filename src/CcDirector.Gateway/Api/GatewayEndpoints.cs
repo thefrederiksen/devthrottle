@@ -4635,10 +4635,11 @@ internal static partial class GatewayEndpoints
             if (sr is not null)
             {
                 if (!sr.Ok) return TunnelFailure(sr);
-                // Which connections each agent OFFERS is ruled here, not on the client (issue #4070, phase 5).
+                // Which connections each agent OFFERS is ruled here, not on the client (issue #4070, phase 5), and by
+                // this Director's version too, so no client offers API mode that the create would then refuse.
                 return Results.Json(ConnectionChoiceFold.Offer(
                     DirectorCommandRouter.ReadBody<List<AgentChoiceDto>>(sr) ?? new List<AgentChoiceDto>(),
-                    ConnectionModes.ApiModeOffered));
+                    ConnectionModes.ApiModeOffered, d));
             }
 
             return TunnelFailure(null, d.MachineName);
