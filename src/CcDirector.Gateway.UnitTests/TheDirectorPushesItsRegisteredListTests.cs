@@ -80,12 +80,13 @@ public sealed class TheDirectorPushesItsRegisteredListTests : IDisposable
     {
         var registry = NewRegistry("hand-added");
         var monitor = MonitorOver("/watched/alpha");
-        await monitor.RescanAsync(new[] { "/watched" });
 
         using var sessions = new SessionManager(new AgentOptions());
         var host = NewHost(registry, monitor, sessions);
         try
         {
+            // The host wires the scan into the registry (devthrottle#4301), so the scan runs after it is built.
+            await monitor.RescanAsync(new[] { "/watched" });
             var pushed = host.SnapshotRepositories();
 
             Assert.Equal(2, pushed.Count);
@@ -150,19 +151,30 @@ public sealed class TheDirectorPushesItsRegisteredListTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// devthrottle#4301: the host wires the root-folder scan INTO the registry, so a repository only the scan ever
+    /// found is in the one list - written to the registry's file, marked as found by the scan - and is pushed.
+    /// </summary>
     [Fact]
-    public async Task A_host_with_no_registry_pushes_exactly_what_it_always_pushed()
+    public async Task A_host_feeds_every_repository_its_scan_finds_into_the_registry()
     {
+        var registry = NewRegistry("hand-added");
         var monitor = MonitorOver("/watched/alpha");
-        await monitor.RescanAsync(new[] { "/watched" });
 
         using var sessions = new SessionManager(new AgentOptions());
-        var host = NewHost(registry: null, monitor, sessions);
+        var host = NewHost(registry, monitor, sessions);
         try
         {
-            var row = Assert.Single(host.SnapshotRepositories());
-            Assert.Equal("/watched/alpha", row.Path);
-            Assert.False(row.StatusNotComputed);
+            await monitor.RescanAsync(new[] { "/watched" });
+
+            var found = Assert.Single(registry.Repositories, r => r.FoundByScan);
+            Assert.Equal("/watched/alpha", found.Path);
+            Assert.Equal("alpha", found.Name);
+            Assert.False(Assert.Single(registry.Repositories, r => !r.FoundByScan).FoundByScan);
+
+            var reread = new RepositoryRegistry(registry.FilePath);
+            reread.Load();
+            Assert.Contains(reread.Repositories, r => r.Path == "/watched/alpha" && r.FoundByScan);
         }
         finally
         {
@@ -211,12 +223,13 @@ public sealed class TheDirectorPushesItsRegisteredListTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(root, "a-worktree", ".git"), "gitdir: /elsewhere");
 
         var monitor = MonitorOver(Path.Combine(root, "a-clone"));
-        await monitor.RescanAsync(new[] { root });
 
         using var sessions = new SessionManager(new AgentOptions());
-        var host = NewHost(registry: null, monitor, sessions, rootFolders: () => new[] { root });
+        // The registry is the list the push reads (devthrottle#4301); the scan fills it once the host is built.
+        var host = NewHost(NewRegistry(), monitor, sessions, rootFolders: () => new[] { root });
         try
         {
+            await monitor.RescanAsync(new[] { root });
             var pushed = host.SnapshotRepositories();
 
             var listing = Assert.Single(Assert.Single(pushed).RootFolders!);
@@ -306,12 +319,13 @@ public sealed class TheDirectorPushesItsRegisteredListTests : IDisposable
 
         var roots = new List<string> { first };
         var monitor = MonitorOver(Path.Combine(first, "alpha"));
-        await monitor.RescanAsync(new[] { first });
 
         using var sessions = new SessionManager(new AgentOptions());
-        var host = NewHost(registry: null, monitor, sessions, rootFolders: () => roots);
+        // The registry is the list the push reads (devthrottle#4301); the scan fills it once the host is built.
+        var host = NewHost(NewRegistry(), monitor, sessions, rootFolders: () => roots);
         try
         {
+            await monitor.RescanAsync(new[] { first });
             Assert.Equal(new[] { first },
                 host.SnapshotRepositories().First().RootFolders!.Select(listing => listing.Path).ToArray());
 

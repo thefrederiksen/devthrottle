@@ -391,6 +391,6 @@ public class NewSessionDialogGatewayListTests
         var found = RowsOnScreen(dialog);
         Assert.Single(found);
         Assert.Equal("cinder", found[0].Name);
-        Assert.True(found[0].IsDiscovered);
+        Assert.Null(found[0].LastUsed);
     }
 }

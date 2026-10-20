@@ -255,5 +255,5 @@ Notices:
 
 - Every secret name: whether the machine holds it is not checked yet.
 - A machine no Director of the account reports now.
-- A seat with a repository: whether the machine has it registered is not checked yet.
+- A seat with a repository: whether the machine knows the repository is not checked yet.
 - A rule set, file, check or factory skill that nothing names.

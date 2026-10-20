@@ -66,6 +66,37 @@ public sealed class FactorySeatStartOnTheCreateTests : IDisposable
         Assert.False(force);
     }
 
+    /// <summary>
+    /// devthrottle#4301, the defect itself: a repository this machine knew ONLY from the root-folder scan - nobody ever
+    /// browsed to it - was refused as "not registered" while every screen listed it. The scan now feeds the one list,
+    /// so the seat works in it. On main before the fix the registry never heard of a scan-only folder and this refused.
+    /// </summary>
+    [Fact]
+    public async Task SettleSeatStart_ARepositoryOnlyTheRootFolderScanFound_WorksInItsFolder()
+    {
+        var registry = new RepositoryRegistry(Path.Combine(_repo, "config", "repositories.json"));
+        registry.Load();
+        var monitor = new CcDirector.Core.Git.RepositoryMonitor(
+            enumerate: _ => new[] { _repo },
+            compute: (path, _, _) => Task.FromResult(new CcDirector.Core.Git.RepositoryStatus
+            {
+                Path = path, Name = "private", Branch = "main", IsClean = true, Success = true,
+            }))
+        {
+            LiveSessionsProvider = _ => Task.FromResult<IReadOnlyList<CcDirector.Core.Git.LiveSessionRef>>(
+                Array.Empty<CcDirector.Core.Git.LiveSessionRef>()),
+        };
+        registry.FollowScan(monitor);
+        await monitor.RescanAsync(new[] { Path.GetDirectoryName(_repo)! });
+        var req = ASeat(r => r.FactoryWorktree = "private");
+
+        var refusal = Settle(req, out _, out var force, registry.Repositories.ToList());
+
+        Assert.Null(refusal);
+        Assert.Equal(_repo, req.RepoPath);
+        Assert.True(force);
+    }
+
     [Fact]
     public void SettleSeatStart_ASeatInARegisteredRepository_WorksInItsFolderOnAForcedPooledSlot()
     {
@@ -124,14 +155,15 @@ public sealed class FactorySeatStartOnTheCreateTests : IDisposable
     }
 
     [Fact]
-    public void SettleSeatStart_ARepositoryThisMachineHasNotRegistered_IsRefusedInTheDesignsWords()
+    public void SettleSeatStart_ARepositoryThisMachineDoesNotKnow_IsRefusedAndSaysBrowsingAddsIt()
     {
         var req = ASeat(r => r.FactoryWorktree = "mindzie-web");
 
         var refusal = Settle(req, out var kit, out var force);
 
-        Assert.Equal("The seat outreach works in the repository 'mindzie-web', which is not registered on SOREN_NORTH, so " +
-                     "no session was started. Register it there, or change the seat's repository in the definition.", refusal);
+        Assert.Equal("The seat outreach works in the repository 'mindzie-web', but SOREN_NORTH does not know a repository of " +
+                     "that name, so no session was started. Browsing to its folder once in the Director on SOREN_NORTH " +
+                     "adds it; or change the seat's repository in the definition.", refusal);
         Assert.Null(kit);
         Assert.False(force);
     }
@@ -219,14 +251,14 @@ public sealed class FactorySeatStartOnTheCreateTests : IDisposable
     }
 
     [Fact]
-    public void Create_ASeatInAnUnregisteredRepository_IsRefusedByTheVerb()
+    public void Create_ASeatInARepositoryTheMachineDoesNotKnow_IsRefusedByTheVerb()
     {
         var registry = new RepositoryRegistry(Path.Combine(_repo, "repositories.json"));
 
         var result = CreateThroughTheVerb(ASeat(r => r.FactoryWorktree = "mindzie-web"), registry);
 
         Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
-        Assert.Equal(FactoryWorktreeRepository.NotRegistered("outreach", "mindzie-web", Environment.MachineName), result.Error);
+        Assert.Equal(FactoryWorktreeRepository.NotKnown("outreach", "mindzie-web", Environment.MachineName), result.Error);
     }
 
     [Fact]

@@ -1555,8 +1555,8 @@ internal static class SessionCommandExecutor
         if (worktree is not null)
         {
             if (registered is null)
-                return $"The seat {seat} works in the repository '{worktree}', and this Director has no list of " +
-                       "registered repositories to find it in, so no session was started.";
+                return $"The seat {seat} works in the repository '{worktree}', and this Director has no repository " +
+                       "list to find it in, so no session was started.";
             var resolved = FactoryWorktreeRepository.Resolve(registered, seat, worktree, machine);
             if (!resolved.Ok)
                 return resolved.Refusal;

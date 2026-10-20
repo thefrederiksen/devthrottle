@@ -102,7 +102,7 @@ public sealed class FactoryDefinitionCheckMachineQuestionTests
 
         Assert.False(result.HasErrors);
         AssertOnlyNotice(result, RepositoryLine,
-            "SOREN_SOUTH does not have the repository 'devthrottle' registered. Register it there; the seat's start will refuse without it.");
+            "SOREN_SOUTH does not know a repository named 'devthrottle'. Browsing to its folder once in the Director there adds it; the seat's start will refuse without it.");
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public sealed class FactoryDefinitionCheckMachineQuestionTests
         AssertOnlyNotice(result, SecretLine,
             $"Whether SOREN_SOUTH holds 'outreach-smtp-password' could not be asked: {why} The seat's start will check it.");
         AssertOnlyNotice(result, RepositoryLine,
-            $"Whether SOREN_SOUTH has the repository 'devthrottle' registered could not be asked: {why} The seat's start will check it.");
+            $"Whether SOREN_SOUTH knows the repository 'devthrottle' could not be asked: {why} The seat's start will check it.");
     }
 
     [Fact]
@@ -146,7 +146,7 @@ public sealed class FactoryDefinitionCheckMachineQuestionTests
             DefinitionFixture.FleetSkills, DefinitionFixture.Machines, DefinitionCheckPurpose.Save);
 
         AssertOnlyNotice(result, SecretLine, "Whether SOREN_SOUTH holds 'outreach-smtp-password' is not checked yet.");
-        AssertOnlyNotice(result, RepositoryLine, "Whether SOREN_SOUTH has the repository 'devthrottle' registered is not checked yet.");
+        AssertOnlyNotice(result, RepositoryLine, "Whether SOREN_SOUTH knows the repository 'devthrottle' is not checked yet.");
     }
 
     [Fact]

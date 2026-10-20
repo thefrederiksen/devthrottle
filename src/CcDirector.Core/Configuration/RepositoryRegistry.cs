@@ -5,7 +5,11 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Core.Configuration;
 
 /// <summary>
-/// The machine's list of registered repositories, held in <c>config/director/repositories.json</c>.
+/// The machine's ONE repository list, held in <c>config/director/repositories.json</c> under the instance home
+/// (devthrottle#4301). Two things put a repository in it: a person browsing to a folder (<see cref="TryAdd"/>), and
+/// the root-folder scan finding one (<see cref="AddFoundByScan"/>, wired by <see cref="FollowScan"/>). The scan only
+/// ever ADDS - it never removes or renames an entry - so the list is what this machine has found and what its user
+/// has chosen, and everything that asks "which repositories does this machine know" reads this list and nothing else.
 ///
 /// <para><b>Every entry point is serialized, because this list now has many writers.</b> Until the
 /// recency signal was completed, <see cref="MarkUsed"/> had exactly one caller - the desktop New
@@ -184,6 +188,55 @@ public class RepositoryRegistry
             var name = Path.GetFileName(normalized);
             _repositories.Add(new RepositoryConfig { Name = name, Path = normalized });
             Save();
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Feed this list from the root-folder scan: every repository <paramref name="monitor"/> publishes is added
+    /// when its folder is not already here (devthrottle#4301). Wired once at start-up, before the first scan.
+    ///
+    /// <para>Only what a live compute publishes is added. The warm-start cache (<see cref="Git.RepositoryMonitor.LoadCache"/>)
+    /// raises no event, which matters because the scan never removes an entry: a folder deleted since the last run
+    /// must not be written into the list for good from a stale cache.</para>
+    /// </summary>
+    public void FollowScan(Git.RepositoryMonitor monitor)
+    {
+        ArgumentNullException.ThrowIfNull(monitor);
+        monitor.Upserted += status =>
+        {
+            if (string.IsNullOrWhiteSpace(status.Path))
+                return;
+            AddFoundByScan(status.Path, status.Name);
+        };
+        FileLog.Write($"[RepositoryRegistry] FollowScan: the root-folder scan now feeds {FilePath}");
+    }
+
+    /// <summary>
+    /// Add one repository the root-folder scan found, unless its folder is already in the list. Returns true when
+    /// it was added. Folders are compared through <see cref="Git.WorktreeReaperService.NormalizePath"/> - the
+    /// scan's own key - so one folder written two ways (case, a trailing separator, a junction) is never added
+    /// twice. An entry already here is left exactly as it is: the scan never renames, and never turns an entry a
+    /// person added into one it found.
+    /// </summary>
+    /// <param name="folderPath">The repository's folder, as the scan reported it.</param>
+    /// <param name="scannedName">The name the scan computed, or null/blank for the folder's own name.</param>
+    public bool AddFoundByScan(string folderPath, string? scannedName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folderPath);
+        var key = Git.WorktreeReaperService.NormalizePath(folderPath);
+
+        lock (_gate)
+        {
+            if (_repositories.Any(r => !string.IsNullOrWhiteSpace(r.Path) &&
+                    string.Equals(Git.WorktreeReaperService.NormalizePath(r.Path), key, StringComparison.OrdinalIgnoreCase)))
+                return false;
+
+            var path = folderPath.TrimEnd('\\', '/');
+            var name = string.IsNullOrWhiteSpace(scannedName) ? RepositoryPaths.FolderName(path) : scannedName.Trim();
+            _repositories.Add(new RepositoryConfig { Name = name, Path = path, FoundByScan = true });
+            Save();
+            FileLog.Write($"[RepositoryRegistry] AddFoundByScan: {path} as \"{name}\"");
             return true;
         }
     }

@@ -919,21 +919,21 @@ public static class FactoryDefinitionCheck
         {
             if (_purpose != DefinitionCheckPurpose.Publish)
             {
-                Notice(_findings, path, line, $"Whether {machine} has the repository '{repository}' registered is not checked yet.");
+                Notice(_findings, path, line, $"Whether {machine} knows the repository '{repository}' is not checked yet.");
                 return;
             }
             var reply = ReplyFrom(machine);
             if (reply.NotAsked is { } why)
             {
                 Notice(_findings, path, line,
-                    $"Whether {machine} has the repository '{repository}' registered could not be asked: {why} The seat's start will check it.");
+                    $"Whether {machine} knows the repository '{repository}' could not be asked: {why} The seat's start will check it.");
                 return;
             }
             var registered = reply.Answer!.Repositories.FirstOrDefault(r => string.Equals(r.Name, repository, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"{machine} answered the machine question without the repository '{repository}' it was asked about.");
             if (!registered.Registered)
                 Notice(_findings, path, line,
-                    $"{machine} does not have the repository '{repository}' registered. Register it there; the seat's start will refuse without it.");
+                    $"{machine} does not know a repository named '{repository}'. Browsing to its folder once in the Director there adds it; the seat's start will refuse without it.");
         }
 
         // A publish asks every machine a seat with a secret or a repository runs on, so a machine with no reply here is

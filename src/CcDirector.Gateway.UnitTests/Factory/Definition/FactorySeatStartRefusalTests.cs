@@ -45,9 +45,9 @@ public sealed class FactorySeatStartRefusalTests : IDisposable
     private const string MissingSecret =
         "The seat keeper needs the secret 'qa-p6-no-such-secret', which SEAT-PC does not hold, so no session was started. Add it there with cc-secrets.";
 
-    /// <summary>The Director's sentence for a repository its machine has not registered, as SettleSeatStart words it.</summary>
+    /// <summary>The Director's sentence for a repository its machine does not know, as SettleSeatStart words it.</summary>
     private const string UnregisteredRepository =
-        "The seat stray works in the repository 'qa-not-here', which is not registered on SEAT-PC, so no session was started. Register it there, or change the seat's repository in the definition.";
+        "The seat stray works in the repository 'qa-not-here', but SEAT-PC does not know a repository of that name, so no session was started. Browsing to its folder once in the Director on SEAT-PC adds it; or change the seat's repository in the definition.";
 
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "cc-seat-refusal-" + Guid.NewGuid().ToString("N"));
     private readonly DirectorRegistry _registry;

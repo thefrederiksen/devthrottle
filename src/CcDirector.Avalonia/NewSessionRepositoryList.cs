@@ -37,10 +37,7 @@ internal static class NewSessionRepositoryList
     /// The Gateway's rows, as the dialog's row model, IN THE ORDER THEY ARRIVED. Nothing is sorted,
     /// filtered, de-duplicated or re-named here.
     ///
-    /// Two verdicts ride across unchanged rather than being recomputed:
-    /// <see cref="KnownRepositoryDto.NeverOpened"/> becomes <see cref="RepositoryConfig.IsDiscovered"/>
-    /// (the Gateway stamped it from the last-used time in one place, so the two can never disagree), and
-    /// every row is marked <see cref="RepositoryConfig.IsFromTheGatewayList"/> so the Remove button - which
+    /// Every row is marked <see cref="RepositoryConfig.IsFromTheGatewayList"/> so the Remove button - which
     /// only ever removed from this Director's own registry - is not offered for a catalogue it cannot
     /// change.
     ///
@@ -62,28 +59,12 @@ internal static class NewSessionRepositoryList
                 Name = repository.Name,
                 Path = repository.Path,
                 LastUsed = repository.LastUsed,
-                IsDiscovered = repository.NeverOpened,
                 IsFromTheGatewayList = true,
             });
         }
 
         return rows;
     }
-
-    /// <summary>
-    /// What to call a repository the root-folder scan found, on the machine's own fallback list: the name
-    /// the scan computed, or the folder's own name when it computed none.
-    ///
-    /// The folder name comes from <see cref="RepositoryPaths.FolderName"/> and NOT from
-    /// <c>Path.GetFileName</c>, which honours only the separator of the host it runs on - handed
-    /// <c>D:\ReposFred\devthrottle</c> on macOS it finds no separator and puts the whole path in the Name
-    /// column. This is the fifth-sighting defect this mission keeps meeting: code deciding a path's shape
-    /// from the machine running it instead of from the path.
-    /// </summary>
-    /// <param name="scannedName">The name the repository scan computed, if it computed one.</param>
-    /// <param name="path">The repository's path, in whatever spelling it was written.</param>
-    public static string NameForScannedRepository(string? scannedName, string path) =>
-        string.IsNullOrWhiteSpace(scannedName) ? RepositoryPaths.FolderName(path) : scannedName;
 
     /// <summary>
     /// The list in the order the screen shows it, built from the source list every time so the source's
