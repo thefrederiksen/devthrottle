@@ -11,15 +11,15 @@
 #
 #   baseline        a plain program started directly (/bin/true) - what any exec-form hook costs before it
 #                   does anything, starting one program, as every hook row does
-#   shell only      /bin/sh -c /bin/true, for comparison: the shell start the earlier SHELL-form
-#                   registration paid on top of the program. Not paid since the change to exec form.
+#   through a shell /bin/sh -c /bin/true, the shell starting the baseline program, for comparison only:
+#                   what the earlier SHELL-form registration paid. Not paid since the change to exec form.
 #   no-session      the hook outside a Director session (no CC_SESSION_RULES_FILE): it does nothing
 #   no-rules-file   a Director session whose rules file is not there yet
 #   0 rules         a rules file with an empty rules list
 #   1 rule          one rule, which matches, so a decision file is written every run
 #   50 rules        fifty rules; the last matches, so all fifty are checked and a decision is written
 #
-# The hook's ADDED time is its row minus the baseline row (not the shell-only row). Everything is written under a scratch folder
+# The hook's ADDED time is its row minus the baseline row (not the through-a-shell row). Everything is written under a scratch folder
 # that is deleted at the end; nothing touches a real session. Run from inside a Director session, the
 # session's own two variables are removed for every row, and the script fails if that session's evaluation
 # log or decision drop changed.
@@ -118,9 +118,11 @@ measure() {
         "$(awk "BEGIN { print $median / 1000 }")" "$(awk "BEGIN { print $p95 / 1000 }")"
 }
 
-# Outside a Director session: BOTH session variables removed, whatever the operator's shell carries.
+# Outside a Director session. The two session variables were removed from this script's environment once,
+# below, so this starts the evaluator directly with nothing in front of it - no env, no shell - as every
+# other hook row does.
 run_hook() {
-    env -u CC_SESSION_RULES_FILE -u CC_SESSION_DECISION_DIR "$HOOK"
+    "$HOOK"
 }
 
 run_hook_with() {
@@ -134,9 +136,13 @@ if [[ -n "${CC_SESSION_RULES_FILE:-}" ]]; then
     OWN_LOG="${CC_SESSION_RULES_FILE%.json}.eval.log"
     [[ -f "$OWN_LOG" ]] && OWN_LOG_BEFORE="$(wc -l < "$OWN_LOG")"
 fi
-if [[ -n "${CC_SESSION_DECISION_DIR:-}" && -d "${CC_SESSION_DECISION_DIR}" ]]; then
-    OWN_DROP_BEFORE="$(find "$CC_SESSION_DECISION_DIR" -maxdepth 1 -name '*.json' | wc -l)"
+OWN_DROP_DIR="${CC_SESSION_DECISION_DIR:-}"
+if [[ -n "$OWN_DROP_DIR" && -d "$OWN_DROP_DIR" ]]; then
+    OWN_DROP_BEFORE="$(find "$OWN_DROP_DIR" -maxdepth 1 -name '*.json' | wc -l)"
 fi
+# Recorded above; now removed for every row, whatever the operator's shell carries. The session rows set
+# their own pair inline.
+unset CC_SESSION_RULES_FILE CC_SESSION_DECISION_DIR
 
 echo "cc-rule-hook: $HOOK ($(stat -c%s "$HOOK") bytes)"
 echo "event: $EVENT"
@@ -146,7 +152,7 @@ echo "load average at start: $(cut -d' ' -f1-3 /proc/loadavg)"
 echo ""
 
 measure "baseline" /bin/true
-measure "shell only" /bin/sh -c /bin/true
+measure "through a shell" /bin/sh -c /bin/true
 measure "no-session" run_hook
 measure "no-rules-file" run_hook_with "$SCRATCH/session-rules/absent.json"
 write_rules 0 "$SCRATCH/session-rules/zero.json"
@@ -175,8 +181,8 @@ if [[ -n "$OWN_LOG" ]]; then
     own_log_after=0
     [[ -f "$OWN_LOG" ]] && own_log_after="$(wc -l < "$OWN_LOG")"
     own_drop_after=0
-    [[ -n "${CC_SESSION_DECISION_DIR:-}" && -d "$CC_SESSION_DECISION_DIR" ]] \
-        && own_drop_after="$(find "$CC_SESSION_DECISION_DIR" -maxdepth 1 -name '*.json' | wc -l)"
+    [[ -n "$OWN_DROP_DIR" && -d "$OWN_DROP_DIR" ]] \
+        && own_drop_after="$(find "$OWN_DROP_DIR" -maxdepth 1 -name '*.json' | wc -l)"
     echo "this session's own evaluation log: $OWN_LOG_BEFORE lines before, $own_log_after after; its decision drop: $OWN_DROP_BEFORE files before, $own_drop_after after"
     # Other shell commands of this session can add lines while the script runs, but only a handful; the
     # measurement would add hundreds.

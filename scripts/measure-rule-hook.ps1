@@ -12,20 +12,21 @@
     input, many times, and prints the median and the 95th percentile for:
 
       baseline        a plain program started directly - what any exec-form hook costs before it does anything
-      shell only      the same program through Git Bash -c (/bin/sh -c elsewhere), for comparison: the shell
-                      start the earlier SHELL-form registration paid. Not paid since the change to exec form.
+      through a shell the shell starting the baseline program (Git Bash -c /usr/bin/true on Windows, /bin/sh -c
+                      /bin/true elsewhere), for comparison only: what the earlier SHELL-form registration paid.
+                      Not paid since the change to exec form.
       no-session      the hook outside a Director session (no CC_SESSION_RULES_FILE): it does nothing
       no-rules-file   a Director session whose rules file is not there yet
       0 rules         a rules file with an empty rules list
       1 rule          one rule, which matches, so a decision file is written every run
       50 rules        fifty rules; the last matches, so all fifty are checked and a decision is written
 
-    The hook's ADDED time is its row minus the baseline row (not the shell-only row). Every run is started the same way, so the
+    The hook's ADDED time is its row minus the baseline row (not the through-a-shell row). Every run is started the same way, so the
     cost of starting a process from PowerShell is in every row, the baseline included, and cancels out of
     the difference. Everything is written under a scratch folder deleted at the end.
 
     On Windows Git for Windows is still needed, but only for the two reference rows: the baseline program is
-    its true.exe, and the shell-only row is its bash.exe. Git Bash is found as Claude Code finds it:
+    its true.exe, and the through-a-shell row is its bash.exe starting that true.exe. Git Bash is found as Claude Code finds it:
     CLAUDE_CODE_GIT_BASH_PATH when set, otherwise the bash.exe of the Git for Windows that provides git on
     the PATH. Neither present is an error. The hook rows never go through it.
 
@@ -94,13 +95,19 @@ if ($IsWindows) {
         $gitBash = Join-Path $gitRoot "bin\bash.exe"
     }
     if (-not (Test-Path -LiteralPath $gitBash)) { throw "No Git Bash at $gitBash. Install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH to its bash.exe." }
-    # bash.exe is <Git>\bin\bash.exe and true.exe is <Git>\usr\bin\true.exe.
-    $trueProgram = Join-Path (Split-Path -Parent (Split-Path -Parent $gitBash)) "usr\bin\true.exe"
-    if (-not (Test-Path -LiteralPath $trueProgram)) { throw "No true.exe at $trueProgram, beside the Git Bash at $gitBash." }
+    # true.exe is <Git>\usr\bin\true.exe. The Git Bash may be <Git>\usr\bin\bash.exe (a valid
+    # CLAUDE_CODE_GIT_BASH_PATH), with true.exe beside it, or <Git>\bin\bash.exe, two levels below <Git>.
+    $besideBash = Join-Path (Split-Path -Parent $gitBash) "true.exe"
+    $underGitRoot = Join-Path (Split-Path -Parent (Split-Path -Parent $gitBash)) "usr\bin\true.exe"
+    $trueProgram = @($besideBash, $underGitRoot) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $trueProgram) { throw "No true.exe for the Git Bash at $gitBash. Looked at $besideBash and at $underGitRoot." }
     $shellProgram = $gitBash
+    # The same true.exe, by the path Git Bash itself knows it by.
+    $trueInShell = "/usr/bin/true"
 } else {
     $trueProgram = "/bin/true"
     $shellProgram = "/bin/sh"
+    $trueInShell = $trueProgram
 }
 
 function Write-Rules([int]$count, [string]$path) {
@@ -158,13 +165,13 @@ function Session([string]$rulesFile) { @{ CC_SESSION_RULES_FILE = $rulesFile; CC
 try {
     Write-Host "cc-rule-hook: $Hook ($((Get-Item -LiteralPath $Hook).Length) bytes)"
     Write-Host "event: $EventFile"
-    Write-Host "baseline program: $trueProgram; shell-only row: $shellProgram -c"
+    Write-Host "baseline program: $trueProgram; through-a-shell row: $shellProgram -c $trueInShell"
     Write-Host "runs per row: $Runs, on $([Environment]::MachineName), $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription), $([Environment]::ProcessorCount) processors"
     Write-Host ""
 
     # The baseline starts a real program directly, as every hook row does, so the difference is the hook's own work.
     Measure-Row "baseline" $trueProgram @() @{}
-    Measure-Row "shell only" $shellProgram @("-c", "true") @{}
+    Measure-Row "through a shell" $shellProgram @("-c", $trueInShell) @{}
     Measure-Row "no-session" $Hook @() @{}
     Measure-Row "no-rules-file" $Hook @() (Session (Join-Path $rulesDir "absent.json"))
     Write-Rules 0 (Join-Path $rulesDir "zero.json")
