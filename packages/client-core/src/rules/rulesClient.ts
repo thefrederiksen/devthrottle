@@ -36,7 +36,8 @@ export interface RuleRow {
   handlerLabel: string;
   /** Never blank: "Never fired" when there is no firing. */
   firedLabel: string;
-  /** Blank when no session changed the rule. */
+  /** Names what the agent did and which session did it ("Created by session ...", "Changed by session ...",
+   *  "Promoted by session ..."); blank when no session changed the rule. */
   changedLabel: string;
   /** The ids of the tabs this rule is on, as the Gateway decided. */
   tabs: string[];
@@ -48,6 +49,9 @@ export interface RulesPageAnswer {
   tabs: RulesTab[];
   /** Newest first. */
   rules: RuleRow[];
+  /** The same lists as a preview's `suggestions`, so the preview form can offer them before its first read
+   *  (plan Amendment 1). */
+  previewSuggestions: PreviewSuggestions;
 }
 
 /** One label and its value on a rule's page, in the Gateway's order. */
@@ -59,7 +63,10 @@ export interface RuleField {
 /** A rule named by another (an overridden or overriding rule), with its sentence. */
 export interface RuleReference {
   id: string;
+  /** For a deleted rule, the Gateway's "(deleted rule <id>)". */
   sentence: string;
+  /** True when the rule has been deleted: it has no page, so it is shown as text, never linked (plan Amendment 2). */
+  deleted: boolean;
 }
 
 /** One firing of a rule (wire P2). */
@@ -72,7 +79,7 @@ export interface RuleFiring {
   whereLabel: string;
   /** The command it read, or for a screen firing the screen text. */
   subject: string;
-  /** Blank when this firing overrode nothing. */
+  /** Blank whenever this firing overrode nothing, hook or screen (plan Amendment 2). */
   overrodeLabel: string;
   overrode: RuleReference[];
   outcomeLabel: string;
@@ -115,8 +122,8 @@ export interface PreviewDecision {
   verdictLabel: string;
   tone: RuleTone;
   summary: string;
-  /** Null when no rule matched. */
-  decidingRuleId: string | null;
+  /** The empty string when no rule matched (plan Amendment 2). */
+  decidingRuleId: string;
   overriddenRuleIds: string[];
   matchedRuleIds: string[];
 }
@@ -249,7 +256,13 @@ function tone(source: Record<string, unknown>, field: string, where: string): Ru
 
 function readReference(value: unknown, where: string): RuleReference {
   const source = object(value, where);
-  return { id: text(source, "id", where), sentence: text(source, "sentence", where) };
+  if (typeof source.deleted !== "boolean") fail(`${where} has no deleted`);
+  return { id: text(source, "id", where), sentence: text(source, "sentence", where), deleted: source.deleted };
+}
+
+function readSuggestions(value: unknown, where: string): PreviewSuggestions {
+  const source = object(value, where);
+  return { machines: strings(source, "machines", where), repos: strings(source, "repos", where) };
 }
 
 function references(source: Record<string, unknown>, field: string, where: string): RuleReference[] {
@@ -288,6 +301,7 @@ export function readRulesPage(value: unknown): RulesPageAnswer {
       };
     }),
     rules: list(source, "rules", "its answer").map((item, index) => readRule(item, `rule ${index + 1}`)),
+    previewSuggestions: readSuggestions(source.previewSuggestions, "its previewSuggestions"),
   };
 }
 
@@ -334,14 +348,12 @@ function readDecision(value: unknown): PreviewDecision | null {
   if (value === null) return null;
   const where = "its decision";
   const source = object(value, where);
-  const deciding = source.decidingRuleId;
-  if (deciding !== null && typeof deciding !== "string") fail(`${where} has no decidingRuleId`);
   return {
     command: text(source, "command", where),
     verdictLabel: text(source, "verdictLabel", where),
     tone: tone(source, "tone", where),
     summary: text(source, "summary", where),
-    decidingRuleId: deciding,
+    decidingRuleId: text(source, "decidingRuleId", where),
     overriddenRuleIds: strings(source, "overriddenRuleIds", where),
     matchedRuleIds: strings(source, "matchedRuleIds", where),
   };
@@ -349,7 +361,6 @@ function readDecision(value: unknown): PreviewDecision | null {
 
 export function readPreview(value: unknown): RulesPreviewAnswer {
   const source = object(value, "its answer");
-  const suggestions = object(source.suggestions, "its suggestions");
   if (!("decision" in source)) fail("its answer has no decision");
   return {
     machine: text(source, "machine", "its answer"),
@@ -373,9 +384,6 @@ export function readPreview(value: unknown): RulesPreviewAnswer {
     }),
     emptyText: text(source, "emptyText", "its answer"),
     decision: readDecision(source.decision),
-    suggestions: {
-      machines: strings(suggestions, "machines", "its suggestions"),
-      repos: strings(suggestions, "repos", "its suggestions"),
-    },
+    suggestions: readSuggestions(source.suggestions, "its suggestions"),
   };
 }

@@ -1,8 +1,15 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { describeAndReport } from "../errors/reportClientError";
-import { getRulesPreview, type PreviewRule, type RuleReference, type RulesPreviewAnswer } from "./rulesClient";
-import { RULES_SURFACE, Toned, type RulesShellProps } from "./rulesShared";
+import {
+  getRulesPage,
+  getRulesPreview,
+  type PreviewRule,
+  type PreviewSuggestions,
+  type RuleReference,
+  type RulesPreviewAnswer,
+} from "./rulesClient";
+import { RuleReferences, RULES_SURFACE, Toned, type RulesShellProps } from "./rulesShared";
 import "../settings/settings.css";
 import "./rules.css";
 
@@ -16,8 +23,12 @@ import "./rules.css";
 // Gateway sent, as a style only; the words saying so are the Gateway's summary.
 //
 // The form's values ride in the address (?machine=&repo=&command=), so a preview can be linked and Back returns to it.
-// The machines and repositories to offer come with each answer (`suggestions`); free text is always allowed. Before
-// the first answer there is nothing to offer, because the Gateway names them only in a preview's answer.
+// The machines and repositories to offer are the Rules page answer's `previewSuggestions` (plan Amendment 1), read when
+// the preview opens - also when it is opened straight from a link - and then each preview answer's `suggestions`.
+// Free text is always allowed.
+//
+// PRESSING PREVIEW ALWAYS READS (pages review, finding 1). The read is keyed on the address AND on a count of presses,
+// so pressing Preview with unchanged values - the retry after a failure - reads again and shows the loading state.
 
 export interface RulesPreviewProps extends RulesShellProps {
   /** The shell's address of the Rules list, where Back leads. */
@@ -37,10 +48,30 @@ export function RulesPreview({ Frame, errorClassName, ruleHref, listHref }: Rule
   const [answer, setAnswer] = useState<RulesPreviewAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // The suggestions of the last answer, kept while the next one is read so the form keeps offering them.
-  const [suggestions, setSuggestions] = useState<RulesPreviewAnswer["suggestions"]>({ machines: [], repos: [] });
+  // What the form offers: the Rules page answer's lists until a preview answers, then the latest preview's.
+  const [suggestions, setSuggestions] = useState<PreviewSuggestions>({ machines: [], repos: [] });
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
+  const previewAnswered = useRef(false);
+  // Bumped by every press of Preview, so a press reads even when the address did not change.
+  const [presses, setPresses] = useState(0);
 
-  // A preview is read whenever the address names a machine: on arrival from a link, and after each submit.
+  useEffect(() => {
+    const controller = new AbortController();
+    getRulesPage(controller.signal).then(
+      (page) => {
+        // A preview that answered first carries lists at least as new; they are kept.
+        if (controller.signal.aborted || previewAnswered.current) return;
+        setSuggestions(page.previewSuggestions);
+      },
+      (err: unknown) => {
+        if (controller.signal.aborted) return;
+        setSuggestionsError(describeAndReport(RULES_SURFACE, "load the machines and repositories to offer", err));
+      },
+    );
+    return () => controller.abort();
+  }, []);
+
+  // A preview is read whenever the address names a machine: on arrival from a link, and after each press of Preview.
   useEffect(() => {
     if (asked.machine.length === 0) return;
     const controller = new AbortController();
@@ -50,6 +81,7 @@ export function RulesPreview({ Frame, errorClassName, ruleHref, listHref }: Rule
       (read) => {
         if (controller.signal.aborted) return;
         setAnswer(read);
+        previewAnswered.current = true;
         setSuggestions(read.suggestions);
         setLoading(false);
       },
@@ -61,12 +93,14 @@ export function RulesPreview({ Frame, errorClassName, ruleHref, listHref }: Rule
       },
     );
     return () => controller.abort();
-    // The three values are the read's whole input; `asked` is rebuilt every render from them.
-  }, [asked.machine, asked.repo, asked.command]);
+    // The three values are the read's whole input; `asked` is rebuilt every render from them. `presses` makes a press
+    // with unchanged values read again.
+  }, [asked.machine, asked.repo, asked.command, presses]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     setParams({ machine: machine.trim(), repo: repo.trim(), command }, { replace: true });
+    setPresses((count) => count + 1);
   };
 
   return (
@@ -124,6 +158,11 @@ export function RulesPreview({ Frame, errorClassName, ruleHref, listHref }: Rule
           </div>
         </form>
 
+        {suggestionsError !== null && (
+          <div className={errorClassName} role="alert" data-testid="rules-preview-suggestions-error">
+            {suggestionsError}
+          </div>
+        )}
         {error !== null && (
           <div className={errorClassName} role="alert" data-testid="rules-preview-error">
             {error}
@@ -243,13 +282,7 @@ function References({
   return (
     <div className="rules-overrode" data-testid={`rules-preview-${id}`}>
       <span className="rules-overrode-label">{heading}</span>
-      <ul className="rules-references">
-        {items.map((other) => (
-          <li key={other.id}>
-            <Link to={ruleHref(other.id)}>{other.sentence}</Link>
-          </li>
-        ))}
-      </ul>
+      <RuleReferences items={items} ruleHref={ruleHref} />
     </div>
   );
 }

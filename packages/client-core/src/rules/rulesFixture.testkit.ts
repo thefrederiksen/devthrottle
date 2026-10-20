@@ -38,7 +38,7 @@ export function rulesPage(): RulesPageAnswer {
         modeTone: "neutral",
         handlerLabel: "Match \"zorp -rf\" then refuse",
         firedLabel: "Went off 3 times today, last at 10:42",
-        changedLabel: "Touched by session 8a1e (zorp_code) at 09:15",
+        changedLabel: "Created by session 8a1e (zorp_code) at 09:15",
         tabs: ["all", "hook", "fired_today", "changed_by_agents"],
       },
       {
@@ -68,6 +68,7 @@ export function rulesPage(): RulesPageAnswer {
         tabs: ["all", "screen"],
       },
     ],
+    previewSuggestions: { machines: ["devbox", "PAGE_BOX"], repos: ["zorp.example/acme", "zorp.example/page"] },
   };
 }
 
@@ -101,7 +102,7 @@ export function rulePageWithFirings(): RulePageAnswer {
         whereLabel: "devbox - zorp.example/acme",
         subject: "zorp -rf build",
         overrodeLabel: "Overrode one other rule",
-        overrode: [{ id: RULE_B, sentence: "Allow anything zorpy here." }],
+        overrode: [{ id: RULE_B, sentence: "Allow anything zorpy here.", deleted: false }],
         outcomeLabel: "Practice run: the zorp was not blocked.",
       },
       {
@@ -120,6 +121,20 @@ export function rulePageWithFirings(): RulePageAnswer {
     firingsEmptyText: "This rule has not gone off yet.",
     changes: [{ whenLabel: "Today-ish at 09:15", actionLabel: "Touched", byLabel: "Session 8a1e (zorp_code)" }],
     changesEmptyText: "No touches recorded.",
+  };
+}
+
+/** One rule's page whose only firing overrode a rule that has since been deleted (plan Amendment 2). */
+export function rulePageWithDeletedOverride(): RulePageAnswer {
+  const page = rulePageWithFirings();
+  return {
+    ...page,
+    firings: [
+      {
+        ...page.firings[0],
+        overrode: [{ id: RULE_C, sentence: `(deleted rule ${RULE_C})`, deleted: true }],
+      },
+    ],
   };
 }
 
@@ -144,7 +159,7 @@ export function previewWithDecision(): RulesPreviewAnswer {
         rankLabel: "Repo (rank three)",
         resultLabel: "Permit",
         modeLabel: "Practice run",
-        overrides: [{ id: RULE_A, sentence: "Never zorp at all." }],
+        overrides: [{ id: RULE_A, sentence: "Never zorp at all.", deleted: false }],
         overriddenBy: [],
         verdictLabel: "Overrides 1 rule: \"Never zorp at all.\"",
       },
@@ -157,7 +172,7 @@ export function previewWithDecision(): RulesPreviewAnswer {
         resultLabel: "Refuse",
         modeLabel: "Practice run",
         overrides: [],
-        overriddenBy: [{ id: RULE_B, sentence: "Allow zorp -rf in this repo." }],
+        overriddenBy: [{ id: RULE_B, sentence: "Allow zorp -rf in this repo.", deleted: false }],
         verdictLabel: "Overridden by 1 rule: \"Allow zorp -rf in this repo.\"",
       },
     ],
@@ -172,6 +187,18 @@ export function previewWithDecision(): RulesPreviewAnswer {
       matchedRuleIds: [RULE_B, RULE_A],
     },
     suggestions: { machines: ["devbox", "OTHER_BOX"], repos: ["zorp.example/acme"] },
+  };
+}
+
+/** The preview where the overriding rule's own overrides list names a rule since deleted (plan Amendment 2). */
+export function previewWithDeletedReference(): RulesPreviewAnswer {
+  const preview = previewWithDecision();
+  return {
+    ...preview,
+    rules: [
+      { ...preview.rules[0], overrides: [{ id: RULE_C, sentence: `(deleted rule ${RULE_C})`, deleted: true }] },
+      preview.rules[1],
+    ],
   };
 }
 

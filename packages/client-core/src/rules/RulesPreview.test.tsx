@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { GatewayError } from "../api/client";
-import type { RulesPreviewAnswer, RulesPreviewQuery } from "./rulesClient";
-import { previewEmpty, previewWithDecision, RULE_A, RULE_B } from "./rulesFixture.testkit";
+import type { RulesPageAnswer, RulesPreviewAnswer, RulesPreviewQuery } from "./rulesClient";
+import {
+  previewEmpty,
+  previewWithDecision,
+  previewWithDeletedReference,
+  RULE_A,
+  RULE_B,
+  rulesPage,
+} from "./rulesFixture.testkit";
 import type { RulesFrameProps } from "./rulesShared";
 
 // The preview of a machine and repository (wire P3): the form, the suggestions the Gateway offers, the rules most
@@ -12,8 +19,11 @@ import type { RulesFrameProps } from "./rulesShared";
 const read = vi.hoisted(() => ({
   next: null as (() => Promise<RulesPreviewAnswer>) | null,
   queries: [] as RulesPreviewQuery[],
+  page: null as (() => Promise<RulesPageAnswer>) | null,
 }));
 vi.mock("./rulesClient", () => ({
+  // The Rules page answer, read for its previewSuggestions (plan Amendment 1). Unstaged, it never answers.
+  getRulesPage: vi.fn(() => (read.page === null ? new Promise(() => {}) : read.page())),
   getRulesPreview: vi.fn((query: RulesPreviewQuery) => {
     read.queries.push(query);
     if (read.next === null) throw new Error("no preview answer staged");
@@ -80,6 +90,7 @@ function previewButton(): HTMLButtonElement {
 beforeEach(() => {
   read.next = null;
   read.queries = [];
+  read.page = null;
   vi.mocked(describeAndReport).mockClear();
 });
 
@@ -166,6 +177,67 @@ describe("RulesPreview", () => {
     expect(rows[1].hasAttribute("data-deciding")).toBe(false);
     expect(rows[1].hasAttribute("data-overridden")).toBe(true);
     expect(rows.every((row) => row.hasAttribute("data-matched"))).toBe(true);
+  });
+
+  it("RulesPreview_PressedAgainAfterAFailureWithTheSameValues_ReadsAgainShowingLoadingThenTheResult", async () => {
+    read.next = () => Promise.reject(new GatewayError(503, "x", { reason: "The rule store is resting.", retryable: false }));
+    renderPreview("/rules/preview?machine=devbox");
+    await screen.findByRole("alert");
+    expect(read.queries).toHaveLength(1);
+
+    let answer: (value: RulesPreviewAnswer) => void = () => {};
+    read.next = () => new Promise((resolve) => (answer = resolve));
+    fireEvent.click(previewButton());
+
+    expect(read.queries).toHaveLength(2);
+    expect(read.queries[1]).toEqual({ machine: "devbox", repo: "", command: "" });
+    expect((await screen.findByRole("status")).textContent).toBe("Reading the rules for devbox...");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    answer(previewWithDecision());
+    expect(await screen.findByTestId("rules-preview-headline")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("RulesPreview_DeletedReference_ShowsTheGatewaysTextWithoutALink", async () => {
+    answers(previewWithDeletedReference());
+
+    renderPreview("/rules/preview?machine=devbox&command=zorp");
+
+    const rows = await screen.findAllByTestId("rules-preview-rule");
+    const overrides = within(rows[0]).getByTestId("rules-preview-overrides");
+    expect(within(overrides).getByTestId("rules-reference-deleted").textContent).toBe(
+      "(deleted rule 3f2c0000-0000-4000-8000-00000000000c)",
+    );
+    expect(within(overrides).queryByRole("link")).toBeNull();
+    // The other list still links.
+    expect(within(within(rows[1]).getByTestId("rules-preview-overridden-by")).getByRole("link")).toBeTruthy();
+  });
+
+  it("RulesPreview_BeforeTheFirstPreview_OffersThePageAnswersSuggestions", async () => {
+    read.page = () => Promise.resolve(rulesPage());
+
+    renderPreview();
+
+    await waitFor(() =>
+      expect(
+        Array.from(screen.getByTestId("rules-preview-machines").querySelectorAll("option")).map((o) => o.value),
+      ).toEqual(["devbox", "PAGE_BOX"]),
+    );
+    const repos = Array.from(screen.getByTestId("rules-preview-repos").querySelectorAll("option")).map((o) => o.value);
+    expect(repos).toEqual(["zorp.example/acme", "zorp.example/page"]);
+    expect(read.queries).toEqual([]);
+  });
+
+  it("RulesPreview_SuggestionsReadFails_ShowsTheGatewaysSentenceAndTheFormStillWorks", async () => {
+    read.page = () => Promise.reject(new GatewayError(500, "x", { reason: "The rule store is resting.", retryable: false }));
+
+    renderPreview();
+
+    expect((await screen.findByTestId("rules-preview-suggestions-error")).textContent).toBe("The rule store is resting.");
+    expect(describeAndReport).toHaveBeenCalledWith("rules", "load the machines and repositories to offer", expect.any(GatewayError));
+    fireEvent.change(screen.getByLabelText("Machine"), { target: { value: "devbox" } });
+    expect(previewButton().disabled).toBe(false);
   });
 
   it("RulesPreview_Answer_OffersTheGatewaysSuggestions", async () => {

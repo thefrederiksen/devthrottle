@@ -3,7 +3,13 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { GatewayError } from "../api/client";
 import type { RulePageAnswer } from "./rulesClient";
-import { RULE_A, RULE_B, rulePageWithFirings, rulePageWithoutFirings } from "./rulesFixture.testkit";
+import {
+  RULE_A,
+  RULE_B,
+  rulePageWithDeletedOverride,
+  rulePageWithFirings,
+  rulePageWithoutFirings,
+} from "./rulesFixture.testkit";
 import type { RulesFrameProps } from "./rulesShared";
 
 // One rule's page (wire P2): the fields drawn as the Gateway ordered them and nothing added, the firing record with
@@ -127,8 +133,33 @@ describe("RulePage", () => {
     expect(overrode.textContent).toContain("Overrode one other rule");
     const link = within(overrode).getByRole("link", { name: "Allow anything zorpy here." });
     expect(link.getAttribute("href")).toBe(`/test-rules/${RULE_B}`);
-    // A firing that overrode nothing has a blank label and draws no override block.
+    // A firing that overrode nothing has a blank label (plan Amendment 2) and draws no override block.
     expect(within(firings[1]).queryByTestId("rule-firing-overrode")).toBeNull();
+  });
+
+  it("RulePage_OverriddenRuleDeleted_ShowsTheGatewaysTextWithoutALink", async () => {
+    answers(rulePageWithDeletedOverride());
+
+    renderRule();
+
+    const overrode = await screen.findByTestId("rule-firing-overrode");
+    expect(within(overrode).getByTestId("rules-reference-deleted").textContent).toBe(
+      "(deleted rule 3f2c0000-0000-4000-8000-00000000000c)",
+    );
+    expect(within(overrode).queryByRole("link")).toBeNull();
+  });
+
+  it("RulePage_LabelWithAnEmptyList_DrawsTheLabelAndNoList", async () => {
+    // Not an answer the Gateway sends today (Amendment 2 blanks the label with the list); the two are drawn on their own
+    // terms all the same, so an empty list never leaves an empty bulleted block.
+    const page = rulePageWithFirings();
+    answers({ ...page, firings: [{ ...page.firings[0], overrode: [] }] });
+
+    renderRule();
+
+    const overrode = await screen.findByTestId("rule-firing-overrode");
+    expect(overrode.textContent).toBe("Overrode one other rule");
+    expect(overrode.querySelector("ul")).toBeNull();
   });
 
   it("RulePage_WithFirings_DrawsTheChanges", async () => {

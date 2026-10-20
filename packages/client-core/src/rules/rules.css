@@ -324,3 +324,10 @@ a.rules-sentence:hover {
 .rules-preview-rule[data-overridden] {
   opacity: 0.75;
 }
+
+/* A deleted rule a reference names: the Gateway's text, not a link, since the rule has no page any more. */
+.rules-reference-deleted {
+  color: var(--text-dim);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}

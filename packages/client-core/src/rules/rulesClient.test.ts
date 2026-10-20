@@ -1,7 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GatewayError, gatewayErrorMessage } from "../api/client";
 import { getRulePage, getRulesPage, getRulesPreview, viewerTimeZone } from "./rulesClient";
-import { previewEmpty, previewWithDecision, RULE_A, rulePageWithFirings, rulesPage } from "./rulesFixture.testkit";
+import {
+  previewEmpty,
+  previewWithDecision,
+  RULE_A,
+  RULE_B,
+  RULE_C,
+  rulePageWithDeletedOverride,
+  rulePageWithFirings,
+  rulesPage,
+} from "./rulesFixture.testkit";
 
 // The Rules page's three reads against wire P1 to P3 of the phase 3 plan. The client hands the Gateway's words over
 // verbatim, sends the viewer's own time zone as `tz` (ruling T3), carries the Gateway's own error sentence (ruling
@@ -68,6 +77,26 @@ describe("getRulesPage", () => {
     expect((err as GatewayError).message).toContain("purple");
   });
 
+  it("getRulesPage_Ok_ReadsThePreviewSuggestions", async () => {
+    answering(rulesPage());
+
+    const answer = await getRulesPage();
+
+    expect(answer.previewSuggestions).toEqual({
+      machines: ["devbox", "PAGE_BOX"],
+      repos: ["zorp.example/acme", "zorp.example/page"],
+    });
+  });
+
+  it("getRulesPage_MissingPreviewSuggestions_IsThrownNotDrawn", async () => {
+    const { previewSuggestions: _suggestions, ...rest } = rulesPage();
+    answering(rest);
+
+    const err = await rejection(getRulesPage());
+
+    expect((err as GatewayError).message).toContain("previewSuggestions");
+  });
+
   it("getRulesPage_MissingTabs_IsThrownNotDrawn", async () => {
     const { tabs: _tabs, ...rest } = rulesPage();
     answering(rest);
@@ -97,6 +126,26 @@ describe("getRulePage", () => {
     expect(url.pathname).toBe(`/gateway/rules/${RULE_A}/page`);
     expect(url.searchParams.get("tz")).toBe(viewerTimeZone());
     expect(answer).toEqual(rulePageWithFirings());
+  });
+
+  it("getRulePage_DeletedReference_ReadsTheDeletedFlag", async () => {
+    answering(rulePageWithDeletedOverride());
+
+    const answer = await getRulePage(RULE_A);
+
+    expect(answer.firings[0].overrode).toEqual([{ id: RULE_C, sentence: `(deleted rule ${RULE_C})`, deleted: true }]);
+  });
+
+  it("getRulePage_ReferenceWithoutDeletedFlag_IsThrownNotDrawn", async () => {
+    const page = rulePageWithFirings();
+    answering({
+      ...page,
+      firings: [{ ...page.firings[0], overrode: [{ id: RULE_B, sentence: "Allow anything zorpy here." }] }],
+    });
+
+    const err = await rejection(getRulePage(RULE_A));
+
+    expect((err as GatewayError).message).toContain("deleted");
   });
 
   it("getRulePage_UnknownRule_ThrowsTheGateways404Sentence", async () => {
@@ -134,6 +183,24 @@ describe("getRulesPreview", () => {
 
     expect(answer.decision).toBeNull();
     expect(answer).toEqual(previewEmpty());
+  });
+
+  it("getRulesPreview_CommandMatchedNothing_ReadsAnEmptyDecidingRuleId", async () => {
+    const preview = previewWithDecision();
+    const decision = {
+      command: "ls",
+      verdictLabel: "No rule matched",
+      tone: "neutral",
+      summary: "No rule matched this command.",
+      decidingRuleId: "",
+      overriddenRuleIds: [],
+      matchedRuleIds: [],
+    };
+    answering({ ...preview, decision });
+
+    const answer = await getRulesPreview({ machine: "devbox", repo: "", command: "ls" });
+
+    expect(answer.decision).toEqual(decision);
   });
 
   it("getRulesPreview_DecisionMissing_IsThrownNotReadAsNoCommand", async () => {

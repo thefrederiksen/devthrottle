@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
-import type { RuleTone } from "./rulesClient";
+import { Link } from "react-router-dom";
+import type { RuleReference, RuleTone } from "./rulesClient";
 
 // The pieces the three Rules views share: the frame each shell wraps them in, and the toned text.
 //
@@ -28,6 +29,29 @@ export interface RulesShellProps {
   errorClassName: string;
   /** The shell's address of one rule's page. */
   ruleHref: (id: string) => string;
+}
+
+/**
+ * The rules one rule names (what a firing overrode, what a rule overrides or is overridden by), each linking to its
+ * page - except a deleted rule, which has no page and is shown as the Gateway's text only (plan Amendment 2). The
+ * Gateway says which is deleted; this reads its flag and never the sentence.
+ */
+export function RuleReferences({ items, ruleHref }: { items: RuleReference[]; ruleHref: (id: string) => string }) {
+  return (
+    <ul className="rules-references">
+      {items.map((other) => (
+        <li key={other.id}>
+          {other.deleted ? (
+            <span className="rules-reference-deleted" data-testid="rules-reference-deleted">
+              {other.sentence}
+            </span>
+          ) : (
+            <Link to={ruleHref(other.id)}>{other.sentence}</Link>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /**

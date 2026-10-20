@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { describeAndReport } from "../errors/reportClientError";
 import { getRulePage, type RuleFiring, type RulePageAnswer } from "./rulesClient";
-import { RULES_SURFACE, Toned, type RulesShellProps } from "./rulesShared";
+import { RuleReferences, RULES_SURFACE, Toned, type RulesShellProps } from "./rulesShared";
 import "../settings/settings.css";
 import "./rules.css";
 
@@ -11,7 +10,8 @@ import "./rules.css";
 //
 // IT RENDERS THE GATEWAY'S WORDS AND DECIDES NOTHING (rule 7, ruling T1). `fields` is ordered and complete, so it is
 // drawn as a list and nothing is added to it. A firing's decision, its tone, what it overrode and what that meant are
-// the Gateway's; a rule it overrode links to that rule's page by the id the Gateway sent.
+// the Gateway's; a rule it overrode links to that rule's page by the id the Gateway sent, unless the Gateway says it is
+// deleted. The override block is drawn when its label is not blank, its list when the list is not empty (Amendment 2).
 //
 // A rule that does not exist is the Gateway's 404, and its sentence is the error shown (ruling T9).
 
@@ -153,13 +153,7 @@ function Firing({ firing, ruleHref }: { firing: RuleFiring; ruleHref: (id: strin
       {firing.overrodeLabel.length > 0 && (
         <div className="rules-overrode" data-testid="rule-firing-overrode">
           <span className="rules-overrode-label">{firing.overrodeLabel}</span>
-          <ul className="rules-references">
-            {firing.overrode.map((other) => (
-              <li key={other.id}>
-                <Link to={ruleHref(other.id)}>{other.sentence}</Link>
-              </li>
-            ))}
-          </ul>
+          {firing.overrode.length > 0 && <RuleReferences items={firing.overrode} ruleHref={ruleHref} />}
         </div>
       )}
       <p className="rules-outcome">{firing.outcomeLabel}</p>

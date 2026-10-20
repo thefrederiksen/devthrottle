@@ -125,6 +125,7 @@ describe("the Cockpit's Rules addresses", () => {
 
   it("RulesPreviewView_PreviewAddress_IsThePreviewNotARuleCalledPreview", async () => {
     read.preview = () => Promise.resolve(previewWithDecision());
+    read.page = () => Promise.resolve(rulesPage());
 
     renderAt("/rules/preview?machine=devbox&command=zorp%20-rf%20build");
 
