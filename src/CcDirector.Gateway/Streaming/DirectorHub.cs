@@ -95,8 +95,10 @@ public sealed class DirectorHub : Hub
         FactoryKitCapabilityRegistry? factoryKitCapabilities = null,
         DefinitionCheckCapabilityRegistry? definitionChecks = null,
         ApiModeEvents.ApiModeEventIngest? apiModeEvents = null,
-        Licenses.LicenseApproverRegistration? licenseApproverRegistration = null)
+        Licenses.LicenseApproverRegistration? licenseApproverRegistration = null,
+        DesktopRelayRegistry? desktopRelay = null)
     {
+        _desktopRelay = desktopRelay;
         _licenseApproverRegistration = licenseApproverRegistration;
         _apiModeEvents = apiModeEvents;
         _factoryMachineQuestionCapabilities = factoryMachineQuestionCapabilities;
@@ -183,6 +185,9 @@ public sealed class DirectorHub : Hub
     private readonly ApiModeEvents.ApiModeEventIngest? _apiModeEvents;
     // Whose a Director is inside a team (devthrottle_internal#2311): the one answer the team gate also asks.
     private readonly Teams.TeamCallerOwnership? _teamOwnership;
+
+    /// <summary>Factory Boxes: the open desktop relay streams. Null on a Gateway built without the relay (older tests).</summary>
+    private readonly DesktopRelayRegistry? _desktopRelay;
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
     private readonly TurnPushCapabilityRegistry? _turnPushCapabilities;
     private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
@@ -405,6 +410,34 @@ public sealed class DirectorHub : Hub
             // type SignalR relays verbatim). A refusal is never swallowed: an operator reading either side's
             // log must be able to tell a cross-account injection attempt from an ordinary closed-stream race.
             FileLog.Write($"[DirectorHub] StreamUp REFUSED: director={directorId}, stream={streamId}, conn={Short(Context.ConnectionId)}");
+            throw new HubException(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Factory Boxes (issue #4258): the Director carries one desktop relay stream - one browser request, or one
+    /// browser WebSocket to a box's desktop - after the Gateway opened it with the open-desktop-stream command. One
+    /// call carries both directions: the Director's frames come UP as <paramref name="up"/>, and the frames this
+    /// returns go DOWN. See <see cref="DesktopRelayProtocol"/> for the flow control that keeps a busy desktop from
+    /// filling this connection's shared stream buffer and starving the terminal streams beside it.
+    ///
+    /// The same ownership rule as <see cref="StreamUp"/> (issue #1923): only the Director the stream was opened on,
+    /// in the tenant that opened it, may attach. Requires the connection be bound first (Hello).
+    /// </summary>
+    public IAsyncEnumerable<DesktopRelayFrame> DesktopRelay(string streamId, IAsyncEnumerable<DesktopRelayFrame> up)
+    {
+        var directorId = RequireBoundDirector();
+        var caller = new StreamOwner(RequireBoundTenant(), directorId);
+        FileLog.Write($"[DirectorHub] DesktopRelay: director={directorId}, stream={streamId}, conn={Short(Context.ConnectionId)}");
+        if (_desktopRelay is null)
+            throw new HubException("This Gateway does not relay desktops.");
+        try
+        {
+            return _desktopRelay.Attach(streamId, caller, up, Context.ConnectionAborted);
+        }
+        catch (StreamOwnershipDeniedException ex)
+        {
+            FileLog.Write($"[DirectorHub] DesktopRelay REFUSED: director={directorId}, stream={streamId}, conn={Short(Context.ConnectionId)}");
             throw new HubException(ex.Message);
         }
     }
