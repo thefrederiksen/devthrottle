@@ -116,3 +116,7 @@ To run them again: start `node fake-gateway.mjs 7979`; in `apps/cockpit`,
 - **The phone app.** The calls are in client-core so the phone can reuse them; there is no phone screen in phase 1.
 - **The dev server's `/sessions`.** Under `npm run dev` a page load of `/sessions` is sent to the Gateway (a dev proxy
   limitation that predates this change), so the rail shots are taken on `/history`.
+
+## Developer's answers
+
+No findings to answer: the Codex review (`reviews/phase1-cockpit-review-codex.md`, in this folder unchanged) found none.
