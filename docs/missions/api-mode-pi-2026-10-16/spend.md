@@ -49,6 +49,9 @@ and 500 output tokens (more than one to two seconds of streaming can produce).
 | 2026-10-19 | Developer, phase 6 | Proof script fourth dry run, devlinux, with the screens (evidence not kept: the screen checks' words were cut short by a quoting fault, since fixed); one reply cut off by Stop, estimated | 4,568 | 1,874 | 24,437 | 5,999 | 0.14 |
 | 2026-10-19 | Developer, phase 6 | Proof script fifth dry run, devlinux, with the screens, the revision committed for the QA run (evidence not kept: a dry run, superseded by the recorded run); one reply cut off by Stop, estimated | 4,566 | 593 | 23,146 | 4,716 | 0.0817 |
 | 2026-10-20 | Developer, phase 6 | Proof script recorded run, devlinux, commit 602beeb0f built fresh in a clean worktree (proofs/phase-6/linux-20261020-003750); one reply cut off by Stop, estimated | 4,565 | 609 | 23,157 | 4,731 | 0.0824 |
+| 2026-10-20 | Developer, Cockpit mid-turn screen | Diagnostic run, devlinux, the recorded run's tree with the mid-turn capture timed (evidence not kept; its probe held the phone back, so Stop came after the turn ended and the 600-line reply ran in full); spend file not kept, estimated | 4,600 | 1,900 | 23,000 | 4,800 | 0.10 |
+| 2026-10-20 | Developer, Cockpit mid-turn screen | Diagnostic run, devlinux, the same tree with the probe corrected (evidence not kept: it measured the Cockpit drawing Pi's first word 83 milliseconds after the Director stored it); one reply cut off by Stop, estimated | 5,152 | 620 | 26,103 | 5,329 | 0.0903 |
+| 2026-10-20 | Developer, Cockpit mid-turn screen | Proof script run with the mid-turn screen waiting for the reply, commit 26a227479 built fresh (proofs/phase-6/linux-20261020-010149); one reply cut off by Stop, estimated | 4,568 | 707 | 23,270 | 4,832 | 0.0869 |
 
 Recording 1 was discarded and recorded again because its fixtures carried text that this public
 repository should not publish (the fleet's skill descriptions and the user name inside Pi's session
@@ -60,6 +63,6 @@ folder name). Recording 2 is what is committed, plus recording 3, the exit befor
 |---|---|
 | Phase 0 (both recordings) | 0.29 |
 | Phase 1 integration (the two preamble proof runs) | 0.05 |
-| Phase 6 (proof runs; its share is capped at 2 dollars) | 0.73 |
-| Mission so far, including the Architect's posted run | 1.10 |
-| Left of the 10 dollar grant | 8.90 |
+| Phase 6 (proof runs; its share is capped at 2 dollars) | 1.01 |
+| Mission so far, including the Architect's posted run | 1.38 |
+| Left of the 10 dollar grant | 8.62 |
