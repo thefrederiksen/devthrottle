@@ -397,6 +397,9 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>One row per email routed to a seat in live mode (Mail Desk; the table lands in phase 1, phase 4 uses it).</summary>
     public DbSet<MailDeskRoutedEntity> MailDeskRouted => Set<MailDeskRoutedEntity>();
 
+    /// <summary>The Mail Desk's mailbox checks worth keeping (phase 3, contract section 6.2).</summary>
+    public DbSet<MailDeskChannelCheckEntity> MailDeskChannelChecks => Set<MailDeskChannelCheckEntity>();
+
     /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
     /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
     /// days.</summary>
@@ -1136,6 +1139,19 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.State });
         });
 
+        modelBuilder.Entity<MailDeskChannelCheckEntity>(b =>
+        {
+            b.ToTable("mail_desk_channel_checks");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Machine).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskChannelStore.MaxMachineLength);
+            b.Property(e => e.Sentence).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore.MaxSentenceLength);
+            b.Property(e => e.Detail).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore.MaxSentenceLength);
+            b.Property(e => e.ResolvedBy).HasMaxLength(200);
+            b.Property(e => e.ResolvedReason).HasMaxLength(CcDirector.Gateway.Running.CronRunResultFold.MaxReasonChars);
+            // Every read is one channel's rows in the order they were checked.
+            b.HasIndex(e => new { e.TenantId, e.ChannelId, e.CheckedUtc });
+        });
+
         // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
 
         modelBuilder.Entity<TurnVerdictEntity>(b =>
@@ -1361,6 +1377,9 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Seat).HasMaxLength(64);
             b.Property(e => e.CheckPath).HasMaxLength(256);
             b.Property(e => e.SecretsJson).HasMaxLength(4096);
+            // Mail Desk, phase 5: the backup machines in order, and the machine of the Director holding the claim.
+            b.Property(e => e.BackupMachinesJson).HasMaxLength(2048).HasDefaultValue("[]");
+            b.Property(e => e.ClaimedByMachine).HasMaxLength(256).HasDefaultValue("");
             // One trigger per name per account. The store also refuses a name that differs only in case.
             b.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
         });
@@ -2460,6 +2479,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<MailDeskListChangeEntity>(modelBuilder);
         ApplyTenantScope<MailDeskDecisionEntity>(modelBuilder);
         ApplyTenantScope<MailDeskRoutedEntity>(modelBuilder);
+        ApplyTenantScope<MailDeskChannelCheckEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleChangeEntity>(modelBuilder);

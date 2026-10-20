@@ -192,6 +192,13 @@ public static class FileLog
     /// </summary>
     public static Action<string>? ErrorObserver { get; set; }
 
+    /// <summary>
+    /// TEST-ONLY. Sees every line written, whether or not the file writer is running, so a unit test can search what a
+    /// path logged without writing to the machine's log folder (the Mail Desk proves no email text reaches a log line).
+    /// Process-wide: a test that sets it must clear it, and must look only for text no other test writes.
+    /// </summary>
+    internal static Action<string>? LineObserverForTest { get; set; }
+
     /// <summary>Log a message with a timestamp prefix.</summary>
     public static void Write(string message)
     {
@@ -206,6 +213,7 @@ public static class FileLog
         // the file, and a unit test can watch the real error path without writing to the machine's log folder.
         if (ErrorObserver is { } observer && ErrorReports.ErrorLine.IsError(message))
             observer(message);
+        LineObserverForTest?.Invoke(message);
     }
 
     /// <summary>

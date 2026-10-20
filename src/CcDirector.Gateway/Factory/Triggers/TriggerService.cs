@@ -16,13 +16,20 @@ public enum TriggerReportRefusal
     None,
     /// <summary>No trigger has that id or name in this account.</summary>
     NoSuchTrigger,
-    /// <summary>Another Director on the machine holds this trigger's check.</summary>
+    /// <summary>Another Director holds this trigger's check: one on the same machine, or (Mail Desk, phase 5) one on a
+    /// machine earlier in the trigger's list that took it back.</summary>
     HeldByAnotherDirector,
     /// <summary>A check from a definition, reported by a Director that never said on Hello that it runs them.</summary>
     CannotRunDefinitionChecks,
     /// <summary>A Mail Desk screening check (<see cref="MailDesk.MailDeskStart.Is"/>) reported for an account Mail Desk
     /// is not switched on for. Nothing is recorded.</summary>
     MailDeskOff,
+    /// <summary>A Mail Desk screening check reported to a Gateway with no Mail Desk service wired (Mail Desk phase 3,
+    /// section 2): refused, nothing recorded, so a count can never start the seat.</summary>
+    MailDeskNotReady,
+    /// <summary>The reporting Director's machine is not on the trigger's list - its own machine and its backups - such
+    /// as a backup a republish removed whose check was still running (Mail Desk, phase 5).</summary>
+    MachineNotOnTheList,
 }
 
 /// <summary>The answer to one check report: the run row it wrote, or why it wrote none.</summary>
@@ -114,6 +121,12 @@ public sealed class TriggerService
     private readonly Func<TenantId, string, bool> _machineRunsDefinitionChecks;
     private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
     private readonly Func<TenantId, bool> _mailDeskOn;
+    private readonly MailDesk.MailDeskService? _mailDesk;
+    // The Mail Desk starts whose screening is running right now on this Gateway (phase 3, section 2): a second report
+    // of one is skipped-running, its memory not kept.
+    private readonly ConcurrentDictionary<Guid, byte> _screening = new();
+    // The newest screening begun per trigger - read only by tests, which wait on it instead of sleeping; never decides.
+    private readonly ConcurrentDictionary<Guid, Task<TriggerRunEntity?>> _lastScreening = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new(StringComparer.Ordinal);
     // The triggers whose start is running right now on this Gateway. A lock with no session that is NOT in here is a
     // start that ended with its outcome unknown (or one a stopped Gateway left behind): the check looks for its session.
@@ -137,12 +150,17 @@ public sealed class TriggerService
     /// brief D item 8); a command trigger never reads it.</param>
     /// <param name="mailDeskOn">Whether Mail Desk is switched on for the account (<see cref="MailDesk.MailDeskSwitch.IsOn"/>).
     /// A Mail Desk screening check reported for an account it is off for is refused before anything is recorded.</param>
+    /// <param name="mailDesk">Where a Mail Desk start's report is handed (Mail Desk phase 3, section 2). Null in a
+    /// Gateway built without it: a Mail Desk report is then refused <see cref="TriggerReportRefusal.MailDeskNotReady"/>,
+    /// never decided on its count.</param>
     public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
         Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks,
-        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf, Func<TenantId, bool> mailDeskOn)
+        Func<TenantId, string, PublishedFactoryDefinition?> definitionOf, Func<TenantId, bool> mailDeskOn,
+        MailDesk.MailDeskService? mailDesk = null)
     {
+        _mailDesk = mailDesk;
         _startLifetime = startLifetime;
         _mailDeskOn = mailDeskOn ?? throw new ArgumentNullException(nameof(mailDeskOn));
         _definitionOf = definitionOf ?? throw new ArgumentNullException(nameof(definitionOf));
@@ -165,7 +183,9 @@ public sealed class TriggerService
         var status = TriggerStatusFold.For(t.CreatedUtc, t.IntervalSeconds, t.LastCheckUtc, t.LastOutcome, t.LastReason,
             t.LastSessionId, t.LastStartedUtc is { } s ? DateTime.SpecifyKind(s, DateTimeKind.Utc) : null, _nowUtc(),
             startOutcomeUnknown: IsHeldByUnknownStart(t),
-            noDefinitionDirectorOn: t.IsDefinitionCheck && !_machineRunsDefinitionChecks(new TenantId(t.TenantId), t.Machine)
+            // Silent for want of a Director only when no machine on the trigger's list has one that runs definition checks.
+            noDefinitionDirectorOn: t.IsDefinitionCheck
+                                    && !TriggerMachines.AllOf(t).Any(m => _machineRunsDefinitionChecks(new TenantId(t.TenantId), m))
                 ? t.Machine
                 : null);
         return new TriggerDto
@@ -175,6 +195,8 @@ public sealed class TriggerService
             Factory = t.Factory,
             FactoryAgent = t.FactoryAgent,
             Machine = t.Machine,
+            BackupMachines = TriggerMachines.BackupsOf(t).ToList(),
+            MachinesText = TriggerMachines.Text(t),
             RepoPath = t.RepoPath,
             CheckCommand = t.CheckCommand,
             IntervalSeconds = t.IntervalSeconds,
@@ -207,7 +229,9 @@ public sealed class TriggerService
     };
 
     /// <summary>
-    /// The checks this Director must run: the triggers on its machine it holds, or takes over. A COMMAND trigger is
+    /// The checks this Director must run: the triggers whose machines include its machine that it holds, or takes over
+    /// (a backup machine takes a lapsed claim; a trigger's own machine takes its check back - see
+    /// <see cref="TriggerStore.ClaimForDirector"/>). A COMMAND trigger is
     /// handed exactly as it always was. A DEFINITION trigger (Factory Definition, phase 5b, design 2.1) is handed with
     /// its kind, factory, version, check path and declared secrets, and the newest state its check left - and with no
     /// command and no folder, because its check is downloaded from the published version and never runs in a checkout.
@@ -219,7 +243,7 @@ public sealed class TriggerService
         FileLog.Write($"[TriggerService] AssignmentsFor: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}");
         var runsDefinitionChecks = _directorRunsDefinitionChecks(tenant, directorId);
         return _store.ClaimForDirector(tenant, directorId, machine, _nowUtc(), runsDefinitionChecks)
-            .Select(t => t.IsDefinitionCheck ? DefinitionAssignment(tenant, t) : new TriggerAssignmentDto
+            .Select(t => t.IsDefinitionCheck ? DefinitionAssignment(tenant, t, machine) : new TriggerAssignmentDto
             {
                 Id = t.Id.ToString("D"),
                 Name = t.Name,
@@ -231,7 +255,7 @@ public sealed class TriggerService
             .ToList();
     }
 
-    private TriggerAssignmentDto DefinitionAssignment(TenantId tenant, TriggerEntity t) => new()
+    private TriggerAssignmentDto DefinitionAssignment(TenantId tenant, TriggerEntity t, string machine) => new()
     {
         Id = t.Id.ToString("D"),
         Name = t.Name,
@@ -246,8 +270,19 @@ public sealed class TriggerService
         CheckPath = t.CheckPath,
         Secrets = SecretsOf(t),
         DueRunId = null,
-        State = _store.CheckStates.StateFor(tenant, t.Factory, FactoryCheckStateStore.TriggerOwner(t.Id)),
+        State = StateHandedTo(tenant, t, machine),
     };
+
+    /// <summary>
+    /// The memory a definition trigger's check is handed: the newest state its check left - or, for the Mail Desk start
+    /// with its service wired, the memory MADE UP for this machine (phase 3, section 4): the active channels that name
+    /// it, each with its kept fields, so a channel added since is read as a first run and a removed one is not read.
+    /// </summary>
+    private string? StateHandedTo(TenantId tenant, TriggerEntity t, string machine)
+    {
+        var kept = _store.CheckStates.StateFor(tenant, t.Factory, FactoryCheckStateStore.TriggerOwner(t.Id));
+        return _mailDesk is not null && MailDesk.MailDeskStart.Is(t) ? _mailDesk.HandMemory(tenant, kept, machine) : kept;
+    }
 
     /// <summary>The cc-secrets entry names a definition trigger's check declares, in declared order.</summary>
     internal static List<string> SecretsOf(TriggerEntity t)
@@ -317,11 +352,16 @@ public sealed class TriggerService
     /// that arrives while the start is still running reads the lock and records <c>skipped-running</c>.
     /// The result's <see cref="TriggerReportResult.Starting"/> carries that start; the route does not wait on it.
     /// </summary>
+    /// <param name="machine">The machine of the reporting Director, as the route resolved it. It is kept as the claim's
+    /// machine, so a backup's claim can be taken back (Mail Desk, phase 5), and the session a check begins starts on
+    /// it. Null from a caller that does not say: the claim's machine is then not known, and the session starts on the
+    /// trigger's own machine, as before backup machines.</param>
     public async Task<TriggerReportResult> ReportCheckAsync(
-        TenantId tenant, string directorId, string triggerIdOrName, TriggerCheckReport report, CancellationToken ct)
+        TenantId tenant, string directorId, string triggerIdOrName, TriggerCheckReport report, CancellationToken ct,
+        string? machine = null)
     {
         ArgumentNullException.ThrowIfNull(report);
-        FileLog.Write($"[TriggerService] ReportCheckAsync: tenant={tenant.ToLogString()}, director={directorId}, trigger={triggerIdOrName}");
+        FileLog.Write($"[TriggerService] ReportCheckAsync: tenant={tenant.ToLogString()}, director={directorId}, machine={machine ?? "not said"}, trigger={triggerIdOrName}");
 
         var found = _store.Find(tenant, triggerIdOrName);
         if (found is null)
@@ -336,6 +376,15 @@ public sealed class TriggerService
             FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={found.Name} is a Mail Desk check and Mail Desk is off for account {tenant.ToLogString()} - refused, nothing recorded");
             return TriggerReportResult.Refused(TriggerReportRefusal.MailDeskOff,
                 $"trigger '{found.Name}' is the Mail Desk screening check, and Mail Desk is not switched on for this account; this report was not recorded and nothing was started");
+        }
+        // THE HARD ORDER (Mail Desk phase 3, section 2): a Mail Desk start's report is never decided on its count. With
+        // no Mail Desk service wired there is nowhere to hand it, so it is refused before anything is written.
+        var mailDesk = MailDesk.MailDeskStart.Is(found);
+        if (mailDesk && _mailDesk is null)
+        {
+            FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={found.Name} is a Mail Desk check and this Gateway has no Mail Desk service - refused, nothing recorded");
+            return TriggerReportResult.Refused(TriggerReportRefusal.MailDeskNotReady,
+                $"trigger '{found.Name}' is the Mail Desk screening check, and this Gateway cannot screen mail; this report was not recorded and nothing was started");
         }
         if (found.IsDefinitionCheck && !_directorRunsDefinitionChecks(tenant, directorId))
             return TriggerReportResult.Refused(TriggerReportRefusal.CannotRunDefinitionChecks,
@@ -353,22 +402,35 @@ public sealed class TriggerService
                     $"no trigger '{triggerIdOrName}' in this account");
 
             var now = _nowUtc();
+            // A machine on no list is never handed the trigger, and its report is not taken either: recorded, it would
+            // take the claim from a machine on no list, which the trigger's own machine could not take back before
+            // the lapse. A caller that does not say its machine keeps the path it always had.
+            if (machine is not null && TriggerMachines.PositionOf(trigger, machine) < 0)
+            {
+                FileLog.Write($"[TriggerService] ReportCheckAsync REFUSED: trigger={trigger.Name}, director={directorId} on {machine}, not on {TriggerMachines.Text(trigger)}");
+                return TriggerReportResult.Refused(TriggerReportRefusal.MachineNotOnTheList,
+                    $"trigger '{trigger.Name}' runs on {TriggerMachines.Text(trigger)}, not on {machine}, so this report from Director {directorId} was not recorded");
+            }
             if (TriggerStore.IsHeldByAnother(trigger, directorId, now))
                 return TriggerReportResult.Refused(TriggerReportRefusal.HeldByAnotherDirector,
                     $"Director {trigger.ClaimedByDirectorId} runs the check of trigger '{trigger.Name}'; this report was not recorded");
 
             // A lock with no session and no start running is a start whose outcome was not known: adopt its session
             // if the Director has reported it, or let the lock lapse once the grace is over - before deciding.
-            trigger = ResolveUnknownStart(tenant, trigger, directorId, now);
+            trigger = ResolveUnknownStart(tenant, trigger, directorId, machine, now);
             if (trigger is null)
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"no trigger '{triggerIdOrName}' in this account");
+
+            // The screening is begun here, under the lock, and takes the lock again only to record its run when it ends.
+            if (mailDesk)
+                return HandToMailDesk(tenant, trigger, directorId, machine, report);
 
             var decision = Decide(tenant, trigger, directorId, report, now);
             if (decision.Start is null)
             {
                 var recorded = _store.RecordCheck(tenant, trigger.Id, directorId, report.CheckedAtUtc, decision.Outcome!,
-                    decision.Count, decision.SessionId, decision.Reason, _nowUtc());
+                    decision.Count, decision.SessionId, decision.Reason, _nowUtc(), machine);
                 if (recorded is null)
                     return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                         $"trigger '{trigger.Name}' was deleted while its check was being recorded");
@@ -382,14 +444,14 @@ public sealed class TriggerService
                 return new TriggerReportResult(TriggerReportRefusal.None, recorded.Run, null);
             }
 
-            if (!_store.BeginStart(tenant, trigger.Id, directorId, now, decision.Start.Name!))
+            if (!_store.BeginStart(tenant, trigger.Id, directorId, now, decision.Start.Name!, machine))
                 return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
                     $"trigger '{trigger.Name}' was deleted while its check was being recorded");
             _inFlight[trigger.Id] = 0;
             // The run row of a check that begins a start is written when the start returns, and its state is kept
             // then, only when a session started (see FinishStartAsync) - so it travels with the start.
-            pending = new PendingStart(tenant, trigger, directorId, report.CheckedAtUtc, decision.Count!.Value, decision.Start,
-                report.State);
+            pending = new PendingStart(tenant, trigger, directorId, machine, report.CheckedAtUtc, decision.Count!.Value,
+                decision.Start, report.State);
             FileLog.Write($"[TriggerService] ReportCheckAsync: trigger={trigger.Name}, count={pending.Count.ToString(CultureInfo.InvariantCulture)}, lock taken, starting session '{pending.Request.Name}' off the request");
         }
         catch (Exception ex)
@@ -406,6 +468,124 @@ public sealed class TriggerService
         // the request's - so the Director going away cannot cancel a start that is already under way.
         var starting = Task.Run(() => FinishStartAsync(pending), CancellationToken.None);
         return TriggerReportResult.StartingIn(starting, pending.Count);
+    }
+
+    /// <summary>
+    /// THE MAIL DESK HAND-OFF, under the per-trigger lock (Mail Desk phase 3, sections 1 and 2). The report is NEVER read
+    /// for its count: a failed check is recorded <c>failed</c> by the ordinary rule, memory not kept (the whole-run
+    /// failure of section 6); a paused start is recorded <c>paused</c> and screens nothing, memory not kept; while a
+    /// screening of this trigger runs a second report is <c>skipped-running</c>, memory not kept; otherwise the screening is begun off the request, on the Gateway's lifetime, and records the run when it
+    /// ends. Answers the row recorded now, or the screening under way.
+    /// </summary>
+    private TriggerReportResult HandToMailDesk(TenantId tenant, TriggerEntity trigger,
+        string directorId, string? machine, TriggerCheckReport report)
+    {
+        var where = machine ?? trigger.Machine;
+        var reading = TriggerCheckContract.Read(report, definitionCheck: true);
+        string? outcome = null, reason = null;
+        if (reading.Failed)
+        {
+            // A check that failed because no channel names this machine says the fix, not phase 2's "no channels".
+            outcome = TriggerRunOutcome.Failed;
+            reason = _mailDesk!.NoChannelSentence(tenant, where) ?? reading.FailureReason;
+        }
+        else if (trigger.Paused)
+        {
+            // THE OWNER'S STOP BUTTON HOLDS FOR THE MAIL DESK TOO (review of 4243, finding 1): a paused start screens
+            // nothing - no model call, no decision, no spend - and keeps no memory, so its mail is read again once resumed.
+            outcome = TriggerRunOutcome.Paused;
+        }
+        else if (_screening.ContainsKey(trigger.Id))
+        {
+            outcome = TriggerRunOutcome.SkippedRunning;
+            reason = ScreeningStillRunning;
+        }
+        if (outcome is not null)
+        {
+            var recorded = _store.RecordCheck(tenant, trigger.Id, directorId, report.CheckedAtUtc, outcome,
+                reading.Failed ? null : reading.Count, null, reason, _nowUtc(), machine);
+            if (recorded is null)
+                return TriggerReportResult.Refused(TriggerReportRefusal.NoSuchTrigger,
+                    $"trigger '{trigger.Name}' was deleted while its check was being recorded");
+            _activity.Append(tenant, ActivityFor(trigger, recorded.Run), callingActor: null);
+            FileLog.Write($"[TriggerService] ReportCheckAsync: Mail Desk trigger={trigger.Name}, outcome={outcome}, reason={reason}");
+            return new TriggerReportResult(TriggerReportRefusal.None, recorded.Run, null);
+        }
+
+        _screening[trigger.Id] = 0;
+        var kept = _store.CheckStates.StateFor(tenant, trigger.Factory, FactoryCheckStateStore.TriggerOwner(trigger.Id));
+        FileLog.Write($"[TriggerService] ReportCheckAsync: Mail Desk trigger={trigger.Name}, count={reading.Count!.Value.ToString(CultureInfo.InvariantCulture)}, screening off the request on {where}");
+        var pending = new PendingScreening(tenant, trigger, directorId, machine, where, report.CheckedAtUtc, reading.Count!.Value,
+            reading.Context, report.State, kept);
+        var screening = Task.Run(() => FinishScreeningAsync(pending), CancellationToken.None);
+        _lastScreening[trigger.Id] = screening;
+        return TriggerReportResult.StartingIn(screening, pending.Count);
+    }
+
+    /// <summary>The newest screening begun for a trigger, or null - what a test awaits after a report through the
+    /// route, which answers before the screening ends.</summary>
+    internal Task<TriggerRunEntity?>? LastScreeningForTest(Guid triggerId)
+        => _lastScreening.TryGetValue(triggerId, out var task) ? task : null;
+
+    /// <summary>The reason a Mail Desk report that arrives while its last screening runs is recorded with.</summary>
+    public const string ScreeningStillRunning = "the previous screening is still running";
+
+    /// <param name="Machine">The reporting Director's machine as the report said it, or null.</param>
+    /// <param name="Where">The machine the check ran on: the report's, or the trigger's own when the report did not say.</param>
+    private sealed record PendingScreening(TenantId Tenant, TriggerEntity Trigger, string DirectorId, string? Machine,
+        string Where, DateTime CheckedUtc, int Count, string? Context, string? Returned, string? Kept);
+
+    /// <summary>
+    /// Run one screening begun by <see cref="ReportCheckAsync"/> and write the check's one run row: <c>screened</c>,
+    /// keeping the memory the screening made up, or <c>failed</c>, keeping none. Then each mailbox's check, naming the
+    /// run. Nothing awaits this in production, so it is an entry point: every failure ends as a logged failed row.
+    /// </summary>
+    private async Task<TriggerRunEntity?> FinishScreeningAsync(PendingScreening p)
+    {
+        var name = p.Trigger.Name;
+        MailDesk.MailDeskScreeningRun run;
+        try
+        {
+            run = await _mailDesk!.ScreenAsync(p.Tenant, p.Where, p.Context, p.Returned, p.Kept, _startLifetime).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TriggerService] FinishScreeningAsync: trigger={name}, the screening threw {ex.GetType().Name}: {ex.Message}");
+            run = MailDesk.MailDeskScreeningRun.Failed($"the screening could not be finished: {ex.Message}");
+        }
+
+        try
+        {
+            var gate = GateFor(p.Tenant, p.Trigger.Id);
+            await gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                var recorded = _store.RecordCheck(p.Tenant, p.Trigger.Id, p.DirectorId, p.CheckedUtc, run.Outcome, p.Count,
+                    null, run.Reason, _nowUtc(), p.Machine);
+                if (recorded is null)
+                {
+                    FileLog.Write($"[TriggerService] FinishScreeningAsync: trigger={name} was deleted while its mail was screened; the run is not recorded");
+                    return null;
+                }
+                _activity.Append(p.Tenant, ActivityFor(p.Trigger, recorded.Run), callingActor: null);
+                if (run.Memory is not null)
+                    KeepState(p.Tenant, p.Trigger, p.DirectorId, run.Memory, recorded.Run.Id.ToString("D"));
+                _mailDesk!.RecordChecks(p.Tenant, recorded.Run.Id, p.CheckedUtc, p.Where, run.Checks);
+                FileLog.Write($"[TriggerService] FinishScreeningAsync: trigger={name}, outcome={run.Outcome}, count={p.Count.ToString(CultureInfo.InvariantCulture)}, memory={(run.Memory is null ? "not kept" : "kept")}");
+                return recorded.Run;
+            }
+            finally
+            {
+                _screening.TryRemove(p.Trigger.Id, out _);
+                gate.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            _screening.TryRemove(p.Trigger.Id, out _);
+            FileLog.Write($"[TriggerService] FinishScreeningAsync FAILED to record: trigger={name}, {ex.Message}");
+            return null;
+        }
     }
 
     private SemaphoreSlim GateFor(TenantId tenant, Guid triggerId)
@@ -433,7 +613,7 @@ public sealed class TriggerService
     /// Inside the grace with no session yet, nothing changes and the lock keeps holding. Returns the trigger as it now
     /// stands, or null when it no longer exists.
     /// </summary>
-    private TriggerEntity? ResolveUnknownStart(TenantId tenant, TriggerEntity trigger, string directorId, DateTime now)
+    private TriggerEntity? ResolveUnknownStart(TenantId tenant, TriggerEntity trigger, string directorId, string? machine, DateTime now)
     {
         if (!IsHeldByUnknownStart(trigger))
             return trigger;
@@ -446,14 +626,14 @@ public sealed class TriggerService
         string what;
         if (found is not null && !string.IsNullOrEmpty(found.SessionId))
         {
-            recorded = _store.AdoptStart(tenant, trigger.Id, directorId, found.SessionId, now);
+            recorded = _store.AdoptStart(tenant, trigger.Id, directorId, found.SessionId, now, machine);
             what = $"Found session {found.SessionId}, named {name}, from the start of {trigger.Name} whose outcome was not known, and took it as the lock";
         }
         else if (now - startedUtc >= StartGrace)
         {
             var reason = TriggerStatusFold.StartFailedPrefix +
                          $"no session named '{name ?? "(no name was recorded)"}' showed up within {(int)StartGrace.TotalMinutes} minutes of a start whose outcome was not known; the lock is released";
-            recorded = _store.LapseStart(tenant, trigger.Id, directorId, reason, now);
+            recorded = _store.LapseStart(tenant, trigger.Id, directorId, reason, now, machine);
             what = $"{trigger.Name}: {reason}";
         }
         else
@@ -467,8 +647,19 @@ public sealed class TriggerService
         return recorded.Trigger;
     }
 
-    private sealed record PendingStart(TenantId Tenant, TriggerEntity Trigger, string DirectorId, DateTime CheckedUtc,
-        int Count, NewSessionRequest Request, string? State);
+    /// <param name="Machine">The reporting Director's machine, or null when the report did not say.</param>
+    private sealed record PendingStart(TenantId Tenant, TriggerEntity Trigger, string DirectorId, string? Machine, DateTime CheckedUtc,
+        int Count, NewSessionRequest Request, string? State)
+    {
+        /// <summary>
+        /// WHERE THE SESSION STARTS: on the machine of the Director that ran the check - the request names that
+        /// Director. On a trigger with no backups that is the trigger's own machine, as it always was. When a BACKUP
+        /// ran it (Mail Desk, phase 5), the trigger's own machine is away - that is why the backup holds the claim - so
+        /// the session starts on the backup, the one machine known to be up a moment ago. A report that did not say its
+        /// machine starts on the trigger's own machine, as before backup machines.
+        /// </summary>
+        public string StartMachine => Machine ?? Trigger.Machine;
+    }
 
     /// <summary>What a check came to: an outcome recorded now, or a session to start.</summary>
     private sealed record Decision(string? Outcome, int? Count, string? SessionId, string? Reason, NewSessionRequest? Start);
@@ -498,7 +689,7 @@ public sealed class TriggerService
         TriggerStartAttempt attempt;
         try
         {
-            attempt = await _startSession(p.Trigger.Machine, p.Request, _startLifetime).ConfigureAwait(false);
+            attempt = await _startSession(p.StartMachine, p.Request, _startLifetime).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -525,7 +716,7 @@ public sealed class TriggerService
                           $" The lock is held until a session named '{p.Request.Name}' shows up, or for {(int)StartGrace.TotalMinutes} minutes."
                         : TriggerStatusFold.StartFailedPrefix + error;
                 var recorded = _store.RecordStartResult(p.Tenant, p.Trigger.Id, p.DirectorId, p.CheckedUtc, outcome,
-                    p.Count, started ? attempt.SessionId : null, reason, _nowUtc(), holdLock: attempt.OutcomeUnknown);
+                    p.Count, started ? attempt.SessionId : null, reason, _nowUtc(), holdLock: attempt.OutcomeUnknown, p.Machine);
                 if (recorded is null)
                 {
                     FileLog.Write($"[TriggerService] FinishStartAsync: trigger={name} was deleted while its session was starting; session={attempt.SessionId ?? "none"} is not recorded");
@@ -586,8 +777,8 @@ public sealed class TriggerService
             Agent = "ClaudeCode",
             Name = name,
             PrePrompt = TriggerDefinition.PromptFor(trigger.Prompt, count),
-            // The Director that ran the check is on the trigger's machine and was alive a moment ago; starting the
-            // session there names ONE Director instead of leaving it to whichever the machine resolves to first.
+            // The Director that ran the check was alive a moment ago, and the session starts on its machine; naming it
+            // names ONE Director instead of leaving it to whichever the machine resolves to first.
             Director = directorId,
             // Like a schedule's seed run: a session that finishes with nothing needing a person closes itself,
             // which is also what ends the one-at-a-time lock.
@@ -700,10 +891,14 @@ public sealed class TriggerService
                 $"Checked {name} - {counted}, started session {run.SessionId}"),
             TriggerRunOutcome.Paused => (FactoryActivityOutcome.Paused,
                 $"Checked {name} - {counted}, but the trigger is paused, so nothing started"),
-            TriggerRunOutcome.SkippedRunning => (FactoryActivityOutcome.Skipped, string.IsNullOrEmpty(run.SessionId)
+            TriggerRunOutcome.SkippedRunning => (FactoryActivityOutcome.Skipped, run.Reason == ScreeningStillRunning
+                ? $"Checked {name} - {counted}, but {ScreeningStillRunning}, so this report was not screened"
+                : string.IsNullOrEmpty(run.SessionId)
                 ? $"Checked {name} - {counted}, but its session is still being started, so nothing started"
                 : $"Checked {name} - {counted}, but its last session {run.SessionId} is still running, so nothing started"),
             TriggerRunOutcome.Failed => (FactoryActivityOutcome.Failed, FailedSentence(name, run)),
+            TriggerRunOutcome.Screened => (FactoryActivityOutcome.Screened,
+                $"Checked {name} - {counted}, and the mail it read was screened; no session was started"),
             _ => throw new InvalidOperationException($"Trigger run outcome '{run.Outcome}' has no factory activity outcome."),
         };
 

@@ -90,8 +90,10 @@ internal sealed class FactoryMachineQuestionAsker
     /// <summary>
     /// The questions a definition raises: for each machine a seat runs on (its own, else the factory default), the
     /// seats' secret names (seat and start secrets) and repository names, each once, in the order first named; and
-    /// (phase 5b) for each start with a check, Python or uv as <see cref="ProgramFor"/> says. A machine with nothing to
-    /// ask is not asked. Null (a definition that does not parse) raises none.
+    /// (phase 5b) for each start with a check, Python or uv as <see cref="ProgramFor"/> says. Every BACKUP MACHINE of a
+    /// start (Mail Desk, phase 5) is asked what its check needs - the start's secrets and its Python or uv - because a
+    /// backup runs that check, and only that, while the seat's machine is away. A machine with nothing to ask is not
+    /// asked. Null (a definition that does not parse) raises none.
     /// </summary>
     /// <param name="content">The definition's files, for the text of each check.</param>
     public static IReadOnlyList<MachineQuestion> QuestionsFor(FactoryDefinition? definition, IReadOnlyDictionary<string, string> content)
@@ -101,19 +103,20 @@ internal sealed class FactoryMachineQuestionAsker
         var byMachine = new Dictionary<string, Asked>(StringComparer.OrdinalIgnoreCase);
         foreach (var seat in definition.Seats)
         {
-            var machine = seat.Machine ?? definition.Defaults.Machine;
-            if (!byMachine.TryGetValue(machine, out var question))
-                byMachine[machine] = question = new Asked(machine);
-            foreach (var secret in seat.Secrets.Concat(seat.Starts.SelectMany(s => s.Secrets)))
-                if (!question.Secrets.Contains(secret, StringComparer.Ordinal)) question.Secrets.Add(secret);
+            var question = AskedOf(byMachine, seat.Machine ?? definition.Defaults.Machine);
+            question.AddSecrets(seat.Secrets.Concat(seat.Starts.SelectMany(s => s.Secrets)));
             if (seat.Repository is { } repository && !question.Repositories.Contains(repository, StringComparer.Ordinal))
                 question.Repositories.Add(repository);
             foreach (var start in seat.Starts)
             {
-                switch (ProgramFor(start.Check, content))
+                var program = ProgramFor(start.Check, content);
+                question.Ask(program);
+                if (start.Check is null) continue;
+                foreach (var backup in start.BackupMachines)
                 {
-                    case CheckProgram.Python: question.AskPython = true; break;
-                    case CheckProgram.Uv: question.AskUv = true; break;
+                    var asked = AskedOf(byMachine, backup);
+                    asked.AddSecrets(start.Secrets);
+                    asked.Ask(program);
                 }
             }
         }
@@ -123,6 +126,13 @@ internal sealed class FactoryMachineQuestionAsker
             .ToList();
     }
 
+    private static Asked AskedOf(Dictionary<string, Asked> byMachine, string machine)
+    {
+        if (!byMachine.TryGetValue(machine, out var question))
+            byMachine[machine] = question = new Asked(machine);
+        return question;
+    }
+
     private sealed class Asked(string machine)
     {
         public string Machine { get; } = machine;
@@ -130,6 +140,21 @@ internal sealed class FactoryMachineQuestionAsker
         public List<string> Repositories { get; } = new();
         public bool AskPython { get; set; }
         public bool AskUv { get; set; }
+
+        public void AddSecrets(IEnumerable<string> secrets)
+        {
+            foreach (var secret in secrets)
+                if (!Secrets.Contains(secret, StringComparer.Ordinal)) Secrets.Add(secret);
+        }
+
+        public void Ask(CheckProgram program)
+        {
+            switch (program)
+            {
+                case CheckProgram.Python: AskPython = true; break;
+                case CheckProgram.Uv: AskUv = true; break;
+            }
+        }
     }
 
     /// <summary>

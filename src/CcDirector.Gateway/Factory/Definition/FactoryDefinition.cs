@@ -59,7 +59,8 @@ public sealed record SeatDefinition(
 
 /// <summary>
 /// One way a seat starts: at a time (<see cref="Cron"/> in <see cref="TimeZone"/>) or on an interval
-/// (<see cref="Every"/>, also given in seconds), with an optional check and the prompt.
+/// (<see cref="Every"/>, also given in seconds), with an optional check and the prompt, and - on an interval with a
+/// check - the backup machines its check may run on.
 /// </summary>
 public sealed record SeatStartDefinition(
     string? Cron,
@@ -69,7 +70,12 @@ public sealed record SeatStartDefinition(
     string? Check,
     IReadOnlyList<string> Secrets,
     string Prompt,
-    bool PreventOverlap);
+    bool PreventOverlap)
+{
+    /// <summary>The machines that run the check while the seat's machine is away, in order (Mail Desk, phase 5); empty
+    /// when the start names none. Only a start with an interval and a check has any.</summary>
+    public IReadOnlyList<string> BackupMachines { get; init; } = Array.Empty<string>();
+}
 
 /// <summary>
 /// One step of what a seat does (its <c>steps</c>), drawn on the factory page. A step with a <see cref="Decision"/> is

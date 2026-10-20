@@ -307,20 +307,25 @@ public sealed class FactoryPublishApply
     /// Write what the definition says onto a definition trigger: every field the start owns, and the version its check
     /// is now read from - on a kept trigger too, because a check's file can change while its path does not. What is the
     /// person's - the pause switch - and what the runs keep - the lock, the last check, the run history - are left
-    /// alone. A trigger moved to another machine is no longer the business of the Director that held it
-    /// (<see cref="Triggers.TriggerStore.Update"/>'s rule).
+    /// alone. A trigger whose machines no longer include the machine of the Director holding it is no longer that
+    /// Director's business, and its claim is released (<see cref="Triggers.TriggerStore.Update"/>'s rule for a moved
+    /// trigger, over every machine on the list since backup machines - Mail Desk, phase 5); a holder still on the list
+    /// keeps it, whatever else moved.
     /// </summary>
     private static void WriteDefinitionTrigger(TriggerEntity entity, PlannedTrigger t, int version)
     {
         var row = t.Row!;
-        if (!string.IsNullOrEmpty(entity.Machine) && !string.Equals(entity.Machine, row.Machine, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(entity.ClaimedByDirectorId) && !HolderStaysOnTheList(entity, row))
         {
+            FileLog.Write($"[FactoryPublishApply] WriteDefinitionTrigger: trigger={row.Name}, claim of {entity.ClaimedByDirectorId} on {HolderMachine(entity)} released: not on {row.MachinesText}");
             entity.ClaimedByDirectorId = "";
+            entity.ClaimedByMachine = "";
             entity.ClaimedUtc = null;
         }
         entity.Name = row.Name;
         entity.FactoryAgent = row.FactoryAgent;
         entity.Machine = row.Machine;
+        entity.BackupMachinesJson = Triggers.TriggerMachines.ToJson(row.BackupMachines);
         entity.RepoPath = row.RepoPath;
         entity.CheckCommand = "";
         entity.IntervalSeconds = row.IntervalSeconds;
@@ -330,6 +335,20 @@ public sealed class FactoryPublishApply
         entity.SecretsJson = row.SecretsJson;
         entity.DefinitionVersion = version;
     }
+
+    /// <summary>Whether the machine of the Director holding the claim is one the trigger is written to run on.</summary>
+    private static bool HolderStaysOnTheList(TriggerEntity entity, TriggerRow row)
+    {
+        var holder = HolderMachine(entity);
+        return string.Equals(holder, row.Machine, StringComparison.OrdinalIgnoreCase)
+               || row.BackupMachines.Any(b => string.Equals(b, holder, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>The holder's machine. A claim whose report did not say its machine (<see cref="TriggerEntity.ClaimedByMachine"/>
+    /// empty) is taken as on the trigger's own machine as it stands before this write - the only machine a claim was ever
+    /// held on before backup machines.</summary>
+    private static string HolderMachine(TriggerEntity entity)
+        => string.IsNullOrEmpty(entity.ClaimedByMachine) ? entity.Machine : entity.ClaimedByMachine;
 
     /// <summary>The 409 when the caller states a published version that is no longer the one (design section 5).</summary>
     private static string NotReplacing(bool restore, int? current, int stated)

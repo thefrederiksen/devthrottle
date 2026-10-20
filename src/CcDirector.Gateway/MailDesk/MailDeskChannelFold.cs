@@ -12,9 +12,13 @@ namespace CcDirector.Gateway.MailDesk;
 /// <c>GET /channels</c> both read this one fold, so the two can never say different things about one channel.
 ///
 /// WHERE EACH VALUE COMES FROM:
-/// - <c>lastCheck</c> and <c>signedIn</c>: the account's Mail Desk start's trigger (<see cref="MailDeskStart.Is"/>) -
-///   its last check time, outcome and reason. No such trigger means the mail-desk factory is not published; a trigger
-///   with no check yet means nothing is known.
+/// - <c>lastCheck</c>: the account's Mail Desk start's trigger (<see cref="MailDeskStart.Is"/>) - its last check time,
+///   outcome and reason. No such trigger means the mail-desk factory is not published; a trigger with no check yet
+///   means nothing is known.
+/// - <c>signedIn</c>: the channel's OWN kept checks (<see cref="MailDeskChannelCheckStore"/>, phase 3 contract,
+///   section 6.2), because one mailbox failing no longer fails the run: <c>failing</c> with the check's own sentence
+///   while the channel's newest kept check is a failure, <c>yes</c> once a check has read it, <c>unknown</c> before
+///   any check has. A whole run failing says nothing about one mailbox, so it leaves <c>signedIn</c> as it was.
 /// - <c>today</c>: the channel's decisions since local midnight in the account's own time zone (the setting behind
 ///   <c>/gateway/time-zone</c>), every decision word listed with zeros.
 /// - The account's day: every decision of the account since local midnight, over EVERY channel, removed ones
@@ -22,8 +26,8 @@ namespace CcDirector.Gateway.MailDesk;
 ///   channel removed at noon still counts in that day's total, and <c>GET /status</c> agrees with
 ///   <c>GET /decisions</c> about how many emails were decided today (review of pull request 4231, finding F1).
 ///
-/// Phase 2 may refine what the check reports (a sign-in failure says which machine and the command that fixes it);
-/// the check's own reason is quoted, so a refined reason reaches the row with no change here.
+/// The check's own sentence is quoted - it says which machine and the command that fixes it - so a refined sentence
+/// reaches the row with no change here.
 /// </summary>
 public sealed class MailDeskChannelFold
 {
@@ -54,16 +58,22 @@ public sealed class MailDeskChannelFold
     /// <summary>The sign-in label when the last check read the mailbox.</summary>
     public const string SignedInYesLabel = "Signed in - the last check read the mailbox";
 
+    /// <summary>The sign-in label while the mailbox's newest check failed, before the check's own sentence.</summary>
+    public const string SignedInFailingPrefix = "Failing - the last check could not read the mailbox: ";
+
     private readonly Func<TenantId, IReadOnlyList<TriggerEntity>> _triggersOf;
     private readonly Func<TenantId, string> _timeZoneOf;
     private readonly MailDeskDecisionStore _decisions;
+    private readonly MailDeskChannelCheckStore _checks;
 
     /// <param name="triggersOf">The account's triggers; the Mail Desk start's is found among them.</param>
     /// <param name="timeZoneOf">The account's time zone, an IANA id (<c>TenantSettingsResolver.TimeZone</c>).</param>
     /// <param name="decisions">Where today's counts are read.</param>
+    /// <param name="checks">Each mailbox's kept checks, which say whether it is signed in.</param>
     public MailDeskChannelFold(Func<TenantId, IReadOnlyList<TriggerEntity>> triggersOf, Func<TenantId, string> timeZoneOf,
-        MailDeskDecisionStore decisions)
+        MailDeskDecisionStore decisions, MailDeskChannelCheckStore checks)
     {
+        _checks = checks ?? throw new ArgumentNullException(nameof(checks));
         _triggersOf = triggersOf ?? throw new ArgumentNullException(nameof(triggersOf));
         _timeZoneOf = timeZoneOf ?? throw new ArgumentNullException(nameof(timeZoneOf));
         _decisions = decisions ?? throw new ArgumentNullException(nameof(decisions));
@@ -79,8 +89,10 @@ public sealed class MailDeskChannelFold
         var day = Today(_timeZoneOf(tenant), nowUtc);
         var counts = _decisions.CountsByChannel(tenant, day.FromUtc, day.ToUtc);
         var lastCheck = LastCheckOf(_triggersOf(tenant), day.Zone);
+        var checks = _checks.ByChannel(tenant);
 
         var rows = channels.Select(c => Row(c, lastCheck,
+            SignedInOf(checks.TryGetValue(c.Id, out var kept) ? kept : Array.Empty<MailDeskChannelCheckEntity>()),
             counts.TryGetValue(c.Id, out var count) ? count : MailDeskDecisionCounts.Zero)).ToList();
         // The day counts every channel the store has for the account, removed ones too, not only the rows folded.
         var total = MailDeskDecisionCounts.Sum(counts.Values);
@@ -112,47 +124,57 @@ public sealed class MailDeskChannelFold
         return TimeZoneInfo.ConvertTimeToUtc(local, zone);
     }
 
-    // ---------- the last check, and what it says about signing in ----------
+    // ---------- signing in: the channel's own kept checks ----------
 
-    private sealed record LastCheck(MailDeskLastCheck Row, MailDeskSignedIn SignedIn);
+    /// <summary>Whether a mailbox is signed in, from its kept checks oldest first: its newest says.</summary>
+    internal static MailDeskSignedIn SignedInOf(IReadOnlyList<MailDeskChannelCheckEntity> checksOldestFirst)
+    {
+        if (checksOldestFirst.Count == 0)
+            return new MailDeskSignedIn(SignedInStates.Unknown, SignedInUnknownLabel);
+        var newest = checksOldestFirst[^1];
+        return newest.Ok
+            ? new MailDeskSignedIn(SignedInStates.Yes, SignedInYesLabel)
+            : new MailDeskSignedIn(SignedInStates.Failing, SignedInFailingPrefix + newest.Sentence);
+    }
 
-    private static LastCheck LastCheckOf(IReadOnlyList<TriggerEntity> triggers, TimeZoneInfo zone)
+    // ---------- the last check of the Mail Desk start ----------
+
+    private static MailDeskLastCheck LastCheckOf(IReadOnlyList<TriggerEntity> triggers, TimeZoneInfo zone)
     {
         var starts = triggers.Where(MailDeskStart.Is).ToList();
         if (starts.Count == 0)
-            return new LastCheck(new MailDeskLastCheck(null, null, NotPublishedLabel),
-                new MailDeskSignedIn(SignedInStates.Unknown, SignedInUnknownLabel));
+            return new MailDeskLastCheck(null, null, NotPublishedLabel);
 
         // One account has one Mail Desk start; should a second exist, the one checked most recently says how it went.
         var start = starts.OrderByDescending(t => t.LastCheckUtc ?? DateTime.MinValue).First();
         if (start.LastCheckUtc is not { } at)
-            return new LastCheck(new MailDeskLastCheck(null, null, NeverCheckedLabel),
-                new MailDeskSignedIn(SignedInStates.Unknown, SignedInUnknownLabel));
+            return new MailDeskLastCheck(null, null, NeverCheckedLabel);
 
         var atUtc = DateTime.SpecifyKind(at, DateTimeKind.Utc);
         var local = TimeZoneInfo.ConvertTimeFromUtc(atUtc, zone).ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-        var failed = start.LastOutcome == TriggerRunOutcome.Failed;
         var reason = string.IsNullOrWhiteSpace(start.LastReason) ? "the check gave no reason" : start.LastReason.Trim();
         var label = $"Checked {local}: {OutcomeInWords(start.LastOutcome, reason)}";
-        var signedIn = failed
-            ? new MailDeskSignedIn(SignedInStates.Failing, $"Failing - the last check failed: {reason}")
-            : new MailDeskSignedIn(SignedInStates.Yes, SignedInYesLabel);
-        return new LastCheck(new MailDeskLastCheck(atUtc, start.LastOutcome, label), signedIn);
+        return new MailDeskLastCheck(atUtc, start.LastOutcome, label);
     }
 
     private static string OutcomeInWords(string? outcome, string reason) => outcome switch
     {
         TriggerRunOutcome.NothingToDo => "no new mail",
         TriggerRunOutcome.Started => "new mail, and the seat was started",
-        TriggerRunOutcome.Paused => "new mail, but the start is paused",
+        TriggerRunOutcome.Paused => "the start is paused, so no mail was screened",
+        // The Mail Desk start starts no seat; its one skipped-running is the screening's (review of 4243, finding 3).
+        TriggerRunOutcome.SkippedRunning when reason == Factory.Triggers.TriggerService.ScreeningStillRunning
+            => "the previous screening is still running, so this check was not screened",
         TriggerRunOutcome.SkippedRunning => "new mail, and the seat it started last is still running",
         TriggerRunOutcome.Failed => $"failed - {reason}",
+        TriggerRunOutcome.Screened => "the mail it read was screened",
         _ => $"'{outcome}'",
     };
 
     // ---------- the row ----------
 
-    private static MailDeskChannelRow Row(MailDeskChannelEntity c, LastCheck lastCheck, MailDeskDecisionCounts today) => new(
+    private static MailDeskChannelRow Row(MailDeskChannelEntity c, MailDeskLastCheck lastCheck, MailDeskSignedIn signedIn,
+        MailDeskDecisionCounts today) => new(
         Id: c.Id,
         Kind: c.Kind,
         Provider: c.Provider,
@@ -164,8 +186,8 @@ public sealed class MailDeskChannelFold
             : throw new InvalidOperationException($"Mail Desk channel {c.Id} holds the mode '{c.Mode}', which is not a mode."),
         Factory: c.Factory,
         Seat: c.Seat,
-        SignedIn: lastCheck.SignedIn,
-        LastCheck: lastCheck.Row,
+        SignedIn: signedIn,
+        LastCheck: lastCheck,
         Today: new MailDeskChannelToday(today.Total, today.ByDecision),
         CreatedUtc: DateTime.SpecifyKind(c.CreatedUtc, DateTimeKind.Utc),
         CreatedBy: c.CreatedBy,

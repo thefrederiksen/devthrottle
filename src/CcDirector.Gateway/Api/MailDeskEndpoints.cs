@@ -30,10 +30,12 @@ namespace CcDirector.Gateway.Api;
 ///   POST /gateway/mail-desk/rules/{list}/add     add an entry to allow, block, rule or route, with why
 ///   POST /gateway/mail-desk/rules/{list}/remove  remove the entry with that key: { key, why }
 ///   GET  /gateway/mail-desk/decisions            the decisions, newest first (?since=, ?layer=, ?decision=, ?channel=, ?n=)
+///   GET  /gateway/mail-desk/settings             the thresholds, the spend limit, what was spent, and whether it stopped
+///   POST /gateway/mail-desk/settings             change one setting: { name, value, why } (phase 3, section 7)
 ///
 /// WHO MAY DO WHAT (section 4). Every caller reads. A rules change needs an author - a person, or any session, a
 /// factory's own included (D7: "freely, every change recorded"). A channel change - adding, removing, switching mode -
-/// is a person's, or a session in no factory's (the owner told it to); a factory's own session is refused 403
+/// - and a settings change (phase 3) - is a person's, or a session in no factory's (the owner told it to); a factory's own session is refused 403
 /// <c>FactorySessionRefused</c>. The account's machine token and a Director are refused every change: a change needs
 /// an author. Who is asking is decided by <see cref="GatewayCaller"/>, the one place the factory definition routes
 /// decide it too.
@@ -69,6 +71,7 @@ internal static class MailDeskEndpoints
         "cc-devthrottle maildesk decisions -n 20        the newest decisions",
         "cc-devthrottle maildesk rules show             the rules every email is screened by",
         "cc-devthrottle maildesk rules history          who changed what, and why",
+        "cc-devthrottle maildesk settings               the thresholds and the spend limit",
     };
 
     private const string Tag = nameof(MailDeskEndpoints);
@@ -83,10 +86,12 @@ internal static class MailDeskEndpoints
         MailDeskChannelStore Channels,
         MailDeskRulesStore Rules,
         MailDeskDecisionStore Decisions,
+        MailDeskSettingsStore Settings,
         MailDeskChannelFold Fold,
         Func<string, SessionFactoryLookup> SessionFactoryOf,
         Func<TenantId, IReadOnlyCollection<string>> KnownMachinesOf,
-        Func<DateTime> NowUtc)
+        Func<DateTime> NowUtc,
+        Func<TenantId, MailDeskSpend> SpendOf)
     {
         /// <summary>Where a rules change reads the newest document from. The store, unless a test stands between
         /// the read and the save to play a second writer.</summary>
@@ -114,8 +119,10 @@ internal static class MailDeskEndpoints
         gate.MapPost(p + "/rules/{list}/add", (HttpContext ctx, string list, CancellationToken ct) => AddEntryAsync(ctx, list, resolveTenant, parts, ct));
         gate.MapPost(p + "/rules/{list}/remove", (HttpContext ctx, string list, CancellationToken ct) => RemoveEntryAsync(ctx, list, resolveTenant, parts, ct));
         gate.MapGet(p + "/decisions", (HttpContext ctx, CancellationToken _) => ListDecisions(ctx, resolveTenant, parts));
+        gate.MapGet(p + "/settings", (HttpContext ctx, CancellationToken _) => ReadSettings(ctx, resolveTenant, parts));
+        gate.MapPost(p + "/settings", (HttpContext ctx, CancellationToken ct) => SetSettingAsync(ctx, resolveTenant, parts, ct));
 
-        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove) and decisions");
+        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions and settings");
     }
 
     // ---------- reads ----------
@@ -126,13 +133,15 @@ internal static class MailDeskEndpoints
         FileLog.Write($"[{Tag}] GET /status: account={tenant.ToLogString()}");
         var folded = parts.Fold.Fold(tenant, parts.Channels.List(tenant), parts.NowUtc());
         var rules = parts.Rules.Newest(tenant);
-        FileLog.Write($"[{Tag}] GET /status: {folded.Channels.Count} channel(s), rules version {rules.Version}, {folded.Today.Total} decision(s) today");
+        var spend = Spend(tenant, parts);
+        FileLog.Write($"[{Tag}] GET /status: {folded.Channels.Count} channel(s), rules version {rules.Version}, {folded.Today.Total} decision(s) today, spend stopped={spend.Stopped}");
         return Results.Json(new
         {
             enabled = true,
             rulesVersion = rules.Version,
             channels = folded.Channels,
             today = folded.Today,
+            spend = SpendRow(spend),
             help = StatusHelp,
         });
     }
@@ -365,6 +374,62 @@ internal static class MailDeskEndpoints
             statusCode: StatusCodes.Status404NotFound));
     }
 
+    // ---------- the settings (phase 3, section 7) ----------
+
+    internal static IResult ReadSettings(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, Parts parts)
+    {
+        var tenant = Tenant(ctx, resolveTenant);
+        var spend = Spend(tenant, parts);
+        FileLog.Write($"[{Tag}] GET /settings: account={tenant.ToLogString()} stopped={spend.Stopped}");
+        return Results.Json(SpendRow(spend));
+    }
+
+    internal static async Task<IResult> SetSettingAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, Parts parts, CancellationToken ct)
+    {
+        const string route = "POST /settings";
+        var tenant = Tenant(ctx, resolveTenant);
+        if (!TryAuthor(ctx, parts, route, channelChange: true, out var who, out var error, SettingFactorySessionDetail)) return error!;
+        var (body, bad) = await ReadBodyAsync<SetSettingRequest>(ctx, route, ct);
+        if (body is null) return bad!;
+        if (WhyRefused(body.Why, route) is { } noWhy) return noWhy;
+        if (body.Value is not { ValueKind: JsonValueKind.Number } number || !number.TryGetDecimal(out var value))
+            return Refuse(route, StatusCodes.Status400BadRequest, "bad_value",
+                "'value' is needed as a number, such as 0.9 for a threshold or 10 for a spend limit in dollars");
+        var write = parts.Settings.Set(tenant, body.Name, value, who, body.Why, parts.NowUtc());
+        switch (write.Outcome)
+        {
+            case MailDeskSettingOutcome.UnknownName:
+                return Refuse(route, StatusCodes.Status400BadRequest, "unknown_setting", write.Refusal!);
+            case MailDeskSettingOutcome.OutOfRange:
+                return Refuse(route, StatusCodes.Status400BadRequest, "bad_value", write.Refusal!);
+            case MailDeskSettingOutcome.Set:
+                var spend = Spend(tenant, parts);
+                FileLog.Write($"[{Tag}] {route}: account={tenant.ToLogString()} set {write.Change!.Subject}; stopped={spend.Stopped}");
+                return Results.Json(new { settings = SpendRow(spend), change = ChangeRow(write.Change) });
+            default:
+                throw new InvalidOperationException($"A settings change answered {write.Outcome}, which this route does not know.");
+        }
+    }
+
+    /// <summary>The account's settings and spend, folded once (<see cref="MailDeskSpendView"/>).</summary>
+    private static MailDeskSpendView Spend(TenantId tenant, Parts parts)
+        => MailDeskSpendView.Fold(parts.Settings.Read(tenant), parts.SpendOf(tenant));
+
+    private static object SpendRow(MailDeskSpendView spend) => new
+    {
+        routeThreshold = spend.RouteThreshold,
+        spamThreshold = spend.SpamThreshold,
+        spendLimitUsd = spend.SpendLimitUsd,
+        spentUsd = spend.SpentUsd,
+        stopped = spend.Stopped,
+        label = spend.Label,
+    };
+
+    /// <summary>The detail a factory's own session gets when it tries to change a setting.</summary>
+    private const string SettingFactorySessionDetail =
+        "a session of a factory does not change the Mail Desk's thresholds or its spend limit; the owner does, or a session " +
+        "in no factory the owner tells to";
+
     /// <summary>
     /// Make one rules change and save it: read the newest document, make the change on it, save it as made on that
     /// version. When another writer saved first, read again and make the change again - at most
@@ -491,7 +556,8 @@ internal static class MailDeskEndpoints
     /// MAY THIS CALLER MAKE THIS CHANGE, AND WHO IS IT (contract section 4). A person and a session may change the rules;
     /// a person and a session in no factory may change a channel. Neither a person nor a session may change nothing.
     /// </summary>
-    private static bool TryAuthor(HttpContext ctx, Parts parts, string route, bool channelChange, out MailDeskWho who, out IResult? error)
+    private static bool TryAuthor(HttpContext ctx, Parts parts, string route, bool channelChange, out MailDeskWho who, out IResult? error,
+        string? factorySessionDetail = null)
     {
         who = null!;
         if (!GatewayCaller.TryIdentify(ctx, parts.SessionFactoryOf, Tag, route, out var caller, out error)) return false;
@@ -509,9 +575,11 @@ internal static class MailDeskEndpoints
             {
                 error = "factory_session_refused",
                 outcome = FactorySessionRefusedOutcome,
-                detail = $"a session of the factory '{caller.Factory}' does not add or remove a Mail Desk channel or switch its " +
-                         "mode; the owner does, or a session in no factory the owner tells to. A factory's session may change " +
-                         "the rules: allow, block, rule and route",
+                detail = factorySessionDetail is not null
+                    ? $"{factorySessionDetail} ('{caller.Factory}' is this session's factory)"
+                    : $"a session of the factory '{caller.Factory}' does not add or remove a Mail Desk channel or switch its " +
+                      "mode; the owner does, or a session in no factory the owner tells to. A factory's session may change " +
+                      "the rules: allow, block, rule and route",
             }, statusCode: StatusCodes.Status403Forbidden);
             return false;
         }
@@ -563,6 +631,8 @@ internal static class MailDeskEndpoints
         outcome = d.Outcome,
         outcomeDetail = d.OutcomeDetail,
         decidedUtc = Utc(d.DecidedUtc),
+        rulesVersion = d.RulesVersion,
+        attemptCount = d.AttemptCount,
     };
 
     internal static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
@@ -578,6 +648,8 @@ internal static class MailDeskEndpoints
     internal sealed record SetModeRequest(string? Address, string? Mode, string? Why);
 
     internal sealed record RemoveEntryRequest(string? Key, string? Why);
+
+    internal sealed record SetSettingRequest(string? Name, JsonElement? Value, string? Why);
 
     private static async Task<(T? Body, IResult? Error)> ReadBodyAsync<T>(HttpContext ctx, string route, CancellationToken ct) where T : class
     {

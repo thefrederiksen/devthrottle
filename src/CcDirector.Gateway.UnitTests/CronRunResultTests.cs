@@ -83,7 +83,10 @@ public sealed class CronRunResultTests : IDisposable
             {
                 _settled.Add((jobId, firedUtc, status));
                 return true;
-            });
+            },
+            mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
+                new CcDirector.Gateway.MailDesk.MailDeskChannelStore(Db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(Db),
+                _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend));
         return (service, runs, activity);
     }
 
@@ -813,7 +816,7 @@ public sealed class CronRunResultTests : IDisposable
         var runs = new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal) { ["cj_a"] = new[] { run } };
 
         var folded = CronRunResultFold.Problems(runs, new Dictionary<string, CronJobDto>(StringComparer.Ordinal), Toronto,
-            factory: null, includeClosed: false, asOfUtc: due.AddHours(6), NoTriggers);
+            factory: null, includeClosed: false, asOfUtc: due.AddHours(6), NoTriggers, CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None);
 
         var problem = Assert.Single(folded.Problems);
         Assert.Equal("Did not run: its machine was offline when it was due.", problem.Sentence);
@@ -843,7 +846,7 @@ public sealed class CronRunResultTests : IDisposable
         Assert.Throws<ArgumentException>(() => CronRunResultFold.Problems(
             new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal),
             new Dictionary<string, CronJobDto>(StringComparer.Ordinal), Toronto, null, false,
-            new DateTime(2026, 10, 11, 8, 0, 0, DateTimeKind.Local), NoTriggers));
+            new DateTime(2026, 10, 11, 8, 0, 0, DateTimeKind.Local), NoTriggers, CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None));
 
     [Fact]
     public void Resolve_WithAReason_ClosesTheProblem_AndKeepsTheReasonAndWhoDidIt()

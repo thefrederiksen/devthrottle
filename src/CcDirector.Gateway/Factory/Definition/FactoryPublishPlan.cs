@@ -498,14 +498,20 @@ public static class FactoryPublishPlan
     {
         var start = seat.Starts[startIndex];
         return new TriggerRow(name, seat.Seat, seat.MachineOrDefault(d.Defaults), registry?.Folder ?? "",
-            checked((int)start.EverySeconds!.Value), start.Prompt, start.Check!, start.Secrets.ToList());
+            checked((int)start.EverySeconds!.Value), start.Prompt, start.Check!, start.Secrets.ToList())
+        {
+            BackupMachines = start.BackupMachines.ToList(),
+        };
     }
 
     /// <summary>A live definition trigger as a start, so the one pairing can match it: its interval, its check, its
-    /// secrets and its prompt. A check always prevents overlap.</summary>
+    /// secrets, its prompt and its backup machines. A check always prevents overlap.</summary>
     internal static SeatStartDefinition AsStart(TriggerEntity t)
         => new(null, null, null, t.IntervalSeconds, t.CheckPath, TriggerService.SecretsOf(t), t.Prompt,
-            true);
+            true)
+        {
+            BackupMachines = TriggerMachines.BackupsOf(t),
+        };
 
     private static PlannedTrigger DeletedTrigger(TriggerEntity t, TriggerDeleteReason why)
         => new(PlannedTriggerAction.Delete, t.Id, t.Name, t.Seat, -1, null, TriggerRow.Of(t), why);
@@ -740,23 +746,33 @@ public enum TriggerDeleteReason
 }
 
 /// <summary>What a definition trigger holds that a publish writes. A command trigger read as one has an empty check
-/// path and no secrets.</summary>
+/// path, no secrets and no backup machines.</summary>
 public sealed record TriggerRow(string Name, string FactoryAgent, string Machine, string RepoPath, int IntervalSeconds,
     string Prompt, string CheckPath, IReadOnlyList<string> Secrets)
 {
-    public static TriggerRow Of(TriggerEntity t) => new(t.Name, t.FactoryAgent, t.Machine, t.RepoPath, t.IntervalSeconds,
-        t.Prompt, t.CheckPath ?? "", t.IsDefinitionCheck ? TriggerService.SecretsOf(t) : Array.Empty<string>());
+    /// <summary>The machines that run the check while <see cref="Machine"/> is away, in order (Mail Desk, phase 5).</summary>
+    public IReadOnlyList<string> BackupMachines { get; init; } = Array.Empty<string>();
 
-    /// <summary>Equal when every field is, the secrets in order.</summary>
+    public static TriggerRow Of(TriggerEntity t) => new(t.Name, t.FactoryAgent, t.Machine, t.RepoPath, t.IntervalSeconds,
+        t.Prompt, t.CheckPath ?? "", t.IsDefinitionCheck ? TriggerService.SecretsOf(t) : Array.Empty<string>())
+    {
+        BackupMachines = TriggerMachines.BackupsOf(t),
+    };
+
+    /// <summary>Equal when every field is, the secrets and the backup machines in order.</summary>
     public bool Equals(TriggerRow? other)
         => other is not null && Name == other.Name && FactoryAgent == other.FactoryAgent && Machine == other.Machine
            && RepoPath == other.RepoPath && IntervalSeconds == other.IntervalSeconds && Prompt == other.Prompt
-           && CheckPath == other.CheckPath && Secrets.SequenceEqual(other.Secrets, StringComparer.Ordinal);
+           && CheckPath == other.CheckPath && Secrets.SequenceEqual(other.Secrets, StringComparer.Ordinal)
+           && BackupMachines.SequenceEqual(other.BackupMachines, StringComparer.Ordinal);
 
     public override int GetHashCode() => HashCode.Combine(Name, Machine, IntervalSeconds, CheckPath);
 
     /// <summary>The secrets as the row stores them: a JSON array, or null when there are none.</summary>
     public string? SecretsJson => Secrets.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(Secrets);
+
+    /// <summary>Where the check runs, in words (<see cref="TriggerMachines.Text(string, IReadOnlyList{string})"/>).</summary>
+    public string MachinesText => TriggerMachines.Text(Machine, BackupMachines);
 }
 
 /// <summary>
@@ -777,7 +793,7 @@ public sealed record PlannedTrigger(PlannedTriggerAction Action, Guid? Id, strin
                 return $"Trigger {Name} kept as it is; its check is read from {from}.";
             case PlannedTriggerAction.Create:
                 return $"{(version is null ? "A new trigger" : "Trigger")} {Name} {(version is null ? "for" : "created for")} seat {Seat}: " +
-                       $"{Every(Row!.IntervalSeconds)}, check {Row.CheckPath}{SecretsText(Row.Secrets)}, on {Row.Machine}.";
+                       $"{Every(Row!.IntervalSeconds)}, check {Row.CheckPath}{SecretsText(Row.Secrets)}, on {Row.MachinesText}.";
             case PlannedTriggerAction.Delete:
                 var why = Why switch
                 {
@@ -795,6 +811,8 @@ public sealed record PlannedTrigger(PlannedTriggerAction Action, Guid? Id, strin
                     details.Add($"secrets {List(Live.Secrets)} -> {List(Row.Secrets)}");
                 if (Live.Prompt != Row.Prompt) details.Add("prompt changed");
                 if (Live.Machine != Row.Machine) details.Add($"machine {Live.Machine} -> {Row.Machine}");
+                if (!Live.BackupMachines.SequenceEqual(Row.BackupMachines, StringComparer.Ordinal))
+                    details.Add($"backup machines {List(Live.BackupMachines)} -> {List(Row.BackupMachines)}");
                 if (Live.FactoryAgent != Row.FactoryAgent) details.Add($"seat {Live.FactoryAgent} -> {Row.FactoryAgent}");
                 if (Live.RepoPath != Row.RepoPath) details.Add($"folder {Live.RepoPath} -> {Row.RepoPath}");
                 return $"Trigger {Name} changed: {string.Join("; ", details)}; its check is read from {from}.";

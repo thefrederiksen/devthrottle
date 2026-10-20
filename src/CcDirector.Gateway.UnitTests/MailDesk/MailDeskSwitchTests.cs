@@ -234,9 +234,10 @@ public sealed class MailDeskSwitchTests : IDisposable
 
         var decisions = new MailDeskDecisionStore(Db);
         CcDirector.Gateway.Api.MailDeskEndpoints.Map(MailDeskGate.Group(app, mailDesk, Resolve), Resolve, new CcDirector.Gateway.Api.MailDeskEndpoints.Parts(
-            new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), decisions,
-            new MailDeskChannelFold(_ => Array.Empty<TriggerEntity>(), _ => "UTC", decisions),
-            _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, _ => Array.Empty<string>(), () => _now));
+            new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), decisions, new MailDeskSettingsStore(Db),
+            new MailDeskChannelFold(_ => Array.Empty<TriggerEntity>(), _ => "UTC", decisions, new MailDeskChannelCheckStore(Db)),
+            _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, _ => Array.Empty<string>(), () => _now,
+            tenant => MailDeskSpend.Of(tenant, decisions, new MailDeskSettingsStore(Db))));
 
         FactoryAgentsGate.Group(app, factory, Resolve).MapGet("/gateway/factory/placeholder", () => Results.Ok());
         return (app, mailDesk, factory);
@@ -255,6 +256,8 @@ public sealed class MailDeskSwitchTests : IDisposable
         "POST " + MailDeskGate.Prefix + "/rules/{list}/add",
         "POST " + MailDeskGate.Prefix + "/rules/{list}/remove",
         "GET " + MailDeskGate.Prefix + "/decisions",
+        "GET " + MailDeskGate.Prefix + "/settings",
+        "POST " + MailDeskGate.Prefix + "/settings",
     };
 
     private static IReadOnlyList<RouteEndpoint> Endpoints(WebApplication app)
@@ -417,8 +420,13 @@ public sealed class MailDeskSwitchTests : IDisposable
 
     private static readonly TenantId Account = new("acct-mail");
 
-    private TriggerService Service(MailDeskSwitch mailDesk)
+    private TriggerService Service(MailDeskSwitch mailDesk, bool wired = false)
     {
+        var screening = wired
+            ? new MailDeskService(new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), new MailDeskDecisionStore(Db),
+                new MailDeskSettingsStore(Db), new MailDeskChannelCheckStore(Db),
+                _ => throw new InvalidOperationException("no model question is asked in these tests"), () => _now)
+            : null;
         // The published definition the start is built from: the fixture's outreach seat, renamed for Mail Desk.
         var d = FactoryDefinitionCheck.Read(DefinitionFixture.Valid()).Definition!;
         var seat = d.Seats.Single(s => s.Seat == "outreach") with { Seat = "mail-desk", Name = "Mail Desk" };
@@ -433,7 +441,7 @@ public sealed class MailDeskSwitchTests : IDisposable
             nowUtc: () => _now, startLifetime: CancellationToken.None,
             directorRunsDefinitionChecks: (_, _) => true, machineRunsDefinitionChecks: (_, _) => true,
             definitionOf: (_, factory) => factory == MailDeskTemplate.Factory ? published : null,
-            mailDeskOn: mailDesk.IsOn);
+            mailDeskOn: mailDesk.IsOn, mailDesk: screening);
     }
 
     /// <summary>A definition trigger of the mail-desk factory, as a publish writes it.</summary>
@@ -523,10 +531,11 @@ public sealed class MailDeskSwitchTests : IDisposable
         Assert.Equal(Director, row.ClaimedByDirectorId);
     }
 
-    // Deliberate in phase 1: with Mail Desk ON the screening check is recorded exactly as any definition trigger's -
-    // a count above zero starts the seat. Phase 3 replaces that with its hand-off; this test says so until then.
+    // Phase 3 replaced phase 1's "with Mail Desk ON the screening check is recorded as any trigger's": a Mail Desk report
+    // is handed to the Mail Desk service, and a Gateway with none wired refuses it, whatever it counted - a count can
+    // never start the seat (phase 3, section 2). The hand-off itself is proved in MailDeskHandOffTests.
     [Fact]
-    public async Task CheckReport_MailDeskOn_IsRecordedAsBefore()
+    public async Task CheckReport_MailDeskOnWithNoServiceWired_IsRefusedNotReadyAndRecordsNothing()
     {
         // Arrange
         var mailDesk = Switch();
@@ -538,18 +547,17 @@ public sealed class MailDeskSwitchTests : IDisposable
         var quiet = await service.ReportCheckAsync(Account, Director, trigger.ToString("D"), Report(count: 0), CancellationToken.None);
         var busy = await service.ReportCheckAsync(Account, Director, trigger.ToString("D"),
             Report(count: 2, state: """{"seen":["m-1","m-2"]}"""), CancellationToken.None);
-        var started = await busy.Starting!;
 
         // Assert
-        Assert.Equal(TriggerReportRefusal.None, quiet.Refusal);
-        Assert.Equal(TriggerRunOutcome.NothingToDo, quiet.Run!.Outcome);
-        Assert.Equal(TriggerReportRefusal.None, busy.Refusal);
-        Assert.Equal(TriggerRunOutcome.Started, started!.Outcome);
-        Assert.Equal(MailDeskTemplate.Factory, Assert.Single(_starts).Factory);
+        Assert.Equal(TriggerReportRefusal.MailDeskNotReady, quiet.Refusal);
+        Assert.Equal(TriggerReportRefusal.MailDeskNotReady, busy.Refusal);
+        Assert.Null(busy.Starting);
+        Assert.Empty(_starts);
         var (runs, stateRows, row) = Recorded(trigger);
-        Assert.Equal(2, runs);
-        Assert.Equal(2, stateRows);
-        Assert.Equal(Director, row.ClaimedByDirectorId);
+        Assert.Equal(0, runs);
+        Assert.Equal(0, stateRows);
+        Assert.Equal("", row.ClaimedByDirectorId);
+        Assert.True(service.HoldsNoLock(Account, trigger));
     }
 
     // On the wire: the Director's report route, behind a factory agents gate that is ON for the account, answers the
@@ -582,6 +590,117 @@ public sealed class MailDeskSwitchTests : IDisposable
         Assert.Contains("Mail Desk is not switched on", json.GetProperty("detail").GetString());
         Assert.Equal((0, 0), (Recorded(trigger).Runs, Recorded(trigger).StateRows));
         Assert.Empty(_starts);
+    }
+
+    // Mail Desk phase 1 and phase 5 each added a refusal to the same report route. A screening check reported from a
+    // machine on no list is refused as Mail Desk off while Mail Desk is off, and as a machine not on the list once it
+    // is on - each in its own shape, neither swallowing the other.
+    [Fact]
+    public async Task CheckReportRoute_MachineNotOnTheList_AnswersMailDeskOffThenMachineNotOnTheList()
+    {
+        // Arrange: the reporting Director is on a machine that is neither the trigger's own nor a backup.
+        var mailDesk = Switch();
+        var factory = new FactoryAgentsSwitch(false, new TenantSettingsStore(Db));
+        factory.Set(Account, true, "email@devthrottle.com", "the owner's factories run", _now);
+        var service = Service(mailDesk, wired: true);
+        var trigger = AddMailDeskTrigger();
+        var app = WebApplication.CreateBuilder().Build();
+        TriggerEndpoints.Map(FactoryAgentsGate.Group(app, factory, Resolve), Resolve, service,
+            directorMachine: (_, _) => "ELSEWHERE", nowUtc: () => _now,
+            sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
+            isDefined: (_, _) => true,
+            dueChecks: DueCheckTestParts.NoDueChecks(Db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".due.json")));
+        var report = Endpoints(app).Single(e => Describe(e) == "POST /directors/{directorId}/triggers/{id}/checks");
+        var route = new Dictionary<string, string> { ["directorId"] = Director, ["id"] = trigger.ToString("D") };
+        var body = JsonSerializer.Serialize(Report(count: 3));
+
+        // Act: once with Mail Desk off, once after it is switched on.
+        var (offStatus, offBody) = await Invoke(app, report, Account.Value, body, route);
+        mailDesk.Set(Account, true, "email@devthrottle.com", "the owner's account only", _now);
+        var (onStatus, onBody) = await Invoke(app, report, Account.Value, body, route);
+
+        // Assert
+        Assert.Equal(StatusCodes.Status409Conflict, offStatus);
+        var off = JsonDocument.Parse(offBody).RootElement;
+        Assert.Equal("mail_desk_off", off.GetProperty("error").GetString());
+        Assert.Contains("Mail Desk is not switched on", off.GetProperty("detail").GetString());
+        Assert.False(off.TryGetProperty("code", out _));
+
+        Assert.Equal(StatusCodes.Status409Conflict, onStatus);
+        var on = JsonDocument.Parse(onBody).RootElement;
+        Assert.Equal("machine_not_on_the_list", on.GetProperty("code").GetString());
+        Assert.Contains("not on ELSEWHERE", on.GetProperty("error").GetString());
+        Assert.False(on.TryGetProperty("detail", out _));
+
+        Assert.Equal((0, 0), (Recorded(trigger).Runs, Recorded(trigger).StateRows));
+        Assert.Empty(_starts);
+    }
+
+    // ---- the template offer when the switch turns on (phase 3, section 10; task F) ------------------------------
+
+    private MailDeskTemplateOffer TemplateOffer(MailDeskSwitch sw)
+    {
+        var files = new Dictionary<string, string>(MailDeskTemplate.Files, StringComparer.Ordinal);
+        return new MailDeskTemplateOffer(new FactoryDefinitionStore(Db),
+            new FactoryDefinitionEndpoints.Account(_ => DefinitionFixture.FleetSkills, _ => new[] { "devlinux" }, DefinitionFixture.AskNobody),
+            sw.IsOn, () => _now, files);
+    }
+
+    private int MailDeskVersions(TenantId tenant)
+        => new FactoryDefinitionStore(Db).Standing(tenant, MailDeskTemplate.Factory).Newest?.Version ?? 0;
+
+    [Fact]
+    public void AdminSet_SwitchOn_OffersTheTemplateAsADraft()
+    {
+        // Arrange
+        var tenants = new TenantRegistry(Db);
+        var a = tenants.MintOrLookupBySubject("subject-a", "a@example.com");
+        var sw = Switch();
+        var offer = TemplateOffer(sw);
+
+        // Act
+        var result = AdminMailDeskEndpoint.Handle(Authorized(), Req(a.Value, enabled: true), sw, tenants, _now, offer.Offer);
+
+        // Assert
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Equal(1, MailDeskVersions(a));
+        Assert.Equal(FactoryDefinitionStates.Draft, new FactoryDefinitionStore(Db).Standing(a, MailDeskTemplate.Factory).Newest!.State);
+    }
+
+    [Fact]
+    public void AdminSet_SwitchOnAgain_OffersNothingNew()
+    {
+        // Arrange
+        var tenants = new TenantRegistry(Db);
+        var a = tenants.MintOrLookupBySubject("subject-a", "a@example.com");
+        var sw = Switch();
+        var offer = TemplateOffer(sw);
+        AdminMailDeskEndpoint.Handle(Authorized(), Req(a.Value, enabled: true), sw, tenants, _now, offer.Offer);
+
+        // Act
+        AdminMailDeskEndpoint.Handle(Authorized(), Req(a.Value, enabled: true), sw, tenants, _now, offer.Offer);
+
+        // Assert
+        Assert.Equal(1, MailDeskVersions(a));
+    }
+
+    [Fact]
+    public void AdminSet_SwitchOff_OffersNothing()
+    {
+        // Arrange
+        var tenants = new TenantRegistry(Db);
+        var a = tenants.MintOrLookupBySubject("subject-a", "a@example.com");
+        var sw = Switch();
+        var asked = 0;
+
+        // Act
+        var result = AdminMailDeskEndpoint.Handle(Authorized(), Req(a.Value, enabled: false), sw, tenants, _now,
+            tenant => { asked++; return TemplateOffer(sw).Offer(tenant); });
+
+        // Assert
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Equal(0, asked);
+        Assert.Equal(0, MailDeskVersions(a));
     }
 
     // ---- the administrator route ---------------------------------------------------------------------------

@@ -448,7 +448,8 @@ public static class FactoryDefinitionChanges
         if ((c = string.CompareOrdinal(a.Check, b.Check)) != 0) return c;
         if ((c = string.CompareOrdinal(a.Prompt, b.Prompt)) != 0) return c;
         if ((c = a.PreventOverlap.CompareTo(b.PreventOverlap)) != 0) return c;
-        return string.CompareOrdinal(string.Join(",", Ordered(a.Secrets)), string.Join(",", Ordered(b.Secrets)));
+        if ((c = string.CompareOrdinal(string.Join(",", Ordered(a.Secrets)), string.Join(",", Ordered(b.Secrets)))) != 0) return c;
+        return string.CompareOrdinal(string.Join(",", a.BackupMachines), string.Join(",", b.BackupMachines));
     }
 
     private static FactoryDefinitionStartChangeDto StartEntry(SeatDefinition seat, string change, string sentence, List<string> details)
@@ -468,13 +469,22 @@ public static class FactoryDefinitionChanges
             details.Add(created ? $"prompt {Quote(n.Prompt)}" : $"prompt {Quote(o!.Prompt)} -> {Quote(n.Prompt)}");
         if (created ? !n.PreventOverlap : o!.PreventOverlap != n.PreventOverlap)
             details.Add(created ? "prevent overlap off" : $"prevent overlap {OnOff(o!.PreventOverlap)} -> {OnOff(n.PreventOverlap)}");
+        // The backups are an order of preference, so a change of order is a change.
+        var oldBackups = o?.BackupMachines ?? Array.Empty<string>();
+        if (!oldBackups.SequenceEqual(n.BackupMachines, StringComparer.Ordinal) && (!created || n.BackupMachines.Count > 0))
+            details.Add(created
+                ? $"backup machines {string.Join(", ", n.BackupMachines)}"
+                : $"backup machines {Machines(oldBackups)} -> {Machines(n.BackupMachines)}");
         return details;
     }
 
     /// <summary>True when two starts are written the same in every part.</summary>
     internal static bool SameStart(SeatStartDefinition a, SeatStartDefinition b)
         => a.Cron == b.Cron && a.TimeZone == b.TimeZone && a.EverySeconds == b.EverySeconds && a.Check == b.Check
-           && a.Prompt == b.Prompt && a.PreventOverlap == b.PreventOverlap && SameSet(a.Secrets, b.Secrets);
+           && a.Prompt == b.Prompt && a.PreventOverlap == b.PreventOverlap && SameSet(a.Secrets, b.Secrets)
+           && a.BackupMachines.SequenceEqual(b.BackupMachines, StringComparer.Ordinal);
+
+    private static string Machines(IReadOnlyList<string> machines) => machines.Count == 0 ? "none" : string.Join(", ", machines);
 
     /// <summary>When a start fires, in words: "Weekdays 08:00 Europe/Copenhagen", "Every 10 minutes".</summary>
     public static string When(SeatStartDefinition start)

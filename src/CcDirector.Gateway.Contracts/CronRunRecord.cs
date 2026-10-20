@@ -198,6 +198,14 @@ public static class CronRunProblems
     /// <summary>The run's check was never reported before the schedule's next time came (Factory Definition, phase 5b).</summary>
     public const string CheckNotRun = "check-not-run";
 
+    /// <summary>One Mail Desk mailbox could not be checked, while the others were (Mail Desk phase 3, section 6.2).
+    /// Cleared by that mailbox's next good check.</summary>
+    public const string MailboxFailed = "mailbox-failed";
+
+    /// <summary>The Mail Desk stopped asking the model because the account's spend limit is reached (Mail Desk
+    /// phase 3, section 7). Open until the limit is raised above what was spent.</summary>
+    public const string SpendLimitReached = "spend-limit-reached";
+
     /// <summary>True for the two kinds a check raises, which a later run whose check works again clears.</summary>
     public static bool IsCheckProblem(string? problem) => problem is CheckFailed or CheckNotRun;
 
@@ -217,6 +225,8 @@ public static class CronRunProblems
         DidNotRun => "did not run",
         CheckFailed => "check failed",
         CheckNotRun => "check did not run",
+        MailboxFailed => "mailbox could not be checked",
+        SpendLimitReached => "spend limit reached",
         _ => "a problem",
     };
 }

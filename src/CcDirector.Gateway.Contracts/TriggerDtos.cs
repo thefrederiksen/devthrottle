@@ -26,7 +26,12 @@ public static class TriggerRunOutcome
     /// not JSON, or printed no integer count), or the session it asked for could not be started.</summary>
     public const string Failed = "failed";
 
-    public static readonly string[] All = { NothingToDo, Started, Paused, SkippedRunning, Failed };
+    /// <summary>The Mail Desk screening check reported and the Gateway screened what it read (Mail Desk phase 3,
+    /// section 1): each message decided and recorded, whatever the count, and no session started. It keeps the
+    /// check's memory, like <see cref="NothingToDo"/>.</summary>
+    public const string Screened = "screened";
+
+    public static readonly string[] All = { NothingToDo, Started, Paused, SkippedRunning, Failed, Screened };
 }
 
 /// <summary>The two status words a trigger can have. The Gateway decides which; a client only renders it.</summary>
@@ -78,6 +83,15 @@ public sealed class TriggerDto
     public string Factory { get; set; } = "";
     public string FactoryAgent { get; set; } = "";
     public string Machine { get; set; } = "";
+
+    /// <summary>The machines that run the check while <see cref="Machine"/> is away, in order; empty when none
+    /// (Mail Desk, phase 5).</summary>
+    public List<string> BackupMachines { get; set; } = new();
+
+    /// <summary>Where the check runs, in words, ready to print: "machine-a", or "machine-a, then machine-b if
+    /// machine-a is away".</summary>
+    public string MachinesText { get; set; } = "";
+
     public string RepoPath { get; set; } = "";
     public string CheckCommand { get; set; } = "";
     public int IntervalSeconds { get; set; }
