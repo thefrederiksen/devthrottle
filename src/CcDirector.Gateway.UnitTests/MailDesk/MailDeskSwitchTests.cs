@@ -237,7 +237,7 @@ public sealed class MailDeskSwitchTests : IDisposable
             new MailDeskChannelStore(Db), new MailDeskRulesStore(Db), decisions, new MailDeskSettingsStore(Db),
             new MailDeskChannelFold(_ => Array.Empty<TriggerEntity>(), _ => "UTC", decisions, new MailDeskChannelCheckStore(Db)),
             _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, _ => Array.Empty<string>(), () => _now,
-            tenant => MailDeskSpend.Of(tenant, decisions, new MailDeskSettingsStore(Db))));
+            tenant => MailDeskSpend.Of(tenant, decisions, new MailDeskSettingsStore(Db)), new MailDeskRoutedStore(Db)));
 
         FactoryAgentsGate.Group(app, factory, Resolve).MapGet("/gateway/factory/placeholder", () => Results.Ok());
         return (app, mailDesk, factory);
@@ -258,6 +258,9 @@ public sealed class MailDeskSwitchTests : IDisposable
         "GET " + MailDeskGate.Prefix + "/decisions",
         "GET " + MailDeskGate.Prefix + "/settings",
         "POST " + MailDeskGate.Prefix + "/settings",
+        "GET " + MailDeskGate.Prefix + "/routed",
+        "POST " + MailDeskGate.Prefix + "/routed/{id}/done",
+        "POST " + MailDeskGate.Prefix + "/routed/{id}/return",
     };
 
     private static IReadOnlyList<RouteEndpoint> Endpoints(WebApplication app)
