@@ -155,7 +155,10 @@ In order:
    nothing waits for ever. A seat still owed a Bring back waits while the record still owes it; if the record never
    resolves, 72 hours after the RESTART (the record's time, never the session's start) the routed email is handed to
    the OWNER - never re-routed, so two sessions can never work one email. A record cancelled with "Cancel and keep
-   working" is not a restart and is ignored. (Review of the restart record work, 20 October 2026.) A session the Gateway cannot see at all is
+   working" is ignored only for the seats it kept running; seats it had already shut down and is bringing back are
+   owed like any restart. A seat restarted more than once before a run is followed through every record, asked again
+   level by level within one run, up to 10 levels; a longer chain goes to the owner. (Review of the restart record
+   work, and of its answers, 20 October 2026.) A session the Gateway cannot see at all is
    NOT ended by its absence - after a Gateway restart, or while its Director is away (a backup takeover), a live
    session is invisible for a while, and re-routing it would put two sessions on one email. Absence alone counts as
    ended only **24 hours** after the start (`MailDeskRouter.UnseenSessionEndsAfter`), so an email whose Director died
