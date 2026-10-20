@@ -27,15 +27,16 @@ public static class MailDeskModelEndpointConfig
     /// <summary>The config.json key.</summary>
     public const string Key = "mailDeskModelBaseUrl";
 
-    /// <summary>The base URL the Mail Desk's model calls go to on this Gateway: the loopback address in this
-    /// machine's config.json, or the hosted endpoint when there is none. Throws when the key holds anything else.</summary>
-    public static string Read()
+    /// <summary>The loopback base URL in this machine's config.json, or null when there is none - then the Mail Desk
+    /// asks the Wingman endpoint <see cref="MailDeskModelFactory"/> resolves. Throws when the key holds anything
+    /// else.</summary>
+    public static string? Read()
     {
         var configured = Parse(CcDirectorConfigService.ReadRaw());
         if (configured is null)
         {
             FileLog.Write($"[MailDeskModelEndpointConfig] Read: {Key} not set; the Mail Desk asks the hosted endpoint");
-            return TranscriptionEndpointResolver.DevThrottleBaseUrl;
+            return null;
         }
         FileLog.Write($"[MailDeskModelEndpointConfig] Read: {Key} is set; the Mail Desk asks the model on the loopback host {new Uri(configured).Host}");
         return configured;

@@ -1,4 +1,6 @@
+using System.Reflection;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.MailDesk;
 using Xunit;
 
@@ -29,17 +31,19 @@ public sealed class MailDeskModelEndpointWiringTests : IDisposable
     }
 
     [Fact]
-    public async Task GatewayHost_NoKeyInConfig_AsksTheHostedEndpoint()
+    public async Task GatewayHost_NoKeyInConfig_TheScreeningsModelAsksTheHostedEndpoint()
     {
         // Arrange
         WriteConfig("{ \"factoryAgents\": { \"enabled\": true } }");
+        WriteVaultKey();
 
         // Act
         var gateway = NewGateway();
         try
         {
             // Assert
-            Assert.Equal(TranscriptionEndpointResolver.DevThrottleBaseUrl, gateway.MailDeskModelBaseUrl);
+            Assert.Null(gateway.MailDeskModelBaseUrl);
+            Assert.Equal(TranscriptionEndpointResolver.DevThrottleBaseUrl + "/chat/completions", ScreeningChatUrl(gateway));
         }
         finally
         {
@@ -67,6 +71,27 @@ public sealed class MailDeskModelEndpointWiringTests : IDisposable
     }
 
     [Fact]
+    public async Task GatewayHost_LoopbackKeyInConfig_TheScreeningsModelAsksThatAddress()
+    {
+        // Arrange: the key, and a key in the vault so the factory builds a model that calls (no key: no call at all)
+        WriteConfig($"{{ \"{MailDeskModelEndpointConfig.Key}\": \"http://127.0.0.1:7993/v1\" }}");
+        WriteVaultKey();
+        var gateway = NewGateway();
+        try
+        {
+            // Act
+            var chatUrl = ScreeningChatUrl(gateway);
+
+            // Assert
+            Assert.Equal("http://127.0.0.1:7993/v1/chat/completions", chatUrl);
+        }
+        finally
+        {
+            await gateway.StopAsync();
+        }
+    }
+
+    [Fact]
     public void GatewayHost_KeyNamingAnotherHost_DoesNotStart()
     {
         // Arrange
@@ -79,6 +104,23 @@ public sealed class MailDeskModelEndpointWiringTests : IDisposable
         var refusal = Assert.IsType<InvalidOperationException>(ex is System.Reflection.TargetInvocationException t ? t.InnerException : ex);
         Assert.Contains(MailDeskModelEndpointConfig.Key, refusal.Message);
     }
+
+    /// <summary>Where the model the screening itself builds sends its questions: the model factory read from the
+    /// screening by reflection, so the wiring line in GatewayHost is what is tested, not a copy of it.</summary>
+    private static string ScreeningChatUrl(GatewayHost gateway)
+    {
+        var modelFor = (Func<TenantId, IMailDeskModel>)typeof(MailDeskService)
+            .GetField("_modelFor", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(gateway.MailDeskScreening)!;
+        var built = Assert.IsType<MailDeskModel>(modelFor(TenantId.Local));
+        return (string)typeof(MailDeskModel)
+            .GetField("_chatUrl", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(built)!;
+    }
+
+    private void WriteVaultKey()
+        => File.WriteAllText(Path.Combine(_storageRoot, "keyvault.json"),
+            $"{{ \"{TranscriptionEndpointResolver.DevThrottleKeyName}\": \"rig-only-key\" }}");
 
     private void WriteConfig(string json)
         => File.WriteAllText(Path.Combine(_storageRoot, "config", "config.json"), json);
