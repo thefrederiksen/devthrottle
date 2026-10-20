@@ -297,7 +297,8 @@ function Start-PiSession([string]$Name) {
 function Send-Prompt([string]$Sid, [string]$Text) { Invoke-Tool @('session', 'prompt', $Sid, $Text) }
 
 # A prompt's turn has ended when its receipt says how.
-function Wait-TurnEnded([string]$Sid, [string]$Text, [int]$Seconds = 120) {
+# Five minutes: the model's first reply took over two minutes in two Windows runs, and never came in one of them.
+function Wait-TurnEnded([string]$Sid, [string]$Text, [int]$Seconds = 300) {
     Wait-For { $r = Get-ReceiptFor $Sid $Text; if ($r -and $r.turnOutcome) { $r } } $Seconds 1500
 }
 
@@ -795,7 +796,7 @@ function Invoke-Flow {
     $streaming = Wait-For {
         $r = Get-ReceiptFor $sid $text
         if ($r -and $r.turnId -and @(Get-Items $sid | Where-Object { $_.kind -eq 'replyText' -and $_.itemId.StartsWith("reply:$($r.turnId)-") }).Count -gt 0) { $r }
-    } 60 500
+    } 300 500
     $stop = Invoke-Gateway POST "/sessions/$sid/turn/stop"
     $receipt = Wait-TurnEnded $sid $text 60
     Add-Result '3. Stop: the turn ended cancelled' ($streaming -and $stop.Status -eq 200 -and $receipt.turnOutcome -eq 'cancelled') `
@@ -829,7 +830,7 @@ function Invoke-Flow {
         Add-Result 'Failure case: hand back while the terminal is mid-turn - refused with a reason, never two holders' $false `
             "not provoked: the hand back answered $($early.Status) because Pi had already finished; see the unit tests"
     }
-    $handBack = Wait-For { $r = Invoke-Gateway POST "/sessions/$sid/wheel/hand-back"; if ($r.Status -eq 200) { $r } } 120 3000
+    $handBack = Wait-For { $r = Invoke-Gateway POST "/sessions/$sid/wheel/hand-back"; if ($r.Status -eq 200) { $r } } 300 3000
     if (-not $handBack -and $early.Status -eq 200) { $handBack = $early }
     $back = Wait-For { $row = Get-Row $sid; if ($row.wheelHolder -eq 'protocol' -and $row.apiMode.agentConnected) { $row } } 60 2000
     Add-Result '4b. Hand back' ([bool]$back) "holder $($back.wheelHolder), $($back.apiMode.agentLabel); Pi processes $(Get-PiProcessCount)"
