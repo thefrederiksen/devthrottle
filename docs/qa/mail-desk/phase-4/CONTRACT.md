@@ -164,7 +164,10 @@ In order:
 - **Prompt:** the seat's own start prompt is not used (this is not one of the seat's starts). The prompt OPENS exactly
   as a scheduled run of that seat opens - who the seat is, its brief at the published version, and where its kit is
   (`ScheduledRunOpening`, the one place that wording lives) - so the seat knows its own role; then the Mail Desk's
-  text. (Found on the rig: with only the Mail Desk's text, seats never read their brief. Ruled by the Tech Lead,
+  text. Only the sentence saying what started the session differs: a scheduled run says it is one of the seat's
+  schedules; a routed session says it was started by the Mail Desk for emails routed to this seat - never the
+  schedule sentence, which would be false. Who the seat is, its brief, its kit and its goal are the same shared code.
+  (Found on the rig: with only the Mail Desk's text, seats never read their brief. Ruled by the Tech Lead,
   20 October 2026.) The Mail Desk's text, in plain words: "The Mail Desk routed <n> emails to you (<factory>/<seat>). They are listed in check.json in
   your kit and below. Read each one in its mailbox with cc-outlook. When you have dealt with one, run
   `cc-devthrottle maildesk done <routed id> --note "<what you did>"`. If it is not for you, run
