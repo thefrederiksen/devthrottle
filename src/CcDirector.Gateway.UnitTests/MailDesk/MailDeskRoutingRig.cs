@@ -84,9 +84,16 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
     /// <summary>Every time the router asked for history endings: the session ids it asked about.</summary>
     public List<IReadOnlyCollection<string>> EndingsAsked { get; } = new();
 
-    /// <summary>The restart records the fake reads: the seat captured from each session id (a session no restart
-    /// captured is not in it).</summary>
-    public Dictionary<string, WorkspaceSeat> RestartSeats { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The restart records the fake reads: the seat captured from each session id, with its record's time (a
+    /// session no restart captured is not in it). <see cref="CaptureForRestart"/> adds one.</summary>
+    public Dictionary<string, WorkspaceSeatOnRecord> RestartSeats { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A restart, now, captured <paramref name="seat"/> on a record the fake reads.</summary>
+    public WorkspaceSeat CaptureForRestart(WorkspaceSeat seat)
+    {
+        RestartSeats[seat.SessionId!] = new WorkspaceSeatOnRecord("restart-record", Now, seat);
+        return seat;
+    }
 
     /// <summary>Every time the router asked for restart records: the session ids and the oldest start it gave.</summary>
     public List<(IReadOnlyCollection<string> Ids, DateTime Since)> RestartSeatsAsked { get; } = new();
@@ -135,7 +142,7 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
         {
             RestartSeatsAsked.Add((ids.ToList(), since));
             return ids.Where(RestartSeats.ContainsKey)
-                .ToDictionary(id => id, id => new WorkspaceSeatOnRecord("restart-record", RestartSeats[id]), StringComparer.Ordinal);
+                .ToDictionary(id => id, id => RestartSeats[id], StringComparer.Ordinal);
         }
         (_find, _findByName, _definitionOf) = (Find, FindByName, DefinitionOf);
 
@@ -290,9 +297,15 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
 
     /// <summary>A captured restart record in this rig's account, as a Smart Restart's drain saves it, holding
     /// <paramref name="seats"/>.</summary>
-    public void SaveRestartRecord(string id, params WorkspaceSeat[] seats)
+    public void SaveRestartRecord(string id, params WorkspaceSeat[] seats) => SaveRestartRecord(id, null, seats);
+
+    /// <summary>The same, cancelled at <paramref name="cancelledAtUtc"/> ("Cancel and keep working") when given.</summary>
+    public void SaveRestartRecord(string id, DateTime? cancelledAtUtc, params WorkspaceSeat[] seats)
     {
-        var doc = new WorkspaceDocument { Id = id, Name = id, Origin = WorkspaceOrigins.Captured, Seats = seats.ToList() };
+        var doc = new WorkspaceDocument
+        {
+            Id = id, Name = id, Origin = WorkspaceOrigins.Captured, Seats = seats.ToList(), CancelledAtUtc = cancelledAtUtc,
+        };
         using var ctx = Db.CreateContext(Account);
         ctx.Workspaces.Add(new WorkspaceEntity
         {

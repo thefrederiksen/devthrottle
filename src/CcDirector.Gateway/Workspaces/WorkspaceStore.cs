@@ -723,8 +723,12 @@ public sealed class WorkspaceStore
     /// <summary>
     /// THE SEATS A RESTART CAPTURED FROM THESE SESSIONS, in <paramref name="tenant"/>'s own account (Mail Desk phase 4
     /// contract, section 3.2 step 3): for each session id that is a seat of a captured record created at or after
-    /// <paramref name="capturedSinceUtc"/>, the seat and its record's id, from the newest such record. A session no
-    /// record captured is absent from the answer. One query; only the records in the window are parsed.
+    /// <paramref name="capturedSinceUtc"/>, the seat, its record's id and the record's creation time (the restart, by
+    /// the Gateway's own clock), from the newest such record. A session no record captured is absent from the answer.
+    /// One query; only the records in the window are parsed.
+    ///
+    /// A CANCELLED record ("Cancel and keep working", <see cref="WorkspaceDocument.CancelledAtUtc"/>) is not a restart:
+    /// its sessions kept running under their own ids and nothing in it is ever offered back, so it is not read.
     ///
     /// A record that cannot be parsed is skipped and logged, never thrown: this read serves the Mail Desk router for
     /// a whole account, and one damaged restart record must not stop every email of that account being routed - the
@@ -760,10 +764,11 @@ public sealed class WorkspaceStore
                     FileLog.Write($"[WorkspaceStore] SeatsCapturedFrom: record {row.Id} skipped, it cannot be read: {ex.Message}");
                     continue;
                 }
+                if (doc.CancelledAtUtc is not null) continue;
                 foreach (var seat in doc.Seats)
                 {
                     if (seat.SessionId is { } id && wanted.Contains(id) && !found.ContainsKey(id))
-                        found[id] = new WorkspaceSeatOnRecord(row.Id, seat);
+                        found[id] = new WorkspaceSeatOnRecord(row.Id, DateTime.SpecifyKind(row.CreatedUtc, DateTimeKind.Utc), seat);
                 }
             }
             FileLog.Write($"[WorkspaceStore] SeatsCapturedFrom: {sessionIds.Count} sessions asked, {found.Count} on a restart record");
@@ -864,8 +869,9 @@ public sealed class WorkspaceStore
     }
 }
 
-/// <summary>One seat a restart captured, with the id of the record that holds it.</summary>
-public sealed record WorkspaceSeatOnRecord(string WorkspaceId, WorkspaceSeat Seat)
+/// <summary>One seat a restart captured, with the id of the record that holds it and when that record was created - the
+/// restart, by the Gateway's own clock.</summary>
+public sealed record WorkspaceSeatOnRecord(string WorkspaceId, DateTime RecordedUtc, WorkspaceSeat Seat)
 {
     /// <summary>The session this seat was brought back as - by a Bring back from its handover, or by a reopen of its
     /// conversation - or null while it has not been, or the reopen's session id was never recorded.</summary>
@@ -873,6 +879,13 @@ public sealed record WorkspaceSeatOnRecord(string WorkspaceId, WorkspaceSeat Sea
         => !string.IsNullOrWhiteSpace(Seat.RestoredSessionId) ? Seat.RestoredSessionId
             : !string.IsNullOrWhiteSpace(Seat.Restore?.ReopenedSessionId) ? Seat.Restore!.ReopenedSessionId
             : null;
+
+    /// <summary>When the session it was brought back as was started: the reopen's time, or the Bring back's start of it,
+    /// or - when the record says neither - the restart itself. The start a 24-hour rule for that session counts from.</summary>
+    public DateTime BroughtBackAtUtc
+        => !string.IsNullOrWhiteSpace(Seat.RestoredSessionId)
+            ? Seat.Restore?.StartedAtUtc ?? Seat.Restore?.AttemptedAtUtc ?? RecordedUtc
+            : Seat.Restore?.ReopenedAtUtc ?? RecordedUtc;
 
     /// <summary>Marked not to be brought back.</summary>
     public bool NotToBeBroughtBack => Seat.Restore?.Decision == WorkspaceRestoreDecisions.Close;

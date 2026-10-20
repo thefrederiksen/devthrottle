@@ -142,7 +142,7 @@ public sealed class MailDeskRouter
             SettleUnknownStarts(tenant, tally);
             var facts = FactsOfThisRun(tenant);
             RerouteOrphans(tenant, facts, tally);
-            await StartSeatsAsync(tenant, trigger, directorId, machine, checkedUtc, facts, tally).ConfigureAwait(false);
+            await StartSeatsAsync(tenant, trigger, directorId, machine, checkedUtc, tally).ConfigureAwait(false);
             FileLog.Write($"[MailDeskRouter] RouteAsync: account={tenant.ToLogString()}: {tally}");
             return tally;
         }
@@ -191,36 +191,31 @@ public sealed class MailDeskRouter
 
     /// <summary>
     /// The facts of every session this run reads, each source asked ONCE (contract 3.2 step 3): the session of every
-    /// open row, and the newest Mail Desk session of every seat with a queued email (the busy-seat rule). Read after
-    /// the unknown starts are settled, so an adopted session is in it. The steps after this start new sessions but
-    /// never read one: each seat is started at most once a run.
+    /// open row - read after the unknown starts are settled, so an adopted session is in it. The restart records are
+    /// asked first, so the history is asked about the sessions they say a seat was brought back as, too: a brought-back
+    /// seat is judged by that session's own state. The steps after this start new sessions but never read one.
     /// </summary>
     private RunFacts FactsOfThisRun(TenantId tenant)
     {
-        var open = _routed.Open(tenant);
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var oldestStart = DateTime.MaxValue;
-        void Read(MailDeskRoutedEntity row)
+        foreach (var row in _routed.Open(tenant).Where(r => r.SessionId is not null))
         {
             ids.Add(row.SessionId!);
             var started = row.StartedUtc is { } s ? Utc(s) : DateTime.MinValue;
             if (started < oldestStart) oldestStart = started;
         }
-        foreach (var row in open.Where(r => r.SessionId is not null))
-            Read(row);
-        foreach (var (factory, seat) in open.Where(r => r.SessionId is null && r.StartName is null).Select(r => (r.Factory, r.Seat)).Distinct())
-        {
-            if (_routed.StartsOf(tenant, factory, seat).FirstOrDefault(r => r.SessionId is not null) is { } newest)
-                Read(newest);
-        }
         if (ids.Count == 0)
             return new RunFacts(new Dictionary<string, SessionEndingFact>(StringComparer.OrdinalIgnoreCase),
                 new Dictionary<string, WorkspaceSeatOnRecord>(StringComparer.OrdinalIgnoreCase));
-        var endings = new Dictionary<string, SessionEndingFact>(_endingsOf(tenant, ids), StringComparer.OrdinalIgnoreCase);
         // A record that captured a session is newer than its start, so nothing older than the oldest start is read.
         var restartSeats = new Dictionary<string, WorkspaceSeatOnRecord>(_restartSeatsOf(tenant, ids, oldestStart),
             StringComparer.OrdinalIgnoreCase);
-        FileLog.Write($"[MailDeskRouter] FactsOfThisRun: {ids.Count} sessions read, {endings.Count} with a history record, {restartSeats.Count} on a restart record");
+        var asked = new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase);
+        foreach (var seat in restartSeats.Values)
+            if (seat.BroughtBackAs is { } back) asked.Add(back);
+        var endings = new Dictionary<string, SessionEndingFact>(_endingsOf(tenant, asked), StringComparer.OrdinalIgnoreCase);
+        FileLog.Write($"[MailDeskRouter] FactsOfThisRun: {ids.Count} sessions read, {restartSeats.Count} on a restart record, {asked.Count} asked of the history, {endings.Count} with a history record");
         return new RunFacts(endings, restartSeats);
     }
 
@@ -235,12 +230,22 @@ public sealed class MailDeskRouter
             var fate = FateOf(tenant, sessionId, startedUtc, session.ToList(), facts);
             if (fate.FollowTo is { } restored)
             {
-                var followed = _routed.Follow(tenant, sessionId, restored, fate.FollowMachine, _nowUtc());
+                var followed = _routed.Follow(tenant, sessionId, restored, fate.FollowMachine, fate.FollowStartedUtc!.Value, _nowUtc());
                 tally.Followed += followed.Count;
                 FileLog.Write($"[MailDeskRouter] RerouteOrphans: session {sessionId} is back as {restored} ({fate.Why}); {followed.Count} emails follow it");
                 continue;
             }
             if (!fate.Ended) continue;
+            if (fate.ToOwner)
+            {
+                foreach (var row in session)
+                {
+                    _routed.HandToOwner(tenant, row.Id, fate.Why, failDecision: false, _nowUtc());
+                    tally.ToOwner++;
+                }
+                FileLog.Write($"[MailDeskRouter] RerouteOrphans: session {sessionId}'s {session.Count()} open emails are handed to the owner: {fate.Why}");
+                continue;
+            }
             foreach (var row in session)
             {
                 var after = _routed.Reroute(tenant, row.Id, _nowUtc());
@@ -251,13 +256,26 @@ public sealed class MailDeskRouter
         }
     }
 
-    /// <summary>What became of a routed session: still running, ended, or back under another id.</summary>
-    private sealed record SessionFate(bool Ended, string? FollowTo, string? FollowMachine, string Why)
+    /// <summary>What became of a routed session: still running, ended (its emails re-routed, or handed to the owner),
+    /// or back under another id.</summary>
+    private sealed record SessionFate(bool Ended, bool ToOwner, string? FollowTo, string? FollowMachine, DateTime? FollowStartedUtc,
+        string Why)
     {
-        public static readonly SessionFate Alive = new(false, null, null, "not ended");
-        public static SessionFate EndedBecause(string why) => new(true, null, null, why);
-        public static SessionFate BackAs(string sessionId, string? machine, string why) => new(false, sessionId, machine, why);
+        public static readonly SessionFate Alive = new(false, false, null, null, null, "not ended");
+        public static SessionFate EndedBecause(string why) => new(true, false, null, null, null, why);
+        public static SessionFate OwnerBecause(string why) => new(true, true, null, null, null, why);
+        public static SessionFate BackAs(string sessionId, string? machine, DateTime startedUtc, string why)
+            => new(false, false, sessionId, machine, startedUtc, why);
     }
+
+    /// <summary>
+    /// How long a seat a restart ended may stay owed a Bring back on its restart record, counted from the RESTART (the
+    /// record's creation, by the Gateway's clock) and never from the session's start. The offer itself never ends: the
+    /// start-up window stops showing a record after <c>DirectorWayUp.OfferedForDays</c> days, but File, Restart history
+    /// keeps its Bring back for good. Past this, the email is handed to the owner - never re-routed, because the seat
+    /// can still be brought back and two sessions would then work it. 72 hours outlasts a weekend.
+    /// </summary>
+    public static readonly TimeSpan RestartOwedFor = TimeSpan.FromHours(72);
 
     /// <summary>
     /// WHAT BECAME OF A ROUTED SESSION (contract 3.2 step 3), in this order:
@@ -265,22 +283,24 @@ public sealed class MailDeskRouter
     /// <item>A row in the session list decides alone: ended only when it says it exited or crashed (review of 4283,
     /// finding 1).</item>
     /// <item>A seat a restart captured (the restart record, which the drain saves before it ends each seat - a Smart
-    /// Restart's history ending is <c>closed</c> or <c>finished</c> and cannot tell it from a person or the agent):
-    /// brought back - followed to the record's new session id; marked not to be brought back - ended at once; still
-    /// owed a Bring back - followed by name if the mark of its return failed to be written, otherwise not ended until
-    /// the 24 hours.</item>
+    /// Restart's history ending is <c>closed</c> or <c>finished</c> and cannot tell it from a person or the agent; a
+    /// cancelled record is never read): brought back - judged by the session it came back as, by these same rules,
+    /// from that session's own start, and followed to it while it lives; marked not to be brought back - ended at
+    /// once; still owed a Bring back - followed by name if the mark of its return failed to be written, otherwise
+    /// waiting until <see cref="RestartOwedFor"/> after the restart, then handed to the owner.</item>
     /// <item>No such seat, by its history ending: <c>finished</c> (its agent ended it) - ended at once; <c>closed</c>
     /// (a person ended it) - followed by name if a restore came back without a record, otherwise ended at once;
     /// <c>director-stopped</c> - followed by name, otherwise waits like <c>interrupted</c>; <c>interrupted</c> or no
     /// record - not ended until <see cref="UnseenSessionEndsAfter"/> after its start.</item>
     /// </list>
     /// Unlike <see cref="TriggerService.IsLastSessionAlive"/>, which reads absence after the start grace as ended,
-    /// because here a wrong "ended" puts two sessions on one email.
+    /// because here a wrong "ended" puts two sessions on one email. Nothing waits for ever: every branch ends.
     /// </summary>
     /// <param name="rows">The routed rows of this session's start: their start name, factory and seat are what a
     /// session restored without a record is found by.</param>
+    /// <param name="depth">How many restarts deep this is: a session brought back may itself have been restarted.</param>
     private SessionFate FateOf(TenantId tenant, string sessionId, DateTime startedUtc, IReadOnlyList<MailDeskRoutedEntity> rows,
-        RunFacts facts)
+        RunFacts facts, int depth = 0)
     {
         var row = _findSession(tenant, sessionId);
         if (row is not null)
@@ -288,12 +308,22 @@ public sealed class MailDeskRouter
 
         if (facts.RestartSeats.TryGetValue(sessionId, out var onRecord))
         {
-            if (onRecord.BroughtBackAs is { } back && !string.Equals(back, sessionId, StringComparison.OrdinalIgnoreCase))
-                return SessionFate.BackAs(back, _findSession(tenant, back)?.MachineName, $"the restart record {onRecord.WorkspaceId} brought it back");
+            var record = $"the restart record {onRecord.WorkspaceId}";
+            if (onRecord.BroughtBackAs is { } back && !string.Equals(back, sessionId, StringComparison.OrdinalIgnoreCase)
+                && depth < MaxRestartsFollowed)
+            {
+                var then = FateOf(tenant, back, onRecord.BroughtBackAtUtc, rows, facts, depth + 1);
+                if (then.Ended) return then with { Why = $"{record} brought it back as {back}, and that session ended: {then.Why}" };
+                return then.FollowTo is not null ? then
+                    : SessionFate.BackAs(back, _findSession(tenant, back)?.MachineName, onRecord.BroughtBackAtUtc, $"{record} brought it back as {back}");
+            }
             if (onRecord.NotToBeBroughtBack)
-                return SessionFate.EndedBecause($"the restart record {onRecord.WorkspaceId} marks it not to be brought back");
-            return ByName(tenant, sessionId, rows, $"the restart record {onRecord.WorkspaceId} still owes it a Bring back")
-                   ?? Unseen(sessionId, startedUtc);
+                return SessionFate.EndedBecause($"{record} marks it not to be brought back");
+            if (ByName(tenant, sessionId, rows, $"{record} still owes it a Bring back") is { } named)
+                return named;
+            return _nowUtc() - onRecord.RecordedUtc < RestartOwedFor
+                ? SessionFate.Alive
+                : SessionFate.OwnerBecause(MailDeskRoutedReasons.NotBroughtBack);
         }
 
         var kind = facts.Endings.TryGetValue(sessionId, out var ending) ? ending.EndingKind : null;
@@ -307,6 +337,10 @@ public sealed class MailDeskRouter
             _ => Unseen(sessionId, startedUtc),
         };
     }
+
+    /// <summary>How many restarts a routed session is followed through in one run. A seat brought back, restarted and
+    /// brought back again between two runs is rare; past this, the last session is judged as having no record.</summary>
+    private const int MaxRestartsFollowed = 3;
 
     /// <summary>
     /// THE FOLLOW BY NAME (review of 4283, finding 2), the fallback when the restart record does not say which session
@@ -324,7 +358,9 @@ public sealed class MailDeskRouter
                 && string.Equals(s.Factory, factory, StringComparison.Ordinal)
                 && string.Equals(s.FactorySeat, seat, StringComparison.Ordinal));
             if (restored is not null)
-                return SessionFate.BackAs(restored.SessionId, restored.MachineName, $"{why}; a live session has its start's name, factory and seat");
+                return SessionFate.BackAs(restored.SessionId, restored.MachineName,
+                    restored.CreatedAt == default ? _nowUtc() : Utc(restored.CreatedAt),
+                    $"{why}; a live session has its start's name, factory and seat");
         }
         return null;
     }
@@ -340,7 +376,7 @@ public sealed class MailDeskRouter
     // ---------- step 4 and 5: start, and record ----------
 
     private async Task StartSeatsAsync(TenantId tenant, TriggerEntity trigger, string directorId, string machine,
-        DateTime checkedUtc, RunFacts facts, MailDeskRouterRun tally)
+        DateTime checkedUtc, MailDeskRouterRun tally)
     {
         var channels = _channels.List(tenant, includeRemoved: true).ToDictionary(c => c.Id);
         var queued = new List<(MailDeskRoutedEntity Row, MailDeskDecisionEntity Decision, MailDeskChannelEntity Channel)>();
@@ -360,7 +396,7 @@ public sealed class MailDeskRouter
         foreach (var group in groups)
         {
             var (factory, seat) = (group[0].Row.Factory, group[0].Row.Seat);
-            if (IsSeatBusy(tenant, factory, seat, facts))
+            if (IsSeatBusy(tenant, factory, seat))
             {
                 tally.Waiting += group.Count;
                 FileLog.Write($"[MailDeskRouter] StartSeatsAsync: {factory}/{seat} is busy; {group.Count} emails wait");
@@ -476,25 +512,20 @@ public sealed class MailDeskRouter
     }
 
     /// <summary>
-    /// A BUSY SEAT (section 1): a start of the seat whose outcome is not known yet, inside the start grace (3.4); an
-    /// open row of it still with a session after step 3; or the newest session the Mail Desk started for it has not
-    /// ended (<see cref="FateOf"/>) - a session back under another id counts as not ended.
+    /// A BUSY SEAT (section 1): a start of the seat whose outcome is not known yet, inside the start grace (3.4); or an
+    /// open row of it still with a session after step 3 - which has re-routed, handed on or followed every row whose
+    /// session ended, so such a row is with a session that has not. A <c>done</c> row never makes a seat busy (review of
+    /// the restart record work, finding 1): a session that has said done on everything it holds has nothing of the
+    /// seat's left, and a done row's session id may be one a restart replaced long ago.
     /// </summary>
-    private bool IsSeatBusy(TenantId tenant, string factory, string seat, RunFacts facts)
+    private bool IsSeatBusy(TenantId tenant, string factory, string seat)
     {
         var now = _nowUtc();
         var starts = _routed.StartsOf(tenant, factory, seat);
         if (starts.Any(r => r.State == MailDeskWords.RoutedStates.Open && r.SessionId is null && r.StartName is not null
                             && now - Utc(r.StartedUtc!.Value) < TriggerService.StartGrace))
             return true;
-        // An open row still with a session after step 3 is with a live one - including a row that followed a restored
-        // session, while an older row of the same start, already done, still names the id it had before the restart.
-        if (starts.Any(r => r.State == MailDeskWords.RoutedStates.Open && r.SessionId is not null))
-            return true;
-        var newest = starts.FirstOrDefault(r => r.SessionId is not null);
-        if (newest is null) return false;
-        var ofNewest = starts.Where(r => string.Equals(r.SessionId, newest.SessionId, StringComparison.OrdinalIgnoreCase)).ToList();
-        return !FateOf(tenant, newest.SessionId!, Utc(newest.StartedUtc!.Value), ofNewest, facts).Ended;
+        return starts.Any(r => r.State == MailDeskWords.RoutedStates.Open && r.SessionId is not null);
     }
 
     // ---------- what the session is given ----------

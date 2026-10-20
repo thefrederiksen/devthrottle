@@ -66,6 +66,23 @@ public sealed class MailDeskRestartRecordReadTests : IAsyncLifetime
     }
 
     [Fact]
+    public void SeatsCapturedFrom_ACancelledRecord_IsNotRead_AndTheRestartTimeIsTheRecordsCreation()
+    {
+        // Arrange
+        _rig.SaveRestartRecord("restart-cancelled", cancelledAtUtc: _rig.Now, Seat(SessionOne));
+        var restartedAt = _rig.Now.AddMinutes(5);
+        _rig.Now = restartedAt;
+        _rig.SaveRestartRecord("restart-real", Seat(SessionTwo));
+
+        // Act
+        var seats = Store.SeatsCapturedFrom(MailDeskRoutingRig.Account, new[] { SessionOne, SessionTwo }, _rig.Now.AddHours(-1));
+
+        // Assert
+        var (id, seat) = Assert.Single(seats);
+        Assert.Equal((SessionTwo, restartedAt), (id, seat.RecordedUtc));
+    }
+
+    [Fact]
     public void SeatsCapturedFrom_ADamagedRecord_IsSkipped_AndTheOthersAreRead()
     {
         // Arrange
@@ -103,8 +120,8 @@ public sealed class MailDeskRestartRecordReadTests : IAsyncLifetime
         };
 
         // Act
-        var a = new WorkspaceSeatOnRecord("r", reopened);
-        var b = new WorkspaceSeatOnRecord("r", closed);
+        var a = new WorkspaceSeatOnRecord("r", DateTime.MinValue, reopened);
+        var b = new WorkspaceSeatOnRecord("r", DateTime.MinValue, closed);
 
         // Assert
         Assert.Equal((SessionTwo, false), (a.BroughtBackAs, a.NotToBeBroughtBack));
