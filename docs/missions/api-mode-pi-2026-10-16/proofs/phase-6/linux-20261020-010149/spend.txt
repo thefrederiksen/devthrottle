@@ -1,0 +1,6 @@
+Pi tokens for this run, from Pi's own session files: input 18, output 207, cache read 23270, cache write 4832.
+Replies Pi cut off (recorded as zero, estimated per spend.md): 1, estimated as 4550 input and 500 output tokens.
+Estimated dollars: 0.0869
+
+The row for docs/missions/api-mode-pi-2026-10-16/spend.md:
+| 2026-10-20 | Developer, phase 6 | Proof run, linux (20261020-010149) | 4568 | 707 | 23270 | 4832 | 0.0869 |
