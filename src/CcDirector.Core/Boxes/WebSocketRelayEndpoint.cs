@@ -144,7 +144,7 @@ public sealed class WebSocketRelayEndpoint : IDesktopRelayEndpoint, IDisposable
         }
         catch (Exception ex) when (ex is WebSocketException or IOException or ObjectDisposedException or OperationCanceledException)
         {
-            // The socket is already gone - the close it would have sent has nobody to reach.
+            // not-an-error: the socket is already gone - the close it would have sent has nobody to reach.
             FileLog.Write($"[WebSocketRelayEndpoint] {_label}: close not sent, the socket is gone: {ex.Message}");
         }
         finally

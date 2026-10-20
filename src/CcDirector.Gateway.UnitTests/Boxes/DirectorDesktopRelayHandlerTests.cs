@@ -154,8 +154,7 @@ public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
 
         handler.CancelAll("the tunnel closed");
         await _box.SocketEnded.Task.Within();
-        var watchdog = System.Diagnostics.Stopwatch.StartNew();
-        while (handler.ActiveSocketCount != 0 && watchdog.Elapsed < Watchdog.Limit) await Task.Yield();
+        await Watchdog.Eventually(() => handler.ActiveSocketCount == 0);
 
         Assert.Equal(0, handler.ActiveSocketCount);
     }
@@ -165,19 +164,21 @@ public sealed class DirectorDesktopRelayHandlerTests : IAsyncLifetime
 public sealed class DesktopBoxAddressTests
 {
     [Theory]
-    [InlineData("/", false, "http://127.0.0.1:3110/")]
-    [InlineData("/api/status?x=1", false, "http://127.0.0.1:3110/api/status?x=1")]
-    [InlineData("/api/websockets", true, "ws://127.0.0.1:3110/api/websockets")]
-    [InlineData("/a/../../../etc/passwd", false, "http://127.0.0.1:3110/etc/passwd")]
-    [InlineData("/%2F%2Fevil.example", false, "http://127.0.0.1:3110/%2F%2Fevil.example")]
-    [InlineData("/@evil.example", false, "http://127.0.0.1:3110/@evil.example")]
-    public void Build_AnyPath_StaysOnLoopbackAtThePort(string path, bool webSocket, string expected)
+    [InlineData("/", false, "/")]
+    [InlineData("/api/status?x=1", false, "/api/status?x=1")]
+    [InlineData("/api/websockets", true, "/api/websockets")]
+    [InlineData("/a/../../../etc/passwd", false, "/etc/passwd")]
+    [InlineData("/%2F%2Fevil.example", false, "/%2F%2Fevil.example")]
+    [InlineData("/@evil.example", false, "/@evil.example")]
+    public void Build_AnyPath_StaysOnLoopbackAtThePort(string path, bool webSocket, string expectedPath)
     {
         var address = DesktopBoxAddress.Build(3110, path, webSocket);
 
-        Assert.Equal(expected, address.ToString());
+        Assert.Equal(webSocket ? "ws" : "http", address.Scheme);
         Assert.Equal("127.0.0.1", address.Host);
         Assert.Equal(3110, address.Port);
+        Assert.Equal(expectedPath, address.PathAndQuery);
+        Assert.Equal("", address.UserInfo);
     }
 
     [Theory]

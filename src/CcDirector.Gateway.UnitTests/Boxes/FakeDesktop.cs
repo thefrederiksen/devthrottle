@@ -97,7 +97,7 @@ internal sealed class FakeDesktop : IAsyncDisposable
                 return;
             case "/redirect-box":
                 ctx.Response.StatusCode = StatusCodes.Status302Found;
-                ctx.Response.Headers.Location = "http://127.0.0.1:3110/landing?x=1";
+                ctx.Response.Headers.Location = $"http://127.0.0.1:{DesktopRelayRig.BoxPort}/landing?x=1";
                 return;
             case "/cookie":
                 ctx.Response.Headers.Append("Set-Cookie", "cc-gateway-token=from-the-box; Path=/");

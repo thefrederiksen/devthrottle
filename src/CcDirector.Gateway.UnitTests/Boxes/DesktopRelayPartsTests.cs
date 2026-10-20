@@ -161,10 +161,17 @@ public sealed class BoxDesktopHeadersTests
         Assert.DoesNotContain(carried, h => h.Name == "Cookie");
     }
 
+    private const int BoxPort = 3110;
+
+    public static TheoryData<string, string> Locations => new()
+    {
+        { "/landing", "/boxes/b/desktop/landing" },
+        { $"http://127.0.0.1:{BoxPort}/x?y=1", "/boxes/b/desktop/x?y=1" },
+        { $"http://localhost:{BoxPort}/x", "/boxes/b/desktop/x" },
+    };
+
     [Theory]
-    [InlineData("/landing", "/boxes/b/desktop/landing")]
-    [InlineData("http://127.0.0.1:3110/x?y=1", "/boxes/b/desktop/x?y=1")]
-    [InlineData("http://localhost:3000/x", "/boxes/b/desktop/x")]
+    [MemberData(nameof(Locations))]
     [InlineData("landing", "landing")]
     [InlineData("../up", "../up")]
     [InlineData("https://example.com/", "https://example.com/")]
@@ -265,9 +272,9 @@ public sealed class BoxDesktopOriginTests
     [InlineData("https://devthrottle-gw.azurewebsites.net", "devthrottle-gw.azurewebsites.net:443", true)]
     [InlineData("https://devthrottle-gw.azurewebsites.net", "gateway.devthrottle.com", false)]
     [InlineData("https://devthrottle-gw.azurewebsites.net", "devthrottle-gw.azurewebsites.net:8443", false)]
-    [InlineData("http://localhost:5123", "localhost:5123", true)]
-    [InlineData("http://localhost:5123", "localhost", false)]
-    [InlineData("http://localhost:5123", "127.0.0.1:5123", false)]
+    [InlineData("http://desktop.test:5123", "desktop.test:5123", true)]
+    [InlineData("http://desktop.test:5123", "desktop.test", false)]
+    [InlineData("http://desktop.test:5123", "gateway.test:5123", false)]
     public void IsDesktopHost_MatchesHostAndPort(string origin, string host, bool expected)
     {
         var request = new DefaultHttpContext().Request;
