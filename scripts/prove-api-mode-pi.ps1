@@ -769,7 +769,7 @@ function Invoke-Flow {
     $midTurn = $null
     if (-not $NoScreens) {
         $ready = Join-Path $logs 'midturn.ready'
-        $midTurn = Start-WebScreens @('shot', '--name', 'chat-midturn', '--session', $sid, '--tab', 'chat', '--expect', 'Working - turn', '--ready', $ready, '--timeout', '60') -Background
+        $midTurn = Start-WebScreens @('shot', '--name', 'chat-midturn', '--session', $sid, '--tab', 'chat', '--expect', 'Working - turn', '--expect-reply', '--ready', $ready, '--timeout', '60') -Background
         $null = Wait-For { Test-Path $ready } 90 500
     }
     $null = Send-Prompt $sid $text
