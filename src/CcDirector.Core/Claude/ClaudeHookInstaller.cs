@@ -249,12 +249,13 @@ public static class ClaudeHookInstaller
     // and the preamble every other session has.
     private static object BuildSettings(string scriptPath, bool forWindows, string? ruleHookPath)
     {
-        // Shell form (single command string). Claude Code runs it through sh on Linux and macOS and
-        // through Git Bash on Windows (measured in the Session Rules phase 1 Windows proof), so the
-        // Windows form must survive bash's quoting: inside double quotes a backslash before a letter
-        // stays literal. The script path is quoted (per-user data dirs contain spaces, e.g.
-        // "Application Support" on macOS); System.Text.Json escapes any backslashes when it
-        // serializes the string.
+        // Shell form (single command string, no args). Claude Code hands it to sh on Linux and macOS;
+        // on Windows to Git Bash when it is installed (what the Session Rules phase 1 Windows proof
+        // measured) and to PowerShell when it is not (the vendor's hooks documentation). Both forms
+        // below are valid command lines in all three shells: they start with a bare program name, and
+        // inside double quotes a backslash before a letter stays literal. The script path is quoted
+        // (per-user data dirs contain spaces, e.g. "Application Support" on macOS); System.Text.Json
+        // escapes any backslashes when it serializes the string.
         var command = forWindows
             ? $"powershell -NoProfile -ExecutionPolicy Bypass -File \"{scriptPath}\""
             : $"/bin/sh \"{scriptPath}\"";
@@ -269,12 +270,15 @@ public static class ClaudeHookInstaller
             ["SessionStart"] = sessionStart,
         };
 
-        // The rule evaluator is run directly - it is a native executable, so there is no interpreter in
-        // front of it - by its absolute path, quoted for the spaces in per-user folders. Null means there
-        // is no evaluator on disk to run (InstallRuleHook has already said why, loudly).
+        // The rule evaluator is registered in EXEC form: args present (empty), so Claude Code spawns the
+        // command as the program itself, with no shell on any platform and no quoting to survive one.
+        // Shell form would reach PowerShell on a Windows machine without Git Bash, which reads a quoted
+        // path as a string rather than a call, and where a failing shell-form PreToolUse hook can block
+        // the tool call (whole-phase review, finding 1). Null means there is no evaluator on disk to run
+        // (InstallRuleHook has already said why, loudly).
         if (ruleHookPath is not null)
         {
-            var ruleHook = new { type = "command", command = $"\"{ruleHookPath}\"", timeout = 10 };
+            var ruleHook = new { type = "command", command = ruleHookPath, args = Array.Empty<string>(), timeout = 10 };
             hooks["PreToolUse"] = [new { matcher = ShellToolMatcher, hooks = new[] { ruleHook } }];
         }
 

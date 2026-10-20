@@ -74,8 +74,9 @@ public static class HookRuleWords
     /// <summary>The decisions a phase 1 hook firing may record. Everything is dry run, so nothing else exists.</summary>
     public static IReadOnlyList<string> Decisions { get; } = new[] { WouldDeny, WouldAllow };
 
-    /// <summary>The longest command text a firing keeps (wire contract W3).</summary>
-    public const int SubjectMaxLength = 4000;
+    /// <summary>The longest command text a firing keeps (wire contract W3). The evaluator's own constant,
+    /// from its source file compiled into the Gateway, so the cut and the column cannot drift apart.</summary>
+    public const int SubjectMaxLength = CcDirector.RuleHook.HookWireLimits.SubjectMaxLength;
 }
 
 /// <summary>

@@ -27,8 +27,8 @@ internal sealed class HookRunner
     /// <summary>Names the session's decision drop directory (W3). Stamped and created by the Director.</summary>
     public const string DecisionDirEnvVar = "CC_SESSION_DECISION_DIR";
 
-    /// <summary>The longest command text a decision records (W3).</summary>
-    public const int SubjectLimit = 4000;
+    /// <summary>The longest command text a decision records (W3), shared with the Gateway.</summary>
+    public const int SubjectLimit = HookWireLimits.SubjectMaxLength;
 
     /// <summary>The evaluation log is cut back to its newest half when it passes this (W4).</summary>
     public const long DefaultLogLimitBytes = 1024 * 1024;
