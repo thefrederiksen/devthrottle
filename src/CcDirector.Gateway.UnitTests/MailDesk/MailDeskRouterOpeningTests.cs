@@ -103,7 +103,7 @@ public sealed class MailDeskRouterOpeningTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task RouteAsync_SeatOfAFactoryWithNoBrief_StartsNoSessionAsThatSeat_AndTheMailDeskSeatOpensAsItself()
+    public async Task RouteAsync_SeatOfAFactoryWithNoPublishedDefinition_StartsNoSessionAsThatSeat_AndTheMailDeskSeatOpensAsItself()
     {
         // Arrange: qa-books is not defined, so the Gateway holds no brief for its clerk (a defined seat's brief cannot be
         // blank: seat.schema.json), and the router makes no start for it.
