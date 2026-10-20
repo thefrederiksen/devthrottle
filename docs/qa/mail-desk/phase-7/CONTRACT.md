@@ -117,7 +117,7 @@ the phone inside `.screen` with its app bar and Back link (as `apps/mobile/src/p
 **Tests (vitest):** the page renders every field of a fixture verbatim (a fixture whose words are deliberately odd,
 so a client that invents words fails); the empty sentence; the loading line; an error read shows the banner and
 reports once; a 404 renders the not-found page; no `button` or `input` in the page; the entry question shows ONLY on a successful read - it stays hidden on 404 and on every other failure kind (offline, timeout, 5xx, a broken answer), one test each -
-shows on success, and shows (and asks again) on any other failure; the Cockpit rail and the phone drawer draw the
+and asks again after a failure; the Cockpit rail and the phone drawer draw the
 entry only when the question says so; both shells' route tables carry `/mail-desk`.
 
 ## 4. Proof (section 7 of the mission, for this phase)
