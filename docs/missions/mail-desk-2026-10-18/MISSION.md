@@ -170,6 +170,16 @@ Every answer the owner gave, in his words where he gave words. Dictated text is 
   spend limit itself is the owner's setting: no seat changes it. Separate from the $5 limit on model calls in the
   screening (question 1), which still holds.
 
+- **D24. A new Implementation Lead drives to the end, with a QA report of screenshots.** On 19 October 2026 the
+  owner: "Can you please keep going until everything is implemented unless you need something from me? ... start a
+  new session that's an implementation lead that's going to implement the rest of all of these phases until it's
+  completely done and you can show me a QA report of all of the features we've implemented with screenshots and how
+  it's actually working. You can deploy also the mail desk because you probably need to deploy it to the gateway and
+  then show me that it's working." So the first Delivery Lead hands over (`HANDOVER.md` in this folder) to an
+  Implementation Lead seated top-level for the owner, which drives phases 3 to 7 to section 9. The final QA report
+  carries screenshots of every feature working. The deploy grant D16 is restated in the owner's words; it still
+  holds only while no other account is affected, and live mode stays off (D17).
+
 ### Overrides of the method
 
 None. The order of reviewers is the repository rules' section 5a (the owner's ruling of 28 September 2026), which is
