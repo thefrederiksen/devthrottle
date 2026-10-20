@@ -12,7 +12,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// <summary>
 /// The PostgreSQL half of <c>AddTriggerBackupMachines</c> (Mail Desk, phase 5): <c>triggers</c> gains
 /// <c>BackupMachinesJson</c> and <c>ClaimedByMachine</c>. It proves the migration applies right after
-/// main's newest migration, <c>AddSessionRuleChanges</c>, gives a claim held before it the trigger's own machine and an unclaimed trigger
+/// Session Rules phase 1, <c>AddSessionRuleKindsAndHookFirings</c> (created before this migration but merged after
+/// it, and already applied in production under that id, so it keeps its place in the chain), gives a claim held before it the trigger's own machine and an unclaimed trigger
 /// none, that the real <see cref="TriggerStore"/> then claims for a backup and hands the check back through
 /// <see cref="GatewayDatabase"/> on PostgreSQL, and that its Down removes both columns and keeps the rows.
 ///
@@ -23,7 +24,7 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddTriggerBackupMachinesPostgresTests
 {
     private const string RuntimeConnectionEnvVar = "CC_GATEWAY_DB_CONNECTION";
-    private const string MigrationBefore = "20261020002913_AddSessionRuleChanges";
+    private const string MigrationBefore = "20261020014715_AddSessionRuleKindsAndHookFirings";
     private const string MigrationUnderTest = "20261020020021_AddTriggerBackupMachines";
     private const string Held = "11111111-1111-1111-1111-111111111111";
 

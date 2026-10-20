@@ -4068,6 +4068,26 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.PrimitiveCollection<List<string>>("AppliesToExceptMachines")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("AppliesToKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("everywhere");
+
+                    b.PrimitiveCollection<List<string>>("AppliesToMachines")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("AppliesToRepo")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
                     b.Property<int>("CooldownSeconds")
                         .HasColumnType("integer");
 
@@ -4077,9 +4097,40 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<int>("DailyCap")
                         .HasColumnType("integer");
 
+                    b.Property<string>("HookEvent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("HookHandler")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.PrimitiveCollection<List<string>>("HookMatch")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("HookResult")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("HookTool")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Instruction")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("screen");
 
                     b.Property<string>("PromotedBy")
                         .IsRequired()
@@ -4132,14 +4183,62 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Agent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AgentEvent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("AgentTool")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("Decision")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("DecisionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("EvaluationMicroseconds")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Grounding")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("HookEvent")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("HookTool")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("screen");
+
+                    b.Property<string>("Machine")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.PrimitiveCollection<List<Guid>>("MatchedRuleIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
 
                     b.Property<DateTime>("OccurredUtc")
                         .HasColumnType("timestamp with time zone");
@@ -4148,9 +4247,18 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.PrimitiveCollection<List<Guid>>("OverriddenRuleIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("Repo")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
 
                     b.Property<Guid>("RuleId")
                         .HasColumnType("uuid");
@@ -4163,6 +4271,11 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
@@ -4180,6 +4293,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "DecisionId")
+                        .IsUnique();
 
                     b.HasIndex("TenantId", "RuleId", "OccurredUtc");
 
