@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using CcDirector.Core.ApiMode;
+
 namespace CcDirector.Core.Sessions;
 
 /// <summary>
@@ -33,6 +36,14 @@ public class NamedSessionDefinition
 
     /// <summary>Optional extra command-line arguments appended at launch; null when not set.</summary>
     public string? Arguments { get; set; }
+
+    /// <summary>
+    /// How the saved session was connected when it was saved (API mode mission #4070): it reopens in that mode, because
+    /// the New Session default must never change a mode nobody chose. Null for a session saved before API mode existed,
+    /// which reopens in the terminal, as it always did.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<SessionConnectionMode>))]
+    public SessionConnectionMode? ConnectionMode { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

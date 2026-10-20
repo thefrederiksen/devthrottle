@@ -1,6 +1,7 @@
 using CcDirector.ControlApi;
 using CcDirector.Core.Agents;
 using CcDirector.Core.ApiMode;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -32,6 +33,15 @@ public static class NewSessionConnection
     /// </summary>
     public static bool StartsOnApiMode(AgentKind kind, bool apiModeOffered) =>
         ConnectionModes.DefaultOf(kind.ToString(), OfferedFor(kind, apiModeOffered)) == ConnectionModes.Api;
+
+    /// <summary>
+    /// Whether a saved named session reopens on API mode: only when it was saved in API mode. One saved in the terminal,
+    /// or saved before API mode existed (no mode stored), reopens in the terminal - the New Session default for Pi
+    /// (<see cref="StartsOnApiMode"/>) is for a choice being made, never for one already made. Whether API mode is still
+    /// offered is checked when the session starts (<see cref="ModeToStart"/>).
+    /// </summary>
+    public static bool ReopensOnApiMode(NamedSessionDefinition definition) =>
+        definition.ConnectionMode == SessionConnectionMode.Api;
 
     /// <summary>Whether the dialog shows the Connection row for <paramref name="kind"/>: only when it is offered a choice.</summary>
     public static bool ShowsChoice(AgentKind kind, bool apiModeOffered) => OfferedFor(kind, apiModeOffered).Count > 1;

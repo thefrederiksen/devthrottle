@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CcDirector.Avalonia;
@@ -8,6 +9,7 @@ using CcDirector.ControlApi;
 using CcDirector.Core.Agents;
 using CcDirector.Core.ApiMode;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -202,6 +204,94 @@ public class NewSessionConnectionTests
             ChooseAgent(dialog, "Pi");
 
             Assert.True(dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked);
+            Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    // ---- a saved named session reopens in the mode it was saved with (the review of #4277) ------------------------
+
+    /// <summary>Saves a named Pi session in the test's storage root, opens the dialog's Named Sessions tab, and clicks the
+    /// row's Launch button - the one-click path, in which nobody chooses a connection.</summary>
+    private static NewSessionDialog LaunchSavedPiSession(SessionConnectionMode? savedMode)
+    {
+        var pi = AgentEntryStore.ReadCurrentEntries().Single(e => e.Type == AgentKind.Pi);
+        var repo = Path.Combine(Path.GetTempPath(), "cc-director-api-mode-phase5-repo", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(repo);
+        new NamedSessionStore().Save(new NamedSessionDefinition
+        {
+            Name = "Saved Pi",
+            RepoPath = repo,
+            AgentId = pi.Id,
+            ConnectionMode = savedMode,
+        });
+
+        var dialog = Open(apiModeOffered: true);
+        dialog.GetControl<TabControl>("MainTabs").SelectedItem = dialog.GetControl<TabItem>("NamedSessionsTab");
+        for (var pump = 0; pump < 10; pump++)
+            Dispatcher.UIThread.RunJobs();
+        var launch = dialog.GetVisualDescendants().OfType<Button>()
+            .Single(b => (b.Tag as string) == "saved-pi" && (b.Content as string) == "Launch");
+        launch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        for (var pump = 0; pump < 10; pump++)
+            Dispatcher.UIThread.RunJobs();
+        Assert.NotNull(dialog.SelectedNamedSession);
+        return dialog;
+    }
+
+    [Theory]
+    [InlineData(null, SessionConnectionMode.Terminal)]
+    [InlineData(SessionConnectionMode.Terminal, SessionConnectionMode.Terminal)]
+    [InlineData(SessionConnectionMode.Api, SessionConnectionMode.Api)]
+    public void ReopensOnApiMode_IsTrueOnlyForASessionSavedInApiMode(SessionConnectionMode? saved, SessionConnectionMode expected)
+    {
+        // Act
+        var reopensOnApi = NewSessionConnection.ReopensOnApiMode(new NamedSessionDefinition { ConnectionMode = saved });
+
+        // Assert
+        Assert.Equal(expected == SessionConnectionMode.Api, reopensOnApi);
+    }
+
+    [AvaloniaFact]
+    public void Dialog_NamedPiSessionSavedBeforeApiModeExisted_LaunchesInTheTerminal()
+    {
+        using var agents = new TwoAgents();
+        var dialog = LaunchSavedPiSession(savedMode: null);
+        try
+        {
+            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Dialog_NamedPiSessionSavedInTheTerminal_LaunchesInTheTerminal()
+    {
+        using var agents = new TwoAgents();
+        var dialog = LaunchSavedPiSession(SessionConnectionMode.Terminal);
+        try
+        {
+            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Dialog_NamedPiSessionSavedInApiMode_LaunchesInApiMode()
+    {
+        using var agents = new TwoAgents();
+        var dialog = LaunchSavedPiSession(SessionConnectionMode.Api);
+        try
+        {
             Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
         }
         finally

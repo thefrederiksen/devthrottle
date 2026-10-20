@@ -88,6 +88,17 @@ Take from the source's record: `sessionId`, `repoPath`, `agent`, `currentModel`,
 `directorId`. **The Director knows all of these. Never ask the agent for them** - it can get them
 wrong, and a fact you can read is never a fact you request.
 
+Take its **connection** too - whether it runs in its terminal or in API mode - as the word the spawn
+takes back:
+
+```bash
+cc-devthrottle session list --fields id,name,agent,connection
+# -> connection: terminal   or   connection: api
+```
+
+Read it with `--fields`, which always prints the word. In `--json` the field is `connectionMode`, and
+it is ABSENT on a terminal session, so a missing field there means `terminal`, not "unknown".
+
 ## Step 2 - Ask the source for a RIGHT-SIZED handover
 
 Message the source asking for a document at a path you choose. Seven headings:
@@ -160,7 +171,7 @@ Know what you are trading: that route produces a MECHANICAL SCRAPE - last prompt
 touched, commands, to-do items. It carries no intent, no decisions and no traps. Use it when
 nothing better is available, not by preference.
 
-## Step 3 - Start the target on the SAME agent and the SAME model
+## Step 3 - Start the target on the SAME agent, the SAME model and the SAME connection
 
 Sessions are created on whichever Director owns you. To land on a different one, NAME it with
 `--director`, taking the identifier or name from `cc-devthrottle director list`. It names ONE
@@ -171,6 +182,7 @@ cc-devthrottle session spawn "<repoPath>" \
   --director "<target Director id or name>" \
   --standalone --why "a moved session is a continuation of the source, so it stays the user's" \
   --agent <sourceAgent> \
+  --connection <the source's connection: terminal or api> \
   --name "<the source's ORIGINAL name>" \
   --purpose "continue <work> after being moved" \
   --prompt "<seed - below>"
@@ -180,6 +192,10 @@ cc-devthrottle session spawn "<repoPath>" \
 moved session, which is the whole point of a move. A session you move on his behalf is not yours to
 collect - it goes red and asks HIM when it stops, exactly as it did before it moved. Owning it
 yourself would quietly take it out of his queue, and the move would have lost him the session.
+
+`--connection` must not be dropped either. Without it the spawn asks the Gateway for the agent's
+DEFAULT connection, and that default is API mode for Pi: a Pi session that ran in its terminal would
+come back in API mode, a mode nobody chose for it. Pass the source's word, every time, for every agent.
 
 The target keeps the source's original name. That is what makes the move invisible afterwards. Keep
 the naming convention `<repo-dir> - <short description>`; if the source's name lacks the repo
@@ -206,10 +222,16 @@ cc-devthrottle session buffer <targetId> \
 # -> Opus 5 (1M context)     compare against the source's model
 ```
 
-`agent` IS reliable on the Gateway record, so compare that from `session list --json`. Treat
-`currentModel` as a bonus if it happens to be there.
+`agent` and the connection ARE reliable on the Gateway record, so compare both with the source's:
 
-If they differ, stop. Delete the target and start again. A session continuing on a different model
+```bash
+cc-devthrottle session list --fields id,agent,connection | grep "<targetId>"
+# -> <targetId>,Pi,terminal     agent and connection must match what step 1 read from the source
+```
+
+Treat `currentModel` as a bonus if it happens to be there.
+
+If the agent, the model or the connection differ, stop. Delete the target and start again. A session continuing on a different model
 is not the same session.
 
 Identity is set at spawn or not at all - if the source carried a role, mission, or workflow seat,
@@ -391,7 +413,11 @@ machine-specific paths so it can be served unchanged to every agent.
 
 ---
 
-**Skill version:** 4.2 · **Updated:** 2026-07-28
+**Skill version:** 4.3 · **Updated:** 2026-10-20
+**Changes in 4.3:** The target is started on the source's CONNECTION (`--connection terminal` or
+`--connection api`, read in step 1 with `session list --fields ...,connection`) and the read-back
+compares it. Pi now starts in API mode when a spawn names no connection, so a move that left the
+flag out turned a terminal Pi session into an API-mode one (found in the review of pull request #4277).
 **Changes in 4.2** (from emptying an entire Director - seven sessions, finishing with a self-move.
 Several of these were learned from the TARGET's side of a move, which no earlier version could see):
 (1) **The verification demand must be un-bluffable.** "Summarise what you are working on" can be

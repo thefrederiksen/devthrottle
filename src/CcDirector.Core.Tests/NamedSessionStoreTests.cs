@@ -1,3 +1,4 @@
+using CcDirector.Core.ApiMode;
 using CcDirector.Core.Sessions;
 using Xunit;
 
@@ -144,6 +145,37 @@ public class NamedSessionStoreTests : IDisposable
         Assert.Equal("11111111-2222-3333-4444-555555555555", loaded.AgentId);
         Assert.Equal("#2563EB", loaded.Color);
         Assert.Equal("--allowedTools bash", loaded.Arguments);
+    }
+
+    [Fact]
+    public void Save_AndLoad_RoundTripsTheConnectionModeByName()
+    {
+        var store = new NamedSessionStore(_tempDir);
+        var named = MakeNamedSession("Pi In Api Mode");
+        named.ConnectionMode = SessionConnectionMode.Api;
+
+        store.Save(named);
+        var loaded = store.Load("pi-in-api-mode");
+
+        Assert.NotNull(loaded);
+        Assert.Equal(SessionConnectionMode.Api, loaded.ConnectionMode);
+        Assert.Contains("\"ConnectionMode\": \"Api\"", File.ReadAllText(Path.Combine(_tempDir, "pi-in-api-mode.named-session.json")));
+    }
+
+    [Fact]
+    public void Load_AFileSavedBeforeApiModeExisted_HasNoConnectionMode()
+    {
+        // A named session saved before API mode (mission #4070) carries no ConnectionMode; it must read as none, so the
+        // dialog reopens it in the terminal it was saved from.
+        var store = new NamedSessionStore(_tempDir);
+        Directory.CreateDirectory(_tempDir);
+        File.WriteAllText(Path.Combine(_tempDir, "old-pi.named-session.json"),
+            """{ "Version": 1, "Name": "Old Pi", "RepoPath": "/repo", "AgentId": "agent-1" }""");
+
+        var loaded = store.Load("old-pi");
+
+        Assert.NotNull(loaded);
+        Assert.Null(loaded.ConnectionMode);
     }
 
     [Fact]

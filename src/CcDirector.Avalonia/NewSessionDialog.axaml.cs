@@ -1101,12 +1101,19 @@ public partial class NewSessionDialog : Window
             AgentEntryList.ItemsSource = _agentOptions;
             ApplyAgentSelection();
 
+            // A saved session reopens in the mode it was saved with (API mode mission #4070), not on the default the
+            // agent pick just applied: nobody chose a mode at this click. Both radios are set, because the radio group
+            // does not uncheck its partner while the New Session tab is not the one shown.
+            var reopensOnApi = NewSessionConnection.ReopensOnApiMode(definition);
+            ConnectionApiRadio.IsChecked = reopensOnApi;
+            ConnectionTerminalRadio.IsChecked = !reopensOnApi;
+
             SelectedPath = definition.RepoPath;
             PathInput.Text = definition.RepoPath;
             SelectedResumeSessionId = null;
             SelectedNamedSession = definition;
 
-            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: launching {slug} repo={definition.RepoPath}, agent={option.Entry.DisplayName}");
+            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: launching {slug} repo={definition.RepoPath}, agent={option.Entry.DisplayName}, saved connection={definition.ConnectionMode?.ToString() ?? "(none)"}, reopensOnApi={reopensOnApi}");
             Close(true);
         }
         catch (Exception ex)

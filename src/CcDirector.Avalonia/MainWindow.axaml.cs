@@ -3039,13 +3039,14 @@ public partial class MainWindow : Window
             RepoPath = repoPath,
             AgentId = agentId,
             Color = vm.Session.CustomColor,
+            ConnectionMode = vm.Session.ConnectionMode,
             CreatedAt = existing?.CreatedAt ?? now,
             UpdatedAt = now,
         };
 
         if (store.Save(definition))
         {
-            FileLog.Write($"[MainWindow] SaveSessionAsNamedAsync: saved \"{name}\" slug={slug} repo={repoPath} agent={agentId}");
+            FileLog.Write($"[MainWindow] SaveSessionAsNamedAsync: saved \"{name}\" slug={slug} repo={repoPath} agent={agentId} connection={definition.ConnectionMode}");
             ShowNotification($"Saved \"{name}\" as a named session");
         }
         else

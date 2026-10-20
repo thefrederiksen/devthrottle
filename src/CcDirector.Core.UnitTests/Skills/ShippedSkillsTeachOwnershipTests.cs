@@ -121,7 +121,7 @@ public sealed class ShippedSkillsTeachOwnershipTests
     /// document guards in this repository use, because the suites run from a checkout and a bin-relative
     /// path breaks under different runners.
     /// </summary>
-    private static string SkillContentDirectory()
+    internal static string SkillContentDirectory()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null)
