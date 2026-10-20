@@ -206,12 +206,20 @@ public sealed class MailDeskDecisionEntity : GatewayMintedKeyEntity
 /// <summary>
 /// ONE EMAIL ROUTED TO A SEAT, in the <c>mail_desk_routed</c> table (contract section 2, design 5.6). Live mode only:
 /// the seat says it is <c>done</c>, or returns it as "not for me" with what it knows. Phase 1 builds the table; phase 4
-/// writes and reads it.
+/// writes and reads it, through <see cref="MailDesk.MailDeskRoutedStore"/> only.
+///
+/// One row per decision. <see cref="SessionId"/> null with state <c>open</c> means QUEUED: waiting for a session of its
+/// seat. <c>returned</c> means handed back to the owner, and <see cref="OwnerReason"/> says why (phase 4 contract,
+/// section 1).
 /// </summary>
 public sealed class MailDeskRoutedEntity : GatewayMintedKeyEntity
 {
     /// <summary>The decision that routed the email (<see cref="MailDeskDecisionEntity"/>'s id).</summary>
     public Guid DecisionId { get; set; }
+
+    /// <summary>The channel the email came in on (<see cref="MailDeskChannelEntity"/>'s id): the mailbox a seat is told
+    /// to read it in, and the channel whose Mail Desk seat it goes back to.</summary>
+    public Guid ChannelId { get; set; }
 
     /// <summary>The factory it was routed to.</summary>
     public string Factory { get; set; } = "";
@@ -230,6 +238,26 @@ public sealed class MailDeskRoutedEntity : GatewayMintedKeyEntity
 
     /// <summary>How many times the email has been returned. A second return goes to the owner.</summary>
     public int ReturnedCount { get; set; }
+
+    /// <summary>How many times a session ended without saying done or returning it, and the email was given to a new
+    /// session. The second time it goes to the owner.</summary>
+    public int RerouteCount { get; set; }
+
+    /// <summary>How many starts of a session for it failed outright. The third goes to the owner.</summary>
+    public int StartFailures { get; set; }
+
+    /// <summary>The exact name of the newest session start made for it, while that start is open or was taken; null
+    /// while it waits for a start. A queued row with a name is a start whose outcome was not known.</summary>
+    public string? StartName { get; set; }
+
+    /// <summary>When that start was made (UTC), or null.</summary>
+    public DateTime? StartedUtc { get; set; }
+
+    /// <summary>Why it was handed to the owner (state <c>returned</c>); null otherwise.</summary>
+    public string? OwnerReason { get; set; }
+
+    /// <summary>The note given with <c>maildesk done</c>, if any.</summary>
+    public string? DoneNote { get; set; }
 
     /// <summary>When the row was written (UTC).</summary>
     public DateTime CreatedUtc { get; set; }
