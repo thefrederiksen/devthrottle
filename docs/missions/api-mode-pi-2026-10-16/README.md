@@ -9,13 +9,13 @@ and proofs.
 
 | Phase | What | Status |
 |---|---|---|
-| 0. Event model | The session event model and the Pi mapping; real Pi wire logs recorded as test fixtures. | In review |
-| 1. Transport and Pi dialect | The API-mode transport, Pi's dialect, delivery from acknowledgement, Stop as abort, resume by session id. Unit tests replay the recorded wire logs through a fake process. | Not started |
-| 2. Gateway ruling | Fold the events into the display verdict, store receipts, relay live events, the take-the-wheel and hand-back verb. | Not started |
-| 3. Live Chat | client-core rendering of live events, receipts and tool cards; Cockpit and phone wiring. | Not started |
-| 4. Take the wheel | Mode switch, ownership lock, the queue held while the user has the wheel, the Terminal tab buttons. | Not started |
-| 5. Choosing it | The New Session Connection row (Cockpit, phone, desktop), the roster tag, `--connection` on spawn and in list. | Not started |
-| 6. Proof and QA report | The mission's check (issue section 7), on Linux and Windows. | Not started |
+| 0. Event model | The session event model and the Pi mapping; real Pi wire logs recorded as test fixtures. | Merged |
+| 1. Transport and Pi dialect | The API-mode transport, Pi's dialect, delivery from acknowledgement, Stop as abort, resume by session id. Unit tests replay the recorded wire logs through a fake process. | Merged |
+| 2. Gateway ruling | Fold the events into the display verdict, store receipts, relay live events, the take-the-wheel and hand-back verb. | Merged |
+| 3. Live Chat | client-core rendering of live events, receipts and tool cards; Cockpit and phone wiring. | Merged |
+| 4. Take the wheel | Mode switch, ownership lock, the queue held while the user has the wheel, the Terminal tab buttons. | Merged |
+| 5. Choosing it | The New Session Connection row (Cockpit, phone, desktop), the roster tag, `--connection` on spawn and in list. | Merged |
+| 6. Proof and QA report | The mission's check (issue section 7), on Linux and Windows. | Merged |
 
 ## What is here
 
@@ -30,3 +30,11 @@ Outside this folder:
 |---|---|
 | `scripts/record-pi-rpc-fixture.py` | Records real Pi wire logs as fixtures (replaces the Architect's script in the issue comment). |
 | `src/CcDirector.Core.Tests/TestData/pi-rpc/` | The recorded wire logs, with their own README. Copied into the `CcDirector.Core.UnitTests` output, which runs in the default gate. |
+
+## Status at close (20 October 2026)
+
+Every phase is merged on main, and the work shipped in release v2.25.0 (the 2.25.0 version floor and Pi's default followed after it on main). The hosted Gateway was deployed once, on 20 October 2026, at commit 9f9ad80 (a measured outage of 12.9 seconds).
+
+- The QA report: [proofs/phase-6/qa-report.html](proofs/phase-6/qa-report.html) - Linux 27 of 27 on Pi 1.2.0; Windows on Pi 1.3.0 across four runs, where every check passed in at least one run except the Stop check (Stop's effect shown in runs 6 and 8), because the Windows provider refused or delayed replies (429 engine_overloaded).
+- The Delivery Lead's rulings, owner decisions and follow-ups: [delivery-lead-decisions.md](delivery-lead-decisions.md).
+- Spend: 1.17 dollars recorded by Pi (3.61 dollars upper bound) of the 10 dollars granted.
