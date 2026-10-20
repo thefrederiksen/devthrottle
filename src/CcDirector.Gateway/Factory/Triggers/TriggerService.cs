@@ -122,6 +122,7 @@ public sealed class TriggerService
     private readonly Func<TenantId, string, PublishedFactoryDefinition?> _definitionOf;
     private readonly Func<TenantId, bool> _mailDeskOn;
     private readonly MailDesk.MailDeskService? _mailDesk;
+    private readonly MailDesk.MailDeskRouter? _mailDeskRouter;
     // The Mail Desk starts whose screening is running right now on this Gateway (phase 3, section 2): a second report
     // of one is skipped-running, its memory not kept.
     private readonly ConcurrentDictionary<Guid, byte> _screening = new();
@@ -153,14 +154,17 @@ public sealed class TriggerService
     /// <param name="mailDesk">Where a Mail Desk start's report is handed (Mail Desk phase 3, section 2). Null in a
     /// Gateway built without it: a Mail Desk report is then refused <see cref="TriggerReportRefusal.MailDeskNotReady"/>,
     /// never decided on its count.</param>
+    /// <param name="mailDeskRouter">What routes live mail to seats once a Mail Desk run is recorded <c>screened</c>
+    /// (Mail Desk phase 4, section 3.2). Null in a Gateway built without it: nothing is routed.</param>
     public TriggerService(TriggerStore store, FactoryActivityRecord activity, TriggerSessionStarter startSession,
         Func<TenantId, string, SessionDto?> findSession, Func<TenantId, string, SessionDto?> findSessionByName,
         Func<TenantId, TimeZoneInfo> timeZone, Func<DateTime> nowUtc, CancellationToken startLifetime,
         Func<TenantId, string, bool> directorRunsDefinitionChecks, Func<TenantId, string, bool> machineRunsDefinitionChecks,
         Func<TenantId, string, PublishedFactoryDefinition?> definitionOf, Func<TenantId, bool> mailDeskOn,
-        MailDesk.MailDeskService? mailDesk = null)
+        MailDesk.MailDeskService? mailDesk = null, MailDesk.MailDeskRouter? mailDeskRouter = null)
     {
         _mailDesk = mailDesk;
+        _mailDeskRouter = mailDeskRouter;
         _startLifetime = startLifetime;
         _mailDeskOn = mailDeskOn ?? throw new ArgumentNullException(nameof(mailDeskOn));
         _definitionOf = definitionOf ?? throw new ArgumentNullException(nameof(definitionOf));
@@ -539,8 +543,30 @@ public sealed class TriggerService
     /// Run one screening begun by <see cref="ReportCheckAsync"/> and write the check's one run row: <c>screened</c>,
     /// keeping the memory the screening made up, or <c>failed</c>, keeping none. Then each mailbox's check, naming the
     /// run. Nothing awaits this in production, so it is an entry point: every failure ends as a logged failed row.
+    ///
+    /// THEN THE ROUTER (Mail Desk phase 4, section 3.2): after a <c>screened</c> run only - never after a failed,
+    /// paused or skipped-running one - the account's live mail is routed to its seats, outside the per-trigger lock,
+    /// on the Gateway's lifetime, and awaited here so a test can await <see cref="LastScreeningForTest"/>. A router
+    /// failure is logged and never changes the run row.
     /// </summary>
     private async Task<TriggerRunEntity?> FinishScreeningAsync(PendingScreening p)
+    {
+        var recorded = await RecordScreeningAsync(p).ConfigureAwait(false);
+        if (recorded is not null && recorded.Outcome == TriggerRunOutcome.Screened && _mailDeskRouter is not null)
+        {
+            try
+            {
+                await _mailDeskRouter.RouteAsync(p.Tenant, p.Trigger, p.DirectorId, p.Where, p.CheckedUtc).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TriggerService] FinishScreeningAsync: trigger={p.Trigger.Name}, the Mail Desk router FAILED, the run row stands: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+        return recorded;
+    }
+
+    private async Task<TriggerRunEntity?> RecordScreeningAsync(PendingScreening p)
     {
         var name = p.Trigger.Name;
         MailDesk.MailDeskScreeningRun run;
