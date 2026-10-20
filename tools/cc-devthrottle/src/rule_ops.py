@@ -50,10 +50,17 @@ RULE_STATES = ["dry_run", "live"]
 CHANGE_ACTIONS = ["create", "change", "promote", "delete"]
 
 RULE_LIST_FIELDS = [
-    "id", "state", "scope", "instruction", "screen-description", "trigger-words", "checks",
-    "cooldown", "daily-cap", "promoted-by", "created", "updated",
+    "id", "state", "kind", "scope", "instruction", "screen-description", "trigger-words", "checks",
+    "cooldown", "daily-cap", "applies-to", "event", "tool", "handler", "match", "result",
+    "promoted-by", "created", "updated",
 ]
-RULE_LIST_DEFAULT_FIELDS = ["id", "state", "scope", "instruction"]
+RULE_LIST_DEFAULT_FIELDS = ["id", "state", "kind", "scope", "instruction"]
+
+#: The kind of rule that listens to an agent's hook rather than reading the screen (Session Rules part 2, phase 1).
+HOOK_KIND = "hook"
+
+#: The appliesTo parts that are lists of machines, written in --applies-to separated by ';'.
+_APPLIES_TO_LISTS = ("machines", "exceptMachines")
 
 HISTORY_FIELDS = ["when", "action", "rule", "session", "agent", "changed-by", "changed", "id"]
 HISTORY_DEFAULT_FIELDS = ["when", "action", "rule", "session", "agent"]
@@ -62,6 +69,10 @@ _LIST = "cc-devthrottle rules list"
 _CREATE_USAGE = (
     'cc-devthrottle rules create --instruction "<sentence>" --screen-description "<what it watches for>" '
     '--trigger-word <word> --scope all-sessions --cooldown 5m --daily-cap 5'
+)
+_CREATE_HOOK_USAGE = (
+    'cc-devthrottle rules create --kind hook --instruction "<sentence>" --applies-to everywhere '
+    '--event before_command --tool shell --handler match --match "<text>" --result deny'
 )
 _DURATION = re.compile(r"^\s*(\d+)\s*([smh]?)\s*$", re.IGNORECASE)
 
@@ -204,6 +215,28 @@ def parse_scope(text: str) -> Any:
     return scope
 
 
+def parse_applies_to(text: str) -> Dict[str, Any]:
+    """'everywhere', or key=value pairs separated by commas, as the body's appliesTo.
+
+    The keys are passed through as written and the Gateway decides what they mean and which shapes hold, as with
+    --scope. machines and exceptMachines are lists, their names separated by ';'. A pair without '=' is a usage
+    error here."""
+    value = (text or "").strip()
+    if value.lower() == "everywhere":
+        return {"kind": "everywhere"}
+    applies_to: Dict[str, Any] = {}
+    for part in value.split(","):
+        key, sep, item = part.partition("=")
+        if not sep or not key.strip() or not item.strip():
+            axi_cli.usage_error(
+                f"--applies-to: '{text}' is not a place a rule applies. Write everywhere, or key=value pairs such as "
+                "kind=repo_on_machine,repo=github.com/acme/app,machines=devlinux;laptop.")
+        key = key.strip()
+        applies_to[key] = ([m.strip() for m in item.split(";") if m.strip()] if key in _APPLIES_TO_LISTS
+                           else item.strip())
+    return applies_to
+
+
 def _parse_json_object(text: str, flag: str) -> Dict[str, Any]:
     try:
         value = json.loads(text)
@@ -217,7 +250,9 @@ def _parse_json_object(text: str, flag: str) -> Dict[str, Any]:
 def build_body(
     body: Optional[str], body_file: Optional[str], instruction: Optional[str], screen_description: Optional[str],
     trigger_words: Optional[Sequence[str]], checks: Optional[str], scope: Optional[str], cooldown: Optional[str],
-    daily_cap: Optional[int],
+    daily_cap: Optional[int], kind: Optional[str] = None, applies_to: Optional[str] = None,
+    event: Optional[str] = None, tool: Optional[str] = None, handler: Optional[str] = None,
+    match: Optional[Sequence[str]] = None, result: Optional[str] = None,
 ) -> Dict[str, Any]:
     """The rule fields to send: --body or --file first, then each flag laid over it. Only what was given."""
     if body is not None and body_file is not None:
@@ -252,6 +287,22 @@ def build_body(
         fields["cooldownSeconds"] = parse_duration(cooldown, "--cooldown")
     if daily_cap is not None:
         fields["dailyCap"] = daily_cap
+    # A hook rule's fields (Session Rules part 2, phase 1). Which kind may carry which is the Gateway's to rule.
+    if kind is not None:
+        fields["kind"] = kind
+    if applies_to is not None:
+        fields["appliesTo"] = parse_applies_to(applies_to)
+    if event is not None:
+        fields["event"] = event
+    if tool is not None:
+        fields["tool"] = tool
+    if handler is not None:
+        fields["handler"] = handler
+    if match:
+        # Literal text, sent exactly as typed: a space at the edge is part of what is matched.
+        fields["match"] = list(match)
+    if result is not None:
+        fields["result"] = result
     return fields
 
 
@@ -296,11 +347,41 @@ def _scope_text(scope: Any) -> str:
     return ";".join(parts) if parts else "all-sessions"
 
 
+def _is_hook(rule: Dict[str, Any]) -> bool:
+    return rule.get("kind") == HOOK_KIND
+
+
+def _rule_scope_text(rule: Dict[str, Any]) -> str:
+    # A hook rule has no session scope - it says where it applies with appliesTo - so "all-sessions" would claim
+    # a scope it does not have.
+    return "-" if _is_hook(rule) else _scope_text(rule.get("scope"))
+
+
+def _applies_to_text(applies_to: Any) -> str:
+    """The appliesTo as the Gateway sent it: its kind, then each part that is set."""
+    if not isinstance(applies_to, dict):
+        return "-"
+    parts = [str(applies_to.get("kind") or "-")]
+    if applies_to.get("repo"):
+        parts.append(f"repo={applies_to['repo']}")
+    for key in _APPLIES_TO_LISTS:
+        if applies_to.get(key):
+            parts.append(f"{key}={';'.join(applies_to[key])}")
+    return " ".join(parts)
+
+
 def _rule_record(rule: Dict[str, Any], fields: Sequence[str]) -> Dict[str, Any]:
     readers = {
         "id": lambda r: r.get("id"),
         "state": lambda r: r.get("state"),
-        "scope": lambda r: _scope_text(r.get("scope")),
+        "kind": lambda r: r.get("kind") or "-",
+        "scope": _rule_scope_text,
+        "applies-to": lambda r: _applies_to_text(r.get("appliesTo")),
+        "event": lambda r: r.get("event") or "-",
+        "tool": lambda r: r.get("tool") or "-",
+        "handler": lambda r: r.get("handler") or "-",
+        "match": lambda r: ";".join(r.get("match") or []) or "-",
+        "result": lambda r: r.get("result") or "-",
         "instruction": lambda r: r.get("instruction"),
         "screen-description": lambda r: r.get("screenDescription"),
         "trigger-words": lambda r: ";".join(r.get("triggerWords") or []) or "-",
@@ -398,22 +479,40 @@ def show(reference: str, json_output: bool) -> None:
         return
 
     last = firings[0] if firings else None
+    # Each kind is shown with the fields it is written with: a hook rule's screen fields are empty and a change to
+    # them is refused, and a screen rule has no trigger.
+    if _is_hook(rule):
+        kind_lines = [
+            f"event: {rule.get('event')}",
+            f"tool: {rule.get('tool')}",
+            f"handler: {rule.get('handler')}",
+            f"match: {'; '.join(rule.get('match') or []) or '-'}",
+            f"result: {rule.get('result')}",
+        ]
+        change_example = f'cc-devthrottle rules change {rule_id} --match "<text>"'
+    else:
+        kind_lines = [
+            f"screen-description: {rule.get('screenDescription')}",
+            f"trigger-words: {', '.join(rule.get('triggerWords') or []) or '-'}",
+            f"checks: {'; '.join(rule.get('checks') or []) or 'none'}",
+            f"scope: {_scope_text(rule.get('scope'))}",
+            f"cooldown: {rule.get('cooldownSeconds')}s",
+            f"daily-cap: {rule.get('dailyCap')}",
+        ]
+        change_example = f"cc-devthrottle rules change {rule_id} --daily-cap <n>"
     axi_cli.write_lines(
         f"id: {rule.get('id')}",
         f"state: {rule.get('state')}",
+        f"kind: {rule.get('kind') or '-'}",
         f"instruction: {rule.get('instruction')}",
-        f"screen-description: {rule.get('screenDescription')}",
-        f"trigger-words: {', '.join(rule.get('triggerWords') or []) or '-'}",
-        f"checks: {'; '.join(rule.get('checks') or []) or 'none'}",
-        f"scope: {_scope_text(rule.get('scope'))}",
-        f"cooldown: {rule.get('cooldownSeconds')}s",
-        f"daily-cap: {rule.get('dailyCap')}",
+        f"applies-to: {_applies_to_text(rule.get('appliesTo'))}",
+        *kind_lines,
         f"promoted-by: {rule.get('promotedBy') or '-'}",
         f"created: {rule.get('createdUtc')}",
         f"updated: {rule.get('updatedUtc')}",
         f"firings: {len(firings)}" + (f" (last {last.get('occurredUtc')}: {last.get('decision')})" if last else ""),
     )
-    commands = [f"cc-devthrottle rules history {rule_id}", f"cc-devthrottle rules change {rule_id} --daily-cap <n>"]
+    commands = [f"cc-devthrottle rules history {rule_id}", change_example]
     if rule.get("state") != "live":
         commands.append(f'cc-devthrottle rules promote {rule_id} --acknowledgement "<what you are agreeing to>"')
     axi_cli.print_next(commands)
@@ -421,9 +520,13 @@ def show(reference: str, json_output: bool) -> None:
 
 def create(fields: Dict[str, Any], json_output: bool) -> None:
     if not fields:
-        axi_cli.usage_error(f"a rule needs its fields. Full form: {_CREATE_USAGE}, or --body '<json>'.")
-    # The checks are required by the Gateway as a list; none given means none asked for, which is said out loud.
-    fields.setdefault("checks", [])
+        axi_cli.usage_error(
+            f"a rule needs its fields. Full form: {_CREATE_USAGE}; a hook rule: {_CREATE_HOOK_USAGE}; "
+            "or --body '<json>'.")
+    # A screen rule's checks are required by the Gateway as a list; none given means none asked for, which is said
+    # out loud. A hook rule has no checks, so it is sent none.
+    if not _is_hook(fields):
+        fields.setdefault("checks", [])
     try:
         answer = _client().create(fields)
         rule = _rule_of(answer, gateway_override or "the Gateway")
@@ -446,7 +549,8 @@ def change(reference: str, fields: Dict[str, Any], json_output: bool) -> None:
     if not fields:
         axi_cli.usage_error(
             "a change needs at least one field: --instruction, --screen-description, --trigger-word, --checks, "
-            "--scope, --cooldown, --daily-cap, or --body '<json>' for any field of the rule.")
+            "--scope, --cooldown, --daily-cap, --applies-to, --event, --tool, --handler, --match, --result, "
+            "or --body '<json>' for any field of the rule.")
     rule_id = resolve_rule(reference)
     try:
         answer = _client().change(rule_id, fields)

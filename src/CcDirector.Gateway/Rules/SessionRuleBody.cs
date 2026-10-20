@@ -9,8 +9,9 @@ namespace CcDirector.Gateway.Rules;
 /// It exists for two readers, and both need exactly the write shape rather than the read shape:
 ///
 ///  - A CHANGE is the rule's current body with the caller's fields laid over it, read back through the same
-///    readers a create uses. So a field the create learns to read (phase 1 adds a kind and scopes) flows through
-///    a change as soon as it is added HERE, and a change cannot accept a field a create would refuse.
+///    readers a create uses. So a field the create learns to read flows through a change as soon as it is added
+///    HERE - as phase 1's kind, where a rule applies and a hook rule's trigger do - and a change cannot accept a
+///    field a create would refuse.
 ///  - The CHANGE HISTORY stores the rule before and after in this shape, plus its state, so the two sides of a
 ///    change compare field by field with what the caller sent.
 ///
@@ -26,21 +27,74 @@ public static class SessionRuleBody
     /// <summary>How a body says "every session" out loud.</summary>
     public const string AllSessions = "all-sessions";
 
-    /// <summary>The rule as a create body.</summary>
+    /// <summary>
+    /// The rule as a create body OF ITS KIND (ruling P18). A screen rule's body is the September body plus its kind
+    /// and where it applies; a hook rule's is the body a hook create takes - its kind, its sentence, where it
+    /// applies, and its event, tool, handler, match text and result - and none of the screen fields, which a hook
+    /// create refuses. So a change to either kind carries exactly the fields that kind is written with, and the
+    /// history's before and after hold every one of them.
+    /// </summary>
     public static JsonObject Of(SessionRule rule)
     {
         ArgumentNullException.ThrowIfNull(rule);
+        if (string.Equals(rule.Kind, RuleKinds.Hook, StringComparison.Ordinal))
+        {
+            var hook = rule.Hook
+                ?? throw new InvalidOperationException($"the hook rule {rule.Id} has no trigger to write a body from.");
+            return new JsonObject
+            {
+                ["kind"] = rule.Kind,
+                ["instruction"] = rule.Instruction,
+                ["appliesTo"] = AppliesTo(rule.AppliesTo),
+                ["event"] = hook.Event,
+                ["tool"] = hook.Tool,
+                ["handler"] = hook.Handler,
+                ["match"] = Texts(hook.Match),
+                ["result"] = hook.Result,
+            };
+        }
+
         return new JsonObject
         {
+            ["kind"] = rule.Kind,
             ["instruction"] = rule.Instruction,
             ["screenDescription"] = rule.ScreenDescription,
-            ["triggerWords"] = new JsonArray(rule.TriggerWords.Select(w => (JsonNode?)JsonValue.Create(w)).ToArray()),
+            ["triggerWords"] = Texts(rule.TriggerWords),
             ["checks"] = new JsonArray(rule.Calls.Select(c => (JsonNode?)Call(c)).ToArray()),
             ["scope"] = Scope(rule.Scope),
             ["cooldownSeconds"] = rule.CooldownSeconds,
             ["dailyCap"] = rule.DailyCap,
+            ["appliesTo"] = AppliesTo(rule.AppliesTo),
         };
     }
+
+    /// <summary>
+    /// Every field a create of ANY kind reads, derived from the bodies themselves and never listed. A change may
+    /// name one its rule's kind does not carry, so that the create's reader refuses it with the create's own reason
+    /// - "a hook rule has no dailyCap" says more than "dailyCap is not a field".
+    /// </summary>
+    public static IReadOnlyList<string> FieldsOfEveryKind { get; } = EveryKindsFields();
+
+    private static IReadOnlyList<string> EveryKindsFields()
+    {
+        var at = DateTime.UnixEpoch;
+        var screen = new SessionRule(Guid.Empty, "", "", Array.Empty<string>(), Array.Empty<RulePrimitiveCall>(),
+            RuleScope.AllSessions, 0, 0, RuleState.DryRun, "", at, at);
+        var hook = screen with { Kind = RuleKinds.Hook, Hook = new HookRuleTrigger("", "", "", Array.Empty<string>(), "") };
+        return Of(screen).Select(p => p.Key).Union(Of(hook).Select(p => p.Key)).ToList();
+    }
+
+    private static JsonArray Texts(IEnumerable<string> texts) =>
+        new(texts.Select(t => (JsonNode?)JsonValue.Create(t)).ToArray());
+
+    /// <summary>Where the rule applies, every part written out so the history reads in one shape.</summary>
+    private static JsonObject AppliesTo(RuleAppliesTo appliesTo) => new()
+    {
+        ["kind"] = appliesTo.Kind,
+        ["machines"] = Texts(appliesTo.Machines),
+        ["exceptMachines"] = Texts(appliesTo.ExceptMachines),
+        ["repo"] = appliesTo.Repo,
+    };
 
     /// <summary>The rule as the change history keeps it: its body, its state and who made it live. Compact
     /// JSON text, one line.</summary>

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "sessionId": "66cf68d9-2559-4862-b33f-6afc3178d58b",
+  "machine": "devlinux",
+  "repo": "github.com/session-rules-rig/repo-b",
+  "generatedUtc": "2026-10-20T00:44:07.7620833Z",
+  "rules": [
+    {
+      "id": "33e5fed7-d60e-46f4-a32c-db5ab5e87187",
+      "rank": 2,
+      "appliesTo": "machine",
+      "event": "before_command",
+      "tool": "shell",
+      "match": [
+        "echo HERE-PROBE"
+      ],
+      "result": "deny",
+      "reason": "Live rig probe: a shell command containing \u0027echo HERE-PROBE\u0027 is refused (machine).",
+      "state": "dry_run"
+    }
+  ]
+}

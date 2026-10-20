@@ -104,6 +104,7 @@ public sealed class CcStorageProtectedPathsTests
             // live, persisted or captured session names.
             ["FactoryRun"] = DataTheMissionReportsAndNeverOffers,
             ["SessionPreambles"] = DataTheMissionReportsAndNeverOffers,
+            ["SessionRules"] = DataTheMissionReportsAndNeverOffers,
             ["SessionPointers"] = DataTheMissionReportsAndNeverOffers,
             ["SessionRecordings"] = DataTheMissionReportsAndNeverOffers,
             ["Transcripts"] = DataTheMissionReportsAndNeverOffers,

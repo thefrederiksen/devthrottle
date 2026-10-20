@@ -1,0 +1,7 @@
+--- /home/soren/.local/state/session-rules-rig/home/.claude/projects/-home-soren--local-state-session-rules-rig-repos-repo-a/86971296-a87a-452f-98b9-ac811aecedb9.jsonl
+2026-10-20T00:44:55.988Z  toolu_01LjdehxZF6M4n7Sw1reiCpX  Bash: echo RULE-PROBE
+--- /home/soren/.local/state/session-rules-rig/home/.claude/projects/-home-soren--local-state-session-rules-rig-repos-repo-b/5cea5945-45e9-4894-9960-30617f6d568e.jsonl
+2026-10-20T00:46:08.508Z  toolu_019hXnYykdUmWpuzFE9uW6wz  Bash: echo RULE-PROBE
+2026-10-20T00:46:44.000Z  toolu_013HGsNfcp5uVFp2ZGzSDzH2  Bash: echo ELSEWHERE-PROBE
+2026-10-20T00:47:20.773Z  toolu_01AZMEViUmoQf83JMFhC1ZnK  Bash: echo EXCEPT-PROBE
+2026-10-20T00:47:56.858Z  toolu_015TRbaQhFHpLm8S1XV2HC85  Bash: echo HERE-PROBE

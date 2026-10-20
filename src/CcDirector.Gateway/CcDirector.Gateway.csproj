@@ -82,6 +82,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The decision record's limits, from the rule evaluator's own source. The evaluator may reference no
+         project (Session Rules ruling P11), so the one constant is shared as a file, not a reference: the
+         evaluator's cut and the Gateway's subject column cannot drift apart (HookSubjectLimitSharedTests). -->
+    <Compile Include="..\CcDirector.RuleHook\HookWireLimits.cs" Link="Rules\HookWireLimits.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="CcDirector.Gateway.Tests" />
     <!-- The unlocked half of the same suite (the pure tests, split out so they no longer queue
          behind the machine-wide Gateway test lock). Same tests, same access, one assembly over. -->

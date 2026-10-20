@@ -50,4 +50,113 @@
     <!-- Expose internal helpers (e.g. CleanViewDiff) to the unit-test project. -->
     <InternalsVisibleTo Include="CcDirector.Avalonia.Tests" />
   </ItemGroup>
+
+  <!-- THE SESSION RULES HOOK EVALUATOR, CARRIED INSIDE THE DIRECTOR (Session Rules part 2, phase 1, ruling P16).
+       A build for a Windows or Linux runtime identifier (every publish, and the slot builds) compiles
+       cc-rule-hook to native code for the same platform and embeds it here as the resource "cc-rule-hook";
+       ClaudeHookInstaller writes it out beside the hook scripts (RuleHookBinary). Carried, not shipped
+       beside: the Director installs, updates and rolls back as ONE file, and the hook always matches it.
+       A plain build with no runtime identifier (the tests, the solution) carries none and skips this.
+       macOS is not given one yet: the Mac hook arrives in phase 4.
+       Native compilation needs the platform's toolchain. Without it the build FAILS and says so; pass
+       -p:EmbedRuleHook=false to build a Director that carries no hook on purpose. -->
+  <PropertyGroup>
+    <EmbedRuleHook Condition="'$(EmbedRuleHook)' == '' and ($(RuntimeIdentifier.StartsWith('win-')) or $(RuntimeIdentifier.StartsWith('linux-')))">true</EmbedRuleHook>
+    <RuleHookProject>$(MSBuildThisFileDirectory)..\CcDirector.RuleHook\CcDirector.RuleHook.csproj</RuleHookProject>
+    <RuleHookPublishDir>$(MSBuildThisFileDirectory)obj\rule-hook\$(Configuration)\$(RuntimeIdentifier)\</RuleHookPublishDir>
+    <RuleHookExecutable>$(RuleHookPublishDir)cc-rule-hook</RuleHookExecutable>
+    <RuleHookExecutable Condition="$(RuntimeIdentifier.StartsWith('win-'))">$(RuleHookPublishDir)cc-rule-hook.exe</RuleHookExecutable>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(EmbedRuleHook)' == 'true'">
+    <RuleHookSource Include="$(MSBuildThisFileDirectory)..\CcDirector.RuleHook\*.cs;$(RuleHookProject)" />
+  </ItemGroup>
+
+  <!-- Incremental: the evaluator is recompiled only when its source changed. -->
+  <Target Name="PublishRuleHook" Condition="'$(EmbedRuleHook)' == 'true'" Inputs="@(RuleHookSource)" Outputs="$(RuleHookExecutable)">
+    <!-- The output folder is passed with a trailing "\." and never a bare trailing backslash: on Windows a
+         backslash right before the closing quote escapes the quote, so the rest of the command line became
+         part of the folder name and the hook was published into a folder named after the nologo switch. -->
+    <Error Condition="'$(DOTNET_HOST_PATH)' == ''" Text="Building the Session Rules hook needs the dotnet host (DOTNET_HOST_PATH is not set). Build with the dotnet command line, or pass -p:EmbedRuleHook=false to build a Director that carries no hook." />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; publish &quot;$(RuleHookProject)&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(RuleHookPublishDir).&quot; --nologo -v q" ContinueOnError="true">
+      <Output TaskParameter="ExitCode" PropertyName="RuleHookPublishExitCode" />
+    </Exec>
+    <Error Condition="'$(RuleHookPublishExitCode)' != '0'" Text="cc-rule-hook could not be compiled to native code for $(RuntimeIdentifier) (exit code $(RuleHookPublishExitCode)). Native compilation needs the platform's toolchain: on Windows the Visual Studio 'Desktop development with C++' build tools, on Linux clang or gcc. To build a Director that carries NO Session Rules hook on purpose (its sessions evaluate no rules, and it logs that loudly), pass -p:EmbedRuleHook=false." />
+  </Target>
+
+  <Target Name="EmbedRuleHook" BeforeTargets="BeforeBuild" DependsOnTargets="PublishRuleHook" Condition="'$(EmbedRuleHook)' == 'true'">
+    <Error Condition="!Exists('$(RuleHookExecutable)')" Text="The Session Rules hook was not produced at $(RuleHookExecutable)." />
+    <ItemGroup>
+      <!-- The LogicalName must match RuleHookBinary.ResourceName in CcDirector.Core. -->
+      <EmbeddedResource Include="$(RuleHookExecutable)" LogicalName="cc-rule-hook" />
+    </ItemGroup>
+    <Message Importance="high" Text="Embedding the Session Rules hook: $(RuleHookExecutable)" />
+  </Target>
+
+  <!-- A PRESENCE CHECK on what was actually compiled: the Director's assembly must hold, in its managed
+       resources block (the one the CLI header points at), a resource whose bytes are exactly the evaluator's.
+       Read from the file's headers, not by a text search, so a string literal that happens to say
+       cc-rule-hook can never pass for the resource. Written against the portable standard library only,
+       because that is all an inline build task compiles against. Every build that embeds runs it - both
+       local build scripts and the release. -->
+  <UsingTask TaskName="CheckRuleHookResource" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <AssemblyPath ParameterType="System.String" Required="true" />
+      <ExpectedFile ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System.IO" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        var pe = File.ReadAllBytes(AssemblyPath);
+        var hook = File.ReadAllBytes(ExpectedFile);
+        Func<int, int> u16 = at => BitConverter.ToUInt16(pe, at);
+        Func<int, int> i32 = at => BitConverter.ToInt32(pe, at);
+        var header = i32(0x3C);
+        var sections = u16(header + 6);
+        var optional = header + 24;
+        var optionalSize = u16(header + 20);
+        var dataDirectories = optional + (u16(optional) == 0x20B ? 112 : 96);
+        var sectionTable = optional + optionalSize;
+        Func<int, int> fileOffset = rva =>
+        {
+            for (var i = 0; i < sections; i++)
+            {
+                var row = sectionTable + i * 40;
+                var start = i32(row + 12);
+                if (rva >= start && rva < start + Math.Max(i32(row + 8), i32(row + 16)))
+                    return rva - start + i32(row + 20);
+            }
+            return -1;
+        };
+        var cli = fileOffset(i32(dataDirectories + 14 * 8));
+        var found = false;
+        if (cli >= 0)
+        {
+            var resources = fileOffset(i32(cli + 24));
+            var size = i32(cli + 28);
+            for (var at = resources; resources >= 0 && at + 4 <= resources + size; )
+            {
+                var length = i32(at);
+                if (length == hook.Length)
+                {
+                    found = true;
+                    for (var i = 0; i < length && found; i++)
+                        found = pe[at + 4 + i] == hook[i];
+                }
+                if (found) break;
+                at += 4 + length;
+                at = (at + 7) & ~7;
+            }
+        }
+        if (!found)
+            Log.LogError("The Director assembly " + AssemblyPath + " does not carry the Session Rules hook: no managed resource holds the " + hook.Length + " bytes of " + ExpectedFile + ".");
+        else
+            Log.LogMessage(MessageImportance.High, "Session Rules hook: embedded, " + hook.Length + " bytes, verified in the assembly's managed resources");
+      ]]></Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="VerifyRuleHookEmbedded" AfterTargets="CoreCompile" Condition="'$(EmbedRuleHook)' == 'true'">
+    <Error Condition="'@(EmbeddedResource->WithMetadataValue('LogicalName', 'cc-rule-hook'))' == ''" Text="No embedded resource named cc-rule-hook was given to the compiler." />
+    <CheckRuleHookResource AssemblyPath="@(IntermediateAssembly->'%(FullPath)')" ExpectedFile="$(RuleHookExecutable)" />
+  </Target>
 </Project>

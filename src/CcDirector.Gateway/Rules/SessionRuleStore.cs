@@ -1,4 +1,5 @@
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -68,7 +69,11 @@ public sealed class SessionRuleStore : IRuleReading
         int cooldownSeconds,
         int dailyCap,
         DateTime nowUtc,
-        RuleChangeActor actor)
+        RuleChangeActor actor,
+        // Where the rule applies (ruling P4). Absent means everywhere, which is what every screen rule was
+        // before this existed, so a create body written the September way keeps working unchanged. A screen
+        // rule may only apply everywhere in phase 1; the write gate refuses anything narrower.
+        RuleAppliesTo? appliesTo = null)
     {
         ArgumentNullException.ThrowIfNull(actor);
         FileLog.Write($"[SessionRuleStore] Create: instruction length={instruction?.Length ?? 0}, by={actor.ChangedBy}");
@@ -112,7 +117,9 @@ public sealed class SessionRuleStore : IRuleReading
                 State = DryRunValue,
                 CreatedUtc = created,
                 UpdatedUtc = created,
+                Kind = RuleKinds.Screen,
             };
+            SetAppliesTo(entity, appliesTo ?? RuleAppliesTo.Everywhere);
             // CHECKED BEFORE IT IS ADDED, from the one place that says what a rule is. The write gate in
             // the context checks the same thing on the way out, so a caller that went round this store
             // meets the same rules - but refusing here means nothing is ever attached to the context, and
@@ -139,8 +146,10 @@ public sealed class SessionRuleStore : IRuleReading
     }
 
     /// <summary>
-    /// Change a rule's body: its instruction, screen description, trigger words, checks, scope and ceilings -
-    /// the same fields a create takes, checked the same way.
+    /// Change a rule's body - the same fields a create of its kind takes, checked the same way: for a screen rule
+    /// its instruction, screen description, trigger words, checks, scope, ceilings and where it applies; for a hook
+    /// rule its instruction, where it applies, and its event, tool, handler, match text and result (ruling P18).
+    /// Its kind is not one of them: a change naming another kind is refused.
     ///
     /// A CHANGED RULE GOES BACK TO DRY RUN. Dry run is what puts a person between a standing instruction and the
     /// first time it types anything, and a changed instruction is one nobody has yet watched behave - so the
@@ -179,28 +188,56 @@ public sealed class SessionRuleStore : IRuleReading
             var draft = merge(before)
                 ?? throw new InvalidOperationException("a change's merge answered no rule.");
 
-            // The same refusal a create gives, for the same reason: an omitted scope is not "every session".
-            if (draft.Scope is null)
-                throw new RuleRejectedException(
-                    "a rule has to say which sessions it may act on. Every session is a choice you can make, " +
-                    "but it is a choice - a rule that did not say is not read as meaning all of them.");
-            var (instruction, screenDescription, triggerWords, calls, scope, cooldownSeconds, dailyCap) =
-                (draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
-                 draft.CooldownSeconds, draft.DailyCap);
+            // A RULE'S KIND IS WHAT IT IS (ruling P18): a screen rule and a hook rule are different instructions.
+            // The change reader refuses a body naming another kind; this refuses a merge that answered one anyway,
+            // and the write gate refuses the row whichever route wrote it.
+            if (!string.Equals(draft.Kind, entity.Kind, StringComparison.Ordinal))
+            {
+                var reason =
+                    $"a rule's kind cannot be changed: this is a {entity.Kind} rule, and this change makes it a " +
+                    $"{draft.Kind} rule. Delete it and create the {draft.Kind} rule instead.";
+                FileLog.Write($"[SessionRuleStore] Change REFUSED: {reason}");
+                throw new RuleRejectedException(reason);
+            }
 
-            entity.Instruction = (instruction ?? "").Trim();
-            entity.ScreenDescription = (screenDescription ?? "").Trim();
-            entity.TriggerWords = (triggerWords ?? Array.Empty<string>())
-                .Select(w => (w ?? "").Trim())
-                .Where(w => w.Length > 0)
-                .ToList();
-            entity.Calls = (calls ?? Array.Empty<RulePrimitiveCall>()).Select(CopyOf).ToList();
-            entity.ScopeAgent = Blank(scope.Agent);
-            entity.ScopeRepository = Blank(scope.Repository);
-            entity.ScopeMachine = Blank(scope.Machine);
-            entity.ScopeMission = Blank(scope.Mission);
-            entity.CooldownSeconds = cooldownSeconds;
-            entity.DailyCap = dailyCap;
+            switch (entity.Kind)
+            {
+                case RuleKinds.Screen:
+                    // The same refusal a create gives, for the same reason: an omitted scope is not "every session".
+                    if (draft.Scope is null)
+                        throw new RuleRejectedException(
+                            "a rule has to say which sessions it may act on. Every session is a choice you can make, " +
+                            "but it is a choice - a rule that did not say is not read as meaning all of them.");
+                    ApplyScreenFields(entity, draft, draft.Scope);
+                    // Absent means everywhere, as on a create.
+                    SetAppliesTo(entity, draft.AppliesTo ?? RuleAppliesTo.Everywhere);
+                    break;
+
+                case RuleKinds.Hook:
+                    // The same refusal a hook create gives: a missing place is not "everywhere".
+                    if (draft.AppliesTo is null)
+                        throw new RuleRejectedException(
+                            "a hook rule has to say where it applies - everywhere, on some machines, in a repository, " +
+                            "or in a repository on some machines. Everywhere is a choice you can make, but it has to be said.");
+                    var hook = draft.Hook
+                        ?? throw new RuleRejectedException(
+                            "a hook rule has to say what it listens for: its event, tool, handler, match text and result.");
+                    // The screen fields are written as the draft has them, so a draft that carried any is refused
+                    // by the write gate below with the reason, rather than having them quietly dropped.
+                    ApplyScreenFields(entity, draft, draft.Scope ?? RuleScope.AllSessions);
+                    entity.HookEvent = (hook.Event ?? "").Trim();
+                    entity.HookTool = (hook.Tool ?? "").Trim();
+                    entity.HookHandler = (hook.Handler ?? "").Trim();
+                    // Literal text, kept EXACTLY as written (P1): a space at the edge is part of what is matched.
+                    entity.HookMatch = (hook.Match ?? Array.Empty<string>()).Select(m => m ?? "").ToList();
+                    entity.HookResult = (hook.Result ?? "").Trim();
+                    SetAppliesTo(entity, draft.AppliesTo);
+                    break;
+
+                default:
+                    throw new RuleRejectedException(
+                        $"a {entity.Kind} rule cannot be changed by this build - it does not write that kind.");
+            }
 
             // A CHANGE THAT CHANGES NOTHING IS REFUSED, not recorded: a history row saying a rule was changed
             // when it was not would be a false record, and putting a live rule back in dry run for nothing would
@@ -230,6 +267,210 @@ public sealed class SessionRuleStore : IRuleReading
                 $"[SessionRuleStore] Change: rule {id} changed by {actor.ChangedBy}; it is in dry run " +
                 $"(was {RuleWireNames.ToWireName(before.State.ToString())})");
             return after;
+        }
+    }
+
+    /// <summary>
+    /// Store a new HOOK rule (Tech Lead rulings P1, P2, P4 and P7). Like every rule it is ALWAYS created in dry
+    /// run. It says where it applies - that has to be said, for the same reason a screen rule's scope has to be
+    /// - and its repository may be pasted in any form of the remote, because it is stored in its one spelling.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">Where it applies is missing or not one of the four shapes, or
+    /// the event, tool, handler, match text or result is not one phase 1 accepts; the reason says which.</exception>
+    public SessionRule CreateHook(
+        string instruction,
+        RuleAppliesTo? appliesTo,
+        string hookEvent,
+        string tool,
+        string handler,
+        IEnumerable<string> match,
+        string result,
+        DateTime nowUtc,
+        RuleChangeActor actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+        FileLog.Write(
+            $"[SessionRuleStore] CreateHook: event={hookEvent} tool={tool} handler={handler} " +
+            $"appliesTo={appliesTo?.Kind ?? "(none)"}, by={actor.ChangedBy}");
+
+        // A MISSING PLACE IS NOT "EVERYWHERE". Everywhere is a choice a hook rule can make, said out loud; a
+        // rule that did not say is not read as meaning the widest place there is.
+        if (appliesTo is null)
+        {
+            const string reason =
+                "a hook rule has to say where it applies - everywhere, on some machines, in a repository, or in a " +
+                "repository on some machines. Everywhere is a choice you can make, but it has to be said.";
+            FileLog.Write($"[SessionRuleStore] CreateHook REFUSED: {reason}");
+            throw new RuleRejectedException(reason);
+        }
+
+        var created = nowUtc.ToUniversalTime();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var entity = new SessionRuleEntity
+            {
+                TenantId = ctx.ActiveTenant!,
+                Kind = RuleKinds.Hook,
+                Instruction = (instruction ?? "").Trim(),
+                HookEvent = (hookEvent ?? "").Trim(),
+                HookTool = (tool ?? "").Trim(),
+                HookHandler = (handler ?? "").Trim(),
+                // Literal text, kept EXACTLY as written (P1): a space at the edge is part of what is matched.
+                HookMatch = (match ?? Array.Empty<string>()).Select(m => m ?? "").ToList(),
+                HookResult = (result ?? "").Trim(),
+                // ALWAYS dry run. There is deliberately no parameter for this.
+                State = DryRunValue,
+                CreatedUtc = created,
+                UpdatedUtc = created,
+            };
+            SetAppliesTo(entity, appliesTo);
+
+            try
+            {
+                SessionRuleRecordRules.CheckRule(entity, _registry);
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleStore] CreateHook REFUSED: {ex.Reason}");
+                throw;
+            }
+
+            ctx.SessionRules.Add(entity);
+            var stored = ToRecord(entity);
+            // Recorded in the same save as a screen rule's create is: the write gate refuses a new rule with no
+            // record of who made it, whatever its kind.
+            ctx.SessionRuleChanges.Add(ChangeRow(ctx, entity.Id, RuleChangeActions.Create, actor, created, null, stored));
+            ctx.SaveChanges();
+            FileLog.Write($"[SessionRuleStore] CreateHook: stored hook rule {entity.Id} in dry run, by {actor.ChangedBy}");
+            return stored;
+        }
+    }
+
+    /// <summary>
+    /// The hook rules that reach a session on <paramref name="machine"/> in <paramref name="repo"/>, each with
+    /// how specific it is (wire contract W1). Screen rules are never part of it. The repository may be any form
+    /// of the remote, or empty for a checkout with no remote, which only everywhere and machine rules reach.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">No machine was named.</exception>
+    public IReadOnlyList<EffectiveRule> EffectiveHookRules(string machine, string repo)
+    {
+        var theMachine = (machine ?? "").Trim();
+        if (theMachine.Length == 0)
+            throw new RuleRejectedException(
+                "the effective rules are worked out for one machine, and no machine was named.");
+        var theRepo = GitRemoteIdentity.Normalise(repo);
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var effective = ctx.SessionRules.AsNoTracking()
+                .Where(r => r.Kind == RuleKinds.Hook)
+                .OrderByDescending(r => r.CreatedUtc)
+                .ToList()
+                .Select(ToRecord)
+                .Where(r => r.AppliesTo.Reaches(theMachine, theRepo))
+                .Select(r => new EffectiveRule(r, r.AppliesTo.Rank))
+                .OrderByDescending(e => e.Rank)
+                .ToList();
+            FileLog.Write(
+                $"[SessionRuleStore] EffectiveHookRules: machine={theMachine} repo={theRepo} rules={effective.Count}");
+            return effective;
+        }
+    }
+
+    /// <summary>
+    /// Record the decisions a hook made, as the Director forwards them (wire contract W5). Each accepted
+    /// decision becomes one firing on its deciding rule. A decision already recorded - the same decision id in
+    /// this account - is a DUPLICATE, not a second firing, so a retried post is harmless. A decision that names
+    /// no rule, a rule that is not a hook rule, or is not a record of anything, is refused with the reason.
+    /// Each decision is written on its own, so one refusal never costs the others.
+    /// </summary>
+    public HookFiringsAnswer RecordHookFirings(IEnumerable<HookDecision> decisions)
+    {
+        var all = (decisions ?? Array.Empty<HookDecision>()).ToList();
+        FileLog.Write($"[SessionRuleStore] RecordHookFirings: {all.Count} decision(s)");
+
+        var accepted = 0;
+        var duplicates = 0;
+        var refused = new List<HookFiringRefusal>();
+
+        lock (_gate)
+        {
+            foreach (var decision in all)
+            {
+                var decisionId = decision.DecisionId ?? "";
+                if (decision.Version != 1)
+                {
+                    Refuse(decisionId, $"this Gateway reads decision version 1, and this one is version {decision.Version}.");
+                    continue;
+                }
+
+                using var ctx = _db.CreateContext();
+                if (!string.IsNullOrWhiteSpace(decisionId)
+                    && ctx.SessionRuleFirings.AsNoTracking().Any(f => f.DecisionId == decisionId))
+                {
+                    duplicates++;
+                    continue;
+                }
+
+                var rule = ctx.SessionRules.AsNoTracking()
+                    .Where(r => r.Id == decision.DecidingRuleId)
+                    .Select(r => new { r.State, r.Kind, r.Instruction })
+                    .FirstOrDefault();
+
+                var entity = new SessionRuleFiringEntity
+                {
+                    TenantId = ctx.ActiveTenant!,
+                    Kind = RuleKinds.Hook,
+                    RuleId = decision.DecidingRuleId,
+                    DecisionId = decisionId,
+                    SessionId = (decision.SessionId ?? "").Trim(),
+                    OccurredUtc = decision.OccurredUtc.ToUniversalTime(),
+                    Decision = (decision.Decision ?? "").Trim(),
+                    // A hook rule's reason is its own sentence (wire contract W2).
+                    Reason = rule?.Instruction ?? "",
+                    Outcome = "dry run: recorded what this rule would have decided; the command was not blocked.",
+                    HookEvent = (decision.Event ?? "").Trim(),
+                    HookTool = (decision.Tool ?? "").Trim(),
+                    Subject = decision.Subject ?? "",
+                    Machine = (decision.Machine ?? "").Trim(),
+                    Repo = (decision.Repo ?? "").Trim(),
+                    Agent = (decision.Agent ?? "").Trim(),
+                    AgentEvent = (decision.AgentEvent ?? "").Trim(),
+                    AgentTool = (decision.AgentTool ?? "").Trim(),
+                    OverriddenRuleIds = (decision.OverriddenRuleIds ?? Array.Empty<Guid>()).ToList(),
+                    MatchedRuleIds = (decision.MatchedRuleIds ?? Array.Empty<Guid>()).ToList(),
+                    EvaluationMicroseconds = decision.EvaluationMicroseconds,
+                };
+
+                try
+                {
+                    SessionRuleRecordRules.CheckFiring(entity, _registry, rule?.State, rule?.Kind, DryRunValue);
+                }
+                catch (RuleRejectedException ex)
+                {
+                    Refuse(decisionId, ex.Reason);
+                    continue;
+                }
+
+                ctx.SessionRuleFirings.Add(entity);
+                ctx.SaveChanges();
+                accepted++;
+                FileLog.Write(
+                    $"[SessionRuleStore] RecordHookFirings: decision={decisionId} rule={decision.DecidingRuleId} " +
+                    $"session={entity.SessionId} decision={entity.Decision}");
+            }
+        }
+
+        FileLog.Write(
+            $"[SessionRuleStore] RecordHookFirings: accepted={accepted} duplicates={duplicates} refused={refused.Count}");
+        return new HookFiringsAnswer(accepted, duplicates, refused);
+
+        void Refuse(string decisionId, string reason)
+        {
+            FileLog.Write($"[SessionRuleStore] RecordHookFirings REFUSED decision={decisionId}: {reason}");
+            refused.Add(new HookFiringRefusal(decisionId, reason));
         }
     }
 
@@ -294,6 +535,14 @@ public sealed class SessionRuleStore : IRuleReading
             // Already live: nothing changes, so nothing is recorded.
             if (string.Equals(entity.State, LiveValue, StringComparison.Ordinal))
                 return ToRecord(entity);
+
+            if (!string.Equals(entity.Kind, RuleKinds.Screen, StringComparison.Ordinal))
+            {
+                var reason = $"live {entity.Kind} rules arrive in phase 4. In phase 1 a {entity.Kind} rule stays " +
+                             "in dry run and records what it would have done.";
+                FileLog.Write($"[SessionRuleStore] Promote {id} REFUSED: {reason}");
+                throw new RuleRejectedException(reason);
+            }
 
             var before = ToRecord(entity);
             entity.State = LiveValue;
@@ -417,9 +666,9 @@ public sealed class SessionRuleStore : IRuleReading
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
-            var state = ctx.SessionRules.AsNoTracking()
+            var rule = ctx.SessionRules.AsNoTracking()
                 .Where(r => r.Id == ruleId)
-                .Select(r => r.State)
+                .Select(r => new { r.State, r.Kind })
                 .FirstOrDefault();
 
             var entity = new SessionRuleFiringEntity
@@ -450,7 +699,7 @@ public sealed class SessionRuleStore : IRuleReading
             // a firing is, which the write gate in the context asks as well.
             try
             {
-                SessionRuleRecordRules.CheckFiring(entity, _registry, state, DryRunValue);
+                SessionRuleRecordRules.CheckFiring(entity, _registry, rule?.State, rule?.Kind, DryRunValue);
             }
             catch (RuleRejectedException ex)
             {
@@ -532,6 +781,35 @@ public sealed class SessionRuleStore : IRuleReading
                 "the record is the product, so a firing has to say " + what + ".");
     }
 
+    /// <summary>Write where a rule applies onto its row, machine names trimmed and the repository in its one
+    /// spelling (ruling P6), so a rule written with any form of the remote matches every form of it.</summary>
+    private static void SetAppliesTo(SessionRuleEntity entity, RuleAppliesTo appliesTo)
+    {
+        entity.AppliesToKind = (appliesTo.Kind ?? "").Trim();
+        entity.AppliesToMachines = (appliesTo.Machines ?? Array.Empty<string>()).Select(m => (m ?? "").Trim()).ToList();
+        entity.AppliesToExceptMachines = (appliesTo.ExceptMachines ?? Array.Empty<string>()).Select(m => (m ?? "").Trim()).ToList();
+        entity.AppliesToRepo = GitRemoteIdentity.Normalise(appliesTo.Repo);
+    }
+
+    /// <summary>The fields every rule row has - its sentence, the screen fields, the session scope and the
+    /// ceilings - written from a draft, trimmed as a create trims them.</summary>
+    private static void ApplyScreenFields(SessionRuleEntity entity, SessionRuleDraft draft, RuleScope scope)
+    {
+        entity.Instruction = (draft.Instruction ?? "").Trim();
+        entity.ScreenDescription = (draft.ScreenDescription ?? "").Trim();
+        entity.TriggerWords = (draft.TriggerWords ?? Array.Empty<string>())
+            .Select(w => (w ?? "").Trim())
+            .Where(w => w.Length > 0)
+            .ToList();
+        entity.Calls = (draft.Calls ?? Array.Empty<RulePrimitiveCall>()).Select(CopyOf).ToList();
+        entity.ScopeAgent = Blank(scope.Agent);
+        entity.ScopeRepository = Blank(scope.Repository);
+        entity.ScopeMachine = Blank(scope.Machine);
+        entity.ScopeMission = Blank(scope.Mission);
+        entity.CooldownSeconds = draft.CooldownSeconds;
+        entity.DailyCap = draft.DailyCap;
+    }
+
     /// <summary>An empty or all-whitespace scope part means "any", which is stored as nothing at all.</summary>
     private static string? Blank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -562,7 +840,15 @@ public sealed class SessionRuleStore : IRuleReading
         StateOf(e.State),
         e.PromotedBy,
         e.CreatedUtc,
-        e.UpdatedUtc);
+        e.UpdatedUtc)
+    {
+        Kind = e.Kind,
+        AppliesTo = new RuleAppliesTo(
+            e.AppliesToKind, e.AppliesToMachines.ToList(), e.AppliesToExceptMachines.ToList(), e.AppliesToRepo),
+        Hook = string.Equals(e.Kind, RuleKinds.Hook, StringComparison.Ordinal)
+            ? new HookRuleTrigger(e.HookEvent, e.HookTool, e.HookHandler, e.HookMatch.ToList(), e.HookResult)
+            : null,
+    };
 
     private static SessionRuleFiring ToRecord(SessionRuleFiringEntity e) => new(
         e.Id,
@@ -576,7 +862,22 @@ public sealed class SessionRuleStore : IRuleReading
         e.PrimitiveRuns.Select(r => new RulePrimitiveRun(r.Name, r.Arguments, r.Answer)).ToList(),
         e.TypedText,
         e.Outcome,
-        e.Grounding);
+        e.Grounding)
+    {
+        Kind = e.Kind,
+        DecisionId = e.DecisionId,
+        Event = e.HookEvent,
+        Tool = e.HookTool,
+        Subject = e.Subject,
+        Machine = e.Machine,
+        Repo = e.Repo,
+        Agent = e.Agent,
+        AgentEvent = e.AgentEvent,
+        AgentTool = e.AgentTool,
+        OverriddenRuleIds = e.OverriddenRuleIds.ToList(),
+        MatchedRuleIds = e.MatchedRuleIds.ToList(),
+        EvaluationMicroseconds = e.EvaluationMicroseconds,
+    };
 
     /// <summary>The stored state value as a state. An unrecognised value fails loudly rather than being
     /// treated as dry run - a rule whose state we cannot read must not be quietly assumed harmless, and

@@ -24,6 +24,12 @@
 #   scripts/local-build-linux.sh --slot 1             # output -> cc-director-linux1
 #   scripts/local-build-linux.sh --configuration Debug
 #   scripts/local-build-linux.sh --rid linux-arm64    # force a runtime identifier
+#   scripts/local-build-linux.sh --no-rule-hook       # a Director that carries no Session Rules hook
+#
+# The Director CARRIES the Session Rules hook evaluator, cc-rule-hook, compiled to native code and
+# embedded in its own executable (Session Rules part 2, phase 1, ruling P16; the EmbedRuleHook target in
+# CcDirector.Avalonia.csproj). Native compilation needs clang or gcc. Without one the build fails and says
+# so; --no-rule-hook builds a Director whose sessions evaluate no rules, on purpose.
 #
 set -euo pipefail
 
@@ -34,6 +40,7 @@ SELF_CONTAINED=true
 CONFIGURATION="Release"
 SLOT=""
 RID=""
+EMBED_RULE_HOOK=true
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -42,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         --configuration|-c) CONFIGURATION="$2"; shift 2 ;;
         --slot) SLOT="$2"; shift 2 ;;
         --rid) RID="$2"; shift 2 ;;
+        --no-rule-hook) EMBED_RULE_HOOK=false; shift ;;
         -h|--help)
             grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
@@ -128,6 +136,7 @@ PUBLISH_ARGS=(
     --self-contained "$SELF_CONTAINED"
     -p:PublishSingleFile=true
     -p:IncludeNativeLibrariesForSelfExtract=true
+    -p:EmbedRuleHook="$EMBED_RULE_HOOK"
     --nologo
     -v q
 )
@@ -142,6 +151,18 @@ EXE_PATH="$PUBLISH_DIR/cc-director"
 if [[ ! -f "$EXE_PATH" ]]; then
     echo "ERROR: published executable not found at $EXE_PATH" >&2
     exit 1
+fi
+
+# ----------------------------------------------------------------------------
+# The Session Rules hook
+# ----------------------------------------------------------------------------
+# The presence check is in the build itself (VerifyRuleHookEmbedded in CcDirector.Avalonia.csproj): it reads
+# the compiled assembly's managed resources and fails the publish above unless one holds the evaluator's
+# exact bytes. Reaching this line with the hook on means that check passed.
+if [[ "$EMBED_RULE_HOOK" == true ]]; then
+    echo "  Session Rules hook: embedded (verified in the assembly's managed resources by the build)"
+else
+    echo "  Session Rules hook: NOT embedded (--no-rule-hook) - this Director's sessions evaluate no rules"
 fi
 
 # ----------------------------------------------------------------------------

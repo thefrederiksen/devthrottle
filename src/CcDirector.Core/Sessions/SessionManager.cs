@@ -205,6 +205,11 @@ public sealed class SessionManager : IDisposable
     /// (<see cref="Storage.CcStorage.SessionPointers"/>); a test points it at a scratch folder.</summary>
     public string? SessionPointerDirectory { get; init; }
 
+    /// <summary>Where a Claude Code session's maintained rules file goes (Session Rules part 2, phase 1).
+    /// Null is the real storage root (<see cref="Storage.CcStorage.SessionRules"/>); a test points it at a
+    /// scratch folder.</summary>
+    public string? SessionRulesDirectory { get; init; }
+
     /// <summary>
     /// The kit folders a create is writing or a live session is using, guarded by <see cref="_kitGate"/>. The start-up
     /// sweep takes the same lock, so it can never delete a folder a create is putting in place at that moment, before
@@ -1145,6 +1150,24 @@ public sealed class SessionManager : IDisposable
                 {
                     _log?.Invoke($"The session-pointer drop box could not be prepared: {ex.Message}");
                     FileLog.Write($"[SessionManager] pointer drop box FAILED (session still launching): {ex}");
+                }
+            }
+
+            // Session Rules part 2, phase 1: the rules file the before-a-command hook reads and the
+            // directory it writes each decision into. Claude Code alone - it is the only agent whose
+            // before-a-command hook is registered in phase 1 (ruling P9). The decision directory carries
+            // the same drop token as the pointer file, so it is the same capability.
+            if (agent.Kind == AgentKind.ClaudeCode)
+            {
+                try
+                {
+                    SessionHookFiles.StampRuleHookEnvironment(
+                        envVars, id, session.PointerDropToken, SessionRulesDirectory, SessionPointerDirectory);
+                }
+                catch (Exception ex)
+                {
+                    _log?.Invoke($"The session rules file and decision directory could not be prepared: {ex.Message}");
+                    FileLog.Write($"[SessionManager] rule hook environment FAILED (session still launching): {ex}");
                 }
             }
 

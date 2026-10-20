@@ -1,0 +1,13 @@
+[
+  {
+    "matcher": "^(Bash|PowerShell)$",
+    "hooks": [
+      {
+        "type": "command",
+        "command": "/home/soren/.local/state/session-rules-rig-wholefix/root/instances/default/claude-hooks/cc-rule-hook",
+        "args": [],
+        "timeout": 10
+      }
+    ]
+  }
+]

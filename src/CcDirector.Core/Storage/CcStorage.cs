@@ -550,6 +550,15 @@ public static class CcStorage
     public static string SessionPointers() => Path.Combine(Base(), "session-pointers");
 
     /// <summary>
+    /// Session Rules part 2, phase 1: the per-session rules file the Director MAINTAINS for each live
+    /// Claude Code session, one file per session: base/session-rules/. The session's before-a-command
+    /// hook reads it and decides locally, with no network call, and writes its one-line-per-command
+    /// evaluation log beside it. Maintained like the preamble, not written once: rules are created and
+    /// changed while sessions run. See SessionRulesMaintainer.
+    /// </summary>
+    public static string SessionRules() => Path.Combine(Base(), "session-rules");
+
+    /// <summary>
     /// Factory Memory mission, phase 3a: the copy of a factory's notes the Director downloads for a factory
     /// session before its agent starts, one folder per session: base/factory-memory/&lt;session id&gt;/.
     /// Never inside the checkout or a pooled worktree - files there would be untracked, dirty the tree, could be

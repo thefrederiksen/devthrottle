@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Rules;
 
 namespace CcDirector.Gateway.Api;
@@ -34,6 +35,21 @@ internal static class SessionRuleWire
         cooldownSeconds = r.CooldownSeconds,
         dailyCap = r.DailyCap,
         state = RuleWireNames.ToWireName(r.State.ToString()),
+        // Session Rules part 2, phase 1: what starts the rule, where it applies, and a hook rule's trigger.
+        // Flat, and empty for a rule of another kind, so every rule reads in one shape.
+        kind = r.Kind,
+        appliesTo = new
+        {
+            kind = r.AppliesTo.Kind,
+            machines = r.AppliesTo.Machines,
+            exceptMachines = r.AppliesTo.ExceptMachines,
+            repo = r.AppliesTo.Repo,
+        },
+        @event = r.Hook?.Event ?? "",
+        tool = r.Hook?.Tool ?? "",
+        handler = r.Hook?.Handler ?? "",
+        match = r.Hook?.Match ?? (IReadOnlyList<string>)Array.Empty<string>(),
+        result = r.Hook?.Result ?? "",
         // WHO MADE IT LIVE. Dry run is the bound that puts a person between a standing instruction and its
         // first real use, and this is the only place the account can find out who that person was. It was
         // stored and not delivered, which for a reader is the same as not existing.
@@ -61,6 +77,275 @@ internal static class SessionRuleWire
         // blank, and delivering it is the whole point of it: a run in which that check never happened must
         // not read the same as one in which it ran and found nothing wrong.
         grounding = f.Grounding,
+        // Session Rules part 2, phase 1: a hook firing carries the decision the hook made (wire contract W5).
+        kind = f.Kind,
+        decisionId = f.DecisionId,
+        @event = f.Event,
+        tool = f.Tool,
+        subject = f.Subject,
+        machine = f.Machine,
+        repo = f.Repo,
+        agent = f.Agent,
+        agentEvent = f.AgentEvent,
+        agentTool = f.AgentTool,
+        overriddenRuleIds = f.OverriddenRuleIds,
+        matchedRuleIds = f.MatchedRuleIds,
+        evaluationMicroseconds = f.EvaluationMicroseconds,
+    };
+
+    // ---- Session Rules part 2, phase 1: kinds, appliesTo, effective rules and hook firings ---------------
+
+    /// <summary>
+    /// Create a rule from a POST /gateway/rules body. A body with no <c>kind</c> is a screen rule, read exactly
+    /// as before - the September body keeps working unchanged. A hook rule is <c>"kind": "hook"</c> with
+    /// <c>appliesTo</c>, <c>event</c>, <c>tool</c>, <c>handler</c>, <c>match</c> and <c>result</c>. The body is read
+    /// by <see cref="ReadDraft"/>, the reader a change goes through too.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The body is not a rule that can be stored; the reason says why.</exception>
+    internal static SessionRule CreateFromBody(SessionRuleStore store, JsonElement body, DateTime nowUtc, RuleChangeActor actor)
+    {
+        var draft = ReadDraft(body);
+        if (string.Equals(draft.Kind, RuleKinds.Hook, StringComparison.Ordinal))
+        {
+            var hook = draft.Hook!;
+            return store.CreateHook(
+                draft.Instruction, draft.AppliesTo, hook.Event, hook.Tool, hook.Handler, hook.Match, hook.Result, nowUtc, actor);
+        }
+
+        return store.Create(
+            draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
+            draft.CooldownSeconds, draft.DailyCap, nowUtc, actor, draft.AppliesTo);
+    }
+
+    /// <summary>The rule's kind; a body that does not say is a screen rule, which is what every rule was before
+    /// kinds existed.</summary>
+    /// <exception cref="RuleRejectedException">The kind is there and is not text.</exception>
+    private static string ReadKind(JsonElement body)
+    {
+        if (!body.TryGetProperty("kind", out var kind)) return RuleKinds.Screen;
+        if (kind.ValueKind != JsonValueKind.String)
+            throw new RuleRejectedException(
+                "a rule's kind is text - one of: " + string.Join(", ", RuleKinds.All) + ".");
+        return (kind.GetString() ?? "").Trim();
+    }
+
+    /// <summary>
+    /// The screen rule's fields mean nothing for a hook rule, so a hook body carrying them is refused rather
+    /// than stored with them quietly dropped - a caller who sent them believed they would do something.
+    /// </summary>
+    private static void RefuseScreenFieldsOnAHookRule(JsonElement body)
+    {
+        if (body.TryGetProperty("checks", out var checks)
+            && !(checks.ValueKind == JsonValueKind.Array && checks.GetArrayLength() == 0))
+            throw new RuleRejectedException(
+                "a hook rule cannot run checks yet - the Check handler arrives in phase 4. In phase 1 a hook rule " +
+                "matches literal text.");
+
+        if (body.TryGetProperty("scope", out _))
+            throw new RuleRejectedException(
+                "a hook rule says where it applies with appliesTo, and has no session scope - one rule, one " +
+                "scope system.");
+
+        if (!string.IsNullOrWhiteSpace(RuleCallJson.Text(body, "screenDescription")))
+            throw new RuleRejectedException("a hook rule does not watch the screen, so it has no screen description.");
+
+        if (Strings(body, "triggerWords").Count > 0)
+            throw new RuleRejectedException(
+                "a hook rule does not watch the screen, so it has no trigger words - its match text is what it " +
+                "looks for.");
+
+        // The ceilings bound how often a screen rule ACTS on a session. A phase 1 hook rule acts on nothing - it
+        // records what it would have decided - so a bound written on one would be stored as nothing at all.
+        foreach (var bound in new[] { "cooldownSeconds", "dailyCap" })
+            if (body.TryGetProperty(bound, out _))
+                throw new RuleRejectedException(
+                    $"a hook rule has no {bound} - it is decided by the hook on every command it polices, and a " +
+                    "bound written here would be stored as nothing.");
+    }
+
+    /// <summary>
+    /// A hook rule's fields mean nothing for a screen rule, so a screen body carrying them is refused rather than
+    /// stored with them quietly dropped - the same reasoning as <see cref="RefuseScreenFieldsOnAHookRule"/>, and
+    /// what stops a change from laying a hook rule's trigger over a screen rule and being told it changed nothing.
+    /// </summary>
+    private static void RefuseHookFieldsOnAScreenRule(JsonElement body)
+    {
+        foreach (var field in new[] { "event", "tool", "handler", "match", "result" })
+            if (body.TryGetProperty(field, out _))
+                throw new RuleRejectedException(
+                    $"a screen rule reads the screen, so it has no {field} - a hook event, tool, handler, match text " +
+                    "and result belong to a hook rule. A rule that listens to a hook is a hook rule.");
+    }
+
+    /// <summary>
+    /// Where the rule applies (ruling P4): <c>{ "kind", "machines", "exceptMachines", "repo" }</c>, or null when
+    /// the body does not say. What null means is the store's to decide for each kind.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">It is there and is not an object.</exception>
+    internal static RuleAppliesTo? ReadAppliesTo(JsonElement body)
+    {
+        if (!body.TryGetProperty("appliesTo", out var appliesTo)) return null;
+        if (appliesTo.ValueKind != JsonValueKind.Object)
+            throw new RuleRejectedException(
+                "appliesTo is an object - { \"kind\": \"everywhere\" | \"machine\" | \"repo\" | " +
+                "\"repo_on_machine\", \"machines\": [...], \"exceptMachines\": [...], \"repo\": \"...\" }.");
+
+        return new RuleAppliesTo(
+            RuleCallJson.Text(appliesTo, "kind") ?? "",
+            Strings(appliesTo, "machines"),
+            Strings(appliesTo, "exceptMachines"),
+            RuleCallJson.Text(appliesTo, "repo") ?? "");
+    }
+
+    /// <summary>
+    /// The query of GET /gateway/rules/effective (wire contract W1): the kind, which is <c>hook</c> in phase 1,
+    /// the machine, which is required, and the repository, which may be empty and is returned in its one
+    /// spelling.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The kind is missing or not hook, or no machine was named.</exception>
+    internal static (string Machine, string Repo) ReadEffectiveQuery(string? kind, string? machine, string? repo)
+    {
+        if (string.IsNullOrWhiteSpace(kind))
+            throw new RuleRejectedException("say which kind of rules: kind=hook.");
+        if (!string.Equals(kind.Trim(), RuleKinds.Hook, StringComparison.Ordinal))
+            throw new RuleRejectedException(
+                $"the effective rules are served for kind=hook in phase 1, and this asked for '{kind}'.");
+        if (string.IsNullOrWhiteSpace(machine))
+            throw new RuleRejectedException(
+                "the effective rules are worked out for one machine - say which: machine=<name>.");
+        return (machine.Trim(), GitRemoteIdentity.Normalise(repo));
+    }
+
+    /// <summary>The answer of GET /gateway/rules/effective (wire contract W1), each rule in the W2 item shape.</summary>
+    internal static object ProjectEffective(string machine, string repo, IReadOnlyList<EffectiveRule> rules) => new
+    {
+        machine,
+        repo,
+        rules = rules.Select(e => new
+        {
+            id = e.Rule.Id,
+            rank = e.Rank,
+            appliesTo = e.Rule.AppliesTo.Kind,
+            @event = e.Rule.Hook?.Event ?? "",
+            tool = e.Rule.Hook?.Tool ?? "",
+            match = e.Rule.Hook?.Match ?? (IReadOnlyList<string>)Array.Empty<string>(),
+            result = e.Rule.Hook?.Result ?? "",
+            reason = e.Rule.Instruction,
+            state = RuleWireNames.ToWireName(e.Rule.State.ToString()),
+        }).ToList(),
+    };
+
+    /// <summary>
+    /// The decisions in a POST /gateway/rules/hook-firings body (wire contract W5), each in the W3 shape. An
+    /// item that cannot be read is added to <paramref name="unreadable"/> with its reason - by its decision id
+    /// when it has one - and the others are still read, so one bad file never holds up the rest.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The body has no decisions list.</exception>
+    internal static IReadOnlyList<HookDecision> ReadHookDecisions(JsonElement body, List<HookFiringRefusal> unreadable)
+    {
+        if (body.ValueKind != JsonValueKind.Object
+            || !body.TryGetProperty("decisions", out var list)
+            || list.ValueKind != JsonValueKind.Array)
+            throw new RuleRejectedException("the body is { \"decisions\": [ ... ] }, and it has no decisions list.");
+
+        // ONE LIMIT, BOTH ENDS, AND NOTHING LOST TO IT (ruling P17). Every decision is recorded under the store's
+        // one write lock, which the screen evaluator and every rules route also wait on, so a post is bounded by
+        // the limit the Director batches by. A post over it is refused WHOLE: the Director deletes a decision
+        // refused by id, so refusing the ones past the limit one by one would destroy real records, while a
+        // refused post is a failed post and the Director keeps every drop.
+        var count = list.GetArrayLength();
+        if (count > HookFiringLimits.MaxDecisionsPerPost)
+            throw new RuleRejectedException(
+                $"one post carries at most {HookFiringLimits.MaxDecisionsPerPost} decisions, and this one carries " +
+                $"{count}. Nothing in it was recorded; send them in smaller posts.");
+
+        var read = new List<HookDecision>();
+        foreach (var item in list.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                unreadable.Add(new HookFiringRefusal("", "a decision is an object, and this one is not."));
+                continue;
+            }
+
+            var decisionId = RuleCallJson.Text(item, "decisionId") ?? "";
+            var problem = ReadHookDecision(item, decisionId, out var decision);
+            if (problem is not null)
+            {
+                unreadable.Add(new HookFiringRefusal(decisionId, problem));
+                continue;
+            }
+            read.Add(decision!);
+        }
+        return read;
+    }
+
+    /// <summary>One W3 decision, or the reason it cannot be read.</summary>
+    private static string? ReadHookDecision(JsonElement item, string decisionId, out HookDecision? decision)
+    {
+        decision = null;
+
+        if (!item.TryGetProperty("version", out var versionElement) || !versionElement.TryGetInt32(out var version))
+            return "a decision says which version of the decision file it is, and this one does not.";
+
+        if (!Guid.TryParse(RuleCallJson.Text(item, "decidingRuleId"), out var decidingRuleId))
+            return "decidingRuleId is not a rule id.";
+
+        if (!DateTime.TryParse(RuleCallJson.Text(item, "occurredUtc"), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                out var occurredUtc))
+            return "occurredUtc is not a time.";
+
+        var overridden = Ids(item, "overriddenRuleIds");
+        if (overridden is null) return "overriddenRuleIds is not a list of rule ids.";
+        var matched = Ids(item, "matchedRuleIds");
+        if (matched is null) return "matchedRuleIds is not a list of rule ids.";
+
+        long microseconds = 0;
+        if (item.TryGetProperty("evaluationMicroseconds", out var micro) && !micro.TryGetInt64(out microseconds))
+            return "evaluationMicroseconds is not a whole number.";
+
+        decision = new HookDecision(
+            version,
+            decisionId,
+            RuleCallJson.Text(item, "sessionId") ?? "",
+            DateTime.SpecifyKind(occurredUtc, DateTimeKind.Utc),
+            RuleCallJson.Text(item, "agent") ?? "",
+            RuleCallJson.Text(item, "event") ?? "",
+            RuleCallJson.Text(item, "agentEvent") ?? "",
+            RuleCallJson.Text(item, "tool") ?? "",
+            RuleCallJson.Text(item, "agentTool") ?? "",
+            RuleCallJson.Text(item, "subject") ?? "",
+            RuleCallJson.Text(item, "machine") ?? "",
+            RuleCallJson.Text(item, "repo") ?? "",
+            RuleCallJson.Text(item, "decision") ?? "",
+            decidingRuleId,
+            overridden,
+            matched,
+            microseconds);
+        return null;
+    }
+
+    /// <summary>A list of rule ids; empty when absent, null when it is there and is not a list of ids.</summary>
+    private static IReadOnlyList<Guid>? Ids(JsonElement item, string name)
+    {
+        if (!item.TryGetProperty(name, out var array)) return Array.Empty<Guid>();
+        if (array.ValueKind != JsonValueKind.Array) return null;
+        var ids = new List<Guid>();
+        foreach (var entry in array.EnumerateArray())
+        {
+            if (!Guid.TryParse(RuleCallJson.Scalar(entry), out var id)) return null;
+            ids.Add(id);
+        }
+        return ids;
+    }
+
+    /// <summary>The answer of POST /gateway/rules/hook-firings (wire contract W5).</summary>
+    internal static object ProjectHookFiringsAnswer(HookFiringsAnswer answer) => new
+    {
+        accepted = answer.Accepted,
+        duplicates = answer.Duplicates,
+        refused = answer.Refused.Select(r => new { decisionId = r.DecisionId, reason = r.Reason }).ToList(),
     };
 
     /// <summary>
@@ -130,17 +415,57 @@ internal static class SessionRuleWire
 
     /// <summary>
     /// A WRITE, READ ONCE. Create and change both read their body here, so the two cannot come to disagree about
-    /// what a field means - and a field the create learns to read is read by the change in the same edit.
+    /// what a field means - and a field the create learns to read is read by the change in the same edit. The kind
+    /// decides which fields the body is read for, and a field of the other kind is refused with the reason.
     /// </summary>
-    /// <exception cref="RuleRejectedException">The checks are not a list of checks; the reason says why.</exception>
-    internal static SessionRuleDraft ReadDraft(JsonElement body) => new(
-        RuleCallJson.Text(body, "instruction") ?? "",
-        RuleCallJson.Text(body, "screenDescription") ?? "",
-        Strings(body, "triggerWords"),
-        Calls(body),
-        ReadScope(body),
-        Number(body, "cooldownSeconds"),
-        Number(body, "dailyCap"));
+    /// <exception cref="RuleRejectedException">The kind is not one that can be written, or the body carries a field
+    /// its kind cannot have, or the checks are not a list of checks; the reason says which.</exception>
+    internal static SessionRuleDraft ReadDraft(JsonElement body)
+    {
+        var kind = ReadKind(body);
+        switch (kind)
+        {
+            case RuleKinds.Screen:
+                RefuseHookFieldsOnAScreenRule(body);
+                return new SessionRuleDraft(
+                    RuleCallJson.Text(body, "instruction") ?? "",
+                    RuleCallJson.Text(body, "screenDescription") ?? "",
+                    Strings(body, "triggerWords"),
+                    Calls(body),
+                    ReadScope(body),
+                    Number(body, "cooldownSeconds"),
+                    Number(body, "dailyCap"))
+                {
+                    Kind = RuleKinds.Screen,
+                    AppliesTo = ReadAppliesTo(body),
+                };
+
+            case RuleKinds.Hook:
+                RefuseScreenFieldsOnAHookRule(body);
+                return new SessionRuleDraft(
+                    RuleCallJson.Text(body, "instruction") ?? "",
+                    "", Array.Empty<string>(), Array.Empty<RulePrimitiveCall>(), null, 0, 0)
+                {
+                    Kind = RuleKinds.Hook,
+                    AppliesTo = ReadAppliesTo(body),
+                    Hook = new HookRuleTrigger(
+                        RuleCallJson.Text(body, "event") ?? "",
+                        RuleCallJson.Text(body, "tool") ?? "",
+                        RuleCallJson.Text(body, "handler") ?? "",
+                        Strings(body, "match"),
+                        RuleCallJson.Text(body, "result") ?? ""),
+                };
+
+            case RuleKinds.SessionStart:
+                throw new RuleRejectedException(
+                    "session start rules are not built yet - they arrive in phase 5.");
+
+            default:
+                throw new RuleRejectedException(
+                    $"'{kind}' is not a kind of rule this build knows. A rule is one of: " +
+                    string.Join(", ", RuleKinds.All) + ".");
+        }
+    }
 
     /// <summary>
     /// A CHANGE IS THE RULE'S CURRENT BODY WITH THE CALLER'S FIELDS LAID OVER IT, read back through
@@ -172,7 +497,9 @@ internal static class SessionRuleWire
                 throw new RuleRejectedException(
                     $"'{field.Name}' is not changed by a change. A rule is moved out of dry run by promote, and " +
                     "any change puts it back in dry run.");
-            if (!merged.ContainsKey(field.Name))
+            if (field.Name == "kind") RefuseAChangeOfKind(current, field.Value);
+            // A field of ANOTHER kind is laid over too, so the create's reader refuses it with the create's reason.
+            if (!merged.ContainsKey(field.Name) && !SessionRuleBody.FieldsOfEveryKind.Contains(field.Name))
                 throw new RuleRejectedException(
                     $"'{field.Name}' is not a field a change can carry. A change carries: {string.Join(", ", changeable)}.");
             merged[field.Name] = JsonNode.Parse(field.Value.GetRawText());
@@ -184,6 +511,24 @@ internal static class SessionRuleWire
 
         using var document = JsonDocument.Parse(merged.ToJsonString());
         return ReadDraft(document.RootElement.Clone());
+    }
+
+    /// <summary>
+    /// A RULE'S KIND CANNOT BE CHANGED (ruling P18). A screen rule and a hook rule are different instructions, so a
+    /// change naming another kind is refused with what to do instead. Naming the kind the rule already has changes
+    /// nothing and is let through.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The kind named is not text, or is not the rule's kind.</exception>
+    private static void RefuseAChangeOfKind(SessionRule current, JsonElement kind)
+    {
+        if (kind.ValueKind != JsonValueKind.String)
+            throw new RuleRejectedException(
+                "a rule's kind is text - one of: " + string.Join(", ", RuleKinds.All) + ".");
+        var asked = (kind.GetString() ?? "").Trim();
+        if (string.Equals(asked, current.Kind, StringComparison.Ordinal)) return;
+        throw new RuleRejectedException(
+            $"a rule's kind cannot be changed: this is a {current.Kind} rule, and a {current.Kind} rule and a " +
+            $"{asked} rule are different instructions. Delete this one and create the {asked} rule instead.");
     }
 
     /// <summary>One recorded change, as the account reads it. Before and after are the rule's body and state as

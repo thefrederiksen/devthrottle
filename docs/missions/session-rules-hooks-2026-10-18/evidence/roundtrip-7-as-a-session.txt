@@ -1,0 +1,18 @@
+SESSION=a344c6fb-69c9-43bd-ad67-6aefde33a50d KEY=<first six characters removed>
+Error: live hook rules arrive in phase 4. In phase 1 a hook rule stays in dry run and records what it would have done. (HTTP 400)
+help[2]:
+  cc-devthrottle rules list
+  cc-devthrottle rules show 94c735b0-1a68-446e-a4a4-a5691cfd7935
+Changed rule 94c735b0-1a68-446e-a4a4-a5691cfd7935 (match). It is in dry run.
+help[2]:
+  cc-devthrottle rules show 94c735b0-1a68-446e-a4a4-a5691cfd7935
+  cc-devthrottle rules history 94c735b0-1a68-446e-a4a4-a5691cfd7935
+count: 3 (create 1, change 2)
+changes[3]{when,action,rule,session,agent}:
+  2026-10-20T03:07:34.6199409Z,change,94c735b0-1a68-446e-a4a4-a5691cfd7935,a344c6fb-69c9-43bd-ad67-6aefde33a50d,RawCli
+  2026-10-20T03:04:56.6935039Z,change,94c735b0-1a68-446e-a4a4-a5691cfd7935,-,-
+  2026-10-20T03:04:48.9328247Z,create,94c735b0-1a68-446e-a4a4-a5691cfd7935,-,-
+help[2]:
+  cc-devthrottle rules history --json
+  cc-devthrottle rules show <rule-id>
+soren@devlinux:/home/soren/.local/state/session-rules-rig/builds/tool$ 

@@ -92,22 +92,102 @@ public sealed class SessionRuleBodyTests
         Assert.Equal(RuleScope.AllSessions, draft.Scope);
     }
 
-    [Fact]
-    public void Of_EveryFieldTheCreateReaderReads_IsInTheBody()
+    /// <summary>The body fields a draft property is read from: a check is written as "checks", and a hook rule's
+    /// trigger as its own fields, flat.</summary>
+    private static IEnumerable<string> BodyFieldsOf(System.Reflection.PropertyInfo property) => property.Name switch
     {
-        // Arrange - the fields a create reads, taken from a draft's own properties rather than a list kept here.
-        var rule = ARule(RuleScope.AllSessions);
-        var readable = typeof(SessionRuleDraft).GetProperties()
-            .Select(p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..])
-            .Select(name => name == "calls" ? "checks" : name)
+        nameof(SessionRuleDraft.Calls) => new[] { "checks" },
+        nameof(SessionRuleDraft.Hook) => typeof(HookRuleTrigger).GetProperties()
+            .Where(p => p.DeclaringType == typeof(HookRuleTrigger) && p.Name != "EqualityContract")
+            .Select(p => char.ToLowerInvariant(p.Name[0]) + p.Name[1..]),
+        _ => new[] { char.ToLowerInvariant(property.Name[0]) + property.Name[1..] },
+    };
+
+    /// <summary>The draft properties a create of this kind reads - taken from the draft's own properties rather
+    /// than a list kept here. A screen rule has no trigger; a hook rule has none of the screen fields.</summary>
+    private static List<string> ReadableFor(string kind)
+    {
+        var screenOnly = new[]
+        {
+            nameof(SessionRuleDraft.ScreenDescription), nameof(SessionRuleDraft.TriggerWords), nameof(SessionRuleDraft.Calls),
+            nameof(SessionRuleDraft.Scope), nameof(SessionRuleDraft.CooldownSeconds), nameof(SessionRuleDraft.DailyCap),
+        };
+        return typeof(SessionRuleDraft).GetProperties()
+            .Where(p => p.Name != "EqualityContract")
+            .Where(p => kind == RuleKinds.Hook ? !screenOnly.Contains(p.Name) : p.Name != nameof(SessionRuleDraft.Hook))
+            .SelectMany(BodyFieldsOf)
             .ToList();
+    }
+
+    private static SessionRule AHookRule() =>
+        ARule(RuleScope.AllSessions) with
+        {
+            ScreenDescription = "",
+            TriggerWords = Array.Empty<string>(),
+            Calls = Array.Empty<RulePrimitiveCall>(),
+            CooldownSeconds = 0,
+            DailyCap = 0,
+            Kind = RuleKinds.Hook,
+            AppliesTo = RuleAppliesTo.InRepoOnMachines("github.com/acme/app", new[] { "devlinux", "laptop" }),
+            // A space at the edge of a match is part of what is matched, so it has to survive the round trip.
+            Hook = new HookRuleTrigger(HookRuleWords.BeforeCommand, HookRuleWords.Shell, HookRuleWords.Match,
+                new[] { "git push --force", " rm -rf " }, HookRuleWords.Deny),
+        };
+
+    [Theory]
+    [InlineData(RuleKinds.Screen)]
+    [InlineData(RuleKinds.Hook)]
+    public void Of_EveryFieldTheCreateReaderReads_IsInTheBody(string kind)
+    {
+        // Arrange
+        var rule = kind == RuleKinds.Hook ? AHookRule() : ARule(RuleScope.AllSessions);
+        var readable = ReadableFor(kind);
 
         // Act
         var body = SessionRuleBody.Of(rule);
 
         // Assert
-        Assert.NotEmpty(readable);
-        Assert.All(readable, field => Assert.True(body.ContainsKey(field), $"the body has no '{field}'"));
+        Assert.Contains("kind", readable);
+        Assert.Contains("appliesTo", readable);
+        Assert.All(readable, field => Assert.True(body.ContainsKey(field), $"the {kind} body has no '{field}'"));
+    }
+
+    [Fact]
+    public void Of_HookRule_ReadBackThroughTheCreateReader_GivesTheSameRule()
+    {
+        // Arrange
+        var rule = AHookRule();
+
+        // Act
+        var draft = ReadBack(rule);
+
+        // Assert
+        Assert.Equal(RuleKinds.Hook, draft.Kind);
+        Assert.Equal(rule.Instruction, draft.Instruction);
+        Assert.Equal(rule.AppliesTo.Kind, draft.AppliesTo!.Kind);
+        Assert.Equal(rule.AppliesTo.Machines, draft.AppliesTo.Machines);
+        Assert.Equal(rule.AppliesTo.ExceptMachines, draft.AppliesTo.ExceptMachines);
+        Assert.Equal(rule.AppliesTo.Repo, draft.AppliesTo.Repo);
+        Assert.Equal(rule.Hook!.Event, draft.Hook!.Event);
+        Assert.Equal(rule.Hook.Tool, draft.Hook.Tool);
+        Assert.Equal(rule.Hook.Handler, draft.Hook.Handler);
+        Assert.Equal(rule.Hook.Match, draft.Hook.Match);
+        Assert.Equal(rule.Hook.Result, draft.Hook.Result);
+    }
+
+    [Fact]
+    public void Of_ScreenRule_ReadsBackItsKindAndWhereItApplies()
+    {
+        // Arrange
+        var rule = ARule(RuleScope.AllSessions);
+
+        // Act
+        var draft = ReadBack(rule);
+
+        // Assert
+        Assert.Equal(RuleKinds.Screen, draft.Kind);
+        Assert.Equal(RuleAppliesToKinds.Everywhere, draft.AppliesTo!.Kind);
+        Assert.Null(draft.Hook);
     }
 
     [Fact]

@@ -1,0 +1,4 @@
+Error: a rule is moved out of dry run by a person or an agent session the Gateway can name, and this request has no caller it could name. Nothing that runs on its own can promote a rule. (HTTP 400)
+help[2]:
+  cc-devthrottle rules list
+  cc-devthrottle rules show 94c735b0-1a68-446e-a4a4-a5691cfd7935
