@@ -29,7 +29,7 @@ AXI standard). Every new field is decided in `MailDeskChannelFold` and nowhere e
 ```json
 {
   "providerLabel": "Outlook",
-  "machinesLabel": "devlinux, then SOREN_NORTH if devlinux is not answering",
+  "machinesLabel": "devlinux or SOREN_NORTH, whichever runs the Mail Desk check",
   "signedIn":  { "state": "...", "label": "...", "tone": "good" | "bad" | "neutral" },
   "lastCheck": { "utc": "...", "outcome": "...", "label": "...", "tone": "good" | "bad" | "neutral" },
   "modeTone": "neutral" | "attention",
@@ -50,8 +50,12 @@ AXI standard). Every new field is decided in `MailDeskChannelFold` and nowhere e
 
 - `providerLabel`: one constant per provider, held beside the provider list (`outlook` -> "Outlook"). A provider with
   no label is an error, never the raw word (the same rule `ModeLabels` already follows).
-- `machinesLabel`: one machine is its name; two or more read "A, then B if A is not answering" (three: "A, then B,
-  then C - each only when the one before it is not answering"). The order is the order of preference phase 1 stores.
+- `machinesLabel`: the machines that may read this mailbox, with no claim about order. One machine is its name; two
+  or more read "A or B, whichever runs the Mail Desk check" ("A, B or C, ..." for three). **Corrected after the
+  review of the Gateway fold (finding F1):** the first version said "A, then B if A is not answering", but a
+  channel's machine list only says which machines may read it (phase 3 `MailDeskMemory.HandedTo`); which machine runs
+  the check, and the order of failover, belong to the Mail Desk start (mission 5.9). So the order was a claim the
+  Gateway does not decide.
 - `tone` is the ONLY thing a client turns into a colour. `signedIn`: `yes` -> good, `failing` -> bad, `unknown` ->
   neutral. `lastCheck`: no check yet -> neutral, a failed check -> bad, any other outcome -> good. `modeTone`:
   `observe` -> neutral, `live` -> attention (live mode acts on the mailbox; it must stand out).
