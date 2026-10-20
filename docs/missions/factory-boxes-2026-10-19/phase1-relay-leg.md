@@ -214,9 +214,10 @@ server in process, and fake clocks. No Docker, no real port, no sleep, no real c
 | The hosted shape (review finding 1) | The rig's command send drops a command sent with no tenant scope and finds the Director only in the scope's own account, as a hosted Gateway does, so every page, request and socket test above fails if the desktop host does not enter the box session's account (checked: with the scope removed, 18 tests fail). `DesktopPage_OnAHostedGateway_SendsTheOpenInsideTheBoxSessionsAccount` names it. |
 | A close with the window exactly full (review finding 3) | `DesktopRelayPumpWindowEdgeTests.RunAsync_FarSideClosesWithTheWindowExactlyFull_TheEndpointGetsTheFarSidesCloseNotAProtocolFault`, `CostOf_ClosedAndCredit_CostNothing_DataAndHeadCostTheirBytesPlusOverhead` (checked: with the old cost, both fail) |
 
-**The count:** 119 relay tests in `Gateway.UnitTests/Boxes`, all passing, on this branch rebased onto main and on the
-tree the hosted run was built from. With the list's own tests beside them on the rebased branch: 168 in
-`Gateway.UnitTests` (119 relay, 49 list), 48 in `Core.UnitTests`, 6 in `Avalonia.Tests`, all passing.
+**The count:** 126 relay tests in `Gateway.UnitTests/Boxes`, all passing, on this branch rebased onto main (`0eb3a64bc`);
+119 of them, all but the start-up guard's, also passed on the tree the hosted run was built from. With the list's own
+tests beside them: 175 in `Gateway.UnitTests` (126 relay, 49 list), 48 in `Core.UnitTests`, 6 in `Avalonia.Tests`, all
+passing.
 
 **The fairness test, with its numbers.** One REAL SignalR connection to the real `DirectorHub` with the Gateway's own hub
 options (MessagePack, the shared stream buffer of 4), carrying a terminal up-stream and a desktop relay stream. The box
@@ -431,11 +432,11 @@ cookie is checked, so the Boxes switch, the host lookup and the whole relay run 
 drops an unscoped command and finds the Director only in the scope's own account, as a hosted Gateway does, so the
 tests pin the hosted shape: with the scope line removed, 18 of them fail (the reviewer's experiment, kept). And the
 end-to-end proof was re-made on a hosted Gateway (above): no dropped command in its log, the desktop live. Commit
-`c66422a3d`.
+"relay inside the box session's account, so a hosted Gateway sends the open".
 
 **Fable, finding 2 - the wiring patch presupposes an unrecorded conflict resolution. ACCEPTED, resolved by the plan the
 Tech Lead set, and done.** #4271 merged; this branch was rebased onto main, the two conflicts were resolved in the
-rebase (written down under "The dependency"), the wiring is an ordinary commit (`4f91c2831`), and the patch file is
+rebase (written down under "The dependency"), the wiring is an ordinary commit ("wire to the hosted-desktop list, its store and the Boxes switch"), and the patch file is
 deleted.
 
 **Fable, finding 3 - a Closed frame is not charged to the window. ACCEPTED, fixed the second way the review offers.**
@@ -444,7 +445,7 @@ stream and carries no data to hold, and the sender already sends it without wait
 the receiver makes the two sides agree. Charging it instead would have made a close wait for credit from a far side
 that may be stalled, which is the very moment a close must get through. A test fills the window exactly (21 full frames
 and one of 14,976 bytes, 1,048,576 bytes in all) with the browser stalled, then closes with 4001: the browser gets
-4001 and the far side's reason, not 1011. With the old cost it fails. Commit `34dcfef01`.
+4001 and the far side's reason, not 1011. With the old cost it fails. Commit "a Closed frame is not counted against the window".
 
 **Fable's observations.**
 - *No browser header reaches the box's WebSocket upgrade, though a comment says a Selkies token cookie "still reaches
