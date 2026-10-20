@@ -73,8 +73,11 @@
 
   <!-- Incremental: the evaluator is recompiled only when its source changed. -->
   <Target Name="PublishRuleHook" Condition="'$(EmbedRuleHook)' == 'true'" Inputs="@(RuleHookSource)" Outputs="$(RuleHookExecutable)">
+    <!-- The output folder is passed with a trailing "\." and never a bare trailing backslash: on Windows a
+         backslash right before the closing quote escapes the quote, so the rest of the command line became
+         part of the folder name and the hook was published into a folder named after the nologo switch. -->
     <Error Condition="'$(DOTNET_HOST_PATH)' == ''" Text="Building the Session Rules hook needs the dotnet host (DOTNET_HOST_PATH is not set). Build with the dotnet command line, or pass -p:EmbedRuleHook=false to build a Director that carries no hook." />
-    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; publish &quot;$(RuleHookProject)&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(RuleHookPublishDir)&quot; --nologo -v q" ContinueOnError="true">
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; publish &quot;$(RuleHookProject)&quot; -c $(Configuration) -r $(RuntimeIdentifier) -o &quot;$(RuleHookPublishDir).&quot; --nologo -v q" ContinueOnError="true">
       <Output TaskParameter="ExitCode" PropertyName="RuleHookPublishExitCode" />
     </Exec>
     <Error Condition="'$(RuleHookPublishExitCode)' != '0'" Text="cc-rule-hook could not be compiled to native code for $(RuntimeIdentifier) (exit code $(RuleHookPublishExitCode)). Native compilation needs the platform's toolchain: on Windows the Visual Studio 'Desktop development with C++' build tools, on Linux clang or gcc. To build a Director that carries NO Session Rules hook on purpose (its sessions evaluate no rules, and it logs that loudly), pass -p:EmbedRuleHook=false." />
