@@ -82,7 +82,7 @@ fake Graph is not an http address on 127.0.0.1. `tests/test_wrapper.py` proves e
 - **Not the 08:00 email's sweep or delivery.** The email is composed on demand by the Gateway's own fold and composer
   (`compose-morning/`); the sweep that composes it at 08:00 and the sending are not run.
 - **The seats' sign-in is the owner's agent sign-in.** The scratch home links `~/.claude` and `~/.claude.json`
-  to the owner's, so the seats run signed in; the Director writes its folder-trust entries for the rig's folders into
-  that `~/.claude.json`, as the owner's own Director does for any folder.
+  to the owner's, so the seats run signed in. The agent rewrites `~/.claude.json` by replacing the file, so after its
+  first start the scratch home holds its own copy and the owner's `~/.claude.json` is not written by the rig's seats.
 - **Every wait has a deadline** (minutes), and a case that runs out of time fails, naming what it waited for.
 - **Timing is approximate.** A run "after" a change is the first run whose check ended more than 20 seconds after it.

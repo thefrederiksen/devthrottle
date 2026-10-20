@@ -642,7 +642,7 @@ def prepare_director():
     # scratch home links to the owner's two (the Director passes its hooks to each session with --settings and writes
     # its folder-trust entries for the rig's folders into ~/.claude.json, as the owner's own Director does).
     for name in (".claude", ".claude.json"):
-        if (USER_HOME / name).exists() and not (DIR_HOME / name).is_symlink():
+        if (USER_HOME / name).exists() and not (DIR_HOME / name).exists() and not (DIR_HOME / name).is_symlink():
             os.symlink(USER_HOME / name, DIR_HOME / name)
     RIG_BIN.mkdir(parents=True, exist_ok=True)
     tool = RIG_BIN / "cc-devthrottle"
