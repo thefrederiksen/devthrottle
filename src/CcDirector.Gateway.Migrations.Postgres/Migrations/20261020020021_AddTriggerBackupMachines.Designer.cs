@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261019030640_AddMailDeskDecisionAttempts")]
-    partial class AddMailDeskDecisionAttempts
+    [Migration("20261020020021_AddTriggerBackupMachines")]
+    partial class AddTriggerBackupMachines
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -3054,61 +3054,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("license_switch_log", "gateway");
                 });
 
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelCheckEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ChannelId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CheckedUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Detail")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("Machine")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<bool>("Ok")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("ResolvedBy")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("ResolvedReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<DateTime?>("ResolvedUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Sentence")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<Guid?>("TriggerRunId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ChannelId", "CheckedUtc");
-
-                    b.ToTable("mail_desk_channel_checks", "gateway");
-                });
-
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3198,9 +3143,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
-                    b.Property<int>("AttemptCount")
-                        .HasColumnType("integer");
-
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("uuid");
 
@@ -3259,9 +3201,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("RouteSeat")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
-
-                    b.Property<int>("RulesVersion")
-                        .HasColumnType("integer");
 
                     b.Property<string>("SenderAddress")
                         .IsRequired()
@@ -4003,6 +3942,64 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsUnique();
 
                     b.ToTable("session_keys", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleChangeEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("After")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Agent")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Before")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Sequence");
+
+                    b.HasIndex("TenantId", "RuleId", "Sequence");
+
+                    b.HasIndex("TenantId", "SessionId", "Sequence");
+
+                    b.ToTable("session_rule_changes", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleEntity", b =>

@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261018222952_AddMailDeskChannelChecks")]
-    partial class AddMailDeskChannelChecks
+    [Migration("20261020015915_AddTriggerBackupMachines")]
+    partial class AddTriggerBackupMachines
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -182,6 +182,88 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("activity_events", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeConversationItemEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(160)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Characters")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("EarlierDropped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("FirstGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("FirstSequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastGeneration")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastGenerationStartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("LastSequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("Ordinal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TurnId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "SessionId", "ItemId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "UpdatedAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("api_mode_conversation_items", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.ApiModeReceiptEntity", b =>
                 {
                     b.Property<string>("TenantId")
@@ -278,6 +360,8 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId");
 
                     b.HasIndex("TenantId", "UpdatedAtUtc");
+
+                    b.HasIndex("TenantId", "DirectorId", "State");
 
                     b.HasIndex("TenantId", "SessionId", "TurnId");
 
@@ -2886,61 +2970,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("license_switch_log", (string)null);
                 });
 
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelCheckEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ChannelId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CheckedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Detail")
-                        .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Machine")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("Ok")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ResolvedBy")
-                        .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ResolvedReason")
-                        .HasMaxLength(500)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ResolvedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Sentence")
-                        .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<Guid?>("TriggerRunId")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ChannelId", "CheckedUtc");
-
-                    b.ToTable("mail_desk_channel_checks", (string)null);
-                });
-
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3811,6 +3840,64 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("session_keys", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleChangeEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("After")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Agent")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Before")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Sequence");
+
+                    b.HasIndex("TenantId", "RuleId", "Sequence");
+
+                    b.HasIndex("TenantId", "SessionId", "Sequence");
+
+                    b.ToTable("session_rule_changes", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleEntity", b =>
