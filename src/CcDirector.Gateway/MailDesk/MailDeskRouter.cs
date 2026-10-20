@@ -364,22 +364,25 @@ public sealed class MailDeskRouter
         return newest is not null && IsAlive(tenant, newest.SessionId!, Utc(newest.StartedUtc!.Value), endings);
     }
 
-    /// <summary>Not ended (contract 3.2 step 3): neither the session list says it exited or crashed nor its history
-    /// record holds an ending that is final (<see cref="EndedForGood"/>); and either the list has it, or its start is
-    /// less than <see cref="UnseenSessionEndsAfter"/> ago. Unlike <see cref="TriggerService.IsLastSessionAlive"/>, which
-    /// reads absence after the start grace as ended, because here a wrong "ended" puts two seats on one email.</summary>
+    /// <summary>Not ended (contract 3.2 step 3): the session list has it and it has not exited or crashed - a live row
+    /// wins over any history ending; or the list does not have it, its history record holds no final ending
+    /// (<see cref="EndedForGood"/>), and its start is less than <see cref="UnseenSessionEndsAfter"/> ago. Unlike
+    /// <see cref="TriggerService.IsLastSessionAlive"/>, which reads absence after the start grace as ended, because here
+    /// a wrong "ended" puts two seats on one email.</summary>
     private bool IsAlive(TenantId tenant, string sessionId, DateTime startedUtc, IReadOnlyDictionary<string, SessionEndingFact> endings)
     {
         var row = _findSession(tenant, sessionId);
-        if (row is not null && FleetManagerSessions.IsGone(row)) return false;
+        // A row in the list wins over the history record: a final ending is never reopened, so a late farewell from a
+        // replaced connection, or a snapshot that missed the session, can leave one on a session still running (review
+        // of 4283, finding 1).
+        if (row is not null) return !FleetManagerSessions.IsGone(row);
         // A Director REAPS a session whose agent exits cleanly, and a routed session is started with AutoDismiss, so
         // its row leaves the list: the history record is the evidence of the common end.
         if (endings.TryGetValue(sessionId, out var ending) && EndedForGood(ending.EndingKind))
         {
-            FileLog.Write($"[MailDeskRouter] IsAlive: session {sessionId} has the history ending '{ending.EndingKind}'; it counts as ended");
+            FileLog.Write($"[MailDeskRouter] IsAlive: session {sessionId} is not in the session list and has the history ending '{ending.EndingKind}'; it counts as ended");
             return false;
         }
-        if (row is not null) return true;
         var alive = _nowUtc() - startedUtc < UnseenSessionEndsAfter;
         if (!alive)
             FileLog.Write($"[MailDeskRouter] IsAlive: session {sessionId} has not been seen in the {UnseenSessionEndsAfter.TotalHours:0} hours since its start; it counts as ended");
