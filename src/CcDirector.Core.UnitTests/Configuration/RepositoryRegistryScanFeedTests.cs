@@ -120,6 +120,38 @@ public sealed class RepositoryRegistryScanFeedTests : IDisposable
     }
 
     [Fact]
+    public void TryAdd_AFolderTheScanFound_MarksItAddedByHand()
+    {
+        // Browse is how a person says which of two same-named repositories a factory seat means.
+        var registry = NewRegistry();
+        var folder = Folder("private");
+        Assert.True(registry.AddFoundByScan(folder, "private"));
+
+        Assert.False(registry.TryAdd(folder));
+
+        Assert.False(Assert.Single(registry.Repositories).FoundByScan);
+        Assert.False(Assert.Single(NewRegistry().Repositories).FoundByScan);
+    }
+
+    [Fact]
+    public async Task FollowScan_ASaveThatFails_DoesNotFaultTheScanOrStarveTheOtherSubscribers()
+    {
+        var registry = NewRegistry();
+        // The list's file becomes a folder, so every save throws.
+        File.Delete(FilePath);
+        Directory.CreateDirectory(FilePath);
+        var monitor = MonitorOver(() => new[] { Folder("alpha"), Folder("bravo") });
+        registry.FollowScan(monitor);
+        var seenAfter = new List<string>();
+        monitor.Upserted += status => seenAfter.Add(status.Path);
+
+        await monitor.RescanAsync(new[] { _tempDir });
+
+        Assert.True(monitor.HasCompletedAScan);
+        Assert.Equal(2, seenAfter.Count);
+    }
+
+    [Fact]
     public void AddFoundByScan_NoNameFromTheScan_TakesTheFoldersOwnName()
     {
         var registry = NewRegistry();

@@ -176,14 +176,25 @@ public class RepositoryRegistry
 
         lock (_gate)
         {
-            var duplicate = _repositories.Any(r =>
+            var duplicate = _repositories.FirstOrDefault(r =>
                 string.Equals(
                     Path.GetFullPath(r.Path).TrimEnd('\\', '/'),
                     normalized,
                     StringComparison.OrdinalIgnoreCase));
 
-            if (duplicate)
+            if (duplicate is not null)
+            {
+                // A person choosing a folder the scan already found makes it theirs: when two entries share a name,
+                // the one added by hand is the one a factory seat means (devthrottle#4301), and Browse is how a
+                // person says which.
+                if (duplicate.FoundByScan)
+                {
+                    duplicate.FoundByScan = false;
+                    Save();
+                    FileLog.Write($"[RepositoryRegistry] TryAdd: {normalized} was found by the scan; now marked as added by hand");
+                }
                 return false;
+            }
 
             var name = Path.GetFileName(normalized);
             _repositories.Add(new RepositoryConfig { Name = name, Path = normalized });
@@ -207,7 +218,18 @@ public class RepositoryRegistry
         {
             if (string.IsNullOrWhiteSpace(status.Path))
                 return;
-            AddFoundByScan(status.Path, status.Name);
+            // An external event subscription, so the one try-catch is here: this handler runs inside the scan, and a
+            // save that fails (a full disk, a file another process holds) must not fault the scan and starve every
+            // other subscriber of the rest of it. The failure is logged as an error and the folder is offered again
+            // on the next publish of that repository.
+            try
+            {
+                AddFoundByScan(status.Path, status.Name);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[RepositoryRegistry] ERROR FollowScan could not add {status.Path} to {FilePath}: {ex.Message}");
+            }
         };
         FileLog.Write($"[RepositoryRegistry] FollowScan: the root-folder scan now feeds {FilePath}");
     }
@@ -226,10 +248,18 @@ public class RepositoryRegistry
         ArgumentException.ThrowIfNullOrWhiteSpace(folderPath);
         var key = Git.WorktreeReaperService.NormalizePath(folderPath);
 
+        // NormalizePath asks the disk (it resolves junctions and short names), so the existing entries are resolved
+        // OUTSIDE the lock: a slow or unplugged share must never hold every reader of this list behind it. Under the
+        // lock only the entries added since that snapshot are resolved, which is almost always none.
+        RepositoryConfig[] before;
+        lock (_gate)
+            before = _repositories.ToArray();
+        if (before.Any(r => SameFolder(r, key)))
+            return false;
+
         lock (_gate)
         {
-            if (_repositories.Any(r => !string.IsNullOrWhiteSpace(r.Path) &&
-                    string.Equals(Git.WorktreeReaperService.NormalizePath(r.Path), key, StringComparison.OrdinalIgnoreCase)))
+            if (_repositories.Where(r => Array.IndexOf(before, r) < 0).Any(r => SameFolder(r, key)))
                 return false;
 
             var path = folderPath.TrimEnd('\\', '/');
@@ -240,6 +270,10 @@ public class RepositoryRegistry
             return true;
         }
     }
+
+    private static bool SameFolder(RepositoryConfig entry, string key)
+        => !string.IsNullOrWhiteSpace(entry.Path) &&
+           string.Equals(Git.WorktreeReaperService.NormalizePath(entry.Path), key, StringComparison.OrdinalIgnoreCase);
 
     public bool Remove(string folderPath)
     {
