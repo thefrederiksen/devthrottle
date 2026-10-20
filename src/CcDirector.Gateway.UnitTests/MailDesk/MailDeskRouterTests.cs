@@ -631,7 +631,7 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
     public void Context_OneEmailTooLargeAlone_IsCutToFit()
     {
         // Arrange
-        var email = new MailDeskRouter.Email(Guid.NewGuid(), BoxA, "a@example.org", new string('s', 1000), DateTime.UtcNow,
+        var email = new MailDeskRouter.Email(Guid.NewGuid(), BoxA, "a@example.org", new string('s', 1000), _rig.Now,
             "rule", "r", new string('n', 9000));
 
         // Act
