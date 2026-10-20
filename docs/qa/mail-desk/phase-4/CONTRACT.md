@@ -29,7 +29,7 @@ already limits to a person or a session in no factory. Everything stays behind t
 | Who starts seats | A new class, `MailDeskRouter` (in `src/CcDirector.Gateway/MailDesk/`), run by `TriggerService` right after a Mail Desk run is recorded, off the request, on the Gateway's lifetime, through the same `TriggerSessionStarter` delegate the trigger uses (production: `MachineSessionSpawner.SpawnOnMachineWithOutcomeAsync`). | Mission 5.7: "through the same MachineSessionSpawner path the trigger uses". |
 | Where | On the machine of the Director that ran the check (`PendingScreening.Where`), naming that Director (`request.Director`). | Mission 5.7; phase 5 row "Where a session starts while a backup holds the claim". |
 | One session per seat per run | All emails waiting for one (factory, seat) are given to ONE new session, in its prompt and in its kit's `check.json`. Two seats waiting: two sessions. | Mission 5.7. |
-| A busy seat | While the newest session the Mail Desk started for a (factory, seat) is alive (`FleetManagerSessions.IsGone` false, or not yet reported and inside `TriggerService.StartGrace`), that seat's new emails wait: their routed rows stay `open` with no session (queued). The next run gives every queued email of that seat to one new session once the seat is free. | Mission 5.7, "as a trigger's skipped-running does". |
+| A busy seat | While the newest session the Mail Desk started for a (factory, seat) has not ENDED (3.2 step 3: a row with `FleetManagerSessions.IsGone` false, or no row yet inside 24 hours of its start), that seat's new emails wait: their routed rows stay `open` with no session (queued). The next run gives every queued email of that seat to one new session once the seat is free. | Mission 5.7, "as a trigger's skipped-running does". |
 | No body text | The prompt and `check.json` carry, per email: the routed id, the mailbox address, the sender, the subject, the receive time, the decision's layer and reason, and any return note. **Never the preview.** The seat reads the email itself (it has the mailbox, sender, subject and time to find it with cc-outlook). | "No body text is stored" (5.6); a prompt is kept with the session. A queued or re-routed email no longer has its preview anyway. |
 | Work is never lost | A routed row stays `open` until its session runs `maildesk done` or `maildesk return`. An `open` row whose session ended without either is re-routed once (to the same seat), then handed to the owner. | Mission 5.7, "A routed email's work is never lost". |
 | "With the owner" | The state `returned` means **handed back to the owner**: after a second return, after a session ended twice without done or return, after three failed starts, or after a return by the Mail Desk agent itself. A new column says why (section 3.1). It is an Open problem on the `mail-desk` factory and is listed in the 08:00 section. No new state word. | Mission 5.6 names the states `open`, `done`, `returned`. |
@@ -128,8 +128,13 @@ In order:
 2. **Settle unknown starts.** A queued row with a `StartName` whose start's outcome was unknown: a session with that
    exact name found (`findSessionByName`) is adopted (the row takes its id); not found and `TriggerService.StartGrace`
    is over, the start counts as failed (3.4).
-3. **Orphans.** An `open` row with a session that has ended (`FleetManagerSessions.IsGone`, or a session the Gateway no
-   longer knows after `StartGrace`) without `done` or `return`: `RerouteCount` 0 -> it is queued again for the same
+3. **Orphans.** An `open` row whose session has ENDED without `done` or `return`. Ended means positive evidence: a
+   session row the Gateway holds with `FleetManagerSessions.IsGone` true. A session the Gateway cannot see at all is
+   NOT ended by its absence - after a Gateway restart, or while its Director is away (a backup takeover), a live
+   session is invisible for a while, and re-routing it would put two sessions on one email. Absence alone counts as
+   ended only **24 hours** after the start (`MailDeskRouter.UnseenSessionEndsAfter`), so an email whose Director died
+   with it is still never lost. Until then the seat counts as busy too. (Review of 4275, finding 1, ruled by the Tech
+   Lead, 19 October 2026: lean to keep.) Ended: `RerouteCount` 0 -> it is queued again for the same
    seat, `RerouteCount` 1; `RerouteCount` already 1 -> handed to the owner, reason "its session ended twice without
    saying done or returning it".
 4. **Start.** Group the queued rows by (factory, seat). For each group whose seat is not busy (section 1), oldest
