@@ -199,9 +199,14 @@ public static class DesktopRelayLimits
     /// <summary>How long the Gateway waits for the Director to attach to a stream it opened before giving up.</summary>
     public static readonly TimeSpan AttachTimeout = TimeSpan.FromSeconds(15);
 
-    /// <summary>What a frame costs against the window: its data plus <see cref="FrameOverheadBytes"/>. Credit frames cost nothing.</summary>
+    /// <summary>
+    /// What a frame costs against the window: its data plus <see cref="FrameOverheadBytes"/>. Credit and Closed frames
+    /// cost nothing. A Closed frame is the last frame of a stream and carries no data to hold; it is sent without
+    /// waiting for window, so it must not be counted against the window at the far side either, or a close sent with
+    /// the window full would arrive as a protocol fault instead of the close it is.
+    /// </summary>
     public static int CostOf(DesktopRelayFrame frame) =>
-        frame.Kind == DesktopRelayFrameKind.Credit ? 0 : (frame.Data?.Length ?? 0) + FrameOverheadBytes;
+        frame.Kind is DesktopRelayFrameKind.Credit or DesktopRelayFrameKind.Closed ? 0 : (frame.Data?.Length ?? 0) + FrameOverheadBytes;
 }
 
 /// <summary>The success body of <see cref="DesktopRelayProtocol.OpenVerb"/>.</summary>

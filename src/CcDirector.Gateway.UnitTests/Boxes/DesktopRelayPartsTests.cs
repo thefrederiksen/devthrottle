@@ -9,6 +9,86 @@ using Xunit;
 
 namespace CcDirector.Gateway.UnitTests.Boxes;
 
+/// <summary>
+/// The window's accounting at its edge: the far side may have exactly a full window outstanding and then close, and the
+/// close must arrive as itself (review finding 3 on pull request #4280).
+/// </summary>
+public sealed class DesktopRelayPumpWindowEdgeTests
+{
+    [Fact]
+    public void CostOf_ClosedAndCredit_CostNothing_DataAndHeadCostTheirBytesPlusOverhead()
+    {
+        Assert.Equal(0, DesktopRelayLimits.CostOf(new DesktopRelayFrame { Kind = DesktopRelayFrameKind.Closed, CloseStatus = 1000, Reason = "bye" }));
+        Assert.Equal(0, DesktopRelayLimits.CostOf(new DesktopRelayFrame { Kind = DesktopRelayFrameKind.Credit, Credit = 5 }));
+        Assert.Equal(10 + DesktopRelayLimits.FrameOverheadBytes, DesktopRelayLimits.CostOf(new DesktopRelayFrame { Kind = DesktopRelayFrameKind.Data, Data = new byte[10] }));
+        Assert.Equal(DesktopRelayLimits.FrameOverheadBytes, DesktopRelayLimits.CostOf(new DesktopRelayFrame { Kind = DesktopRelayFrameKind.Head, Status = 200 }));
+    }
+
+    [Fact]
+    public async Task RunAsync_FarSideClosesWithTheWindowExactlyFull_TheEndpointGetsTheFarSidesCloseNotAProtocolFault()
+    {
+        // The far side sends frames costing exactly one window, with this side's endpoint stalled so no credit goes back,
+        // and then closes with its own status and reason.
+        var full = DesktopRelayLimits.MaxFrameBytes + DesktopRelayLimits.FrameOverheadBytes;
+        var wholeFrames = DesktopRelayLimits.WindowBytes / full;
+        var lastData = DesktopRelayLimits.WindowBytes - wholeFrames * full - DesktopRelayLimits.FrameOverheadBytes;
+        var frames = new List<DesktopRelayFrame>();
+        for (var i = 0; i < wholeFrames; i++)
+            frames.Add(new DesktopRelayFrame { Kind = DesktopRelayFrameKind.Data, Data = new byte[DesktopRelayLimits.MaxFrameBytes], EndOfMessage = true });
+        frames.Add(new DesktopRelayFrame { Kind = DesktopRelayFrameKind.Data, Data = new byte[lastData], EndOfMessage = true });
+        Assert.Equal(DesktopRelayLimits.WindowBytes, frames.Sum(DesktopRelayLimits.CostOf));
+        frames.Add(new DesktopRelayFrame { Kind = DesktopRelayFrameKind.Closed, CloseStatus = 4001, Reason = "the box closed" });
+
+        var endpoint = new StalledEndpoint();
+        var allSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pump = new DesktopRelayPump(endpoint, System.Threading.Channels.Channel.CreateUnbounded<DesktopRelayFrame>().Writer,
+            new DesktopRelayUsage("box-one", "stream-1", "gateway"), new DesktopRelayBoxTally(), endpointIsBrowser: true,
+            new FakeTimeProvider(), idleTimeout: null, outboundLimit: null, peerGoneReason: "the Director left", endpointGoneReason: "the browser left");
+
+        var run = pump.RunAsync(FarSide(frames, allSent), CancellationToken.None, CancellationToken.None);
+        await allSent.Task.Within();     // every frame, the Closed included, has been read from the far side
+        endpoint.Release.TrySetResult(); // only now does the stalled browser start taking frames
+        await run.Within();
+
+        Assert.Equal(wholeFrames + 1, endpoint.Delivered);
+        Assert.Equal((4001, "the box closed"), endpoint.Closed);
+    }
+
+    // Yields the frames, then (after the reader asks for more past the last one) says all were read, and stays open.
+    private static async IAsyncEnumerable<DesktopRelayFrame> FarSide(List<DesktopRelayFrame> frames, TaskCompletionSource allSent)
+    {
+        foreach (var frame in frames)
+            yield return frame;
+        allSent.TrySetResult();
+        await Task.CompletedTask;
+    }
+
+    private sealed class StalledEndpoint : IDesktopRelayEndpoint
+    {
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Delivered;
+        public (int Status, string Reason)? Closed;
+
+        public async IAsyncEnumerable<DesktopRelayFrame> ReadAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        {
+            await Task.CompletedTask;
+            yield break; // this direction has nothing to send
+        }
+
+        public async Task DeliverAsync(DesktopRelayFrame frame, CancellationToken ct)
+        {
+            await Release.Task.WaitAsync(ct);
+            Delivered++;
+        }
+
+        public Task CloseAsync(int closeStatus, string reason)
+        {
+            Closed ??= (closeStatus, reason);
+            return Task.CompletedTask;
+        }
+    }
+}
+
 /// <summary>The send window: what bounds how much one desktop stream can have in flight at the far side.</summary>
 public sealed class DesktopRelayWindowTests
 {
