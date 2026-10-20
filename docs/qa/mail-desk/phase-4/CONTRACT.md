@@ -165,7 +165,9 @@ In order:
   as a scheduled run of that seat opens - who the seat is, its brief at the published version, and where its kit is
   (`ScheduledRunOpening`, the one place that wording lives) - so the seat knows its own role; then the Mail Desk's
   text. (Found on the rig: with only the Mail Desk's text, seats never read their brief. Ruled by the Tech Lead,
-  20 October 2026.) The Mail Desk's text, in plain words: "The Mail Desk routed <n> emails to you (<factory>/<seat>). They are listed in check.json in
+  20 October 2026.) Only the one sentence that says which run this is differs: a scheduled run's names its schedule, and a
+  routed session's says it was started by the Mail Desk for emails routed to this seat, so a seat never reads a false
+  sentence (`ScheduledRunOpening.MailDeskOpening`; ruled by the Tech Lead, 20 October 2026). The Mail Desk's text, in plain words: "The Mail Desk routed <n> emails to you (<factory>/<seat>). They are listed in check.json in
   your kit and below. Read each one in its mailbox with cc-outlook. When you have dealt with one, run
   `cc-devthrottle maildesk done <routed id> --note "<what you did>"`. If it is not for you, run
   `cc-devthrottle maildesk return <routed id> --note "<what you know about it>"` and it goes back to the Mail Desk.",
