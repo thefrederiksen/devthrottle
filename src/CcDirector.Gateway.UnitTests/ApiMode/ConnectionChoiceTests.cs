@@ -53,6 +53,8 @@ public sealed class ConnectionChoiceTests : IDisposable
     private bool _journalRowRemoved;
     private NewSessionRequest? _machineDoorSaw;
     private WorkspaceStore? _workspaces;
+    /// <summary>The clock the Director door judges a reopen claim by, standing still: no test reads the real one.</summary>
+    private readonly Microsoft.Extensions.Time.Testing.FakeTimeProvider _clock = new(new DateTimeOffset(2026, 10, 19, 21, 0, 0, TimeSpan.Zero));
 
     public ConnectionChoiceTests()
     {
@@ -723,8 +725,25 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.Contains("Update this Director to 2.25.0 or later", await response.Content.ReadAsStringAsync());
         Assert.Null(_directorDoorSaw);
         Assert.Null(SeatOfTheRecord().Restore!.ReopenedAtUtc);
-        _workspaces!.RecordRestoreMark(ReopenWorkspace, ReopenMark(), DateTime.UtcNow);
+        _workspaces!.RecordRestoreMark(ReopenWorkspace, ReopenMark(), _clock.GetUtcNow().UtcDateTime);
         Assert.Equal(DirectorId, SeatOfTheRecord().Restore!.ReopenedByDirectorId);
+    }
+
+    [Fact]
+    public async Task PostDirectorSessions_ARefusedReopenWhoseClaimIsOlderThanTheWindow_LeavesTheClaimStanding()
+    {
+        // Arrange: the claim was written, then the door's clock moves past the window - a start whose answer never came
+        // back, which may have happened, so its claim is not given back (product issue 3230).
+        await StartAsync(directorVersion: "2.24.0");
+        SeedClaimedApiModeSeat();
+        _clock.Advance(WorkspaceStore.RefusedReopenClaimWindow + TimeSpan.FromSeconds(1));
+
+        // Act
+        using var response = await SendReopen(asTheDirector: true);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.NotNull(SeatOfTheRecord().Restore!.ReopenedAtUtc);
     }
 
     [Fact]
@@ -776,7 +795,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     /// <summary>A captured record with one API-mode Pi seat, claimed for a reopen by this Director just now.</summary>
     private void SeedClaimedApiModeSeat()
     {
-        var now = DateTime.UtcNow;
+        var now = _clock.GetUtcNow().UtcDateTime;
         _workspaces!.Create(new WorkspaceDocument
         {
             Id = ReopenWorkspace,
@@ -912,7 +931,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         GatewayEndpoints.Map(app, false, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, aiGate: TenantAiGate.SelfHost,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, sendCommand: send,
-            workspaces: _workspaces = new WorkspaceStore(_db.Open()));
+            workspaces: _workspaces = new WorkspaceStore(_db.Open()), spawnDoorClock: _clock);
         MachineEndpoints.Map(app, false, new LauncherRegistry(), spawner, boundary: boundary,
             sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown, directors: _registry);
         await app.StartAsync();

@@ -23,7 +23,9 @@ internal sealed record DirectorSpawnDoor(
     // definition version, for the account the request is bound to. A door without the first refuses every seat start;
     // a door without the second refuses a seat's child on an agent that cannot take rules. Neither ever lets one by.
     Streaming.FactoryKitCapabilityRegistry? KitCapabilities = null,
-    Func<Core.Tenancy.TenantId, Factory.Definition.SeatRulesReader>? SeatRulesFor = null);
+    Func<Core.Tenancy.TenantId, Factory.Definition.SeatRulesReader>? SeatRulesFor = null,
+    // The clock a refused reopen's claim is judged by (the #4257 review): the real one when null; a test injects its own.
+    TimeProvider? Clock = null);
 
 /// <summary>The answer of one create: the session the Director started, or the refusal to hand the caller.</summary>
 internal sealed record DirectorSpawnOutcome(SessionDto? Session, IResult? Refusal)
@@ -50,7 +52,8 @@ internal static partial class GatewayEndpoints
             return;
         try
         {
-            var released = door.Workspaces.ReleaseRefusedReopenClaim(d.DirectorId, req.ResumeSessionId, DateTime.UtcNow);
+            var released = door.Workspaces.ReleaseRefusedReopenClaim(d.DirectorId, req.ResumeSessionId,
+                (door.Clock ?? TimeProvider.System).GetUtcNow().UtcDateTime);
             FileLog.Write($"[GatewayEndpoints] {spawnRoute}: API mode refused; reopen claim given back: {released ?? "none held"}");
         }
         catch (Exception ex)

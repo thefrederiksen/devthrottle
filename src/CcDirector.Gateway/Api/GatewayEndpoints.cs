@@ -367,7 +367,10 @@ internal static partial class GatewayEndpoints
         // agent that cannot take rules). Null (tests, older callers) refuses every seat start and every such child -
         // never lets one by - and changes nothing for a create that carries no seat.
         Streaming.FactoryKitCapabilityRegistry? factoryKitCapabilities = null,
-        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null)
+        Func<TenantId, Factory.Definition.SeatRulesReader>? seatRulesFor = null,
+        // The clock the Director door judges a refused reopen's claim by (API mode, the #4257 review): the real one in
+        // production; a test injects its own so the ten-minute window needs no real time.
+        TimeProvider? spawnDoorClock = null)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
@@ -4845,7 +4848,7 @@ internal static partial class GatewayEndpoints
         // THE PERSON'S NEW SESSION DOOR. Its whole body is StartSessionOnDirectorAsync, so the Factories screen's Talk
         // button starts its session down exactly this path rather than a copy of it (Factories screen mission, phase C).
         var directorSpawnDoor = new DirectorSpawnDoor(tenantBoundary, registry, sessionFactoryOf, sendCommand,
-            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor);
+            missions, workflowRuns, workspaces, factoryKitCapabilities, seatRulesFor, spawnDoorClock);
         app.MapPost("/directors/{id}/sessions", async (HttpContext ctx, string id, NewSessionRequest req) =>
         {
             var outcome = await StartSessionOnDirectorAsync(ctx, id, req, directorSpawnDoor);
