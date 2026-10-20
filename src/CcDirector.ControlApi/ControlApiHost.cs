@@ -1317,7 +1317,9 @@ public sealed class ControlApiHost : IAsyncDisposable
             {
                 HostedDesktops.Reload();
                 return HostedDesktops.Desktops;
-            });
+            },
+            // The desktop relay resolves a box id to its port through this same list, and nothing else.
+            hostedDesktopRegistry: HostedDesktops);
     }
 
     /// <summary>The Secret Handoff mission: starts the one read of this machine's public key and returns the

@@ -1,0 +1,11 @@
+{
+  "closes": [
+    {
+      "url": "ws://localhost:7996/boxes/relay-proof/desktop/api/websockets",
+      "code": 1001,
+      "reason": "The Director hosting this box disconnected.",
+      "wasClean": false,
+      "at": "2026-10-20T12:36:33.915Z"
+    }
+  ]
+}
