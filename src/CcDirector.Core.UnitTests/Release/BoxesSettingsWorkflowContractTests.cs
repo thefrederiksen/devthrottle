@@ -60,6 +60,43 @@ public sealed class BoxesSettingsWorkflowContractTests
         Assert.Contains("exit 1", check, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The check's own expressions, taken out of the workflow and evaluated here: a gate test may not start bash, but
+    /// these patterns use only syntax that grep -E and .NET read the same way, so what they accept here is what the
+    /// workflow accepts. Weakening either pattern (say, to ^https://.*$) turns this red.
+    /// </summary>
+    [Theory]
+    [InlineData("https://devthrottle-gw.azurewebsites.net", true)]
+    [InlineData("https://devthrottle-gw.azurewebsites.net/", true)]
+    [InlineData("https://DevThrottle-GW.azurewebsites.net", true)]
+    [InlineData("https://localhost:5123", true)]
+    [InlineData("https://devthrottle-gw.azurewebsites.net/desktop", false)]
+    [InlineData("https://devthrottle-gw.azurewebsites.net/?a=1", false)]
+    [InlineData("https://devthrottle-gw.azurewebsites.net?a=1", false)]
+    [InlineData("https://devthrottle-gw.azurewebsites.net#part", false)]
+    [InlineData("https://devthrottle-gw.azurewebsites.net/#part", false)]
+    [InlineData("https://user@devthrottle-gw.azurewebsites.net", false)]
+    [InlineData("http://devthrottle-gw.azurewebsites.net", false)]
+    [InlineData("https://", false)]
+    [InlineData("devthrottle-gw.azurewebsites.net", false)]
+    public void BoxesSettingsWorkflow_OriginCheck_RefusesAPathQueryOrFragment(string origin, bool accepted)
+    {
+        var pattern = CheckPattern(@"elif printf '%s' ""\$RAW_ORIGIN"" \| grep -Eq '([^']+)'", "desktop origin");
+        Assert.Equal(accepted, Regex.IsMatch(origin, pattern));
+    }
+
+    [Theory]
+    [InlineData("9f19679f-0000-41a7-9acf-000000000000", true)]
+    [InlineData("9F19679F-0000-41A7-9ACF-000000000000", false)]
+    [InlineData("9f19679f000041a79acf000000000000", false)]
+    [InlineData("9f19679f-0000-41a7-9acf-000000000000x", false)]
+    [InlineData("not-a-tenant", false)]
+    public void BoxesSettingsWorkflow_TenantCheck_AcceptsOnlyTheIdShapeTheGatewayMints(string entry, bool accepted)
+    {
+        var pattern = CheckPattern(@"if ! printf '%s' ""\$entry"" \| grep -Eq '([^']+)'", "tenant id");
+        Assert.Equal(accepted, Regex.IsMatch(entry, pattern));
+    }
+
     [Fact]
     public void BoxesSettingsWorkflow_WritesOnlyTheTwoBoxesSettings()
     {
@@ -104,6 +141,16 @@ public sealed class BoxesSettingsWorkflowContractTests
 
     private static string ReadWorkflow() =>
         File.ReadAllText(Path.Combine(RepoRoot(), ".github", "workflows", "set-gateway-boxes-settings.yml"));
+
+    /// <summary>The one grep -E pattern in the check step that <paramref name="locator"/> finds.</summary>
+    private static string CheckPattern(string locator, string what)
+    {
+        var workflow = ReadWorkflow();
+        var check = Step(workflow, workflow.IndexOf(CheckStepName, StringComparison.Ordinal));
+        var matches = Regex.Matches(check, locator);
+        Assert.True(matches.Count == 1, $"Expected exactly one {what} check in the check step, found {matches.Count}.");
+        return matches[0].Groups[1].Value;
+    }
 
     private static string Normalise(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal);
 
