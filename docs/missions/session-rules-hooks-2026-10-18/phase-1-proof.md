@@ -126,7 +126,19 @@ branch's own `cc-devthrottle rules` command (evidence files `evidence/roundtrip-
 
 Tests on `b39fb4203` (the branch after the merge, before the release commits from main), re-run by the
 Tech Lead: evaluator 70, Core hook and rules 163, Gateway rules, migrations, boot smoke, migration chain
-and session-key guard 1282 - all passed, exit 0. The migration `AddSessionRuleKindsAndHookFirings` now
+and session-key guard 1282 - all passed, exit 0. The exact commands, run with
+`DOTNET_USE_POLLING_FILE_WATCHER=1` and the .NET 10 SDK at `~/.dotnet/dotnet`:
+
+| Command | Result |
+|---|---|
+| `dotnet test src/CcDirector.RuleHook.Tests` | 70 passed |
+| `dotnet test src/CcDirector.Core.UnitTests --filter "FullyQualifiedName~Hook\|FullyQualifiedName~SessionPointerDrop\|FullyQualifiedName~Rules"` | 163 passed |
+| `dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Rules\|FullyQualifiedName~SessionRuleKindsMigration\|FullyQualifiedName~GatewayHostBootSmoke\|FullyQualifiedName~MigrationChain\|FullyQualifiedName~SessionKeyGuard"` | 1282 passed |
+
+The Gateway filter here is section 1's filter plus `FullyQualifiedName~SessionKeyGuard`, which phase 2
+brought. Re-run by the Tech Lead on `def3aeb0f`, the pull request's head: section 1's four-term filter
+gives 790 passed (678 before phase 2 merged in, because phase 2 added rules tests), and the five-term
+filter above gives 1282 passed, both exit 0. The migration `AddSessionRuleKindsAndHookFirings` now
 follows phase 2's `AddSessionRuleChanges`. Taken from the Developer: the Postgres migration test 1 of 1
 on a throwaway `postgres:16`, and the command line tool's suite 5109 passed, 2 skipped.
 
