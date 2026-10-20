@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using CcDirector.Gateway.Rules;
 
 namespace CcDirector.Gateway.Api;
@@ -19,7 +20,7 @@ namespace CcDirector.Gateway.Api;
 internal static class SessionRuleWire
 {
     /// <summary>How a caller says "every session" out loud.</summary>
-    internal const string AllSessionsWireValue = "all-sessions";
+    internal const string AllSessionsWireValue = SessionRuleBody.AllSessions;
 
     /// <summary>One rule, as the account reads it.</summary>
     internal static object Project(SessionRule r) => new
@@ -115,6 +116,89 @@ internal static class SessionRuleWire
         return calls;
     }
 
-    internal static int Number(JsonElement body, string name) =>
-        body.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
+    /// <summary>A whole number off the body, or 0 when it is absent or not a number - which the store refuses
+    /// with its own reason. A number that is not a whole number is refused here, because reading 2.5 as an
+    /// error in the server would answer a caller's mistake with a failure that names nothing.</summary>
+    /// <exception cref="RuleRejectedException">The value is a number but not a whole one.</exception>
+    internal static int Number(JsonElement body, string name)
+    {
+        if (!body.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Number) return 0;
+        if (!value.TryGetInt32(out var number))
+            throw new RuleRejectedException($"'{name}' has to be a whole number, and was {value.GetRawText()}.");
+        return number;
+    }
+
+    /// <summary>
+    /// A WRITE, READ ONCE. Create and change both read their body here, so the two cannot come to disagree about
+    /// what a field means - and a field the create learns to read is read by the change in the same edit.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The checks are not a list of checks; the reason says why.</exception>
+    internal static SessionRuleDraft ReadDraft(JsonElement body) => new(
+        RuleCallJson.Text(body, "instruction") ?? "",
+        RuleCallJson.Text(body, "screenDescription") ?? "",
+        Strings(body, "triggerWords"),
+        Calls(body),
+        ReadScope(body),
+        Number(body, "cooldownSeconds"),
+        Number(body, "dailyCap"));
+
+    /// <summary>
+    /// A CHANGE IS THE RULE'S CURRENT BODY WITH THE CALLER'S FIELDS LAID OVER IT, read back through
+    /// <see cref="ReadDraft"/> - the same reader a create uses. The fields a change may carry are exactly the
+    /// fields of <see cref="SessionRuleBody.Of"/>: derived from the body, never listed here, so a field added to
+    /// a rule's body can be changed the moment it exists, with nothing to remember in this method.
+    ///
+    /// A field the body does not have is REFUSED, never ignored: a caller that misspells "dailyCap" and is told
+    /// the change worked has a rule that is not the one it meant. A rule's state is the one field named on
+    /// purpose, because it is the one a caller is most likely to try: it moves by promote, and a change puts the
+    /// rule back in dry run.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The body is not an object, names nothing, or names a field a change
+    /// cannot carry; the reason says which.</exception>
+    internal static SessionRuleDraft ReadChange(SessionRule current, JsonElement changes)
+    {
+        if (changes.ValueKind != JsonValueKind.Object)
+            throw new RuleRejectedException(
+                "a change is an object naming the fields to change and their new values, for example " +
+                "{\"dailyCap\": 3}.");
+
+        var merged = SessionRuleBody.Of(current);
+        var changeable = merged.Select(p => p.Key).ToList();
+        var named = 0;
+        foreach (var field in changes.EnumerateObject())
+        {
+            named++;
+            if (field.Name is "state" or "promotedBy")
+                throw new RuleRejectedException(
+                    $"'{field.Name}' is not changed by a change. A rule is moved out of dry run by promote, and " +
+                    "any change puts it back in dry run.");
+            if (!merged.ContainsKey(field.Name))
+                throw new RuleRejectedException(
+                    $"'{field.Name}' is not a field a change can carry. A change carries: {string.Join(", ", changeable)}.");
+            merged[field.Name] = JsonNode.Parse(field.Value.GetRawText());
+        }
+
+        if (named == 0)
+            throw new RuleRejectedException(
+                $"this change names no fields, so there is nothing to change. A change carries: {string.Join(", ", changeable)}.");
+
+        using var document = JsonDocument.Parse(merged.ToJsonString());
+        return ReadDraft(document.RootElement.Clone());
+    }
+
+    /// <summary>One recorded change, as the account reads it. Before and after are the rule's body and state as
+    /// JSON objects, null on the side that does not exist.</summary>
+    internal static object Project(SessionRuleChange c) => new
+    {
+        id = c.Id,
+        ruleId = c.RuleId,
+        action = c.Action,
+        changedBy = c.ChangedBy,
+        sessionId = c.SessionId,
+        agent = c.Agent,
+        occurredUtc = c.OccurredUtc,
+        before = c.Before.Length == 0 ? null : JsonNode.Parse(c.Before),
+        after = c.After.Length == 0 ? null : JsonNode.Parse(c.After),
+    };
 }
+

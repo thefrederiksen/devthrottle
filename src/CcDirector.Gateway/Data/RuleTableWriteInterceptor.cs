@@ -27,8 +27,9 @@ namespace CcDirector.Gateway.Data;
 /// </summary>
 internal sealed class RuleTableWriteInterceptor : DbCommandInterceptor
 {
-    /// <summary>The two tables this closes. Written once, matched case-insensitively.</summary>
-    private static readonly string[] TheRuleTables = { "session_rules", "session_rule_firings" };
+    /// <summary>The tables this closes - the rules, their firing record, and the history of their changes,
+    /// which is append only. Written once, matched case-insensitively.</summary>
+    private static readonly string[] TheRuleTables = { "session_rules", "session_rule_firings", "session_rule_changes" };
 
     public override InterceptionResult<int> NonQueryExecuting(
         DbCommand command, CommandEventData eventData, InterceptionResult<int> result)

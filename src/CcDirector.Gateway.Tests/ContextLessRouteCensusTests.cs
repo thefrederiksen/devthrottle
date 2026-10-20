@@ -69,7 +69,7 @@ public sealed class ContextLessRouteCensusTests
     ///   /gateway/workflow-runs/{id}                workflow_runs
     ///   /gateway/skills/{id} and its family        skills, skill_versions, skill_files,
     ///                                              skill_tenant_overrides
-    ///   /gateway/rules/{id:guid} (+ /firings)      session_rules, session_rule_firings
+    ///   GET /gateway/rules/{id:guid} (+ /firings)  session_rules, session_rule_firings
     ///   /gateway/workspaces/{id} (GET + DELETE)   workspaces
     ///     - probed by CensusRouteTenancyProbeTests.Workspaces_ContextLess_KeepEachTenantsWorkspaceUnderTheSameSlugSeparate
     ///
@@ -92,7 +92,7 @@ public sealed class ContextLessRouteCensusTests
     /// PUT and POST on this family are NOT in the census and that is not an omission: the PUT takes the
     /// HttpContext it reads the body from, and the POST takes no path parameter.
     ///
-    /// THE RULES FAMILY, ruled on here because it shipped without one (issue #2679). The three routes take
+    /// THE RULES FAMILY, ruled on here because it shipped without one (issue #2679). The context-less routes (two since phase 2 of part 2; DELETE was the third) take
     /// an id and no HttpContext, and nothing in the route confines them - the confinement is in the MODEL,
     /// which is why reading the endpoint alone cannot settle it:
     ///
@@ -116,7 +116,11 @@ public sealed class ContextLessRouteCensusTests
     ///
     /// POST /gateway/rules and POST /gateway/rules/{id:guid}/promote are NOT in this census and that is not
     /// an omission: the first takes no path parameter, and the second takes the HttpContext it needs to
-    /// mint a promotion grant, so neither is context-less.
+    /// mint a promotion grant, so neither is context-less. DELETE and PATCH /gateway/rules/{id:guid} are not
+    /// here either since Session Rules part 2, phase 2: each takes the HttpContext to record who made the
+    /// change in the rule's history, so neither is context-less. Nothing about how they are confined
+    /// changed - the store still reads the tenant from the ambient scope, and CensusRouteTenancyProbeTests
+    /// still asks the other account to delete a rule it does not own.
     ///
     /// THE SKILL AND WORKFLOW AUTHORING VERBS (devthrottle_internal#2304). POST .../{id}/clone, .../enable and
     /// .../disable on /gateway/skills and /gateway/workflows are NOT in this census any more, and that is not an
@@ -134,7 +138,6 @@ public sealed class ContextLessRouteCensusTests
     private static readonly string[] HostedCensus =
     {
         "DELETE /directors/{id}/registration",
-        "DELETE /gateway/rules/{id:guid}",
         "DELETE /gateway/skills/{id}",
         "DELETE /gateway/workflows/{id}",
         "DELETE /gateway/workspaces/{id}",

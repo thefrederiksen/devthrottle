@@ -1,3 +1,6 @@
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 using System.Security.Claims;
 
@@ -11,11 +14,23 @@ namespace CcDirector.Gateway.Tests.Rules;
 /// </summary>
 internal static class AnInboundRequest
 {
-    /// <summary>A request the device-key middleware authenticated, naming the device it matched.</summary>
+    /// <summary>A request the device-key middleware authenticated, naming the device it matched - under the item
+    /// the middleware really writes, which is the point: this helper once wrote an item nothing in production
+    /// set, and the promotion tests passed while a real device-key promotion was refused.</summary>
     public static HttpContext FromDevice(string deviceId = "device-9f2c")
     {
         var http = new DefaultHttpContext();
-        http.Items["DeviceKeyId"] = deviceId;
+        http.Items[AuthMiddleware.AuthenticatedDeviceItemKey] =
+            new DeviceCredentialIdentity(deviceId, "tenant-test", "phone", "active");
+        return http;
+    }
+
+    /// <summary>A request the middleware authenticated on a SESSION key, naming that session.</summary>
+    public static HttpContext FromSession(Guid sessionId)
+    {
+        var http = new DefaultHttpContext();
+        http.Items[AuthMiddleware.AuthenticatedSessionItemKey] =
+            new SessionCredentialIdentity(sessionId, TenantId.Local, "director-test");
         return http;
     }
 

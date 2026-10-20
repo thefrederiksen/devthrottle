@@ -98,14 +98,14 @@ public sealed class RuleEvaluatorAgainstTheRealStoreTests : IDisposable
             RuleScope.AllSessions,
             cooldownSeconds: 300,
             dailyCap: 5,
-            Now);
+            Now, AnActor.Owner);
 
         return store.Promote(
             rule.Id,
             RulePromotionGrant.FromAuthenticatedRequest(
                 rule.Id, AnInboundRequest.FromDevice(),
                 "I have read this rule's dry-run record and I am making it live.", Now),
-            Now);
+            Now, AnActor.Owner);
     }
 
     private static string ActReply(Guid ruleId) => $$"""
@@ -128,7 +128,7 @@ public sealed class RuleEvaluatorAgainstTheRealStoreTests : IDisposable
         var env = new StoreBackedEnvironment(store) { AgentReply = ActReply(rule.Id) };
         // The gap the failure lives in: the rule goes away while the model is being asked, which is the
         // longest wait in the whole pass.
-        env.WhileTheModelIsBeingAsked = () => store.Delete(rule.Id);
+        env.WhileTheModelIsBeingAsked = () => store.Delete(rule.Id, Now, AnActor.Owner);
 
         var pass = await new RuleEvaluator(env).EvaluateAsync(Tenant, DirectorId, SessionId, CancellationToken.None);
 

@@ -29,6 +29,7 @@ public sealed class RulesBulkSqlGuardTests
     {
         "CcDirector.Gateway.Data.Entities.SessionRuleEntity",
         "CcDirector.Gateway.Data.Entities.SessionRuleFiringEntity",
+        "CcDirector.Gateway.Data.Entities.SessionRuleChangeEntity",
     };
 
     private static IEnumerable<TypeDefinition> AllTypes(ModuleDefinition module) =>

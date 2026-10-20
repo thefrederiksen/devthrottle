@@ -3941,6 +3941,64 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("session_keys", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleChangeEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("After")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Agent")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Before")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Sequence");
+
+                    b.HasIndex("TenantId", "RuleId", "Sequence");
+
+                    b.HasIndex("TenantId", "SessionId", "Sequence");
+
+                    b.ToTable("session_rule_changes", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleEntity", b =>
                 {
                     b.Property<Guid>("Id")
