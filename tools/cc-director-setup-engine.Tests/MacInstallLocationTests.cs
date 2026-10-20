@@ -29,7 +29,7 @@ public class MacInstallLocationTests
     {
         var layout = Layout("/Applications");
 
-        Assert.Equal("/Applications/Director.app", layout.PathFor(ComponentRegistry.Director, OSPlatform.OSX));
+        Assert.Equal(Path.Combine("/Applications", "Director.app"), layout.PathFor(ComponentRegistry.Director, OSPlatform.OSX));
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class MacInstallLocationTests
     public void DirectorExecutablePath_IsTheBinaryInsideTheChosenBundle()
     {
         // The identity slot of the running Director is keyed by the path its own process reports.
-        Assert.Equal("/Applications/Director.app/Contents/MacOS/cc-director",
+        Assert.Equal(Path.Combine("/Applications", "Director.app", "Contents", "MacOS", "cc-director"),
             Layout("/Applications").DirectorExecutablePath(OSPlatform.OSX));
     }
 
@@ -117,8 +117,11 @@ public class MacInstallLocationTests
 
         var targets = MacFileOwnership.InstallTargets(layout, plist);
 
-        foreach (var path in targets.Trees.Concat(targets.Folders))
+        foreach (var named in targets.Trees.Concat(targets.Folders))
         {
+            // The layout joins with the host's separator, so on a Windows test machine these Mac paths carry
+            // backslashes; read them with the Mac's separator, which is what the repair runs on.
+            var path = named.Replace('\\', '/');
             Assert.False(path == "/Applications" || path.StartsWith("/Applications/", StringComparison.Ordinal),
                 $"the ownership repair must never touch /Applications, but it names '{path}'");
             Assert.True(path.StartsWith(Home + "/", StringComparison.Ordinal) || path == Home,
