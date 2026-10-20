@@ -1,0 +1,196 @@
+# ONE-OFF FOR SESSION RULES PHASE 1. Not part of the release or of continuous integration.
+#
+# No Windows machine we can reach has the Visual Studio C++ build tools, which the Native AOT compile of the
+# Session Rules hook (cc-rule-hook) needs, and installing them needs a person at the screen. GitHub's
+# windows-latest runner has them. So this workflow builds, on that runner:
+#   - cc-rule-hook.exe, compiled to native code for win-x64, and
+#   - the Director, published exactly as release.yml's "Publish for Windows x64" step does, except that its
+#     updater is OFF (a test build must never update itself into the owner's install). That publish embeds
+#     the hook (the EmbedRuleHook target in src/CcDirector.Avalonia/CcDirector.Avalonia.csproj).
+# It checks both, and uploads both as workflow artifacts for a Windows Developer to download and measure.
+#
+# It publishes NOTHING else: no release, no tag, no signing, no deploy, no secrets, no push.
+#
+# When phase 1's Windows rows are done, disable it with `gh workflow disable` (the repository instructions,
+# section 5a: a one-off workflow is disabled by the work that finishes it).
+
+name: Session Rules - Windows native build (one-off)
+
+on:
+  push:
+    branches:
+      - mission/session-rules-hooks-p1-windows
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build cc-rule-hook and the Director for win-x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish cc-rule-hook for win-x64 (Native AOT)
+        shell: pwsh
+        run: |
+          $clock = [System.Diagnostics.Stopwatch]::StartNew()
+          dotnet publish src/CcDirector.RuleHook/CcDirector.RuleHook.csproj -c Release -r win-x64 -o out/rule-hook --nologo
+          if ($LASTEXITCODE -ne 0) { throw "Publishing cc-rule-hook failed with exit code $LASTEXITCODE" }
+          $clock.Stop()
+          Write-Host ("TIME: cc-rule-hook publish took {0:N1} seconds" -f $clock.Elapsed.TotalSeconds)
+
+      - name: Publish the Director for Windows x64 (updater off)
+        # The same command as release.yml's "Publish for Windows x64", except -p:UpdaterEnabled=false.
+        shell: pwsh
+        run: |
+          $clock = [System.Diagnostics.Stopwatch]::StartNew()
+          dotnet publish src/CcDirector.Avalonia/CcDirector.Avalonia.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:UpdaterEnabled=false
+          if ($LASTEXITCODE -ne 0) { throw "Publishing the Director failed with exit code $LASTEXITCODE" }
+          $clock.Stop()
+          Write-Host ("TIME: Director publish took {0:N1} seconds (this includes its own native compile of the embedded hook)" -f $clock.Elapsed.TotalSeconds)
+
+      - name: Check the hook and the Director
+        shell: pwsh
+        run: |
+          # Every check below is a PRESENCE check: it passes only on finding the thing it looks for.
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.IO;
+
+          public static class PortableExecutable
+          {
+              // Describes a Windows executable from its headers. A managed .NET assembly has a non-empty
+              // common language runtime header (data directory 14); a native image has none.
+              public static string Describe(string path, out bool isNativeAmd64)
+              {
+                  var pe = File.ReadAllBytes(path);
+                  if (pe.Length < 0x40 || pe[0] != (byte)'M' || pe[1] != (byte)'Z')
+                      throw new InvalidDataException(path + " does not start with the MZ signature");
+                  var header = BitConverter.ToInt32(pe, 0x3C);
+                  if (BitConverter.ToUInt32(pe, header) != 0x00004550)
+                      throw new InvalidDataException(path + " has no PE signature at offset " + header);
+                  var machine = BitConverter.ToUInt16(pe, header + 4);
+                  var optional = header + 24;
+                  var magic = BitConverter.ToUInt16(pe, optional);
+                  var dataDirectories = optional + (magic == 0x20B ? 112 : 96);
+                  var runtimeHeaderRva = BitConverter.ToInt32(pe, dataDirectories + 14 * 8);
+                  var runtimeHeaderSize = BitConverter.ToInt32(pe, dataDirectories + 14 * 8 + 4);
+                  isNativeAmd64 = machine == 0x8664 && magic == 0x20B && runtimeHeaderRva == 0 && runtimeHeaderSize == 0;
+                  return string.Format("machine=0x{0:X4}, optional header magic=0x{1:X3}, runtime header rva=0x{2:X}, size={3}",
+                      machine, magic, runtimeHeaderRva, runtimeHeaderSize);
+              }
+
+              // The offset in the container at which the payload sits as a managed resource: the payload's
+              // exact bytes, preceded by their length as a four-byte little-endian number (the layout of an
+              // entry in an assembly's managed resources block). -1 when there is no such place.
+              public static long FindManagedResource(string containerPath, string payloadPath)
+              {
+                  var container = File.ReadAllBytes(containerPath);
+                  var payload = File.ReadAllBytes(payloadPath);
+                  ReadOnlySpan<byte> rest = container;
+                  long consumed = 0;
+                  while (true)
+                  {
+                      var at = rest.IndexOf((ReadOnlySpan<byte>)payload);
+                      if (at < 0)
+                          return -1;
+                      var absolute = consumed + at;
+                      if (absolute >= 4 && BitConverter.ToInt32(container, (int)absolute - 4) == payload.Length)
+                          return absolute;
+                      rest = rest.Slice(at + 1);
+                      consumed = absolute + 1;
+                  }
+              }
+          }
+          '@
+
+          $hook = Join-Path $PWD 'out/rule-hook/cc-rule-hook.exe'
+          $director = Join-Path $PWD 'src/CcDirector.Avalonia/bin/Release/net10.0/win-x64/publish/cc-director.exe'
+          $embedded = Join-Path $PWD 'src/CcDirector.Avalonia/obj/rule-hook/Release/win-x64/cc-rule-hook.exe'
+
+          # 1. The native hook exists.
+          if (-not (Test-Path $hook -PathType Leaf)) { throw "CHECK FAILED: $hook was not produced" }
+          Write-Host "CHECK PASSED: cc-rule-hook.exe exists ($((Get-Item $hook).Length) bytes)"
+
+          # 2. It is a native x64 image, not a managed assembly.
+          $isNative = $false
+          $description = [PortableExecutable]::Describe($hook, [ref]$isNative)
+          if (-not $isNative) { throw "CHECK FAILED: cc-rule-hook.exe is not a native x64 image ($description)" }
+          Write-Host "CHECK PASSED: cc-rule-hook.exe is a native x64 image with no runtime header ($description)"
+
+          # 3. It runs: a minimal PreToolUse event, no rules file named, exits 0 and prints nothing.
+          $preToolUse = '{"session_id":"windows-build-check","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hello"}}'
+          $start = New-Object System.Diagnostics.ProcessStartInfo
+          $start.FileName = $hook
+          $start.UseShellExecute = $false
+          $start.RedirectStandardInput = $true
+          $start.RedirectStandardOutput = $true
+          $start.RedirectStandardError = $true
+          [void]$start.Environment.Remove('CC_SESSION_RULES_FILE')
+          [void]$start.Environment.Remove('CC_SESSION_DECISION_DIR')
+          $process = [System.Diagnostics.Process]::Start($start)
+          $process.StandardInput.Write($preToolUse)
+          $process.StandardInput.Close()
+          $standardOutput = $process.StandardOutput.ReadToEnd()
+          $standardError = $process.StandardError.ReadToEnd()
+          if (-not $process.WaitForExit(30000)) { throw "CHECK FAILED: cc-rule-hook.exe did not exit within 30 seconds" }
+          if ($process.ExitCode -ne 0) { throw "CHECK FAILED: cc-rule-hook.exe exited $($process.ExitCode)" }
+          if ($standardOutput.Length -ne 0) { throw "CHECK FAILED: cc-rule-hook.exe wrote to standard output: $standardOutput" }
+          if ($standardError.Length -ne 0) { throw "CHECK FAILED: cc-rule-hook.exe wrote to standard error: $standardError" }
+          Write-Host "CHECK PASSED: cc-rule-hook.exe ran on a PreToolUse event, exited 0, printed nothing on either stream"
+
+          # 4. The published Director carries the hook it compiled, as a managed resource. The single-file
+          #    bundle stores the Director's assembly uncompressed (no EnableCompressionInSingleFile), so the
+          #    resource's bytes sit in cc-director.exe verbatim, preceded by their length.
+          if (-not (Test-Path $director -PathType Leaf)) { throw "CHECK FAILED: $director was not produced" }
+          if (-not (Test-Path $embedded -PathType Leaf)) { throw "CHECK FAILED: the hook the Director embedded is not at $embedded" }
+          $isNative = $false
+          $description = [PortableExecutable]::Describe($embedded, [ref]$isNative)
+          if (-not $isNative) { throw "CHECK FAILED: the hook the Director embedded is not a native x64 image ($description)" }
+          $offset = [PortableExecutable]::FindManagedResource($director, $embedded)
+          if ($offset -lt 0) { throw "CHECK FAILED: cc-director.exe does not hold the bytes of $embedded as a managed resource" }
+          Write-Host "CHECK PASSED: cc-director.exe holds the $((Get-Item $embedded).Length)-byte native hook as a length-prefixed managed resource at offset $offset"
+
+          $standalone = (Get-FileHash $hook -Algorithm SHA256).Hash
+          $inside = (Get-FileHash $embedded -Algorithm SHA256).Hash
+          if ($standalone -eq $inside) {
+            Write-Host "The uploaded cc-rule-hook.exe is byte-identical to the one embedded in the Director (SHA-256 $inside)"
+          } else {
+            Write-Host "NOTE: the uploaded cc-rule-hook.exe ($standalone) is a separate compile from the one embedded in the Director ($inside)"
+          }
+
+      - name: Print the SHA-256 of each uploaded file
+        shell: pwsh
+        run: |
+          foreach ($file in @('out/rule-hook/cc-rule-hook.exe', 'src/CcDirector.Avalonia/bin/Release/net10.0/win-x64/publish/cc-director.exe')) {
+            $item = Get-Item $file
+            Write-Host ("SHA-256 {0}  {1} ({2} bytes)" -f (Get-FileHash $item.FullName -Algorithm SHA256).Hash, $item.Name, $item.Length)
+          }
+
+      - name: Upload cc-rule-hook
+        uses: actions/upload-artifact@v6
+        with:
+          name: cc-rule-hook-win-x64
+          path: out/rule-hook/cc-rule-hook.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the Director
+        uses: actions/upload-artifact@v6
+        with:
+          name: cc-director-win-x64-session-rules
+          path: src/CcDirector.Avalonia/bin/Release/net10.0/win-x64/publish/cc-director.exe
+          if-no-files-found: error
+          retention-days: 14
