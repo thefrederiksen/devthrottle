@@ -70,6 +70,7 @@ public sealed class MailDeskDecisionStore
             Mode = input.Mode,
             Outcome = input.Outcome,
             OutcomeDetail = input.OutcomeDetail is null ? null : Cut(input.OutcomeDetail, MaxReasonLength),
+            OutcomeUtc = input.Outcome is null ? null : input.DecidedUtc,
             DecidedUtc = input.DecidedUtc,
             RulesVersion = input.RulesVersion,
             AttemptCount = input.AttemptCount,
@@ -134,6 +135,7 @@ public sealed class MailDeskDecisionStore
             kept.Mode = input.Mode;
             kept.Outcome = input.Outcome;
             kept.OutcomeDetail = input.OutcomeDetail is null ? null : Cut(input.OutcomeDetail, MaxReasonLength);
+            kept.OutcomeUtc = input.Outcome is null ? null : input.DecidedUtc;
             kept.DecidedUtc = input.DecidedUtc;
             kept.RulesVersion = input.RulesVersion;
             kept.AttemptCount = input.AttemptCount;
@@ -143,7 +145,54 @@ public sealed class MailDeskDecisionStore
         }
     }
 
+    /// <summary>
+    /// WRITE WHAT FILING CAME TO (phase 4 contract, section 2.3) on the decision of one message of one channel. A
+    /// decision whose outcome is already set is left as it is - a retried move after a channel failure comes back
+    /// <c>already-gone</c> for what was moved before, and the first <c>filed</c> stands. Answers what was done.
+    /// </summary>
+    /// <param name="atUtc">When the outcome is written: the time the 08:00 email counts a move by.</param>
+    public MailDeskFilingWrite RecordFiling(TenantId tenant, Guid channelId, string messageKey, string outcome, string detail, DateTime atUtc)
+    {
+        if (!MailDeskWords.IsOneOf(outcome, MailDeskWords.Outcomes.All))
+            throw new ArgumentException($"'{outcome}' is not a Mail Desk outcome; it is one of {MailDeskWords.InWords(MailDeskWords.Outcomes.All)}.", nameof(outcome));
+        ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var kept = ctx.MailDeskDecisions.FirstOrDefault(d => d.ChannelId == channelId && d.MessageKey == messageKey);
+            if (kept is null) return MailDeskFilingWrite.NoSuchDecision;
+            if (kept.Outcome is not null)
+            {
+                FileLog.Write($"[MailDeskDecisionStore] RecordFiling: {kept.Id} on channel {channelId} already holds outcome {kept.Outcome}; {outcome} ignored");
+                return MailDeskFilingWrite.AlreadySet;
+            }
+            kept.Outcome = outcome;
+            kept.OutcomeDetail = Cut(detail, MaxReasonLength);
+            kept.OutcomeUtc = DateTime.SpecifyKind(atUtc, DateTimeKind.Utc);
+            ctx.SaveChanges();
+            FileLog.Write($"[MailDeskDecisionStore] RecordFiling: {kept.Id} on channel {channelId}: {kept.Decision} -> {outcome}");
+            return MailDeskFilingWrite.Written;
+        }
+    }
+
     // ---------- reads ----------
+
+    /// <summary>
+    /// The decisions of one channel waiting to be filed (phase 4 contract, section 2.1): <c>archive</c> or <c>junk</c>,
+    /// made in <c>live</c> mode, with no outcome yet - oldest receive time first.
+    /// </summary>
+    public IReadOnlyList<MailDeskDecisionEntity> AwaitingFiling(TenantId tenant, Guid channelId)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskDecisions.AsNoTracking()
+                .Where(d => d.ChannelId == channelId && d.Mode == MailDeskWords.Modes.Live && d.Outcome == null
+                            && (d.Decision == MailDeskWords.Decisions.Archive || d.Decision == MailDeskWords.Decisions.Junk))
+                .OrderBy(d => d.ReceivedUtc).ThenBy(d => d.MessageKey)
+                .ToList();
+        }
+    }
 
     /// <summary>The decision kept for one message of one channel, or null when it was never screened.</summary>
     public MailDeskDecisionEntity? Find(TenantId tenant, Guid channelId, string messageKey)
@@ -244,6 +293,25 @@ public sealed class MailDeskDecisionStore
     }
 
     /// <summary>
+    /// Every decision FILED at or after <paramref name="fromUtc"/> and before <paramref name="toUtc"/> - outcome
+    /// <c>filed</c>, by the time it was filed, whenever it was decided (phase 4 contract, section 2.3): filing lands a
+    /// run after the decision, so an email decided just before a window closes is counted in the next one.
+    /// </summary>
+    public IReadOnlyList<MailDeskDecisionEntity> FiledBetween(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    {
+        if (toUtc < fromUtc)
+            throw new ArgumentException($"The span ends ({toUtc:o}) before it starts ({fromUtc:o}).", nameof(toUtc));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskDecisions.AsNoTracking()
+                .Where(d => d.Outcome == MailDeskWords.Outcomes.Filed && d.OutcomeUtc >= fromUtc && d.OutcomeUtc < toUtc)
+                .OrderBy(d => d.OutcomeUtc).ThenBy(d => d.Id)
+                .ToList();
+        }
+    }
+
+    /// <summary>
     /// What the Mail Desk's model calls have cost the account, ever, in millionths of a dollar: the sum of the cost on
     /// every decision row (phase 3 contract, section 1 - a failed screening keeps its call's cost on its row too).
     /// </summary>
@@ -322,6 +390,17 @@ public enum MailDeskDecisionWriteKind
     Updated,
     /// <summary>The message already held a decision that is not <c>failed</c>; nothing was written.</summary>
     Kept,
+}
+
+/// <summary>What <see cref="MailDeskDecisionStore.RecordFiling"/> did.</summary>
+public enum MailDeskFilingWrite
+{
+    /// <summary>The outcome was written.</summary>
+    Written,
+    /// <summary>The decision already held an outcome; it stands and nothing was written.</summary>
+    AlreadySet,
+    /// <summary>The channel has no decision for that message; nothing was written.</summary>
+    NoSuchDecision,
 }
 
 /// <summary>The result of <see cref="MailDeskDecisionStore.Record"/>: what was done, and the row as it now stands.</summary>

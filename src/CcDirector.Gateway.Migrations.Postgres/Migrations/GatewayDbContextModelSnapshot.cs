@@ -3241,6 +3241,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<DateTime?>("OutcomeUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(1000)
