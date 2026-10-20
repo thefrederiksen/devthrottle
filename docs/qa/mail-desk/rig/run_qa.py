@@ -1447,6 +1447,95 @@ def section_backup():
     stand_in.close()
 
 
+def wait_decided(subject, channel, seconds=300):
+    return wait_for(f"'{subject}' was not decided", lambda: decision_of(subject, channel), seconds=seconds, every=3)
+
+
+def section_live_filing():
+    section("LIVE MODE: FILING", "qa-one is switched to live. Five new emails: two for Archive (one of them deleted from "
+                                 "the Inbox by the rig after it is queued), one for Junk Email, one kept for the owner "
+                                 "and one routed by a rule. Expected: the archive and junk decisions are queued in the "
+                                 "memory, the next run moves exactly those - the fake Graph's only POSTs are moves to "
+                                 "archive and junkemail - and writes filed / already-gone on their decision rows; the "
+                                 "email kept for the owner and the routed one stay in the Inbox; nothing decided in "
+                                 "observe mode is filed.")
+    graph = STATE["graph"]
+    cli(["maildesk", "mode", ONE, "live", "--why", "the rig's live filing case"])
+    keep = mail("news@example.org", "The November letter")
+    archive = mail("alerts@notices.example.com", "Build 412 passed")
+    gone = mail("alerts@notices.example.com", "Build 413 passed")
+    junk = mail("deals@spam.example.net", "Cheaper watches")
+    routed = mail("billing@vendor.example", "Invoice 2001 for November")
+    t = now()
+    graph.put(ONE, "inbox", keep, archive, gone, junk, routed)
+    for m in (keep, archive, gone, junk, routed):
+        wait_decided(m["subject"], ONE)
+    queue = wait_for("the archive and junk decisions were not queued",
+                     lambda: (lambda q: q if len(q) >= 3 else None)((memory_of(ONE) or {}).get("filingQueue") or []),
+                     seconds=120, every=2)
+    with graph.lock:
+        graph.box(ONE)["inbox"].remove(gone)        # deleted by hand before the move
+    record("qa-one's filing queue in the stored memory after the deciding run (the rig then deletes 'Build 413 passed' "
+           "from the Inbox)", json.dumps(queue, indent=1))
+    by_key = {d["messageKey"]: d for d in decisions(ONE, 500)}
+    check([by_key[q["messageKey"]]["subject"] for q in queue] == ["Build 412 passed", "Build 413 passed",
+                                                                  "Cheaper watches"]
+          and [q["decision"] for q in queue] == ["archive", "archive", "junk"],
+          "exactly the live archive and junk decisions are queued, oldest first")
+    wait_for("the queued moves were not carried out", lambda: all(
+        (decision_of(x, ONE) or {}).get("outcome") for x in ("Build 412 passed", "Build 413 passed", "Cheaper watches")),
+        seconds=300, every=3)
+    cli(["maildesk", "decisions", "--channel", ONE, "-n", "6"])
+    posts = graph.calls(since=t.timestamp(), method="POST")
+    record("the fake Graph's POSTs since qa-one went live", "\n".join(
+        f"  {c['utc']} {c['mailbox']} {c['method']} {c['path']} destination={c.get('destination')} -> {c.get('answer')}"
+        for c in posts) or "  (none)")
+    check(sorted(c.get("destination") for c in posts) == ["archive", "archive", "junkemail"]
+          and all(c["path"] == "/v1.0/me/messages/{id}/move" for c in posts),
+          "the only POSTs are the three moves, to archive and junkemail")
+    a, g, j = (decision_of(x, ONE) for x in ("Build 412 passed", "Build 413 passed", "Cheaper watches"))
+    check(a["outcome"] == "filed" and a["outcomeDetail"] == "moved to Archive", "the archive email: filed, moved to Archive")
+    check(j["outcome"] == "filed" and j["outcomeDetail"] == "moved to Junk Email",
+          "the junk email: filed, moved to Junk Email")
+    check(g["outcome"] == "already-gone", "the email deleted before the move: already-gone, never filed")
+    check(graph.folder_of(ONE, archive["id"]) == "archive" and graph.folder_of(ONE, junk["id"]) == "junkemail",
+          "the fake Graph holds them in Archive and Junk Email")
+    check(graph.folder_of(ONE, keep["id"]) == "inbox", "the email kept for the owner is still in the Inbox")
+    check(graph.folder_of(ONE, routed["id"]) == "inbox", "the routed email is still in the Inbox")
+    check(not (memory_of(ONE) or {}).get("filingQueue"), "the queue is empty once carried out")
+    for subject in ("Build 311 passed", "Cheap watches"):
+        old = decision_of(subject, ONE)
+        if old is not None:
+            check(old["mode"] == "observe" and old.get("outcome") is None,
+                  f"'{subject}', decided in observe mode before, is not filed")
+    STATE["live"] = True
+
+
+def section_observe_queue():
+    section("OBSERVE MODE WITH A FILING QUEUE PRESENT", "With qa-one live, a junk email is decided and queued; the rig "
+                                                        "switches qa-one back to observe before the next run. Expected: "
+                                                        "that run moves nothing (no POST), the queue is left as it was, "
+                                                        "and the decision's outcome stays empty.")
+    graph = STATE["graph"]
+    if not STATE.get("live"):
+        cli(["maildesk", "mode", ONE, "live", "--why", "the rig's observe-with-a-queue case"])
+    junk = mail("deals@spam.example.net", "Cheapest watches")
+    graph.put(ONE, "inbox", junk)
+    wait_decided("Cheapest watches", ONE)
+    queue = wait_for("the junk decision was not queued",
+                     lambda: (memory_of(ONE) or {}).get("filingQueue"), seconds=120, every=2)
+    cli(["maildesk", "mode", ONE, "observe", "--why", "the rig: back to observe with a queue present"])
+    t = now()
+    record("qa-one's filing queue when it was switched back to observe", json.dumps(queue, indent=1))
+    wait_run_after(t, "observe mode with a queue present", outcome="screened")
+    wait_run_after(now(), "a second run in observe mode", outcome="screened")
+    check(not graph.calls(since=t.timestamp(), method="POST"), "no POST since qa-one went back to observe")
+    check(graph.folder_of(ONE, junk["id"]) == "inbox", "the queued email is still in the Inbox")
+    check((memory_of(ONE) or {}).get("filingQueue") == queue, "the queue is left exactly as it was")
+    check(decision_of("Cheapest watches", ONE).get("outcome") is None, "the decision's outcome stays empty")
+    STATE["live"] = False
+
+
 SECTIONS = {
     "observe": section_observe,
     "signin": section_signin,
@@ -1455,6 +1544,8 @@ SECTIONS = {
     "batches": section_batches,
     "switch-off": section_switch_off,
     "factory-refused": section_factory_refused,
+    "live-filing": section_live_filing,
+    "observe-queue": section_observe_queue,
     "backup": section_backup,
 }
 
