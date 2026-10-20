@@ -18,8 +18,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class SessionRuleKindsMigrationTests
 {
-    private const string SqliteBefore = "20261018153106_AddMailDesk";
-    private const string SqliteUnderTest = "20261018230524_AddSessionRuleKindsAndHookFirings";
+    private const string SqliteBefore = "20261019020017_AddApiModeReceiptDirectorIndex";
+    private const string SqliteUnderTest = "20261020013524_AddSessionRuleKindsAndHookFirings";
 
     [Fact]
     public void AddSessionRuleKindsAndHookFirings_RowsStoredBefore_BecomeScreenRulesThatApplyEverywhere()
@@ -85,8 +85,8 @@ public sealed class SessionRuleKindsMigrationTests
 
     /// <summary>Each provider's Designer is found through its attributes and carries the new columns.</summary>
     [Theory]
-    [InlineData("sqlite", "20261018230524_AddSessionRuleKindsAndHookFirings")]
-    [InlineData("postgres", "20261018230534_AddSessionRuleKindsAndHookFirings")]
+    [InlineData("sqlite", "20261020013524_AddSessionRuleKindsAndHookFirings")]
+    [InlineData("postgres", "20261020013534_AddSessionRuleKindsAndHookFirings")]
     public void AddSessionRuleKindsAndHookFirings_Designer_IsDiscoveredAndCarriesTheNewColumns(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
