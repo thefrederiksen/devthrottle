@@ -256,3 +256,18 @@ PowerShell shell tool, the Windows block-on-failure change).
   tests, not by a launch.
 - **The full `test-local.ps1` gate** - no `pwsh` here; the three suites above are the ones the change reaches,
   and `Gateway.Tests` names none of the changed types.
+
+---
+
+## The Tech Lead's calls
+
+1. **Finding 1: already held, now named.** The check is step 4 of `brief-windows-rows.md` on the branch
+   `mission/session-rules-hooks-p1-windows` (written after this review's checkout was cut): on SOREN_NORTH,
+   `CLAUDE_CODE_GIT_BASH_PATH` pointed at a path that does not exist, a Director session using the
+   `PowerShell` shell tool, and a `no_match` or `would_deny` line tied to the call id. The Windows Developer
+   holding it is session `117f19f9`. No change here.
+2. **Finding 2: fix.** The Developer who answered the whole-phase review changes both timing scripts to spawn
+   the evaluator directly - the program, no shell, the event on standard input - as the Director now registers
+   it, corrects both headers, and keeps a shell row only if it is relabelled as the shell's own cost. Then
+   re-measures on Linux and replaces section 4 of `phase-1-proof.md` with the new numbers, saying the old ones
+   included a shell start-up. Answered in `phase-1-whole-fixes-answers.md` beside this file.
