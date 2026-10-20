@@ -33,36 +33,49 @@ The Gateway is the console Gateway published from this worktree at `7ac7ccff9` (
 
 ## 1. Timing - proven
 
-Run with the Tech Lead's script as merged to main (`scripts/measure-rule-hook.ps1` at `0eb3a64bc`, unchanged),
-which starts the evaluator directly as the exec-form registration does. Its Windows path had never run; it ran
-clean here. Command, twice, 300 runs a row, the native evaluator from the hosted build, the Windows Bash
-fixture as the event. Full output of both runs: `evidence/windows-rows-timing.txt`.
+**The measurement**, with `scripts/measure-rule-hook.ps1` as fixed on this branch (below): the native evaluator
+from the hosted build, started directly as the exec-form registration does, the Windows Bash fixture as the
+event, 300 runs a row. Full output: `evidence/windows-rows-timing-native-baseline.txt`.
 
     pwsh -NoProfile -File scripts\measure-rule-hook.ps1 -Hook <run 39421736490 artifact>\cc-rule-hook.exe -Runs 300
 
-| Row | Run 1 median | Run 1 95th | Run 2 median | Run 2 95th |
-|---|---|---|---|---|
-| baseline, Git's `true.exe` started directly | 11.68 ms | 38.25 ms | 15.15 ms | 29.01 ms |
-| through a shell, Git Bash running `/usr/bin/true` | 38.03 ms | 220.35 ms | 58.57 ms | 202.85 ms |
-| outside a Director session | 12.66 ms | 26.07 ms | 15.40 ms | 24.28 ms |
-| rules file not there | 14.74 ms | 30.87 ms | 14.80 ms | 27.71 ms |
-| 0 rules | 13.91 ms | 140.87 ms | 14.13 ms | 21.38 ms |
-| 1 rule, matching | 12.47 ms | 15.02 ms | 17.79 ms | 29.29 ms |
-| 50 rules, last matching | 19.33 ms | 232.39 ms | 17.90 ms | 26.56 ms |
+| Row | Median | 95th percentile | Added over baseline (median) |
+|---|---|---|---|
+| baseline, `rundll32.exe` started directly | 6.34 ms | 11.04 ms | - |
+| through a shell, Git Bash running `/usr/bin/true` (the old shell form; for comparison) | 36.58 ms | 68.96 ms | - |
+| outside a Director session | 15.53 ms | 26.37 ms | 9.2 ms |
+| rules file not there | 19.00 ms | 178.50 ms | 12.7 ms |
+| 0 rules | 16.38 ms | 125.03 ms | 10.0 ms |
+| 1 rule, matching | 18.17 ms | 150.11 ms | 11.8 ms |
+| 50 rules, last matching | 18.34 ms | 154.26 ms | 12.0 ms |
 
-Both runs exit 0, 604 of 604 decision files, and each evaluation log's last line reads `no_rules_file`,
-`no_match`, `would_deny`, `would_deny`, ending in the fixture's call id; the evaluator reported its own work as
-0.7 to 4.1 ms. Processor load: run 1 went from 10 to 100 percent (about thirty other sessions share the
-machine), run 2 from 40 to 50 percent. The 95th percentiles above 100 ms are scheduling outliers in run 1.
+Exit 0, 604 of 604 decision files, and each evaluation log's last line reads `no_rules_file`, `no_match`,
+`would_deny`, `would_deny`, ending in the fixture's call id; the evaluator reported its own work as 0.7 to
+3.2 ms. Processor load 42 percent before, 28 after, with about thirty other sessions on the machine; the 95th
+percentiles above 100 ms are scheduling outliers. So the hook adds about 9 to 13 ms per shell command on this
+machine under this load, most of it a process starting; an earlier, quieter run with the same baseline (old
+branch `mission/session-rules-hooks-p1-winrows`, commit `ca29e96ac`) measured 2.9 to 7.2 ms added. The old
+shell form cost about 37 ms before the evaluator even started.
 
-**Reading it.** Every hook row costs 12 to 20 ms per shell command in all, where the same command through Git
-Bash cost 38 to 59 ms. The "added over baseline" difference is near zero and once negative (run 1: 1 rule
-12.47 ms against baseline 11.68 ms, no-session 12.66 ms), because Git's `true.exe` loads the msys runtime and
-is itself about as slow to start as the evaluator. An earlier run with a version of the script not carried to
-this branch used `rundll32.exe` (a native program that does nothing) as the baseline and measured it at 7.36 ms
-median, which put the evaluator's added time at 2.9 to 7.2 ms (old branch `mission/session-rules-hooks-p1-winrows`,
-commit `ca29e96ac`). Whether main's script should change its Windows baseline is the Tech Lead's call; it was
-not changed here.
+**Finding, fixed on this branch:** the script as merged to main used Git's `true.exe` as the Windows baseline.
+`true.exe` loads the msys runtime and is about as slow to start as the evaluator, so the "added" time read as
+near zero and once below zero. Two runs with the script unchanged at `0eb3a64bc` (full output:
+`evidence/windows-rows-timing.txt`):
+
+| Row | Run 1 median | Run 2 median |
+|---|---|---|
+| baseline, Git's `true.exe` | 11.68 ms | 15.15 ms |
+| through a shell | 38.03 ms | 58.57 ms |
+| outside a Director session | 12.66 ms | 15.40 ms |
+| rules file not there | 14.74 ms | 14.80 ms |
+| 0 rules | 13.91 ms | 14.13 ms |
+| 1 rule | 12.47 ms | 17.79 ms |
+| 50 rules | 19.33 ms | 17.90 ms |
+
+(run 1: 1 rule 12.47 ms against a baseline of 11.68 ms.) The Windows baseline is now `rundll32.exe` from the
+system folder with no arguments - a native program that does nothing and exits 0 - and the header says why.
+The through-a-shell row still uses Git Bash and `true.exe`, since that is what a shell-form hook paid. No test
+reads the script; it was exercised by the run above.
 
 On top of ours, Claude Code also runs the owner's own global PreToolUse hook (a Python script) on every shell
 command; that one is not ours and was not measured.
@@ -230,13 +243,14 @@ The live rows ran earlier the same day on the old branch `mission/session-rules-
 `7ac7ccff9`, with the Gateway built from there and the Director and evaluator from run 39421736490; only
 this branch's own files are carried over.
 
+- `scripts/measure-rule-hook.ps1`: the Windows baseline is `rundll32.exe`, not Git's `true.exe` (section 1).
 - `scripts/session-rules-rig.ps1`: new, the Windows live rig (build, director, up, status, down, make-repos,
   cli, spawn, prompt, screen, rules, evidence, commands). `-ExtraEnvironment` passes one variable to the
   Director and its sessions.
 - `evidence/windows-rows-*`: the registration, rules files, evaluation logs, transcript calls, firings, the
-  usage-limit rule, its firings and Gateway log lines, and the full timing output.
+  usage-limit rule, its firings and Gateway log lines, and the full output of all three timing runs.
 
-No product code changed and no test was written: nothing in the product failed on Windows. The rig script is
+No product code changed and no test was written: nothing in the product failed on Windows. Both scripts are
 tooling, exercised end to end by the runs above.
 
 ## NOT PROVEN

@@ -25,8 +25,15 @@
     cost of starting a process from PowerShell is in every row, the baseline included, and cancels out of
     the difference. Everything is written under a scratch folder deleted at the end.
 
-    On Windows Git for Windows is still needed, but only for the two reference rows: the baseline program is
-    its true.exe, and the through-a-shell row is its bash.exe starting that true.exe. Git Bash is found as Claude Code finds it:
+    On Windows the baseline program is rundll32.exe from the system folder, started with no arguments: a native
+    program that does nothing and exits 0. It is NOT Git's true.exe, because true.exe loads the msys runtime
+    and is itself about as slow to start as the evaluator: measured on SOREN_NORTH on 2026-10-20, true.exe
+    took a median of 11.7 to 15.2 ms against 12.5 to 19.3 ms for the hook rows, so the added time read as
+    near zero and once below zero, while rundll32.exe took 7.4 ms. A baseline must be cheaper than what it
+    is subtracted from, or the difference measures the baseline.
+
+    Git for Windows is still needed on Windows, but only for the through-a-shell row: its bash.exe starting its
+    true.exe, which is what a shell-form hook paid. Git Bash is found as Claude Code finds it:
     CLAUDE_CODE_GIT_BASH_PATH when set, otherwise the bash.exe of the Git for Windows that provides git on
     the PATH. Neither present is an error. The hook rows never go through it.
 
@@ -104,10 +111,14 @@ if ($IsWindows) {
     $shellProgram = $gitBash
     # The same true.exe, by the path Git Bash itself knows it by.
     $trueInShell = "/usr/bin/true"
+    # A native program that does nothing (see the header for why not true.exe).
+    $baselineProgram = Join-Path ([Environment]::SystemDirectory) "rundll32.exe"
+    if (-not (Test-Path -LiteralPath $baselineProgram)) { throw "No baseline program at $baselineProgram" }
 } else {
     $trueProgram = "/bin/true"
     $shellProgram = "/bin/sh"
     $trueInShell = $trueProgram
+    $baselineProgram = $trueProgram
 }
 
 function Write-Rules([int]$count, [string]$path) {
@@ -165,12 +176,12 @@ function Session([string]$rulesFile) { @{ CC_SESSION_RULES_FILE = $rulesFile; CC
 try {
     Write-Host "cc-rule-hook: $Hook ($((Get-Item -LiteralPath $Hook).Length) bytes)"
     Write-Host "event: $EventFile"
-    Write-Host "baseline program: $trueProgram; through-a-shell row: $shellProgram -c $trueInShell"
+    Write-Host "baseline program: $baselineProgram; through-a-shell row: $shellProgram -c $trueInShell"
     Write-Host "runs per row: $Runs, on $([Environment]::MachineName), $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription), $([Environment]::ProcessorCount) processors"
     Write-Host ""
 
     # The baseline starts a real program directly, as every hook row does, so the difference is the hook's own work.
-    Measure-Row "baseline" $trueProgram @() @{}
+    Measure-Row "baseline" $baselineProgram @() @{}
     Measure-Row "through a shell" $shellProgram @("-c", $trueInShell) @{}
     Measure-Row "no-session" $Hook @() @{}
     Measure-Row "no-rules-file" $Hook @() (Session (Join-Path $rulesDir "absent.json"))

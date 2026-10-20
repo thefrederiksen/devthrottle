@@ -1,0 +1,25 @@
+command: pwsh -NoProfile -File scripts\measure-rule-hook.ps1 -Hook <run 39421736490 artifact>\cc-rule-hook.exe -Runs 300
+script: this branch, Windows baseline rundll32.exe (uncommitted at run time, committed with this file)
+hook sha256: B859F729889BB6FB40AB214EB16DC8D6D466F564C78C598C8E7291125788758A
+processor load before: 42 percent, after: 28 percent
+
+cc-rule-hook: D:\ReposFred\devthrottle-session-rules-p1-winrows\scripts\local-build-downloads\cc-rule-hook-win-x64\cc-rule-hook.exe (2552832 bytes)
+event: D:\ReposFred\devthrottle-session-rules-winrows-main\src\CcDirector.RuleHook.Tests\Fixtures\claude-code-2.1.302-windows-pretooluse-bash.json
+baseline program: C:\WINDOWS\system32\rundll32.exe; through-a-shell row: C:\Program Files\Git\bin\bash.exe -c /usr/bin/true
+runs per row: 300, on SOREN_NORTH, Microsoft Windows 10.0.26200, 24 processors
+
+baseline         median    6.34 ms   95th percentile   11.04 ms
+through a shell  median   36.58 ms   95th percentile   68.96 ms
+no-session       median   15.53 ms   95th percentile   26.37 ms
+no-rules-file    median   19.00 ms   95th percentile  178.50 ms
+0 rules          median   16.38 ms   95th percentile  125.03 ms
+1 rule           median   18.17 ms   95th percentile  150.11 ms
+50 rules         median   18.34 ms   95th percentile  154.26 ms
+
+decision files written: 604 (expected 604 from the 1-rule and 50-rule rows)
+evaluation log absent: 302 lines, last: 2026-10-20T13:49:26.8171204Z	shell	rules=0	matched=0	no_rules_file	747us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log zero: 302 lines, last: 2026-10-20T13:49:34.3177197Z	shell	rules=0	matched=0	no_match	1077us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log one: 302 lines, last: 2026-10-20T13:49:43.9092999Z	shell	rules=1	matched=1	would_deny	3192us	toolu_01WizwWtYmE55YUkHNxpqfSD
+evaluation log fifty: 302 lines, last: 2026-10-20T13:49:53.3614284Z	shell	rules=50	matched=1	would_deny	2330us	toolu_01WizwWtYmE55YUkHNxpqfSD
+
+exit code: 0
