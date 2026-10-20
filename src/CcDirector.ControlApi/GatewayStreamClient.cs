@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using CcDirector.Core.Boxes;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.GatewayConnection;
 using CcDirector.Core.Machine;
@@ -255,7 +256,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Func<Task>? redialDelay = null,
         Func<string>? secretTransferPublicKey = null,
         Func<IReadOnlyList<HostedDesktopDto>>? hostedDesktops = null,
-        Boxes.IHostedDesktopLookup? hostedDesktopLookup = null)
+        HostedDesktopRegistry? hostedDesktopRegistry = null)
     {
         _hostedDesktops = hostedDesktops;
         _secretTransferPublicKey = secretTransferPublicKey;
@@ -279,9 +280,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         _upStreamHandler = sessionManager is null
             ? null
             : new DirectorUpStreamHandler(sessionManager, (streamId, frames) => _connection!.SendAsync("StreamUp", streamId, frames));
-        // STAND-IN: HostsNoDesktops until the hosted-desktop list task merges and is passed in here.
+        // The relay resolves a box id ONLY through the Director's hosted-desktop list. A client built without one
+        // (tests, older callers) gets an empty list, so every desktop open is refused - and logged - by that list.
         _desktopRelay = new Boxes.DirectorDesktopRelayHandler(
-            hostedDesktopLookup ?? Boxes.HostsNoDesktops.Instance,
+            hostedDesktopRegistry ?? new HostedDesktopRegistry(() => null),
             Boxes.LoopbackDesktopConnector.Instance,
             (streamId, up, ct) => _connection!.StreamAsync<DesktopRelayFrame>(DesktopRelayProtocol.HubMethod, streamId, up, ct),
             TimeProvider.System);

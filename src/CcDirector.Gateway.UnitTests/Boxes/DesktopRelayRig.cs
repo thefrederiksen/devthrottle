@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using CcDirector.ControlApi.Boxes;
+using CcDirector.Core.Boxes;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Boxes;
 using CcDirector.Gateway.Contracts;
@@ -48,7 +49,7 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
     public DesktopRelayRegistry Registry { get; } = new();
     public DirectorDesktopRelayHandler Director { get; private set; } = null!;
     public DesktopRelayLegs Legs { get; private set; } = null!;
-    public FakeHostedDesktops Desktops { get; } = new();
+    public HostedDesktopRegistry Desktops { get; } = TestHostedDesktops.ListOf((BoxId, BoxPort));
     public FakeBoxHosts Hosts { get; } = new();
     public FakeBoxesFeature Feature { get; } = new();
     public RecordingConnector Connector { get; private set; } = null!;
@@ -99,7 +100,6 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
         KeyB = devices.RegisterForTenant(TenantB, "subject-b", "browser-b", "laptop-b", deviceType: "browser").DeviceKey;
         var boundary = new HostedTenantBoundary(_scope, devices, hosted: true);
 
-        Desktops.Ports[BoxId] = BoxPort;
         Hosts.Hosted[(TenantA.Value, BoxId)] = DirectorId;
         Feature.Enabled.Add(TenantA.Value);
         Feature.Enabled.Add(TenantB.Value);
@@ -114,12 +114,12 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
         builder.WebHost.UseTestServer();
         builder.Services.AddRouting();
         var app = builder.Build();
-        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts, Feature, Tickets, Legs, boundary, GatewayAddress);
+        BoxDesktopEndpoints.UseDesktopHost(app, DesktopOrigin, Hosts.LocateDirector, Feature.IsEnabled, Tickets, Legs, boundary, GatewayAddress);
         var gate = new AuthMiddleware.RequireToken { Hosted = true, Token = "", Devices = devices, Boundary = boundary };
         app.Use((ctx, next) => AuthMiddleware.Run(ctx, gate, () => next(ctx)));
         app.MapGet("/healthz", () => "healthy");
         app.MapGet("/sessions", () => "the main host's sessions");
-        BoxDesktopEndpoints.MapTicket(app, DesktopOrigin, Hosts, Feature, Tickets, boundary);
+        BoxDesktopEndpoints.MapTicket(app, DesktopOrigin, Hosts.LocateDirector, Feature.IsEnabled, Tickets, boundary);
         await app.StartAsync();
         _gateway = app;
     }
@@ -226,15 +226,21 @@ internal sealed class DesktopRelayRig : IAsyncDisposable
     }
 }
 
-/// <summary>A hosted-desktop list the test fills: box id to port.</summary>
-internal sealed class FakeHostedDesktops : IHostedDesktopLookup
+/// <summary>The Director's real hosted-desktop list, read from a file's text the test writes instead of from disk.</summary>
+internal static class TestHostedDesktops
 {
-    public ConcurrentDictionary<string, int> Ports { get; } = new();
-    public bool TryResolvePort(string boxId, out int port) => Ports.TryGetValue(boxId, out port);
+    public static HostedDesktopRegistry ListOf(params (string BoxId, int Port)[] desktops)
+    {
+        var entries = string.Join(",", desktops.Select(d => $"{{\"boxId\":\"{d.BoxId}\",\"displayName\":\"{d.BoxId}\",\"port\":{d.Port}}}"));
+        var registry = new HostedDesktopRegistry(() => $"{{\"desktops\":[{entries}]}}");
+        if (!registry.Reload() && registry.LoadError is not null)
+            throw new InvalidOperationException($"the test's hosted-desktop list was refused: {registry.LoadError}");
+        return registry;
+    }
 }
 
 /// <summary>Which Director hosts which box, per account.</summary>
-internal sealed class FakeBoxHosts : IBoxDesktopHosts
+internal sealed class FakeBoxHosts
 {
     public ConcurrentDictionary<(string Tenant, string Box), string> Hosted { get; } = new();
     public ConcurrentQueue<(TenantId Tenant, string Box)> Asked { get; } = new();
@@ -247,7 +253,7 @@ internal sealed class FakeBoxHosts : IBoxDesktopHosts
 }
 
 /// <summary>The Boxes flag, per account.</summary>
-internal sealed class FakeBoxesFeature : IBoxesFeature
+internal sealed class FakeBoxesFeature
 {
     public ConcurrentBag<string> Enabled { get; } = new();
     public bool IsEnabled(TenantId tenant) => Enabled.Contains(tenant.Value);

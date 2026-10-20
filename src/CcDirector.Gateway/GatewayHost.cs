@@ -4826,10 +4826,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Factory Boxes (issue #4258): the desktop host. A box's desktop is served ONLY on that separate site, and that
         // site serves nothing else but /healthz. BEFORE authentication: a request there never carries the Gateway's
         // sign-in (it is another site), and is let in by a box-only cookie instead. Anywhere else, a desktop path is 404.
-        // STAND-INS until the hosted-desktop list task merges (see MapTicket below).
+        // The Boxes gate cannot guard it (it reads the account from the sign-in); the same switch is asked of the box
+        // session's account instead.
         Boxes.BoxDesktopEndpoints.UseDesktopHost(_app, BoxesDesktopOrigin,
-            hosts: Boxes.NoBoxDesktopHosts.Instance,
-            feature: Boxes.BoxesFeatureOff.Instance,
+            locateDirector: (tenant, boxId) => PushedHostedDesktops.TryLocate(tenant, boxId)?.DirectorId,
+            boxesOn: BoxesSwitch.IsOn,
             tickets: BoxDesktopTickets,
             legs: DesktopRelayLegs,
             tenantBoundary: _tenantBoundary,
@@ -5352,12 +5353,13 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantBoundary: _tenantBoundary);
 
         // Factory Boxes (issue #4258), phase 1: the Cockpit's way into a box's desktop - a single-use ticket for the
-        // desktop host (the desktop itself is served there, see UseDesktopHost in the pipeline above). STAND-INS until
-        // the hosted-desktop list task merges: no Director hosts a box and the Boxes flag is off for every tenant, so
-        // this answers 404 everywhere until that task wires its list and its flag in here.
-        Boxes.BoxDesktopEndpoints.MapTicket(_app, BoxesDesktopOrigin,
-            hosts: Boxes.NoBoxDesktopHosts.Instance,
-            feature: Boxes.BoxesFeatureOff.Instance,
+        // desktop host (the desktop itself is served there, see UseDesktopHost in the pipeline above). Inside the Boxes
+        // gate, like every Boxes route on this host.
+        Boxes.BoxDesktopEndpoints.MapTicket(
+            Boxes.BoxesGate.Group(_app, BoxesSwitch, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)),
+            BoxesDesktopOrigin,
+            locateDirector: (tenant, boxId) => PushedHostedDesktops.TryLocate(tenant, boxId)?.DirectorId,
+            boxesOn: BoxesSwitch.IsOn,
             tickets: BoxDesktopTickets,
             tenantBoundary: _tenantBoundary);
 
