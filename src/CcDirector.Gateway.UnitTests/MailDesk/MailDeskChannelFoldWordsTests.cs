@@ -127,7 +127,7 @@ public sealed class MailDeskChannelFoldWordsTests
     [Theory]
     [InlineData(TriggerRunOutcome.NothingToDo)]
     [InlineData(TriggerRunOutcome.Started)]
-    [InlineData(MailDeskChannelFold.ScreenedOutcome)]
+    [InlineData(TriggerRunOutcome.Screened)]
     public void LastCheckTone_CheckDidItsWork_IsGood(string outcome)
     {
         var at = new DateTime(2026, 10, 19, 8, 0, 0, DateTimeKind.Utc);
@@ -158,7 +158,7 @@ public sealed class MailDeskChannelFoldWordsTests
     [Fact]
     public void LastCheckToneOf_EveryTriggerOutcome_HasATone()
     {
-        // Every outcome the trigger contract lists - phase 3's 'screened' included once it lands - is named.
+        // Every outcome the trigger contract lists, 'screened' included, is named.
         var at = new DateTime(2026, 10, 19, 8, 0, 0, DateTimeKind.Utc);
 
         Assert.All(TriggerRunOutcome.All, o => Assert.Contains(MailDeskChannelFold.LastCheckToneOf(at, o),

@@ -42,7 +42,8 @@ but nothing new was started.
 `screened` is phase 3's new outcome. It is not yet in `TriggerRunOutcome` on this branch, so the fold names it as
 `MailDeskChannelFold.ScreenedOutcome = "screened"`; when phase 3 lands it can be replaced by
 `TriggerRunOutcome.Screened`. A trial of this commit on `origin/mail-desk-phase-3` is reported in the commit's
-hand-back message.
+hand-back message. **Done when phase 7 was rebased onto main after phase 3 merged:** the fold and the tests now
+read `TriggerRunOutcome.Screened`, and the stand-in constant is gone.
 
 Tests: `LastCheckTone_CheckDidItsWork_IsGood` (`nothing-to-do`, `started`, `screened`),
 `LastCheckTone_NothingFailedButNothingScreened_IsNeutral` (`paused`, `skipped-running`),

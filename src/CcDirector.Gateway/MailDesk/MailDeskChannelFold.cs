@@ -277,10 +277,6 @@ public sealed class MailDeskChannelFold
         _ => throw new InvalidOperationException($"'{state}' is not a sign-in state."),
     };
 
-    /// <summary>The outcome phase 3 adds to <see cref="TriggerRunOutcome"/>: the Mail Desk screened what the check read.
-    /// Named here so its tone is already decided when phase 3 lands; it becomes <c>TriggerRunOutcome.Screened</c> then.</summary>
-    internal const string ScreenedOutcome = "screened";
-
     /// <summary>
     /// The last check's tone, named for every outcome (review of the Gateway fold, finding F2). No check yet is neutral.
     /// A check that read the mailbox and did its work is good. A paused start, or a check skipped because the last run
@@ -291,7 +287,7 @@ public sealed class MailDeskChannelFold
     {
         TriggerRunOutcome.NothingToDo => Tones.Good,
         TriggerRunOutcome.Started => Tones.Good,
-        ScreenedOutcome => Tones.Good,
+        TriggerRunOutcome.Screened => Tones.Good,
         TriggerRunOutcome.Paused => Tones.Neutral,
         TriggerRunOutcome.SkippedRunning => Tones.Neutral,
         TriggerRunOutcome.Failed => Tones.Bad,
