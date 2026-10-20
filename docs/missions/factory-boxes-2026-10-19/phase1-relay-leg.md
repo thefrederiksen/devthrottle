@@ -212,8 +212,9 @@ server in process, and fake clocks. No Docker, no real port, no sleep, no real c
 | The hosted shape (review finding 1) | The rig's command send drops a command sent with no tenant scope and finds the Director only in the scope's own account, as a hosted Gateway does, so every page, request and socket test above fails if the desktop host does not enter the box session's account (checked: with the scope removed, 18 tests fail). `DesktopPage_OnAHostedGateway_SendsTheOpenInsideTheBoxSessionsAccount` names it. |
 | A close with the window exactly full (review finding 3) | `DesktopRelayPumpWindowEdgeTests.RunAsync_FarSideClosesWithTheWindowExactlyFull_TheEndpointGetsTheFarSidesCloseNotAProtocolFault`, `CostOf_ClosedAndCredit_CostNothing_DataAndHeadCostTheirBytesPlusOverhead` (checked: with the old cost, both fail) |
 
-**The count:** 119 tests in `Gateway.UnitTests/Boxes`, all passing, on this branch and on the merged tree the hosted run
-was built from.
+**The count:** 119 relay tests in `Gateway.UnitTests/Boxes`, all passing, on this branch rebased onto main and on the
+tree the hosted run was built from. With the list's own tests beside them on the rebased branch: 168 in
+`Gateway.UnitTests` (119 relay, 49 list), 48 in `Core.UnitTests`, 6 in `Avalonia.Tests`, all passing.
 
 **The fairness test, with its numbers.** One REAL SignalR connection to the real `DirectorHub` with the Gateway's own hub
 options (MessagePack, the shared stream buffer of 4), carrying a terminal up-stream and a desktop relay stream. The box
@@ -313,9 +314,8 @@ container (`boxes-relay-desktop`, the spike's lockdown flags, `--dns 1.1.1.1`). 
 `teams-test-director` (3000) were not touched.
 
 **The build that ran is this branch merged with the hosted-desktop list branch** (`boxes/phase1-hosted-desktop-list`,
-not yet merged to main) **plus the wiring between them** - so the run used the real list, the real push, the real
-`TryLocate` and the real Boxes switch, not this branch's stand-ins. The wiring is
-`phase1-relay-leg/wiring-after-list-merges.patch`; see "The dependency" below.
+then not yet merged to main) **plus the wiring between them** - so the run used the real list, the real push, the real
+`TryLocate` and the real Boxes switch. That wiring is now this branch's own last commit; see "The dependency" below.
 
 **What the browser did** (`drive-relay.cjs`, headless Chromium build 1223, `relay-capture.json`):
 
@@ -364,21 +364,18 @@ owner's containers and `~/.local/bin` were unchanged.
 
 ## The dependency: the hosted-desktop list
 
-This branch codes against narrow stand-ins, as the brief said, because `boxes/phase1-hosted-desktop-list` has not merged:
-on the Director `IHostedDesktopLookup` (stand-in `HostsNoDesktops`), on the Gateway `IBoxDesktopHosts` and
-`IBoxesFeature` (stand-ins `NoBoxDesktopHosts`, `BoxesFeatureOff`), and a box id rule `DesktopRelayBoxIds`. With the
-stand-ins every desktop request is refused, so merging this branch alone changes nothing a user can reach.
+The relay was first built against narrow stand-ins, as the brief said, while `boxes/phase1-hosted-desktop-list` was
+open. That branch merged as pull request #4271 (`2934dd163`), and this branch was then rebased onto main. The stand-ins
+are deleted; the relay now uses the list's own code: `HostedDesktopRegistry.Resolve` on the Director (the one way from a
+box id to a port), `PushedHostedDesktopStore.TryLocate` and `BoxesSwitch.IsOn` on the Gateway, `BoxIdRule` on both, and
+the ticket route mapped inside `BoxesGate.Group`. The wiring is the branch's last commit, an ordinary one.
 
-`phase1-relay-leg/wiring-after-list-merges.patch` is the wiring, tested: it deletes all four stand-ins and uses
-`HostedDesktopRegistry.Resolve` on the Director, `PushedHostedDesktopStore.TryLocate` and `BoxesSwitch.IsOn` on the
-Gateway, `BoxIdRule` on both, and maps the ticket route inside `BoxesGate.Group`. On the merged tree, the relay's tests
-and the list's tests passed together, 159 of 159, and both end-to-end runs above used it.
-
-**The patch is temporary** (review finding 2). It applies only after the two conflicts a merge of the branches raises
-are resolved one particular way: in `GatewayStreamClient` and in `DirectorHub` both branches add a constructor parameter
-at the same position, and the patch expects both kept, with this branch's `GatewayStreamClient` parameter renamed
-`hostedDesktopLookup`. When pull request #4271 merges, this branch is rebased onto main, the conflicts are resolved for
-real in the rebase, the wiring is made as ordinary commits, and the patch file is deleted.
+**The rebase's two conflicts** (review finding 2), resolved in the rebase itself: `GatewayStreamClient`'s and
+`DirectorHub`'s constructors each gained a parameter at the same position on both branches. Both were kept - on the hub
+the list's `PushedHostedDesktopStore` and the relay's `DesktopRelayRegistry`; on the client the list's push source and
+the relay's `HostedDesktopRegistry`, which `ControlApiHost` passes as the same list it pushes. The interim patch file is
+deleted. Between the list branch the hosted run was built on and what merged, the list's production code is identical
+(only its tests changed), so the hosted run stands for the rebased branch.
 
 One point where the list's contract and this leg differ, raised with the Tech Lead: the contract says the desktop routes
 must be mapped inside `BoxesGate.Group`. They cannot be: that gate reads the account from the Gateway's sign-in, which by
@@ -432,13 +429,12 @@ cookie is checked, so the Boxes switch, the host lookup and the whole relay run 
 drops an unscoped command and finds the Director only in the scope's own account, as a hosted Gateway does, so the
 tests pin the hosted shape: with the scope line removed, 18 of them fail (the reviewer's experiment, kept). And the
 end-to-end proof was re-made on a hosted Gateway (above): no dropped command in its log, the desktop live. Commit
-`c78acc3bb`.
+`c66422a3d`.
 
 **Fable, finding 2 - the wiring patch presupposes an unrecorded conflict resolution. ACCEPTED, resolved by the plan the
-Tech Lead set.** The resolution the patch expects is now written down under "The dependency" (both constructor
-parameters kept, this branch's renamed `hostedDesktopLookup`), and the hosted run's tree was built that way. The patch
-goes away: when #4271 merges, this branch is rebased onto main, the conflicts are resolved in the rebase, the wiring
-becomes ordinary commits, and the patch file is deleted.
+Tech Lead set, and done.** #4271 merged; this branch was rebased onto main, the two conflicts were resolved in the
+rebase (written down under "The dependency"), the wiring is an ordinary commit (`4f91c2831`), and the patch file is
+deleted.
 
 **Fable, finding 3 - a Closed frame is not charged to the window. ACCEPTED, fixed the second way the review offers.**
 A Closed frame now costs nothing, like Credit, on both sides (`DesktopRelayLimits.CostOf`). It is the last frame of a
@@ -446,7 +442,7 @@ stream and carries no data to hold, and the sender already sends it without wait
 the receiver makes the two sides agree. Charging it instead would have made a close wait for credit from a far side
 that may be stalled, which is the very moment a close must get through. A test fills the window exactly (21 full frames
 and one of 14,976 bytes, 1,048,576 bytes in all) with the browser stalled, then closes with 4001: the browser gets
-4001 and the far side's reason, not 1011. With the old cost it fails. Commit `e938d29e5`.
+4001 and the far side's reason, not 1011. With the old cost it fails. Commit `34dcfef01`.
 
 **Fable's observations.**
 - *No browser header reaches the box's WebSocket upgrade, though a comment says a Selkies token cookie "still reaches
@@ -455,11 +451,10 @@ and one of 14,976 bytes, 1,048,576 bytes in all) with the browser stalled, then 
   served on the Gateway's own origin; corrected too.
 - *The traffic meter does not attribute desktop bytes to the account.* True, and accepted for phase 1: the relay's own
   per-stream and per-box usage lines are the record of desktop spend, as the spend line asked.
-- *The ticket route applies the Boxes switch itself rather than through `BoxesGate.Group` until the wiring.* As the
-  reviewer says, the wiring moves it inside the group; the desktop host stays outside it (accepted by the Tech Lead).
+- *The ticket route applies the Boxes switch itself rather than through `BoxesGate.Group` until the wiring.* Done in
+  the wiring: the ticket route is mapped inside the group; the desktop host stays outside it (accepted by the Tech Lead).
 
 **The list review's observation 1 - a refused desktop request must log the cleaned box id, never the raw path.
-ACCEPTED, done.** A box id that fails the rule is logged through the cleaning (`DesktopRelayBoxIds.ForLog` now, the
-same body as `BoxIdRule.ForLog`, which replaces it at the rebase), and the desktop host's refusal of any other route
+ACCEPTED, done.** A box id that fails the rule is logged through `BoxIdRule.ForLog`, and the desktop host's refusal of any other route
 writes, for a path under `/boxes/`, only the cleaned box id (`POST /boxes/ (box=relay-proof)`), never the path as
 received. Every other box id the relay logs has already passed the rule.
