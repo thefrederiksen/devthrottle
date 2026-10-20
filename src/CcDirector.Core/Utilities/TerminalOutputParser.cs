@@ -125,15 +125,21 @@ public static partial class TerminalOutputParser
         FileLog.Write($"[TerminalOutputParser] WriteDump: wrote {sb.Length} chars to {filePath}");
     }
 
+    // Every pattern here carries a match timeout (CodingStyle, Regex Safety). It is ONE SECOND, not the 100 ms it
+    // was: the timeout is wall-clock time, and a busy machine spent more than 100 ms matching a 60-character test
+    // input (continuous integration on main, 20 October 2026), which would throw on real terminal output just the
+    // same. None of these patterns can backtrack badly; the timeout is the guard for input nobody foresaw.
+    private const int MatchTimeoutMilliseconds = 1000;
+
     // OSC 8 hyperlink: ESC]8;params;URL (BEL|ESC\) display_text ESC]8;; (BEL|ESC\)
-    [GeneratedRegex(@"\x1B\]8;[^;]*;([^\x07\x1B]*?)(?:\x07|\x1B\\)(.*?)\x1B\]8;;(?:\x07|\x1B\\)", RegexOptions.None, 100)]
+    [GeneratedRegex(@"\x1B\]8;[^;]*;([^\x07\x1B]*?)(?:\x07|\x1B\\)(.*?)\x1B\]8;;(?:\x07|\x1B\\)", RegexOptions.None, MatchTimeoutMilliseconds)]
     private static partial Regex Osc8Regex();
 
     // All remaining ANSI: CSI sequences, OSC sequences, two-char escapes
-    [GeneratedRegex(@"\x1B\[[\?>]?[0-9;]*[A-Za-z]|\x1B\][^\x07]*\x07|\x1B\].*?\x1B\\|\x1B[A-Za-z=<>]", RegexOptions.None, 100)]
+    [GeneratedRegex(@"\x1B\[[\?>]?[0-9;]*[A-Za-z]|\x1B\][^\x07]*\x07|\x1B\].*?\x1B\\|\x1B[A-Za-z=<>]", RegexOptions.None, MatchTimeoutMilliseconds)]
     private static partial Regex AnsiSequenceRegex();
 
     // Three or more consecutive newlines
-    [GeneratedRegex(@"(\r?\n){3,}", RegexOptions.None, 100)]
+    [GeneratedRegex(@"(\r?\n){3,}", RegexOptions.None, MatchTimeoutMilliseconds)]
     private static partial Regex BlankLineRegex();
 }
