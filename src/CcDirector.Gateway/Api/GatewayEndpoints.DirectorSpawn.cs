@@ -23,7 +23,9 @@ internal sealed record DirectorSpawnDoor(
     // definition version, for the account the request is bound to. A door without the first refuses every seat start;
     // a door without the second refuses a seat's child on an agent that cannot take rules. Neither ever lets one by.
     Streaming.FactoryKitCapabilityRegistry? KitCapabilities = null,
-    Func<Core.Tenancy.TenantId, Factory.Definition.SeatRulesReader>? SeatRulesFor = null);
+    Func<Core.Tenancy.TenantId, Factory.Definition.SeatRulesReader>? SeatRulesFor = null,
+    // The clock a refused reopen's claim is judged by (the #4257 review): the real one when null; a test injects its own.
+    TimeProvider? Clock = null);
 
 /// <summary>The answer of one create: the session the Director started, or the refusal to hand the caller.</summary>
 internal sealed record DirectorSpawnOutcome(SessionDto? Session, IResult? Refusal)
@@ -34,6 +36,32 @@ internal sealed record DirectorSpawnOutcome(SessionDto? Session, IResult? Refusa
 
 internal static partial class GatewayEndpoints
 {
+    /// <summary>
+    /// A v2.23 or v2.24 Director reopening its own API-mode seat after a restart claims the seat on the record before it
+    /// sends this create, and never gives the claim back (the #4257 review, finding 2). The guard has just refused the
+    /// create and nothing was started, so the claim is given back here, and the seat is offered again once the Director is
+    /// new enough. Only for a reopen - a conversation to resume, no restore claim - sent by that Director itself, on the
+    /// credential it is connected on. The refusal stands whatever happens here.
+    /// </summary>
+    private static void ReleaseRefusedReopenClaim(HttpContext ctx, NewSessionRequest req, DirectorDto d,
+        Core.Tenancy.TenantId tenant, DirectorSpawnDoor door, string spawnRoute)
+    {
+        if (door.Workspaces is null || req.RestoreClaim is not null || string.IsNullOrWhiteSpace(req.ResumeSessionId)) return;
+        if (!WorkspaceEndpoints.IsDirectorCredential(ctx)
+            || !door.Registry.IsRegisteredByCredential(tenant, d.DirectorId, AuthMiddleware.RegisteringCredential(ctx)))
+            return;
+        try
+        {
+            var released = door.Workspaces.ReleaseRefusedReopenClaim(d.DirectorId, req.ResumeSessionId,
+                (door.Clock ?? TimeProvider.System).GetUtcNow().UtcDateTime);
+            FileLog.Write($"[GatewayEndpoints] {spawnRoute}: API mode refused; reopen claim given back: {released ?? "none held"}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayEndpoints] {spawnRoute}: API mode refused; giving back the reopen claim FAILED: {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// Start one session on Director <paramref name="id"/> for the calling person or session: the whole of
     /// <c>POST /directors/{id}/sessions</c>, the door a person's New Session uses. It settles who is asking, which
@@ -123,7 +151,10 @@ internal static partial class GatewayEndpoints
         // AND API MODE GOES ONLY TO A DIRECTOR THAT CAN START IT (API mode mission, phase 6 review, finding 1). An older
         // Director drops the connection mode and starts the terminal without a word - refused here, before anything starts.
         if (ConnectionChoiceFold.DirectorCannotCarry(req, d) is { } noApiMode)
+        {
+            ReleaseRefusedReopenClaim(ctx, req, d, spawnTenant.Value, door, spawnRoute);
             return DirectorSpawnOutcome.Refused(Results.Json(new { error = noApiMode }, statusCode: StatusCodes.Status409Conflict));
+        }
 
         // AND A SEAT START GOES ONLY TO A DIRECTOR THAT BUILDS THE KIT (Factory Definition mission, phase 5). This is the
         // door the talk takes, so it is where a talk with a seat is refused on an older Director - before anything starts.

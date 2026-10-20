@@ -678,6 +678,69 @@ public sealed class WorkspaceStore
         return recorded;
     }
 
+    /// <summary>How recent a reopen claim must be for <see cref="ReleaseRefusedReopenClaim"/> to give it back. A reopen
+    /// writes its claim and sends its create straight after, so the claim of the create being refused is seconds old; an
+    /// older unfilled claim is a start whose answer never came back, and that one stays claimed (product issue 3230).</summary>
+    public static readonly TimeSpan RefusedReopenClaimWindow = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// GIVE BACK THE REOPEN CLAIM OF AN API-MODE SEAT WHOSE CREATE THE GATEWAY REFUSED (the #4257 review, finding 2). A
+    /// released v2.23 or v2.24 Director claims a seat on the record before it sends the reopen's create, and never gives
+    /// the claim back. When the API mode guard refuses that create, nothing was started, so the claim would only hide the
+    /// seat from every later offer - even after the Director is updated. The create names no workspace, so the claim is
+    /// found by what it does carry: the conversation it resumes. Released only when every one of these holds: the claim
+    /// is <paramref name="directorId"/>'s, it names no session yet, it is no older than
+    /// <see cref="RefusedReopenClaimWindow"/>, the seat ran in API mode, and its saved conversation is
+    /// <paramref name="resumeSessionId"/>. Of several, the newest. Returns "workspace/seat" of the claim given back, or
+    /// null when there was none.
+    /// </summary>
+    public string? ReleaseRefusedReopenClaim(string directorId, string resumeSessionId, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(directorId) || string.IsNullOrWhiteSpace(resumeSessionId)) return null;
+        var at = nowUtc.ToUniversalTime();
+
+        bool IsTheRefusedClaim(WorkspaceSeat seat)
+            => seat.Restore is { ReopenedAtUtc: { } claimedAt } restore
+               && string.IsNullOrWhiteSpace(restore.ReopenedSessionId)
+               && string.Equals(restore.ReopenedByDirectorId, directorId, StringComparison.OrdinalIgnoreCase)
+               && claimedAt <= at && at - claimedAt <= RefusedReopenClaimWindow
+               && seat.ConnectionMode == ConnectionModes.Api
+               && string.Equals(seat.ClaudeSessionId, resumeSessionId, StringComparison.OrdinalIgnoreCase);
+
+        lock (_gate)
+        {
+            List<WorkspaceEntity> rows;
+            using (var ctx = _db.CreateContext())
+                rows = ctx.Workspaces.AsNoTracking().ToList();
+
+            var claim = rows
+                .SelectMany(row => Deserialize(row).Seats.Where(IsTheRefusedClaim).Select(seat => (WorkspaceId: row.Id, Seat: seat)))
+                .OrderByDescending(c => c.Seat.Restore!.ReopenedAtUtc)
+                .Select(c => (c.WorkspaceId, SeatId: c.Seat.SessionId))
+                .FirstOrDefault();
+            if (claim.WorkspaceId is null)
+            {
+                FileLog.Write($"[WorkspaceStore] ReleaseRefusedReopenClaim: director={directorId}, resume={resumeSessionId}: no such claim");
+                return null;
+            }
+
+            var released = false;
+            MutateStored(claim.WorkspaceId, at, doc =>
+            {
+                var seat = doc.Seats.FirstOrDefault(x => string.Equals(x.SessionId, claim.SeatId, StringComparison.OrdinalIgnoreCase));
+                if (seat is null || !IsTheRefusedClaim(seat)) return false;
+                seat.Restore!.ReopenedAtUtc = null;
+                seat.Restore.ReopenedByDirectorId = null;
+                seat.Restore.ReopenedSessionId = null;
+                released = true;
+                return true;
+            });
+            FileLog.Write($"[WorkspaceStore] ReleaseRefusedReopenClaim: director={directorId}, resume={resumeSessionId}, " +
+                          $"workspace={claim.WorkspaceId}, seat={claim.SeatId}, released={released}");
+            return released ? $"{claim.WorkspaceId}/{claim.SeatId}" : null;
+        }
+    }
+
     /// <summary>
     /// Read the stored document, let <paramref name="change"/> alter it, and write it back when it returns true -
     /// all under the write lock, validated like every other write. Returns the stored document.
