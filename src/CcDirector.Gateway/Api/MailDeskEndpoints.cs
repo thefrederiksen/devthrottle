@@ -20,7 +20,8 @@ namespace CcDirector.Gateway.Api;
 /// body, exactly as if it were not mapped.
 ///
 ///   GET  /gateway/mail-desk/status               the switch, the rules version, every channel row, and today's counts
-///   GET  /gateway/mail-desk/channels             the channel rows (?all=true also lists removed ones)
+///   GET  /gateway/mail-desk/channels             the channel rows (?all=true also lists removed ones), and the Mail Desk
+///                                                page's title, summary and empty sentence (phase 7)
 ///   POST /gateway/mail-desk/channels             add a channel: { address, provider, machines, why }
 ///   POST /gateway/mail-desk/channels/remove      remove one, keeping it and its decisions: { address, why }
 ///   POST /gateway/mail-desk/channels/mode        switch its mode: { address, mode, why }
@@ -143,7 +144,14 @@ internal static class MailDeskEndpoints
         if (!TryFlag(ctx, "all", route, out var all, out var bad)) return bad!;
         var folded = parts.Fold.Fold(tenant, parts.Channels.List(tenant, includeRemoved: all), parts.NowUtc());
         FileLog.Write($"[{Tag}] {route}: account={tenant.ToLogString()} all={all} count={folded.Channels.Count}");
-        return Results.Json(new { count = folded.Channels.Count, channels = folded.Channels });
+        return Results.Json(new
+        {
+            count = folded.Channels.Count,
+            channels = folded.Channels,
+            title = MailDeskChannelFold.PageTitle,
+            summary = MailDeskChannelFold.PageSummary,
+            emptyLabel = MailDeskChannelFold.PageEmptyLabel,
+        });
     }
 
     internal static IResult ReadRules(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, Parts parts)
