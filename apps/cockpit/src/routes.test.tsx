@@ -24,6 +24,7 @@ vi.mock("./sessions/SessionsView", () => ({ SessionsView: () => <Outlet />, Sess
 vi.mock("./fleet/FleetMapView", () => ({ FleetMapView: () => <div>fleet map page</div> }));
 vi.mock("./fleetmanager/WalkthroughView", () => ({ WalkthroughView: () => <div>walkthrough page</div> }));
 vi.mock("./licenses/LicensesView", () => ({ LicensesView: () => <div>licenses page</div> }));
+vi.mock("./maildesk/MailDeskView", () => ({ MailDeskView: () => <div>mail desk page</div> }));
 
 import { COCKPIT_ROUTES } from "./routes";
 
@@ -75,6 +76,14 @@ describe("Cockpit routes", () => {
 
     expect(await screen.findByText("licenses page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/licenses");
+  });
+
+  // The Mail Desk (Mail Desk mission, phase 7): the same address as on the phone, so one link opens it on either.
+  it("serves the Mail Desk at its own address", async () => {
+    renderAt("/mail-desk");
+
+    expect(await screen.findByText("mail desk page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/mail-desk");
   });
 
   it("still serves the Fleet Map at its own address", async () => {
