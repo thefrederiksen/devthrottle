@@ -98,49 +98,23 @@ internal static class SessionRuleWire
     /// <summary>
     /// Create a rule from a POST /gateway/rules body. A body with no <c>kind</c> is a screen rule, read exactly
     /// as before - the September body keeps working unchanged. A hook rule is <c>"kind": "hook"</c> with
-    /// <c>appliesTo</c>, <c>event</c>, <c>tool</c>, <c>handler</c>, <c>match</c> and <c>result</c>.
+    /// <c>appliesTo</c>, <c>event</c>, <c>tool</c>, <c>handler</c>, <c>match</c> and <c>result</c>. The body is read
+    /// by <see cref="ReadDraft"/>, the reader a change goes through too.
     /// </summary>
     /// <exception cref="RuleRejectedException">The body is not a rule that can be stored; the reason says why.</exception>
     internal static SessionRule CreateFromBody(SessionRuleStore store, JsonElement body, DateTime nowUtc, RuleChangeActor actor)
     {
-        var kind = ReadKind(body);
-        switch (kind)
+        var draft = ReadDraft(body);
+        if (string.Equals(draft.Kind, RuleKinds.Hook, StringComparison.Ordinal))
         {
-            case RuleKinds.Screen:
-                return store.Create(
-                    RuleCallJson.Text(body, "instruction") ?? "",
-                    RuleCallJson.Text(body, "screenDescription") ?? "",
-                    Strings(body, "triggerWords"),
-                    Calls(body),
-                    ReadScope(body),
-                    Number(body, "cooldownSeconds"),
-                    Number(body, "dailyCap"),
-                    nowUtc,
-                    actor,
-                    ReadAppliesTo(body));
-
-            case RuleKinds.Hook:
-                RefuseScreenFieldsOnAHookRule(body);
-                return store.CreateHook(
-                    RuleCallJson.Text(body, "instruction") ?? "",
-                    ReadAppliesTo(body),
-                    RuleCallJson.Text(body, "event") ?? "",
-                    RuleCallJson.Text(body, "tool") ?? "",
-                    RuleCallJson.Text(body, "handler") ?? "",
-                    Strings(body, "match"),
-                    RuleCallJson.Text(body, "result") ?? "",
-                    nowUtc,
-                    actor);
-
-            case RuleKinds.SessionStart:
-                throw new RuleRejectedException(
-                    "session start rules are not built yet - they arrive in phase 5.");
-
-            default:
-                throw new RuleRejectedException(
-                    $"'{kind}' is not a kind of rule this build knows. A rule is one of: " +
-                    string.Join(", ", RuleKinds.All) + ".");
+            var hook = draft.Hook!;
+            return store.CreateHook(
+                draft.Instruction, draft.AppliesTo, hook.Event, hook.Tool, hook.Handler, hook.Match, hook.Result, nowUtc, actor);
         }
+
+        return store.Create(
+            draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
+            draft.CooldownSeconds, draft.DailyCap, nowUtc, actor, draft.AppliesTo);
     }
 
     /// <summary>The rule's kind; a body that does not say is a screen rule, which is what every rule was before
@@ -187,6 +161,20 @@ internal static class SessionRuleWire
                 throw new RuleRejectedException(
                     $"a hook rule has no {bound} - it is decided by the hook on every command it polices, and a " +
                     "bound written here would be stored as nothing.");
+    }
+
+    /// <summary>
+    /// A hook rule's fields mean nothing for a screen rule, so a screen body carrying them is refused rather than
+    /// stored with them quietly dropped - the same reasoning as <see cref="RefuseScreenFieldsOnAHookRule"/>, and
+    /// what stops a change from laying a hook rule's trigger over a screen rule and being told it changed nothing.
+    /// </summary>
+    private static void RefuseHookFieldsOnAScreenRule(JsonElement body)
+    {
+        foreach (var field in new[] { "event", "tool", "handler", "match", "result" })
+            if (body.TryGetProperty(field, out _))
+                throw new RuleRejectedException(
+                    $"a screen rule reads the screen, so it has no {field} - a hook event, tool, handler, match text " +
+                    "and result belong to a hook rule. A rule that listens to a hook is a hook rule.");
     }
 
     /// <summary>
@@ -427,17 +415,57 @@ internal static class SessionRuleWire
 
     /// <summary>
     /// A WRITE, READ ONCE. Create and change both read their body here, so the two cannot come to disagree about
-    /// what a field means - and a field the create learns to read is read by the change in the same edit.
+    /// what a field means - and a field the create learns to read is read by the change in the same edit. The kind
+    /// decides which fields the body is read for, and a field of the other kind is refused with the reason.
     /// </summary>
-    /// <exception cref="RuleRejectedException">The checks are not a list of checks; the reason says why.</exception>
-    internal static SessionRuleDraft ReadDraft(JsonElement body) => new(
-        RuleCallJson.Text(body, "instruction") ?? "",
-        RuleCallJson.Text(body, "screenDescription") ?? "",
-        Strings(body, "triggerWords"),
-        Calls(body),
-        ReadScope(body),
-        Number(body, "cooldownSeconds"),
-        Number(body, "dailyCap"));
+    /// <exception cref="RuleRejectedException">The kind is not one that can be written, or the body carries a field
+    /// its kind cannot have, or the checks are not a list of checks; the reason says which.</exception>
+    internal static SessionRuleDraft ReadDraft(JsonElement body)
+    {
+        var kind = ReadKind(body);
+        switch (kind)
+        {
+            case RuleKinds.Screen:
+                RefuseHookFieldsOnAScreenRule(body);
+                return new SessionRuleDraft(
+                    RuleCallJson.Text(body, "instruction") ?? "",
+                    RuleCallJson.Text(body, "screenDescription") ?? "",
+                    Strings(body, "triggerWords"),
+                    Calls(body),
+                    ReadScope(body),
+                    Number(body, "cooldownSeconds"),
+                    Number(body, "dailyCap"))
+                {
+                    Kind = RuleKinds.Screen,
+                    AppliesTo = ReadAppliesTo(body),
+                };
+
+            case RuleKinds.Hook:
+                RefuseScreenFieldsOnAHookRule(body);
+                return new SessionRuleDraft(
+                    RuleCallJson.Text(body, "instruction") ?? "",
+                    "", Array.Empty<string>(), Array.Empty<RulePrimitiveCall>(), null, 0, 0)
+                {
+                    Kind = RuleKinds.Hook,
+                    AppliesTo = ReadAppliesTo(body),
+                    Hook = new HookRuleTrigger(
+                        RuleCallJson.Text(body, "event") ?? "",
+                        RuleCallJson.Text(body, "tool") ?? "",
+                        RuleCallJson.Text(body, "handler") ?? "",
+                        Strings(body, "match"),
+                        RuleCallJson.Text(body, "result") ?? ""),
+                };
+
+            case RuleKinds.SessionStart:
+                throw new RuleRejectedException(
+                    "session start rules are not built yet - they arrive in phase 5.");
+
+            default:
+                throw new RuleRejectedException(
+                    $"'{kind}' is not a kind of rule this build knows. A rule is one of: " +
+                    string.Join(", ", RuleKinds.All) + ".");
+        }
+    }
 
     /// <summary>
     /// A CHANGE IS THE RULE'S CURRENT BODY WITH THE CALLER'S FIELDS LAID OVER IT, read back through
@@ -469,7 +497,9 @@ internal static class SessionRuleWire
                 throw new RuleRejectedException(
                     $"'{field.Name}' is not changed by a change. A rule is moved out of dry run by promote, and " +
                     "any change puts it back in dry run.");
-            if (!merged.ContainsKey(field.Name))
+            if (field.Name == "kind") RefuseAChangeOfKind(current, field.Value);
+            // A field of ANOTHER kind is laid over too, so the create's reader refuses it with the create's reason.
+            if (!merged.ContainsKey(field.Name) && !SessionRuleBody.FieldsOfEveryKind.Contains(field.Name))
                 throw new RuleRejectedException(
                     $"'{field.Name}' is not a field a change can carry. A change carries: {string.Join(", ", changeable)}.");
             merged[field.Name] = JsonNode.Parse(field.Value.GetRawText());
@@ -481,6 +511,24 @@ internal static class SessionRuleWire
 
         using var document = JsonDocument.Parse(merged.ToJsonString());
         return ReadDraft(document.RootElement.Clone());
+    }
+
+    /// <summary>
+    /// A RULE'S KIND CANNOT BE CHANGED (ruling P18). A screen rule and a hook rule are different instructions, so a
+    /// change naming another kind is refused with what to do instead. Naming the kind the rule already has changes
+    /// nothing and is let through.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The kind named is not text, or is not the rule's kind.</exception>
+    private static void RefuseAChangeOfKind(SessionRule current, JsonElement kind)
+    {
+        if (kind.ValueKind != JsonValueKind.String)
+            throw new RuleRejectedException(
+                "a rule's kind is text - one of: " + string.Join(", ", RuleKinds.All) + ".");
+        var asked = (kind.GetString() ?? "").Trim();
+        if (string.Equals(asked, current.Kind, StringComparison.Ordinal)) return;
+        throw new RuleRejectedException(
+            $"a rule's kind cannot be changed: this is a {current.Kind} rule, and a {current.Kind} rule and a " +
+            $"{asked} rule are different instructions. Delete this one and create the {asked} rule instead.");
     }
 
     /// <summary>One recorded change, as the account reads it. Before and after are the rule's body and state as

@@ -5510,7 +5510,12 @@ def rules_main(
 _RULE_REF_HELP = "The rule: its id, or an unambiguous start of it."
 _BODY_HELP = (
     "Any fields of the rule as one JSON object, e.g. '{\"dailyCap\": 3}'. The flags below are laid over it. "
-    "Fields: instruction, screenDescription, triggerWords, checks, scope, cooldownSeconds, dailyCap."
+    "A screen rule: instruction, screenDescription, triggerWords, checks, scope, cooldownSeconds, dailyCap, appliesTo. "
+    "A hook rule: kind, instruction, appliesTo, event, tool, handler, match, result."
+)
+_APPLIES_TO_HELP = (
+    "Where the rule applies: everywhere, or key=value pairs, e.g. "
+    "kind=repo_on_machine,repo=github.com/acme/app,machines=devlinux;laptop. A screen rule applies everywhere."
 )
 
 
@@ -5520,10 +5525,10 @@ def rules_list(
     state: Optional[str] = typer.Option(None, "--state", help="Show only this state: dry_run or live."),
     fields: Optional[str] = typer.Option(
         None, "--fields",
-        help="Fields to show, comma separated. Default: id,state,scope,instruction. Valid: "
+        help="Fields to show, comma separated. Default: id,state,kind,scope,instruction. Valid: "
         + ", ".join(rule_ops.RULE_LIST_FIELDS) + "."),
 ) -> None:
-    """List this account's rules, newest first: id, state, scope and instruction."""
+    """List this account's rules, newest first: id, state, kind, scope and instruction."""
     rule_ops.list_rules(json_output, state, fields)
 
 
@@ -5547,6 +5552,13 @@ def rules_create(
     scope: Optional[str] = typer.Option(None, "--scope", help="all-sessions, or key=value pairs, e.g. repository=github.com/acme/app,machine=devlinux."),
     cooldown: Optional[str] = typer.Option(None, "--cooldown", help="Wait before acting on the same session again: 90s, 5m, 1h."),
     daily_cap: Optional[int] = typer.Option(None, "--daily-cap", help="Most times a day it may act on one session."),
+    kind: Optional[str] = typer.Option(None, "--kind", help="screen (the default) or hook: a rule the agent's own hook asks before a command."),
+    applies_to: Optional[str] = typer.Option(None, "--applies-to", help=_APPLIES_TO_HELP),
+    event: Optional[str] = typer.Option(None, "--event", help="A hook rule's event: before_command."),
+    tool: Optional[str] = typer.Option(None, "--tool", help="A hook rule's tool: shell."),
+    handler: Optional[str] = typer.Option(None, "--handler", help="A hook rule's handler: match."),
+    match: Optional[List[str]] = typer.Option(None, "--match", help="Text a command contains for a hook rule to match; repeat for more."),
+    result: Optional[str] = typer.Option(None, "--result", help="What a hook rule decides: deny or allow."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
     """Create a rule. It always starts in dry run.
@@ -5554,7 +5566,8 @@ def rules_create(
     In dry run it records what it would do and types nothing.
     """
     rule_ops.create(
-        rule_ops.build_body(body, body_file, instruction, screen_description, trigger_word, checks, scope, cooldown, daily_cap),
+        rule_ops.build_body(body, body_file, instruction, screen_description, trigger_word, checks, scope, cooldown, daily_cap,
+                            kind, applies_to, event, tool, handler, match, result),
         json_output)
 
 
@@ -5570,12 +5583,22 @@ def rules_change(
     scope: Optional[str] = typer.Option(None, "--scope", help="all-sessions, or key=value pairs."),
     cooldown: Optional[str] = typer.Option(None, "--cooldown", help="90s, 5m, 1h."),
     daily_cap: Optional[int] = typer.Option(None, "--daily-cap", help="Most times a day it may act on one session."),
+    applies_to: Optional[str] = typer.Option(None, "--applies-to", help=_APPLIES_TO_HELP),
+    event: Optional[str] = typer.Option(None, "--event", help="A hook rule's event."),
+    tool: Optional[str] = typer.Option(None, "--tool", help="A hook rule's tool."),
+    handler: Optional[str] = typer.Option(None, "--handler", help="A hook rule's handler."),
+    match: Optional[List[str]] = typer.Option(None, "--match", help="Replace a hook rule's match text; repeat for more."),
+    result: Optional[str] = typer.Option(None, "--result", help="A hook rule's result: deny or allow."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Change some fields of a rule and keep the rest. The rule goes back to dry run."""
+    """Change some fields of a rule and keep the rest. The rule goes back to dry run.
+
+    A rule's kind cannot be changed: delete it and create the other kind instead.
+    """
     rule_ops.change(
         rule,
-        rule_ops.build_body(body, body_file, instruction, screen_description, trigger_word, checks, scope, cooldown, daily_cap),
+        rule_ops.build_body(body, body_file, instruction, screen_description, trigger_word, checks, scope, cooldown, daily_cap,
+                            None, applies_to, event, tool, handler, match, result),
         json_output)
 
 

@@ -204,6 +204,14 @@ internal static class SessionRuleRecordRules
                 $"a hook rule's result is '{HookRuleWords.Deny}' or '{HookRuleWords.Allow}' in phase 1, and this " +
                 $"one says '{rule.HookResult}'. Telling the agent and asking the owner arrive in phase 4 and 5.");
 
+        // The ceilings bound how often a screen rule ACTS on a session. A phase 1 hook rule acts on nothing - it
+        // records what it would have decided - so a bound on one would be stored as nothing at all. Held here as
+        // well as on the create body, so a change, or a write round the store, meets it too (ruling P18).
+        if (rule.CooldownSeconds != 0 || rule.DailyCap != 0)
+            throw new RuleRejectedException(
+                "a hook rule has no cooldownSeconds and no dailyCap - it is decided by the hook on every command it " +
+                "polices, and a bound written on it would be stored as nothing.");
+
         // Live hook rules arrive in phase 4. The gate refuses one however it was written, so dry run is a
         // property of the store rather than of the route that happened to write the row.
         if (string.Equals(rule.State, LiveValue, StringComparison.Ordinal))

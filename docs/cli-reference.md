@@ -2416,8 +2416,10 @@ USAGE: cc-devthrottle rules [--gateway URL] COMMAND [ARGS]...
   show      RULE [--json]
   create    [--body JSON | --file PATH] [--instruction TEXT] [--screen-description TEXT]
             [--trigger-word WORD]... [--checks JSON-LIST] [--scope all-sessions|key=value,...]
-            [--cooldown 90s|5m|1h] [--daily-cap N] [--json]
-  change    RULE [the same fields as create] [--json]
+            [--cooldown 90s|5m|1h] [--daily-cap N]
+            [--kind screen|hook] [--applies-to everywhere|key=value,...] [--event before_command]
+            [--tool shell] [--handler match] [--match TEXT]... [--result deny|allow] [--json]
+  change    RULE [the same fields as create, except --kind] [--json]
   promote   RULE --acknowledgement TEXT [--json]
   delete    RULE --yes [--json]
   history   [RULE] [--session ID|me] [--action create|change|promote|delete] [--count N]
@@ -2427,6 +2429,15 @@ USAGE: cc-devthrottle rules [--gateway URL] COMMAND [ARGS]...
 `RULE` is a rule's id or an unambiguous start of it (`history` of a deleted rule needs the full id).
 
 - A rule is ALWAYS created in dry run: it records what it would do and types nothing.
+- A rule is a SCREEN rule (the default: it reads an idle session's screen) or a HOOK rule (`--kind hook`: the
+  agent's own hook asks it before a command). A hook rule says where it applies with `--applies-to` -
+  `everywhere`, or `kind=machine,machines=a;b`, `kind=machine,exceptMachines=a`, `kind=repo,repo=<remote>`,
+  `kind=repo_on_machine,repo=<remote>,machines=a;b` - and has `--event`, `--tool`, `--handler`, one or more
+  `--match` texts and a `--result`; it has no screen fields, no `--scope`, no cooldown and no daily cap. A
+  screen rule applies everywhere. `list` shows each rule's `kind` (a hook rule's `scope` is `-`), and `show`
+  shows each kind's own fields. A hook rule cannot be promoted yet: it stays in dry run.
+- A rule's kind cannot be changed - delete it and create the other kind. A change meets the same checks a
+  create does, for each kind.
 - `change` sends only the fields it is given; the Gateway keeps every other field. `--body` takes any field of
   the rule as JSON, so a field the Gateway adds can be changed before this command learns its name. A field the
   rule does not have is refused, naming the fields it does have. **Any change puts the rule back in dry run**,

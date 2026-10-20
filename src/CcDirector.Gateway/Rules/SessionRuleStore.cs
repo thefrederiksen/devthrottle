@@ -146,8 +146,10 @@ public sealed class SessionRuleStore : IRuleReading
     }
 
     /// <summary>
-    /// Change a rule's body: its instruction, screen description, trigger words, checks, scope and ceilings -
-    /// the same fields a create takes, checked the same way.
+    /// Change a rule's body - the same fields a create of its kind takes, checked the same way: for a screen rule
+    /// its instruction, screen description, trigger words, checks, scope, ceilings and where it applies; for a hook
+    /// rule its instruction, where it applies, and its event, tool, handler, match text and result (ruling P18).
+    /// Its kind is not one of them: a change naming another kind is refused.
     ///
     /// A CHANGED RULE GOES BACK TO DRY RUN. Dry run is what puts a person between a standing instruction and the
     /// first time it types anything, and a changed instruction is one nobody has yet watched behave - so the
@@ -186,28 +188,56 @@ public sealed class SessionRuleStore : IRuleReading
             var draft = merge(before)
                 ?? throw new InvalidOperationException("a change's merge answered no rule.");
 
-            // The same refusal a create gives, for the same reason: an omitted scope is not "every session".
-            if (draft.Scope is null)
-                throw new RuleRejectedException(
-                    "a rule has to say which sessions it may act on. Every session is a choice you can make, " +
-                    "but it is a choice - a rule that did not say is not read as meaning all of them.");
-            var (instruction, screenDescription, triggerWords, calls, scope, cooldownSeconds, dailyCap) =
-                (draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
-                 draft.CooldownSeconds, draft.DailyCap);
+            // A RULE'S KIND IS WHAT IT IS (ruling P18): a screen rule and a hook rule are different instructions.
+            // The change reader refuses a body naming another kind; this refuses a merge that answered one anyway,
+            // and the write gate refuses the row whichever route wrote it.
+            if (!string.Equals(draft.Kind, entity.Kind, StringComparison.Ordinal))
+            {
+                var reason =
+                    $"a rule's kind cannot be changed: this is a {entity.Kind} rule, and this change makes it a " +
+                    $"{draft.Kind} rule. Delete it and create the {draft.Kind} rule instead.";
+                FileLog.Write($"[SessionRuleStore] Change REFUSED: {reason}");
+                throw new RuleRejectedException(reason);
+            }
 
-            entity.Instruction = (instruction ?? "").Trim();
-            entity.ScreenDescription = (screenDescription ?? "").Trim();
-            entity.TriggerWords = (triggerWords ?? Array.Empty<string>())
-                .Select(w => (w ?? "").Trim())
-                .Where(w => w.Length > 0)
-                .ToList();
-            entity.Calls = (calls ?? Array.Empty<RulePrimitiveCall>()).Select(CopyOf).ToList();
-            entity.ScopeAgent = Blank(scope.Agent);
-            entity.ScopeRepository = Blank(scope.Repository);
-            entity.ScopeMachine = Blank(scope.Machine);
-            entity.ScopeMission = Blank(scope.Mission);
-            entity.CooldownSeconds = cooldownSeconds;
-            entity.DailyCap = dailyCap;
+            switch (entity.Kind)
+            {
+                case RuleKinds.Screen:
+                    // The same refusal a create gives, for the same reason: an omitted scope is not "every session".
+                    if (draft.Scope is null)
+                        throw new RuleRejectedException(
+                            "a rule has to say which sessions it may act on. Every session is a choice you can make, " +
+                            "but it is a choice - a rule that did not say is not read as meaning all of them.");
+                    ApplyScreenFields(entity, draft, draft.Scope);
+                    // Absent means everywhere, as on a create.
+                    SetAppliesTo(entity, draft.AppliesTo ?? RuleAppliesTo.Everywhere);
+                    break;
+
+                case RuleKinds.Hook:
+                    // The same refusal a hook create gives: a missing place is not "everywhere".
+                    if (draft.AppliesTo is null)
+                        throw new RuleRejectedException(
+                            "a hook rule has to say where it applies - everywhere, on some machines, in a repository, " +
+                            "or in a repository on some machines. Everywhere is a choice you can make, but it has to be said.");
+                    var hook = draft.Hook
+                        ?? throw new RuleRejectedException(
+                            "a hook rule has to say what it listens for: its event, tool, handler, match text and result.");
+                    // The screen fields are written as the draft has them, so a draft that carried any is refused
+                    // by the write gate below with the reason, rather than having them quietly dropped.
+                    ApplyScreenFields(entity, draft, draft.Scope ?? RuleScope.AllSessions);
+                    entity.HookEvent = (hook.Event ?? "").Trim();
+                    entity.HookTool = (hook.Tool ?? "").Trim();
+                    entity.HookHandler = (hook.Handler ?? "").Trim();
+                    // Literal text, kept EXACTLY as written (P1): a space at the edge is part of what is matched.
+                    entity.HookMatch = (hook.Match ?? Array.Empty<string>()).Select(m => m ?? "").ToList();
+                    entity.HookResult = (hook.Result ?? "").Trim();
+                    SetAppliesTo(entity, draft.AppliesTo);
+                    break;
+
+                default:
+                    throw new RuleRejectedException(
+                        $"a {entity.Kind} rule cannot be changed by this build - it does not write that kind.");
+            }
 
             // A CHANGE THAT CHANGES NOTHING IS REFUSED, not recorded: a history row saying a rule was changed
             // when it was not would be a false record, and putting a live rule back in dry run for nothing would
@@ -759,6 +789,25 @@ public sealed class SessionRuleStore : IRuleReading
         entity.AppliesToMachines = (appliesTo.Machines ?? Array.Empty<string>()).Select(m => (m ?? "").Trim()).ToList();
         entity.AppliesToExceptMachines = (appliesTo.ExceptMachines ?? Array.Empty<string>()).Select(m => (m ?? "").Trim()).ToList();
         entity.AppliesToRepo = GitRemoteIdentity.Normalise(appliesTo.Repo);
+    }
+
+    /// <summary>The fields every rule row has - its sentence, the screen fields, the session scope and the
+    /// ceilings - written from a draft, trimmed as a create trims them.</summary>
+    private static void ApplyScreenFields(SessionRuleEntity entity, SessionRuleDraft draft, RuleScope scope)
+    {
+        entity.Instruction = (draft.Instruction ?? "").Trim();
+        entity.ScreenDescription = (draft.ScreenDescription ?? "").Trim();
+        entity.TriggerWords = (draft.TriggerWords ?? Array.Empty<string>())
+            .Select(w => (w ?? "").Trim())
+            .Where(w => w.Length > 0)
+            .ToList();
+        entity.Calls = (draft.Calls ?? Array.Empty<RulePrimitiveCall>()).Select(CopyOf).ToList();
+        entity.ScopeAgent = Blank(scope.Agent);
+        entity.ScopeRepository = Blank(scope.Repository);
+        entity.ScopeMachine = Blank(scope.Machine);
+        entity.ScopeMission = Blank(scope.Mission);
+        entity.CooldownSeconds = draft.CooldownSeconds;
+        entity.DailyCap = draft.DailyCap;
     }
 
     /// <summary>An empty or all-whitespace scope part means "any", which is stored as nothing at all.</summary>

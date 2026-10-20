@@ -800,7 +800,7 @@ public static class SessionKeyGuard
     /// account's rules. What D7 adds is accountability rather than a bound: every write is recorded in
     /// <c>session_rule_changes</c> with the calling session's id and agent, before and after, in the same save.
     /// Each shape is a literal at its exact length, so a new word hung off /gateway/rules is refused until it is
-    /// classified here.
+    /// classified here. The effective rules (W1) and hook firings (W5) routes are deliberately not among them.
     /// </summary>
     private static bool IsRuleRoute(string verb, string[] s)
     {
@@ -810,9 +810,17 @@ public static class SessionKeyGuard
         // /gateway/rules - list, or create.
         if (s.Length == 2) return read || verb == "POST";
 
-        // /gateway/rules/history - read; /gateway/rules/{id} - read, change, delete.
-        if (s.Length == 3)
-            return s[2] == "history" ? read : read || verb is "PATCH" or "DELETE";
+        // /gateway/rules/history - read.
+        if (s.Length == 3 && s[2] == "history") return read;
+
+        // EVERY OTHER SHAPE NAMES A RULE, and a rule is named by its id - the routes bind {id:guid}. So a word in
+        // that place is not a rule id and is refused: /gateway/rules/effective (wire contract W1) and
+        // /gateway/rules/hook-firings (W5) are the Director's, and phase 2's opening of the rule routes to sessions
+        // does not reach them (ruling P18). Without this they read as /gateway/rules/{id}.
+        if (!Guid.TryParse(s[2], out _)) return false;
+
+        // /gateway/rules/{id} - read, change, delete.
+        if (s.Length == 3) return read || verb is "PATCH" or "DELETE";
 
         // /gateway/rules/{id}/firings - read; /gateway/rules/{id}/promote - promote.
         if (s.Length == 4)

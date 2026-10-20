@@ -187,4 +187,15 @@ public sealed record SessionRuleDraft(
     IReadOnlyList<RulePrimitiveCall> Calls,
     RuleScope? Scope,
     int CooldownSeconds,
-    int DailyCap);
+    int DailyCap)
+{
+    /// <summary>What starts the rule - <see cref="RuleKinds"/>. A body that does not say is a screen rule.</summary>
+    public string Kind { get; init; } = RuleKinds.Screen;
+
+    /// <summary>Where the rule applies, or null when the body did not say. What null means is the store's to
+    /// decide for each kind: everywhere for a screen rule, a refusal for a hook rule.</summary>
+    public RuleAppliesTo? AppliesTo { get; init; }
+
+    /// <summary>A hook rule's event, tool, handler, match text and result; null for every other kind.</summary>
+    public HookRuleTrigger? Hook { get; init; }
+}

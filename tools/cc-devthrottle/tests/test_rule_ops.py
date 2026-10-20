@@ -35,6 +35,13 @@ _DRY = {
     "cooldownSeconds": 300,
     "dailyCap": 5,
     "state": "dry_run",
+    "kind": "screen",
+    "appliesTo": {"kind": "everywhere", "machines": [], "exceptMachines": [], "repo": ""},
+    "event": "",
+    "tool": "",
+    "handler": "",
+    "match": [],
+    "result": "",
     "promotedBy": "",
     "createdUtc": "2026-10-18T12:00:00Z",
     "updatedUtc": "2026-10-18T12:00:00Z",
@@ -42,6 +49,32 @@ _DRY = {
 _LIVE = dict(_DRY, id=LIVE_ID, state="live", promotedBy="session:" + SESSION_ID,
              scope={"agent": None, "repository": None, "machine": None, "mission": None},
              instruction="When I run out of allowance, switch me to Opus, then carry on.")
+
+HOOK_ID = "2b7c9d10-4e5f-4a6b-9c8d-0e1f2a3b4c5d"
+
+#: A hook rule as the Gateway projects it (Session Rules part 2, phase 1): flat, with the screen fields empty.
+_HOOK = {
+    "id": HOOK_ID,
+    "instruction": "Never force push from a session.",
+    "screenDescription": "",
+    "triggerWords": [],
+    "checks": [],
+    "scope": {"agent": None, "repository": None, "machine": None, "mission": None},
+    "cooldownSeconds": 0,
+    "dailyCap": 0,
+    "state": "dry_run",
+    "kind": "hook",
+    "appliesTo": {"kind": "repo_on_machine", "machines": ["devlinux", "laptop"], "exceptMachines": [],
+                  "repo": "github.com/acme/app"},
+    "event": "before_command",
+    "tool": "shell",
+    "handler": "match",
+    "match": ["git push --force", "git push -f"],
+    "result": "deny",
+    "promotedBy": "",
+    "createdUtc": "2026-10-19T12:00:00Z",
+    "updatedUtc": "2026-10-19T12:00:00Z",
+}
 
 _CHANGE = {
     "id": "11111111-2222-4333-8444-555555555555",
@@ -75,7 +108,7 @@ def test_list_default_output_hasCountByStateAndEveryIdInFull():
     assert result.exit_code == 0, result.output
     assert "count: 2 (dry_run 1, live 1)" in result.stdout
     fields, rows = axi_output.parse_list(result.stdout, "rules")
-    assert fields == ["id", "state", "scope", "instruction"]
+    assert fields == ["id", "state", "kind", "scope", "instruction"]
     assert [r["id"] for r in rows] == [DRY_ID, LIVE_ID]
     assert rows[0]["scope"] == "repository=github.com/acme/app"
     assert rows[1]["scope"] == "all-sessions"
@@ -487,3 +520,199 @@ def test_history_countAtTheCeiling_isSent():
     # Assert
     assert result.exit_code == 0, result.output
     assert client_cls.return_value.history.call_args.args[3] == 500
+
+
+# ---- hook rules (Session Rules part 2, phase 1 meets phase 2) -------------------------------------------
+
+
+def test_list_hookRule_saysItsKindAndHasNoSessionScope():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.list.return_value = [_HOOK, _DRY]
+
+        # Act
+        result = runner.invoke(app, ["rules", "list"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    _, rows = axi_output.parse_list(result.stdout, "rules")
+    assert rows[0]["kind"] == "hook"
+    # A hook rule says where it applies with appliesTo; "all-sessions" would claim a scope it does not have.
+    assert rows[0]["scope"] == "-"
+    assert rows[1]["kind"] == "screen"
+
+
+def test_list_appliesToMatchAndResultFields_renderAHookRule():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.list.return_value = [_HOOK]
+
+        # Act
+        result = runner.invoke(app, ["rules", "list", "--fields", "id,applies-to,event,tool,handler,match,result"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    _, rows = axi_output.parse_list(result.stdout, "rules")
+    assert rows[0]["id"] == HOOK_ID
+    assert rows[0]["applies-to"] == "repo_on_machine repo=github.com/acme/app machines=devlinux;laptop"
+    assert rows[0]["event"] == "before_command"
+    assert rows[0]["tool"] == "shell"
+    assert rows[0]["handler"] == "match"
+    assert rows[0]["match"] == "git push --force;git push -f"
+    assert rows[0]["result"] == "deny"
+
+
+def test_show_hookRule_showsItsKindWhereItAppliesAndItsTrigger():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.get.return_value = _HOOK
+        client_cls.return_value.firings.return_value = []
+
+        # Act
+        result = runner.invoke(app, ["rules", "show", HOOK_ID])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert "kind: hook" in out
+    assert "applies-to: repo_on_machine repo=github.com/acme/app machines=devlinux;laptop" in out
+    assert "event: before_command" in out
+    assert "tool: shell" in out
+    assert "handler: match" in out
+    assert "match: git push --force; git push -f" in out
+    assert "result: deny" in out
+    # The screen fields mean nothing for a hook rule, and a change to them is refused - so they are not offered.
+    assert "screen-description" not in out
+    assert "daily-cap" not in out
+    assert f"cc-devthrottle rules change {HOOK_ID} --match" in out
+
+
+def test_show_screenRule_showsItsKindAndWhereItApplies():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.get.return_value = _DRY
+        client_cls.return_value.firings.return_value = []
+
+        # Act
+        result = runner.invoke(app, ["rules", "show", DRY_ID])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert "kind: screen" in result.stdout
+    assert "applies-to: everywhere" in result.stdout
+    assert "screen-description: " + _DRY["screenDescription"] in result.stdout
+    assert "match:" not in result.stdout
+
+
+def test_create_hookFromFlags_postsTheHookBodyAndNoChecks():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.create.return_value = {"rule": _HOOK}
+
+        # Act
+        result = runner.invoke(app, [
+            "rules", "create", "--kind", "hook", "--instruction", _HOOK["instruction"],
+            "--applies-to", "kind=repo_on_machine,repo=github.com/acme/app,machines=devlinux;laptop",
+            "--event", "before_command", "--tool", "shell", "--handler", "match",
+            "--match", "git push --force", "--match", "git push -f", "--result", "deny",
+        ])
+        posted = client_cls.return_value.create.call_args.args[0]
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert posted == {
+        "kind": "hook",
+        "instruction": _HOOK["instruction"],
+        "appliesTo": {"kind": "repo_on_machine", "repo": "github.com/acme/app", "machines": ["devlinux", "laptop"]},
+        "event": "before_command",
+        "tool": "shell",
+        "handler": "match",
+        "match": ["git push --force", "git push -f"],
+        "result": "deny",
+    }
+    assert f"Created rule {HOOK_ID} in dry run" in result.stdout
+
+
+def test_create_hookFromBody_isNotGivenEmptyChecks():
+    # Arrange
+    body = json.dumps({"kind": "hook", "instruction": "x", "appliesTo": {"kind": "everywhere"}})
+    with _client() as client_cls:
+        client_cls.return_value.create.return_value = {"rule": _HOOK}
+
+        # Act
+        result = runner.invoke(app, ["rules", "create", "--body", body])
+        posted = client_cls.return_value.create.call_args.args[0]
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert "checks" not in posted
+
+
+def test_create_appliesToEverywhere_isSaidOutLoud():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.create.return_value = {"rule": _HOOK}
+
+        # Act
+        result = runner.invoke(app, ["rules", "create", "--kind", "hook", "--instruction", "x", "--applies-to", "everywhere"])
+        posted = client_cls.return_value.create.call_args.args[0]
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert posted["appliesTo"] == {"kind": "everywhere"}
+
+
+def test_create_appliesToExceptMachines_isAList():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.create.return_value = {"rule": _HOOK}
+
+        # Act
+        result = runner.invoke(app, [
+            "rules", "create", "--kind", "hook", "--instruction", "x", "--applies-to", "kind=machine,exceptMachines=laptop"])
+        posted = client_cls.return_value.create.call_args.args[0]
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert posted["appliesTo"] == {"kind": "machine", "exceptMachines": ["laptop"]}
+
+
+def test_create_appliesToThatIsNotPairs_isAUsageErrorAndPostsNothing():
+    # Act
+    with _client() as client_cls:
+        result = runner.invoke(app, ["rules", "create", "--kind", "hook", "--instruction", "x", "--applies-to", "devlinux"])
+
+    # Assert
+    assert result.exit_code == 2
+    assert "--applies-to" in result.output
+    client_cls.return_value.create.assert_not_called()
+
+
+def test_change_hookMatch_sendsOnlyTheMatch():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.change.return_value = {"rule": dict(_HOOK, match=["rm -rf /"]), "wasLive": False}
+
+        # Act
+        result = runner.invoke(app, ["rules", "change", HOOK_ID, "--match", "rm -rf /"])
+        rule_id, sent = client_cls.return_value.change.call_args.args
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert rule_id == HOOK_ID
+    assert sent == {"match": ["rm -rf /"]}
+
+
+def test_change_kindRefusedByTheGateway_exitsOneWithTheGatewaysReason():
+    # Arrange
+    reason = ("a rule's kind cannot be changed: this is a hook rule, and a hook rule and a screen rule are "
+              "different instructions. Delete this one and create the screen rule instead. (HTTP 400)")
+    with _client() as client_cls:
+        client_cls.return_value.change.side_effect = rule_ops.GatewayError(reason)
+
+        # Act
+        result = runner.invoke(app, ["rules", "change", HOOK_ID, "--body", '{"kind": "screen"}'])
+
+    # Assert
+    assert result.exit_code == 1
+    assert "kind cannot be changed" in result.stderr

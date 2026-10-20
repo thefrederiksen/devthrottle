@@ -127,6 +127,18 @@ public sealed class GatewayDbContext : DbContext
             // no ceilings passed the gate while the store refused every one of them.
             Rules.SessionRuleRecordRules.CheckRule(rule, Rules.RulePrimitiveRegistry.Default);
 
+            // A RULE'S KIND IS WHAT IT IS (ruling P18). A screen rule and a hook rule are different instructions, so
+            // turning one into the other is not a change to a rule - it is a different rule wearing the old one's id
+            // and history. Held here so no route, the store's change included, can do it.
+            if (entry.State == EntityState.Modified)
+            {
+                var kindWas = entry.Property(nameof(SessionRuleEntity.Kind)).OriginalValue as string;
+                if (!string.Equals(kindWas, rule.Kind, StringComparison.Ordinal))
+                    throw new Rules.RuleRejectedException(
+                        $"a rule's kind cannot be changed: this is a {kindWas} rule, and this write makes it a " +
+                        $"{rule.Kind} rule. Delete it and create the {rule.Kind} rule instead.");
+            }
+
             if (entry.State == EntityState.Added && !string.Equals(rule.State, DryRunState, StringComparison.Ordinal))
                 throw new Rules.RuleRejectedException(
                     $"a new rule is always created in dry run, and this one says '{rule.State}'. Dry run is " +
