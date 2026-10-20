@@ -278,8 +278,13 @@ stops everything it started, pass or fail.
 - **The fake Graph** (extend phase 2's and the phase 5b rig's): an Inbox and Sent per mailbox, the move endpoint, a log
   of every call (method, path with ids replaced, destination), switchable failures.
 - **A fake model** on 127.0.0.1 answering chat completions with log probabilities, scripted per subject, able to fail
-  or answer off the labels. **The rig never calls DeepInfra.** If the throwaway Gateway cannot be pointed at a local
-  model without a product change, stop and tell the Tech Lead before building anything else.
+  or answer off the labels. **The rig never calls DeepInfra.** The model's address was a constant
+  (`TranscriptionEndpoint.DevThrottleBaseUrl`) with no setting, so this phase adds one (decided by the Tech Lead on the
+  rig Developer's evidence, 19 October 2026): an optional Gateway `config.json` key `mailDeskModelBaseUrl`, honoured
+  ONLY when its host is a loopback address (`127.0.0.1`, `::1`, `localhost`); any other value refuses the Gateway's
+  start with a sentence naming the key and the rule; absent, the constant is used, so production is unchanged. A proxy
+  with a self-made certificate was rejected: if either setting were not honoured, the call would reach the real
+  service with a real key.
 - **Seats are real sessions** with tiny prompts on the cheapest agent the definitions allow, in two factories besides
   `mail-desk` (for example `qa-books` with seat `clerk`, `qa-support` with seat `desk`), whose briefs tell them to run
   `maildesk done` or `maildesk return` for the emails in their `check.json`. What a seat did is read from the Gateway
