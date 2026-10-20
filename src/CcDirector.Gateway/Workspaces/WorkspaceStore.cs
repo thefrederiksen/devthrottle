@@ -721,6 +721,57 @@ public sealed class WorkspaceStore
     }
 
     /// <summary>
+    /// THE SEATS A RESTART CAPTURED FROM THESE SESSIONS, in <paramref name="tenant"/>'s own account (Mail Desk phase 4
+    /// contract, section 3.2 step 3): for each session id that is a seat of a captured record created at or after
+    /// <paramref name="capturedSinceUtc"/>, the seat and its record's id, from the newest such record. A session no
+    /// record captured is absent from the answer. One query; only the records in the window are parsed.
+    ///
+    /// A record that cannot be parsed is skipped and logged, never thrown: this read serves the Mail Desk router for
+    /// a whole account, and one damaged restart record must not stop every email of that account being routed - the
+    /// same reason <see cref="List"/> never parses a document. The failure surfaces on the read of THAT record.
+    /// </summary>
+    /// <param name="tenant">The account, named explicitly - never the ambient one.</param>
+    /// <param name="sessionIds">The sessions asked about.</param>
+    /// <param name="capturedSinceUtc">The oldest start among them: a record that captured a session is newer than its
+    /// start, so nothing older is read.</param>
+    public IReadOnlyDictionary<string, WorkspaceSeatOnRecord> SeatsCapturedFrom(Core.Tenancy.TenantId tenant,
+        IReadOnlyCollection<string> sessionIds, DateTime capturedSinceUtc)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        var found = new Dictionary<string, WorkspaceSeatOnRecord>(StringComparer.OrdinalIgnoreCase);
+        if (sessionIds.Count == 0) return found;
+        var wanted = new HashSet<string>(sessionIds, StringComparer.OrdinalIgnoreCase);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.Workspaces.AsNoTracking()
+                .Where(e => e.Origin == WorkspaceOrigins.Captured && e.CreatedUtc >= capturedSinceUtc)
+                .ToList()
+                .OrderByDescending(e => e.CreatedUtc).ThenBy(e => e.Id, StringComparer.Ordinal);
+            foreach (var row in rows)
+            {
+                WorkspaceDocument doc;
+                try
+                {
+                    doc = Deserialize(row);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    FileLog.Write($"[WorkspaceStore] SeatsCapturedFrom: record {row.Id} skipped, it cannot be read: {ex.Message}");
+                    continue;
+                }
+                foreach (var seat in doc.Seats)
+                {
+                    if (seat.SessionId is { } id && wanted.Contains(id) && !found.ContainsKey(id))
+                        found[id] = new WorkspaceSeatOnRecord(row.Id, seat);
+                }
+            }
+            FileLog.Write($"[WorkspaceStore] SeatsCapturedFrom: {sessionIds.Count} sessions asked, {found.Count} on a restart record");
+            return found;
+        }
+    }
+
+    /// <summary>
     /// Every workspace, most recently written first. Summaries only - the list is a chooser, and a fleet
     /// of documents each carrying twenty seats is not something to send to render a list.
     /// </summary>
@@ -811,4 +862,18 @@ public sealed class WorkspaceStore
 
         return doc;
     }
+}
+
+/// <summary>One seat a restart captured, with the id of the record that holds it.</summary>
+public sealed record WorkspaceSeatOnRecord(string WorkspaceId, WorkspaceSeat Seat)
+{
+    /// <summary>The session this seat was brought back as - by a Bring back from its handover, or by a reopen of its
+    /// conversation - or null while it has not been, or the reopen's session id was never recorded.</summary>
+    public string? BroughtBackAs
+        => !string.IsNullOrWhiteSpace(Seat.RestoredSessionId) ? Seat.RestoredSessionId
+            : !string.IsNullOrWhiteSpace(Seat.Restore?.ReopenedSessionId) ? Seat.Restore!.ReopenedSessionId
+            : null;
+
+    /// <summary>Marked not to be brought back.</summary>
+    public bool NotToBeBroughtBack => Seat.Restore?.Decision == WorkspaceRestoreDecisions.Close;
 }

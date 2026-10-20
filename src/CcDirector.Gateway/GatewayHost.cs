@@ -470,21 +470,25 @@ public sealed class GatewayHost : IAsyncDisposable
     /// endings come from <paramref name="sessionHistory"/>, so a session a Director reaped after a clean exit counts as
     /// ended at once instead of after 24 hours; and a session a Smart Restart brought back under a new id is looked up by
     /// name on every Director of the account, from any origin surface, through <paramref name="directors"/> and
-    /// <paramref name="pushedSessions"/>. A static seam so a test builds the router exactly as the host does.
+    /// <paramref name="pushedSessions"/>; and a seat a Smart Restart captured is read from its restart record in
+    /// <paramref name="workspaces"/>, in the routed row's own account. A static seam so a test builds the router exactly as the host does.
     /// </summary>
     internal static MailDesk.MailDeskRouter NewMailDeskRouter(MailDesk.MailDeskRoutedStore routed,
         MailDesk.MailDeskChannelStore channels, MailDesk.MailDeskDecisionStore decisions,
         Factory.Triggers.TriggerSessionStarter startSession, Func<TenantId, string, SessionDto?> findSession,
         Func<TenantId, string, SessionDto?> findSessionByName, History.SessionHistoryStore sessionHistory,
         Discovery.DirectorRegistry directors, Streaming.PushedSessionStore? pushedSessions,
+        Workspaces.WorkspaceStore workspaces,
         Func<TenantId, string, Factory.Definition.PublishedFactoryDefinition?> definitionOf,
         Func<TenantId, TimeZoneInfo> zoneOf, Func<DateTime> nowUtc, CancellationToken startLifetime)
     {
         ArgumentNullException.ThrowIfNull(sessionHistory);
         ArgumentNullException.ThrowIfNull(directors);
+        ArgumentNullException.ThrowIfNull(workspaces);
         return new MailDesk.MailDeskRouter(routed, channels, decisions, startSession, findSession, findSessionByName,
             findSessionsByName: (tenant, name) => GatewayEndpoints.LastKnownSessionsByName(directors, pushedSessions, tenant, name),
             endingsOf: (tenant, ids) => sessionHistory.EndingsOf(tenant, ids),
+            restartSeatsOf: (tenant, ids, since) => workspaces.SeatsCapturedFrom(tenant, ids, since),
             definitionOf, zoneOf, nowUtc, startLifetime);
     }
 
@@ -2885,6 +2889,7 @@ public sealed class GatewayHost : IAsyncDisposable
             _sessionHistory,
             Registry,
             PushedSessions,
+            _workspaces,
             definitionOf,
             zoneOf,
             nowUtc: () => DateTime.UtcNow,
