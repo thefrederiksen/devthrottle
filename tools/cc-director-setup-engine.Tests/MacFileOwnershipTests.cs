@@ -280,17 +280,26 @@ public class MacFileOwnershipTests : IDisposable
     [Fact]
     public void InstallTargets_CoverTheInstallTheAppsAndTheAgent_AndOnlyTheSharedParentsThemselves()
     {
-        var layout = new InstallLayout(_root);
+        // The home folder is FIXED here, and every expected path is composed from that fixed home rather
+        // than from the layout's own answer. Asserting "whatever the layout said" proves only that the
+        // code agrees with itself: the paths this repair hands to a recursive chown have to be spelled
+        // out, because the one that mattered - the parent of the Applications folder, used to reach the
+        // shell start-up files - stopped being the home folder the moment the install could place the
+        // app in /Applications. MacInstallLocationTests holds the guard for that.
+        var home = Path.Combine(_dir, "home");
+        var layout = new InstallLayout(_root, defaultRoot: null, homeDir: home);
 
         var targets = MacFileOwnership.InstallTargets(layout, _plist);
 
         Assert.Contains(_root, targets.Trees);
         Assert.Contains(_plist, targets.Trees);
-        Assert.Contains(Path.Combine(layout.MacAppsDir, "Director.app"), targets.Trees);
-        Assert.Contains(Path.Combine(layout.MacAppsDir, MacFileOwnership.SetupAppName), targets.Trees);
-        Assert.Contains(Path.Combine(Path.GetDirectoryName(layout.MacAppsDir)!, ".zshrc"), targets.Trees);
-        Assert.Contains(Path.Combine(Path.GetDirectoryName(layout.MacAppsDir)!, ".bash_profile"), targets.Trees);
-        Assert.Equal([layout.MacAppsDir, _agents, Path.GetDirectoryName(layout.ToolShimDir)!, layout.ToolShimDir], targets.Folders);
+        Assert.Contains(Path.Combine(home, "Applications", "Director.app"), targets.Trees);
+        Assert.Contains(Path.Combine(home, "Applications", "CC Director.app"), targets.Trees);
+        Assert.Contains(Path.Combine(home, "Applications", MacFileOwnership.SetupAppName), targets.Trees);
+        Assert.Contains(Path.Combine(home, ".zshrc"), targets.Trees);
+        Assert.Contains(Path.Combine(home, ".bash_profile"), targets.Trees);
+        Assert.Equal([Path.Combine(home, "Applications"), _agents, Path.GetDirectoryName(layout.ToolShimDir)!, layout.ToolShimDir],
+            targets.Folders);
     }
 
     [Fact]

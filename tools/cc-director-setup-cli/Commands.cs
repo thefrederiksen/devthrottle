@@ -442,7 +442,8 @@ internal static class Commands
             await reporter.ReportAsync(InstallProgress.Component, InstallProgress.StepDone,
                 InstallProgress.DoneMessage(role, tag), null);
             if (!json)
-                foreach (var line in InstallProgress.NextStep(role, OperatingSystem.IsMacOS(), OperatingSystem.IsWindows()))
+                foreach (var line in InstallProgress.NextStep(role, OperatingSystem.IsMacOS(), OperatingSystem.IsWindows(),
+                             OperatingSystem.IsMacOS() ? layout.MacAppsDir : null))
                     Console.WriteLine(line);
         }
         else
