@@ -146,7 +146,11 @@ In order:
    check runs within seconds, so re-routing at once would put two sessions on one email. Such an ending waits like
    `interrupted` - followed if the restored session appears, otherwise ended by the 24-hour rule. Only an ending a
    person or the agent itself made ends it at once (review of the answers to 4283, ruled by the Tech Lead,
-   20 October 2026). A session the Gateway cannot see at all is
+   20 October 2026). A Smart Restart records its seats as `closed`, so it is told apart by its **restart record**,
+   which the drain saves on the Gateway before it ends each seat: a seat still owed a Bring back is not ended and
+   its seat counts busy; one brought back is followed to its new session id by the record's own mapping; one marked
+   not to be brought back is ended at once. The follow by name stays as the fallback. `director-stopped` waits like
+   `interrupted`. (Found by the task Developer in the code, approved by the Tech Lead.) A session the Gateway cannot see at all is
    NOT ended by its absence - after a Gateway restart, or while its Director is away (a backup takeover), a live
    session is invisible for a while, and re-routing it would put two sessions on one email. Absence alone counts as
    ended only **24 hours** after the start (`MailDeskRouter.UnseenSessionEndsAfter`), so an email whose Director died
