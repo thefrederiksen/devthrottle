@@ -28,11 +28,11 @@ origin/main `66658a098` (Mail Desk phases 3 and 5 in).
 | What | Result |
 |---|---|
 | Screenshots, desktop 1440 and phone 390, against a throwaway Gateway on devlinux with test data: switch on (a mailbox signed in with counts, one NOT signed in, two in observe mode, one in live mode on the throwaway only), on with the factory unpublished, on with no mailbox, and off | 16 pictures in [`shots/`](shots/), each read by the Tech Lead; what each proves is below |
-| Client tests, `vitest --minWorkers=1 --maxWorkers=2` | client-core 2,297, Cockpit 1,334, phone 183 - all passed |
+| Client tests, `vitest --minWorkers=1 --maxWorkers=2` | client-core 2,302, Cockpit 1,335, phone 186 - all passed (the Tech Lead's run on `30b53c54f`, after the two fixes) |
 | `npm run typecheck` (every workspace) | clean |
-| Mail Desk Gateway unit tests (`--filter FullyQualifiedName~CcDirector.Gateway.Tests.MailDesk`) | 536 passed, run by the Tech Lead on `a2cbfdc29` (540 with the wider `~MailDesk` filter) |
+| Mail Desk Gateway unit tests (`--filter FullyQualifiedName~CcDirector.Gateway.Tests.MailDesk`) | 545 passed, run by the Tech Lead on `30b53c54f`; 636 passed with main's API-mode tests added, on a trial merge with origin/main `362c802ea` |
 | `cc-devthrottle maildesk` command tests (`test_maildesk_ops.py` and both help-and-errors suites) | 1,001 passed, 1 skipped (the Developer's run on `a2cbfdc29`; the command's code is unchanged) |
-| The repository gate, `scripts/test-local.ps1 -Parked`, on this branch (`a2cbfdc29`) AND on unchanged origin/main (`66658a098`), on devlinux | see below |
+| The repository gate, `scripts/test-local.ps1 -Parked`, on this branch (`a2cbfdc29`, before the two fixes below) AND on unchanged origin/main (`66658a098`), on devlinux | see below; the two fixes after it changed only the Mail Desk fold and the Mail Desk client files, and were checked by the rows above |
 
 **The gate on Linux (handover ruling 8).** `-Parked` cannot be clean on Linux, so it ran twice on devlinux - on this
 branch and on unchanged origin/main - and the failed tests were compared one by one from the result files. Both runs
@@ -51,6 +51,8 @@ the client and command rows above.
 |---|---|---|
 | The Gateway fold | [`gateway-fold-review.md`](reviews/gateway-fold-review.md) | F1 - the machines sentence claimed a failover order a channel's machine list does not decide: **accepted**; the contract was wrong and was corrected, the sentence now claims no order. F2 - every last-check outcome but "failed" showed green: **accepted**; every outcome is named and an unknown one throws. [`gateway-fold-answers.md`](reviews/gateway-fold-answers.md) |
 | The page and both shells | [`page-review.md`](reviews/page-review.md) | No findings. One note: the contract named only the 404 as "off", while the client also reads a pre-phase-1 Gateway's web page as off (true: that Gateway has no Mail Desk). The contract now says so. |
+| The whole phase (pull request 4279, sent by the Implementation Lead) | [`PHASE-REVIEW.md`](reviews/PHASE-REVIEW.md) | F1 - the navigation entry was drawn on any failed read, so an account with the switch OFF saw it whenever the phone was offline or the Gateway restarting: **accepted**; the contract was wrong (it copied the Mentor entry) and was corrected; the entry is drawn only after a successful read, with a test per failure kind. A stale comment: fixed. [`phase-review-answers.md`](reviews/phase-review-answers.md). Also from the Implementation Lead, reading the pictures: the failing mailbox's card said "Failing" in red beside a green last check - **accepted**; every last-check line now names the account's run, and a failing mailbox's says it has not been read since its check failed, in red. |
+| The two fixes above | [`fixes-review.md`](reviews/fixes-review.md) | No findings. |
 
 **Rulings the Tech Lead made** (both in the contract or below): the machines sentence claims no order (review F1);
 "last check" is per account by design, and the screenshot seed publishes the factory rather than showing kept checks
