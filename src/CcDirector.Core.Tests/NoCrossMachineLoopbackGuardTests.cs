@@ -108,6 +108,14 @@ public sealed class NoCrossMachineLoopbackGuardTests
         ["src/CcDirector.Avalonia/Voice/BatchDictationRecorder.cs"] = "Doc comment notes the batch path has no localhost WebSocket roundtrip.",
         ["src/CcDirector.Avalonia/HostedAi/DesktopHostedAiCta.cs"] = "Doc comments only: describe that Settings resolves the Cockpit front door and never opens a localhost URL (states the no-loopback policy).",
         ["src/CcDirector.Core/Browser/WorkflowRunner.cs"] = "Drives a local browser via loopback CDP.",
+        // Factory Boxes (#4271, #4280): a box's desktop is a web server on the SAME machine as its Director. The Gateway
+        // relays a browser to it through the Director's tunnel, and only the Director, on that machine, ever dials it.
+        ["src/CcDirector.ControlApi/Boxes/DesktopBoxConnector.cs"] = "Factory Boxes: the one place a box address is made - the Director dials its own box's desktop on 127.0.0.1 and the port its hosted-desktop list holds. Same machine by construction; nothing here takes a host from outside.",
+        ["src/CcDirector.ControlApi/Boxes/DirectorDesktopRelayHandler.cs"] = "Factory Boxes: doc comment - the Director opens the box's local WebSocket or HTTP request on 127.0.0.1 through DesktopBoxConnector.",
+        ["src/CcDirector.Core/Boxes/HostedDesktopRegistry.cs"] = "Factory Boxes: the hosted-desktop list holds a port and never a host; the target is always this machine's 127.0.0.1, which is the policy this guard asks for.",
+        ["src/CcDirector.Gateway.Contracts/DesktopRelayMessages.cs"] = "Factory Boxes: doc comments only - they state that the Director builds the address from 127.0.0.1 and its own list, and refuses anything that would leave the machine.",
+        ["src/CcDirector.Gateway/Boxes/BoxDesktopHeaders.cs"] = "Factory Boxes: RECOGNIZES a box's own loopback address in a redirect in order to REWRITE it to the relay path, so the browser never sees it; nothing here dials one.",
+        ["src/CcDirector.Gateway/Boxes/BoxDesktopOrigin.cs"] = "Factory Boxes: doc comment example of a test machine's desktop origin (http://localhost:5123); the value is configuration, never built here.",
     };
 
     [Fact]
