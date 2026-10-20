@@ -781,7 +781,9 @@ function Invoke-Flow {
 
     # Step 3: a long prompt, then Stop; the turn ended cancelled. The mid-turn screen is opened first, the prompt is
     # sent once both pages are ready, and Stop waits until the screen has been taken while the turn runs.
-    $text = 'Write the numbers from 1 to 600, one per line, with no other text.'
+    # Long enough to outlast the mid-turn screen on a busy machine: a fast model wrote 1 to 600 in ten seconds on
+    # Windows, and the turn had ended before Stop was pressed. Stop cuts it short, so only what was written is spent.
+    $text = 'Write the numbers from 1 to 5000, one per line, with no other text.'
     $midTurn = $null
     if (-not $NoScreens) {
         $ready = Join-Path $logs 'midturn.ready'
