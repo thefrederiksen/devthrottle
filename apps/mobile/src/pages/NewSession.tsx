@@ -12,7 +12,7 @@ import {
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
 import ConnectionChoiceRow from "@devthrottle/client-core/sessions/ConnectionChoiceRow";
-import { connectionToSend, TERMINAL_CONNECTION } from "@devthrottle/client-core/sessions/connectionChoice";
+import { connectionToSend } from "@devthrottle/client-core/sessions/connectionChoice";
 
 const SURFACE = "mobile-new-session";
 
@@ -95,7 +95,10 @@ export function NewSession() {
   const [agentReload, setAgentReload] = useState(0);
   const [selectedAgentType, setSelectedAgentType] = useState<string | null>(null);
   // How the session is connected (API mode mission #4070): terminal by default, every time, never remembered.
-  const [connection, setConnection] = useState<string>(TERMINAL_CONNECTION);
+  // The connection the person picked for the chosen agent, or null: the create then sends the agent's default as the
+  // Gateway marks it (API mode for Pi, mission #4070 section 9). A new agent starts on its own default again.
+  const [connection, setConnection] = useState<string | null>(null);
+  useEffect(() => setConnection(null), [selectedAgentType]);
 
   const [knownRepositories, setKnownRepositories] = useState<RepoInfo[] | null>(null);
   const [knownRepositoriesError, setKnownRepositoriesError] = useState<string | null>(null);

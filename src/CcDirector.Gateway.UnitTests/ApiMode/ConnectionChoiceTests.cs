@@ -264,6 +264,129 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.All(offered, a => Assert.Equal(new[] { ConnectionModes.Terminal }, a.Connections.Select(c => c.Mode)));
     }
 
+    // ---- the default: API mode for Pi (mission #4070, section 9, the owner's decision) ------------------------------
+
+    [Theory]
+    [InlineData("Pi")]
+    [InlineData("pi")]
+    public void DefaultOf_PiOfferedApiMode_IsApiMode(string agentType)
+    {
+        // Act
+        var mode = ConnectionModes.DefaultOf(agentType, new[] { ConnectionModes.Terminal, ConnectionModes.Api });
+
+        // Assert
+        Assert.Equal(ConnectionModes.Api, mode);
+    }
+
+    [Fact]
+    public void DefaultOf_PiOfferedTerminalAlone_IsTerminal()
+    {
+        // Act
+        var mode = ConnectionModes.DefaultOf("Pi", new[] { ConnectionModes.Terminal });
+
+        // Assert
+        Assert.Equal(ConnectionModes.Terminal, mode);
+    }
+
+    [Theory]
+    [InlineData("ClaudeCode")]
+    [InlineData("Codex")]
+    [InlineData(null)]
+    public void DefaultOf_AnyOtherAgent_IsTerminalEvenWhenOfferedApiMode(string? agentType)
+    {
+        // Act
+        var mode = ConnectionModes.DefaultOf(agentType, new[] { ConnectionModes.Terminal, ConnectionModes.Api });
+
+        // Assert
+        Assert.Equal(ConnectionModes.Terminal, mode);
+    }
+
+    [Theory]
+    [InlineData("2.25.0")]
+    [InlineData("2.26.0")]
+    public void Offer_OnADirectorOf2_25OrLater_MarksApiModeTheDefaultForPi_TerminalForEveryOther_TerminalStillOffered(string version)
+    {
+        // Act
+        var offered = ConnectionChoiceFold.Offer(ReportedAgents(), apiModeOffered: true, DirectorOf(version));
+
+        // Assert
+        var pi = offered.Single(a => a.Type == "Pi").Connections;
+        Assert.Equal(new[] { ConnectionModes.Terminal, ConnectionModes.Api }, pi.Select(c => c.Mode));
+        Assert.Equal(new[] { false, true }, pi.Select(c => c.IsDefault));
+        Assert.True(offered.Single(a => a.Type == "ClaudeCode").Connections.Single().IsDefault);
+        Assert.True(offered.Single(a => a.Type == "Codex").Connections.Single().IsDefault);
+    }
+
+    [Theory]
+    [InlineData("2.23.0")]
+    [InlineData("2.24.9")]
+    [InlineData("")]
+    public void Offer_OnADirectorOlderThan2_25OrOfNoVersion_MarksTerminalTheDefaultForPi(string version)
+    {
+        // Act
+        var offered = ConnectionChoiceFold.Offer(ReportedAgents(), apiModeOffered: true, DirectorOf(version));
+
+        // Assert: such a Director is offered Terminal alone (#4257), and that is Pi's default.
+        var pi = offered.Single(a => a.Type == "Pi").Connections;
+        Assert.Equal(new[] { (ConnectionModes.Terminal, true) }, pi.Select(c => (c.Mode, c.IsDefault)));
+    }
+
+    [Fact]
+    public void Offer_ApiModeOff_MarksTerminalTheDefaultForPi()
+    {
+        // Act
+        var offered = ConnectionChoiceFold.Offer(ReportedAgents(), apiModeOffered: false, DirectorOf("2.26.0"));
+
+        // Assert
+        Assert.True(offered.Single(a => a.Type == "Pi").Connections.Single(c => c.Mode == ConnectionModes.Terminal).IsDefault);
+    }
+
+    [Theory]
+    [InlineData("Pi", "2.25.0", ConnectionModes.Api)]
+    [InlineData("Pi", "2.24.0", null)]
+    [InlineData("Pi", "", null)]
+    [InlineData("ClaudeCode", "2.26.0", null)]
+    public void SettleDefault_ACreateThatAsksForTheDefault_GetsTheDirectorsDefaultForThatAgent(string agent, string version, string? expected)
+    {
+        // Arrange
+        var req = new NewSessionRequest { Agent = agent, DefaultConnection = true };
+
+        // Act
+        ConnectionChoiceFold.SettleDefault(req, apiModeOffered: true, DirectorOf(version));
+
+        // Assert: terminal stays absent, so an older Director gets the body it always got.
+        Assert.Equal(expected, req.ConnectionMode);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(false, null)]
+    [InlineData(true, ConnectionModes.Terminal)]
+    public void SettleDefault_ACreateThatDoesNotAskOrNamesAMode_IsLeftAsItIs(bool? asks, string? named)
+    {
+        // Arrange: a restore or a handover of a terminal Pi session sends no mode and does not ask - it must stay terminal.
+        var req = new NewSessionRequest { Agent = "Pi", DefaultConnection = asks, ConnectionMode = named };
+
+        // Act
+        ConnectionChoiceFold.SettleDefault(req, apiModeOffered: true, DirectorOf("2.26.0"));
+
+        // Assert
+        Assert.Equal(named, req.ConnectionMode);
+    }
+
+    [Fact]
+    public void SettleDefault_WhileApiModeIsNotOffered_StaysTerminal()
+    {
+        // Arrange
+        var req = new NewSessionRequest { Agent = "Pi", DefaultConnection = true };
+
+        // Act
+        ConnectionChoiceFold.SettleDefault(req, apiModeOffered: false, DirectorOf("2.26.0"));
+
+        // Assert
+        Assert.Null(req.ConnectionMode);
+    }
+
     [Theory]
     [InlineData("2.23.0")]
     [InlineData("2.24.0")]
@@ -613,6 +736,117 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("2.25.0")]
+    [InlineData("2.26.0")]
+    public async Task GetAgents_OnADirectorOf2_25OrLater_ServesApiModeAsPisDefault_AndTerminalForEveryOther(string version)
+    {
+        // Arrange
+        await StartAsync(directorVersion: version);
+        _reportedAgents = ReportedAgents();
+
+        // Act
+        using var response = await _http!.GetAsync($"/directors/{DirectorId}/agents");
+
+        // Assert: read off the wire as client-core reads it.
+        response.EnsureSuccessStatusCode();
+        var defaults = await DefaultsOnTheWire(response);
+        Assert.Equal("api", defaults["Pi"]);
+        Assert.Equal("terminal", defaults["ClaudeCode"]);
+        Assert.Equal("terminal", defaults["Codex"]);
+    }
+
+    [Fact]
+    public async Task GetAgents_OnADirectorOlderThan2_25_ServesTerminalAsPisDefault()
+    {
+        // Arrange
+        await StartAsync(directorVersion: "2.24.0");
+        _reportedAgents = ReportedAgents();
+
+        // Act
+        using var response = await _http!.GetAsync($"/directors/{DirectorId}/agents");
+
+        // Assert
+        response.EnsureSuccessStatusCode();
+        Assert.Equal("terminal", (await DefaultsOnTheWire(response))["Pi"]);
+    }
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task PostSessions_PiAskingForTheDefaultOnADirectorOf2_25_GoesToTheDirectorInApiMode(string door)
+    {
+        // Arrange
+        await StartAsync(directorVersion: "2.25.0");
+
+        // Act: what cc-devthrottle session spawn --agent Pi sends with no --connection.
+        using var response = await Create(door, connectionMode: null, defaultConnection: true);
+
+        // Assert
+        Assert.True(response.IsSuccessStatusCode, $"{door} door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.Equal(ConnectionModes.Api, SawAt(door)!.ConnectionMode);
+    }
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task PostSessions_PiAskingForTheDefaultOnADirectorOlderThan2_25_GoesToTheDirectorInTerminal(string door)
+    {
+        // Arrange
+        await StartAsync(directorVersion: "2.24.0");
+
+        // Act
+        using var response = await Create(door, connectionMode: null, defaultConnection: true);
+
+        // Assert
+        Assert.True(response.IsSuccessStatusCode, $"{door} door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.Null(SawAt(door)!.ConnectionMode);
+    }
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task PostSessions_PiNamingTerminalOrNotAskingForTheDefault_OnADirectorOf2_25_StaysTerminal(string door)
+    {
+        // Arrange: Terminal named in New Session, and a restore or handover that sends no mode, must never become API mode.
+        await StartAsync(directorVersion: "2.25.0");
+
+        // Act
+        using var named = await Create(door, ConnectionModes.Terminal, defaultConnection: true);
+        var sawNamed = SawAt(door)!.ConnectionMode;
+        using var silent = await Create(door, connectionMode: null);
+
+        // Assert
+        Assert.True(named.IsSuccessStatusCode && silent.IsSuccessStatusCode);
+        Assert.Equal(ConnectionModes.Terminal, sawNamed);
+        Assert.Null(SawAt(door)!.ConnectionMode);
+    }
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task PostSessions_AnotherAgentAskingForTheDefault_GoesToTheDirectorInTerminal(string door)
+    {
+        // Arrange
+        await StartAsync(directorVersion: "2.26.0");
+
+        // Act
+        using var response = await Create(door, connectionMode: null, defaultConnection: true, agent: "ClaudeCode");
+
+        // Assert
+        Assert.True(response.IsSuccessStatusCode, $"{door} door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        Assert.Null(SawAt(door)!.ConnectionMode);
+    }
+
+    private static async Task<Dictionary<string, string>> DefaultsOnTheWire(HttpResponseMessage response)
+    {
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.EnumerateArray().ToDictionary(
+            a => a.GetProperty("type").GetString()!,
+            a => a.GetProperty("connections").EnumerateArray().Single(c => c.GetProperty("isDefault").GetBoolean())
+                .GetProperty("mode").GetString()!);
+    }
+
+    [Theory]
     [InlineData("machine")]
     [InlineData("director")]
     public async Task PostSessions_AnUnknownConnectionWord_Is400AndNothingIsSent(string door)
@@ -857,7 +1091,8 @@ public sealed class ConnectionChoiceTests : IDisposable
     private NewSessionRequest? SawAt(string door) => door == "machine" ? _machineDoorSaw : _directorDoorSaw;
 
     /// <summary>A person's New Session from the Cockpit: a device credential, so the origin is settled as a person's.</summary>
-    private Task<HttpResponseMessage> Create(string door, string? connectionMode, WorkspaceRestoreClaim? restoreClaim = null)
+    private Task<HttpResponseMessage> Create(string door, string? connectionMode, WorkspaceRestoreClaim? restoreClaim = null,
+        bool? defaultConnection = null, string agent = "Pi")
     {
         var url = door == "machine" ? $"/machines/{Machine}/sessions" : $"/directors/{DirectorId}/sessions";
         var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -865,9 +1100,10 @@ public sealed class ConnectionChoiceTests : IDisposable
             Content = JsonContent.Create(new NewSessionRequest
             {
                 RepoPath = Path.GetTempPath(),
-                Agent = "Pi",
+                Agent = agent,
                 ConnectionMode = connectionMode,
                 RestoreClaim = restoreClaim,
+                DefaultConnection = defaultConnection,
             }, options: Web),
         };
         request.Headers.Add(DeviceHeader, "desktop");

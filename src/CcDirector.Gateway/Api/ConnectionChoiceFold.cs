@@ -15,11 +15,13 @@ internal static class ConnectionChoiceFold
     /// <summary>
     /// Replace each Director-reported agent's declared connections with the OFFERED ones, labelled (Terminal always, API
     /// mode only for a wrapper that declares it while <paramref name="apiModeOffered"/> is on and the Director is new
-    /// enough to carry it), each with the sentence the row shows while it is selected. An older Director that reports no
+    /// enough to carry it), each with the sentence the row shows while it is selected, and the one New Session starts on
+    /// marked as the default (<see cref="ConnectionModes.DefaultOf"/> on what is offered: API mode for Pi wherever it is
+    /// offered, Terminal for every other agent - mission #4070, section 9). An older Director that reports no
     /// connections gets Terminal alone, and so does a Director below <see cref="FirstDirectorThatCarriesApiMode"/> whatever
     /// it declares: v2.24.0 declares API mode for Pi, and offering it there would offer a create
-    /// <see cref="DirectorCannotCarry(NewSessionRequest, DirectorDto)"/> then refuses (the #4257 review, finding 1).
-    /// Mutates and returns <paramref name="agents"/>.
+    /// <see cref="DirectorCannotCarry(NewSessionRequest, DirectorDto)"/> then refuses (the #4257 review, finding 1). So
+    /// Pi's default is Terminal there too. Mutates and returns <paramref name="agents"/>.
     /// </summary>
     public static List<AgentChoiceDto> Offer(List<AgentChoiceDto> agents, bool apiModeOffered, DirectorDto director)
     {
@@ -27,12 +29,35 @@ internal static class ConnectionChoiceFold
         foreach (var agent in agents)
         {
             var declared = agent.Connections.Select(c => c.Mode).ToList();
-            agent.Connections = ConnectionChoiceDto.For(ConnectionModes.Offered(declared, apiModeOffered && carries), agent.DisplayName);
+            var offered = ConnectionModes.Offered(declared, apiModeOffered && carries);
+            agent.Connections = ConnectionChoiceDto.For(offered, agent.DisplayName, ConnectionModes.DefaultOf(agent.Type, offered));
         }
         FileLog.Write($"[ConnectionChoiceFold] Offer: {agents.Count} agent(s), apiModeOffered={apiModeOffered}, " +
                       $"director={director?.DirectorId}, version={director?.Version}, carriesApiMode={carries}, " +
-                      $"with API mode={agents.Count(a => a.Connections.Count > 1)}");
+                      $"with API mode={agents.Count(a => a.Connections.Count > 1)}, " +
+                      $"API mode by default={agents.Count(a => a.Connections.Any(c => c.IsDefault && c.Mode == ConnectionModes.Api))}");
         return agents;
+    }
+
+    /// <summary>
+    /// Settle a create that asks for the default connection (<see cref="NewSessionRequest.DefaultConnection"/>) and names
+    /// none: its <see cref="NewSessionRequest.ConnectionMode"/> becomes <c>api</c> when <see cref="ConnectionModes.DefaultOf"/>
+    /// rules API mode for this agent and <paramref name="director"/> carries it (<see cref="CarriesApiMode"/>, the one
+    /// version rule the offer reads), and stays absent - terminal - otherwise, so an older Director gets the body it
+    /// always got. API mode is taken as offered for every agent while <paramref name="apiModeOffered"/> is on: whether
+    /// this agent's wrapper has it is the Director's to answer, and it refuses in words. A create that names a mode, or
+    /// does not ask, is left as it is. Mutates <paramref name="req"/>.
+    /// </summary>
+    public static void SettleDefault(NewSessionRequest req, bool apiModeOffered, DirectorDto? director)
+    {
+        if (req.DefaultConnection != true || !string.IsNullOrEmpty(req.ConnectionMode)) return;
+        var offered = apiModeOffered && CarriesApiMode(director)
+            ? new[] { ConnectionModes.Terminal, ConnectionModes.Api }
+            : new[] { ConnectionModes.Terminal };
+        var mode = ConnectionModes.DefaultOf(req.Agent, offered);
+        if (mode == ConnectionModes.Api) req.ConnectionMode = ConnectionModes.Api;
+        FileLog.Write($"[ConnectionChoiceFold] SettleDefault: agent={req.Agent}, director={director?.DirectorId ?? "(unknown)"}, " +
+                      $"version={director?.Version ?? "(none)"}, mode={mode}");
     }
 
     /// <summary>

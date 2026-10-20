@@ -1261,15 +1261,17 @@ OPTIONS:
   --command-args TEXT   For --agent RawCli: arguments for the command
   --controlled-by TEXT  WHO OWNS IT: 'self' or 'none'. Required from a session
   --standalone          The USER owns it: no controller (same as --controlled-by none)
-  --connection TEXT     How the agent is driven: terminal (default) or api (API mode)
+  --connection TEXT     How the agent is driven: terminal or api (API mode); left out, the Gateway's default
 ```
 
 **`--connection api` starts the agent in API mode** (API mode mission #4070): the Director speaks the
-agent's own protocol instead of typing into its terminal - Pi today. Without the flag nothing is sent and
-the session starts in its terminal, as always. An unknown value exits 2 before anything is sent. API mode
-is refused, with the reason printed and exit 1, while the Gateway does not offer it yet ("API mode is not
-offered yet ...", until taking the wheel is built) and for an agent whose wrapper has no API mode ("Claude
-Code cannot be started in API mode: its wrapper speaks only through the terminal.").
+agent's own protocol instead of typing into its terminal - Pi today. `--connection terminal` starts it in
+its terminal. **Without the flag the spawn asks for the Gateway's default** (`defaultConnection` on the
+create): API mode for Pi on a Director of 2.25.0 or later, the terminal for every other agent and on an
+older Director. An older Gateway ignores the request and starts the terminal. An unknown value exits 2
+before anything is sent. API mode is refused, with the reason printed and exit 1, while the Gateway does
+not offer it and for an agent whose wrapper has no API mode ("Claude Code cannot be started in API mode:
+its wrapper speaks only through the terminal.").
 
 Prints the new session's short id and full GUID, then `help[]` lines that name the new session by
 its full id; the session then appears in `cc-devthrottle session list`. A non-existent repository

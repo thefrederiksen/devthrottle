@@ -3536,9 +3536,10 @@ def spawn(
     connection: Optional[str] = typer.Option(
         None,
         "--connection",
-        help="How the Director drives the agent: terminal (the default: typing into its terminal) or api "
-        "(API mode: the agent's own protocol). API mode is refused, with the reason, for an agent whose "
-        "wrapper has none, and while the Gateway does not offer it yet.",
+        help="How the Director drives the agent: terminal (typing into its terminal) or api (API mode: the "
+        "agent's own protocol). Left out, the Gateway chooses its default: API mode for Pi on a Director of "
+        "2.25.0 or later, terminal for every other agent. API mode is refused, with the reason, for an agent "
+        "whose wrapper has none.",
     ),
 ) -> None:
     """Open a new session here, on another machine, or on one named Director.

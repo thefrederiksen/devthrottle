@@ -225,6 +225,10 @@ export interface ConnectionChoice {
   /** The Gateway's sentence shown under the Connection row while this choice is selected, verbatim; null (or absent,
    *  from an older Gateway) when there is nothing to say - Terminal never has one. */
   description?: string | null;
+  /** True on the one choice New Session starts on for this agent, as the Gateway rules it (API mode mission #4070,
+   *  section 9): API mode for Pi on a Director that carries it as the default, Terminal for every other. An older
+   *  Gateway marks none, and the screen starts on Terminal, as it always did. */
+  isDefault: boolean;
 }
 
 // The app's credential is the per-device key it obtained at enrollment (issue #908/#1088), read from
@@ -2146,12 +2150,12 @@ export async function getAgents(directorId: string, signal?: AbortSignal): Promi
 // The Gateway's offered connections for one agent. An older Gateway sends none, which is terminal alone - the one
 // connection every agent has - so the Connection row is simply not drawn; a malformed entry is dropped, never guessed.
 function readConnections(raw: unknown): ConnectionChoice[] {
-  if (!Array.isArray(raw)) return [{ mode: TERMINAL_CONNECTION, label: "Terminal" }];
+  if (!Array.isArray(raw)) return [{ mode: TERMINAL_CONNECTION, label: "Terminal", isDefault: true }];
   return raw
     .map((c) => {
       const entry = (c ?? {}) as Record<string, unknown>;
       const description = typeof entry.description === "string" && entry.description.length > 0 ? entry.description : null;
-      return { mode: String(entry.mode ?? ""), label: String(entry.label ?? ""), description };
+      return { mode: String(entry.mode ?? ""), label: String(entry.label ?? ""), description, isDefault: entry.isDefault === true };
     })
     .filter((c) => c.mode.length > 0 && c.label.length > 0);
 }

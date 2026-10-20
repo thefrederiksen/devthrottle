@@ -500,12 +500,19 @@ internal static class MachineEndpoints
             //
             // AN API-MODE CREATE rides it too (API mode mission, phase 6 review, finding 1): an older Director drops the
             // connection mode and starts the terminal without a word, so it is refused first, by the same version rule.
+            //
+            // A CREATE THAT ASKS FOR THE DEFAULT CONNECTION is settled in the same hook (mission #4070, section 9): the
+            // default depends on the Director's version, and which Director that is is known only here.
             string? tooOld = null;
             Func<string, DirectorDto?>? directorOf = directors is null ? null : id => directors.Get(tenant, id);
             var asksApiMode = req.ConnectionMode == ConnectionModes.Api;
-            Func<string, string?>? refuseDirector = req.Factory is null && !req.CarriesSeatStartFields() && !asksApiMode ? null : directorId =>
-                tooOld = ConnectionChoiceFold.DirectorCannotCarry(req, directorId, directorOf)
-                         ?? SpawnFactory.RefuseAtMachineDoor(req, directorId, directorOf, spawner.RefuseSeatStart);
+            var asksDefault = req.DefaultConnection == true && string.IsNullOrEmpty(req.ConnectionMode);
+            Func<string, string?>? refuseDirector = req.Factory is null && !req.CarriesSeatStartFields() && !asksApiMode && !asksDefault ? null : directorId =>
+            {
+                if (asksDefault) ConnectionChoiceFold.SettleDefault(req, ConnectionModes.ApiModeOffered, directorOf?.Invoke(directorId));
+                return tooOld = ConnectionChoiceFold.DirectorCannotCarry(req, directorId, directorOf)
+                                ?? SpawnFactory.RefuseAtMachineDoor(req, directorId, directorOf, spawner.RefuseSeatStart);
+            };
 
             var spawned = await spawner.SpawnOnMachineWithOutcomeAsync(machine, req, ct, refuseDirector);
             var (ok, dto, error) = (spawned.Ok, spawned.Dto, spawned.Error);

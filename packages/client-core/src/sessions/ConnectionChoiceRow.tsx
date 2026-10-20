@@ -7,16 +7,18 @@ import "./connectionChoiceRow.css";
 // Connection: [ Terminal ] [ API mode ]. It is drawn only for an agent the Gateway offers more than one connection
 // (Pi today, and only while the Gateway's one switch offers API mode), so for every other agent - and on every
 // agent while API mode is hidden - the screen is exactly what it was. The choices and their words are the Gateway's,
-// rendered verbatim; the row never names an agent or a mode itself. Terminal stays the default: the selection shown
-// is what the create will send (connectionToSend), so a choice made for another agent never shows as chosen here.
+// rendered verbatim; the row never names an agent or a mode itself. Until the person picks, the selection is the
+// choice the Gateway marks as the agent's default (API mode for Pi, mission #4070 section 9); Terminal stays one click
+// away. The selection shown is what the create will send (connectionToSend), so a choice made for another agent never
+// shows as chosen here.
 // Under the buttons, the selected choice's sentence - the Gateway's words, verbatim - says what that choice means;
 // Terminal has none, so nothing is drawn for it.
 
 export interface ConnectionChoiceRowProps {
   /** The agent the session will start with, or null before one is chosen (nothing is drawn). */
   agent: AgentChoice | null;
-  /** The connection the person chose (a mode word). */
-  chosen: string;
+  /** The connection the person chose (a mode word), or null before they pick: the agent's default is shown. */
+  chosen: string | null;
   /** The person picked a connection. */
   onChoose: (mode: string) => void;
   /** Prefix for the row's element ids, unique on the screen. */

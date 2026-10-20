@@ -279,6 +279,16 @@ public sealed class NewSessionRequest
     public string? ConnectionMode { get; set; }
 
     /// <summary>
+    /// True when the caller named no <see cref="ConnectionMode"/> and asks for the Gateway's default for this agent on
+    /// the Director the create reaches (mission #4070, section 9): API mode for Pi on a Director that can carry it as the
+    /// default, Terminal otherwise. <c>cc-devthrottle session spawn</c> sends it when no <c>--connection</c> is given.
+    /// Absent or false keeps the old meaning of an absent <see cref="ConnectionMode"/> - terminal - so a restore or a
+    /// handover, which sends nothing for a terminal session, never changes how a session runs. Ignored when
+    /// <see cref="ConnectionMode"/> is set, and by an older Gateway, which starts the terminal as it always did.
+    /// </summary>
+    public bool? DefaultConnection { get; set; }
+
+    /// <summary>
     /// A person's override of a talk with a seat, in words - "agent Codex, model x, machine Y, chosen by the person" -
     /// or null (Factory Definition mission, phase 5). Recorded on the session's history row so a talk that did not run
     /// as the definition says can be told apart from one that did. A scheduled or triggered start never carries one.

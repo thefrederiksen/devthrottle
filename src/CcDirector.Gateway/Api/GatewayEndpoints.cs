@@ -4639,7 +4639,8 @@ internal static partial class GatewayEndpoints
             {
                 if (!sr.Ok) return TunnelFailure(sr);
                 // Which connections each agent OFFERS is ruled here, not on the client (issue #4070, phase 5), and by
-                // this Director's version too, so no client offers API mode that the create would then refuse.
+                // this Director's version too, so no client offers API mode that the create would then refuse. So is
+                // which one New Session starts on (mission #4070, section 9).
                 return Results.Json(ConnectionChoiceFold.Offer(
                     DirectorCommandRouter.ReadBody<List<AgentChoiceDto>>(sr) ?? new List<AgentChoiceDto>(),
                     ConnectionModes.ApiModeOffered, d));

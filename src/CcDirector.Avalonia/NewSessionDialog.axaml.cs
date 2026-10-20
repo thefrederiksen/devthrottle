@@ -960,13 +960,17 @@ public partial class NewSessionDialog : Window
         if (CustomCliPanel is not null)
             CustomCliPanel.IsVisible = isRawCli;
 
-        // The Connection row (API mode mission #4070) shows only for an agent offered both connections. Hidden, it goes
-        // back to Terminal, so a choice made for one agent is never what another starts with.
+        // The Connection row (API mode mission #4070) shows only for an agent offered both connections. Each agent picked
+        // starts on its own default - API mode for Pi (section 9), Terminal for every other - so a choice made for one
+        // agent is never what another starts with, and Terminal stays one click away for Pi.
         var showsConnection = NewSessionConnection.ShowsChoice(agentKind, _apiModeOffered);
         if (ConnectionPanel is not null)
-        {
             ConnectionPanel.IsVisible = showsConnection;
-            if (!showsConnection && ConnectionTerminalRadio is not null)
+        if (ConnectionApiRadio is not null && ConnectionTerminalRadio is not null)
+        {
+            if (showsConnection && NewSessionConnection.StartsOnApiMode(agentKind, _apiModeOffered))
+                ConnectionApiRadio.IsChecked = true;
+            else
                 ConnectionTerminalRadio.IsChecked = true;
         }
         UpdateConnectionDescription();
@@ -1097,12 +1101,19 @@ public partial class NewSessionDialog : Window
             AgentEntryList.ItemsSource = _agentOptions;
             ApplyAgentSelection();
 
+            // A saved session reopens in the mode it was saved with (API mode mission #4070), not on the default the
+            // agent pick just applied: nobody chose a mode at this click. Both radios are set, because the radio group
+            // does not uncheck its partner while the New Session tab is not the one shown.
+            var reopensOnApi = NewSessionConnection.ReopensOnApiMode(definition);
+            ConnectionApiRadio.IsChecked = reopensOnApi;
+            ConnectionTerminalRadio.IsChecked = !reopensOnApi;
+
             SelectedPath = definition.RepoPath;
             PathInput.Text = definition.RepoPath;
             SelectedResumeSessionId = null;
             SelectedNamedSession = definition;
 
-            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: launching {slug} repo={definition.RepoPath}, agent={option.Entry.DisplayName}");
+            FileLog.Write($"[NewSessionDialog] BtnLaunchNamedSession_Click: launching {slug} repo={definition.RepoPath}, agent={option.Entry.DisplayName}, saved connection={definition.ConnectionMode?.ToString() ?? "(none)"}, reopensOnApi={reopensOnApi}");
             Close(true);
         }
         catch (Exception ex)

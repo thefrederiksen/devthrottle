@@ -1,6 +1,7 @@
 using CcDirector.ControlApi;
 using CcDirector.Core.Agents;
 using CcDirector.Core.ApiMode;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -24,6 +25,24 @@ public static class NewSessionConnection
     public static IReadOnlyList<string> OfferedFor(AgentKind kind, bool apiModeOffered) =>
         ConnectionModes.Offered(CatalogReadExecutor.DeclaredConnectionModes(kind), apiModeOffered);
 
+    /// <summary>
+    /// Whether the dialog starts on API mode for <paramref name="kind"/> when the agent is picked: the same rule the
+    /// Gateway serves the Cockpit and the phone (<see cref="ConnectionModes.DefaultOf"/>, mission #4070, section 9) - API
+    /// mode for Pi while it is offered, Terminal for every other agent. This dialog runs inside the Director, so the
+    /// Gateway's version guard has nothing to guard here: this Director carries API mode.
+    /// </summary>
+    public static bool StartsOnApiMode(AgentKind kind, bool apiModeOffered) =>
+        ConnectionModes.DefaultOf(kind.ToString(), OfferedFor(kind, apiModeOffered)) == ConnectionModes.Api;
+
+    /// <summary>
+    /// Whether a saved named session reopens on API mode: only when it was saved in API mode. One saved in the terminal,
+    /// or saved before API mode existed (no mode stored), reopens in the terminal - the New Session default for Pi
+    /// (<see cref="StartsOnApiMode"/>) is for a choice being made, never for one already made. Whether API mode is still
+    /// offered is checked when the session starts (<see cref="ModeToStart"/>).
+    /// </summary>
+    public static bool ReopensOnApiMode(NamedSessionDefinition definition) =>
+        definition.ConnectionMode == SessionConnectionMode.Api;
+
     /// <summary>Whether the dialog shows the Connection row for <paramref name="kind"/>: only when it is offered a choice.</summary>
     public static bool ShowsChoice(AgentKind kind, bool apiModeOffered) => OfferedFor(kind, apiModeOffered).Count > 1;
 
@@ -40,8 +59,9 @@ public static class NewSessionConnection
     }
 
     /// <summary>
-    /// The connection a session starts with: API mode only when the person chose it AND it is offered for this agent;
-    /// otherwise the terminal, the default. A choice made for one agent never carries to another that lacks it.
+    /// The connection a session starts with: API mode only when it is chosen (the dialog checks it for Pi when Pi is
+    /// picked, <see cref="StartsOnApiMode"/>) AND it is offered for this agent; otherwise the terminal. A choice made for
+    /// one agent never carries to another that lacks it.
     /// </summary>
     public static SessionConnectionMode ModeToStart(AgentKind kind, bool apiChosen, bool apiModeOffered)
     {

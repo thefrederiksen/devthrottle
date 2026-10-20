@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CcDirector.Avalonia;
@@ -8,6 +9,7 @@ using CcDirector.ControlApi;
 using CcDirector.Core.Agents;
 using CcDirector.Core.ApiMode;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -158,7 +160,7 @@ public class NewSessionConnectionTests
     }
 
     [AvaloniaFact]
-    public void Dialog_WhileApiModeIsOffered_OffersPiTerminalOrApiMode_TerminalFirst()
+    public void Dialog_WhileApiModeIsOffered_StartsPiOnApiMode_TerminalOneClickAway()
     {
         using var agents = new TwoAgents();
         var dialog = Open(apiModeOffered: true);
@@ -166,16 +168,11 @@ public class NewSessionConnectionTests
         {
             ChooseAgent(dialog, "Pi");
 
+            // Mission #4070, section 9: API mode is Pi's default.
             Assert.True(dialog.GetControl<StackPanel>("ConnectionPanel").IsVisible);
             Assert.Equal("Terminal", dialog.GetControl<RadioButton>("ConnectionTerminalRadio").Content);
             Assert.Equal("API mode", dialog.GetControl<RadioButton>("ConnectionApiRadio").Content);
-            Assert.True(dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked);
-            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
-            Assert.False(dialog.GetControl<TextBlock>("ConnectionDescriptionText").IsVisible);
-
-            dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked = true;
-            Dispatcher.UIThread.RunJobs();
-
+            Assert.True(dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked);
             Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
             var description = dialog.GetControl<TextBlock>("ConnectionDescriptionText");
             Assert.True(description.IsVisible);
@@ -184,12 +181,137 @@ public class NewSessionConnectionTests
             dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked = true;
             Dispatcher.UIThread.RunJobs();
 
+            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
             Assert.False(description.IsVisible);
         }
         finally
         {
             dialog.Close();
         }
+    }
+
+    [AvaloniaFact]
+    public void Dialog_TerminalChosenForPiThenClaudeCodeThenPiAgain_StartsPiOnApiModeAgain()
+    {
+        using var agents = new TwoAgents();
+        var dialog = Open(apiModeOffered: true);
+        try
+        {
+            ChooseAgent(dialog, "Pi");
+            dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked = true;
+
+            ChooseAgent(dialog, "Claude Code");
+            ChooseAgent(dialog, "Pi");
+
+            Assert.True(dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked);
+            Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    // ---- a saved named session reopens in the mode it was saved with (the review of #4277) ------------------------
+
+    /// <summary>Saves a named Pi session in the test's storage root, opens the dialog's Named Sessions tab, and clicks the
+    /// row's Launch button - the one-click path, in which nobody chooses a connection.</summary>
+    private static NewSessionDialog LaunchSavedPiSession(SessionConnectionMode? savedMode)
+    {
+        var pi = AgentEntryStore.ReadCurrentEntries().Single(e => e.Type == AgentKind.Pi);
+        var repo = Path.Combine(Path.GetTempPath(), "cc-director-api-mode-phase5-repo", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(repo);
+        new NamedSessionStore().Save(new NamedSessionDefinition
+        {
+            Name = "Saved Pi",
+            RepoPath = repo,
+            AgentId = pi.Id,
+            ConnectionMode = savedMode,
+        });
+
+        var dialog = Open(apiModeOffered: true);
+        dialog.GetControl<TabControl>("MainTabs").SelectedItem = dialog.GetControl<TabItem>("NamedSessionsTab");
+        for (var pump = 0; pump < 10; pump++)
+            Dispatcher.UIThread.RunJobs();
+        var launch = dialog.GetVisualDescendants().OfType<Button>()
+            .Single(b => (b.Tag as string) == "saved-pi" && (b.Content as string) == "Launch");
+        launch.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        for (var pump = 0; pump < 10; pump++)
+            Dispatcher.UIThread.RunJobs();
+        Assert.NotNull(dialog.SelectedNamedSession);
+        return dialog;
+    }
+
+    [Theory]
+    [InlineData(null, SessionConnectionMode.Terminal)]
+    [InlineData(SessionConnectionMode.Terminal, SessionConnectionMode.Terminal)]
+    [InlineData(SessionConnectionMode.Api, SessionConnectionMode.Api)]
+    public void ReopensOnApiMode_IsTrueOnlyForASessionSavedInApiMode(SessionConnectionMode? saved, SessionConnectionMode expected)
+    {
+        // Act
+        var reopensOnApi = NewSessionConnection.ReopensOnApiMode(new NamedSessionDefinition { ConnectionMode = saved });
+
+        // Assert
+        Assert.Equal(expected == SessionConnectionMode.Api, reopensOnApi);
+    }
+
+    [AvaloniaFact]
+    public void Dialog_NamedPiSessionSavedBeforeApiModeExisted_LaunchesInTheTerminal()
+    {
+        using var agents = new TwoAgents();
+        var dialog = LaunchSavedPiSession(savedMode: null);
+        try
+        {
+            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Dialog_NamedPiSessionSavedInTheTerminal_LaunchesInTheTerminal()
+    {
+        using var agents = new TwoAgents();
+        var dialog = LaunchSavedPiSession(SessionConnectionMode.Terminal);
+        try
+        {
+            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Dialog_NamedPiSessionSavedInApiMode_LaunchesInApiMode()
+    {
+        using var agents = new TwoAgents();
+        var dialog = LaunchSavedPiSession(SessionConnectionMode.Api);
+        try
+        {
+            Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
+        }
+        finally
+        {
+            dialog.Close();
+        }
+    }
+
+    [Theory]
+    [InlineData(AgentKind.Pi, true, true)]
+    [InlineData(AgentKind.Pi, false, false)]
+    [InlineData(AgentKind.ClaudeCode, true, false)]
+    [InlineData(AgentKind.Codex, true, false)]
+    public void StartsOnApiMode_IsTrueOnlyForPiWhileApiModeIsOffered(AgentKind kind, bool apiModeOffered, bool expected)
+    {
+        // Act
+        var starts = NewSessionConnection.StartsOnApiMode(kind, apiModeOffered);
+
+        // Assert
+        Assert.Equal(expected, starts);
     }
 
     [AvaloniaFact]
@@ -223,6 +345,7 @@ public class NewSessionConnectionTests
         try
         {
             ChooseAgent(dialog, "Pi");
+            dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked = true;
             var hidden = Compose(dialog);
             dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked = true;
 

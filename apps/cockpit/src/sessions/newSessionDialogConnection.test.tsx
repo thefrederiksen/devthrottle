@@ -8,6 +8,9 @@ import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/re
 //
 // Only the Gateway calls are replaced; the dialog and the shared row are the real ones.
 const createSessionMock = vi.fn();
+// Which connection the Gateway marks as Pi's default: none, as an older Gateway serves it, or API mode, as a Gateway
+// serves it for a Director of 2.25.0 or later (mission #4070, section 9).
+let mockPiDefault: "none" | "api" = "none";
 vi.mock("@devthrottle/client-core/api/client", () => ({
   getDirectors: () =>
     Promise.resolve([
@@ -33,8 +36,13 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
         defaultModel: "",
         modelLabel: "GLM",
         connections: [
-          { mode: "terminal", label: "Terminal", description: null },
-          { mode: "api", label: "API mode", description: "Prompts are handed to Pi as messages, and each one is confirmed." },
+          { mode: "terminal", label: "Terminal", description: null, isDefault: false },
+          {
+            mode: "api",
+            label: "API mode",
+            description: "Prompts are handed to Pi as messages, and each one is confirmed.",
+            isDefault: mockPiDefault === "api",
+          },
         ],
       },
       {
@@ -71,6 +79,42 @@ describe("the Cockpit New Session dialog's Connection row", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    mockPiDefault = "none";
+  });
+
+  it("starts Pi on API mode when the Gateway marks it as Pi's default, saying so before it starts", async () => {
+    mockPiDefault = "api";
+    await openAndPickTheRepository();
+
+    expect(screen.getByRole("button", { name: "API mode" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Pi . GLM . skips permission prompts . API mode")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+
+    await waitFor(() => expect(createSessionMock).toHaveBeenCalledTimes(1));
+    expect(createSessionMock.mock.calls[0][2].connectionMode).toBe("api");
+  });
+
+  it("keeps Terminal one click away for Pi when API mode is its default", async () => {
+    mockPiDefault = "api";
+    await openAndPickTheRepository();
+
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+
+    await waitFor(() => expect(createSessionMock).toHaveBeenCalledTimes(1));
+    expect(createSessionMock.mock.calls[0][2].connectionMode).toBe("terminal");
+  });
+
+  it("starts another agent on Terminal, and Pi on API mode again when it is picked back", async () => {
+    mockPiDefault = "api";
+    await openAndPickTheRepository();
+
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(screen.queryByRole("group", { name: "Connection" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Pi" }));
+
+    expect(screen.getByRole("button", { name: "API mode" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("offers Terminal and API mode for the agent the Gateway offers both, with Terminal chosen", async () => {
