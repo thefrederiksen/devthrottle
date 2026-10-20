@@ -119,6 +119,10 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
     private long _capturedBytes;
     private int _callbackCount;
     private double _lastCallbackStartMs = -1.0;
+    // Capture clock reading of where the FIRST buffer's audio BEGAN - its callback time less the
+    // audio it carried - and negative until one arrives. The wait for it is device-open time, not
+    // lost audio, so the expected byte count starts here.
+    private double _firstAudioMs = -1.0;
     private double _maxCallbackGapMs;
     private int _longGapCount;
     private double _maxHandlerMs;
@@ -280,6 +284,7 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
             if (gap > _maxCallbackGapMs) _maxCallbackGapMs = gap;
             if (gap > _dropRiskGapMs) _longGapCount++;
         }
+        if (_firstAudioMs < 0) _firstAudioMs = MicAudioCapture.FirstAudioStartMs(startMs, count);
         _lastCallbackStartMs = startMs;
         _callbackCount++;
         _capturedBytes += count;
@@ -310,7 +315,7 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
         FileLog.Write($"[LinuxMicAudioCapture] capture-health: capturedBytes={h.CapturedBytes}, expectedBytes={h.ExpectedBytes}, "
             + $"deficit={h.DeficitFraction:P1}, callbacks={h.CallbackCount}, maxGapMs={h.MaxCallbackGapMs:F0}, "
             + $"longGaps(>{_dropRiskGapMs:F0}ms)={h.LongGapCount}, maxHandlerMs={h.MaxHandlerMs:F1}, "
-            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, device=\"{Description}\"");
+            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, firstAudioMs={h.FirstAudioMs:F0}, deliveringMs={h.DeliveringMs:F0}, unaccountedAtStart={h.UnaccountedAtStartFraction:P1}, device=\"{Description}\"");
         if (h.CapturedBytes == 0)
             FileLog.Write($"[LinuxMicAudioCapture] the recorder delivered no audio; its last message: {_recorder?.LastErrorLine ?? "(none)"}");
         _ended.TrySetResult(true);
@@ -321,7 +326,7 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
         double elapsedMs = _captureClock.Elapsed.TotalMilliseconds;
         return new CaptureHealth(
             CapturedBytes: _capturedBytes,
-            ExpectedBytes: MicAudioCapture.ExpectedBytes(elapsedMs),
+            ExpectedBytes: MicAudioCapture.ExpectedBytesWhileDelivering(elapsedMs, _firstAudioMs),
             CallbackCount: _callbackCount,
             MaxCallbackGapMs: _maxCallbackGapMs,
             LongGapCount: _longGapCount,
@@ -329,7 +334,8 @@ public sealed class LinuxMicAudioCapture : IAudioMeterSource, IAudioCaptureDiagn
             TotalHandlerMs: _totalHandlerMs,
             ElapsedMs: elapsedMs,
             NumberOfBuffers: _numberOfBuffers,
-            BufferMilliseconds: _bufferMilliseconds);
+            BufferMilliseconds: _bufferMilliseconds,
+            FirstAudioMs: _firstAudioMs);
     }
 
     private void KillRecorder(string caller)

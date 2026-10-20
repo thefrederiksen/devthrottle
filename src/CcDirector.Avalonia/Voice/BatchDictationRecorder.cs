@@ -540,6 +540,7 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
             FileLog.Write($"[BatchDictationRecorder] capture-health: capturedBytes={ch.CapturedBytes}, "
                 + $"expectedBytes={ch.ExpectedBytes}, deficit={ch.DeficitFraction:P1}, callbacks={ch.CallbackCount}, "
                 + $"maxGapMs={ch.MaxCallbackGapMs:F0}, longGaps={ch.LongGapCount}, maxHandlerMs={ch.MaxHandlerMs:F1}, "
+                + $"firstAudioMs={ch.FirstAudioMs:F0}, deliveringMs={ch.DeliveringMs:F0}, unaccountedAtStart={ch.UnaccountedAtStartFraction:P1}, "
                 + $"buffers={ch.NumberOfBuffers}x{ch.BufferMilliseconds}ms");
 
         // The transcript itself is stored per-tenant on the Gateway (issue #509): this desktop path

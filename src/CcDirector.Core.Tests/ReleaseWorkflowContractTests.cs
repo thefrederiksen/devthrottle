@@ -221,6 +221,52 @@ public sealed class ReleaseWorkflowContractTests
     }
 
     /// <summary>
+    /// The release seat is held by a NAME, and that name has to be the same string every time the script works it
+    /// out, on every operating system. It was not. USERNAME and COMPUTERNAME are Windows-only environment
+    /// variables, so on macOS and Linux the identity was " on ", git stripped the trailing space when it stored
+    /// the claim subject, and nothing the script computed afterwards could equal the holder it read back. The
+    /// release was refused as held by somebody else, and -Unclaim refused it for the same reason - the seat could
+    /// only be freed by deleting the claim branch by hand. Found releasing v2.26.0 from the Mac.
+    /// </summary>
+    /// <summary>
+    /// WHAT THIS TEST DOES NOT DO, so nobody reads more into a green than it carries: it reads the script as
+    /// text. It never runs it, never creates a claim and never gives one up, so it cannot prove that claiming,
+    /// matching and -Unclaim agree at run time. A gate test may not spawn a real process or depend on the
+    /// machine (the test standard), and running PowerShell against a real remote would be exactly that. The run
+    /// time behaviour was proven by measurement instead, on the machine that hit the fault: USERNAME and
+    /// COMPUTERNAME came back empty there, [Environment] came back "soren" and "devthrottle-mac-mini", and this
+    /// test was confirmed to FAIL against the script as it stood before the fix. What the text scan is good for
+    /// is the regression that actually happened - somebody reaching for a Windows-only environment variable
+    /// again - and that it does catch.
+    /// </summary>
+    [Fact]
+    public void NewReleaseScript_WorksOutWhoIsReleasing_OnEveryOperatingSystem()
+    {
+        var script = File.ReadAllText(Path.Combine(GetRepoRoot(), ScriptPath));
+
+        var identityAt = script.IndexOf("$identity = if ($env:CC_SESSION_ID)", StringComparison.Ordinal);
+        Assert.True(identityAt > 0, $"{ScriptPath} no longer works out who is releasing where this test can read it.");
+
+        // The whole script, not a window around the identity: a Windows-only name anywhere in it would come
+        // back empty on the Mac and Linux seats, and the claim is not the only thing that would be wrong.
+        Assert.DoesNotContain("$env:USERNAME", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("$env:COMPUTERNAME", script, StringComparison.Ordinal);
+
+        var identityBlock = script.Substring(identityAt, Math.Min(400, script.Length - identityAt));
+        Assert.Contains("[Environment]::UserName", identityBlock, StringComparison.Ordinal);
+        Assert.Contains("[Environment]::MachineName", identityBlock, StringComparison.Ordinal);
+
+        // An empty holder can never be matched again, which is the shape of the original fault: the claim is
+        // stored, and from then on nobody is its holder. The script has to refuse before storing one.
+        var trimAt = script.IndexOf("$identity = $identity.Trim()", StringComparison.Ordinal);
+        var refusalAt = script.IndexOf("Could not work out who is releasing", StringComparison.Ordinal);
+        var firstClaimWriteAt = script.IndexOf("release claim $tagName by $identity", StringComparison.Ordinal);
+        Assert.True(trimAt > identityAt && refusalAt > trimAt && firstClaimWriteAt > refusalAt,
+            $"{ScriptPath} no longer refuses an empty holder before it writes the claim. A claim nobody holds "
+            + "jams the release seat until somebody deletes the branch by hand.");
+    }
+
+    /// <summary>
     /// The workflow makes the same check where it cannot be skipped: no build starts until the tagged commit is
     /// proven to be a tested commit, or a tested commit plus only the version and the notes.
     /// </summary>

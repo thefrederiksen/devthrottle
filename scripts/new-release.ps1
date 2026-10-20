@@ -105,7 +105,21 @@ $branch  = "release/$tagName"
 $claimBranch = "release-claim"
 
 # Who is releasing: the session when a session runs this, otherwise the person at the machine.
-$identity = if ($env:CC_SESSION_ID) { "session $env:CC_SESSION_ID" } else { "$env:USERNAME on $env:COMPUTERNAME" }
+# USERNAME and COMPUTERNAME are Windows-only environment variables. On macOS and Linux both are
+# empty, so the identity came out as " on ", git stripped the trailing space when it stored the
+# claim subject, and the holder it read back could never equal a freshly computed one. That jammed
+# the seat: the release was refused as held by somebody else, and -Unclaim refused it for the same
+# reason, so the only way out was for the owner to delete the claim branch by hand. It happened
+# while releasing v2.26.0 from the Mac. [Environment] answers on all three operating systems.
+$identity = if ($env:CC_SESSION_ID) {
+    "session $env:CC_SESSION_ID"
+} else {
+    "$([Environment]::UserName) on $([Environment]::MachineName)"
+}
+$identity = $identity.Trim()
+if (-not $identity) {
+    Fail "Could not work out who is releasing: both the user name and the machine name are empty." "The claim records who holds the release seat, and an empty holder can never be matched again. Set CC_SESSION_ID, or run where the operating system can name the user and the machine."
+}
 
 # --- Tools this needs ---
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
