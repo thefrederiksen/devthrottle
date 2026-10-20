@@ -7,6 +7,7 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory.Email;
+using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.MailDesk;
 using CcDirector.Gateway.Pairing;
@@ -147,14 +148,27 @@ public sealed class MailDeskOwnerTests : IAsyncLifetime
     private Task<(HttpStatusCode Status, JsonElement Body)> List(string query = "")
         => Send("GET", $"{P}/routed{query}", Person);
 
-    /// <summary>Every routed row and decision outcome of the account, as one text: a refusal leaves it as it was.</summary>
+    /// <summary>
+    /// EVERY column of every routed row, and every decision's outcome, as one text: a refusal leaves it as it was. Read
+    /// by reflection over the entity, so a column added later is compared too (review of 4278, finding 2).
+    /// </summary>
     private string Recorded()
     {
         using var ctx = _rig.Db.CreateContext(Account);
-        var routed = ctx.MailDeskRouted.AsNoTracking().OrderBy(r => r.Id).ToList().Select(r =>
-            $"{r.Id}|{r.State}|{r.Factory}/{r.Seat}|{r.SessionId}|{r.ReturnNote}|{r.ReturnedCount}|{r.OwnerReason}|{r.DoneNote}|{r.ChangedUtc:o}|{r.ResolvedUtc:o}");
-        var decisions = ctx.MailDeskDecisions.AsNoTracking().OrderBy(d => d.Id).ToList().Select(d => $"{d.Id}|{d.Outcome}|{d.OutcomeDetail}");
+        var columns = typeof(MailDeskRoutedEntity).GetProperties().OrderBy(p => p.Name, StringComparer.Ordinal).ToList();
+        Assert.Contains(columns, p => p.Name == nameof(MailDeskRoutedEntity.EarlierReturnNote));
+        var routed = ctx.MailDeskRouted.AsNoTracking().OrderBy(r => r.Id).ToList()
+            .Select(r => string.Join("|", columns.Select(p => $"{p.Name}={Text(p.GetValue(r))}")));
+        var decisions = ctx.MailDeskDecisions.AsNoTracking().OrderBy(d => d.Id).ToList()
+            .Select(d => $"{d.Id}|{d.Outcome}|{d.OutcomeDetail}|{Text(d.OutcomeUtc)}");
         return string.Join("\n", routed.Concat(decisions));
+
+        static string Text(object? value) => value switch
+        {
+            null => "null",
+            DateTime t => t.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+            _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "",
+        };
     }
 
     private void AssertRefused((HttpStatusCode Status, JsonElement Body) answer, HttpStatusCode status, string error, string before)
@@ -397,6 +411,81 @@ public sealed class MailDeskOwnerTests : IAsyncLifetime
             part.Returned.Select(r => (r.ReturnedBy, r.Note)).ToArray());
         Assert.All(part.Returned, r => Assert.Equal("Twice returned", r.Subject));
         Assert.Equal("the Mail Desk agent returned it: no seat fits", Assert.Single(part.HandedToOwner).Reason);
+    }
+
+    // ---------- the counts are per seat (review of 4278, finding 1) ----------
+
+    [Fact]
+    public async Task Return_AfterTheFirstSeatFailedTwice_OneFailedMailDeskStartIsNotHandedToTheOwner()
+    {
+        // Arrange - the clerk's machine refuses two starts, the third works
+        var decision = _rig.Decide(_channel, "c1", MailDeskWords.Decisions.Route, MailDeskRoutingRig.Books, MailDeskRoutingRig.Clerk);
+        _rig.StartAnswer = _ => TriggerStartAttempt.Failed("the machine refused");
+        await _rig.RouteAsync();
+        await _rig.RouteAsync();
+        Assert.Equal(2, _rig.Row(decision.Id).StartFailures);
+        _rig.StartAnswer = _ => TriggerStartAttempt.Started(_rig.NextSessionId());
+        await _rig.RouteAsync();
+        var clerk = _rig.Row(decision.Id).SessionId!;
+        Assert.Equal(MailDeskWords.Outcomes.SeatStarted, _rig.DecisionRow(decision.Id).Outcome);
+
+        // Act - the clerk returns it, and the Mail Desk agent's first start fails once
+        var answer = await Return(_rig.Row(decision.Id).Id, clerk, "not an invoice");
+        _rig.StartAnswer = _ => TriggerStartAttempt.Failed("the machine is away");
+        await _rig.RouteAsync();
+
+        // Assert - the Mail Desk seat has had one failed start of its own, and the email waits for it
+        Assert.Equal(0, answer.Body.GetProperty("startFailures").GetInt32());
+        var row = _rig.Row(decision.Id);
+        Assert.Equal((MailDeskWords.RoutedStates.Open, MailDeskWords.DefaultSeat, 1), (row.State, row.Seat, row.StartFailures));
+        Assert.Equal(MailDeskWords.Outcomes.SeatStarted, _rig.DecisionRow(decision.Id).Outcome);
+    }
+
+    [Fact]
+    public async Task Return_ThenThreeFailedMailDeskStarts_HandsItToTheOwnerButKeepsTheSeatStartedOutcome()
+    {
+        // Arrange - the clerk had it, and returned it
+        var (row, clerk) = await RoutedToClerk("c2");
+        var outcomeBefore = _rig.DecisionRow(row.DecisionId).OutcomeDetail;
+        Assert.Equal(HttpStatusCode.OK, (await Return(row.Id, clerk, "not an invoice")).Status);
+
+        // Act - the Mail Desk seat cannot be started three times
+        _rig.StartAnswer = _ => TriggerStartAttempt.Failed("the machine is away");
+        for (var i = 0; i < MailDeskRoutedStore.StartFailuresBeforeOwner; i++) await _rig.RouteAsync();
+
+        // Assert - with the owner, but the record still says a seat had it
+        var now = _rig.Row(row.DecisionId);
+        Assert.Equal(MailDeskWords.RoutedStates.Returned, now.State);
+        Assert.StartsWith("its session could not be started 3 times", now.OwnerReason);
+        var decision = _rig.DecisionRow(row.DecisionId);
+        Assert.Equal((MailDeskWords.Outcomes.SeatStarted, outcomeBefore), (decision.Outcome, decision.OutcomeDetail));
+    }
+
+    [Fact]
+    public async Task Return_AfterTheFirstSeatWasReroutedOnce_TheMailDeskAgentGetsItsOwnReroute()
+    {
+        // Arrange - the clerk's first session ends without answering; the second clerk session returns it
+        var (row, first) = await RoutedToClerk("c3");
+        _rig.SessionIs(first, alive: false);
+        _rig.Now = _rig.Now.AddMinutes(10);
+        await _rig.RouteAsync();
+        var second = _rig.Row(row.DecisionId).SessionId!;
+        Assert.Equal(1, _rig.Row(row.DecisionId).RerouteCount);
+        Assert.Equal(HttpStatusCode.OK, (await Return(row.Id, second, "not an invoice")).Status);
+        _rig.Now = _rig.Now.AddMinutes(5);
+        await _rig.RouteAsync();
+        var agent = _rig.Row(row.DecisionId).SessionId!;
+
+        // Act - the Mail Desk agent's session ends without answering
+        _rig.SessionIs(agent, alive: false);
+        _rig.Now = _rig.Now.AddMinutes(10);
+        await _rig.RouteAsync();
+
+        // Assert - re-routed once at the Mail Desk seat, not handed to the owner
+        var now = _rig.Row(row.DecisionId);
+        Assert.Equal((MailDeskWords.RoutedStates.Open, MailDeskWords.DefaultSeat, 1), (now.State, now.Seat, now.RerouteCount));
+        Assert.NotNull(now.SessionId);
+        Assert.NotEqual(agent, now.SessionId);
     }
 
     [Fact]

@@ -347,8 +347,7 @@ public sealed class MailDeskRoutedStore
             }
             else
             {
-                row.Factory = channel.Factory;
-                row.Seat = channel.Seat;
+                ToNewSeat(row, channel);
                 row.ReturnNote = Cut(reason, MaxNoteLength);
                 Queue(row, nowUtc);
             }
@@ -441,8 +440,7 @@ public sealed class MailDeskRoutedStore
             }
             else
             {
-                row.Factory = channel.Factory;
-                row.Seat = channel.Seat;
+                ToNewSeat(row, channel);
                 Queue(row, nowUtc);
             }
             ctx.SaveChanges();
@@ -572,13 +570,29 @@ public sealed class MailDeskRoutedStore
         row.OwnerUtc = nowUtc;
         row.StartName = null;
         row.ChangedUtc = nowUtc;
-        if (failDecision && ctx.MailDeskDecisions.FirstOrDefault(d => d.Id == row.DecisionId) is { } decision)
+        // An email that reached a seat keeps its seat-started outcome: "failed" says it never reached one (review of
+        // 4278, finding 1), and a seat that had it and returned it did.
+        if (failDecision && ctx.MailDeskDecisions.FirstOrDefault(d => d.Id == row.DecisionId) is { } decision
+            && decision.Outcome != MailDeskWords.Outcomes.SeatStarted)
         {
             decision.Outcome = MailDeskWords.Outcomes.Failed;
             decision.OutcomeDetail = Cut(reason, MailDeskDecisionStore.MaxReasonLength);
             decision.OutcomeUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
         }
         FileLog.Write($"[MailDeskRoutedStore] ToOwner: {row.Id} handed to the owner (decision {row.DecisionId}, failed decision={failDecision})");
+    }
+
+    /// <summary>
+    /// The email moves to its channel's Mail Desk seat (a return, or a seat that cannot take it). The failed starts and
+    /// the re-route are counted AT ONE SEAT (review of 4278, finding 1), so the new seat starts with none of the old
+    /// seat's: three failed starts and one re-route of its own before the owner.
+    /// </summary>
+    private static void ToNewSeat(MailDeskRoutedEntity row, MailDeskChannelEntity channel)
+    {
+        row.Factory = channel.Factory;
+        row.Seat = channel.Seat;
+        row.StartFailures = 0;
+        row.RerouteCount = 0;
     }
 
     /// <summary>Back to waiting for a session of its seat: no session, no start.</summary>

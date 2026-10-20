@@ -89,10 +89,11 @@ public sealed class MailDeskRoutedPostgresTests
             Assert.True(routed.Done(A, agentRow.Id, Session, "answered", Now).Succeeded);
             Assert.Equal((MailDeskWords.RoutedStates.Done, "answered"), (routed.Get(A, agentRow.Id)!.State, routed.Get(A, agentRow.Id)!.DoneNote));
 
-            // The returned row cannot be taken by its seat: handed to the owner, the decision failed.
+            // The returned row cannot be taken by its seat: handed to the owner. The clerk had it, so the decision keeps
+            // its seat-started outcome (review of 4278, finding 1); only an email no seat ever had is marked failed.
             var handed = routed.Redirect(A, routeRow.Id, "'mail-desk' has no published definition", Now)!;
             Assert.Equal((MailDeskWords.RoutedStates.Returned, "'mail-desk' has no published definition"), (handed.State, handed.OwnerReason));
-            Assert.Equal(MailDeskWords.Outcomes.Failed, decisions.Get(A, route.Id)!.Outcome);
+            Assert.Equal(MailDeskWords.Outcomes.SeatStarted, decisions.Get(A, route.Id)!.Outcome);
 
             // The routed read, with its filters.
             Assert.Equal(2, routed.List(A, new MailDeskRoutedFilter()).Total);
