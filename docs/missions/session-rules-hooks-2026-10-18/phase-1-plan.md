@@ -263,3 +263,17 @@ for its batch size and by the Gateway for its limit - two copies would drift. A 
 refused WHOLE with a 400 and a stated reason, never refused decision by decision: the Director deletes a
 decision refused by id, so a per-decision refusal for being past the limit would destroy real records. A
 whole refusal is a failed post, and the Director keeps every drop.
+
+**P18. Phase 2 meets phase 1 (2026-10-19, after #4267 merged).** Phase 2 opened the rule routes to session
+keys, added a change route and the `session_rule_changes` history. On this branch, after merging it:
+- **Every phase 1 field travels through the change route and the history**: `kind`, `appliesTo`, and a
+  hook rule's `event`, `tool`, `handler`, `match` and `result` are in the before and after of every
+  recorded change, and a change to any of them is recorded.
+- **A change meets the same write gate as a create** (P4, P7): a screen rule cannot be changed to a scope
+  other than `everywhere`; a hook rule cannot gain the September `scope` filter, screen fields, a
+  cooldown or a daily cap; a match text cannot become empty or only whitespace.
+- **`kind` cannot be changed.** A screen rule and a hook rule are different instructions; changing one
+  into the other is refused with a reason (delete and create instead).
+- **Promotion of a hook rule stays refused** whoever asks, a session included (phase 4 brings live hooks).
+- **The effective rules route (W1) and the hook firings route (W5) still refuse a session key** - they are
+  the Director's, and phase 2's opening of the rule routes does not reach them.
