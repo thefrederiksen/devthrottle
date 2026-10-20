@@ -3152,6 +3152,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("OutcomeUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(1000)
