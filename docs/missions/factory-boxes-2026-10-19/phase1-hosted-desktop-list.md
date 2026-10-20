@@ -107,8 +107,8 @@ Tests: `PushedHostedDesktopStoreTests`, `PushHostedDesktopsHubTests` (Gateway.Un
   The Gateway reads its settings from environment variables (the `StaffAccess` pattern), not from an `appsettings`
   section, which is why it is not `Boxes:EnabledTenantIds`.
 - **The gate:** every Boxes route is mapped inside `BoxesGate.Group(...)`. For an account the flag is off for, or a
-  request bound to no account, the gate answers **404 with no body**, exactly as an unmapped route does. The relay's
-  `/boxes/{boxId}/desktop/...` routes must be mapped into the same group.
+  request bound to no account, the gate answers **404 with no body**, exactly as an unmapped route does. The relay
+  leg's Boxes routes - its one-time ticket endpoint and the desktop routes - must be mapped into the same group.
 - **What the Cockpit reads:** `GET /account/status` carries `"boxes": true | false` - the Gateway's ruling for the
   calling account. The Cockpit shows the Boxes screen only when it is true, and never decides by itself.
 
@@ -129,7 +129,7 @@ Normal sign-in, inside the gate. The desktops hosted by the calling account's co
       "directorName": "devlinux slot 1",
       "machineName": "devlinux",
       "state": "Online",
-      "desktopPath": "/boxes/demo-desktop-soren/desktop/"
+      "relativeDesktopPath": "/boxes/demo-desktop-soren/desktop/"
     }
   ]
 }
@@ -137,8 +137,11 @@ Normal sign-in, inside the gate. The desktops hosted by the calling account's co
 
 - `state` is decided by the Gateway. Phase 1 has exactly one value, `"Online"` (its Director is connected), because a
   list is only held while its Director is connected. Later phases add values here; the Cockpit renders the string.
-- `desktopPath` is the path the Cockpit opens, `/boxes/{boxId}/desktop/`. The spike (#4261,
-  `phase1-spike-path-prefix.md`) confirmed the desktop works under this prefix with a prefix-stripping relay.
+- `relativeDesktopPath` is the desktop's path RELATIVE to the desktop host, `/boxes/{boxId}/desktop/`. It is **not** an
+  address to navigate to. The desktop is served on a separate desktop host (a Gateway setting; in production
+  `devthrottle-gw.azurewebsites.net`), and **the Cockpit opens a box through the relay leg's one-time ticket endpoint**,
+  which answers the full address to open. The spike (#4261, `phase1-spike-path-prefix.md`) confirmed the desktop works
+  under this prefix with a prefix-stripping relay.
 - `directorName` is the Director's display name from its Hello, empty when it has none.
 - An empty list is `{"count":0,"boxes":[]}`.
 - Signed out: refused (401 from the authentication middleware; the gate answers 404 behind it). An account without
