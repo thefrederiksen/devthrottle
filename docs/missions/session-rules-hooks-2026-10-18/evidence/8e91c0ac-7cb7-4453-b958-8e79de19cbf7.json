@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "sessionId": "8e91c0ac-7cb7-4453-b958-8e79de19cbf7",
+  "machine": "devlinux",
+  "repo": "github.com/session-rules-rig/repo-a",
+  "generatedUtc": "2026-10-20T00:44:07.0434012Z",
+  "rules": [
+    {
+      "id": "20779208-32e3-4387-9cce-36743833c190",
+      "rank": 3,
+      "appliesTo": "repo",
+      "event": "before_command",
+      "tool": "shell",
+      "match": [
+        "echo RULE-PROBE"
+      ],
+      "result": "deny",
+      "reason": "Live rig probe: a shell command containing \u0027echo RULE-PROBE\u0027 is refused (repo).",
+      "state": "dry_run"
+    },
+    {
+      "id": "33e5fed7-d60e-46f4-a32c-db5ab5e87187",
+      "rank": 2,
+      "appliesTo": "machine",
+      "event": "before_command",
+      "tool": "shell",
+      "match": [
+        "echo HERE-PROBE"
+      ],
+      "result": "deny",
+      "reason": "Live rig probe: a shell command containing \u0027echo HERE-PROBE\u0027 is refused (machine).",
+      "state": "dry_run"
+    }
+  ]
+}

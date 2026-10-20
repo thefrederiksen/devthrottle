@@ -1,0 +1,4 @@
+2026-10-20T00:46:08.5486088Z	shell	rules=1	matched=0	no_match	903us	toolu_019hXnYykdUmWpuzFE9uW6wz
+2026-10-20T00:46:44.0230730Z	shell	rules=1	matched=0	no_match	1306us	toolu_013HGsNfcp5uVFp2ZGzSDzH2
+2026-10-20T00:47:20.7998161Z	shell	rules=1	matched=0	no_match	1355us	toolu_01AZMEViUmoQf83JMFhC1ZnK
+2026-10-20T00:47:56.8739005Z	shell	rules=1	matched=1	would_deny	2202us	toolu_015TRbaQhFHpLm8S1XV2HC85
