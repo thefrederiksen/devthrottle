@@ -558,6 +558,11 @@ def start_gateway(model_url):
     return gw
 
 
+def gateway_lines(contains):
+    return [line for log in sorted((GW_ROOT / "logs").rglob("*.log"))
+            for line in log.read_text(encoding="utf-8", errors="replace").splitlines() if any(c in line for c in contains)]
+
+
 def gateway_log(title, contains):
     found = []
     for log in sorted((GW_ROOT / "logs").rglob("*.log")):
@@ -626,7 +631,8 @@ def director_env():
     env = without_cc(os.environ)
     for k in ("ADMIN_SERVICE_TOKEN", "REPORT_SERVICE_TOKEN", "NOTIFY_OWNER_SERVICE_TOKEN", "DEVTHROTTLE_API_KEY"):
         env.pop(k, None)
-    env.update(CC_DIRECTOR_ROOT=str(DIR_ROOT), CC_AUTOUPDATE="0", CC_GATEWAY_NO_TAILSCALE="1", HOME=str(DIR_HOME),
+    # TZ=UTC: the Director writes its log in local time, and the rig compares its lines with universal time.
+    env.update(TZ="UTC", CC_DIRECTOR_ROOT=str(DIR_ROOT), CC_AUTOUPDATE="0", CC_GATEWAY_NO_TAILSCALE="1", HOME=str(DIR_HOME),
                UV_CACHE_DIR=str(USER_HOME / ".cache" / "uv"), DOTNET_ROOT=str(DOTNET_ROOT))
     env["PATH"] = f"{RIG_BIN}:{USER_BIN}:/usr/local/bin:/usr/bin:/bin"
     return env
@@ -646,17 +652,32 @@ def start_director():
 
 
 def rig_processes(but=()):
-    """Every process whose command line names the rig folder, other than the ids in `but`."""
+    """Every live process that owns the rig folder: its working folder is under it, or its environment points
+    CC_DIRECTOR_ROOT or HOME into it. That is the rig's Gateway (CC_DIRECTOR_ROOT=<rig>/gateway-root), its Director
+    (<rig>/director-root, HOME=<rig>/home), and everything they start. Read from /proc, never from command lines,
+    which carry neither folder. The rig's own process and its parents are left out."""
+    mine = set(but)
+    pid = os.getpid()
+    while pid > 1:
+        mine.add(pid)
+        try:
+            pid = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    rig = str(RIG)
     found = []
     for d in Path("/proc").iterdir():
-        if not d.name.isdigit() or int(d.name) in but:
+        if not d.name.isdigit() or int(d.name) in mine:
             continue
         try:
-            cmd = (d / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+            cwd = os.readlink(d / "cwd")
+            env = dict(v.split(b"=", 1) for v in (d / "environ").read_bytes().split(b"\0") if b"=" in v)
+            exe = os.readlink(d / "exe")
         except OSError:
             continue
-        if str(RIG) in cmd:
-            found.append((int(d.name), cmd[:160]))
+        roots = [env.get(b"CC_DIRECTOR_ROOT", b"").decode("utf-8", "replace"), env.get(b"HOME", b"").decode("utf-8", "replace")]
+        if cwd == rig or cwd.startswith(rig + "/") or any(r == rig or r.startswith(rig + "/") for r in roots):
+            found.append((int(d.name), exe.replace(str(REPO), "<repo>")))
     return found
 
 
@@ -678,6 +699,29 @@ def stop_director(proc, director_id):
     return gone
 
 
+def director_lines(contains, since=None):
+    found = []
+    for log in sorted((DIR_INSTANCE / "logs" / "director").glob("*.log")):
+        for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            if any(c in line for c in contains) and (since is None or line[:19] >= since):
+                found.append(line)
+    return found
+
+
+def decided_counts(run):
+    """(decided, already decided) from a screened run's own reason: "<n> decided, <m> already decided, ...". """
+    reason = run[6] or ""
+    d = re.search(r"(\d+) decided,", reason)
+    a = re.search(r"(\d+) already decided", reason)
+    if not d or not a:
+        raise SystemExit(f"a screened run's reason does not say what was decided: {reason}")
+    return int(d.group(1)), int(a.group(1))
+
+
+def decisions_rows():
+    return query("SELECT Id FROM mail_desk_decisions")
+
+
 def director_log(title, contains, since=None):
     found = []
     for log in sorted((DIR_INSTANCE / "logs" / "director").glob("*.log")):
@@ -687,6 +731,13 @@ def director_log(title, contains, since=None):
     record(f"{title} - the test Director's log, lines naming {list(contains)}",
            "\n".join(f"  {x}" for x in found[-30:]) or "  (none)")
     return found
+
+
+def rig_agent_folders():
+    """The agent's project folders the rig's seats have made in the owner's ~/.claude/projects: named after a folder
+    under the rig, so they start with -tmp-mail-desk-rig-."""
+    prefix = re.sub(r"[^A-Za-z0-9]", "-", str(RIG)) + "-"
+    return {p.name for p in CLAUDE_PROJECTS.glob(prefix + "*")} if CLAUDE_PROJECTS.exists() else set()
 
 
 def user_bin_links(title):
@@ -1328,7 +1379,7 @@ def section_observe():
     check(TWO in text and "is not signed in on" in text and "cc-outlook" in text,
           "qa-two's failure is an Open problem on the mail-desk factory, naming the machine and the cc-outlook fix")
     check(not decisions(TWO), "qa-two has no decisions: it was not read")
-    marker_anywhere("observe mode")
+    check(not marker_anywhere("observe mode"), "nothing of an email's body preview is stored or logged")
     STATE["observe_emails"] = emails
 
 
@@ -1353,6 +1404,7 @@ def section_graph_error():
                                       "stored memory of qa-one is not moved on, and once Graph answers again the next "
                                       "run reads the same email, once.")
     graph = STATE["graph"]
+    plant_sign_in(TWO)   # signed in by the signin section; again here so the section also runs on its own
     before = memory_of(ONE)
     graph.fail_for[ONE] = 503
     email = mail("customer@client.example", "Second question about exports")
@@ -1372,9 +1424,9 @@ def section_graph_error():
     check(ONE in text and "503" in text, "qa-one's failure is an Open problem naming the HTTP status")
     graph.fail_for.pop(ONE)
     t = now()
-    wait_run_after(t, "Graph answering again", outcome="screened")
-    found = [d for d in decisions(ONE) if d["subject"] == "Second question about exports"]
-    check(len(found) == 1, "the same email was read the next run and decided once")
+    run = wait_run_after(t, "Graph answering again", outcome="screened")
+    check(decision_of("Second question about exports", ONE) is not None and decided_counts(run) == (1, 0),
+          "the next run read the same email and decided it: its run says 1 decided, 0 already decided")
     cli(["maildesk", "decisions", "--channel", ONE, "-n", "3"])
 
 
@@ -1409,8 +1461,9 @@ def section_model():
     check({c["subject"] for c in calls} == {"Model down: please classify"},
           "the next run asked about the failed email only - nothing already decided was asked or charged again")
     d = decision_of("Model down: please classify", ONE)
-    check(d["decision"] == "mail-desk-agent" and d.get("attemptCount", 2) >= 1,
-          "the failed email is decided on the reread (its row updated in place)")
+    attempts = query("SELECT AttemptCount FROM mail_desk_decisions WHERE Subject = ?", ("Model down: please classify",))
+    check(d["decision"] == "mail-desk-agent" and attempts == [(2,)],
+          "the failed email is decided on the reread, its row updated in place: attempt 2")
     rows("the two emails' decision rows", "SELECT Subject, Layer, Decision, Reason, AttemptCount FROM "
          "mail_desk_decisions WHERE Subject IN ('Model down: please classify', 'Off the labels please')")
 
@@ -1431,10 +1484,14 @@ def section_batches():
     made = runs()[first:]
     record("the runs while the batch was read", "\n".join(f"  {r}" for r in made))
     got = [d for d in decisions(TWO, 500) if d["subject"].startswith("Nightly build")]
-    keys = [d["messageKey"] for d in got]
-    check(len(got) == 23 and len(set(keys)) == 23, "23 emails, 23 decisions, 23 different message keys: none twice")
-    check(sorted(d["subject"] for d in got) == sorted(m["subject"] for m in emails), "none skipped")
-    check(len([r for r in made if (r[4] or 0) > 0]) >= 3, "it took at least three runs (10 per run at most)")
+    check(sorted(d["subject"] for d in got) == sorted(m["subject"] for m in emails), "none skipped: 23 decided")
+    reported = sum(r[4] or 0 for r in made)
+    counts = [decided_counts(r) for r in made]
+    check(reported == 23 and sum(c[0] for c in counts) == 23 and all(c[1] == 0 for c in counts),
+          f"none twice: the runs reported {reported} messages in all, decided {sum(c[0] for c in counts)}, and every "
+          "run says 0 already decided")
+    check(len([r for r in made if (r[4] or 0) > 0]) >= 3 and max(r[4] or 0 for r in made) <= 10,
+          "it took at least three runs, none reporting more than 10")
     rows("how many runs reported how many messages", "SELECT CheckedUtc, Outcome, Count FROM trigger_runs WHERE "
          "TriggerId = ? COLLATE NOCASE AND RecordedUtc >= ? ORDER BY RecordedUtc",
          (STATE["trigger"], t.strftime("%Y-%m-%d %H:%M:%S")))
@@ -1443,26 +1500,34 @@ def section_batches():
 def section_switch_off():
     section("THE SWITCH OFF", "Mail Desk is switched off for the account through the administrator route while an email "
                               "waits. Expected: every Mail Desk route answers 404 with no body, the command says the "
-                              "switch is off, the Director's report is refused (409 mail_desk_off) and nothing is "
-                              "recorded. Then it is switched on again and the email is read.")
+                              "switch is off, the Director's report of the Mail Desk check is refused 409 mail_desk_off "
+                              "(its own log says so) and nothing is recorded. Then it is switched on again and the email "
+                              "is read.")
     email = mail("customer@client.example", "A question while the switch is off")
     STATE["graph"].put(ONE, "inbox", email)
-    before = (len(runs()), len(decisions()))
     admin_switch(False, "the Mail Desk rig: the switch-off case")
     t = now()
+    before = (len(runs()), len(decisions_rows()))
     for path in ("/gateway/mail-desk/status", "/gateway/mail-desk/channels", "/gateway/mail-desk/decisions"):
         status, answer = raw("GET", path, None, 404)
         check(answer == "", f"GET {path} answers 404 with no body")
     raw("POST", "/gateway/mail-desk/channels/mode", {"address": ONE, "mode": "live", "why": "x"}, 404)
     cli(["maildesk", "status"], 1)
-    time.sleep(150)
+    name = next(x["name"] for x in get("/triggers")["triggers"] if x["id"] == STATE["trigger"])
+    since = t.strftime("%Y-%m-%d %H:%M:%S")
+    refused = wait_for("the Director's log shows no refused Mail Desk report while the switch is off", lambda: [
+        line for line in director_lines(("report NOT recorded",), since)
+        if f"trigger={name}," in line and "409" in line and "mail_desk_off" in line], seconds=300, every=5)
+    record(f"the Director's own log since {since} (universal time): its reports of {name} refused",
+           "\n".join(f"  {x}" for x in refused))
+    check(bool(refused), "the Director's report of the Mail Desk check was refused 409 mail_desk_off")
     check(len(runs()) == before[0], "no run was recorded while the switch was off")
-    director_log("the Director's reports while off", ("mail_desk_off", "409"), since=t.strftime("%Y-%m-%d %H:%M:%S"))
+    check(len(decisions_rows()) == before[1], "no decision was recorded while the switch was off")
     admin_switch(True, "the Mail Desk rig: switched on again")
-    check(len(decisions()) == before[1], "no decision was recorded while the switch was off")
     t = now()
-    wait_run_after(t, "the switch on again", outcome="screened")
-    check(decision_of("A question while the switch is off", ONE) is not None, "the waiting email is read once it is on")
+    run = wait_run_after(t, "the switch on again", outcome="screened")
+    check(decision_of("A question while the switch is off", ONE) is not None and decided_counts(run)[0] >= 1,
+          "the waiting email is read once it is on")
 
 
 REFUSED_PROMPT = ("QA-MD-REFUSED. This is a QA test on a throwaway test Gateway that proves the Gateway REFUSES a channel "
@@ -1543,8 +1608,8 @@ def section_backup():
     check(len(theirs) == 1 and theirs[0][3] == "screened", "the run is recorded, screened, for the stand-in Director")
     rows("the trigger's claim", "SELECT ClaimedByDirectorId, ClaimedByMachine, BackupMachinesJson FROM triggers WHERE "
          "Id = ? COLLATE NOCASE", (STATE["trigger"],))
-    check(len([d for d in decisions(ONE, 500) if d["subject"] == "Invoice 1042 for October"]) <= 1,
-          "nothing already decided was decided again: the cursor continued")
+    check(theirs[0][4] == 1 and decided_counts(theirs[0]) == (1, 0),
+          "the cursor continued: the stand-in's run reported 1 message, 1 decided, 0 already decided")
     note(f"the slot {SLOT} Director starts again on the same root")
     director, reg = start_director()
     record("the slot Director again", f"  pid {director.pid}, id {reg['DirectorId']}")
@@ -1719,6 +1784,8 @@ def end_session(sid, why):
         (pid, name) for pid, name in session_agent_pids(sid) if name == "claude"], seconds=180, every=2)
     if len(agents) != 1:
         raise SystemExit(f"expected one agent process in session {sid}'s folder, found {session_agent_pids(sid)}")
+    if not session_folder(sid).startswith(str(RIG) + "/"):
+        raise SystemExit(f"session {sid} does not work under the rig folder; the rig kills nothing outside it")
     os.kill(agents[0][0], signal.SIGKILL)
     record(f"the rig ended session {sid}'s agent with a kill signal", f"  agent process {agents[0][0]} "
            f"(working in {session_folder(sid)}, the session's own checkout under the rig)\n  why: {why}")
@@ -1813,7 +1880,7 @@ def section_live_routing():
     check(letter["decision"] == "keep-for-owner" and letter.get("outcome") is None
           and graph.folder_of(TWO, first[3]["id"]) == "inbox" and not routed_of("The December letter"),
           "the letter kept for the owner stays in the Inbox, with no routed row and nothing started")
-    marker_anywhere("live routing")
+    check(not marker_anywhere("live routing"), "nothing of an email's body preview is stored or logged")
     STATE["books_session"] = b["sessionId"]
     STATE["support_session"] = sp["sessionId"]
 
@@ -1996,8 +2063,9 @@ def main():
     for needed in (GATEWAY_EXE, DIRECTOR_EXE, PYENV_PYTHON, WRAPPER):
         if not needed.exists():
             raise SystemExit(f"{needed} does not exist (build the Gateway and the slot {SLOT} Director first)")
-    if RIG.exists() and rig_processes():
-        raise SystemExit(f"processes still run from {RIG}: {rig_processes()}; wait for them to end")
+    if rig_processes():
+        # Never removes the folder from under a live run: another run (or what it left) still owns it.
+        raise SystemExit(f"processes still own {RIG}: {rig_processes()}; this run refuses to start until they end")
     if RIG.exists():
         shutil.rmtree(RIG)
     RIG.mkdir(parents=True)
@@ -2008,6 +2076,7 @@ def main():
                           text=True).stdout.strip()
     note(f"Mail Desk rig, {utc()}, tree {tree}, machine {MACHINE}, sections: {', '.join(only)}")
     links_before = user_bin_links("~/.local/bin links BEFORE the run")
+    agent_folders_before = rig_agent_folders()
     graph, model = FakeGraph(), FakeModel()
     graph_server, model_server = serve(graph.handle), serve(model.handle)
     STATE.update(graph=graph, model=model, graph_url=f"http://127.0.0.1:{graph_server.server_port}",
@@ -2018,6 +2087,9 @@ def main():
         gateway_log("the Mail Desk model's address, read at start", ("MailDeskModelEndpointConfig",))
         director, reg = start_director()
         STATE["dir_proc"] = director
+        owning = {pid for pid, _ in rig_processes()}
+        check(gw.pid in owning and director.pid in owning, "the process scan sees the rig's Gateway and Director "
+              "(so its end check and its start-up refusal can)")
         note(f"Gateway {STATE['gw']} built from this tree, storage root <rig>/gateway-root (empty for this run), its "
              f"config.json naming the fake model {STATE['model_url']}. The slot {SLOT} Director (pid {director.pid}, id "
              f"{reg['DirectorId']}) started with CC_DIRECTOR_ROOT=<rig>/director-root and HOME=<rig>/home and joined "
@@ -2027,9 +2099,11 @@ def main():
             SECTIONS[name]()
         if any(name in only for name in ("live-routing", "busy-orphan", "return-owner")):
             check_director_tools("at the end of the run")
-        hosted = [line for line in gateway_log("any request toward the hosted endpoint", ("devthrottle.com",))]
-        check(not hosted, "the throwaway Gateway's log names no request to devthrottle.com: no model question left "
-                          "this machine")
+        asked = [line for line in gateway_lines(("[MailDeskModel] AskAsync: question=",)) if ", labels=" in line]
+        record("every model question the throwaway Gateway asked (its own log: one line as each call starts)",
+               f"  {len(asked)} questions asked by the Gateway, {len(model.calls())} received by the fake model")
+        check(len(asked) == len(model.calls()), "every model question the Gateway asked reached the rig's fake model "
+              f"({len(asked)} asked, {len(model.calls())} received): none went anywhere else")
         if any(name in only for name in ("observe", "model", "graph-error", "signin")):
             check(model.calls(), "the fake model received the model questions this run's cases expect")
         record("every call the fake Graph received in the whole run", graph.shown_log())
@@ -2059,8 +2133,17 @@ def main():
                     record("the throwaway Gateway did not stop on SIGTERM within 30 seconds", f"  pid {gw.pid}")
             graph_server.shutdown()
             model_server.shutdown()
-            record("processes still running from the rig folder after the stop",
-                   "\n".join(f"  {p}" for p in rig_processes()) or "  (none)")
+            left = rig_processes()
+            record("processes that still own the rig folder after the stop (read from /proc: working folder, "
+                   "CC_DIRECTOR_ROOT or HOME under the rig)", "\n".join(f"  {p}" for p in left) or "  (none)")
+            TRANSCRIPT.append(f"# CHECK {'PASS' if not left else 'FAIL'}: nothing the rig started still runs (its "
+                              f"Gateway {STATE.get('gw_proc') and STATE['gw_proc'].pid} and its Director included)\n")
+            print(f"CHECK {'PASS' if not left else 'FAIL'}: nothing the rig started still runs", flush=True)
+            added = sorted(rig_agent_folders() - agent_folders_before)
+            record("what this run added to the owner's ~/.claude/projects (the seats' agent transcripts; the seats run "
+                   "with the owner's ~/.claude, see the README). Nothing there is removed by the rig.",
+                   f"  {len(added)} folder(s), every one named -tmp-mail-desk-rig-...:\n"
+                   + "\n".join(f"    {shown(x)}" for x in added))
             links_after = user_bin_links("~/.local/bin links AFTER the run")
             record("~/.local/bin unchanged by the run, and its tools still point at the owner's pyenv",
                    f"  unchanged: {links_before == links_after}\n  cc-devthrottle -> "

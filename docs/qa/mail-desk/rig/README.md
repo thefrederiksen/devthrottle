@@ -16,7 +16,7 @@ bash scripts/local-build-linux.sh --slot 5 --framework-dependent
 uv run --script docs/qa/mail-desk/rig/run_qa.py [--only observe,signin,...]
 ```
 
-The whole run takes a long time - every case waits for real check runs, and a start runs at most once a minute - so
+It refuses to start while any process still owns `/tmp/mail-desk-rig` (read from `/proc`: a working folder, `CC_DIRECTOR_ROOT` or `HOME` under it), and never removes the folder from under one. The whole run takes a long time - every case waits for real check runs, and a start runs at most once a minute - so
 run it with `--only` in parts, or as one long foreground command. The sections are listed in `SECTIONS` at the end of
 `run_qa.py`; `--only` runs the set-up and the sections named. The wrapper's own tests:
 
@@ -30,7 +30,7 @@ uv run --no-project --with pytest --with "msal>=1.28" python -m pytest docs/qa/m
 |---|---|
 | Gateway | `src/CcDirector.Gateway` (Debug) on a free port of 127.0.0.1, storage root `/tmp/mail-desk-rig/gateway-root`, a minimal environment (no `CC_` variable, no service token, no key of the owner's), Tailscale off, authentication on, factory agents on in its own `config.json`, an administrator token made for the run. Mail Desk is switched on for its one account (`local`) through `POST /gateway/admin/mail-desk`. |
 | The model | The Gateway's `config.json` sets **`mailDeskModelBaseUrl`** to the rig's fake model on 127.0.0.1. That setting was added for this rig (Tech Lead's decision, 19 October 2026): the Mail Desk's model address was a constant, so a throwaway Gateway could not be pointed at a fake without it. It is honoured only for a loopback host; any other value stops the Gateway from starting, and absent means the hosted endpoint, so production is unchanged. Its key vault holds a rig-only key that only the fake model accepts. **The rig never calls DeepInfra or any real model.** |
-| Director | `local_builds/linux/cc-director-linux5`, built from this tree, with a scratch `CC_DIRECTOR_ROOT` and a scratch `HOME` under the rig folder, every `CC_` variable removed, auto-update off, stopped only by its own lifecycle request file. Afterwards the rig checks that `~/.local/bin` is unchanged and still points at the owner's tools. Its `PATH` starts with a rig folder whose `cc-devthrottle` is this tree's command and whose `cc-outlook` is a stub that refuses: the routed prompt tells a seat to read the email with cc-outlook, and on the rig there is no mailbox and a seat must never reach a real one. A session's PATH starts with the Director's own tools folder (`director-root/bin`, in the rig's scratch root), so once the Director has installed its tools the rig replaces two of its links there - `cc-devthrottle` with this tree's command and `cc-outlook` with the stub - and checks at the end that both are still the rig's. The seat briefs also name this tree's command by its full path. |
+| Director | `local_builds/linux/cc-director-linux5`, built from this tree, with a scratch `CC_DIRECTOR_ROOT` and a scratch `HOME` under the rig folder, every `CC_` variable removed, auto-update off, stopped only by its own lifecycle request file. Afterwards the rig checks that `~/.local/bin` is unchanged and still points at the owner's tools. Its `PATH` starts with a rig folder whose `cc-devthrottle` is this tree's command and whose `cc-outlook` is a stub that refuses: the routed prompt tells a seat to read the email with cc-outlook, and on the rig there is no mailbox and a seat must never reach a real one. (The owner's real `cc-outlook` is still further along a seat's PATH; it finds its saved sign-in through `CC_DIRECTOR_ROOT`, which the Director sets to the rig's root, so it finds none - the guarantee rests on that as well as on the stub.) A session's PATH starts with the Director's own tools folder (`director-root/bin`, in the rig's scratch root), so once the Director has installed its tools the rig replaces two of its links there - `cc-devthrottle` with this tree's command and `cc-outlook` with the stub - and checks at the end that both are still the rig's. The seat briefs also name this tree's command by its full path. |
 | The check | The published `mail-desk` definition is the template with four recorded changes: this machine's name, `every: 1m` (the shortest interval a start may have), `checks/screen.py` = the rig's wrapper (`checks/screen.py` here) and `checks/real_screen.py` = the template's real `screen.py`, byte for byte (the rig checks the hash), plus `files/rig.json` telling the wrapper where the rig is. |
 | Fake Graph | On 127.0.0.1: an Inbox, Sent, Archive and Junk Email per mailbox, told apart by the wrapper's fake token; the receive-time filter, order and paging the check asks for; the move; a log of every call (time, mailbox, method, path with ids replaced, folder, destination - never a body or an id); a failure that can be switched on per mailbox. |
 | Fake model | On 127.0.0.1: chat completions with log probabilities, scripted per subject, able to fail (HTTP 500) or answer off the labels. |
@@ -81,8 +81,16 @@ fake Graph is not an http address on 127.0.0.1. `tests/test_wrapper.py` proves e
   already released accepts the routed sessions the Gateway starts.
 - **Not the 08:00 email's sweep or delivery.** The email is composed on demand by the Gateway's own fold and composer
   (`compose-morning/`); the sweep that composes it at 08:00 and the sending are not run.
-- **The seats' sign-in is the owner's agent sign-in.** The scratch home links `~/.claude` and `~/.claude.json`
-  to the owner's, so the seats run signed in. The agent rewrites `~/.claude.json` by replacing the file, so after its
-  first start the scratch home holds its own copy and the owner's `~/.claude.json` is not written by the rig's seats.
+- **The seats run with the owner's agent folder, `~/.claude`, and write into it.** The scratch home links `~/.claude`
+  (the folder, so the seats are signed in) and `~/.claude.json` to the owner's. So every seat session writes its agent
+  transcript into the owner's `~/.claude/projects` (in folders named `-tmp-mail-desk-rig-...`) and its prompts into
+  `~/.claude/history.jsonl`, and they stay there: the rig removes nothing outside its own folder. Each run records how
+  many such folders it added. The agent rewrites `~/.claude.json` by replacing the file, so after its first start the
+  scratch home holds its own copy of that one. **Why not a config folder of the rig's own, with only the sign-in
+  linked:** the agent replaces its files by rename (seen with `~/.claude.json` on this machine), so on a token refresh
+  a link to the sign-in file alone could be replaced by the rig's copy, leaving the owner's file with a spent sign-in
+  and the owner signed out. Linking the whole folder keeps every refresh in the owner's own file. Copying the sign-in
+  is never done. Seats and the backup stand-in also use the owner's uv cache (`~/.cache/uv`) to build `screen.py`'s
+  environment; that writes only cached packages.
 - **Every wait has a deadline** (minutes), and a case that runs out of time fails, naming what it waited for.
 - **Timing is approximate.** A run "after" a change is the first run whose check ended more than 20 seconds after it.
