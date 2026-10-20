@@ -4832,6 +4832,7 @@ public sealed class GatewayHost : IAsyncDisposable
             feature: Boxes.BoxesFeatureOff.Instance,
             tickets: BoxDesktopTickets,
             legs: DesktopRelayLegs,
+            tenantBoundary: _tenantBoundary,
             gatewayAddress: BoxesDesktopOrigin is null ? null : GatewayPublicUrl.ResolveBase(Hosted));
 
         // Teams dark (devthrottle_internal#2300, #2311): the team routes are not mapped, and an unmapped GET would

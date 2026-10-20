@@ -118,11 +118,15 @@ internal static class BoxDesktopEndpoints
     /// host never meets the Gateway's sign-in, because it never carries the Gateway's credentials. With no desktop
     /// host set, the desktop route is refused on every host and nothing else changes.
     /// </summary>
+    /// <param name="tenantBoundary">Enters the box session's account as the tenant scope before anything is relayed. The
+    /// desktop host runs before the sign-in and the tenant-scope middleware, and on a hosted Gateway a command sent
+    /// with no scope is dropped, so without this every desktop request there would answer 503.</param>
     /// <param name="gatewayAddress">The Gateway's public address (<see cref="GatewayPublicUrl.ResolveBase"/>), named in the
     /// refusal of every other route on the desktop host. Null when it cannot be named.</param>
     public static void UseDesktopHost(IApplicationBuilder app, Uri? desktopOrigin, IBoxDesktopHosts hosts, IBoxesFeature feature,
-        BoxDesktopTickets tickets, DesktopRelayLegs legs, string? gatewayAddress)
+        BoxDesktopTickets tickets, DesktopRelayLegs legs, Tenancy.HostedTenantBoundary tenantBoundary, string? gatewayAddress)
     {
+        ArgumentNullException.ThrowIfNull(tenantBoundary);
         ArgumentNullException.ThrowIfNull(hosts);
         ArgumentNullException.ThrowIfNull(feature);
         ArgumentNullException.ThrowIfNull(tickets);
@@ -135,7 +139,7 @@ internal static class BoxDesktopEndpoints
             app.UseWhen(ctx => BoxDesktopOrigin.IsDesktopHost(desktopOrigin, ctx.Request) && !IsHealthCheck(ctx.Request), desktop =>
             {
                 desktop.UseWebSockets();
-                desktop.Run(ctx => ServeDesktopHostAsync(ctx, hosts, feature, tickets, legs, gatewayAddress));
+                desktop.Run(ctx => ServeDesktopHostAsync(ctx, hosts, feature, tickets, legs, tenantBoundary, gatewayAddress));
             });
         }
 
@@ -153,7 +157,7 @@ internal static class BoxDesktopEndpoints
     }
 
     private static async Task ServeDesktopHostAsync(HttpContext ctx, IBoxDesktopHosts hosts, IBoxesFeature feature,
-        BoxDesktopTickets tickets, DesktopRelayLegs legs, string? gatewayAddress)
+        BoxDesktopTickets tickets, DesktopRelayLegs legs, Tenancy.HostedTenantBoundary tenantBoundary, string? gatewayAddress)
     {
         var path = ctx.Request.Path;
         var boxId = DesktopBoxIdOf(path);
@@ -164,6 +168,7 @@ internal static class BoxDesktopEndpoints
         }
         if (!DesktopRelayBoxIds.IsValid(boxId))
         {
+            FileLog.Write($"[BoxDesktopEndpoints] desktop host: box={DesktopRelayBoxIds.ForLog(boxId)}: not a box id -> 400");
             ctx.Response.StatusCode = StatusCodes.Status400BadRequest;
             await ctx.Response.WriteAsJsonAsync(new { error = "That is not a box id." });
             return;
@@ -197,6 +202,10 @@ internal static class BoxDesktopEndpoints
             await ctx.Response.WriteAsJsonAsync(new { error = "Open this desktop from the Cockpit." });
             return;
         }
+
+        // From here on, everything runs as the box session's account: the sign-in and the tenant-scope middleware never
+        // ran for this request, and a hosted Gateway sends no command to a Director without a scope.
+        using var scope = tenantBoundary.EnterScope(session.Tenant);
         if (!feature.IsEnabled(session.Tenant))
         {
             ctx.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -222,7 +231,7 @@ internal static class BoxDesktopEndpoints
     private static async Task RefuseOtherRouteAsync(HttpContext ctx, string? gatewayAddress)
     {
         var userAgent = ForLog(ctx.Request.Headers.UserAgent.ToString());
-        FileLog.Write($"[BoxDesktopEndpoints] desktop host REFUSED {ForLog(ctx.Request.Method)} {ForLog(ctx.Request.Path.Value ?? "")} " +
+        FileLog.Write($"[BoxDesktopEndpoints] desktop host REFUSED {ForLog(ctx.Request.Method)} {PathForLog(ctx.Request.Path)} " +
                       $"user-agent=\"{userAgent}\" -> 404 (this address serves only box desktops)");
         ctx.Response.StatusCode = StatusCodes.Status404NotFound;
         ctx.Response.ContentType = "text/plain; charset=utf-8";
@@ -235,6 +244,17 @@ internal static class BoxDesktopEndpoints
         "This address serves only box desktops. " + (string.IsNullOrWhiteSpace(gatewayAddress)
             ? "The DevThrottle Gateway is at its configured public address; use that address instead."
             : $"The DevThrottle Gateway is at {gatewayAddress}; use that address instead.");
+
+    // The refused path for the log. A path under /boxes/ carries a box id the caller chose, so only the cleaned box id
+    // is written, never the path as received.
+    private static string PathForLog(PathString path)
+    {
+        var value = path.Value ?? "";
+        if (!value.StartsWith("/boxes/", StringComparison.OrdinalIgnoreCase)) return ForLog(value);
+        var afterBoxes = value["/boxes/".Length..];
+        var slash = afterBoxes.IndexOf('/');
+        return $"/boxes/ (box={DesktopRelayBoxIds.ForLog(slash < 0 ? afterBoxes : afterBoxes[..slash])})";
+    }
 
     // A request's own text, made safe for one log line: control characters out, and no longer than a line should be.
     private static string ForLog(string value)

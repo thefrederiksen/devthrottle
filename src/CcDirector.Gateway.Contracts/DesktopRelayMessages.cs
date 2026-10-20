@@ -226,4 +226,15 @@ public static class DesktopRelayBoxIds
             if (!char.IsAsciiLetterLower(c) && !char.IsAsciiDigit(c) && c != '-') return false;
         return true;
     }
+
+    /// <summary>
+    /// A box id that may have come from anyone, made safe for one log line: control characters removed and cut to a
+    /// readable length. The same cleaning as the list task's rule, which replaces this one when it merges.
+    /// </summary>
+    public static string ForLog(string? value)
+    {
+        if (value is null) return "(none)";
+        var clean = new string(value.Where(c => !char.IsControl(c)).Take(80).ToArray());
+        return value.Length > 80 ? clean + "..." : clean;
+    }
 }
