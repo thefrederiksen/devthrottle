@@ -227,7 +227,7 @@ public sealed class RestartOnlyIfEmptyTests
         }
         finally
         {
-            try { if (!director.HasExited) director.Kill(entireProcessTree: true); } catch { }
+            Rig.Kill(director);
             try { Directory.Delete(root, recursive: true); } catch { }
         }
     }
@@ -470,53 +470,70 @@ public sealed class RestartOnlyIfEmptyTests
             try { Directory.Delete(_root, recursive: true); } catch { /* a temp directory */ }
         }
 
-        private static void Kill(Process p)
+        /// <summary>
+        /// End a stand-in and release what listens for it. The release is done HERE, before the process is
+        /// disposed, and not only from its Exited event: a disposed process does not reliably raise Exited
+        /// (measured by the review of #4311 at 16 in 20), and a stand-in nobody signalled would otherwise keep
+        /// its named event and its thread-pool wait until the test host exits.
+        /// </summary>
+        internal static void Kill(Process p)
         {
             try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            ReleaseListener(p.Id);
             p.Dispose();
+        }
+
+        /// <summary>The shutdown signal each live stand-in's test is holding, by the stand-in's process id.</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, (EventWaitHandle Signal, RegisteredWaitHandle Wait)> Listeners = new();
+
+        /// <summary>Release the signal held for one stand-in. Safe to call more than once.</summary>
+        private static void ReleaseListener(int processId)
+        {
+            if (!Listeners.TryRemove(processId, out var held)) return;
+            held.Wait.Unregister(null);
+            held.Signal.Dispose();
         }
 
         /// <summary>
         /// A stand-in Director: a process that listens for THE SAME named shutdown signal a Director
         /// listens for and exits when it is raised. That is what makes "it was stopped" an observation -
         /// a helper that only slept would look identical whether the launcher asked it to stop or not.
+        ///
+        /// <para>The signal is held HERE, in the test process, and the stand-in is the light idle helper.
+        /// It used to be a powershell.exe that opened the signal itself, and the rig waited up to 30 seconds
+        /// on the real clock for it to start listening; a cold PowerShell start on a busy runner took longer,
+        /// and main's continuous integration failed on that two runs in a row (#4226). Holding the signal
+        /// here means it is listening before the rig returns, with no wait at all, and the moment the
+        /// launcher raises it the stand-in is ended - so a stand-in that exits quickly still means "it was
+        /// asked to stop", exactly as before.</para>
         /// </summary>
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
         internal static Process StartShutdownListeningHelper(string directorId)
         {
             var signal = LifecycleSignalNames.DirectorShutdown(directorId);
-            var script = "$e = New-Object System.Threading.EventWaitHandle "
-                       + $"($false, 'ManualReset', 'Local\\{signal}'); "
-                       + "[void]$e.WaitOne(120000)";
-
-            var psi = new ProcessStartInfo("powershell.exe",
-                $"-NoProfile -NonInteractive -WindowStyle Hidden -Command \"{script}\"")
+            var listening = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\" + signal);
+            Process helper;
+            try
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-            };
-
-            var helper = Process.Start(psi)
-                         ?? throw new InvalidOperationException("could not start the stand-in Director");
-
-            // Wait until it is actually LISTENING. Raising a signal nobody holds yet is not delivered, and
-            // the launcher would then wait out its whole graceful-shutdown timeout - a test that takes
-            // twenty seconds and proves the wrong thing.
-            var deadline = DateTime.UtcNow.AddSeconds(30);
-            while (DateTime.UtcNow < deadline)
+                helper = StartIdleHelper();
+            }
+            catch
             {
-                if (EventWaitHandle.TryOpenExisting(@"Local\" + signal, out var opened))
-                {
-                    opened.Dispose();
-                    return helper;
-                }
-                Thread.Sleep(50);
+                listening.Dispose();
+                throw;
             }
 
-            Kill(helper);
-            throw new InvalidOperationException(
-                $"the stand-in Director never began listening for {signal} within 30s");
+            var raised = ThreadPool.RegisterWaitForSingleObject(listening, (_, _) =>
+            {
+                try { if (!helper.HasExited) helper.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { /* already gone */ }
+            }, null, Timeout.Infinite, executeOnlyOnce: true);
+
+            Listeners[helper.Id] = (listening, raised);
+            var id = helper.Id;
+            helper.EnableRaisingEvents = true;
+            helper.Exited += (_, _) => ReleaseListener(id);
+            return helper;
         }
     }
 

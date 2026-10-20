@@ -373,9 +373,9 @@ process | src/CcDirector.Launcher.Tests/DirectorInstanceLocatorTests.cs | 3
 real-clock | src/CcDirector.Launcher.Tests/DirectorInstanceLocatorTests.cs | 4
 sleep | src/CcDirector.Launcher.Tests/DirectorInstanceLocatorTests.cs | 1
 real-clock | src/CcDirector.Launcher.Tests/FileSearchServiceTests.cs | 1
-process | src/CcDirector.Launcher.Tests/RestartOnlyIfEmptyTests.cs | 4
-real-clock | src/CcDirector.Launcher.Tests/RestartOnlyIfEmptyTests.cs | 7
-sleep | src/CcDirector.Launcher.Tests/RestartOnlyIfEmptyTests.cs | 2
+process | src/CcDirector.Launcher.Tests/RestartOnlyIfEmptyTests.cs | 2
+real-clock | src/CcDirector.Launcher.Tests/RestartOnlyIfEmptyTests.cs | 5
+sleep | src/CcDirector.Launcher.Tests/RestartOnlyIfEmptyTests.cs | 1
 real-clock | src/CcDirector.Launcher.Tests/UnreadableRegistrationIsNotAnEmptyInstanceTests.cs | 2
 real-clock | src/CcDirector.Reclaim.Tests/ComponentStoreRuleTests.cs | 1
 real-clock | src/CcDirector.Reclaim.Tests/CrashDumpsAndErrorReportsRuleTests.cs | 3
