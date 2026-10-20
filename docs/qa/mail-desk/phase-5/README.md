@@ -165,7 +165,8 @@ uv run --no-project --with pytest --with typer --with click --with rich --with r
 - **The seat starting on a backup is proved only as far as the start request** - which machine and which Director it
   names. That the backup can actually run the seat (its repository, its agent) is not checked at publish and not
   proven.
-- **Contract test 10** (a backup with no mailbox sign-in named in the Mail Desk problem) waits for task F.
+- **Contract test 10** (a backup with no mailbox sign-in named in the Mail Desk problem) was built in phase 3's task F
+  (pull request 4243): `MailDeskHandOffTests.ScreenAsync_ABackupMachineWithNoSignIn_GivesAMailboxProblemNamingTheBackupMachine`.
 - **Rule 7 surfaces beyond the trigger list and show.** The words are on the trigger's answer and in the publish
   step. The factory page and the Cockpit were not changed: no client on this base shows a trigger's machine. The
   export's sentence "It runs every ... on <machine>" is for a command trigger, which cannot have backups, so it is
