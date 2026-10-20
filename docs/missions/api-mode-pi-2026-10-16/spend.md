@@ -53,6 +53,8 @@ and 500 output tokens (more than one to two seconds of streaming can produce).
 | 2026-10-20 | Developer, phase 6 | Proof script run 4, Windows, Pi 1.3.0 (proofs/phase-6/windows-20261020-012624); the first reply took over seven minutes and two replies were cut off by Stop, estimated | 13,590 | 2,780 | 36,032 | 0 | 0.1972 |
 | 2026-10-20 | Developer, phase 6 | Proof script run 5, Windows, Pi 1.3.0 (proofs/phase-6/windows-20261020-015945) | 5,750 | 1,676 | 44,992 | 0 | 0.1183 |
 | 2026-10-20 | Developer, phase 6 | Proof script run 6, Windows, Pi 1.3.0 (proofs/phase-6/windows-20261020-021210); two replies cut off by Stop, estimated | 26,406 | 1,190 | 49,600 | 0 | 0.2044 |
+| 2026-10-20 | Developer, phase 6 | Proof script, Windows, run 7 first attempt (stopped in setup: the test Gateway did not answer within two minutes on a saturated machine; Pi never started) | 0 | 0 | 0 | 0 | 0.0000 |
+| 2026-10-20 | Developer, phase 6 | Proof script run 7, Windows, Pi 1.3.0, every model-reply wait five minutes (proofs/phase-6/windows-20261020-041719); Pi recorded zero tokens: the provider refused the turns with 429 engine_overloaded, and the script counted its 21 empty replies as replies cut off by Stop, so this is an upper estimate | 0 | 10,500 | 0 | 0 | 0.42 |
 
 Recording 1 was discarded and recorded again because its fixtures carried text that this public
 repository should not publish (the fleet's skill descriptions and the user name inside Pi's session
@@ -64,6 +66,6 @@ folder name). Recording 2 is what is committed, plus recording 3, the exit befor
 |---|---|
 | Phase 0 (both recordings) | 0.29 |
 | Phase 1 integration (the two preamble proof runs) | 0.05 |
-| Phase 6 (proof runs; its share is capped at 2 dollars) | 1.25 |
-| Mission so far, including the Architect's posted run | 1.62 |
-| Left of the 10 dollar grant | 8.38 |
+| Phase 6 (proof runs; its share is capped at 2 dollars) | 1.67 |
+| Mission so far, including the Architect's posted run | 2.04 |
+| Left of the 10 dollar grant | 7.96 |
