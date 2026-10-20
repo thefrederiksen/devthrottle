@@ -8,6 +8,7 @@ import { FileView } from "./pages/FileView";
 import { VoiceMode } from "./pages/VoiceMode";
 import { DEV_REPORT_ROUTES } from "./pages/reportRoutes";
 import { Settings } from "./pages/Settings";
+import { MailDesk } from "./pages/MailDesk";
 import { Recorder } from "./pages/Recorder";
 import { About } from "./pages/About";
 import { Diagnostics } from "./pages/Diagnostics";
@@ -134,6 +135,9 @@ export const MOBILE_ROUTES: RouteObject[] = [
           // tab, with the same cards, that the desktop shows. These redirects keep every existing
           // bookmark, home-screen shortcut, and older service-worker shell working: they land on the
           // tab that holds what they asked for rather than on a dead route.
+          // The Mail Desk (Mail Desk mission, phase 7): the same page the Cockpit shows at the same address, from the
+          // same client-core component. With the Mail Desk switch off it is the ordinary "Page not found".
+          { path: "/mail-desk", element: <MailDesk /> },
           { path: "/mic-test", element: <Navigate to="/settings?tab=transcription" replace /> },
           { path: "/transcription-test", element: <Navigate to="/settings?tab=transcription" replace /> },
           // The Voice Recorder (issue #958): long-form recording -> durable local segments ->

@@ -3614,6 +3614,28 @@ a.banner-btn {
   grid-template-columns: 1fr;
 }
 
+/* The Mail Desk page (client-core/maildesk/mailDesk.css), re-tuned the same way: one column, full-width cards, and
+   each fact's name above its sentence, since a 110px name column leaves a phone too little width for the sentence. */
+.screen .mail-desk {
+  max-width: none;
+  margin-top: 14px;
+}
+.screen .mail-desk-fact {
+  display: block;
+  margin-bottom: 10px;
+}
+.screen .mail-desk-fact dt {
+  width: auto;
+  margin-bottom: 2px;
+}
+.screen .mail-desk-fact dd,
+.screen .mail-desk-count-row {
+  font-size: 14px;
+}
+.screen .mail-desk-counts {
+  grid-template-columns: 1fr;
+}
+
 /* The snooze rows: the length takes the width it needs and its two buttons sit under it, rather than
    three items fighting over one line and the length ellipsing to nothing. */
 .screen .snooze-row {
