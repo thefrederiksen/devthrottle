@@ -16,8 +16,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class AddMailDeskDecisionOutcomeTimeMigrationTests
 {
-    private const string SqliteBefore = "20261019030630_AddMailDeskDecisionAttempts";
-    private const string SqliteUnderTest = "20261020024317_AddMailDeskDecisionOutcomeTime";
+    private const string SqliteBefore = "20261020020444_AddMailDeskDecisionAttempts";
+    private const string SqliteUnderTest = "20261020034316_AddMailDeskDecisionOutcomeTime";
 
     [Fact]
     public void AddMailDeskDecisionOutcomeTime_OnSqlite_KeepsAnEarlierDecisionWithNoOutcomeTime_AndItsDownRemovesTheColumn()
