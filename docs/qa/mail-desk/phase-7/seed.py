@@ -2,16 +2,28 @@
 section 4). Never the hosted Gateway: the address must be this machine (127.0.0.1 or localhost), and the database must
 be the throwaway Gateway's own gateway.db.
 
-Three scenarios, in the order the capture takes them on ONE Gateway and ONE account:
-  empty  the Mail Desk switch ON and no mailbox on the desk            -> the page shows the empty sentence
-  on     three mailboxes (below), checks and decisions                 -> the page shows three cards
-  off    the switch OFF again                                          -> /mail-desk is "Page not found", no entry
+Four scenarios, in the order the capture takes them on ONE Gateway and ONE account:
+  empty        the Mail Desk switch ON and no mailbox on the desk      -> the page shows the empty sentence
+  unpublished  three mailboxes (below), the mail-desk factory still a draft, so nothing has ever checked them
+                                                                       -> every card: "Not checked yet - the mail-desk
+                                                                          factory is not published", "Not known yet"
+  on           the factory published, one screening run's last check, its kept checks and today's decisions
+                                                                       -> each card its own signed-in state beside the
+                                                                          account's "Checked <time>: ..."
+  off          the switch OFF again                                    -> /mail-desk is "Page not found", no entry
 
-The three mailboxes of `on` (contract section 4: one signed in with decisions today, one NOT signed in whose last
-check failed with a sign-in sentence, one in observe mode, one in live mode):
+The three mailboxes (contract section 4: one signed in with decisions today, one NOT signed in whose last check
+failed with a sign-in sentence, one in observe mode, one in live mode):
   email@devthrottle.com   on devlinux                         LIVE, signed in, 7 emails decided today
   desk@example.com        on devlinux, then qa-north          observe, NOT signed in (its check failed)
-  letters@example.org     on qa-north, then qa-south, then devlinux   observe, not checked yet, 1 email decided today
+  letters@example.org     on qa-north, then qa-south, then devlinux   observe, signed in, 1 email decided today
+
+LAST CHECK IS PER ACCOUNT, BY DESIGN (the phase 7 Tech Lead's ruling, 19 October 2026). One run of the account's Mail
+Desk start checks every mailbox, so the start's last check is each mailbox's last check, and the fold reads it off the
+start's trigger. Phase 3's kept checks cannot say when a mailbox was last checked: they hold only failures and the
+first good check after one. A kept check with no published factory cannot happen, so `on` seeds the state a real
+screening run leaves: the factory published, the start's trigger carrying that run's time, outcome and summary, and a
+kept check for every mailbox at that same time.
 
 How each part is written, and why:
   - The account: a self-hosted Gateway records no email for its one account ("local"), so the account's row in
@@ -20,16 +32,22 @@ How each part is written, and why:
     throwaway Gateway's own administrator token (QA_ADMIN_TOKEN, the value the capture started it with).
   - The mailboxes and live mode: the page's own routes, POST /gateway/mail-desk/channels and /channels/mode, as a
     person (QA_PERSON_KEY, a browser device enrolled on the throwaway Gateway).
-  - The checks and the decisions: rows in `mail_desk_channel_checks` and `mail_desk_decisions`. Nothing on a Gateway
-    writes them but a mailbox check and a screening run, which need a real mailbox; this script never reaches one.
-    The check rows are phase 3's per-mailbox kept checks (MailDeskChannelCheckStore): the newest row of a mailbox says
-    whether it is signed in. On a Gateway from before phase 3 the table does not exist and the script stops, saying so.
+  - The factory: switching the Mail Desk on offers the built-in template as a DRAFT of the account's mail-desk
+    factory (MailDeskTemplateOffer). `on` publishes that draft as a person through the factory's own route,
+    POST /factory-definitions/mail-desk/publish, which creates the Mail Desk start's trigger.
+  - The last check, the kept checks and the decisions: the trigger's LastCheckUtc, LastOutcome and LastReason, and rows
+    in `mail_desk_channel_checks` and `mail_desk_decisions`. Nothing on a Gateway writes them but a screening run,
+    which needs a real mailbox and a Director; this script never reaches one. They are written as that run would:
+    outcome `screened` with the run's summary as its reason (MailDeskService.ScreenAsync), a first good check for each
+    mailbox that read and a failure for the one that did not (MailDeskChannelCheckStore). On a Gateway from before
+    phase 3 the kept-checks table does not exist and the script stops, saying so.
 
 The repository is public: addresses are email@devthrottle.com and the reserved example domains only, machine names
 are made up (devlinux is this machine's name, already in the mission), and every subject and sender below is invented.
 
 Usage:
-    QA_PERSON_KEY=... QA_ADMIN_TOKEN=... python3 seed.py --gateway http://127.0.0.1:<port> --db <gateway.db> --scenario on
+    QA_PERSON_KEY=... QA_ADMIN_TOKEN=... python3 seed.py --gateway http://127.0.0.1:<port> --db <gateway.db> --scenario empty
+    (then unpublished, on and off, in that order)
 """
 
 import argparse
@@ -60,6 +78,13 @@ MAILBOXES = [
 
 # The sentence a failed check carries names the fix (phase 1 contract, section 5). Invented nickname, made-up machine.
 SIGN_IN_FAILURE = f"{FAILING_BOX} is not signed in on devlinux: run cc-outlook -a desk-example auth"
+
+# The last screening run: four minutes ago, outcome `screened`, its summary worded exactly as MailDeskService words one.
+RUN_MINUTES_AGO = 4
+RUN_SUMMARY = ("1 decided, 7 already decided, 0 to read again, 0 kept after 3 failures, 0 stopped by the spend limit, "
+               "1 of 3 mailboxes failing")
+MAIL_DESK_FACTORY = "mail-desk"
+MAIL_DESK_CHECK = "checks/screen.py"
 
 # Today's decisions: (mailbox, decision, layer, minutes ago, sender, subject). Invented senders on example domains.
 DECISIONS = [
@@ -122,6 +147,8 @@ def connect(db):
     for needed in ("tenants", "mail_desk_channels", "mail_desk_decisions"):
         if needed not in tables:
             fail(f"{db} has no {needed} table; it is not a Gateway with the Mail Desk")
+    if "triggers" not in tables:
+        fail(f"{db} has no triggers table")
     if "mail_desk_channel_checks" not in tables:
         fail(f"{db} has no mail_desk_channel_checks table: this Gateway is from before Mail Desk phase 3, whose kept "
              "checks say whether each mailbox is signed in")
@@ -169,15 +196,31 @@ def channel_ids(c):
         "SELECT Id, Address FROM mail_desk_channels WHERE tenant_id = ? AND RemovedUtc IS NULL", (ACCOUNT_ID,))}
 
 
-def write_checks(c, ids, now):
-    checked = now - timedelta(minutes=4)
-    for address, ok, sentence in ((LIVE_BOX, 1, None), (FAILING_BOX, 0, SIGN_IN_FAILURE)):
+def write_checks(c, ids, checked):
+    """What one screening run keeps for each mailbox it checked: a first good check, or the failure's sentence."""
+    for address, ok, sentence in ((LIVE_BOX, 1, None), (FAILING_BOX, 0, SIGN_IN_FAILURE), (UNCHECKED_BOX, 1, None)):
         cid = ids[address]
         insert(c, "mail_desk_channel_checks", {
             "Id": new_id(cid), "tenant_id": ACCOUNT_ID, "ChannelId": cid, "TriggerRunId": None,
             "CheckedUtc": stamp(checked), "Machine": "devlinux", "Ok": ok, "Sentence": sentence, "Detail": None})
         say(f"check for {address}: {'read the mailbox' if ok else 'failed - ' + sentence}")
     c.commit()
+
+
+def write_last_check(c, checked):
+    """The Mail Desk start's trigger, as the screening run left it. The publish created it; there must be exactly one."""
+    have = columns(c, "triggers")
+    for needed in ("Factory", "CheckPath", "LastCheckUtc", "LastOutcome", "LastReason"):
+        if needed not in have:
+            fail(f"triggers has no column {needed}; its columns are {have}")
+    rows = c.execute("SELECT Id FROM triggers WHERE tenant_id = ? AND Factory = ? AND CheckPath = ?",
+                     (ACCOUNT_ID, MAIL_DESK_FACTORY, MAIL_DESK_CHECK)).fetchall()
+    if len(rows) != 1:
+        fail(f"expected the publish to create one Mail Desk start, found {len(rows)}")
+    c.execute("UPDATE triggers SET LastCheckUtc = ?, LastOutcome = ?, LastReason = ? WHERE Id = ?",
+              (stamp(checked), "screened", RUN_SUMMARY, rows[0][0]))
+    c.commit()
+    say(f"the Mail Desk start's last check: screened, {RUN_SUMMARY}")
 
 
 def write_decisions(c, ids, now):
@@ -207,6 +250,20 @@ def switch(gateway, admin, on):
                 {"account": ACCOUNT_ID, "enabled": on, "actor": ACTOR, "reason": WHY}, admin), (200,))
 
 
+def publish_factory(gateway, key):
+    """Publish the draft the switch offered, as a person, through the factory's own route."""
+    status, body = call(gateway, "GET", f"/factory-definitions/{MAIL_DESK_FACTORY}/history", None, key)
+    if status != 200:
+        fail(f"read the mail-desk factory's versions: the Gateway answered {status} {body[:300]}")
+    history = json.loads(body)
+    versions = history.get("versions") if isinstance(history, dict) else history
+    if not versions:
+        fail(f"the mail-desk factory has no version; switching the Mail Desk on offers one. The answer was {body[:300]}")
+    newest = max(v["version"] for v in versions)
+    expect(f"publish the mail-desk factory, version {newest} (the template the switch offered)",
+           call(gateway, "POST", f"/factory-definitions/{MAIL_DESK_FACTORY}/publish", {"version": newest}, key), (200,))
+
+
 def add_mailboxes(gateway, key):
     for box in MAILBOXES:
         expect(f"add {box['address']} on {', '.join(box['machines'])}",
@@ -222,7 +279,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--gateway", required=True)
     parser.add_argument("--db", required=True)
-    parser.add_argument("--scenario", required=True, choices=("empty", "on", "off"))
+    parser.add_argument("--scenario", required=True, choices=("empty", "unpublished", "on", "off"))
     args = parser.parse_args()
     key, admin = os.environ.get("QA_PERSON_KEY"), os.environ.get("QA_ADMIN_TOKEN")
     if not key or not admin:
@@ -240,12 +297,19 @@ def main():
             if channel_ids(c):
                 fail("the account already has mailboxes; the empty scenario is taken before the on scenario")
             return
-        if channel_ids(c):
-            fail("the account already has mailboxes; seed a fresh throwaway Gateway")
-        add_mailboxes(gateway, key)
+        if args.scenario == "unpublished":
+            if channel_ids(c):
+                fail("the account already has mailboxes; the unpublished scenario is taken once, before the on scenario")
+            add_mailboxes(gateway, key)
+            return
         ids = channel_ids(c)
+        if set(ids) != {box["address"] for box in MAILBOXES}:
+            fail("the on scenario follows the unpublished one: the three mailboxes must already be on the desk")
+        publish_factory(gateway, key)
         now = datetime.now(timezone.utc)
-        write_checks(c, ids, now)
+        checked = now - timedelta(minutes=RUN_MINUTES_AGO)
+        write_last_check(c, checked)
+        write_checks(c, ids, checked)
         write_decisions(c, ids, now)
     finally:
         c.close()

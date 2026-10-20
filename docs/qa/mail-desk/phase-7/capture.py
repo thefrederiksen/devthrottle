@@ -10,9 +10,11 @@ What it starts:
   - one browser device, enrolled by writing its key's hash into the throwaway gateway.db (as every QA rig here does).
 
 What it does, on one Gateway and one account (email@devthrottle.com):
-  1. empty: seed.py switches the Mail Desk on with no mailbox; pictures.
-  2. on:    seed.py adds the three mailboxes, live mode, checks and decisions; pictures.
-  3. off:   seed.py switches the Mail Desk off; pictures.
+  1. empty:       seed.py switches the Mail Desk on with no mailbox; pictures.
+  2. unpublished: seed.py adds the three mailboxes and live mode; the mail-desk factory is still a draft; pictures.
+  3. on:          seed.py publishes the factory and writes one screening run's last check, kept checks and decisions;
+                  pictures.
+  4. off:         seed.py switches the Mail Desk off; pictures.
 Pictures (shots.cjs): the Cockpit at 1440 wide, the phone app at 390 wide, and the phone's drawer, per scenario, plus
 what each screen showed in seen-<scenario>.json. The Gateway's answer to GET /gateway/mail-desk/channels is kept in
 answer-<scenario>.json.
@@ -45,7 +47,7 @@ DLL = REPO / "src" / "CcDirector.Gateway" / "bin" / "Debug" / "net10.0" / "CcDir
 COCKPIT_DIST = REPO / "apps" / "cockpit" / "dist"
 MOBILE_DIST = REPO / "apps" / "mobile" / "dist"
 DOTNET = Path.home() / ".dotnet" / "dotnet"
-SCENARIOS = ("empty", "on", "off")
+SCENARIOS = ("empty", "unpublished", "on", "off")
 
 PERSON_KEY = "qa-person-" + uuid.uuid4().hex
 ADMIN_TOKEN = "qa-admin-" + uuid.uuid4().hex
