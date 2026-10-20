@@ -230,6 +230,12 @@ In order:
   factory, folded into `CronRunResultFold.Problems` through `MailDeskProblems` as phase 3 did for mailboxes: sentence
   "<sender> - <subject> on <mailbox> is with you: <owner reason>". Resolvable by hand with a one-line reason, like
   every problem. It shows on the Open problems card and in the 08:00 email with no change of their own.
+  The routed row keeps what this needs in its own columns, added by task C's own migration pair after task B's:
+  `ResolvedUtc`, `ResolvedBy`, `ResolvedReason` (as every other problem source keeps them), `OwnerUtc` (when it was
+  handed to the owner), `ReturnedUtc` and `ReturnedFrom` (when and from which `factory/seat` it was last returned - the
+  factory, seat and `ChangedUtc` are overwritten by the re-queue and the next start). The problem's id is the routed
+  row's id. Resolving clears the problem only; the row stays `returned`. (Raised by the task C Developer, accepted by
+  the Tech Lead, 19 October 2026.)
 - **The 08:00 section** (phase 3 section 9) gains **Returned and routed**: every email returned in the window (by
   mailbox, sender, subject, the seat that returned it and its note), every email handed to the owner (with the
   reason), and counts of emails routed, done and still open.
