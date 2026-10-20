@@ -51,7 +51,9 @@ cleanly, STOP and tell the Tech Lead; do not write a second resolver.
 rule B when they have the same event and tool, their results differ, A wins the P3 rank contest (higher
 rank, or the same rank with A deny and B allow), and some match text of A CONTAINS some match text of B -
 so every command A matches on that text, B matches too, and A decides it. This is a statement that is
-always true, never a guess. With a sample command, the decision is T6's, exactly. Screen rules appear in
+always true between those two rules, never a guess: it is pairwise, so a third, still more specific rule
+that also matches a command takes that decision instead (amended after the Gateway review, observation 3).
+With a sample command, the decision is T6's, exactly. Screen rules appear in
 the preview (in phase 1 they can only be `everywhere`) but never override or are overridden by hook rules.
 
 **T8. Shared code lives in `packages/client-core/src/rules/`** - the client, the list, the rule page, the
@@ -102,6 +104,17 @@ Build to these exactly. A change to one is a change to this file first, agreed w
   ]
 }
 ```
+
+**Amendment (after the first reviews, 2026-10-20):** P1 also carries `"previewSuggestions": { "machines": [...],
+"repos": [...] }`, the same lists as P3's `suggestions`, so the preview form can offer them before the first
+preview runs. `changedLabel` names the action the agent took ("Created by", "Changed by", "Promoted by") and
+writes "session" in lower case, as above.
+
+**Amendment 2 (after the pages review, 2026-10-20):** every rule reference (`overrode`, `overrides`,
+`overriddenBy`) is `{ "id", "sentence", "deleted": false }`; a deleted rule has `deleted: true` and the client
+does not link it. `overrodeLabel` is BLANK whenever the firing overrode nothing (hook or screen), and the
+client draws the override block only when the label is not blank. `decidingRuleId` is `""` when no rule
+matched. A rule page address whose id is not a rule id answers the same 404 `{ "error" }` as an unknown id.
 
 Rules newest first. `firedLabel` is never blank ("Never fired" when there is no firing).
 `changedLabel` is blank when no session changed the rule. Tab order and labels are exactly as above.
