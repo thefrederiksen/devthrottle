@@ -1,0 +1,32 @@
+{
+  "viewport": "1920x1080",
+  "motionWindowSeconds": 10,
+  "motionFrames": 393,
+  "motionBytes": 68418753,
+  "frameBytes": {
+    "p50": 174134,
+    "p90": 175426,
+    "p99": 176420,
+    "max": 176901
+  },
+  "framesOver48KiB": 393,
+  "allFramesMax": 231245,
+  "upload": "200 {\"status\": \"success\", \"bytes\": 1048576}",
+  "files": {
+    "status": 200,
+    "hasUpload": true,
+    "head": "\n        <!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"utf-8\">\n    <title>Desktop Files</title>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <script>\n        /* Mirror the dashboard's stored theme (both front ends are same\n           origin, classic under"
+  },
+  "download": "200 1048576 bytes",
+  "http": [
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/ -> 200",
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/assets/index-D97fjY6g.css -> 200",
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/assets/index-CPWh3fQ6.js -> 200",
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/api/status -> 200",
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/icon.png -> 200",
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/assets/selkies-core-BbKps5RD.js -> 200",
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/manifest.json -> 200",
+    "POST http://127.0.0.1:3130/boxes/test-box/desktop/api/upload -> 200",
+    "GET http://127.0.0.1:3130/boxes/test-box/desktop/api/files/ -> 200"
+  ]
+}

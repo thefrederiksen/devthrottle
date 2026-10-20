@@ -1,0 +1,9 @@
+2026-10-20T00:48:08+00:00 200 "GET /boxes/test-box/desktop/ HTTP/1.1" up=200 bytes=786 upgrade="-" rt=0.002
+2026-10-20T00:48:18+00:00 200 "GET /boxes/test-box/desktop/ HTTP/1.1" up=200 bytes=418 upgrade="-" rt=0.002
+2026-10-20T00:48:19+00:00 200 "GET /boxes/test-box/desktop/assets/index-CPWh3fQ6.js HTTP/1.1" up=200 bytes=650022 upgrade="-" rt=0.041
+2026-10-20T00:48:19+00:00 200 "GET /boxes/test-box/desktop/assets/index-D97fjY6g.css HTTP/1.1" up=200 bytes=34393 upgrade="-" rt=0.073
+2026-10-20T00:48:19+00:00 200 "GET /boxes/test-box/desktop/api/status HTTP/1.1" up=200 bytes=102 upgrade="-" rt=0.005
+2026-10-20T00:48:19+00:00 200 "GET /boxes/test-box/desktop/icon.png HTTP/1.1" up=200 bytes=55164 upgrade="-" rt=0.001
+2026-10-20T00:48:19+00:00 200 "GET /boxes/test-box/desktop/assets/selkies-core-BbKps5RD.js HTTP/1.1" up=200 bytes=426262 upgrade="-" rt=0.078
+2026-10-20T00:48:19+00:00 200 "GET /boxes/test-box/desktop/manifest.json HTTP/1.1" up=200 bytes=364 upgrade="-" rt=0.002
+2026-10-20T00:48:41+00:00 101 "GET /boxes/test-box/desktop/api/websockets HTTP/1.1" up=101 bytes=693494 upgrade="websocket" rt=21.316
