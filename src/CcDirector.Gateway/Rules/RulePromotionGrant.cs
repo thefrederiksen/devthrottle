@@ -101,8 +101,8 @@ public sealed class RulePromotionGrant
         var actor = CallerOf(http);
         if (actor is null)
             throw new RuleRejectedException(
-                "a rule is moved out of dry run by a person, and this request has no caller the Gateway " +
-                "could name. Nothing that runs on its own can promote a rule.");
+                "a rule is moved out of dry run by a person or an agent session the Gateway can name, and this " +
+                "request has no caller it could name. Nothing that runs on its own can promote a rule.");
 
         var said = (acknowledgement ?? "").Trim();
         if (said.Length == 0)

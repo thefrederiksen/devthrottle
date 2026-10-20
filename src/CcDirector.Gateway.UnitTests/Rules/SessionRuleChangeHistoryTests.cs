@@ -44,9 +44,12 @@ public sealed class SessionRuleChangeHistoryTests : IDisposable
         "A session stopped on a provider allowance notice.",
         new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now, actor);
 
+    /// <summary>The rule as it is stored, as a draft a merge can change one field of.</summary>
+    private static SessionRuleDraft DraftOf(SessionRule r) =>
+        new(r.Instruction, r.ScreenDescription, r.TriggerWords, r.Calls, r.Scope, r.CooldownSeconds, r.DailyCap);
+
     private static SessionRule ChangeDailyCap(SessionRuleStore store, SessionRule rule, int dailyCap, RuleChangeActor actor) =>
-        store.Change(rule.Id, rule.Instruction, rule.ScreenDescription, rule.TriggerWords, rule.Calls, rule.Scope,
-            rule.CooldownSeconds, dailyCap, Now.AddMinutes(5), actor);
+        store.Change(rule.Id, stored => DraftOf(stored) with { DailyCap = dailyCap }, Now.AddMinutes(5), actor, out _);
 
     private static RulePromotionGrant SessionGrantFor(Guid ruleId) =>
         RulePromotionGrant.FromAuthenticatedRequest(
@@ -126,8 +129,7 @@ public sealed class SessionRuleChangeHistoryTests : IDisposable
 
         // Act
         var ex = Assert.Throws<RuleRejectedException>(() => store.Change(
-            missing, "An instruction.", "A screen.", new[] { "limit" }, GoodCalls(), RuleScope.AllSessions,
-            300, 5, Now, AgentSession));
+            missing, DraftOf, Now, AgentSession, out _));
 
         // Assert
         Assert.Contains(missing.ToString(), ex.Reason);
@@ -161,8 +163,8 @@ public sealed class SessionRuleChangeHistoryTests : IDisposable
 
         // Act
         var ex = Assert.Throws<RuleRejectedException>(() => store.Change(
-            rule.Id, rule.Instruction, rule.ScreenDescription, rule.TriggerWords,
-            new[] { RulePrimitiveCall.To("run_this_python") }, rule.Scope, 300, 5, Now, AgentSession));
+            rule.Id, stored => DraftOf(stored) with { Calls = new[] { RulePrimitiveCall.To("run_this_python") } },
+            Now, AgentSession, out _));
 
         // Assert
         Assert.Contains("run_this_python", ex.Reason);
@@ -179,8 +181,7 @@ public sealed class SessionRuleChangeHistoryTests : IDisposable
 
         // Act
         var ex = Assert.Throws<RuleRejectedException>(() => store.Change(
-            rule.Id, rule.Instruction, rule.ScreenDescription, rule.TriggerWords, rule.Calls, scope: null,
-            300, 3, Now, AgentSession));
+            rule.Id, stored => DraftOf(stored) with { Scope = null, DailyCap = 3 }, Now, AgentSession, out _));
 
         // Assert
         Assert.Contains("which sessions", ex.Reason);
@@ -377,5 +378,144 @@ public sealed class SessionRuleChangeHistoryTests : IDisposable
 
         // Assert
         Assert.Contains("who made it", ex.Reason);
+    }
+
+    // ---- review finding 1: no rule write without its record, whatever the route --------------------------
+
+    [Fact]
+    public void RuleChangedThroughTheContext_WithNoHistoryRow_IsRefusedByTheWriteGate()
+    {
+        // Arrange
+        var store = NewStore();
+        var rule = CreateTheRule(store, AgentSession);
+        using var ctx = Db.CreateContext();
+        var row = ctx.SessionRules.First(r => r.Id == rule.Id);
+
+        // Act
+        row.DailyCap = 2;
+        row.Instruction = "Something nobody recorded.";
+        var ex = Assert.Throws<RuleRejectedException>(() => ctx.SaveChanges());
+
+        // Assert
+        Assert.Contains("no record of who did it", ex.Reason);
+        Assert.Equal(5, new SessionRuleStore(Db).Get(rule.Id)!.DailyCap);
+        Assert.Single(store.History(rule.Id, null, null, 10));
+    }
+
+    [Fact]
+    public void RuleRemovedThroughTheContext_WithNoHistoryRow_IsRefusedByTheWriteGate()
+    {
+        // Arrange
+        var store = NewStore();
+        var rule = CreateTheRule(store, AgentSession);
+        using var ctx = Db.CreateContext();
+
+        // Act
+        ctx.SessionRules.Remove(ctx.SessionRules.First(r => r.Id == rule.Id));
+        var ex = Assert.Throws<RuleRejectedException>(() => ctx.SaveChanges());
+
+        // Assert
+        Assert.Contains("no record of who did it", ex.Reason);
+        Assert.NotNull(new SessionRuleStore(Db).Get(rule.Id));
+    }
+
+    [Fact]
+    public void RuleChangedThroughTheContext_WithARowForADifferentAction_IsRefused()
+    {
+        // Arrange
+        var store = NewStore();
+        var rule = CreateTheRule(store, AgentSession);
+        using var ctx = Db.CreateContext();
+        var row = ctx.SessionRules.First(r => r.Id == rule.Id);
+
+        // Act - a delete record does not account for a change.
+        row.DailyCap = 2;
+        ctx.SessionRuleChanges.Add(new SessionRuleChangeEntity
+        {
+            TenantId = ctx.ActiveTenant!, RuleId = rule.Id, Action = RuleChangeActions.Delete,
+            ChangedBy = "device:x", OccurredUtc = Now, Before = "{}",
+        });
+        var ex = Assert.Throws<RuleRejectedException>(() => ctx.SaveChanges());
+
+        // Assert
+        Assert.Contains("no record of who did it", ex.Reason);
+    }
+
+    // ---- review finding 2: a change merges over the rule as stored, not over an earlier copy ---------------
+
+    [Fact]
+    public void Change_AfterAnotherSessionChangedADifferentField_KeepsBothChangesAndRecordsOnlyItsOwn()
+    {
+        // Arrange - session A reads the rule; session B then changes the instruction.
+        var store = NewStore();
+        var rule = CreateTheRule(store, AnActor.Owner);
+        var sessionB = AnActor.Session(Guid.NewGuid(), "Codex");
+        var aReadThis = store.Get(rule.Id)!;
+        store.Change(rule.Id, stored => DraftOf(stored) with { Instruction = "B's instruction." },
+            Now.AddMinutes(1), sessionB, out _);
+
+        // Act - A sends only the daily cap, exactly as the route does: its fields over the rule as stored.
+        using var body = JsonDocument.Parse("{\"dailyCap\": 2}");
+        var changes = body.RootElement.Clone();
+        var changed = store.Change(rule.Id, stored => CcDirector.Gateway.Api.SessionRuleWire.ReadChange(stored, changes),
+            Now.AddMinutes(2), AgentSession, out _);
+
+        // Assert
+        Assert.NotEqual("B's instruction.", aReadThis.Instruction);
+        Assert.Equal("B's instruction.", changed.Instruction);
+        Assert.Equal(2, changed.DailyCap);
+        var mine = store.History(rule.Id, AgentSessionId.ToString(), RuleChangeActions.Change, 10).Single();
+        using var before = JsonDocument.Parse(mine.Before);
+        using var after = JsonDocument.Parse(mine.After);
+        Assert.Equal("B's instruction.", before.RootElement.GetProperty("instruction").GetString());
+        Assert.Equal("B's instruction.", after.RootElement.GetProperty("instruction").GetString());
+    }
+
+    [Fact]
+    public void Change_ALiveRule_ReportsTheStateItHadWhenTheChangeWasMade()
+    {
+        // Arrange
+        var store = NewStore();
+        var rule = CreateTheRule(store, AnActor.Owner);
+        store.Promote(rule.Id, SessionGrantFor(rule.Id), Now, AgentSession);
+
+        // Act
+        store.Change(rule.Id, stored => DraftOf(stored) with { DailyCap = 2 }, Now, AgentSession, out var stateBefore);
+
+        // Assert
+        Assert.Equal(RuleState.Live, stateBefore);
+    }
+
+    // ---- review finding 3: the history is read in the order the changes were made ---------------------------
+
+    [Fact]
+    public void History_WhenTheClockStepsBack_IsStillNewestChangeFirst()
+    {
+        // Arrange - the change is stamped five minutes BEFORE the create, as a clock stepping back would.
+        var store = NewStore();
+        var rule = CreateTheRule(store, AgentSession);
+        store.Change(rule.Id, stored => DraftOf(stored) with { DailyCap = 2 }, Now.AddMinutes(-5), AgentSession, out _);
+        store.Delete(rule.Id, Now.AddMinutes(-5), AgentSession);
+
+        // Act
+        var history = store.History(rule.Id, null, null, 10);
+
+        // Assert
+        Assert.Equal(new[] { RuleChangeActions.Delete, RuleChangeActions.Change, RuleChangeActions.Create },
+            history.Select(c => c.Action));
+    }
+
+    [Fact]
+    public void Snapshot_KeepsAnApostropheAsItself()
+    {
+        // Arrange
+        var store = NewStore();
+
+        // Act
+        var rule = store.Create("Don't let it loop.", "A screen.", new[] { "loop" }, GoodCalls(),
+            RuleScope.AllSessions, 300, 5, Now, AgentSession);
+
+        // Assert
+        Assert.Contains("Don't let it loop.", store.History(rule.Id, null, null, 1).Single().After);
     }
 }

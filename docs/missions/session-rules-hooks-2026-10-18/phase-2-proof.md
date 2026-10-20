@@ -50,7 +50,8 @@ ran on.
 
 Phase 1 adds `kind` and scope fields. For them to flow through a change, add each field in four places, and a test
 fails if the body is forgotten: `SessionRuleBody.Of` (the body), `SessionRuleWire.ReadDraft` and `SessionRuleDraft`
-(the one reader create and change share), and the store's `Create` and `Change`.
+(the one reader create and change share; the record now lives in the rules namespace), and the store's `Create`
+and `Change` (`Change` takes a merge over the rule as stored, so it reads the new field from the draft).
 `SessionRuleBodyTests.Of_EveryFieldTheCreateReaderReads_IsInTheBody` reads the draft's properties and fails on any
 field the body lacks. The CLI needs nothing: `--body` sends any field as given, and `--scope key=value` passes keys
 through. Both phases add a migration; whichever lands second regenerates the two model snapshots.
@@ -113,10 +114,13 @@ the commands sent no identity of their own.
 Torn down cleanly afterwards: the session stopped with a reason, the Director on its named shutdown signal, the
 Gateway on the terminate signal. None was force-killed.
 
-### Negative control: the same session against a Gateway with the allow-list line disabled
+### What main does today: the same session against a Gateway with the allow-list line disabled
 
 The first run met, by accident, a Gateway binary built while the `IsRuleRoute` line was disabled for the red run
-above. Every call was refused with the guard's sentence, which is today's behaviour on main:
+above. Every call was refused with the guard's sentence. This shows today's behaviour on main and that the session
+really held a session key; it is NOT a control for the new routes (the review, finding 6, is right about that). The
+negative controls for the new routes are the failure cases in the next run, and the refused shapes in
+`SessionKeyGuardRuleRoutesTests`.
 
 ```
 === who is calling ===
@@ -477,6 +481,10 @@ help[2]:
 ```
 
 ## What this does not prove
+
+- **Another account, live.** The live run was a self-host Gateway with one account. That a session key cannot reach
+  another account's rules rests on reading the code and on the store tests (`One_account_never_reads_another_accounts_rules`,
+  and the parked `CensusRouteTenancyProbeTests`), not on a call from a second account.
 
 - **Windows and macOS.** This ran on Linux only. The command-line tests are platform-neutral and the Gateway change
   has no platform branch, but neither has been run on Windows here.

@@ -196,4 +196,75 @@ public sealed class SessionRuleEndpointsAgentTests : IAsyncDisposable
         Assert.Equal(0, history.GetProperty("count").GetInt32());
         Assert.Empty(history.GetProperty("changes").EnumerateArray());
     }
+
+    [Fact]
+    public async Task History_WithNoLimit_AnswersTheDefaultNumberNewestFirst()
+    {
+        // Arrange - one more change than the default answers.
+        var client = await StartAsync();
+        for (var i = 0; i <= SessionRuleEndpoints.DefaultHistoryLimit; i++) await CreateAsync(client);
+
+        // Act
+        var history = await JsonOf(await client.GetAsync("/gateway/rules/history"));
+
+        // Assert
+        Assert.Equal(50, SessionRuleEndpoints.DefaultHistoryLimit);
+        Assert.Equal(50, history.GetProperty("count").GetInt32());
+    }
+
+    [Fact]
+    public async Task History_AboveTheCeiling_Is400AndAtTheCeiling_IsServed()
+    {
+        // Arrange
+        var client = await StartAsync();
+
+        // Act
+        var above = await client.GetAsync("/gateway/rules/history?limit=501");
+        var at = await client.GetAsync("/gateway/rules/history?limit=500");
+
+        // Assert
+        Assert.Equal(500, SessionRuleEndpoints.MaxHistoryLimit);
+        Assert.Equal(HttpStatusCode.BadRequest, above.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, at.StatusCode);
+    }
+
+    [Fact]
+    public async Task Promote_ARuleThatDoesNotExist_Is404LikeEveryOtherRuleRoute()
+    {
+        // Arrange
+        var client = await StartAsync();
+        var missing = Guid.NewGuid();
+
+        // Act
+        var response = await client.PostAsJsonAsync($"/gateway/rules/{missing}/promote", new { acknowledgement = "yes" });
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains(missing.ToString(), (await JsonOf(response)).GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void ActorOf_TheSharedMachineToken_IsNamedAsTheMachineTokenNotAsUnchecked()
+    {
+        // Arrange - authenticated, but by the shared token: no device, no session, no person.
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "the-shared-token";
+
+        // Act
+        var actor = SessionRuleEndpoints.ActorOf(http, _ => "never asked");
+
+        // Assert
+        Assert.Equal(SessionRuleEndpoints.MachineTokenCaller, actor.ChangedBy);
+        Assert.Null(actor.SessionId);
+    }
+
+    [Fact]
+    public void ActorOf_ARequestWithNoCheckedCredential_IsUnnamed()
+    {
+        // Act
+        var actor = SessionRuleEndpoints.ActorOf(new Microsoft.AspNetCore.Http.DefaultHttpContext(), _ => "never asked");
+
+        // Assert
+        Assert.Equal(SessionRuleEndpoints.UnnamedCaller, actor.ChangedBy);
+    }
 }

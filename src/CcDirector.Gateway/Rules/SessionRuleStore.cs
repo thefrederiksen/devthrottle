@@ -146,29 +146,27 @@ public sealed class SessionRuleStore : IRuleReading
     /// first time it types anything, and a changed instruction is one nobody has yet watched behave - so the
     /// rule records what it would do again until it is promoted again. This is also what lets a change pass the
     /// write gate without a promotion grant: the gate refuses any save that leaves a rule live without one.
+    ///
+    /// THE MERGE HAPPENS HERE, UNDER THE LOCK. <paramref name="merge"/> is handed the rule as it is stored at this
+    /// moment and answers the rule as it should be. A caller that merged over a copy it read earlier would write
+    /// every field of that copy back, so a second session changing another field in between would have its change
+    /// silently undone - and the history would name the wrong session for undoing it (phase 2 review, finding 2).
     /// </summary>
+    /// <param name="merge">The rule as stored now, in; the changed rule, out. It may refuse with a
+    /// <see cref="RuleRejectedException"/>, which leaves the rule untouched.</param>
+    /// <param name="stateBefore">The rule's state when the change was made, read under the same lock.</param>
     /// <exception cref="RuleRejectedException">There is no such rule, the change changes nothing, or the
     /// changed rule is not something that can be stored; the reason says which.</exception>
     public SessionRule Change(
         Guid id,
-        string instruction,
-        string screenDescription,
-        IEnumerable<string> triggerWords,
-        IEnumerable<RulePrimitiveCall> calls,
-        RuleScope? scope,
-        int cooldownSeconds,
-        int dailyCap,
+        Func<SessionRule, SessionRuleDraft> merge,
         DateTime nowUtc,
-        RuleChangeActor actor)
+        RuleChangeActor actor,
+        out RuleState stateBefore)
     {
+        ArgumentNullException.ThrowIfNull(merge);
         ArgumentNullException.ThrowIfNull(actor);
         FileLog.Write($"[SessionRuleStore] Change: rule={id}, by={actor.ChangedBy}");
-
-        // The same refusal a create gives, for the same reason: an omitted scope is not "every session".
-        if (scope is null)
-            throw new RuleRejectedException(
-                "a rule has to say which sessions it may act on. Every session is a choice you can make, " +
-                "but it is a choice - a rule that did not say is not read as meaning all of them.");
         var changed = nowUtc.ToUniversalTime();
 
         lock (_gate)
@@ -177,6 +175,18 @@ public sealed class SessionRuleStore : IRuleReading
             var entity = ctx.SessionRules.FirstOrDefault(r => r.Id == id)
                 ?? throw new RuleRejectedException($"there is no rule with the id {id}, so there is nothing to change.");
             var before = ToRecord(entity);
+            stateBefore = before.State;
+            var draft = merge(before)
+                ?? throw new InvalidOperationException("a change's merge answered no rule.");
+
+            // The same refusal a create gives, for the same reason: an omitted scope is not "every session".
+            if (draft.Scope is null)
+                throw new RuleRejectedException(
+                    "a rule has to say which sessions it may act on. Every session is a choice you can make, " +
+                    "but it is a choice - a rule that did not say is not read as meaning all of them.");
+            var (instruction, screenDescription, triggerWords, calls, scope, cooldownSeconds, dailyCap) =
+                (draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
+                 draft.CooldownSeconds, draft.DailyCap);
 
             entity.Instruction = (instruction ?? "").Trim();
             entity.ScreenDescription = (screenDescription ?? "").Trim();
@@ -259,8 +269,9 @@ public sealed class SessionRuleStore : IRuleReading
         ArgumentNullException.ThrowIfNull(actor);
         if (grant is null)
             throw new RuleRejectedException(
-                "a rule is moved out of dry run by a person, and this call carried no evidence that a " +
-                "person asked. Nothing that runs on its own can promote a rule.");
+                "a rule is moved out of dry run by a person or an agent session asking through an authenticated " +
+                "request, and this call carried no evidence that anyone asked. Nothing that runs on its own can " +
+                "promote a rule.");
 
         if (grant.RuleId != id)
             throw new RuleRejectedException(
@@ -351,7 +362,7 @@ public sealed class SessionRuleStore : IRuleReading
             }
             if (action is not null) rows = rows.Where(c => c.Action == action);
             return rows
-                .OrderByDescending(c => c.OccurredUtc)
+                .OrderByDescending(c => c.Sequence)
                 .Take(limit)
                 .ToList()
                 .Select(c => new SessionRuleChange(
@@ -373,6 +384,9 @@ public sealed class SessionRuleStore : IRuleReading
         SessionId = string.IsNullOrWhiteSpace(actor.SessionId) ? null : actor.SessionId.Trim(),
         Agent = string.IsNullOrWhiteSpace(actor.Agent) ? null : actor.Agent.Trim(),
         OccurredUtc = occurredUtc,
+        // THE ORDER THE CHANGES WERE MADE IN, numbered under this store's lock. A timestamp is not an order: two
+        // changes can share one, and a clock can step back (phase 2 review, finding 3).
+        Sequence = (ctx.SessionRuleChanges.Max(c => (long?)c.Sequence) ?? 0) + 1,
         Before = before is null ? "" : SessionRuleBody.Snapshot(before),
         After = after is null ? "" : SessionRuleBody.Snapshot(after),
     };

@@ -126,3 +126,13 @@ public sealed record SessionRuleChange(
     DateTime OccurredUtc,
     string Before,
     string After);
+
+/// <summary>A rule as a create or a change wrote it, before the store has checked it.</summary>
+public sealed record SessionRuleDraft(
+    string Instruction,
+    string ScreenDescription,
+    IReadOnlyList<string> TriggerWords,
+    IReadOnlyList<RulePrimitiveCall> Calls,
+    RuleScope? Scope,
+    int CooldownSeconds,
+    int DailyCap);

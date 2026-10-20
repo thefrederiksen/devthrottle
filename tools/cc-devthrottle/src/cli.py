@@ -5497,6 +5497,8 @@ def maildesk_route_remove(
 ) -> None:
     """Remove a route."""
     maildesk_ops.route_remove(route, why)
+
+
 @rules_app.callback()
 def rules_main(
     gateway: Optional[str] = typer.Option(None, "--gateway", help="Override the Gateway base URL."),
@@ -5602,7 +5604,7 @@ def rules_history(
     rule: Optional[str] = typer.Argument(None, help="Only this rule (its id - a full id for a deleted rule)."),
     session: Optional[str] = typer.Option(None, "--session", help="Only changes made by this session id, or 'me'."),
     action: Optional[str] = typer.Option(None, "--action", help="Only this change: create, change, promote or delete."),
-    count: int = typer.Option(rule_ops.DEFAULT_HISTORY_COUNT, "--count", "-n", help="Most changes to show, newest first."),
+    count: int = typer.Option(rule_ops.DEFAULT_HISTORY_COUNT, "--count", "-n", help="Most changes to show, newest first: 1 to 500."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON. Filters still apply."),
     fields: Optional[str] = typer.Option(
         None, "--fields",

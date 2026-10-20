@@ -49,8 +49,16 @@ public static class SessionRuleBody
         var body = Of(rule);
         body["state"] = RuleWireNames.ToWireName(rule.State.ToString());
         body["promotedBy"] = rule.PromotedBy;
-        return body.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+        // Readable as stored: an apostrophe or a non-ASCII letter is kept as itself rather than escaped, so a direct
+        // reader of the table sees the sentence that was said. The wire re-parses it either way.
+        return body.ToJsonString(SnapshotOptions);
     }
+
+    private static readonly JsonSerializerOptions SnapshotOptions = new()
+    {
+        WriteIndented = false,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     /// <summary>
     /// One check in the shape <see cref="RuleCallJson.ReadCall"/> reads. A literal is ALWAYS written as a list,

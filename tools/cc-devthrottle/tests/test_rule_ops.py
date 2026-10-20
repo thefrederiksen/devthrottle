@@ -463,3 +463,27 @@ def test_history_unknownAction_isAUsageError():
     # Assert
     assert result.exit_code == 2
     assert "create, change, promote, delete" in result.output
+
+
+def test_history_countAboveTheGatewaysCeiling_isAUsageErrorAndAsksNothing():
+    # Act
+    with _client() as client_cls:
+        result = runner.invoke(app, ["rules", "history", "--count", "501"])
+
+    # Assert
+    assert result.exit_code == 2
+    assert "1 to 500" in result.output
+    client_cls.return_value.history.assert_not_called()
+
+
+def test_history_countAtTheCeiling_isSent():
+    # Arrange
+    with _client() as client_cls:
+        client_cls.return_value.history.return_value = {"count": 0, "changes": []}
+
+        # Act
+        result = runner.invoke(app, ["rules", "history", "--count", "500"])
+
+    # Assert
+    assert result.exit_code == 0, result.output
+    assert client_cls.return_value.history.call_args.args[3] == 500

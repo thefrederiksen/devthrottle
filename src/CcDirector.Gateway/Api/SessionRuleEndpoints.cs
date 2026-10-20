@@ -112,7 +112,9 @@ internal static class SessionRuleEndpoints
         });
 
         // CHANGE a rule: any field of its body, the rest kept. The rule goes back to dry run - see
-        // SessionRuleStore.Change - and the answer says so, because the caller may have just promoted it.
+        // SessionRuleStore.Change - and the answer says so, because the caller may have just promoted it. The caller's
+        // fields are laid over the rule INSIDE the store's lock, over the rule as it is stored at that moment, so two
+        // sessions changing different fields both keep their change. The read above only answers 404 early.
         app.MapPatch("/gateway/rules/{id:guid}", (Guid id, JsonElement body, HttpContext http) =>
         {
             var current = store.Get(id);
@@ -124,12 +126,11 @@ internal static class SessionRuleEndpoints
             try
             {
                 var actor = ActorOf(http, agentOf);
-                var draft = SessionRuleWire.ReadChange(current, body);
+                var changes = body.Clone();
                 var rule = store.Change(
-                    id, draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
-                    draft.CooldownSeconds, draft.DailyCap, DateTime.UtcNow, actor);
+                    id, stored => SessionRuleWire.ReadChange(stored, changes), DateTime.UtcNow, actor, out var stateBefore);
                 FileLog.Write($"[SessionRuleEndpoints] PATCH /gateway/rules/{id}: changed by {actor.ChangedBy}");
-                return Results.Json(new { rule = SessionRuleWire.Project(rule), wasLive = current.State == RuleState.Live });
+                return Results.Json(new { rule = SessionRuleWire.Project(rule), wasLive = stateBefore == RuleState.Live });
             }
             catch (RuleRejectedException ex)
             {
@@ -146,6 +147,8 @@ internal static class SessionRuleEndpoints
         // agent session may promote since owner decision D7, and is named and recorded when it does.
         app.MapPost("/gateway/rules/{id:guid}/promote", (Guid id, HttpContext http, JsonElement body) =>
         {
+            // No such rule is a 404 here as on every other rule route, not a refusal of the request.
+            if (store.Get(id) is null) return NoSuchRule(id);
             try
             {
                 var grant = RulePromotionGrant.FromAuthenticatedRequest(
@@ -176,14 +179,21 @@ internal static class SessionRuleEndpoints
     /// </summary>
     internal static RuleChangeActor ActorOf(HttpContext http, Func<SessionCredentialIdentity, string?> agentOf)
     {
-        var name = RulePromotionGrant.CallerOf(http) ?? UnnamedCaller;
+        // A caller the pipeline AUTHENTICATED but could not name is the shared machine token, which a self-host
+        // Gateway accepts and which belongs to no device and no person. Said as exactly that; only a request that
+        // carried no checked credential at all - a Gateway with its sign-in check off - is "unnamed".
+        var name = RulePromotionGrant.CallerOf(http)
+            ?? (http.Items.ContainsKey(AuthMiddleware.AuthenticatedCredentialItemKey) ? MachineTokenCaller : UnnamedCaller);
         var session = AuthMiddleware.CallingSession(http);
         if (session is null) return new RuleChangeActor(name, null, null);
         return new RuleChangeActor(name, session.SessionId.ToString(), agentOf(session) ?? AgentNotOnRoster);
     }
 
-    /// <summary>What the history says when the pipeline named nobody.</summary>
-    internal const string UnnamedCaller = "unnamed (this Gateway checks no sign-in)";
+    /// <summary>What the history says when the request was authenticated by the shared machine token.</summary>
+    internal const string MachineTokenCaller = "machine-token (the Gateway's shared token, which names no one)";
+
+    /// <summary>What the history says when the request carried no credential the Gateway checked.</summary>
+    internal const string UnnamedCaller = "unnamed (no credential was checked on this request)";
 
     /// <summary>What the history says when the calling session is not on the live roster, so its agent is not
     /// known. Said, not guessed.</summary>

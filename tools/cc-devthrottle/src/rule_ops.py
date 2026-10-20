@@ -37,6 +37,8 @@ from . import usage_errors  # noqa: E402
 
 TIMEOUT_SECONDS = 10
 DEFAULT_HISTORY_COUNT = 20
+#: The most changes the Gateway answers in one read (SessionRuleEndpoints.MaxHistoryLimit).
+MAX_HISTORY_COUNT = 500
 
 GatewayError = gateway.GatewayError
 gateway_override: Optional[str] = None
@@ -504,8 +506,8 @@ def history(reference: Optional[str], session: Optional[str], action: Optional[s
     if json_output and fields is not None:
         axi_cli.usage_error(axi_cli.FIELDS_WITH_JSON)
     chosen = usage_errors.parse_fields(fields, HISTORY_FIELDS, HISTORY_DEFAULT_FIELDS)
-    if count < 1:
-        axi_cli.usage_error("--count must be at least 1.")
+    if count < 1 or count > MAX_HISTORY_COUNT:
+        axi_cli.usage_error(f"--count must be from 1 to {MAX_HISTORY_COUNT}.")
     if action is not None and action not in CHANGE_ACTIONS:
         axi_cli.usage_error(
             f"unknown --action value '{axi_output.escape_ascii(action)}'. Valid actions: {', '.join(CHANGE_ACTIONS)}")

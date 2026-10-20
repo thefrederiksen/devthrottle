@@ -36,6 +36,10 @@ public sealed class SessionRuleChangeEntity : GatewayMintedKeyEntity
     /// <summary>When it was done (UTC).</summary>
     public DateTime OccurredUtc { get; set; }
 
+    /// <summary>The order this change was made in, within the account: one more than the last change recorded.
+    /// The history is read in this order, never by <see cref="OccurredUtc"/>, which two changes can share.</summary>
+    public long Sequence { get; set; }
+
     /// <summary>The rule before the change, as JSON. Empty on a create.</summary>
     public string Before { get; set; } = "";
 

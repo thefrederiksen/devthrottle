@@ -137,8 +137,9 @@ public sealed class GatewayDbContext : DbContext
                 && string.Equals(rule.State, LiveState, StringComparison.Ordinal)
                 && PromotionInEffect != rule.Id)
                 throw new Rules.RuleRejectedException(
-                    "a rule is moved out of dry run by a person, and this write carried no evidence that a " +
-                    "person asked. Nothing that runs on its own can promote a rule.");
+                    "a rule is moved out of dry run by a person or an agent session asking through an authenticated " +
+                    "request, and this write carried no evidence that anyone asked. Nothing that runs on its own can " +
+                    "promote a rule.");
         }
 
         // THE RECORD IS GATED TOO, AND IT WAS NOT. The firing table had no gate at all, so an invented row
@@ -183,6 +184,32 @@ public sealed class GatewayDbContext : DbContext
                     $"this change record says it belongs to '{change.TenantId}', and this connection belongs to " +
                     $"'{ActiveTenant}'. A change is recorded in the account it was made in.");
             Rules.SessionRuleRecordRules.CheckChange(change);
+        }
+
+        // EVERY RULE WRITE CARRIES ITS HISTORY ROW, IN THIS SAVE. The store writes one beside each create, change,
+        // promote and delete; this is what makes "a rule that was changed and a history that does not say so cannot
+        // both exist" true of every route to the table rather than of the store alone. A repair script, a future
+        // route or a context built by hand that writes a rule and no record is refused here, the same place every
+        // other rule invariant is held (Session Rules part 2, phase 2 review, finding 1).
+        var recorded = ChangeTracker.Entries<SessionRuleChangeEntity>()
+            .Where(e => e.State == EntityState.Added)
+            .Select(e => (e.Entity.RuleId, e.Entity.Action))
+            .ToList();
+        foreach (var entry in ChangeTracker.Entries<SessionRuleEntity>())
+        {
+            var allowed = entry.State switch
+            {
+                EntityState.Added => new[] { Rules.RuleChangeActions.Create },
+                EntityState.Modified => new[] { Rules.RuleChangeActions.Change, Rules.RuleChangeActions.Promote },
+                EntityState.Deleted => new[] { Rules.RuleChangeActions.Delete },
+                _ => Array.Empty<string>(),
+            };
+            if (allowed.Length == 0) continue;
+            if (!recorded.Any(r => r.RuleId == entry.Entity.Id && allowed.Contains(r.Action, StringComparer.Ordinal)))
+                throw new Rules.RuleRejectedException(
+                    $"the rule {entry.Entity.Id} is being {(entry.State == EntityState.Deleted ? "deleted" : "written")} " +
+                    $"with no record of who did it. Every create, change, promote and delete of a rule is recorded in " +
+                    $"the same save ({string.Join(" or ", allowed)} here); write it through the rule store.");
         }
     }
 
@@ -949,10 +976,11 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.ChangedBy).HasMaxLength(256);
             b.Property(e => e.SessionId).HasMaxLength(64);
             b.Property(e => e.Agent).HasMaxLength(64);
-            // "What happened to this rule?", "what did this session change?", and the whole account's history.
-            b.HasIndex(e => new { e.TenantId, e.RuleId, e.OccurredUtc });
-            b.HasIndex(e => new { e.TenantId, e.SessionId, e.OccurredUtc });
-            b.HasIndex(e => new { e.TenantId, e.OccurredUtc });
+            // "What happened to this rule?", "what did this session change?", and the whole account's history -
+            // each read newest first by the order the changes were made in.
+            b.HasIndex(e => new { e.TenantId, e.RuleId, e.Sequence });
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Sequence });
+            b.HasIndex(e => new { e.TenantId, e.Sequence });
         });
 
         modelBuilder.Entity<SessionTurnHeadEntity>(b =>
