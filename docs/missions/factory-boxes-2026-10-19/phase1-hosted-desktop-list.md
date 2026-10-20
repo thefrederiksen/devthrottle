@@ -137,8 +137,8 @@ Normal sign-in, inside the gate. The desktops hosted by the calling account's co
 
 - `state` is decided by the Gateway. Phase 1 has exactly one value, `"Online"` (its Director is connected), because a
   list is only held while its Director is connected. Later phases add values here; the Cockpit renders the string.
-- `desktopPath` is the path the Cockpit opens, `/boxes/{boxId}/desktop/`. If the spike finds the desktop cannot be
-  served under a path prefix, only this string changes.
+- `desktopPath` is the path the Cockpit opens, `/boxes/{boxId}/desktop/`. The spike (#4261,
+  `phase1-spike-path-prefix.md`) confirmed the desktop works under this prefix with a prefix-stripping relay.
 - `directorName` is the Director's display name from its Hello, empty when it has none.
 - An empty list is `{"count":0,"boxes":[]}`.
 - Signed out: refused (401 from the authentication middleware; the gate answers 404 behind it). An account without
