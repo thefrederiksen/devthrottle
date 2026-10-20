@@ -20,6 +20,8 @@ namespace CcDirector.Gateway.MailDesk;
 ///   5. every recorded change to the Mail Desk in the window: what, who in words, and why;
 ///   6. the spend and the limit, and the spend sentence when the limit stopped the model;
 ///   7. a line saying nothing was moved, when every mailbox is in observe mode.
+/// In live mode (phase 4, section 2.3) each live mailbox also says how many of its emails were moved to Archive and to
+/// Junk Email, and a junked email that was moved says "moved" beside it.
 ///
 /// ABSENT - null - when the account's switch is off or it has no active channel, so the email reads exactly as before.
 /// </summary>
@@ -30,6 +32,9 @@ public sealed class MailDeskEmailFold
 
     /// <summary>Part 7: said when every active mailbox is in observe mode.</summary>
     public const string ObserveLine = "Every mailbox is in observe mode: the Mail Desk decided and recorded each email, and moved nothing.";
+
+    /// <summary>Said beside a junked email once it has been moved (phase 4 contract, section 2.3).</summary>
+    public const string MovedWord = "moved";
 
     /// <summary>Each decision in the words the section counts it under, in <see cref="MailDeskWords.Decisions"/>'s order.</summary>
     public static readonly IReadOnlyDictionary<string, string> DecisionLabels = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -77,7 +82,7 @@ public sealed class MailDeskEmailFold
 
         var decided = _decisions.DecidedBetween(tenant, fromUtc, toUtc);
         var changes = _rules.ChangesBetween(tenant, fromUtc, toUtc);
-        var section = Fold(every, decided, changes, _spendOf(tenant), zone);
+        var section = Fold(every, decided, changes, _spendOf(tenant), zone, _decisions.FiledBetween(tenant, fromUtc, toUtc));
         FileLog.Write($"[MailDeskEmailFold] Section: tenant={tenant.ToLogString()}, mailboxes={section.Mailboxes.Count}, decided={section.Total.Total}, junked={section.Junked.Count}, changes={section.Changes.Count}");
         return section;
     }
@@ -85,11 +90,14 @@ public sealed class MailDeskEmailFold
     /// <summary>
     /// The pure fold of the section from its facts. <paramref name="channels"/> holds every channel of the account,
     /// removed ones too: a removed mailbox is counted when it decided an email in the window, and its emails are named
-    /// by its address. It must hold at least one active channel.
+    /// by its address. It must hold at least one active channel. <paramref name="filed"/> holds the decisions filed in
+    /// the window, whenever they were decided; none when null.
     /// </summary>
     public static MailDeskEmailSection Fold(IReadOnlyList<MailDeskChannelEntity> channels, IReadOnlyList<MailDeskDecisionEntity> decided,
-        IReadOnlyList<MailDeskListChangeEntity> changes, MailDeskSpend spend, TimeZoneInfo zone)
+        IReadOnlyList<MailDeskListChangeEntity> changes, MailDeskSpend spend, TimeZoneInfo zone,
+        IReadOnlyList<MailDeskDecisionEntity>? filed = null)
     {
+        filed ??= Array.Empty<MailDeskDecisionEntity>();
         ArgumentNullException.ThrowIfNull(channels);
         ArgumentNullException.ThrowIfNull(decided);
         ArgumentNullException.ThrowIfNull(changes);
@@ -110,11 +118,13 @@ public sealed class MailDeskEmailFold
             .OrderBy(c => c.CreatedUtc).ThenBy(c => c.Address, StringComparer.Ordinal)
             .Select(c => new MailDeskEmailMailbox(
                 c.RemovedUtc is null ? c.Address : $"{c.Address} (removed)",
-                Counts(MailDeskDecisionCounts.From(decided.Where(d => d.ChannelId == c.Id).Select(d => (d.Decision, 1))))))
+                Counts(MailDeskDecisionCounts.From(decided.Where(d => d.ChannelId == c.Id).Select(d => (d.Decision, 1)))),
+                c.Mode == MailDeskWords.Modes.Live ? FiledLine(filed.Where(d => d.ChannelId == c.Id).ToList()) : null))
             .ToList();
         var total = MailDeskDecisionCounts.From(decided.Select(d => (d.Decision, 1)));
 
-        MailDeskEmailMessage Message(MailDeskDecisionEntity d) => new(AddressOf(d), d.SenderAddress, d.Subject, d.Layer, d.Reason);
+        MailDeskEmailMessage Message(MailDeskDecisionEntity d) => new(AddressOf(d), d.SenderAddress, d.Subject, d.Layer, d.Reason,
+            d.Outcome == MailDeskWords.Outcomes.Filed ? MovedWord : null);
 
         // 2 to 4. Every one, oldest first; an email kept after three failed screenings is listed with what could not
         // be screened, where its reason explains it, and not again among the emails kept for the owner.
@@ -145,6 +155,18 @@ public sealed class MailDeskEmailFold
             SpendLine: spend.Line,
             SpendStoppedSentence: spend.Stopped ? spend.StoppedSentence : null,
             ObserveLine: observe);
+    }
+
+    /// <summary>
+    /// A live mailbox's filing in the window (phase 4 contract, section 2.3): "Moved to Archive 3 - moved to Junk Email
+    /// 1", counting the emails FILED in the window, by the time they were filed - so an email decided just before one
+    /// window closes and moved just after is counted once, in the next. An email gone before its move is not counted.
+    /// </summary>
+    internal static string FiledLine(IReadOnlyList<MailDeskDecisionEntity> filedOnTheMailbox)
+    {
+        int Moved(string decision) => filedOnTheMailbox.Count(d => d.Decision == decision && d.Outcome == MailDeskWords.Outcomes.Filed);
+        return $"Moved to Archive {Moved(MailDeskWords.Decisions.Archive).ToString(CultureInfo.InvariantCulture)} - " +
+               $"moved to Junk Email {Moved(MailDeskWords.Decisions.Junk).ToString(CultureInfo.InvariantCulture)}";
     }
 
     private static MailDeskEmailCounts Counts(MailDeskDecisionCounts counts) => new(counts.Total,
@@ -259,8 +281,8 @@ public sealed record MailDeskEmailSection(
     string? SpendStoppedSentence,
     string? ObserveLine);
 
-/// <summary>One mailbox's counts, under its address.</summary>
-public sealed record MailDeskEmailMailbox(string Address, MailDeskEmailCounts Counts);
+/// <summary>One mailbox's counts, under its address, and for a live mailbox what was moved (null in observe mode).</summary>
+public sealed record MailDeskEmailMailbox(string Address, MailDeskEmailCounts Counts, string? FiledLine = null);
 
 /// <summary>Counts by decision: the total, and every decision in order with its words, zeros included.</summary>
 public sealed record MailDeskEmailCounts(int Total, IReadOnlyList<MailDeskEmailCount> ByDecision);
@@ -268,8 +290,9 @@ public sealed record MailDeskEmailCounts(int Total, IReadOnlyList<MailDeskEmailC
 /// <summary>One decision's count and its words.</summary>
 public sealed record MailDeskEmailCount(string Decision, string Label, int Count);
 
-/// <summary>One email as the section names it. The sender and subject are the sender's text, escaped when laid out.</summary>
-public sealed record MailDeskEmailMessage(string Mailbox, string Sender, string Subject, string Layer, string Reason);
+/// <summary>One email as the section names it. The sender and subject are the sender's text, escaped when laid out.
+/// <paramref name="Moved"/> is "moved" once the email was filed, otherwise null.</summary>
+public sealed record MailDeskEmailMessage(string Mailbox, string Sender, string Subject, string Layer, string Reason, string? Moved = null);
 
 /// <summary>One recorded change: when (local time), what in words, who in words, and why.</summary>
 public sealed record MailDeskEmailChange(string AtText, string What, string Who, string Why);
