@@ -55,7 +55,10 @@ public sealed class CronRunResultEndpointsTests : IDisposable
             nowUtc: () => new DateTime(2026, 10, 10, 14, 0, 0, DateTimeKind.Utc),
             triggers: _triggers,
             scheduleSessionsByName: (_, _, _) => Array.Empty<string>(),
-            settleLastStatus: (_, _, _) => false);
+            settleLastStatus: (_, _, _) => false,
+            mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
+                new CcDirector.Gateway.MailDesk.MailDeskChannelStore(db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(db),
+                _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend));
         _jobs["cj_mail"] = new CronJobDto { Id = "cj_mail", Name = "Mail Desk", Factory = "mail", Seat = "mail-desk" };
         _runs.Append("cj_mail", new CronRunRecord
         {

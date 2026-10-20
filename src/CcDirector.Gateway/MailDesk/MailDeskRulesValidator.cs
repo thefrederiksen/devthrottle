@@ -24,6 +24,10 @@ public static class MailDeskRulesValidator
     /// for a runaway writer.</summary>
     public const int MaxDocumentBytes = 256 * 1024;
 
+    /// <summary>The most routes a document may list (phase 3 contract, section 3): the route question offers them as
+    /// the letters A to Y, with <c>unsure</c> last, so a 26th is refused when it is added, never cut at screening.</summary>
+    public const int MaxRoutes = MailDeskModel.MaxRoutes;
+
     /// <summary>Check <paramref name="document"/>. On success the result carries the document in its one spelling.</summary>
     public static MailDeskRulesValidation Validate(MailDeskRulesDocument? document)
     {
@@ -53,6 +57,9 @@ public static class MailDeskRulesValidator
         // with no difference.
         foreach (var key in Duplicates(routes.Select(r => r.Key).Where(k => k != "/"), StringComparer.Ordinal))
             problems.Add($"routes: '{key}' is listed more than once; keep one line for it");
+        if (routes.Count > MaxRoutes)
+            problems.Add($"routes: {routes.Count} routes are listed and at most {MaxRoutes} may be (the model is offered them " +
+                         "as the letters A to Y, with 'unsure' last); remove a route before adding another");
 
         if (problems.Count > 0) return MailDeskRulesValidation.Refused(problems);
 

@@ -35,6 +35,7 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
     private readonly Func<string?> _baseUrl;
     private readonly FactoryEmailStore _store;
     private readonly IFactoryEmailSender _sender;
+    private readonly Func<TenantId, DateTime, DateTime, TimeZoneInfo, MailDesk.MailDeskEmailSection?> _mailDesk;
     private readonly Func<DateTime> _now;
 
     /// <param name="enabled">Whether an account's factory email is on (the <c>factory_email_enabled</c> setting).</param>
@@ -42,12 +43,17 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
     /// <param name="facts">The open problems and the factories' last day (<c>CronRunResultService.ProblemsAndFactoryDays</c>).</param>
     /// <param name="factories">The account's registered factories, for titles and seat names.</param>
     /// <param name="baseUrl">This Gateway's public base address, or null when it has none.</param>
+    /// <param name="mailDesk">The 08:00 email's Mail Desk section for (account, window start, window end, time zone), or
+    /// null when the account's Mail Desk is off or has no mailbox (<see cref="MailDesk.MailDeskEmailFold.Section"/>).
+    /// REQUIRED, so a wiring line that forgot it fails to compile rather than leaving the section out of every email.</param>
     public FactoryEmailSweep(HostedTenantBoundary boundary, TenantRegistry tenants, ITenantContext tenantContext,
         Func<TenantId, bool> enabled, Func<TenantId, TimeZoneInfo> zoneOf, FactoryEmailFacts facts,
         Func<TenantId, IReadOnlyDictionary<string, FactoryEmailFactory>> factories, Func<string?> baseUrl,
-        FactoryEmailStore store, IFactoryEmailSender sender, Func<DateTime>? now = null)
+        FactoryEmailStore store, IFactoryEmailSender sender,
+        Func<TenantId, DateTime, DateTime, TimeZoneInfo, MailDesk.MailDeskEmailSection?> mailDesk, Func<DateTime>? now = null)
         : base(boundary, tenants)
     {
+        _mailDesk = mailDesk ?? throw new ArgumentNullException(nameof(mailDesk));
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
         _zoneOf = zoneOf ?? throw new ArgumentNullException(nameof(zoneOf));
@@ -89,8 +95,10 @@ public sealed class FactoryEmailSweep : TenantScopedSweep
             // its slot - a problem raised after the cut-off waits for the next email, and one resolved after it is
             // still listed here, as it was open then.
             var (problems, days) = _facts(tenant, slot.DayStartUtc, slot.BoundaryUtc, slot.CutoffUtc);
+            // The Mail Desk section is the 08:00 email's only, over the same 24 hours.
+            var mailDesk = slot.Kind == FactoryEmailKinds.Morning ? _mailDesk(tenant, slot.DayStartUtc, slot.BoundaryUtc, zone) : null;
             var email = FactoryEmailComposer.Compose(new FactoryEmailInput(
-                slot, zone, problems.Problems, days, _factories(tenant), _baseUrl()));
+                slot, zone, problems.Problems, days, _factories(tenant), _baseUrl(), mailDesk));
             if (!email.Send)
             {
                 _store.Save(tenant, slot.Key, r => Fill(r, slot, now, FactoryEmailStates.NothingToSend, email.NotSentReason, email));

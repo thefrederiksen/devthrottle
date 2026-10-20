@@ -71,6 +71,8 @@ public sealed class MailDeskDecisionStore
             Outcome = input.Outcome,
             OutcomeDetail = input.OutcomeDetail is null ? null : Cut(input.OutcomeDetail, MaxReasonLength),
             DecidedUtc = input.DecidedUtc,
+            RulesVersion = input.RulesVersion,
+            AttemptCount = input.AttemptCount,
         };
 
         lock (_gate)
@@ -97,7 +99,61 @@ public sealed class MailDeskDecisionStore
         return new MailDeskDecisionInsert(true, row);
     }
 
+    /// <summary>
+    /// THE SCREENING'S ONE WRITE (phase 3, sections 1 and 8): record a decision once per (channel, message key), and
+    /// change a kept one ONLY when it is <c>failed</c> - that email is being screened again, so its row is updated in
+    /// place with the new decision, cost and attempt count. A kept decision that is not <c>failed</c> is never changed:
+    /// the row is returned with <c>Inserted</c> false and nothing is written. Answers whether a row was written.
+    /// </summary>
+    public MailDeskDecisionWrite Record(TenantId tenant, MailDeskDecisionInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        Require(input);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var kept = ctx.MailDeskDecisions.FirstOrDefault(d => d.ChannelId == input.ChannelId && d.MessageKey == input.MessageKey);
+            if (kept is null)
+            {
+                var inserted = Insert(tenant, input);
+                return new MailDeskDecisionWrite(inserted.Inserted ? MailDeskDecisionWriteKind.Inserted : MailDeskDecisionWriteKind.Kept, inserted.Decision);
+            }
+            if (kept.Decision != MailDeskWords.Decisions.Failed)
+                return new MailDeskDecisionWrite(MailDeskDecisionWriteKind.Kept, kept);
+
+            kept.ReceivedUtc = input.ReceivedUtc;
+            kept.SenderAddress = input.SenderAddress.Trim().ToLowerInvariant();
+            kept.Subject = Cut(input.Subject ?? "", MaxSubjectLength);
+            kept.Layer = input.Layer;
+            kept.Decision = input.Decision;
+            kept.RouteFactory = input.Decision == MailDeskWords.Decisions.Route ? input.RouteFactory : null;
+            kept.RouteSeat = input.Decision == MailDeskWords.Decisions.Route ? input.RouteSeat : null;
+            kept.Reason = Cut(input.Reason ?? "", MaxReasonLength);
+            kept.Confidence = input.Confidence;
+            kept.CostMicros = input.CostMicros;
+            kept.Mode = input.Mode;
+            kept.Outcome = input.Outcome;
+            kept.OutcomeDetail = input.OutcomeDetail is null ? null : Cut(input.OutcomeDetail, MaxReasonLength);
+            kept.DecidedUtc = input.DecidedUtc;
+            kept.RulesVersion = input.RulesVersion;
+            kept.AttemptCount = input.AttemptCount;
+            ctx.SaveChanges();
+            FileLog.Write($"[MailDeskDecisionStore] Record: {kept.Id} on channel {kept.ChannelId} screened again (attempt {kept.AttemptCount}): {kept.Layer} -> {kept.Decision} ({kept.Mode})");
+            return new MailDeskDecisionWrite(MailDeskDecisionWriteKind.Updated, kept);
+        }
+    }
+
     // ---------- reads ----------
+
+    /// <summary>The decision kept for one message of one channel, or null when it was never screened.</summary>
+    public MailDeskDecisionEntity? Find(TenantId tenant, Guid channelId, string messageKey)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskDecisions.AsNoTracking().FirstOrDefault(d => d.ChannelId == channelId && d.MessageKey == messageKey);
+        }
+    }
 
     /// <summary>
     /// The decisions newest first, every filter applied: decided at or after <see cref="MailDeskDecisionFilter.SinceUtc"/>,
@@ -168,6 +224,39 @@ public sealed class MailDeskDecisionStore
         }
     }
 
+    /// <summary>
+    /// Every decision made at or after <paramref name="fromUtc"/> and before <paramref name="toUtc"/>, oldest first -
+    /// all of them, never a page, because the 08:00 email lists every junked email of its day (phase 3 contract,
+    /// section 9) so a wrongly junked one is seen.
+    /// </summary>
+    public IReadOnlyList<MailDeskDecisionEntity> DecidedBetween(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    {
+        if (toUtc < fromUtc)
+            throw new ArgumentException($"The span ends ({toUtc:o}) before it starts ({fromUtc:o}).", nameof(toUtc));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskDecisions.AsNoTracking()
+                .Where(d => d.DecidedUtc >= fromUtc && d.DecidedUtc < toUtc)
+                .OrderBy(d => d.DecidedUtc).ThenBy(d => d.Id)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// What the Mail Desk's model calls have cost the account, ever, in millionths of a dollar: the sum of the cost on
+    /// every decision row (phase 3 contract, section 1 - a failed screening keeps its call's cost on its row too).
+    /// </summary>
+    public long SpentMicros(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            // Summed here rather than in the database: SQLite and PostgreSQL disagree on the type of a sum of nothing.
+            return ctx.MailDeskDecisions.AsNoTracking().Where(d => d.CostMicros != null).Select(d => d.CostMicros!.Value).ToList().Sum();
+        }
+    }
+
     private static MailDeskDecisionEntity? Kept(GatewayDbContext ctx, MailDeskDecisionInput input)
         => ctx.MailDeskDecisions.AsNoTracking().FirstOrDefault(d => d.ChannelId == input.ChannelId && d.MessageKey == input.MessageKey);
 
@@ -177,8 +266,13 @@ public sealed class MailDeskDecisionStore
             throw new ArgumentException("A Mail Desk decision needs the message's key.", nameof(input));
         if (input.MessageKey.Length > MaxMessageKeyLength)
             throw new ArgumentException($"A Mail Desk message key takes at most {MaxMessageKeyLength} characters; this one is {input.MessageKey.Length}.", nameof(input));
-        if (string.IsNullOrWhiteSpace(input.SenderAddress) || input.SenderAddress.Trim().Length > MailDeskAddresses.MaxLength)
-            throw new ArgumentException($"A Mail Desk decision needs the sender's address, at most {MailDeskAddresses.MaxLength} characters.", nameof(input));
+        // An empty address is a sender the mailbox gave none for (phase 3, section 3): it is recorded as empty.
+        if (input.SenderAddress is null || input.SenderAddress.Trim().Length > MailDeskAddresses.MaxLength)
+            throw new ArgumentException($"A Mail Desk decision needs the sender's address (empty when the mailbox gave none), at most {MailDeskAddresses.MaxLength} characters.", nameof(input));
+        if (input.RulesVersion < 0)
+            throw new ArgumentException($"A rules version is not below zero; {input.RulesVersion} is.", nameof(input));
+        if (input.AttemptCount < 1)
+            throw new ArgumentException($"A decision is made on attempt 1 or later; {input.AttemptCount} is not.", nameof(input));
         if (!MailDeskWords.IsOneOf(input.Layer, MailDeskWords.Layers.All))
             throw new ArgumentException($"'{input.Layer}' is not a Mail Desk layer; it is one of {MailDeskWords.InWords(MailDeskWords.Layers.All)}.", nameof(input));
         if (!MailDeskWords.IsOneOf(input.Decision, MailDeskWords.Decisions.All))
@@ -215,7 +309,23 @@ public sealed record MailDeskDecisionInput(
     string Mode,
     string? Outcome,
     string? OutcomeDetail,
-    DateTime DecidedUtc);
+    DateTime DecidedUtc,
+    int RulesVersion = 0,
+    int AttemptCount = 1);
+
+/// <summary>What <see cref="MailDeskDecisionStore.Record"/> did with one decision.</summary>
+public enum MailDeskDecisionWriteKind
+{
+    /// <summary>The message had no decision; this one was written.</summary>
+    Inserted,
+    /// <summary>The message held a <c>failed</c> decision; it was decided again in place.</summary>
+    Updated,
+    /// <summary>The message already held a decision that is not <c>failed</c>; nothing was written.</summary>
+    Kept,
+}
+
+/// <summary>The result of <see cref="MailDeskDecisionStore.Record"/>: what was done, and the row as it now stands.</summary>
+public sealed record MailDeskDecisionWrite(MailDeskDecisionWriteKind Kind, MailDeskDecisionEntity Decision);
 
 /// <summary>The result of <see cref="MailDeskDecisionStore.Insert"/>: the row kept, and whether this call wrote it.</summary>
 public sealed record MailDeskDecisionInsert(bool Inserted, MailDeskDecisionEntity Decision);

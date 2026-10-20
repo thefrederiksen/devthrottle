@@ -188,6 +188,14 @@ public sealed class MailDeskDecisionEntity : GatewayMintedKeyEntity
 
     /// <summary>When the Mail Desk decided (UTC).</summary>
     public DateTime DecidedUtc { get; set; }
+
+    /// <summary>The version of the account's rules document the email was decided by (phase 3, section 8); 0 is the
+    /// empty document.</summary>
+    public int RulesVersion { get; set; }
+
+    /// <summary>How many times the email has been screened (phase 3, sections 1 and 8): 1 for the first, raised each
+    /// time a <c>failed</c> decision is decided again. The third failed screening keeps it for the owner.</summary>
+    public int AttemptCount { get; set; }
 }
 
 /// <summary>
@@ -223,4 +231,48 @@ public sealed class MailDeskRoutedEntity : GatewayMintedKeyEntity
 
     /// <summary>When the row last changed (UTC).</summary>
     public DateTime ChangedUtc { get; set; }
+}
+
+/// <summary>
+/// ONE CHECK OF ONE MAILBOX THAT IS WORTH KEEPING, in the <c>mail_desk_channel_checks</c> table (Mail Desk mission,
+/// phase 3 contract, section 6.2: one mailbox failing does not stop the others). A row is written for every check of
+/// the mailbox that failed, and for a good check whenever the mailbox's newest row is not already a good one - the
+/// first good check after a failure, which clears the problem, and the very first good check of the mailbox, which is
+/// how the channel row knows it was ever read. A good check after a good check writes nothing, so a mailbox that keeps
+/// working costs no rows.
+///
+/// Failures in a row are ONE problem (<see cref="MailDesk.MailDeskProblems"/>), named by the first failed row of the
+/// run; resolving it by hand marks that first row, and only that row carries the three resolve columns.
+/// </summary>
+public sealed class MailDeskChannelCheckEntity : GatewayMintedKeyEntity
+{
+    /// <summary>The channel checked (<see cref="MailDeskChannelEntity"/>'s id).</summary>
+    public Guid ChannelId { get; set; }
+
+    /// <summary>The trigger run whose report carried this check, when the report came through one.</summary>
+    public Guid? TriggerRunId { get; set; }
+
+    /// <summary>When the check ran (UTC).</summary>
+    public DateTime CheckedUtc { get; set; }
+
+    /// <summary>The machine the check ran on.</summary>
+    public string Machine { get; set; } = "";
+
+    /// <summary>True when the check read the mailbox; false when it could not.</summary>
+    public bool Ok { get; set; }
+
+    /// <summary>The check's own sentence for the failure, which names the fix. Null on a good check.</summary>
+    public string? Sentence { get; set; }
+
+    /// <summary>The check's second line about the failure, when it gave one. Null on a good check.</summary>
+    public string? Detail { get; set; }
+
+    /// <summary>When the problem this row starts was resolved by hand (UTC), or null.</summary>
+    public DateTime? ResolvedUtc { get; set; }
+
+    /// <summary>Who resolved it: "you" for a person, otherwise the session.</summary>
+    public string? ResolvedBy { get; set; }
+
+    /// <summary>The one-line reason it was resolved with.</summary>
+    public string? ResolvedReason { get; set; }
 }

@@ -121,6 +121,7 @@ public sealed class TriggerStore
                 // A trigger moved to another machine is no longer the business of the Director that held it.
                 row.Machine = req.Machine.Trim();
                 row.ClaimedByDirectorId = "";
+                row.ClaimedByMachine = "";
                 row.ClaimedUtc = null;
             }
             if (req.RepoPath is not null) row.RepoPath = req.RepoPath.Trim();
@@ -288,10 +289,18 @@ public sealed class TriggerStore
     }
 
     /// <summary>
-    /// The triggers this Director must check: every trigger on its machine that no other Director holds. A trigger
-    /// is held by the Director that claimed it for as long as that Director keeps asking; a claim not renewed for
-    /// two intervals and a minute lapses, and the next Director on the machine to ask takes it over. So several
-    /// Directors on one machine never all run one check, and a Director that goes away does not strand it.
+    /// The triggers this Director must check: every trigger whose machines include its machine that no other Director
+    /// holds. A trigger is held by the Director that claimed it for as long as that Director keeps asking; a claim not
+    /// renewed for two intervals and a minute lapses, and the next Director to ask takes it over. So several Directors
+    /// on one machine never all run one check, and a Director that goes away does not strand it.
+    ///
+    /// BACKUP MACHINES (Mail Desk, phase 5): a trigger's machines are its own, then its backups in order
+    /// (<see cref="TriggerMachines"/>). A Director on a machine EARLIER in that list also takes the claim from a
+    /// Director on a machine later in it, live or not - so the trigger's own machine takes its check back the moment it
+    /// asks again. A Director on a later machine takes it only when it is free or lapsed. Two Directors on the SAME
+    /// machine stand at the same place, so between them nothing changes: only a lapse hands the check over.
+    /// A Director on a machine on no trigger's list is handed nothing.
+    ///
     /// A trigger from a factory's definition is claimed only when <paramref name="runsDefinitionChecks"/>: a Director
     /// that never said it runs them neither takes one nor holds one from a Director that does (phase 5b, design 2.6).
     /// </summary>
@@ -303,20 +312,33 @@ public sealed class TriggerStore
             using var ctx = _db.CreateContext(tenant);
             var now = Utc(nowUtc);
             var mine = new List<TriggerEntity>();
-            foreach (var row in ctx.Triggers.ToList()
-                         .Where(t => string.Equals(t.Machine, machine, StringComparison.OrdinalIgnoreCase)))
+            var takenBack = 0;
+            foreach (var row in ctx.Triggers.ToList())
             {
+                var position = TriggerMachines.PositionOf(row, machine);
+                if (position < 0) continue;
                 if (row.IsDefinitionCheck && !runsDefinitionChecks) continue;
-                if (IsHeldByAnother(row, directorId, now)) continue;
-                row.ClaimedByDirectorId = directorId;
+                if (IsHeldByAnother(row, directorId, now))
+                {
+                    if (!HeldFromLaterMachine(row, position)) continue;
+                    takenBack++;
+                    FileLog.Write($"[TriggerStore] ClaimForDirector: trigger={row.Name}, taken by {directorId} on {machine} (place {position}) from {row.ClaimedByDirectorId} on {row.ClaimedByMachine}, a later machine");
+                }
+                row.ClaimedByDirectorId = Cap(directorId, 64);
+                row.ClaimedByMachine = Cap(machine, 256);
                 row.ClaimedUtc = now;
                 mine.Add(row);
             }
             ctx.SaveChanges();
-            FileLog.Write($"[TriggerStore] ClaimForDirector: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}, definitionChecks={runsDefinitionChecks}, triggers={mine.Count}");
+            FileLog.Write($"[TriggerStore] ClaimForDirector: tenant={tenant.ToLogString()}, director={directorId}, machine={machine}, definitionChecks={runsDefinitionChecks}, triggers={mine.Count}, takenFromLaterMachines={takenBack}");
             return mine;
         }
     }
+
+    /// <summary>True when the claim is held from a machine later in the trigger's list than <paramref name="position"/>.
+    /// A holder whose machine is not known, or is not on the list, is not later: only a lapse frees that claim.</summary>
+    private static bool HeldFromLaterMachine(TriggerEntity row, int position)
+        => TriggerMachines.PositionOf(row, row.ClaimedByMachine) is var holder && holder > position;
 
     /// <summary>True when a Director other than <paramref name="directorId"/> holds this trigger's check now.</summary>
     public static bool IsHeldByAnother(TriggerEntity trigger, string directorId, DateTime nowUtc)
@@ -336,9 +358,9 @@ public sealed class TriggerStore
     /// </summary>
     public TriggerCheckRecorded? RecordCheck(
         TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int? count,
-        string? sessionId, string? reason, DateTime nowUtc)
+        string? sessionId, string? reason, DateTime nowUtc, string? machine = null)
         => Record(tenant, triggerId, directorId, checkedUtc, outcome, count, sessionId, reason, nowUtc,
-            endsPendingStart: false);
+            endsPendingStart: false, machine);
 
     /// <summary>
     /// Take the one-at-a-time lock BEFORE a session start begins: the trigger now has a start time and no session
@@ -348,7 +370,8 @@ public sealed class TriggerStore
     /// <paramref name="startName"/> is the exact name the start gives its session, stored with the lock so a start
     /// whose outcome is not known can find its session by it. Returns false when the trigger no longer exists.
     /// </summary>
-    public bool BeginStart(TenantId tenant, Guid triggerId, string directorId, DateTime nowUtc, string startName)
+    public bool BeginStart(TenantId tenant, Guid triggerId, string directorId, DateTime nowUtc, string startName,
+        string? machine = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(startName);
         lock (_gate)
@@ -359,8 +382,7 @@ public sealed class TriggerStore
 
             var now = Utc(nowUtc);
             trigger.LastCheckUtc = now;
-            trigger.ClaimedByDirectorId = Cap(directorId, 64);
-            trigger.ClaimedUtc = now;
+            RenewClaim(trigger, directorId, machine, now);
             trigger.LastSessionId = null;
             trigger.LastStartedUtc = now;
             trigger.LastStartName = Cap(startName, 320);
@@ -380,12 +402,12 @@ public sealed class TriggerStore
     /// </summary>
     public TriggerCheckRecorded? RecordStartResult(
         TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int count,
-        string? sessionId, string? reason, DateTime nowUtc, bool holdLock)
+        string? sessionId, string? reason, DateTime nowUtc, bool holdLock, string? machine = null)
     {
         if (outcome != TriggerRunOutcome.Started && outcome != TriggerRunOutcome.Failed)
             throw new ArgumentException($"a start ends as '{TriggerRunOutcome.Started}' or '{TriggerRunOutcome.Failed}', not '{outcome}'", nameof(outcome));
         return Record(tenant, triggerId, directorId, checkedUtc, outcome, count, sessionId, reason, nowUtc,
-            endsPendingStart: !holdLock);
+            endsPendingStart: !holdLock, machine);
     }
 
     /// <summary>
@@ -393,11 +415,12 @@ public sealed class TriggerStore
     /// <see cref="TriggerRunOutcome.Started"/> row with it, and make it the lock. The count is not repeated - the
     /// check that asked for the start already recorded it. Returns null when the trigger no longer exists.
     /// </summary>
-    public TriggerCheckRecorded? AdoptStart(TenantId tenant, Guid triggerId, string directorId, string sessionId, DateTime nowUtc)
+    public TriggerCheckRecorded? AdoptStart(TenantId tenant, Guid triggerId, string directorId, string sessionId, DateTime nowUtc,
+        string? machine = null)
     {
         FileLog.Write($"[TriggerStore] AdoptStart: trigger={triggerId}, session={sessionId}");
         return Record(tenant, triggerId, directorId, nowUtc, TriggerRunOutcome.Started, count: null, sessionId,
-            reason: null, nowUtc, endsPendingStart: true);
+            reason: null, nowUtc, endsPendingStart: true, machine);
     }
 
     /// <summary>
@@ -405,16 +428,17 @@ public sealed class TriggerStore
     /// <see cref="TriggerRunOutcome.Failed"/> row with <paramref name="reason"/> and release the lock. Returns null when
     /// the trigger no longer exists.
     /// </summary>
-    public TriggerCheckRecorded? LapseStart(TenantId tenant, Guid triggerId, string directorId, string reason, DateTime nowUtc)
+    public TriggerCheckRecorded? LapseStart(TenantId tenant, Guid triggerId, string directorId, string reason, DateTime nowUtc,
+        string? machine = null)
     {
         FileLog.Write($"[TriggerStore] LapseStart: trigger={triggerId}");
         return Record(tenant, triggerId, directorId, nowUtc, TriggerRunOutcome.Failed, count: null, sessionId: null,
-            reason, nowUtc, endsPendingStart: true);
+            reason, nowUtc, endsPendingStart: true, machine);
     }
 
     private TriggerCheckRecorded? Record(
         TenantId tenant, Guid triggerId, string directorId, DateTime checkedUtc, string outcome, int? count,
-        string? sessionId, string? reason, DateTime nowUtc, bool endsPendingStart)
+        string? sessionId, string? reason, DateTime nowUtc, bool endsPendingStart, string? machine)
     {
         if (Array.IndexOf(TriggerRunOutcome.All, outcome) < 0)
             throw new ArgumentException($"'{outcome}' is not a trigger run outcome", nameof(outcome));
@@ -443,8 +467,7 @@ public sealed class TriggerStore
             trigger.LastCheckUtc = now;
             trigger.LastOutcome = outcome;
             trigger.LastReason = run.Reason;
-            trigger.ClaimedByDirectorId = run.DirectorId;
-            trigger.ClaimedUtc = now;
+            RenewClaim(trigger, directorId, machine, now);
             if (outcome == TriggerRunOutcome.Started)
             {
                 trigger.LastSessionId = sessionId;
@@ -463,6 +486,27 @@ public sealed class TriggerStore
             FileLog.Write($"[TriggerStore] RecordCheck: trigger={triggerId}, outcome={outcome}, count={count?.ToString() ?? "none"}, session={sessionId ?? "none"}");
             return new TriggerCheckRecorded(run, trigger);
         }
+    }
+
+    /// <summary>
+    /// Renew the reporting Director's claim, as recording a check always has - unless another Director holds it live
+    /// now: a claim taken from this Director while its start ran (a trigger's own machine taking its check back from a
+    /// backup) is not taken back by that start's late result. The holder's machine is the one the report came from;
+    /// a caller that did not say it leaves the holder's machine as it was when the holder did not change, and clears it
+    /// - not known - when it did.
+    /// </summary>
+    private static void RenewClaim(TriggerEntity trigger, string directorId, string? machine, DateTime now)
+    {
+        if (IsHeldByAnother(trigger, directorId, now))
+        {
+            FileLog.Write($"[TriggerStore] RenewClaim: trigger={trigger.Name}, {directorId} recorded a result but {trigger.ClaimedByDirectorId} on {trigger.ClaimedByMachine} holds the claim now; it stays there");
+            return;
+        }
+        var sameHolder = string.Equals(trigger.ClaimedByDirectorId, directorId, StringComparison.OrdinalIgnoreCase);
+        trigger.ClaimedByDirectorId = Cap(directorId, 64);
+        trigger.ClaimedUtc = now;
+        if (machine is not null) trigger.ClaimedByMachine = Cap(machine, 256);
+        else if (!sameHolder) trigger.ClaimedByMachine = "";
     }
 
     private static void PruneIn(GatewayDbContext ctx, Guid triggerId)

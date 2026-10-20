@@ -677,6 +677,7 @@ public static class FactoryDefinitionCheck
             var check = start.Find("check");
             var secrets = start.Find("secrets");
             var preventOverlap = start.Find("preventOverlap");
+            var backups = start.Find("backupMachines");
 
             if (cron is not null && every is not null)
                 Error(_findings, path, start.Line, "A start has both cron and every; give exactly one.");
@@ -729,6 +730,50 @@ public static class FactoryDefinitionCheck
                         "secrets on a start go to its check, and this start has none. Add a check, or move the names to the seat's secrets.");
                 foreach (var (secret, line) in Items(secrets))
                     SecretNotice(path, line, machine, secret, StartSecret);
+            }
+
+            if (backups is not null)
+                CheckBackupMachines(path, backups, machine, every is not null, check is null ? null : Text(check), secrets);
+        }
+
+        /// <summary>
+        /// A start's BACKUP MACHINES (Mail Desk, phase 5): where its check runs, in order, while the seat's machine is
+        /// away. Only an interval start with a check has them - a start at a time, or one with no check, has nothing a
+        /// backup could take over. The seat's own machine is always first, so it is never named again, and each backup is
+        /// named once (machine names compared ignoring case, as a trigger's machine is). Every backup is asked what the
+        /// seat's machine is asked for the check - its Python or uv, and the check's secrets - so a backup that cannot
+        /// run the check is said at publish time.
+        /// </summary>
+        private void CheckBackupMachines(string path, DefinitionEntry backups, string machine, bool hasEvery, string? checkPath,
+            DefinitionEntry? secrets)
+        {
+            if (!hasEvery)
+                Error(_findings, path, backups.KeyLine,
+                    "backupMachines is only allowed on a start with every: a start at a time runs where its seat runs. Remove it.");
+            else if (checkPath is null)
+                Error(_findings, path, backups.KeyLine,
+                    "backupMachines say where a start's check runs while the seat's machine is away, and this start has no check. Add a check, or remove backupMachines.");
+
+            var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (backup, line) in Items(backups))
+            {
+                if (string.Equals(backup, machine, StringComparison.OrdinalIgnoreCase))
+                {
+                    Error(_findings, path, line,
+                        $"'{backup}' is the seat's own machine, which always runs the check first. Remove it from backupMachines.");
+                    continue;
+                }
+                if (seen.TryGetValue(backup, out var first))
+                {
+                    Error(_findings, path, line, $"'{backup}' is named twice in backupMachines (first on line {first}); name each machine once.");
+                    continue;
+                }
+                seen[backup] = line;
+                if (!hasEvery || checkPath is null) continue;
+                ProgramNotice(path, line, backup, checkPath);
+                if (secrets is not null)
+                    foreach (var (secret, secretLine) in Items(secrets))
+                        SecretNotice(path, secretLine, backup, secret, StartSecret);
             }
         }
 
@@ -1005,7 +1050,10 @@ public static class FactoryDefinitionCheck
             Check: OptionalText(st, "check"),
             Secrets: TextList(st, "secrets"),
             Prompt: Text(st.Find("prompt")!),
-            PreventOverlap: st.Find("preventOverlap")?.Value is not DefinitionScalar { Value: "false" });
+            PreventOverlap: st.Find("preventOverlap")?.Value is not DefinitionScalar { Value: "false" })
+        {
+            BackupMachines = TextList(st, "backupMachines"),
+        };
     }
 
     // ---------------------------------------------------------------------------------------------------------------

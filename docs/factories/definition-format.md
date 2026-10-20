@@ -114,6 +114,7 @@ starts:
     secrets: [outreach-imap-password]   # only with a check: the names the check gets
     prompt: "New mail: {count}. {context}"
     preventOverlap: true          # optional, default true; cannot be false with a check
+    backupMachines: [machine-b]   # optional, only with every and a check: where the check runs while the seat's machine is away
 ```
 
 - `cron` - a five-field cron expression, read with the same parser schedules use.
@@ -123,6 +124,11 @@ starts:
 - `secrets` - the secret names the check gets.
 - `prompt` - what the seat is told when the start fires.
 - `preventOverlap` - whether a start waits while the last run is still going.
+- `backupMachines` - the machines that run the check while the seat's machine is away, in order of preference after
+  it. The seat's machine always runs it first and takes it back as soon as it asks again; the next machine takes over
+  only once the one before it has not checked for two intervals and a minute. The memory the check keeps is on the
+  Gateway, so a backup carries on where the seat's machine left off. Every backup needs what the check needs - its
+  Python or uv, and its secrets (for the Mail Desk, its own cc-outlook sign-in) - and the publish asks each of them.
 
 ### Steps
 
@@ -242,7 +248,8 @@ Errors:
 - A factory skill and a fleet skill with one name; a factory skill on an agent that cannot load one; a rule set on
   an agent that cannot take rules at launch; a rule whose path begins with exactly one slash.
 - A start with both or neither of `cron` and `every`; `every` with no check; a check with `preventOverlap: false`;
-  `secrets` on a start with no check.
+  `secrets` on a start with no check; `backupMachines` on a start with `cron` or with no check, naming the seat's own
+  machine, naming a machine twice (ignoring case), or naming a blank machine.
 
 Notices:
 

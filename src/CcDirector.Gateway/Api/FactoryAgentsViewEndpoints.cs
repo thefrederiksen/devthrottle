@@ -359,7 +359,8 @@ internal static class FactoryAgentsViewEndpoints
     {
         var all = new List<FactoryActivityDto>();
         var truncated = false;
-        foreach (var outcome in FactoryActivityOutcome.All.Where(o => o is not FactoryActivityOutcome.NothingToDo and not FactoryActivityOutcome.Paused))
+        foreach (var outcome in FactoryActivityOutcome.All.Where(o => o is not FactoryActivityOutcome.NothingToDo and not FactoryActivityOutcome.Paused
+                                                             and not FactoryActivityOutcome.Screened))
         {
             var (rows, cut) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, outcome, null, null, true, 0, PageSize));
             all.AddRange(rows.Where(r => r.CorrectsId is not null));

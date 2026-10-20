@@ -162,6 +162,35 @@ internal sealed class MailDeskTemplateOffer
     }
 
     /// <summary>
+    /// THE GATEWAY START'S OFFER (phase 3, section 10): offer the template to every account whose switch is on, so a
+    /// newer template after a deploy is offered as a draft; an account whose switch is off is not looked at. One
+    /// account's failure is logged and does not stop the others. Answers each switched-on account's result.
+    /// </summary>
+    /// <param name="accounts">Every account of the Gateway.</param>
+    /// <param name="enterScope">Enters one account's scope for its offer (the tenant boundary); none when null.</param>
+    public IReadOnlyList<(TenantId Tenant, MailDeskTemplateOfferResult? Result)> OfferToEverySwitchedOnAccount(IEnumerable<TenantId> accounts,
+        Func<TenantId, IDisposable>? enterScope = null)
+    {
+        ArgumentNullException.ThrowIfNull(accounts);
+        var results = new List<(TenantId, MailDeskTemplateOfferResult?)>();
+        foreach (var tenant in accounts.Where(_mailDeskOn))
+        {
+            try
+            {
+                using var scope = enterScope?.Invoke(tenant);
+                results.Add((tenant, Offer(tenant)));
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[MailDeskTemplateOffer] OfferToEverySwitchedOnAccount: account={tenant.ToLogString()} FAILED ({ex.GetType().Name}): {ex.Message}");
+                results.Add((tenant, null));
+            }
+        }
+        FileLog.Write($"[MailDeskTemplateOffer] OfferToEverySwitchedOnAccount: {results.Count} switched-on accounts, offered to {results.Count(r => r.Item2?.Outcome == MailDeskTemplateOfferOutcome.Offered)}");
+        return results;
+    }
+
+    /// <summary>
     /// Another writer took the version this offer meant to store (review note B). Read again: if the winner stored this
     /// template, it was offered; if not, nothing is stored now and the next offer decides on the new newest version.
     /// </summary>

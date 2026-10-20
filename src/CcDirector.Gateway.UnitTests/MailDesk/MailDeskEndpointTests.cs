@@ -62,6 +62,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     private MailDeskChannelStore _channels = null!;
     private MailDeskRulesStore _rules = null!;
     private MailDeskDecisionStore _decisions = null!;
+    private MailDeskChannelCheckStore _checks = null!;
     private WebApplication? _app;
     private HttpClient _client = null!;
 
@@ -80,6 +81,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         _channels = new MailDeskChannelStore(_db);
         _rules = new MailDeskRulesStore(_db);
         _decisions = new MailDeskDecisionStore(_db);
+        _checks = new MailDeskChannelCheckStore(_db);
         await StartAsync();
     }
 
@@ -89,9 +91,10 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         _h.Dispose();
     }
 
-    private MailDeskEndpoints.Parts Parts() => new(_channels, _rules, _decisions,
-        new MailDeskChannelFold(_ => _triggers.ToList(), _ => _timeZone, _decisions),
-        FactoryOf, _ => _knownMachines.ToList(), () => _now);
+    private MailDeskEndpoints.Parts Parts() => new(_channels, _rules, _decisions, new MailDeskSettingsStore(_db),
+        new MailDeskChannelFold(_ => _triggers.ToList(), _ => _timeZone, _decisions, _checks),
+        FactoryOf, _ => _knownMachines.ToList(), () => _now,
+        tenant => MailDeskSpend.Of(tenant, _decisions, new MailDeskSettingsStore(_db)));
 
     private async Task StartAsync(Func<MailDeskEndpoints.Parts, MailDeskEndpoints.Parts>? adjust = null)
     {
@@ -847,7 +850,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Fold_LastCheckSucceeded_SignedInYesAndLastCheckCarriesTheTimeAndOutcome()
+    public async Task Fold_LastCheckSucceeded_LastCheckCarriesTheTimeAndOutcome()
     {
         // Arrange
         await AddMailbox();
@@ -857,8 +860,8 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         // Act
         var row = await OnlyRow();
 
-        // Assert
-        Assert.Equal(MailDeskChannelFold.SignedInStates.Yes, row.GetProperty("signedIn").GetProperty("state").GetString());
+        // Assert - whether the mailbox is signed in is its own kept checks' to say (phase 3, section 6.2), not the run's
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Unknown, row.GetProperty("signedIn").GetProperty("state").GetString());
         var lastCheck = row.GetProperty("lastCheck");
         Assert.Equal(new DateTime(2026, 10, 18, 8, 45, 0, DateTimeKind.Utc), lastCheck.GetProperty("utc").GetDateTime().ToUniversalTime());
         Assert.Equal(TriggerRunOutcome.NothingToDo, lastCheck.GetProperty("outcome").GetString());
@@ -867,21 +870,100 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Fold_LastCheckFailed_SignedInFailingQuotingTheChecksOwnReason()
+    public async Task Fold_WholeRunFailed_LastCheckQuotesTheReasonAndSignedInIsLeftAsTheMailboxsOwnChecksSay()
     {
-        // Arrange
+        // Arrange - the mailbox was read once, then a whole run failed (exit 1: the memory was unreadable)
         await AddMailbox();
-        const string reason = "email@devthrottle.com is not signed in on devlinux: run cc-outlook -a support auth";
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Read(channel.Id, null, _now.AddHours(-1), Machine));
+        const string reason = "the kept memory is not JSON";
         _triggers.Add(MailDeskTrigger(_now.AddMinutes(-5), TriggerRunOutcome.Failed, reason));
 
         // Act
         var row = await OnlyRow();
 
-        // Assert
-        var signedIn = row.GetProperty("signedIn");
-        Assert.Equal(MailDeskChannelFold.SignedInStates.Failing, signedIn.GetProperty("state").GetString());
-        Assert.Contains(reason, signedIn.GetProperty("label").GetString());
+        // Assert - a whole run failing says nothing about one mailbox
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Yes, row.GetProperty("signedIn").GetProperty("state").GetString());
         Assert.Contains(reason, row.GetProperty("lastCheck").GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_NoKeptCheck_SignedInUnknown()
+    {
+        await AddMailbox();
+        _triggers.Add(MailDeskTrigger(_now.AddMinutes(-5), TriggerRunOutcome.NothingToDo));
+
+        var signedIn = (await OnlyRow()).GetProperty("signedIn");
+
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Unknown, signedIn.GetProperty("state").GetString());
+        Assert.Equal(MailDeskChannelFold.SignedInUnknownLabel, signedIn.GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_NewestKeptCheckRead_SignedInYes()
+    {
+        await AddMailbox();
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Read(channel.Id, null, _now.AddMinutes(-10), Machine));
+
+        var signedIn = (await OnlyRow()).GetProperty("signedIn");
+
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Yes, signedIn.GetProperty("state").GetString());
+        Assert.Equal(MailDeskChannelFold.SignedInYesLabel, signedIn.GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_NewestKeptCheckFailed_SignedInFailingWithTheChecksOwnSentence()
+    {
+        // Arrange - read once, then failing
+        await AddMailbox();
+        var channel = _channels.List(A).Single();
+        const string sentence = "email@devthrottle.com is not signed in on devlinux: run cc-outlook -a support auth";
+        _checks.Record(A, MailDeskChannelCheckInput.Read(channel.Id, null, _now.AddMinutes(-20), Machine));
+        _checks.Record(A, MailDeskChannelCheckInput.Failed(channel.Id, null, _now.AddMinutes(-10), Machine, sentence, "the account list was empty"));
+
+        // Act
+        var signedIn = (await OnlyRow()).GetProperty("signedIn");
+
+        // Assert
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Failing, signedIn.GetProperty("state").GetString());
+        Assert.Equal(MailDeskChannelFold.SignedInFailingPrefix + sentence, signedIn.GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_FailedThenReadAgain_SignedInYes()
+    {
+        await AddMailbox();
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Failed(channel.Id, null, _now.AddMinutes(-20), Machine, "not signed in", null));
+        _checks.Record(A, MailDeskChannelCheckInput.Read(channel.Id, null, _now.AddMinutes(-10), Machine));
+
+        var signedIn = (await OnlyRow()).GetProperty("signedIn");
+
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Yes, signedIn.GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_TwoMailboxesOneFailing_EachRowSaysItsOwnState()
+    {
+        // Arrange
+        await AddMailbox();
+        await AddMailbox(address: OtherMailbox);
+        var first = _channels.FindActive(A, Mailbox)!;
+        var second = _channels.FindActive(A, OtherMailbox)!;
+        _checks.RecordAll(A, new[]
+        {
+            MailDeskChannelCheckInput.Failed(first.Id, null, _now, Machine, "not signed in", null),
+            MailDeskChannelCheckInput.Read(second.Id, null, _now, Machine),
+        });
+
+        // Act
+        var rows = (await Get(P + "/channels")).Body.GetProperty("channels").EnumerateArray()
+            .ToDictionary(r => r.GetProperty("address").GetString()!, r => r.GetProperty("signedIn").GetProperty("state").GetString());
+
+        // Assert
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Failing, rows[Mailbox]);
+        Assert.Equal(MailDeskChannelFold.SignedInStates.Yes, rows[OtherMailbox]);
     }
 
     [Fact]
@@ -1049,7 +1131,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         var before = Recorded();
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(10, routes.Count);
+        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
 
         // Act + Assert
         foreach (var endpoint in routes)
@@ -1078,7 +1160,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
     {
         var routes = ((IEndpointRouteBuilder)_app!).DataSources.SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
             .Where(e => e.RoutePattern.RawText!.StartsWith(P, StringComparison.Ordinal)).ToList();
-        Assert.Equal(10, routes.Count);
+        Assert.Equal(12, routes.Count); // phase 1's ten, and phase 3's GET and POST /settings
         foreach (var endpoint in routes)
         {
             var method = endpoint.Metadata.GetMetadata<IHttpMethodMetadata>()!.HttpMethods.Single();
