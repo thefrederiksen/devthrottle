@@ -1,4 +1,5 @@
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Talk;
 
 namespace CcDirector.Gateway.Running;
@@ -74,15 +75,50 @@ public static class ScheduledRunOpening
         return publishedBrief(factory.Factory, seat.Id) is { } brief ? new ScheduledRunSeat(factory, seat, brief) : null;
     }
 
+    /// <summary>
+    /// The seat a DEFINED factory's session is opened as, read from its published definition alone: the factory's title,
+    /// id and boss seat and the seat's id, name and role - exactly what a publish writes into the registration a
+    /// scheduled run is opened as - and the seat's brief at that same version. For a start that holds the definition but
+    /// not the registration (the Mail Desk's router, Mail Desk phase 4, section 3.3).
+    /// </summary>
+    public static ScheduledRunSeat SeatOf(PublishedFactoryDefinition published, SeatDefinition seat)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        ArgumentNullException.ThrowIfNull(seat);
+        var definition = published.Definition;
+        var registered = new RegisteredFactorySeatDto { Id = seat.Seat, Name = seat.Name, Role = seat.Role };
+        var factory = new RegisteredFactoryDto
+        {
+            Factory = definition.Factory,
+            Title = definition.Title,
+            BossSeat = definition.BossSeat,
+            Seats = { registered },
+        };
+        return new ScheduledRunSeat(factory, registered, published.BriefOf(seat));
+    }
+
     /// <summary>Who the seat is, which run this is, and the seat's brief with its version.</summary>
     public static string Opening(string scheduleName, string scheduleId, ScheduledRunSeat seat)
+        => Opening(seat, $"This is one of your scheduled runs: the schedule \"{scheduleName}\" ({scheduleId}).",
+            "what this schedule asks of this run");
+
+    /// <summary>
+    /// A session the Mail Desk started for emails routed to a seat (Mail Desk phase 4, section 3.3): opened in the same
+    /// words as the seat's scheduled run - who it is, its brief at the published version, where its kit is - with only
+    /// the sentence that says which run this is changed, since it is not one of the seat's schedules.
+    /// </summary>
+    public static string MailDeskOpening(ScheduledRunSeat seat)
+        => Opening(seat, "This session was started by the Mail Desk for emails routed to this seat.",
+            "what the Mail Desk asks of this session");
+
+    private static string Opening(ScheduledRunSeat seat, string whichRun, string whatIsAsked)
     {
         ArgumentNullException.ThrowIfNull(seat);
         return FactorySeatOpening.WhoYouAre(seat.Factory, seat.Seat) + "\n\n"
-               + $"This is one of your scheduled runs: the schedule \"{scheduleName}\" ({scheduleId}). Your brief is given "
+               + whichRun + " Your brief is given "
                + $"to you here in full, as the Gateway holds it ({seat.Brief.VersionWords}"
                + (seat.Brief.FromDefinition ? ", part of the factory's definition" : "")
-               + "); it is not a file in the factory's folder. With it comes what this schedule asks of this run.\n\n"
+               + $"); it is not a file in the factory's folder. With it comes {whatIsAsked}.\n\n"
                + FactorySeatOpening.BriefBlock(seat.Brief, "\n")
                // A DEFINED FACTORY'S RUN is told where its kit is, and that its goal changes only through the definition
                // (Factory Definition mission, phase 5). Every other run's opening ends at its brief, as before.

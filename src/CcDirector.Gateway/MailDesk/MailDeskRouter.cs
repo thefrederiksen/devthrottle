@@ -12,6 +12,7 @@ using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.Factory.Triggers;
 using CcDirector.Gateway.Fleet;
+using CcDirector.Gateway.Running;
 
 namespace CcDirector.Gateway.MailDesk;
 
@@ -234,7 +235,7 @@ public sealed class MailDeskRouter
 
         var now = _nowUtc();
         var name = SessionName(factory, seat, given, _timeZone(tenant), now);
-        var request = FactorySeatStart.Build(published!, seatDefinition!, name, Prompt(factory, seat, emails)).Request;
+        var request = FactorySeatStart.Build(published!, seatDefinition!, name, PrePrompt(published!, seatDefinition!, factory, seat, emails)).Request;
         request.FactoryCheck = new FactoryCheckDto
         {
             CheckPath = MailDeskTemplate.CheckPath,
@@ -427,6 +428,16 @@ public sealed class MailDeskRouter
         var local = TimeZoneInfo.ConvertTimeFromUtc(Utc(nowUtc), zone);
         return $"Mail Desk - {factory}/{seat} - {Emails(count)} - {local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}";
     }
+
+    /// <summary>
+    /// The routed session's first prompt (section 3.3): it opens as the seat's scheduled run opens - who the seat is, its
+    /// brief at the published version, where its kit is (<see cref="ScheduledRunOpening"/>, the one place that wording
+    /// lives) - so the seat knows its own role; then a blank line and the Mail Desk's text.
+    /// </summary>
+    internal static string PrePrompt(PublishedFactoryDefinition published, SeatDefinition seatDefinition, string factory,
+        string seat, IReadOnlyList<Email> emails)
+        => ScheduledRunOpening.MailDeskOpening(ScheduledRunOpening.SeatOf(published, seatDefinition)) + "\n\n"
+           + Prompt(factory, seat, emails);
 
     /// <summary>The Mail Desk's prompt (section 3.3), in plain words, then one block per email.</summary>
     internal static string Prompt(string factory, string seat, IReadOnlyList<Email> emails)
