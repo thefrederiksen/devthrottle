@@ -81,6 +81,7 @@ describe("NavDrawer", () => {
       ["Voice Recorder", "/recorder"],
       ["Your Throttle", "/throttle"],
       ["Repos", "/repos"],
+      ["Rules", "/rules"],
       ["Account", "/account"],
       ["Settings", "/settings"],
       ["Diagnostics", "/diagnostics"],
@@ -95,9 +96,10 @@ describe("NavDrawer", () => {
     const links = await openMenuSettled();
 
     const entries = links.map((a) => [a.textContent, a.getAttribute("href")]);
-    expect(entries.slice(4, 6)).toEqual([
+    expect(entries.slice(4, 7)).toEqual([
       ["Repos", "/repos"],
       ["Mail Desk", "/mail-desk"],
+      ["Rules", "/rules"],
     ]);
   });
 

@@ -14,6 +14,7 @@ import { About } from "./pages/About";
 import { Diagnostics } from "./pages/Diagnostics";
 import { YourThrottle } from "./pages/YourThrottle";
 import { Repos } from "./pages/Repos";
+import { Rule, Rules } from "./pages/Rules";
 import { Account } from "./pages/Account";
 import { SecretTransfers } from "./pages/SecretTransfers";
 import { SignIn } from "@devthrottle/client-core/auth/SignIn";
@@ -163,6 +164,10 @@ export const MOBILE_ROUTES: RouteObject[] = [
           // Repos (devthrottle-stats mission): the PRIVATE per-repo split, its own page separate from
           // Your Throttle. Reads the same GET /stats/data feed (repos ride on it) through client-core.
           { path: "/repos", element: <Repos /> },
+          // Rules (Session Rules part 2, phase 3): the account's rules under the Gateway's six tabs, and one rule's
+          // fields, firing record and changes. Read-only, and the same client-core pages the Cockpit shows.
+          { path: "/rules", element: <Rules /> },
+          { path: "/rules/:id", element: <Rule /> },
           { path: "/new", element: <NewSession /> },
           { path: "/session/:sessionId", element: <Chat /> },
           { path: "/session/:sessionId/chat", element: <Chat /> },

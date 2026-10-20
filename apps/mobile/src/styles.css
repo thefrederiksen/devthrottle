@@ -3636,6 +3636,56 @@ a.banner-btn {
   grid-template-columns: 1fr;
 }
 
+/* The Rules list and a rule's page (client-core/rules/rules.css), re-tuned the same way: one column, full-width cards,
+   bigger type for a thumb's reading distance, and each field's name above its value, since a 120px name column leaves
+   a phone too little width for the value. The tab strip scrolls sideways, as the Settings strip does. */
+.screen .rules {
+  max-width: none;
+  margin-top: 14px;
+}
+.screen .rules-tabs {
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+.screen .rules-tabs::-webkit-scrollbar {
+  display: none;
+}
+.screen .rules-row {
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.screen .rules-sentence {
+  font-size: 15.5px;
+}
+.screen .rules-row-meta,
+.screen .rules-row-handler,
+.screen .rules-outcome,
+.screen .rules-change {
+  font-size: 14px;
+}
+.screen .rules-field {
+  display: block;
+  margin-bottom: 10px;
+}
+.screen .rules-field dt {
+  width: auto;
+  margin-bottom: 2px;
+}
+.screen .rules-field dd {
+  font-size: 14px;
+}
+.screen .rules-subject {
+  font-size: 13px;
+}
+.screen .rules-references li {
+  padding: 4px 0;
+}
+.screen .rules-retry {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+}
+
 /* The snooze rows: the length takes the width it needs and its two buttons sit under it, rather than
    three items fighting over one line and the length ellipsing to nothing. */
 .screen .snooze-row {

@@ -1,0 +1,13 @@
+/* The Cockpit's frame around the shared Rules pages (client-core/rules/rules.css holds the pages themselves): only the
+   crumb back to the list, drawn as the Workflows detail page draws its own. */
+.rules-crumb {
+  margin: 0 0 2px;
+  font-size: 12px;
+}
+.rules-crumb a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.rules-crumb a:hover {
+  color: inherit;
+}

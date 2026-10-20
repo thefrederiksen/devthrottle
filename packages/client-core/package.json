@@ -39,6 +39,10 @@
     "./licenses/LicenseAlarmBanner": "./src/licenses/LicenseAlarmBanner.tsx",
     "./history/FolderListing": "./src/history/FolderListing.tsx",
     "./maildesk/MailDeskPage": "./src/maildesk/MailDeskPage.tsx",
+    "./rules/RulesListPage": "./src/rules/RulesListPage.tsx",
+    "./rules/RulePage": "./src/rules/RulePage.tsx",
+    "./rules/RulesPreview": "./src/rules/RulesPreview.tsx",
+    "./rules/rulesShared": "./src/rules/rulesShared.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {

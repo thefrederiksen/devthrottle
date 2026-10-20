@@ -24,6 +24,7 @@ export type NavIconName =
   | "licenses"
   | "schedule"
   | "workflows"
+  | "rules"
   | "skills"
   | "mentor"
   | "dictionary"
@@ -130,6 +131,14 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <rect x="3" y="3" width="8" height="8" rx="2" />
       <rect x="13" y="13" width="8" height="8" rx="2" />
       <path d="M7 11v4a2 2 0 0 0 2 2h4" />
+    </>
+  ),
+  // A shield with a tick: the rules that guard what an agent may do (Session Rules part 2, phase 3). The only shape in
+  // the set with a pointed base, so it is not taken for the boxes of Workflows above it.
+  rules: (
+    <>
+      <path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5Z" />
+      <path d="m9 12 2 2 4-4" />
     </>
   ),
   // A wrench: a capability an agent reaches for mid-task.

@@ -1,0 +1,326 @@
+/* The Rules list, a rule's page and the preview, shared by the Cockpit and the mobile app (Session Rules part 2,
+ * phase 3).
+ *
+ * Built on the shared Settings cards (../settings/settings.css): the card, the tab strip, the heading, the hint, the
+ * pill, the field and the button are theirs. This file only adds what a rule has that a settings card does not - the
+ * rule rows, the fields list, the firing record, the decision and the tone colours.
+ *
+ * Every colour is a theme token both shells define in their own :root; this file names no colour of its own. A tone
+ * is the Gateway's word (data-tone) and maps to one token, nothing more: allow to --ok, deny to --attention (the
+ * shells' red), warn to --warn, live to --accent (a rule in force stands out without reading as a failure), neutral
+ * to the dim text colour.
+ *
+ * Sizing here is the DESKTOP baseline. The phone re-tunes it under a `.screen` ancestor in its own stylesheet, the way
+ * it re-tunes the Settings cards: one column, full-width cards, bigger touch targets. */
+
+.rules {
+  max-width: 920px;
+}
+
+/* ---- tones: the Gateway's word to one token ---- */
+.rules-toned {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 600;
+}
+/* A toned word carries a dot in its colour, so the tone does not rest on the text colour alone. */
+.rules-toned::before {
+  content: "";
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.rules-toned[data-tone="allow"] {
+  color: var(--ok);
+}
+.rules-toned[data-tone="deny"] {
+  color: var(--attention);
+}
+.rules-toned[data-tone="warn"] {
+  color: var(--warn);
+}
+.rules-toned[data-tone="live"] {
+  color: var(--accent);
+}
+.rules-toned[data-tone="neutral"] {
+  color: var(--text);
+}
+.rules-toned[data-tone="neutral"]::before {
+  background: var(--text-dim);
+}
+
+/* ---- the list ---- */
+.rules-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+.rules-today {
+  margin: 0;
+}
+.rules-preview-link {
+  text-decoration: none;
+}
+/* Six tabs wrap onto a second line on a narrow desktop rather than scrolling: a scrolling strip here drew a stray
+   scrollbar beside the last tab. The phone scrolls its strip sideways instead (its own stylesheet). */
+.rules-tabs {
+  flex-wrap: wrap;
+}
+.rules-tab-count {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  min-width: 20px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.settings-tab.active .rules-tab-count {
+  color: var(--accent);
+}
+
+.rules-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rules-empty {
+  margin: 0;
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.rules-retry {
+  margin-top: 12px;
+}
+
+.rules-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  text-decoration: none;
+}
+a.rules-row:hover {
+  border-color: var(--accent);
+}
+.rules-row-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+/* A rule's sentence is never cut short: it wraps, anywhere, rather than ellipsing. */
+.rules-sentence {
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+a.rules-sentence:hover {
+  color: var(--accent);
+}
+.rules-kind {
+  margin-left: 0;
+}
+.rules-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.rules-row-handler {
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* ---- a rule's page ---- */
+.rules-sentence-heading {
+  overflow-wrap: anywhere;
+}
+.rules-page-meta {
+  margin: 6px 0 14px;
+}
+.rules-section-heading {
+  margin-bottom: 12px;
+}
+.rules-fields {
+  margin: 0;
+}
+.rules-field {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.rules-field:last-child {
+  margin-bottom: 0;
+}
+.rules-field dt {
+  width: 120px;
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.rules-field dd {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.rules-firings,
+.rules-changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rules-firing {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.rules-firings li:first-child .rules-firing {
+  padding-top: 0;
+  border-top: none;
+}
+.rules-firing-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.rules-firing-when {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+/* The command or screen text the rule read: monospace, wrapped, never scrolled sideways. */
+.rules-subject {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--code-bg, var(--surface-2));
+  color: var(--text);
+  font-family: "Cascadia Mono", Consolas, Menlo, monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rules-overrode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.rules-overrode-label {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+.rules-references {
+  margin: 0;
+  padding-left: 18px;
+}
+.rules-references a {
+  color: var(--accent);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.rules-references a:hover {
+  text-decoration: underline;
+}
+.rules-outcome {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.rules-change {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+}
+.rules-change:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.rules-change-when,
+.rules-change-by {
+  color: var(--text-dim);
+}
+
+/* ---- the preview ---- */
+.rules-preview-form .settings-field > label {
+  width: 130px;
+}
+.rules-headline {
+  margin: 4px 0 12px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+.rules-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 3px solid var(--border);
+}
+.rules-decision[data-tone="allow"] {
+  border-left-color: var(--ok);
+}
+.rules-decision[data-tone="deny"] {
+  border-left-color: var(--attention);
+}
+.rules-decision[data-tone="warn"] {
+  border-left-color: var(--warn);
+}
+.rules-decision[data-tone="live"] {
+  border-left-color: var(--accent);
+}
+.rules-decision-head {
+  margin: 0;
+}
+.rules-decision-summary {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+/* The rows the decision names, marked by the ids the Gateway sent: the deciding rule edged in the accent, a matched
+   rule edged dim, an overridden rule faded. A style only - the words are the Gateway's summary. */
+.rules-preview-rule[data-matched] {
+  border-left: 3px solid var(--text-dim);
+}
+.rules-preview-rule[data-deciding] {
+  border-left: 3px solid var(--accent);
+}
+.rules-preview-rule[data-overridden] {
+  opacity: 0.75;
+}

@@ -235,11 +235,11 @@ describe("Cockpit left rail", () => {
       "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder", "Reports",
     ]);
     expect(Array.from(setUp.querySelectorAll(".nav-link-label")).map((el) => el.textContent)).toEqual([
-      "Directors", "Licenses", "Skills", "Workflows", "Schedule", "Network",
+      "Directors", "Licenses", "Skills", "Workflows", "Rules", "Schedule", "Network",
     ]);
     expect(railLabels()).toEqual([
       "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder", "Reports",
-      "Directors", "Licenses", "Skills", "Workflows", "Schedule", "Network",
+      "Directors", "Licenses", "Skills", "Workflows", "Rules", "Schedule", "Network",
     ]);
     expect(screen.getByTestId("nav-work-heading").textContent).toBe("Work");
     // Set up names whose fleet it changes: yours, with Personal on screen.

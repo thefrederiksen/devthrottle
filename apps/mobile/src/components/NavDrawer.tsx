@@ -64,6 +64,11 @@ export function NavDrawer() {
                 Mail Desk
               </Link>
             )}
+            {/* Rules sits with the fleet's pages, not with Settings: a rule is about what a session may do, wherever
+                it runs, not about this phone. Read-only here; the preview is on the Cockpit. */}
+            <Link className="drawer-item" to="/rules" onClick={close}>
+              Rules
+            </Link>
             <div className="drawer-sep" />
             {/* Account sits with Settings and About - the destinations about the app and this phone
                 rather than about the fleet - and mirrors the Cockpit's own Account rail item, which the
