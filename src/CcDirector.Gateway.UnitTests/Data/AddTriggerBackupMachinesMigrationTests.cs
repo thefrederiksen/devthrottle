@@ -10,15 +10,16 @@ namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
 /// The SQLite half of <c>AddTriggerBackupMachines</c> (Mail Desk, phase 5): <c>triggers</c> gains
-/// <c>BackupMachinesJson</c> and <c>ClaimedByMachine</c>. It applies right after main's newest migration,
-/// <c>AddSessionRuleChanges</c>, keeps the triggers stored before it, gives each no backups, and gives a claim held
+/// <c>BackupMachinesJson</c> and <c>ClaimedByMachine</c>. It applies right after Session Rules phase 1,
+/// <c>AddSessionRuleKindsAndHookFirings</c> (created before this migration but merged after it, and already applied in
+/// production under that id, so it keeps its place in the chain), keeps the triggers stored before it, gives each no backups, and gives a claim held
 /// before it the trigger's own machine - the only machine a claim was ever held on until now - while an unclaimed
 /// trigger's holder machine stays empty. Its Down removes both columns and keeps the rows. The PostgreSQL half is
 /// <c>AddTriggerBackupMachinesPostgresTests</c>, run by scripts/test-database.ps1.
 /// </summary>
 public sealed class AddTriggerBackupMachinesMigrationTests
 {
-    private const string SqliteBefore = "20261020002835_AddSessionRuleChanges";
+    private const string SqliteBefore = "20261020014625_AddSessionRuleKindsAndHookFirings";
     private const string SqliteUnderTest = "20261020015915_AddTriggerBackupMachines";
 
     [Fact]
