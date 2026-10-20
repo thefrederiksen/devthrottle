@@ -1,0 +1,3 @@
+stop requested: director 8d9a0213-f6e9-4e90-99ac-f9326cebbcfb, process(es) 3454311, log /home/soren/boxes-test-director/root/instances/default/logs/director/director-2026-10-20-3454311.log
+test Director exited cleanly after 1 seconds
+~/.local/bin unchanged: cc-devthrottle -> /home/soren/.local/share/cc-director/pyenv/bin/cc-devthrottle

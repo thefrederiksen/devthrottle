@@ -1,0 +1,14 @@
+# ~/.local/bin, the cc-* tool links only (the ones a Director on a fresh root relinks)
+# sha256 of the whole 'ls -la ~/.local/bin' listing: 5fc3ffb191cb4707bc476f038c4de095baeb69d7c1fc2822c48ff63d4422496d
+cc-dev-reports -> /home/soren/.local/share/cc-director/pyenv/bin/cc-dev-reports
+cc-devthrottle -> /home/soren/.local/share/cc-director/pyenv/bin/cc-devthrottle
+cc-gmail -> /home/soren/.local/share/cc-director/pyenv/bin/cc-gmail
+cc-html -> /home/soren/.local/share/cc-director/pyenv/bin/cc-html
+cc-image -> /home/soren/.local/share/cc-director/pyenv/bin/cc-image
+cc-outlook -> /home/soren/.local/share/cc-director/pyenv/bin/cc-outlook
+cc-pdf -> /home/soren/.local/share/cc-director/pyenv/bin/cc-pdf
+cc-secrets -> /home/soren/.local/share/cc-director/pyenv/bin/cc-secrets
+cc-ship -> /home/soren/.local/share/cc-director/pyenv/bin/cc-ship
+cc-vault -> /home/soren/.local/share/cc-director/pyenv/bin/cc-vault
+cc-word -> /home/soren/.local/share/cc-director/pyenv/bin/cc-word
+cc-worktrees -> /home/soren/.local/share/cc-director/pyenv/bin/cc-worktrees

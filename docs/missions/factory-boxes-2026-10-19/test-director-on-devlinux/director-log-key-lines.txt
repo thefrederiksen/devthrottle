@@ -1,0 +1,58 @@
+2026-10-20 09:33:11.897 [Program] Instance: slug=default, isDefault=True, explicit=False, home=/home/soren/boxes-test-director/root/instances/default
+2026-10-20 09:33:11.941 [ErrorReporter] started: component=director, version=2.26.0+c6da2ab54f91f6d428a12f16f707cf7d8c5fa85c, os=linux, arch=x64
+2026-10-20 09:33:13.458 [DirectorIdentitySlot] LoadOrCreate: reusing id=8d9a0213-f6e9-4e90-99ac-f9326cebbcfb slot=/home/soren/boxes-test-director/build/cc-director-linux5|instance=default path=/home/soren/boxes-test-director/root/instances/default/config/director/director-id-12e4b6ef1c511cfd.txt
+2026-10-20 09:33:13.459 [LifecycleSignal] Listen: name=cc-director-shutdown-8d9a0213-f6e9-4e90-99ac-f9326cebbcfb
+2026-10-20 09:33:13.460 [LifecycleSignal] Listen: name=cc-director-update-check-8d9a0213-f6e9-4e90-99ac-f9326cebbcfb
+2026-10-20 09:33:13.471 [DirectorIdentitySlot] LoadOrCreate: reusing id=8d9a0213-f6e9-4e90-99ac-f9326cebbcfb slot=/home/soren/boxes-test-director/build/cc-director-linux5|instance=default path=/home/soren/boxes-test-director/root/instances/default/config/director/director-id-12e4b6ef1c511cfd.txt
+2026-10-20 09:33:13.533 [HostedDesktopRegistry] Reload: this Director hosts 1 desktop(s): demo-desktop-soren on port 3110
+2026-10-20 09:33:13.774 [GatewayStreamClient] connected to http://127.0.0.1:7996
+2026-10-20 09:33:14.352 [GatewayStreamClient] reseeded full snapshot seq=1 (built in 0ms, keys sent ahead of it in 2ms, Gateway accepted the Hello and the snapshot in 563ms)
+2026-10-20 09:33:14.415 [FirstRunWizardModel] ShouldShow: complete=True, result=False
+2026-10-20 09:33:14.518 [GatewayStreamClient] reseeded repository snapshot seq=2
+2026-10-20 09:33:23.652 [GatewayStreamClient] reseeded full snapshot seq=5 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 6ms)
+2026-10-20 09:33:23.653 [GatewayStreamClient] reseeded repository snapshot seq=6
+2026-10-20 09:33:33.645 [GatewayStreamClient] reseeded full snapshot seq=8 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 3ms)
+2026-10-20 09:33:33.646 [GatewayStreamClient] reseeded repository snapshot seq=9
+2026-10-20 09:33:43.646 [GatewayStreamClient] reseeded full snapshot seq=11 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 3ms)
+2026-10-20 09:33:43.646 [GatewayStreamClient] reseeded repository snapshot seq=12
+2026-10-20 09:33:53.644 [GatewayStreamClient] reseeded full snapshot seq=14 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:33:53.645 [GatewayStreamClient] reseeded repository snapshot seq=15
+2026-10-20 09:34:03.644 [GatewayStreamClient] reseeded full snapshot seq=17 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:34:03.645 [GatewayStreamClient] reseeded repository snapshot seq=18
+2026-10-20 09:34:13.644 [GatewayStreamClient] reseeded full snapshot seq=20 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:34:13.645 [GatewayStreamClient] reseeded repository snapshot seq=21
+2026-10-20 09:34:23.644 [GatewayStreamClient] reseeded full snapshot seq=23 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:34:23.644 [GatewayStreamClient] reseeded repository snapshot seq=24
+2026-10-20 09:34:33.644 [GatewayStreamClient] reseeded full snapshot seq=26 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:34:33.644 [GatewayStreamClient] reseeded repository snapshot seq=27
+2026-10-20 09:34:43.644 [GatewayStreamClient] reseeded full snapshot seq=29 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:34:43.645 [GatewayStreamClient] reseeded repository snapshot seq=30
+2026-10-20 09:34:53.644 [GatewayStreamClient] reseeded full snapshot seq=32 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:34:53.645 [GatewayStreamClient] reseeded repository snapshot seq=33
+2026-10-20 09:35:03.644 [GatewayStreamClient] reseeded full snapshot seq=35 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:35:03.645 [GatewayStreamClient] reseeded repository snapshot seq=36
+2026-10-20 09:35:13.644 [GatewayStreamClient] reseeded full snapshot seq=38 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:35:13.645 [GatewayStreamClient] reseeded repository snapshot seq=39
+2026-10-20 09:35:23.644 [GatewayStreamClient] reseeded full snapshot seq=41 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:35:23.644 [GatewayStreamClient] reseeded repository snapshot seq=42
+2026-10-20 09:35:33.645 [GatewayStreamClient] reseeded full snapshot seq=44 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 3ms)
+2026-10-20 09:35:33.645 [GatewayStreamClient] reseeded repository snapshot seq=45
+2026-10-20 09:35:33.645 [HostedDesktopRegistry] Reload: this Director hosts 0 desktop(s): (none)
+2026-10-20 09:35:43.644 [GatewayStreamClient] reseeded full snapshot seq=47 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:35:43.644 [GatewayStreamClient] reseeded repository snapshot seq=48
+2026-10-20 09:35:43.645 [HostedDesktopRegistry] Reload: this Director hosts 1 desktop(s): demo-desktop-soren on port 3110
+2026-10-20 09:35:53.643 [GatewayStreamClient] reseeded full snapshot seq=50 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 1ms)
+2026-10-20 09:35:53.644 [GatewayStreamClient] reseeded repository snapshot seq=51
+2026-10-20 09:36:03.643 [GatewayStreamClient] reseeded full snapshot seq=53 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 1ms)
+2026-10-20 09:36:03.644 [GatewayStreamClient] reseeded repository snapshot seq=54
+2026-10-20 09:36:03.644 [HostedDesktopRegistry] Reload: this Director hosts 0 desktop(s): (none)
+2026-10-20 09:36:03.645 [HostedDesktopRegistry] Resolve REFUSED: box=demo-desktop-soren, requester=desktop stream 206403cd36b545bd952cab83e953376d: this Director hosts no desktop with that box id
+2026-10-20 09:36:13.643 [GatewayStreamClient] reseeded full snapshot seq=56 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:36:13.644 [GatewayStreamClient] reseeded repository snapshot seq=57
+2026-10-20 09:36:13.644 [HostedDesktopRegistry] Reload: this Director hosts 1 desktop(s): demo-desktop-soren on port 3110
+2026-10-20 09:36:23.644 [GatewayStreamClient] reseeded full snapshot seq=59 (built in 0ms, keys sent ahead of it in 0ms, Gateway accepted the Hello and the snapshot in 2ms)
+2026-10-20 09:36:23.644 [GatewayStreamClient] reseeded repository snapshot seq=60
+2026-10-20 09:36:24.509 [LifecycleSignal] cc-director-shutdown-8d9a0213-f6e9-4e90-99ac-f9326cebbcfb: signalled
+2026-10-20 09:36:26.599 [LifecycleSignal] stopped listening for cc-director-shutdown-8d9a0213-f6e9-4e90-99ac-f9326cebbcfb
+2026-10-20 09:36:26.600 [LifecycleSignal] stopped listening for cc-director-update-check-8d9a0213-f6e9-4e90-99ac-f9326cebbcfb
+2026-10-20 09:36:26.618 [CcDirector] Exiting

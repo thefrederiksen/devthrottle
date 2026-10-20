@@ -1,0 +1,5 @@
+2026-10-20T13:33:53.043Z ticket: HTTP 200, address on the desktop host: http://localhost:7996/boxes/demo-desktop-soren/desktop/?ticket=<redacted>
+2026-10-20T13:33:58.685Z the browser is on http://localhost:7996/boxes/demo-desktop-soren/desktop/
+2026-10-20T13:34:10.817Z cookies: [{"name":"cc-box-desktop","path":"/boxes/demo-desktop-soren/desktop/","httpOnly":true,"secure":true,"sameSite":"Strict"}]; document.cookie=""
+2026-10-20T13:34:17.780Z responses: 15, all 200: true; not 200: []
+2026-10-20T13:34:17.780Z websockets: [{"url":"ws://localhost:7996/boxes/demo-desktop-soren/desktop/api/websockets","received":248,"receivedBytes":672984}]

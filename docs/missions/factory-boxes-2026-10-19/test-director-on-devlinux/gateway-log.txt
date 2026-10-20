@@ -1,0 +1,31 @@
+# The local hosted Gateway's Boxes lines (an excerpt: the full log was 23 megabytes of per-request relay lines)
+
+## Start-up
+2026-10-20 09:32:55.706 [BoxDesktopOrigin] box desktops are served only on http://localhost:7996
+2026-10-20 09:32:55.732 [BoxesSwitch] Factory Boxes is on for 1 configured account(s) (DEVTHROTTLE_BOXES_TENANT_IDS)
+2026-10-20 09:32:56.860 [BoxDesktopOrigin] AssertSeparateFrom: the desktop host localhost is separate from the Gateway's host gateway.test-director.invalid
+
+## The Director's first push, the push of the emptied list, and the one request the Director refused
+2026-10-20 09:33:14.616 [DirectorHub] PushHostedDesktops: director=8d9a0213-f6e9-4e90-99ac-f9326cebbcfb seq=3 pushed=1 accepted=1 refused=none
+2026-10-20 09:35:33.646 [DirectorHub] PushHostedDesktops: director=8d9a0213-f6e9-4e90-99ac-f9326cebbcfb seq=46 pushed=0 accepted=0 refused=none
+2026-10-20 09:36:03.644 [DirectorHub] PushHostedDesktops: director=8d9a0213-f6e9-4e90-99ac-f9326cebbcfb seq=55 pushed=0 accepted=0 refused=none
+2026-10-20 09:36:03.644 [DesktopRelayRegistry] registered stream 206403cd36b545bd952cab83e953376d (tenant=t#17b55292, director=8d9a0213-f6e9-4e90-99ac-f9326cebbcfb, live=17)
+2026-10-20 09:36:03.644 [GatewayHost] SendCommandAsync: director=8d9a0213-f6e9-4e90-99ac-f9326cebbcfb, verb=open-desktop-stream, sid=, cmdId=74e0b81f84274a9894f5d02960d869f3
+2026-10-20 09:36:03.648 [DesktopRelayLegs] stream=206403cd36b545bd952cab83e953376d box=demo-desktop-soren: the Director refused the open: NotFound This Director does not host a desktop for that box. -> 404
+2026-10-20 09:36:03.649 [DesktopRelayRegistry] removed stream 206403cd36b545bd952cab83e953376d (live=12)
+2026-10-20 09:35:33.647 [BoxDesktopEndpoints] box=demo-desktop-soren: no connected Director in tenant t#17b55292 hosts it -> 404
+
+## Line counts by source
+  32255 [DesktopRelayRegistry]
+  21504 [DesktopRelayLegs]
+  21502 [DesktopRelayUsage]
+  21502 [DesktopRelayPump]
+  10818 [DirectorHub]
+  10731 [BoxDesktopEndpoints]
+     19 [PushedRepositoryStore]
+      6 [BoxDesktopTickets]
+      4 [PushedSessionStore]
+      2 [BoxDesktopOrigin]
+      1 [PushedHostedDesktopStore]
+      1 [BoxesSwitch]
+      1 [BoxesEndpoints]

@@ -1,0 +1,7 @@
+09:36:00.350 ticket redeemed on the desktop host: HTTP 200, cookie cc-box-desktop set
+09:36:02.365 before the edit: 3818 answers, statuses [200]
+09:36:02.366 hosted-desktops.json emptied
+09:36:06.302 hosted-desktops.json put back as it was
+09:36:06.316 after the edit: HTTP 200 x1643 from +0.001s to +1.292s: '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Selkies</title><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="mobile-'
+09:36:06.316 after the edit: HTTP 404 x8974 from +1.280s to +3.931s: '{"error":"No connected Director in your account hosts a desktop for that box."}'
+09:36:06.316 after the edit: HTTP 404 x1 from +1.284s to +1.284s: '{"error":"This Director does not host a desktop for that box."}'

@@ -1,0 +1,2 @@
+{"count":1,"boxes":[{"boxId":"demo-desktop-soren","displayName":"Soren's demo desktop","directorId":"8d9a0213-f6e9-4e90-99ac-f9326cebbcfb","directorName":"devlinux","machineName":"devlinux","state":"Online","relativeDesktopPath":"/boxes/demo-desktop-soren/desktop/"}]}
+HTTP 200

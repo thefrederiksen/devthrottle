@@ -1,0 +1,17 @@
+# Plain refusals against the local hosted Gateway and the test Director, 2026-10-20T13:36:17Z
+
+## POST /boxes/no-such-box/desktop-ticket (a box id no Director lists), signed in
+{"error":"No connected Director in your account hosts a desktop for that box."}
+HTTP 404
+
+## POST /boxes/3110/desktop-ticket (a port, not a box id), signed in
+{"error":"No connected Director in your account hosts a desktop for that box."}
+HTTP 404
+
+## GET /boxes signed out
+{"error":"missing or invalid token"}
+HTTP 401
+
+## GET /boxes/no-such-box/desktop/ on the desktop host, no box cookie
+{"error":"Open this desktop from the Cockpit."}
+HTTP 401
