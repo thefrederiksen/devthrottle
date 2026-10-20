@@ -23,7 +23,8 @@ namespace CcDirector.Gateway.Tests.Boxes;
 /// real store, and the account status over a HOSTED tenant boundary. A stand-in for the authentication middleware puts
 /// on each request the device identity the real one would, for the account the test names; a request that names none
 /// is a signed-out caller, for whom no account is bound. (In production the authentication middleware answers a
-/// signed-out caller 401 before any route runs; the gate's own answer below is the second line behind it.)
+/// signed-out caller 401 before any route runs - <see cref="BoxesAuthenticationTests"/> proves that with the real
+/// middleware; the gate's own answer below is the second line behind it.)
 /// </summary>
 public sealed class BoxesEndpointTests : IAsyncLifetime
 {
@@ -125,8 +126,10 @@ public sealed class BoxesEndpointTests : IAsyncLifetime
         Assert.Equal("", await response.Content.ReadAsStringAsync());
     }
 
+    // The gate's own second line, for a request no account is bound to. That production authentication answers a
+    // signed-out caller 401 before this is reached is proven in BoxesAuthenticationTests.
     [Fact]
-    public async Task GetBoxes_SignedOut_IsRefused()
+    public async Task GetBoxes_NoAccountBound_GateAnswers404WithNoBody()
     {
         var response = await Get("/boxes", account: null);
 

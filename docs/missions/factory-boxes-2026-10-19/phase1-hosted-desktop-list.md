@@ -145,7 +145,8 @@ Normal sign-in, inside the gate. The desktops hosted by the calling account's co
 - `directorName` is the Director's display name from its Hello, empty when it has none.
 - An empty list is `{"count":0,"boxes":[]}`.
 - Signed out: refused (401 from the authentication middleware; the gate answers 404 behind it). An account without
-  the flag: 404, no body. Another account's boxes never appear.
+  the flag: 404, no body. Another account's boxes never appear. The 401 is proven with the production authentication
+  middleware in front of the gate (`BoxesAuthenticationTests`).
 
 Test: `BoxesEndpointTests.GetBoxes_FlaggedAccount_GetsItsListInTheContractShape` pins the exact JSON.
 
@@ -156,3 +157,23 @@ Test: `BoxesEndpointTests.GetBoxes_FlaggedAccount_GetsItsListInTheContractShape`
 2. On devlinux, write `config/director/hosted-desktops.json` for the Director that hosts `demo-desktop-soren`, with the
    desktop's local port.
 3. Within ten seconds `GET /boxes` lists it.
+
+## Developer's answers
+
+The two reviews are in this folder, unchanged: `reviews/phase1-list-review.md` and
+`reviews/phase1-list-review-codex.md`.
+
+**Codex, finding 1** (`BoxesEndpointTests.cs:129`: the signed-out test runs behind a fake identity and never the
+production authentication middleware, so it would still pass if authentication stopped protecting `/boxes`).
+**Accepted and fixed.** The new `Boxes/BoxesAuthenticationTests.cs` boots the real `AuthMiddleware.Run`, configured as a
+hosted Gateway configures it, in front of the Boxes gate on an in-memory test server, over a hosted device registry in
+a throwaway database file. No real port. It proves three things: a signed-out request gets 401, a request with an
+unknown key gets 401, and a real browser key of a flagged account passes authentication and gets its list. The third
+proves the 401 is authentication's answer and not a pipeline that answers nothing. With the middleware line taken
+out, all three fail (404 instead), so the tests would catch the regression the review describes. The old test is
+renamed `GetBoxes_NoAccountBound_GateAnswers404WithNoBody`, because what it proves is the gate's second line, not the
+authentication refusal.
+
+**Fable** had no findings. Its three observations are for the relay leg and the Tech Lead, and nothing in this change
+answers them: the relay's refusal log should clean the box id in the path, a hub built by hand without the store would
+advertise `PushHostedDesktops`, and the gate was run on Linux by hand.
