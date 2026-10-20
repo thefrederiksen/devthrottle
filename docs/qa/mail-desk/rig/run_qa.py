@@ -103,6 +103,7 @@ PREVIEW_MARKER = "RIGPREVIEW"                      # every fake email's body sta
 
 TRANSCRIPT = []
 STATE = {}
+SESSION_KEYS = []   # routed sessions' own keys, read by the rig to call the routes as them; never shown
 
 
 # ===================================================================================================== the record
@@ -115,7 +116,8 @@ def shown(text):
     for real, alias in ((RIG, "<rig>"), (REPO, "<repo>"), (USER_HOME, "<home>")):
         text = text.replace(str(real), alias)
     for key, alias in ((PERSON_KEY, "<person key>"), (DIRECTOR_KEY, "<director key>"), (BACKUP_KEY, "<backup key>"),
-                       (ADMIN_TOKEN, "<admin token>"), (MODEL_KEY, "<rig-only model key>")):
+                       (ADMIN_TOKEN, "<admin token>"), (MODEL_KEY, "<rig-only model key>")) + tuple(
+                           (k, "<the session's own key>") for k in SESSION_KEYS):
         text = text.replace(key, alias)
     text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
                   lambda m: m.group(0) if re.search(r"@([a-z0-9-]+\.)*(example\.(com|org|net)|[a-z0-9-]+\.example)$",
@@ -1117,7 +1119,7 @@ def entries(path):
     return out
 
 
-def find_transcript(marker, since, seconds=420):
+def find_transcript(marker, since, seconds=300):
     def found():
         for p in sorted((p for p in CLAUDE_PROJECTS.glob("*/*.jsonl") if p.stat().st_mtime >= since),
                         key=lambda p: p.stat().st_mtime, reverse=True):
@@ -1145,7 +1147,7 @@ def session_folder(sid):
     return row["repoPath"]
 
 
-def wait_session_turn(sid, marker=None, seconds=900):
+def wait_session_turn(sid, marker=None, seconds=360):
     """A seat session's own transcript - in the agent's projects folder named after the folder the session works in -
     once its turn has finished. A pooled checkout is used by one session after another, so the transcript is the newest
     one there that carries `marker` (one of the session's routed ids) when one is given."""
@@ -1164,11 +1166,49 @@ def wait_session_turn(sid, marker=None, seconds=900):
     return path
 
 
+def session_key(sid):
+    """The routed session's own Gateway key, read from the environment of its agent process - a process the rig's own
+    Director started, working in that session's checkout under the rig. The rig calls the routes with it exactly as the
+    seat would. It is recorded nowhere: shown() hides it."""
+    agents = [pid for pid, name in session_agent_pids(sid) if name == "claude"]
+    if len(agents) != 1:
+        raise SystemExit(f"expected one agent process in session {sid}'s folder, found {session_agent_pids(sid)}")
+    environ = Path(f"/proc/{agents[0]}/environ").read_bytes().split(b"\0")
+    key = next((v.split(b"=", 1)[1].decode() for v in environ if v.startswith(b"CC_GATEWAY_SESSION_KEY=")), None)
+    if not key:
+        raise SystemExit(f"session {sid}'s agent carries no CC_GATEWAY_SESSION_KEY")
+    SESSION_KEYS.append(key)
+    return key
+
+
+def as_session(sid, method, path, body, expect_status):
+    return raw(method, path, body, expect_status, key=session_key(sid),
+               label=f"session {sid}, with its own key, as its seat would call it")
+
+
+def first_prompt(sid, marker, seconds=240):
+    """The session's first prompt, from its own transcript, once the agent has received it - without waiting for the
+    agent to do anything."""
+    folder = re.sub(r"[^A-Za-z0-9]", "-", session_folder(sid))
+
+    def found():
+        for f in sorted(CLAUDE_PROJECTS.glob(f"{folder}/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+            first = next((e for e in entries(f) if e.get("type") == "user"), None)
+            text = text_of((first or {}).get("message", {}).get("content")) if first else ""
+            if marker.lower() in text.lower():
+                return text
+        return None
+    text = wait_tending(f"session {sid}'s first prompt naming {marker} did not appear", found, seconds=seconds, every=2)
+    record(f"session {sid}'s first prompt, as it received it (from its own transcript)",
+           "\n".join(f"  {x}" for x in text.splitlines()))
+    return text
+
+
 def routed_ids_of(sid):
     return [r[0] for r in routed_rows() if (r[4] or "").lower() == sid.lower()]
 
 
-def wait_answer(marker, since, seconds=900):
+def wait_answer(marker, since, seconds=360):
     path = find_transcript(marker, since)
     USED_TRANSCRIPTS.add(path)
     wait_tending(f"the session carrying '{marker}' did not finish its turn", lambda: finished(path), seconds=seconds)
@@ -1472,23 +1512,27 @@ REFUSED_PROMPT = ("QA-MD-REFUSED. This is a QA test on a throwaway test Gateway 
 
 def section_factory_refused():
     section("A FACTORY SESSION REFUSED LIVE MODE", "A real agent session born into the qa-books factory (the "
-                                                   "once-a-year timed start of its prober seat, run now) is told to switch qa-one to "
+                                                   "once-a-year timed start of its prober seat, run now); the rig calls "
+                                                   "the mode route AS that session, with its own key, to switch qa-one to "
                                                    "live. Expected: 403, outcome FactorySessionRefused; nothing "
                                                    "recorded; the channel stays in observe.")
     job = next(j["id"] for j in get("/cron/jobs")["jobs"] if j.get("factory") == BOOKS and j.get("seat") == "prober")
-    since = time.time()
     cli(["schedule", "run", job])
-    path = wait_answer("QA-MD-REFUSED", since)
-    said = summarize("the qa-books session told to switch qa-one to live", path)
-    check("factory_session_refused" in said and "HTTP 403" in said,
-          "the session's command was refused 403 factory_session_refused, because it runs in a factory")
+    run = wait_for("the schedule run recorded no session",
+                   lambda: next((r for r in cli_json(["schedule", "runs", job]) if r.get("sessionId")), None), 180, 3)
+    sid = run["sessionId"]
+    wait_for(f"session {sid}'s agent did not start", lambda: [p for p, n in session_agent_pids(sid) if n == "claude"],
+             seconds=180, every=2)
+    status, answer = as_session(sid, "POST", "/gateway/mail-desk/channels/mode",
+                                {"address": ONE, "mode": "live", "why": "a factory session tries to switch a channel to live"},
+                                403)
+    check(answer.get("outcome") == "FactorySessionRefused" or answer.get("error") == "factory_session_refused",
+          "the factory session's mode change is refused 403, because it runs in a factory")
     channel_row = next(c for c in get("/gateway/mail-desk/channels")["channels"] if c["address"] == ONE)
     check(channel_row["mode"] == "observe", "qa-one is still in observe mode")
     found = rows("mode changes recorded for qa-one", "SELECT AtUtc, Kind, Action, Subject, WhoKind FROM "
                  "mail_desk_list_changes WHERE Kind = 'mode'")
     check(not found, "no mode change was recorded")
-    run = wait_for("the schedule run recorded no session",
-                   lambda: next((r for r in cli_json(["schedule", "runs", job]) if r.get("sessionId")), None), 60)
     rows("the session's history row (born into qa-books)", "SELECT SessionId, Factory, FactorySeat FROM session_history "
          "WHERE SessionId = ? COLLATE NOCASE", (run["sessionId"],))
     stop_session(run["sessionId"])
@@ -1689,10 +1733,9 @@ def end_session(sid, why):
     evidence). A clean exit is no evidence: the Director reaps a session whose agent exits cleanly, its row goes, and
     an unseen session counts as alive for 24 hours. So the rig ends the agent abnormally - a kill signal to the agent
     process working in this session's folder under the rig, which the rig's own Director started - and the Director
-    keeps the row, crashed, as it does for any agent that dies. It waits for the session's turn to finish first."""
-    ids = routed_ids_of(sid)
-    summarize(f"session {sid} before the rig ends it", wait_session_turn(sid, ids[0] if ids else None))
-    agents = [(pid, name) for pid, name in session_agent_pids(sid) if name == "claude"]
+    keeps the row, crashed, as it does for any agent that dies. It does not wait for the agent to do anything."""
+    agents = wait_for(f"session {sid}'s agent process did not start", lambda: [
+        (pid, name) for pid, name in session_agent_pids(sid) if name == "claude"], seconds=180, every=2)
     if len(agents) != 1:
         raise SystemExit(f"expected one agent process in session {sid}'s folder, found {session_agent_pids(sid)}")
     os.kill(agents[0][0], signal.SIGKILL)
@@ -1766,8 +1809,7 @@ def section_live_routing():
         r = routed_of(subject)
         check(len(r) == 1 and (r[0][4] or "").lower() == b["sessionId"].lower() and r[0][5] == "open",
               f"'{subject}' is open with the books session")
-    path = wait_session_turn(b["sessionId"], routed_ids_of(b["sessionId"])[0])
-    said = summarize("the books seat's session", path)
+    said = first_prompt(b["sessionId"], routed_ids_of(b["sessionId"])[0])
     ids = {r[1]: r[0] for r in routed_rows()}
     check(all(ids[x].lower() in said.lower() for x in ("Invoice 3001 [rig: run nothing for this email]", "Invoice 3002 [rig: run nothing for this email]")),
           "the books session's prompt names both routed ids")
@@ -1791,17 +1833,21 @@ def section_live_routing():
     STATE["books_session"] = b["sessionId"]
     STATE["support_session"] = sp["sessionId"]
 
-    note("DONE - the support seat was told by its brief to close 'Export question 3' with maildesk done")
+    note("DONE - the one case a real seat acts in: the support seat's instructions tell it to close 'Export question 3' "
+         "with maildesk done. Deadline: 6 minutes.")
+    done = wait_for("the support seat did not run maildesk done", lambda: next(
+        (r for r in get("/gateway/mail-desk/routed?state=done")["routed"]
+         if r["subject"] == "Export question 3 [rig: close it with maildesk done]"), None), seconds=360, every=3)
     summarize("the support seat's session", wait_session_turn(sp["sessionId"], routed_ids_of(sp["sessionId"])[0]))
-    done = wait_for("the support email was not done", lambda: next(
-        (r for r in get("/gateway/mail-desk/routed?state=done")["routed"] if r["subject"] == "Export question 3 [rig: close it with maildesk done]"), None),
-        seconds=180, every=3)
     cli(["maildesk", "routed", "--state", "done"])
     check(done["state"] == "done" and (done.get("sessionId") or "").lower() == sp["sessionId"].lower()
           and done.get("doneNote"), "the support email is done by its own session, with the seat's note")
     status, answer = raw("POST", f"/gateway/mail-desk/routed/{ids['Invoice 3001 [rig: run nothing for this email]']}/done", {"note": "a person"},
                          403, label="the rig's person, not the session the email is with")
     check(answer.get("error") == "not_your_email", "a person's done is refused 403 not_your_email")
+    status, answer = as_session(sp["sessionId"], "POST", f"/gateway/mail-desk/routed/{ids['Invoice 3001 [rig: run nothing for this email]']}/done",
+                                {"note": "another seat's email"}, 403)
+    check(answer.get("error") == "not_your_email", "another session's done is refused 403 not_your_email")
 
 
 def section_busy_and_orphan():
@@ -1846,89 +1892,87 @@ def section_busy_and_orphan():
         stop_session(x["sessionId"])
 
 
-ZONE_CANDIDATES = ["Asia/Kolkata", "Asia/Kathmandu", "Asia/Yangon", "Asia/Tehran", "Asia/Kabul", "Australia/Darwin",
-                   "Australia/Adelaide", "Australia/Eucla", "Pacific/Chatham", "America/St_Johns", "Pacific/Marquesas",
-                   "Australia/Lord_Howe"] + [f"Etc/GMT{'+' if n > 0 else '-'}{abs(n)}" if n else "Etc/GMT"
-                                             for n in range(-14, 13)]
+COMPOSER = HERE / "compose-morning"
 
 
-def zone_with_morning_ahead(low=25, high=85):
-    """A real time zone in which the next 08:00 is between `low` and `high` minutes from now, so the account's 08:00
-    email falls due after the owner case has run. Whole-hour zones plus the half- and quarter-hour ones always leave
-    one in any hour."""
-    import zoneinfo
-    best = None
-    for name in ZONE_CANDIDATES:
-        local = datetime.now(zoneinfo.ZoneInfo(name))
-        eight = local.replace(hour=8, minute=0, second=0, microsecond=0)
-        if eight <= local:
-            eight += timedelta(days=1)
-        ahead = (eight - local).total_seconds() / 60
-        if low <= ahead <= high and (best is None or ahead < best[1]):
-            best = (name, ahead)
-    if best is None:
-        raise SystemExit(f"no candidate time zone has its next 08:00 between {low} and {high} minutes from now")
-    return best
+def compose_morning(zone="UTC"):
+    """The account's next 08:00 email, composed now by the Gateway's own fold and composer over the rig's gateway.db
+    (compose-morning/Program.cs), never by waiting for 08:00. Nothing is sent."""
+    built = subprocess.run([str(DOTNET_ROOT / "dotnet"), "build", str(COMPOSER / "ComposeMorning.csproj"),
+                            "-p:EnableWindowsTargeting=true", "-v", "q", "-nologo"], capture_output=True, text=True,
+                           timeout=600, env=dict(without_cc(os.environ), DOTNET_ROOT=str(DOTNET_ROOT)))
+    if built.returncode != 0:
+        raise SystemExit(f"the 08:00 composer did not build:\n{built.stdout[-2000:]}{built.stderr[-2000:]}")
+    root = RIG / "compose-root"
+    root.mkdir(exist_ok=True)
+    r = subprocess.run([str(DOTNET_ROOT / "dotnet"), str(COMPOSER / "bin" / "Debug" / "net10.0" / "ComposeMorning.dll"),
+                        str(STATE["db"]), zone], capture_output=True, text=True, timeout=180,
+                       env=dict(without_cc(os.environ), DOTNET_ROOT=str(DOTNET_ROOT), CC_DIRECTOR_ROOT=str(root)))
+    if r.returncode != 0:
+        raise SystemExit(f"the 08:00 composer failed ({r.returncode}): {r.stderr[-2000:]}")
+    return json.loads(r.stdout.strip().splitlines()[-1])
 
 
 def section_return_owner():
-    zone, ahead = zone_with_morning_ahead()
-    section("RETURN, THE MAIL DESK AGENT, AND THE OWNER", "A support question the support seat is told to return. "
-            "Expected: its return re-queues it to the Mail Desk agent (mail-desk/mail-desk) with the note; the next run "
-            "starts the Mail Desk agent with the note in its prompt and check.json; the agent returns it too, so it is "
-            "handed to the owner: an Open problem on the mail-desk factory, and a line in the 08:00 email's Returned and "
-            f"routed part. For the 08:00 email the account's time zone is set to {zone}, where the next 08:00 is "
-            f"{ahead:.0f} minutes away, and the factory email is switched on (the throwaway Gateway holds no account "
-            "sign-in, so nothing can be sent; the composed email is read back from the Gateway).")
+    section("RETURN, THE MAIL DESK AGENT, AND THE OWNER", "A support question is routed to the support seat; the rig "
+            "returns it AS that session (its own key), as the seat would. Expected: it is re-queued to the Mail Desk "
+            "agent (mail-desk/mail-desk) with the note, and the session it was with before is refused; the next run "
+            "starts the Mail Desk agent with the note in its first prompt and in check.json; the rig returns it AS the "
+            "Mail Desk agent, so it is handed to the owner: one Open problem on the mail-desk factory, and a line in "
+            "the 08:00 email's Returned and routed part (composed on demand by the Gateway's own composer).")
     graph, model = STATE["graph"], STATE["model"]
-    raw("PUT", "/gateway/time-zone", {"timeZone": zone}, 200)
-    cli(["factory", "email", "on"], None)
+    subject = "Refund question [rig: run nothing for this email]"
     if STATE.get("support_session"):
         # Ended, and left in the list as crashed: a stopped session leaves the list, and one the Gateway no longer
         # sees counts as alive for 24 hours (contract 3.2 step 3), which would keep the seat busy.
         end_session(STATE["support_session"], "its email is done; the next support email needs the seat free")
-    model.say("Refund question [rig: return it with maildesk return]", spam="person", route=SUPPORT_HANDLES, confidence=0.95)
-    graph.put(TWO, "inbox", mail("customer@client.example", "Refund question [rig: return it with maildesk return]"))
-    returned = wait_for("the support seat did not return the email", lambda: next(
-        (r for r in get("/gateway/mail-desk/routed?n=200")["routed"] if r["subject"] == "Refund question [rig: return it with maildesk return]"
-         and r.get("returnedCount", 0) >= 1), None), seconds=600, every=5)
-    record("the routed row after the support seat's return", json.dumps(returned, indent=1))
-    check(returned["factory"] == "mail-desk" and returned["seat"] == "mail-desk" and returned.get("returnNote"),
-          "the return re-queued it to the Mail Desk agent, with the seat's note")
+    model.say(subject, spam="person", route=SUPPORT_HANDLES, confidence=0.95)
+    graph.put(TWO, "inbox", mail("customer@client.example", subject))
+    row = wait_for("the refund question got no routed row with a session", lambda: next(
+        (r for r in get("/gateway/mail-desk/routed?n=200")["routed"] if r["subject"] == subject and r.get("sessionId")),
+        None), seconds=300, every=3)
+    seat_sid = row["sessionId"]
+    wait_for(f"session {seat_sid}'s agent did not start", lambda: [
+        p for p, n in session_agent_pids(seat_sid) if n == "claude"], seconds=180, every=2)
+    _, returned = as_session(seat_sid, "POST", f"/gateway/mail-desk/routed/{row['id']}/return",
+                             {"note": "not for support: a refund is the books seat's"}, 200)
+    check(returned["factory"] == "mail-desk" and returned["seat"] == "mail-desk" and returned.get("returnNote")
+          and returned.get("returnedCount") == 1, "the return re-queued it to the Mail Desk agent, with the note")
+    _, refused = as_session(seat_sid, "POST", f"/gateway/mail-desk/routed/{row['id']}/return",
+                            {"note": "again"}, 403)
+    check(refused.get("error") == "not_your_email", "the session it was with before is refused 403 not_your_email")
+    raw("POST", f"/gateway/mail-desk/routed/{row['id']}/return", {}, None, label="the rig's person, with no note")
     agent = wait_for("the Mail Desk agent was not started", lambda: [
         x for x in seat_sessions("mail-desk", "mail-desk") if str(x.get("activityState", "")).lower() != "exited"],
         seconds=300, every=3)
     record("the Mail Desk agent's session", json.dumps([{k: x.get(k) for k in SESSION_FIELDS} for x in agent], indent=1))
-    said = summarize("the Mail Desk agent's session", wait_session_turn(agent[0]["sessionId"], returned["id"]))
-    check("Returned before:" in said and returned["returnNote"] in said, "its prompt carries the seat's return note")
-    context = kit_check(agent[0]["sessionId"])
+    agent_sid = agent[0]["sessionId"]
+    said = first_prompt(agent_sid, row["id"])
+    check("Returned before:" in said and returned["returnNote"] in said, "its first prompt carries the return note")
+    context = kit_check(agent_sid)
     inner = json.loads(context.get("context") or context.get("Context"))
     check(any(e.get("returnNote") == returned["returnNote"] for e in inner["emails"]),
           "its check.json carries the return note")
-    owner = wait_for("the email was not handed to the owner", lambda: next(
-        (r for r in get("/gateway/mail-desk/routed?state=returned&n=200")["routed"]
-         if r["subject"] == "Refund question [rig: return it with maildesk return]"), None), seconds=300, every=3)
+    wait_for(f"session {agent_sid}'s agent did not start", lambda: [
+        p for p, n in session_agent_pids(agent_sid) if n == "claude"], seconds=180, every=2)
+    _, owner = as_session(agent_sid, "POST", f"/gateway/mail-desk/routed/{row['id']}/return",
+                          {"note": "the Mail Desk agent cannot place it either"}, 200)
     cli(["maildesk", "routed", "--state", "returned"])
-    check("the Mail Desk agent returned it" in (owner.get("ownerReason") or ""),
+    check(owner["state"] == "returned" and "the Mail Desk agent returned it" in (owner.get("ownerReason") or ""),
           f"it is with the owner: {owner.get('ownerReason')}")
     found = problems()
     record("the Open problems of the mail-desk factory", json.dumps(found, indent=1))
     mine = [p for p in found.get("problems", []) if p.get("kind") == "mail-handed-to-owner"
-            and "Refund question [rig: return it with maildesk return]" in (p.get("sentence") or "")]
+            and subject in (p.get("sentence") or "")]
     check(len(mine) == 1, "the email handed to the owner is one Open problem, kind mail-handed-to-owner")
-    note(f"waiting for the account's 08:00 ({zone}) and the factory email sweep (every 2 minutes, 5 minutes after the hour)")
-    email = wait_for("no 08:00 email was composed", lambda: next(
-        (e for e in get("/gateway/factory-emails?state=all&limit=20").get("emails", []) if str(e.get("kind", "")).startswith("morning")),
-        None), seconds=int(ahead * 60) + 900, every=15)
-    full = get(f"/gateway/factory-emails/{email['id']}")
-    import html as html_text
-    text = html_text.unescape(re.sub(r"\s*\n\s*", "\n", re.sub(r"<[^>]+>", "\n", full.get("html") or "")))
+    email = compose_morning()
+    text = email["text"]
     start = text.find("Returned and routed")
-    record("the composed 08:00 email: its state and its Mail Desk part (from 'Returned and routed')",
-           f"  state: {email.get('state')}, detail: {email.get('detail')}\n"
-           + "\n".join(f"  {x}" for x in text[start:start + 2500].splitlines()))
-    check(start >= 0 and "Refund question [rig: return it with maildesk return]" in text[start:], "the 08:00 email's Returned and routed part lists it")
-    check(email.get("state") != "sent", "nothing was sent: the throwaway Gateway has no account sign-in")
+    record(f"the 08:00 email for {email['slot']} (window {email['windowFromUtc']} to {email['windowToUtc']}), composed "
+           "now by the Gateway's own composer: its subject and its Mail Desk part from 'Returned and routed'",
+           f"  subject: {email['subject']}\n" + "\n".join(f"  {x}" for x in text[start:start + 2500].splitlines()))
+    check(email["mailDeskSection"] and start >= 0 and subject in text[start:],
+          "the 08:00 email's Returned and routed part lists the email handed to the owner")
 
 
 SECTIONS = {

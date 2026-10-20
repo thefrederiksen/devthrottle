@@ -34,7 +34,8 @@ uv run --no-project --with pytest --with "msal>=1.28" python -m pytest docs/qa/m
 | The check | The published `mail-desk` definition is the template with four recorded changes: this machine's name, `every: 1m` (the shortest interval a start may have), `checks/screen.py` = the rig's wrapper (`checks/screen.py` here) and `checks/real_screen.py` = the template's real `screen.py`, byte for byte (the rig checks the hash), plus `files/rig.json` telling the wrapper where the rig is. |
 | Fake Graph | On 127.0.0.1: an Inbox, Sent, Archive and Junk Email per mailbox, told apart by the wrapper's fake token; the receive-time filter, order and paging the check asks for; the move; a log of every call (time, mailbox, method, path with ids replaced, folder, destination - never a body or an id); a failure that can be switched on per mailbox. |
 | Fake model | On 127.0.0.1: chat completions with log probabilities, scripted per subject, able to fail (HTTP 500) or answer off the labels. |
-| Seats | `qa-books/clerk` and `qa-support/desk`, each a small factory whose seat is a real agent session (the ClaudeCode agent type) on the cheapest model, told what to do with each email by the email's own subject (`[rig: close it with maildesk done]`, `[rig: return it with maildesk return]`, `[rig: run nothing for this email]`): a routed session's first prompt is only the Mail Desk's text, which carries each subject but not the seat's brief. |
+| Seats | `qa-books/clerk` and `qa-support/desk`, each a small factory whose seat is a real agent session (the ClaudeCode agent type) on the cheapest model, working in a pooled checkout of a rig repository (`/tmp/mail-desk-rig/repos/qa-seat`, with a bare origin beside it) whose project instruction file says what to do with each email by the `[rig: ...]` part of its subject. **No case waits on a seat choosing to act, except one:** the support seat closes its email with `maildesk done`, under a 6-minute deadline. Every other `done` and `return` is the rig calling the route **as that routed session**, with the session's own Gateway key read from its agent process's environment (a process the rig's own Director started; the key is never shown) - so what is proven is the route's caller rule, not a model's choice. |
+| The 08:00 email | `compose-morning/` is a small program that runs the Gateway's own `MailDeskEmailFold` and `FactoryEmailComposer`, wired as the factory email sweep wires them, over the rig's gateway.db, for the account's next 08:00. The rig composes the email on demand with it; it never waits for an 08:00, and nothing is sent. |
 
 Addresses are `qa-one@example.com`, `qa-two@example.com` and example senders only. The transcript passes through
 `shown()`, which replaces the rig, tree and home folders, every key and token, and any address that is not an example
@@ -78,9 +79,10 @@ fake Graph is not an http address on 127.0.0.1. `tests/test_wrapper.py` proves e
   devlinux; the Gateway's claim names `qa-backup`.
 - **Not a released Director.** The rig's Director is built from this tree, so it does not prove that a Director
   already released accepts the routed sessions the Gateway starts.
-- **Not the 08:00 email's delivery.** The section is read from what the Gateway composed; the rig's Gateway holds no
-  account sign-in, so nothing is sent.
+- **Not the 08:00 email's sweep or delivery.** The email is composed on demand by the Gateway's own fold and composer
+  (`compose-morning/`); the sweep that composes it at 08:00 and the sending are not run.
 - **The seats' sign-in is the owner's agent sign-in.** The scratch home links `~/.claude` and `~/.claude.json`
   to the owner's, so the seats run signed in; the Director writes its folder-trust entries for the rig's folders into
   that `~/.claude.json`, as the owner's own Director does for any folder.
+- **Every wait has a deadline** (minutes), and a case that runs out of time fails, naming what it waited for.
 - **Timing is approximate.** A run "after" a change is the first run whose check ended more than 20 seconds after it.
