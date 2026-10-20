@@ -5449,8 +5449,11 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // The standing instructions an account gives about its sessions, and the record of every firing
         // (Session Rules mission). A device-authed client route under the "/gateway/..." prefix, gated by
-        // the host-wide token middleware like every other client data endpoint.
-        Api.SessionRuleEndpoints.Map(_app, _sessionRules);
+        // the host-wide token middleware like every other client data endpoint. A session key reaches it too
+        // (Session Rules part 2, phase 2): the agent of a calling session is read from the live roster, so the
+        // change history can say which agent made a change.
+        Api.SessionRuleEndpoints.Map(_app, _sessionRules,
+            caller => PushedSessions.TryLocate(caller.Tenant, caller.SessionId.ToString(), _streamStaleAfter)?.Session.Agent);
 
         // Workflow runs (phase 4, issue #1771): the outcome spine's REST surface. One row per
         // execution of a workflow, pinned to the exact published version that governed it.

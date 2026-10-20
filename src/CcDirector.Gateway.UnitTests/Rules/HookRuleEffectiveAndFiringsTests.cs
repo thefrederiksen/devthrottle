@@ -25,7 +25,7 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
 
     private static SessionRule Hook(SessionRuleStore store, string sentence, RuleAppliesTo appliesTo, string result = HookRuleWords.Deny) =>
         store.CreateHook(sentence, appliesTo, HookRuleWords.BeforeCommand, HookRuleWords.Shell, HookRuleWords.Match,
-            new[] { "echo RULE-PROBE" }, result, Now);
+            new[] { "echo RULE-PROBE" }, result, Now, AnActor.Owner);
 
     private static SessionRule Screen(SessionRuleStore store) => store.Create(
         "When I run out of allowance, switch me to Opus.",
@@ -37,7 +37,7 @@ public sealed class HookRuleEffectiveAndFiringsTests : IDisposable
                 RuleArgument.FromInput("text", RuleInput.ScreenText),
                 RuleArgument.LiteralList("terms", new[] { "usage limit" })),
         },
-        RuleScope.AllSessions, 300, 5, Now);
+        RuleScope.AllSessions, 300, 5, Now, AnActor.Owner);
 
     // ---- W1: effective rules ---------------------------------------------------------------------------
 

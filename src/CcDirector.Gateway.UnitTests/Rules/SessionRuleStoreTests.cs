@@ -53,7 +53,7 @@ public sealed class SessionRuleStoreTests : IDisposable
         RuleScope.AllSessions,
         cooldownSeconds: 300,
         dailyCap: 5,
-        Now);
+        Now, AnActor.Owner);
 
     // ---- acceptance row 1: a rule round-trips ------------------------------------------------------
 
@@ -97,7 +97,7 @@ public sealed class SessionRuleStoreTests : IDisposable
     {
         var store = NewStore();
         var scope = new RuleScope("claude", "D:\\ReposFred\\devthrottle", "SOREN_NORTH", "Session Rules");
-        var created = store.Create(TheSentence, "a screen", new[] { "limit" }, GoodCalls(), scope, 60, 3, Now);
+        var created = store.Create(TheSentence, "a screen", new[] { "limit" }, GoodCalls(), scope, 60, 3, Now, AnActor.Owner);
 
         var read = new SessionRuleStore(_h.Open()).Get(created.Id);
         Assert.Equal(scope, read!.Scope);
@@ -108,9 +108,9 @@ public sealed class SessionRuleStoreTests : IDisposable
     {
         var store = NewStore();
         var first = store.Create(TheSentence, "a screen", new[] { "limit" }, GoodCalls(),
-            RuleScope.AllSessions, 60, 3, Now);
+            RuleScope.AllSessions, 60, 3, Now, AnActor.Owner);
         var second = store.Create("Another instruction entirely.", "another screen", new[] { "permission" },
-            GoodCalls(), RuleScope.AllSessions, 60, 3, Now.AddMinutes(5));
+            GoodCalls(), RuleScope.AllSessions, 60, 3, Now.AddMinutes(5), AnActor.Owner);
 
         var all = store.All();
         Assert.Equal(2, all.Count);
@@ -125,7 +125,7 @@ public sealed class SessionRuleStoreTests : IDisposable
         var theirs = new SessionRuleStore(_h.Open(new FixedTenantContext(new TenantId("tenant-b"))));
 
         var created = mine.Create(TheSentence, "a screen", new[] { "limit" }, GoodCalls(),
-            RuleScope.AllSessions, 60, 3, Now);
+            RuleScope.AllSessions, 60, 3, Now, AnActor.Owner);
 
         Assert.NotNull(mine.Get(created.Id));
         Assert.Null(theirs.Get(created.Id));
@@ -142,7 +142,7 @@ public sealed class SessionRuleStoreTests : IDisposable
 
         var ex = Assert.Throws<RuleRejectedException>(() => store.Create(
             TheSentence, "a screen", new[] { "limit" }, new[] { badCall },
-            RuleScope.AllSessions, 60, 3, Now));
+            RuleScope.AllSessions, 60, 3, Now, AnActor.Owner));
 
         Assert.Contains("run_python", ex.Reason, StringComparison.Ordinal);
         Assert.Contains("matches_any", ex.Reason, StringComparison.Ordinal);
@@ -161,7 +161,7 @@ public sealed class SessionRuleStoreTests : IDisposable
 
         var ex = Assert.Throws<RuleRejectedException>(() => store.Create(
             TheSentence, "a screen", new[] { "limit" }, new[] { badCall },
-            RuleScope.AllSessions, 60, 3, Now));
+            RuleScope.AllSessions, 60, 3, Now, AnActor.Owner));
 
         Assert.Contains("is_path_inside", ex.Reason, StringComparison.Ordinal);
         Assert.Contains("root", ex.Reason, StringComparison.Ordinal);
@@ -176,7 +176,7 @@ public sealed class SessionRuleStoreTests : IDisposable
     {
         var store = NewStore();
         var ex = Assert.Throws<RuleRejectedException>(() => store.Create(
-            instruction, screen, new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, cooldown, cap, Now));
+            instruction, screen, new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, cooldown, cap, Now, AnActor.Owner));
         Assert.NotEqual("", ex.Reason);
     }
 
@@ -186,7 +186,7 @@ public sealed class SessionRuleStoreTests : IDisposable
         var store = NewStore();
         var ex = Assert.Throws<RuleRejectedException>(() => store.Create(
             TheSentence, "a screen", Array.Empty<string>(), GoodCalls(),
-            RuleScope.AllSessions, 60, 3, Now));
+            RuleScope.AllSessions, 60, 3, Now, AnActor.Owner));
         Assert.NotEqual("", ex.Reason);
     }
 
@@ -200,7 +200,7 @@ public sealed class SessionRuleStoreTests : IDisposable
         var store = NewStore();
         var ex = Assert.Throws<RuleRejectedException>(() => store.Create(
             TheSentence, "a screen", new[] { "limit" }, GoodCalls(),
-            RuleScope.AllSessions, cooldown, cap, Now));
+            RuleScope.AllSessions, cooldown, cap, Now, AnActor.Owner));
         Assert.NotEqual("", ex.Reason);
     }
 
@@ -213,7 +213,7 @@ public sealed class SessionRuleStoreTests : IDisposable
         var created = CreateTheRule(store);
         Assert.Equal(RuleState.DryRun, created.State);
 
-        var promoted = store.Promote(created.Id, GrantFor(created.Id), Now.AddHours(1));
+        var promoted = store.Promote(created.Id, GrantFor(created.Id), Now.AddHours(1), AnActor.Owner);
         Assert.Equal(RuleState.Live, promoted.State);
         Assert.Equal(Now.AddHours(1), promoted.UpdatedUtc);
         Assert.Equal(RuleState.Live, new SessionRuleStore(_h.Open()).Get(created.Id)!.State);
@@ -224,7 +224,7 @@ public sealed class SessionRuleStoreTests : IDisposable
     {
         var store = NewStore();
         var missing = Guid.NewGuid();
-        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(missing, GrantFor(missing), Now));
+        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(missing, GrantFor(missing), Now, AnActor.Owner));
         Assert.NotEqual("", ex.Reason);
     }
 
@@ -287,7 +287,7 @@ public sealed class SessionRuleStoreTests : IDisposable
     {
         var store = NewStore();
         var rule = CreateTheRule(store);
-        store.Promote(rule.Id, GrantFor(rule.Id), Now);
+        store.Promote(rule.Id, GrantFor(rule.Id), Now, AnActor.Owner);
 
         var firing = store.RecordFiring(
             rule.Id, "session-101", "Claude usage limit reached.", "stopped on a limit",
@@ -340,9 +340,9 @@ public sealed class SessionRuleStoreTests : IDisposable
         store.RecordFiring(rule.Id, "session-101", "a screen", "an understanding", RuleDecisions.Act,
             "dry run", Array.Empty<RulePrimitiveRun>(), "", "reported", Grounding, Now);
 
-        Assert.True(store.Delete(rule.Id));
+        Assert.True(store.Delete(rule.Id, Now, AnActor.Owner));
         Assert.Null(store.Get(rule.Id));
         Assert.Single(store.FiringsFor(rule.Id));
-        Assert.False(store.Delete(rule.Id));
+        Assert.False(store.Delete(rule.Id, Now, AnActor.Owner));
     }
 }

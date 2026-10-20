@@ -44,6 +44,7 @@ public static class ProcessWorkingDirectory
             // Anything else coming out of this property would be a fault we do not understand, and
             // swallowing it would be the fallback programming the coding rules forbid, so it is left
             // to propagate.
+            // not-an-error: a process is allowed to have no readable working directory - the case this helper exists to answer
             FileLog.Write($"[ProcessWorkingDirectory] the working directory cannot be read, so it is not used: {ex.Message}");
             return null;
         }

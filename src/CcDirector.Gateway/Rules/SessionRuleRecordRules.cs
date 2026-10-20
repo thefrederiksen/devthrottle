@@ -204,6 +204,14 @@ internal static class SessionRuleRecordRules
                 $"a hook rule's result is '{HookRuleWords.Deny}' or '{HookRuleWords.Allow}' in phase 1, and this " +
                 $"one says '{rule.HookResult}'. Telling the agent and asking the owner arrive in phase 4 and 5.");
 
+        // The ceilings bound how often a screen rule ACTS on a session. A phase 1 hook rule acts on nothing - it
+        // records what it would have decided - so a bound on one would be stored as nothing at all. Held here as
+        // well as on the create body, so a change, or a write round the store, meets it too (ruling P18).
+        if (rule.CooldownSeconds != 0 || rule.DailyCap != 0)
+            throw new RuleRejectedException(
+                "a hook rule has no cooldownSeconds and no dailyCap - it is decided by the hook on every command it " +
+                "polices, and a bound written on it would be stored as nothing.");
+
         // Live hook rules arrive in phase 4. The gate refuses one however it was written, so dry run is a
         // property of the store rather than of the route that happened to write the row.
         if (string.Equals(rule.State, LiveValue, StringComparison.Ordinal))
@@ -402,5 +410,34 @@ internal static class SessionRuleRecordRules
         if (string.IsNullOrWhiteSpace(value))
             throw new RuleRejectedException(
                 "the record is the product, so a firing has to say " + what + ".");
+    }
+
+    /// <summary>
+    /// Everything a stored change has to be. The history is how an account finds out which session changed one
+    /// of its rules, so a row that does not say what was done, by whom, or what the rule was is refused rather
+    /// than written - a reader trusts the row.
+    /// </summary>
+    /// <exception cref="RuleRejectedException">The row is not a record of a change; the reason says why.</exception>
+    internal static void CheckChange(SessionRuleChangeEntity change)
+    {
+        if (!RuleChangeActions.All.Contains(change.Action, StringComparer.Ordinal))
+            throw new RuleRejectedException(
+                $"a change to a rule is one of {string.Join(", ", RuleChangeActions.All)}, and this one says " +
+                $"'{change.Action}'.");
+
+        if (string.IsNullOrWhiteSpace(change.ChangedBy))
+            throw new RuleRejectedException(
+                "a change to a rule has to say who made it. That is the whole of what the history is for.");
+
+        var isCreate = change.Action == RuleChangeActions.Create;
+        var isDelete = change.Action == RuleChangeActions.Delete;
+        if (isCreate != string.IsNullOrEmpty(change.Before))
+            throw new RuleRejectedException(isCreate
+                ? "a rule that was just created had no earlier form, so its change record cannot carry one."
+                : "a change record has to carry the rule as it was before the change.");
+        if (isDelete != string.IsNullOrEmpty(change.After))
+            throw new RuleRejectedException(isDelete
+                ? "a rule that was deleted has no later form, so its change record cannot carry one."
+                : "a change record has to carry the rule as it is after the change.");
     }
 }

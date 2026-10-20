@@ -18,8 +18,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class SessionRuleKindsMigrationTests
 {
-    private const string SqliteBefore = "20261019020017_AddApiModeReceiptDirectorIndex";
-    private const string SqliteUnderTest = "20261020013524_AddSessionRuleKindsAndHookFirings";
+    private const string SqliteBefore = "20261020002835_AddSessionRuleChanges";
+    private const string SqliteUnderTest = "20261020014625_AddSessionRuleKindsAndHookFirings";
 
     [Fact]
     public void AddSessionRuleKindsAndHookFirings_RowsStoredBefore_BecomeScreenRulesThatApplyEverywhere()
@@ -85,8 +85,8 @@ public sealed class SessionRuleKindsMigrationTests
 
     /// <summary>Each provider's Designer is found through its attributes and carries the new columns.</summary>
     [Theory]
-    [InlineData("sqlite", "20261020013524_AddSessionRuleKindsAndHookFirings")]
-    [InlineData("postgres", "20261020013534_AddSessionRuleKindsAndHookFirings")]
+    [InlineData("sqlite", "20261020014625_AddSessionRuleKindsAndHookFirings")]
+    [InlineData("postgres", "20261020014715_AddSessionRuleKindsAndHookFirings")]
     public void AddSessionRuleKindsAndHookFirings_Designer_IsDiscoveredAndCarriesTheNewColumns(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
@@ -104,6 +104,9 @@ public sealed class SessionRuleKindsMigrationTests
         foreach (var column in new[] { "Kind", "DecisionId", "HookEvent", "HookTool", "Subject", "Machine", "Repo",
                      "Agent", "AgentEvent", "AgentTool", "OverriddenRuleIds", "MatchedRuleIds", "EvaluationMicroseconds" })
             Assert.NotNull(firings.FindProperty(column));
+
+        // Generated on top of phase 2's AddSessionRuleChanges, so the model it targets holds the change history too.
+        Assert.Contains(designed.GetEntityTypes(), e => e.Name.EndsWith(".SessionRuleChangeEntity", StringComparison.Ordinal));
     }
 
     private static void Execute(string connectionString, string sql)
