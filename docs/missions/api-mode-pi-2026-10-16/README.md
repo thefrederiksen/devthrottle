@@ -33,7 +33,7 @@ Outside this folder:
 
 ## Status at close (20 October 2026)
 
-Every phase is merged on main, and the work shipped in release v2.25.0 (the 2.25.0 version floor and Pi's default followed after it on main). The hosted Gateway was deployed once, on 20 October 2026, at commit 9f9ad80 (a measured outage of 12.9 seconds).
+Every phase is merged on main, and the work shipped in release v2.25.0. The hosted Gateway was deployed twice under the owner's grants: at 9f9ad80 on 20 October 2026 (outage 12.9 seconds), and at e02f5a8 the same day (outage 4.6 seconds) to put Pi's default back to Terminal, as the owner decided ("I don't think Pi should be defaulted to API mode until we've tested it more and used it more").
 
 - The QA report: [proofs/phase-6/qa-report.html](proofs/phase-6/qa-report.html) - Linux 27 of 27 on Pi 1.2.0; Windows on Pi 1.3.0 across four runs, where every check passed in at least one run except the Stop check (Stop's effect shown in runs 6 and 8), because the Windows provider refused or delayed replies (429 engine_overloaded).
 - The Delivery Lead's rulings, owner decisions and follow-ups: [delivery-lead-decisions.md](delivery-lead-decisions.md).
