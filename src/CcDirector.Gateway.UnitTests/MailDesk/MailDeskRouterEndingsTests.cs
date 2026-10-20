@@ -95,6 +95,32 @@ public sealed class MailDeskRouterEndingsTests : IAsyncLifetime
         Assert.Equal(1, _rig.Starts[1].Request.FactoryCheck!.Count);
     }
 
+    // REVIEW OF 4283, FINDING 1: a final ending is never reopened, so a late farewell from a replaced connection (every
+    // session of a running Director stamped director-stopped) or a snapshot that missed a session (closed) can sit on a
+    // session that is still running. A live row in the session list wins.
+    [Theory]
+    [InlineData(SessionHistoryEndings.Closed)]
+    [InlineData(SessionHistoryEndings.Finished)]
+    [InlineData(SessionHistoryEndings.DirectorStopped)]
+    public async Task RouteAsync_LiveRowAndAFinalHistoryEnding_IsNotEnded_NotReroutedAndTheSeatStaysBusy(string ending)
+    {
+        // Arrange: the session is in the list, working, and its history record holds a stale final ending.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.SessionIs(session, alive: true);
+        _rig.Endings[session] = ending;
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert: the held email stays with its session, and the new one waits.
+        Assert.Equal((0, 0), (run.Rerouted, run.ToOwner));
+        var row = _rig.Row(held.Id);
+        Assert.Equal((session, 0, MailDeskWords.RoutedStates.Open), (row.SessionId, row.RerouteCount, row.State));
+        Assert.Single(_rig.Starts);
+        Assert.Equal(1, run.Waiting);
+    }
+
     [Theory]
     [InlineData(6)]           // just past the start grace
     [InlineData(23 * 60)]     // just inside the 24 hours
