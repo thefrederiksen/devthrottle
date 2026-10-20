@@ -86,6 +86,11 @@
          project (Session Rules ruling P11), so the one constant is shared as a file, not a reference: the
          evaluator's cut and the Gateway's subject column cannot drift apart (HookSubjectLimitSharedTests). -->
     <Compile Include="..\CcDirector.RuleHook\HookWireLimits.cs" Link="Rules\HookWireLimits.cs" />
+    <!-- ONE RESOLVER, NOT TWO (Session Rules phase 3, ruling T6). The Rules page's preview decides a sample
+         command with the hook's own resolver and rules-file shapes, compiled here from the hook's source, so the
+         preview's answer and the hook's answer are one implementation of rulings P3 and P13 and cannot drift. -->
+    <Compile Include="..\CcDirector.RuleHook\RuleResolver.cs" Link="Rules\RuleResolver.cs" />
+    <Compile Include="..\CcDirector.RuleHook\RulesFile.cs" Link="Rules\RulesFile.cs" />
   </ItemGroup>
 
   <ItemGroup>

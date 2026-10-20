@@ -210,6 +210,55 @@ internal static class SessionRuleEndpoints
         // THE RECORD, which is the product: every firing of one rule, newest first.
         app.MapGet("/gateway/rules/{id:guid}/firings", (Guid id) =>
             Results.Json(new { firings = store.FiringsFor(id).Select(SessionRuleWire.Project).ToList() }));
+
+        // THE RULES PAGE (Session Rules phase 3, wire contracts P1-P3). Three READ-ONLY folds over the store, for
+        // people: every label, count, tab and verdict is worked out in RulesPageFold and sent finished (ruling T1).
+        // A session key does not reach them (ruling T2) - agents read everything through 'cc-devthrottle rules'.
+        // The day is the viewer's (T3): the client sends its time zone, and a missing or unknown one is refused.
+        app.MapGet("/gateway/rules/page", (string? tz) =>
+        {
+            FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/page: tz={tz}");
+            try
+            {
+                var zone = RulesPageFold.ReadZone(tz);
+                return Results.Json(RulesPageFold.Page(SessionRuleWire.ReadPageSource(store), zone, DateTime.UtcNow));
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/page REFUSED: {ex.Reason}");
+                return Refused(ex.Reason);
+            }
+        });
+
+        app.MapGet("/gateway/rules/{id:guid}/page", (Guid id, string? tz) =>
+        {
+            FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/{id}/page: tz={tz}");
+            try
+            {
+                var zone = RulesPageFold.ReadZone(tz);
+                var page = RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(store), id, zone, DateTime.UtcNow);
+                return page is null ? NoSuchRule(id) : Results.Json(page);
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/{id}/page REFUSED: {ex.Reason}");
+                return Refused(ex.Reason);
+            }
+        });
+
+        app.MapGet("/gateway/rules/preview", (string? machine, string? repo, string? command) =>
+        {
+            FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/preview: machine={machine} repo={repo}");
+            try
+            {
+                return Results.Json(RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store), machine, repo, command));
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/preview REFUSED: {ex.Reason}");
+                return Refused(ex.Reason);
+            }
+        });
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Rules;
 
@@ -338,6 +339,23 @@ internal static class SessionRuleWire
             ids.Add(id);
         }
         return ids;
+    }
+
+    /// <summary>
+    /// What the Rules page is folded from (Session Rules phase 3): every rule newest first, each rule's firings
+    /// newest first, and the whole change history newest first. Read here, outside the rules namespace, because
+    /// the change history is only on the concrete store and nothing in that namespace may hold it.
+    /// </summary>
+    internal static RulesPageSource ReadPageSource(SessionRuleStore store)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        FileLog.Write("[SessionRuleWire] ReadPageSource: start");
+        var rules = store.All();
+        var firings = rules.ToDictionary(r => r.Id, r => store.FiringsFor(r.Id));
+        var changes = store.History(null, null, null, int.MaxValue);
+        FileLog.Write(
+            $"[SessionRuleWire] ReadPageSource: rules={rules.Count} firings={firings.Values.Sum(f => f.Count)} changes={changes.Count}");
+        return new RulesPageSource(rules, firings, changes);
     }
 
     /// <summary>The answer of POST /gateway/rules/hook-firings (wire contract W5).</summary>
