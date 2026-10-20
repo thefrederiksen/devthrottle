@@ -310,7 +310,16 @@ public sealed class UnreadableRegistrationIsNotAnEmptyInstanceTests : IDisposabl
     /// </summary>
     private InstallLayout FakeInstalledDirector()
     {
-        var layout = new InstallLayout(_root);
+        // SANDBOXED: the root, the HOME folder and the macOS Applications folder are all inside this
+        // test's own temporary directory. Built from the root alone, the layout asks the MACHINE for the
+        // other two, and on a Mac PathFor then names the real installed Director - which the next two
+        // lines overwrite with a text file. While the install lived in ~/Applications that quietly
+        // dropped a 21-byte file called "Director.app" into the developer's own Applications folder;
+        // once the install moved to /Applications it became an outright failure against the real bundle.
+        // Neither is this test's business: it only needs a file that exists and is not runnable.
+        var home = Path.Combine(_root, "home");
+        var layout = new InstallLayout(_root, defaultRoot: null, homeDir: home,
+            macAppsDir: Path.Combine(home, "Applications"));
         var exe = layout.PathFor(ComponentRegistry.Director);
         Directory.CreateDirectory(Path.GetDirectoryName(exe)!);
         File.WriteAllText(exe, "this is not a program");
