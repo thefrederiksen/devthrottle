@@ -1,7 +1,7 @@
 // The phase 7 screenshots of the Mail Desk page, for ONE scenario of seed.py, against a THROWAWAY Gateway
 // (docs/qa/mail-desk/phase-7/CONTRACT.md, section 4). capture.py runs it; it is not run by hand.
 //
-//   node shots.cjs <gateway> <out folder> <scenario: empty | on | off>      with QA_PERSON_KEY set
+//   node shots.cjs <gateway> <out folder> <scenario: empty | unpublished | on | off>      with QA_PERSON_KEY set
 //
 // Playwright 1.60.0 from the web-site skill's tools folder (NODE_PATH). Headless Chromium (the full build), a fresh
 // context per picture, signed in as the throwaway Gateway's enrolled browser device the way every Cockpit and phone
@@ -19,8 +19,8 @@ const { chromium } = require("playwright");
 
 const [gateway, outDir, scenario] = process.argv.slice(2);
 const key = process.env.QA_PERSON_KEY;
-if (!gateway || !outDir || !["empty", "on", "off"].includes(scenario) || !key) {
-  console.error("usage: QA_PERSON_KEY=... node shots.cjs <gateway> <out folder> <empty|on|off>");
+if (!gateway || !outDir || !["empty", "unpublished", "on", "off"].includes(scenario) || !key) {
+  console.error("usage: QA_PERSON_KEY=... node shots.cjs <gateway> <out folder> <empty|unpublished|on|off>");
   process.exit(2);
 }
 if (!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(gateway)) {
@@ -63,7 +63,7 @@ async function readPage(page) {
 
 /** The page has had its answer: the cards, the empty sentence, or "Page not found" - then a moment for the fonts. */
 async function settled(page) {
-  if (scenario === "on") await page.waitForSelector("[data-testid=mail-desk-channel] >> nth=2", { timeout: 30000 });
+  if (scenario === "on" || scenario === "unpublished") await page.waitForSelector("[data-testid=mail-desk-channel] >> nth=2", { timeout: 30000 });
   else if (scenario === "empty") await page.waitForSelector(".mail-desk-empty", { timeout: 30000 });
   else await page.waitForSelector("text=Page not found", { timeout: 30000 });
   await page.waitForLoadState("networkidle");
