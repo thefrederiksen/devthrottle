@@ -4792,7 +4792,8 @@ public sealed class GatewayHost : IAsyncDisposable
             locateDirector: (tenant, boxId) => PushedHostedDesktops.TryLocate(tenant, boxId)?.DirectorId,
             boxesOn: BoxesSwitch.IsOn,
             tickets: BoxDesktopTickets,
-            legs: DesktopRelayLegs);
+            legs: DesktopRelayLegs,
+            gatewayAddress: BoxesDesktopOrigin is null ? null : GatewayPublicUrl.ResolveBase(Hosted));
 
         // Teams dark (devthrottle_internal#2300, #2311): the team routes are not mapped, and an unmapped GET would
         // otherwise fall to the Cockpit's fallback and answer 200 with its page. Every team path answers 404 here,
