@@ -132,7 +132,10 @@ public sealed class MailDeskEmailSectionTests : IDisposable
         var email = Compose(null);
 
         Assert.Equal(MailDeskEmailGolden.HtmlSha256, MailDeskEmailGolden.Sha256(email.Html));
-        Assert.Equal(MailDeskEmailGolden.TextSha256, MailDeskEmailGolden.Sha256(email.Text));
+        // The plain text is built with AppendLine, so its line endings are the build machine's: line feeds where the
+        // golden was hashed and where the Gateway runs (Linux), carriage return plus line feed on Windows. The claim is
+        // about the words, so the text is hashed with line feeds on every machine.
+        Assert.Equal(MailDeskEmailGolden.TextSha256, MailDeskEmailGolden.Sha256(email.Text.Replace("\r\n", "\n")));
     }
 
     // ---------- 1. the counts ----------

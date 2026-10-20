@@ -15,3 +15,10 @@ docs/missions/api-mode-pi-2026-10-16/preamble-proof/*.jsonl -text
 # offered a new draft. A checkout that rewrote its line endings would give one template two versions, one per build
 # machine. Pin it.
 src/CcDirector.Gateway/MailDesk/Template/** text eol=lf
+
+# The Mail Desk prompts are sent to the model byte for byte, and the tests pin the exact request. A checkout that
+# rewrote their line endings would send a Windows-built Gateway's model different text from a Linux-built one's, and
+# the tests would pass on one machine and fail on the next. The phase 0 copies the prompts were measured with are
+# pinned with them, because a test holds the two equal byte for byte.
+src/CcDirector.Gateway/MailDesk/Prompts/*.txt text eol=lf
+docs/qa/mail-desk/phase-0/c-model/prompts/*.txt text eol=lf
