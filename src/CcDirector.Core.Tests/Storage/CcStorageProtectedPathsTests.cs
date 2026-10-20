@@ -83,6 +83,7 @@ public sealed class CcStorageProtectedPathsTests
             ["InjectedTextCache"] = InsideConfig,
             ["WorkflowIndexCache"] = InsideConfig,
             ["SkillIndexCache"] = InsideConfig,
+            ["HostedDesktopsFile"] = InsideConfig,
             ["Dictation"] = DataTheMissionReportsAndNeverOffers,
             ["DictationDictionary"] = DataTheMissionReportsAndNeverOffers,
             ["DictationRecordings"] = DataTheMissionReportsAndNeverOffers,
