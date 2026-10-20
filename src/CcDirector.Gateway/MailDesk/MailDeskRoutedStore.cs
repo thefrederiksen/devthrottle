@@ -297,6 +297,38 @@ public sealed class MailDeskRoutedStore
     // ---------- the router's other writes ----------
 
     /// <summary>
+    /// A RESTORED SESSION (section 3.2, step 3; review of 4283, finding 2): a Smart Restart brought the session these
+    /// open rows are with back under a new id. Every open row with <paramref name="fromSessionId"/> takes
+    /// <paramref name="toSessionId"/> and stays open - nothing is re-routed and no count changes - and each decision's
+    /// outcome detail names the new session. Returns the rows that followed it.
+    /// </summary>
+    public IReadOnlyList<MailDeskRoutedEntity> Follow(TenantId tenant, string fromSessionId, string toSessionId, string? machine, DateTime nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fromSessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(toSessionId);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.MailDeskRouted
+                .Where(r => r.State == MailDeskWords.RoutedStates.Open && r.SessionId == fromSessionId)
+                .ToList();
+            foreach (var row in rows)
+            {
+                row.SessionId = toSessionId;
+                row.ChangedUtc = nowUtc;
+                if (ctx.MailDeskDecisions.FirstOrDefault(d => d.Id == row.DecisionId) is { } decision)
+                {
+                    var where = string.IsNullOrWhiteSpace(machine) ? "" : $" on {machine}";
+                    decision.OutcomeDetail = Cut($"session {toSessionId}{where} ({row.Factory}/{row.Seat})", MailDeskDecisionStore.MaxReasonLength);
+                }
+            }
+            ctx.SaveChanges();
+            FileLog.Write($"[MailDeskRoutedStore] Follow: session {fromSessionId} was restored as {toSessionId}; {rows.Count} open rows follow it: {Ids(rows)}");
+            return rows;
+        }
+    }
+
+    /// <summary>
     /// AN ORPHAN (section 3.2, step 3): the session this open row is with ended without saying done or returning it.
     /// The first time it is queued again for the same seat (<see cref="MailDeskRoutedEntity.RerouteCount"/> 1); the
     /// second time it is handed to the owner, "its session ended twice without saying done or returning it". A row
