@@ -88,12 +88,28 @@ public readonly record struct CaptureHealth(
     double TotalHandlerMs,
     double ElapsedMs,
     int NumberOfBuffers,
-    int BufferMilliseconds)
+    int BufferMilliseconds,
+    double FirstAudioMs)
 {
     /// <summary>
+    /// How long the device was actually DELIVERING audio: the capture clock less the
+    /// wait for the first buffer. This, not <see cref="ElapsedMs"/>, is the window the
+    /// expected byte count is measured over.
+    ///
+    /// A device takes time to open, and nothing is lost while it does. Measured against
+    /// the whole clock instead, the opening wait read as missing audio: a first dictation
+    /// on macOS, where the microphone permission prompt put 2,282 ms in front of 9,797 ms
+    /// of clock, reported a 23% deficit with no gap between callbacks and nothing dropped.
+    /// A loss figure that large means "words are missing", so reporting it for a device
+    /// that behaved perfectly spends somebody's afternoon.
+    /// </summary>
+    public double DeliveringMs => FirstAudioMs < 0 ? 0 : Math.Max(0.0, ElapsedMs - FirstAudioMs);
+
+    /// <summary>
     /// Fraction of the expected audio that never made it into the clip (0 = nothing
-    /// lost). Clamped at 0 so the small positive tail NAudio delivers after the
-    /// stopwatch math (the drain tail) never reads as a negative "deficit".
+    /// lost), over the window the device was delivering. Clamped at 0 so the small
+    /// positive tail NAudio delivers after the stopwatch math (the drain tail) never
+    /// reads as a negative "deficit".
     /// </summary>
     public double DeficitFraction => ExpectedBytes <= 0 ? 0 : Math.Max(0.0, 1.0 - (double)CapturedBytes / ExpectedBytes);
 }
@@ -164,6 +180,9 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     private long _capturedBytes;
     private int _callbackCount;
     private double _lastCallbackStartMs = -1.0;
+    // Capture clock reading of the FIRST buffer; negative until one arrives. The wait for it
+    // is device-open time, not lost audio, so the expected byte count starts here.
+    private double _firstAudioMs = -1.0;
     private double _maxCallbackGapMs;
     private int _longGapCount;
     private double _maxHandlerMs;
@@ -310,6 +329,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
             if (gap > _maxCallbackGapMs) _maxCallbackGapMs = gap;
             if (gap > _dropRiskGapMs) _longGapCount++;
         }
+        if (_firstAudioMs < 0) _firstAudioMs = startMs;
         _lastCallbackStartMs = startMs;
         _callbackCount++;
         _capturedBytes += e.BytesRecorded;
@@ -346,7 +366,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
         double elapsedMs = _captureClock.Elapsed.TotalMilliseconds;
         return new CaptureHealth(
             CapturedBytes: _capturedBytes,
-            ExpectedBytes: ExpectedBytes(elapsedMs),
+            ExpectedBytes: MicAudioCapture.ExpectedBytesWhileDelivering(elapsedMs, _firstAudioMs),
             CallbackCount: _callbackCount,
             MaxCallbackGapMs: _maxCallbackGapMs,
             LongGapCount: _longGapCount,
@@ -354,16 +374,28 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
             TotalHandlerMs: _totalHandlerMs,
             ElapsedMs: elapsedMs,
             NumberOfBuffers: _numberOfBuffers,
-            BufferMilliseconds: _bufferMilliseconds);
+            BufferMilliseconds: _bufferMilliseconds,
+            FirstAudioMs: _firstAudioMs);
     }
 
     /// <summary>
-    /// Bytes of PCM the capture format produces over <paramref name="elapsedMs"/> of
+    /// Bytes of PCM the capture format produces over <paramref name="deliveringMs"/> of
     /// wall-clock at the fixed 24 kHz / 16-bit / mono rate (48000 bytes/sec). The
     /// yardstick the captured byte count is measured against to compute the deficit.
     /// </summary>
-    internal static long ExpectedBytes(double elapsedMs)
-        => (long)(SampleRate * Channels * (BitsPerSample / 8) * (elapsedMs / 1000.0));
+    internal static long ExpectedBytes(double deliveringMs)
+        => (long)(SampleRate * Channels * (BitsPerSample / 8) * (deliveringMs / 1000.0));
+
+    /// <summary>
+    /// The same yardstick, measured over the window the device was DELIVERING: the capture
+    /// clock less the wait for the first buffer. All three capture backends compute the
+    /// expected byte count through here so one definition of "deficit" covers every
+    /// platform. <paramref name="firstAudioMs"/> is negative when no buffer ever arrived,
+    /// and then the expectation is zero rather than a whole recording's worth of loss -
+    /// an empty capture is reported by the empty-capture gate, which names its cause.
+    /// </summary>
+    internal static long ExpectedBytesWhileDelivering(double elapsedMs, double firstAudioMs)
+        => firstAudioMs < 0 ? 0 : ExpectedBytes(Math.Max(0.0, elapsedMs - firstAudioMs));
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs e)
     {
@@ -380,7 +412,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
         FileLog.Write($"[MicAudioCapture] capture-health: capturedBytes={h.CapturedBytes}, expectedBytes={h.ExpectedBytes}, "
             + $"deficit={h.DeficitFraction:P1}, callbacks={h.CallbackCount}, maxGapMs={h.MaxCallbackGapMs:F0}, "
             + $"longGaps(>{_dropRiskGapMs:F0}ms)={h.LongGapCount}, maxHandlerMs={h.MaxHandlerMs:F1}, "
-            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, "
+            + $"totalHandlerMs={h.TotalHandlerMs:F0}, elapsedMs={h.ElapsedMs:F0}, firstAudioMs={h.FirstAudioMs:F0}, deliveringMs={h.DeliveringMs:F0}, "
             + $"buffers={h.NumberOfBuffers}x{h.BufferMilliseconds}ms, device=\"{Description}\"");
 
         _stoppedSignal?.TrySetResult(true);

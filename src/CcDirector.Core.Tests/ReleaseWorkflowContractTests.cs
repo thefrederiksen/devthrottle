@@ -221,6 +221,29 @@ public sealed class ReleaseWorkflowContractTests
     }
 
     /// <summary>
+    /// The release seat is held by a NAME, and that name has to be the same string every time the script works it
+    /// out, on every operating system. It was not. USERNAME and COMPUTERNAME are Windows-only environment
+    /// variables, so on macOS and Linux the identity was " on ", git stripped the trailing space when it stored
+    /// the claim subject, and nothing the script computed afterwards could equal the holder it read back. The
+    /// release was refused as held by somebody else, and -Unclaim refused it for the same reason - the seat could
+    /// only be freed by deleting the claim branch by hand. Found releasing v2.26.0 from the Mac.
+    /// </summary>
+    [Fact]
+    public void NewReleaseScript_WorksOutWhoIsReleasing_OnEveryOperatingSystem()
+    {
+        var script = File.ReadAllText(Path.Combine(GetRepoRoot(), ScriptPath));
+
+        var identityAt = script.IndexOf("$identity = if ($env:CC_SESSION_ID)", StringComparison.Ordinal);
+        Assert.True(identityAt > 0, $"{ScriptPath} no longer works out who is releasing where this test can read it.");
+
+        var identityBlock = script.Substring(identityAt, Math.Min(400, script.Length - identityAt));
+        Assert.DoesNotContain("$env:USERNAME", identityBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("$env:COMPUTERNAME", identityBlock, StringComparison.Ordinal);
+        Assert.Contains("[Environment]::UserName", identityBlock, StringComparison.Ordinal);
+        Assert.Contains("[Environment]::MachineName", identityBlock, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The workflow makes the same check where it cannot be skipped: no build starts until the tagged commit is
     /// proven to be a tested commit, or a tested commit plus only the version and the notes.
     /// </summary>
