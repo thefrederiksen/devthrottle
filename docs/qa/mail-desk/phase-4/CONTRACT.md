@@ -161,8 +161,11 @@ In order:
   name.
 - **Name:** `Mail Desk - <factory>/<seat> - <n> emails - <yyyy-MM-dd HH:mm>` in the account's time zone, with "1 email"
   for one. The name is stored in each row's `StartName`.
-- **Prompt:** the seat's own start prompt is not used (this is not one of the seat's starts). The prompt is the Mail
-  Desk's, in plain words: "The Mail Desk routed <n> emails to you (<factory>/<seat>). They are listed in check.json in
+- **Prompt:** the seat's own start prompt is not used (this is not one of the seat's starts). The prompt OPENS exactly
+  as a scheduled run of that seat opens - who the seat is, its brief at the published version, and where its kit is
+  (`ScheduledRunOpening`, the one place that wording lives) - so the seat knows its own role; then the Mail Desk's
+  text. (Found on the rig: with only the Mail Desk's text, seats never read their brief. Ruled by the Tech Lead,
+  20 October 2026.) The Mail Desk's text, in plain words: "The Mail Desk routed <n> emails to you (<factory>/<seat>). They are listed in check.json in
   your kit and below. Read each one in its mailbox with cc-outlook. When you have dealt with one, run
   `cc-devthrottle maildesk done <routed id> --note "<what you did>"`. If it is not for you, run
   `cc-devthrottle maildesk return <routed id> --note "<what you know about it>"` and it goes back to the Mail Desk.",
