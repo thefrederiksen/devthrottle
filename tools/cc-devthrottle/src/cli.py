@@ -1620,6 +1620,27 @@ _ACTIONS = [
         "args": [{"name": "name", "required": True}, {"name": "value", "required": True}, {"name": "why", "required": True}],
     },
     {
+        "id": "maildesk-routed",
+        "description": "List the emails the Mail Desk routed to seats, newest first: open, queued, done, or with the owner.",
+        "command": "cc-devthrottle maildesk routed [--state open|done|returned] [--queued] [--factory <factory>] [--seat <seat>] [-n <N>]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "maildesk-done",
+        "description": "Say a routed email is dealt with. Only the session the email is with may say it.",
+        "command": "cc-devthrottle maildesk done <routed id> [--note \"<what you did>\"]",
+        "mutatesState": True,
+        "args": [{"name": "routed id", "required": True}, {"name": "note", "required": False}],
+    },
+    {
+        "id": "maildesk-return",
+        "description": "Hand a routed email back to the Mail Desk with a note; a second return hands it to the owner.",
+        "command": "cc-devthrottle maildesk return <routed id> --note \"<what you know about it>\"",
+        "mutatesState": True,
+        "args": [{"name": "routed id", "required": True}, {"name": "note", "required": True}],
+    },
+    {
         "id": "skill-list",
         "description": "List the fleet's Skills - central capabilities held on the Gateway, one line each.",
         "command": "cc-devthrottle skill list",
@@ -5398,6 +5419,37 @@ def maildesk_decisions(
 ) -> None:
     """What the Mail Desk decided, newest first."""
     maildesk_ops.decisions(since, layer, decision, channel, count, json_output)
+
+
+@maildesk_app.command("routed")
+def maildesk_routed(
+    state: Optional[str] = typer.Option(None, "--state", help="open, done or returned (with the owner)."),
+    queued: bool = typer.Option(False, "--queued", help="Only open emails waiting for a session."),
+    factory: Optional[str] = typer.Option(None, "--factory", help="Only emails routed to this factory."),
+    seat: Optional[str] = typer.Option(None, "--seat", help="Only emails routed to this seat."),
+    count: Optional[int] = typer.Option(None, "--count", "-n", help="Largest number to show (Gateway default 50)."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON. Filters still apply."),
+) -> None:
+    """The emails the Mail Desk routed to seats, newest first."""
+    maildesk_ops.routed(state, queued, factory, seat, count, json_output)
+
+
+@maildesk_app.command("done")
+def maildesk_done(
+    routed_id: str = typer.Argument(..., help="The routed email's id, from your prompt or maildesk routed."),
+    note: Optional[str] = typer.Option(None, "--note", help="What you did about it."),
+) -> None:
+    """Say a routed email is dealt with; only the session holding it may."""
+    maildesk_ops.done(routed_id, note)
+
+
+@maildesk_app.command("return")
+def maildesk_return(
+    routed_id: str = typer.Argument(..., help="The routed email's id, from your prompt or maildesk routed."),
+    note: Optional[str] = typer.Option(None, "--note", help="Required. What you know about it; the Mail Desk agent reads it."),
+) -> None:
+    """Hand a routed email back to the Mail Desk; only the session holding it may."""
+    maildesk_ops.return_email(routed_id, note)
 
 
 @maildesk_channel_app.command("list")

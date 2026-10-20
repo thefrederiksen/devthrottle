@@ -8,6 +8,7 @@ using CcDirector.Gateway.Factory;
 using CcDirector.Gateway.Factory.Definition;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.MailDesk;
+using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -32,6 +33,15 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /gateway/mail-desk/decisions            the decisions, newest first (?since=, ?layer=, ?decision=, ?channel=, ?n=)
 ///   GET  /gateway/mail-desk/settings             the thresholds, the spend limit, what was spent, and whether it stopped
 ///   POST /gateway/mail-desk/settings             change one setting: { name, value, why } (phase 3, section 7)
+///   GET  /gateway/mail-desk/routed               the emails routed to seats, newest first (?state=, ?queued=, ?factory=, ?seat=, ?n=)
+///   POST /gateway/mail-desk/routed/{id}/done     the session the email is with says it is dealt with: { note? } (phase 4)
+///   POST /gateway/mail-desk/routed/{id}/return   that session hands it back to the Mail Desk: { note } (phase 4)
+///
+/// DONE AND RETURN ARE ONLY THE HOLDING SESSION'S (phase 4, section 4.1): the session the routed email is with now.
+/// Everyone else - a person, another session, a session it was with before a re-route, the machine token, a Director
+/// - is refused 403 <c>not_your_email</c>, a row that is not open 409 <c>not_open</c>, no such row 404, and a return
+/// without a note 400 <c>note_required</c>. <see cref="MailDeskRoutedStore"/> decides each refusal and writes nothing
+/// on any of them.
 ///
 /// WHO MAY DO WHAT (section 4). Every caller reads. A rules change needs an author - a person, or any session, a
 /// factory's own included (D7: "freely, every change recorded"). A channel change - adding, removing, switching mode -
@@ -91,7 +101,8 @@ internal static class MailDeskEndpoints
         Func<string, SessionFactoryLookup> SessionFactoryOf,
         Func<TenantId, IReadOnlyCollection<string>> KnownMachinesOf,
         Func<DateTime> NowUtc,
-        Func<TenantId, MailDeskSpend> SpendOf)
+        Func<TenantId, MailDeskSpend> SpendOf,
+        MailDeskRoutedStore Routed)
     {
         /// <summary>Where a rules change reads the newest document from. The store, unless a test stands between
         /// the read and the save to play a second writer.</summary>
@@ -121,8 +132,11 @@ internal static class MailDeskEndpoints
         gate.MapGet(p + "/decisions", (HttpContext ctx, CancellationToken _) => ListDecisions(ctx, resolveTenant, parts));
         gate.MapGet(p + "/settings", (HttpContext ctx, CancellationToken _) => ReadSettings(ctx, resolveTenant, parts));
         gate.MapPost(p + "/settings", (HttpContext ctx, CancellationToken ct) => SetSettingAsync(ctx, resolveTenant, parts, ct));
+        gate.MapGet(p + "/routed", (HttpContext ctx, CancellationToken _) => ListRouted(ctx, resolveTenant, parts));
+        gate.MapPost(p + "/routed/{id}/done", (HttpContext ctx, string id, CancellationToken ct) => AnswerRoutedAsync(ctx, id, RoutedVerb.Done, resolveTenant, parts, ct));
+        gate.MapPost(p + "/routed/{id}/return", (HttpContext ctx, string id, CancellationToken ct) => AnswerRoutedAsync(ctx, id, RoutedVerb.Return, resolveTenant, parts, ct));
 
-        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions and settings");
+        FileLog.Write($"[{Tag}] mapped {p}/status, channels (list, add, remove, mode), rules (read, history, add, remove), decisions, settings and routed (list, done, return)");
     }
 
     // ---------- reads ----------
@@ -228,6 +242,66 @@ internal static class MailDeskEndpoints
             byDecision = list.ByDecision.ByDecision,
             decisions = list.Decisions.Select(d => DecisionRow(d, addresses)).ToList(),
         });
+    }
+
+    // ---------- routed emails (phase 4, section 4.1) ----------
+
+    internal static IResult ListRouted(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, Parts parts)
+    {
+        const string route = "GET /routed";
+        var tenant = Tenant(ctx, resolveTenant);
+        if (!TryWhole(ctx, "n", route, 1, MailDeskRoutedStore.MaxList, out var n, out var bad)) return bad!;
+        if (!TryWord(ctx, "state", MailDeskWords.RoutedStates.All, "a routed state", route, out var state, out bad)) return bad!;
+        if (!TryFlag(ctx, "queued", route, out var queued, out bad)) return bad!;
+        var filter = new MailDeskRoutedFilter(state, queued, Query(ctx, "factory"), Query(ctx, "seat"), n ?? MailDeskRoutedStore.DefaultList);
+        var list = parts.Routed.List(tenant, filter);
+        var rows = parts.Routed.Emails(tenant, list.Routed).Select(MailDeskRoutedFold.Row).ToList();
+        FileLog.Write($"[{Tag}] {route}: account={tenant.ToLogString()} state={state ?? "any"} queued={queued} count={rows.Count} total={list.Total}");
+        return Results.Json(new { count = rows.Count, total = list.Total, routed = rows });
+    }
+
+    internal enum RoutedVerb { Done, Return }
+
+    /// <summary>
+    /// <c>maildesk done</c> and <c>maildesk return</c>: only the session the routed email is with now may answer for
+    /// it. The caller's session is read off its key; any other caller passes no session and is refused by the store.
+    /// </summary>
+    internal static async Task<IResult> AnswerRoutedAsync(HttpContext ctx, string id, RoutedVerb verb, Func<HttpContext, TenantId?> resolveTenant,
+        Parts parts, CancellationToken ct)
+    {
+        var route = verb == RoutedVerb.Done ? "POST /routed/{id}/done" : "POST /routed/{id}/return";
+        var tenant = Tenant(ctx, resolveTenant);
+        var kind = GatewayCaller.KindOf(ctx);
+        var callerSession = kind == FactoryMemoryAuthorKinds.Session ? AuthMiddleware.CallingSession(ctx)!.SessionId.ToString() : null;
+        FileLog.Write($"[{Tag}] {route}: account={tenant.ToLogString()} id={id} caller={kind} session={callerSession ?? "-"}");
+
+        var (body, bad) = await ReadOptionalBodyAsync<RoutedAnswerRequest>(ctx, route, ct);
+        if (bad is not null) return bad;
+        if (!Guid.TryParse(id, out var routedId))
+            return RoutedRefusal(route, MailDeskRoutedAnswer.Refused(MailDeskRoutedRefusal.NoSuchRoutedEmail, ""));
+
+        var answer = verb == RoutedVerb.Done
+            ? parts.Routed.Done(tenant, routedId, callerSession, body?.Note, parts.NowUtc())
+            : parts.Routed.Return(tenant, routedId, callerSession, body?.Note, parts.NowUtc());
+        if (!answer.Succeeded) return RoutedRefusal(route, answer);
+
+        var row = MailDeskRoutedFold.Row(parts.Routed.Emails(tenant, new[] { answer.Row! })[0]);
+        FileLog.Write($"[{Tag}] {route}: {row.Id} is now {row.State} at {row.Factory}/{row.Seat}");
+        return Results.Json(row);
+    }
+
+    /// <summary>The store's refusal as section 4.1 words it: 404 and 400 carry the code alone, 403 and 409 a sentence.</summary>
+    private static IResult RoutedRefusal(string route, MailDeskRoutedAnswer answer)
+    {
+        FileLog.Write($"[{Tag}] {route}: REFUSED ({answer.Refusal}) - nothing recorded");
+        return answer.Refusal switch
+        {
+            MailDeskRoutedRefusal.NoSuchRoutedEmail => Results.Json(new { error = "no_such_routed_email" }, statusCode: StatusCodes.Status404NotFound),
+            MailDeskRoutedRefusal.NoteRequired => Results.Json(new { error = "note_required" }, statusCode: StatusCodes.Status400BadRequest),
+            MailDeskRoutedRefusal.NotYourEmail => Results.Json(new { error = "not_your_email", detail = answer.Detail }, statusCode: StatusCodes.Status403Forbidden),
+            MailDeskRoutedRefusal.NotOpen => Results.Json(new { error = "not_open", detail = answer.Detail }, statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException($"A routed email's answer was refused as '{answer.Refusal}', which has no route answer."),
+        };
     }
 
     // ---------- channel changes ----------
@@ -650,6 +724,25 @@ internal static class MailDeskEndpoints
     internal sealed record RemoveEntryRequest(string? Key, string? Why);
 
     internal sealed record SetSettingRequest(string? Name, JsonElement? Value, string? Why);
+
+    internal sealed record RoutedAnswerRequest(string? Note);
+
+    /// <summary>A body that may be left out: no body is null with no refusal; a body that is there must be JSON.</summary>
+    private static async Task<(T? Body, IResult? Error)> ReadOptionalBodyAsync<T>(HttpContext ctx, string route, CancellationToken ct) where T : class
+    {
+        using var reader = new StreamReader(ctx.Request.Body);
+        var text = await reader.ReadToEndAsync(ct);
+        if (string.IsNullOrWhiteSpace(text)) return (null, null);
+        try
+        {
+            return (JsonSerializer.Deserialize<T>(text, BodyJson), null);
+        }
+        catch (JsonException ex)
+        {
+            return (null, Refuse(route, StatusCodes.Status400BadRequest, "bad_request",
+                $"the request body cannot be read as JSON ({ex.Message}); send one JSON object"));
+        }
+    }
 
     private static async Task<(T? Body, IResult? Error)> ReadBodyAsync<T>(HttpContext ctx, string route, CancellationToken ct) where T : class
     {

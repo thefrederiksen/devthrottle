@@ -259,6 +259,38 @@ public sealed class MailDeskRoutedEntity : GatewayMintedKeyEntity
     /// <summary>The note given with <c>maildesk done</c>, if any.</summary>
     public string? DoneNote { get; set; }
 
+    /// <summary>When the newest return was made (UTC), or null when it was never returned - for the 08:00 email's
+    /// "Returned and routed" part (phase 4, section 4.2).</summary>
+    public DateTime? ReturnedUtc { get; set; }
+
+    /// <summary>The <c>factory/seat</c> that made the newest return. The row's own factory and seat change when a
+    /// return sends it to the Mail Desk seat, so the seat that returned it is kept here.</summary>
+    public string? ReturnedFrom { get; set; }
+
+    /// <summary>When the return BEFORE the newest was made (UTC), or null. An email is returned at most twice (the second
+    /// return hands it to the owner), so this and the newest return are every return it ever had - both are listed in
+    /// the 08:00 email.</summary>
+    public DateTime? EarlierReturnedUtc { get; set; }
+
+    /// <summary>The <c>factory/seat</c> that made the return before the newest.</summary>
+    public string? EarlierReturnedFrom { get; set; }
+
+    /// <summary>The note of the return before the newest; <see cref="ReturnNote"/> holds the newest one.</summary>
+    public string? EarlierReturnNote { get; set; }
+
+    /// <summary>When it was handed to the owner (UTC; state <c>returned</c>), or null. Kept apart from
+    /// <see cref="ChangedUtc"/>, which a resolve moves on.</summary>
+    public DateTime? OwnerUtc { get; set; }
+
+    /// <summary>When the owner's problem for it was resolved by hand (UTC), or null (phase 4, section 4.2).</summary>
+    public DateTime? ResolvedUtc { get; set; }
+
+    /// <summary>Who resolved it: "you" for a person, otherwise the session.</summary>
+    public string? ResolvedBy { get; set; }
+
+    /// <summary>The one-line reason it was resolved with.</summary>
+    public string? ResolvedReason { get; set; }
+
     /// <summary>When the row was written (UTC).</summary>
     public DateTime CreatedUtc { get; set; }
 

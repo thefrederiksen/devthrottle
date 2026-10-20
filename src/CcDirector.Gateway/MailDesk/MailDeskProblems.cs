@@ -22,6 +22,8 @@ namespace CcDirector.Gateway.MailDesk;
 ///   failure after the resolve starts a new problem - exactly the rule of a definition trigger's failed checks.
 /// - <c>spend-limit-reached</c>: one per account, open while the spend limit has stopped a model call and the limit is
 ///   still at or under what was spent. It is not resolved by hand: raising the limit is what clears it.
+/// - <c>mail-handed-to-owner</c> (phase 4, section 4.2): one per routed email handed to the owner, folded by
+///   <see cref="MailDeskRoutedFold.OwnerProblems"/>, named by the routed email's id, and resolved by hand.
 /// </summary>
 public static class MailDeskProblems
 {
@@ -38,6 +40,7 @@ public static class MailDeskProblems
             found.AddRange(MailboxProblems(channel, checks, zone, asOfUtc));
         if (SpendProblem(facts.Spend, zone, asOfUtc) is { } spend)
             found.Add(spend);
+        found.AddRange(MailDeskRoutedFold.OwnerProblems(facts.WithOwner, zone, asOfUtc));
         return found;
     }
 
@@ -231,20 +234,23 @@ public sealed record MailDeskSpend(long SpentMicros, long LimitMicros, DateTime?
         => "$" + (micros / 1_000_000m).ToString("F" + places.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
 }
 
-/// <summary>What the Mail Desk problems are folded from: each active mailbox with its kept checks, and the spend.</summary>
+/// <summary>What the Mail Desk problems are folded from: each active mailbox with its kept checks, the spend, and every
+/// routed email handed to the owner (phase 4).</summary>
 public sealed record MailDeskProblemFacts(
     IReadOnlyList<(MailDeskChannelEntity Channel, IReadOnlyList<MailDeskChannelCheckEntity> Checks)> Channels,
-    MailDeskSpend Spend)
+    MailDeskSpend Spend,
+    IReadOnlyList<MailDeskRoutedEmail> WithOwner)
 {
     /// <summary>No Mail Desk: the switch is off, or the account has never used it.</summary>
     public static readonly MailDeskProblemFacts None = new(
         Array.Empty<(MailDeskChannelEntity, IReadOnlyList<MailDeskChannelCheckEntity>)>(),
-        new MailDeskSpend(0, MailDeskSpend.DefaultLimitMicros, null));
+        new MailDeskSpend(0, MailDeskSpend.DefaultLimitMicros, null),
+        Array.Empty<MailDeskRoutedEmail>());
 }
 
 /// <summary>
 /// WHERE THE MAIL DESK PROBLEMS ARE READ FROM, for <see cref="CronRunResultService"/>: the switch, the channels, their
-/// kept checks and the spend. With the switch off the account has no Mail Desk problems at all. A removed channel is
+/// kept checks, the spend, and the routed emails handed to the owner. With the switch off the account has no Mail Desk problems at all. A removed channel is
 /// checked by no machine, so it can never clear; its problems leave the list with it.
 /// </summary>
 public sealed class MailDeskProblemSource
@@ -257,17 +263,22 @@ public sealed class MailDeskProblemSource
     /// <param name="channels">The account's channels.</param>
     /// <param name="checks">The mailboxes' kept checks; also where a mailbox problem is resolved.</param>
     /// <param name="spendOf">The account's spend (<see cref="MailDeskSpend"/>).</param>
+    /// <param name="routed">The routed emails; also where the owner's problem for one is resolved.</param>
     public MailDeskProblemSource(Func<TenantId, bool> isOn, MailDeskChannelStore channels, MailDeskChannelCheckStore checks,
-        Func<TenantId, MailDeskSpend> spendOf)
+        Func<TenantId, MailDeskSpend> spendOf, MailDeskRoutedStore routed)
     {
         _isOn = isOn ?? throw new ArgumentNullException(nameof(isOn));
         _channels = channels ?? throw new ArgumentNullException(nameof(channels));
         Checks = checks ?? throw new ArgumentNullException(nameof(checks));
         _spendOf = spendOf ?? throw new ArgumentNullException(nameof(spendOf));
+        Routed = routed ?? throw new ArgumentNullException(nameof(routed));
     }
 
     /// <summary>The mailboxes' kept checks.</summary>
     public MailDeskChannelCheckStore Checks { get; }
+
+    /// <summary>The routed emails.</summary>
+    public MailDeskRoutedStore Routed { get; }
 
     /// <summary>The account's facts, or <see cref="MailDeskProblemFacts.None"/> with the switch off.</summary>
     public MailDeskProblemFacts Facts(TenantId tenant)
@@ -277,6 +288,6 @@ public sealed class MailDeskProblemSource
         var channels = _channels.List(tenant)
             .Select(c => (c, checks.TryGetValue(c.Id, out var rows) ? rows : (IReadOnlyList<MailDeskChannelCheckEntity>)Array.Empty<MailDeskChannelCheckEntity>()))
             .ToList();
-        return new MailDeskProblemFacts(channels, _spendOf(tenant));
+        return new MailDeskProblemFacts(channels, _spendOf(tenant), Routed.Emails(tenant, Routed.WithOwner(tenant)));
     }
 }

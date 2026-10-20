@@ -54,7 +54,7 @@ public sealed class MailDeskEmailSectionTests : IDisposable
 
     // ---------- the rig ----------
 
-    private MailDeskEmailFold Fold() => new(_switch.IsOn, _channels, _decisions, _rules, _ => _spend);
+    private MailDeskEmailFold Fold() => new(_switch.IsOn, _channels, _decisions, _rules, _ => _spend, new MailDeskRoutedStore(_db));
 
     private MailDeskEmailSection? Section() => Fold().Section(Account, From, To, Toronto);
 

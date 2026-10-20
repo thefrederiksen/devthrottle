@@ -12,10 +12,17 @@ the decisions on the Gateway; this module reads and changes them under `/gateway
 - `maildesk decisions`                          what the desk decided, newest first, with every filter on the Gateway
 - `maildesk settings`                           the two thresholds, the spend limit, what was spent (phase 3)
 - `maildesk set <name> <value>`                 change one setting; every change is recorded with who and why
+- `maildesk routed`                             the emails routed to seats, newest first (phase 4)
+- `maildesk done <routed id>`                   the session an email is with says it is dealt with
+- `maildesk return <routed id> --note "<text>"` that session hands it back to the Mail Desk
 
 THE GATEWAY RULES, THIS MODULE PRINTS (repository rule 7). Every label - a channel's mode, whether it is signed in,
 how its last check went - is printed as the Gateway wrote it, and every refusal is the Gateway's own `error` and
 `detail`. Every filter is sent to the Gateway, so `--json` answers the same question the plain output does.
+
+ONLY THE SESSION AN EMAIL IS WITH may say `done` or `return` for it. The Gateway decides that, and every refusal -
+`not_your_email`, `not_open`, `no_such_routed_email` - is printed in its own words, exit 1. A `return` with no
+`--note` is refused here with exit 2 before any request: the note is what the Mail Desk agent reads next.
 
 TWO CHECKS ARE MADE HERE, BEFORE ANY REQUEST. A change with no `--why`, or a blank one, is refused with exit 2:
 nothing is recorded without a reason, and a request that the Gateway would refuse anyway is not worth sending. And a
@@ -33,7 +40,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 
@@ -43,7 +50,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output, gateway  # noqa: E402
 
-from . import axi_cli  # noqa: E402
+from . import axi_cli, usage_errors  # noqa: E402
 
 TIMEOUT_SECONDS = 10
 PREFIX = "/gateway/mail-desk"
@@ -54,6 +61,7 @@ DECISIONS = ("route", "archive", "junk", "keep-for-owner", "mail-desk-agent", "f
 MODES = ("observe", "live")
 CHANGE_KINDS = ("rule", "allow", "block", "route", "channel", "mode", "setting")
 DO_WORDS = ("archive", "keep-for-owner")
+ROUTED_STATES = ("open", "done", "returned")
 
 # The settings, as MailDeskSettingNames holds them, and each one's range (MailDeskSettings): checked here only so a
 # value out of range is refused before any request, naming the range at once.
@@ -77,6 +85,9 @@ _RULES = f"{_TOOL} rules show"
 _HISTORY = f"{_TOOL} rules history"
 _DECISIONS = f"{_TOOL} decisions"
 _SETTINGS = f"{_TOOL} settings"
+_ROUTED = f"{_TOOL} routed"
+_DONE_FORM = f'{_TOOL} done <routed id> --note "<what you did>"'
+_RETURN_FORM = f'{_TOOL} return <routed id> --note "<what you know about it>"'
 _ROUTE_FORM = "<factory>/<seat>"
 
 
@@ -574,3 +585,79 @@ def set_setting(name: str, value: str, why: Optional[str]) -> None:
         _line(f"spend: {after.get('label') or '-'}"),
     )
     axi_cli.print_next([_SETTINGS, f"{_HISTORY} --kind setting"])
+
+
+# ---------- emails routed to seats (phase 4, contract section 4) ----------
+
+
+def require_note(note: Optional[str]) -> str:
+    """The note a return carries, or exit 2: the Mail Desk agent reads it next, so a return always says something."""
+    if note is None or not note.strip():
+        axi_cli.usage_error('--note is required and may not be blank: say what you know about the email, --note "<text>".')
+    return note.strip()
+
+
+_ROUTED_FIELDS = ["id", "state", "state-label", "channel", "sender", "subject", "received", "route", "session",
+                  "returned", "return-note"]
+
+
+def _routed_records(rows: List[Any]) -> List[Dict[str, Any]]:
+    records = []
+    for r in rows:
+        r = r if isinstance(r, dict) else {}
+        records.append({
+            "id": _cell(r.get("id")),
+            "state": _cell(r.get("state")),
+            "state-label": _cell(r.get("stateLabel")),
+            "channel": _cell(r.get("channel")),
+            "sender": _cell(r.get("sender")),
+            "subject": _cell(r.get("subject")),
+            "received": _cell(r.get("receivedUtc")),
+            "route": _route_text(r),
+            "session": _cell(r.get("sessionId")),
+            "returned": _cell(r.get("returnedCount")),
+            "return-note": _cell(r.get("returnNote")),
+        })
+    return records
+
+
+def routed(
+    state: Optional[str], queued: bool, factory: Optional[str], seat: Optional[str], count: Optional[int],
+    json_output: bool,
+) -> None:
+    if state is not None and state not in ROUTED_STATES:
+        # The wording every --state option uses, so a bad state reads the same on every list command.
+        usage_errors.usage_error(
+            f"unknown --state value '{axi_output.escape_ascii(state)}'. Valid states: {', '.join(ROUTED_STATES)}")
+    require_count("-n", count, 1)
+    query = {"state": state, "queued": "true" if queued else None, "factory": factory, "seat": seat, "n": count}
+    answer = _call(lambda: _client().get("/routed", query), [_STATUS])
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    rows = _list_of(answer, "routed", "/routed")
+    _write(_count(answer, rows), axi_output.render_list("routed", _ROUTED_FIELDS, _routed_records(rows)))
+    axi_cli.print_next([f"{_ROUTED} --state open", _DONE_FORM, _RETURN_FORM])
+
+
+def _routed_answered(answer: Any, routed_id: str, verb: str, accept: Callable[[Any], bool]) -> None:
+    """Print a done or a return - but only once the answered row's state shows it happened."""
+    axi_cli.confirmed(answer, ["state"], f"the {verb} of routed email {routed_id}", [_ROUTED], accept=accept)
+    _write(
+        _line(f"Routed email {answer.get('id')}: {answer.get('stateLabel')}."),
+        axi_output.render_list("routed", _ROUTED_FIELDS, _routed_records([answer])),
+    )
+    axi_cli.print_next([_ROUTED])
+
+
+def done(routed_id: str, note: Optional[str]) -> None:
+    body: Dict[str, Any] = {"note": note.strip()} if note is not None and note.strip() else {}
+    answer = _call(lambda: _client().post(f"/routed/{quote(routed_id, safe='')}/done", body), [_ROUTED])
+    _routed_answered(answer, routed_id, "done", accept=lambda state: state == "done")
+
+
+def return_email(routed_id: str, note: Optional[str]) -> None:
+    said = require_note(note)
+    answer = _call(lambda: _client().post(f"/routed/{quote(routed_id, safe='')}/return", {"note": said}), [_ROUTED])
+    # A return re-queues the email at the Mail Desk seat (open) or hands it to the owner (returned).
+    _routed_answered(answer, routed_id, "return", accept=lambda state: state in ("open", "returned"))
