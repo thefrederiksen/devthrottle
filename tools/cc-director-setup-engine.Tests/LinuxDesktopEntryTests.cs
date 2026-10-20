@@ -169,7 +169,12 @@ public class LinuxDesktopEntryTests : IDisposable
         var outcome = LinuxDesktopEntry.Repair(_exe, throughTheLink, _dataHome);
 
         Assert.Equal(LinuxDesktopEntry.RepairOutcome.Rewritten, outcome);
-        Assert.Equal(_exe, LinuxDesktopEntry.RealPath(throughTheLink));
+        // Both sides are resolved. What this test is about is that the path THROUGH THE LINK names the
+        // same real file as the direct one - not that the direct one is already canonical, which it is
+        // not everywhere: on macOS the temporary directory sits under /var, and /var is itself a link to
+        // /private/var, so comparing a resolved path against the raw _exe failed on every Mac run for a
+        // reason that had nothing to do with the behaviour under test.
+        Assert.Equal(LinuxDesktopEntry.RealPath(_exe), LinuxDesktopEntry.RealPath(throughTheLink));
     }
 
     [Fact]

@@ -194,12 +194,16 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
 
     /// <summary>
     /// The production audio source, carrying the already-resolved device name: a NAudio capture on Windows,
-    /// the sound system's own recorder on Linux.
+    /// the sound system's own recorder on Linux, an AudioQueue capture on macOS.
     /// </summary>
     internal static IAudioSource CreateMicrophone(int deviceNumber, string description)
-        => OperatingSystem.IsLinux()
-            ? LinuxMicAudioCapture.ForDevice(deviceNumber, description)
-            : new MicAudioCapture(deviceNumber, description);
+    {
+        if (OperatingSystem.IsLinux())
+            return LinuxMicAudioCapture.ForDevice(deviceNumber, description);
+        if (OperatingSystem.IsMacOS())
+            return MacMicAudioCapture.ForDevice(deviceNumber, description);
+        return new MicAudioCapture(deviceNumber, description);
+    }
 
     /// <summary>
     /// Test-only constructor (the IAudioSource seam). Injects the audio source so the
@@ -376,6 +380,9 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
     /// completes on that event, so the whole tail of speech is appended before the snapshot. Detaching
     /// the handler BEFORE the drain (the old order) discarded that tail and clipped the end of speech.
     /// Enforces the completeness gate (issue #586): an empty capture throws <see cref="NoAudioCapturedException"/>.
+    /// Enforces the silence gate too, for a source that reports it (<see cref="IAudioSilenceReport"/>): a capture
+    /// whose every sample was zero throws <see cref="SilentCaptureException"/> rather than sending digital silence
+    /// to the Gateway and handing the user an unexplained empty transcript.
     /// </summary>
     private async Task<(byte[] Pcm, CaptureHealth? Health, string Device)> StopAndSnapshotAsync()
     {
@@ -386,6 +393,7 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
 
         var device = _mic?.Description ?? MicDevices.DescribeDevice(_micDeviceNumber);
         CaptureHealth? captureHealth = null;
+        IAudioSilenceReport? silenceReport = _mic as IAudioSilenceReport;
         if (_mic is not null)
         {
             // Keep capturing for the stop tail first (issue #2927), so the end of a word said on the
@@ -429,6 +437,19 @@ public sealed class BatchDictationRecorder : IAsyncDisposable
         {
             FileLog.Write("[BatchDictationRecorder] no audio captured; refusing (completeness gate)");
             throw new NoAudioCapturedException(device);
+        }
+
+        // Silence gate: bytes arrived, but every sample in them was zero. Only a source that
+        // watched the samples can say this, and only macOS needs to - there a refused microphone
+        // opens, runs at the right byte rate and delivers silence, so the byte count above cannot
+        // tell it from a working one. Refuse it here, or the user gets an empty transcript back
+        // from the Gateway with nothing naming the cause. Read from the source's own counter, so
+        // the ready cue blanked into the snapshot above cannot be mistaken for silence.
+        if (silenceReport is not null && !silenceReport.SawSound)
+        {
+            FileLog.Write($"[BatchDictationRecorder] every one of {pcm.Length} captured bytes was silent; "
+                + $"refusing (silence gate), device=\"{device}\"");
+            throw new SilentCaptureException(device, silenceReport.SilentCaptureExplanation);
         }
 
         return (pcm, captureHealth, device);

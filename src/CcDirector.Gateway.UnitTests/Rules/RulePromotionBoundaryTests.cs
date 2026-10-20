@@ -48,7 +48,7 @@ public sealed class RulePromotionBoundaryTests : IDisposable
         RuleScope.AllSessions,
         cooldownSeconds: 300,
         dailyCap: 5,
-        Now);
+        Now, AnActor.Owner);
 
     /// <summary>A grant as the endpoint mints one, for a caller the request pipeline named.</summary>
     private static RulePromotionGrant GrantFor(Guid ruleId) =>
@@ -62,7 +62,7 @@ public sealed class RulePromotionBoundaryTests : IDisposable
         var store = NewStore();
         var rule = CreateTheRule(store);
 
-        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(rule.Id, null!, Now));
+        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(rule.Id, null!, Now, AnActor.Owner));
 
         Assert.Contains("person", ex.Reason, StringComparison.OrdinalIgnoreCase);
         // And the rule is still where it was. A refusal that half-promoted would be worse than none.
@@ -118,10 +118,10 @@ public sealed class RulePromotionBoundaryTests : IDisposable
         var second = CreateTheRule(store);
 
         var grant = GrantFor(first.Id);
-        Assert.Equal(RuleState.Live, store.Promote(first.Id, grant, Now).State);
+        Assert.Equal(RuleState.Live, store.Promote(first.Id, grant, Now, AnActor.Owner).State);
 
         // The same evidence, presented a second time. A person agreed once, to one rule.
-        var again = Assert.Throws<RuleRejectedException>(() => store.Promote(first.Id, grant, Now));
+        var again = Assert.Throws<RuleRejectedException>(() => store.Promote(first.Id, grant, Now, AnActor.Owner));
         Assert.Contains("already been used", again.Reason, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(RuleState.DryRun, store.Get(second.Id)!.State);
     }
@@ -133,7 +133,7 @@ public sealed class RulePromotionBoundaryTests : IDisposable
         var mine = CreateTheRule(store);
         var other = CreateTheRule(store);
 
-        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(other.Id, GrantFor(mine.Id), Now));
+        var ex = Assert.Throws<RuleRejectedException>(() => store.Promote(other.Id, GrantFor(mine.Id), Now, AnActor.Owner));
 
         Assert.NotEqual("", ex.Reason);
         Assert.Equal(RuleState.DryRun, store.Get(other.Id)!.State);
@@ -145,15 +145,15 @@ public sealed class RulePromotionBoundaryTests : IDisposable
         var store = NewStore();
         var rule = CreateTheRule(store);
 
-        var promoted = store.Promote(rule.Id, GrantFor(rule.Id), Now.AddHours(1));
+        var promoted = store.Promote(rule.Id, GrantFor(rule.Id), Now.AddHours(1), AnActor.Owner);
 
         Assert.Equal(RuleState.Live, promoted.State);
-        Assert.Equal("device-9f2c", promoted.PromotedBy);
+        Assert.Equal("device:device-9f2c", promoted.PromotedBy);
         // Read back through a SECOND store over the same database, so this is the stored row and not the
         // object that was just handed out.
         var read = new SessionRuleStore(_h.Open()).Get(rule.Id)!;
         Assert.Equal(RuleState.Live, read.State);
-        Assert.Equal("device-9f2c", read.PromotedBy);
+        Assert.Equal("device:device-9f2c", read.PromotedBy);
     }
 
     [Fact]

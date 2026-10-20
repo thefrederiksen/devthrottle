@@ -96,8 +96,10 @@ public sealed class DirectorHub : Hub
         DefinitionCheckCapabilityRegistry? definitionChecks = null,
         ApiModeEvents.ApiModeEventIngest? apiModeEvents = null,
         Licenses.LicenseApproverRegistration? licenseApproverRegistration = null,
+        PushedHostedDesktopStore? hostedDesktops = null,
         DesktopRelayRegistry? desktopRelay = null)
     {
+        _hostedDesktops = hostedDesktops;
         _desktopRelay = desktopRelay;
         _licenseApproverRegistration = licenseApproverRegistration;
         _apiModeEvents = apiModeEvents;
@@ -143,6 +145,10 @@ public sealed class DirectorHub : Hub
     }
 
     private readonly PushedRepositoryStore? _repositoryStore;
+
+    /// <summary>The desktops each connected Director hosts (the Factory Boxes mission, phase 1). Null (older callers,
+    /// tests that do not exercise boxes) refuses nothing and stores nothing.</summary>
+    private readonly PushedHostedDesktopStore? _hostedDesktops;
 
     /// <summary>Voice mode auto-off: sees the owner answer a voice session, from the owner-turn stamp each accepted push
     /// carries. Null (older callers, tests that do not exercise voice) judges nothing.</summary>
@@ -381,6 +387,28 @@ public sealed class DirectorHub : Hub
     }
 
     /// <summary>
+    /// The desktops the bound Director hosts (the Factory Boxes mission, phase 1, issue #4258): the whole list, on every
+    /// reseed. Box ids and display names only - a port never leaves the Director. The tenant comes from the connection
+    /// binding, never the payload; the store checks every entry again and refuses a box id another of this account's
+    /// connected Directors already holds.
+    /// </summary>
+    public void PushHostedDesktops(long sequence, HostedDesktopDto[] desktops)
+    {
+        var directorId = RequireBoundDirector();
+        var tenant = RequireBoundTenant();
+        if (_hostedDesktops is null)
+        {
+            FileLog.Write($"[DirectorHub] PushHostedDesktops: director={directorId} seq={sequence} - this Gateway keeps no hosted-desktop list, ignored");
+            return;
+        }
+        var result = _hostedDesktops.ApplySnapshot(tenant, directorId, Context.ConnectionId, sequence, desktops);
+        FileLog.Write($"[DirectorHub] PushHostedDesktops: director={directorId} seq={sequence} pushed={desktops?.Length ?? 0} "
+                      + (result.Accepted
+                          ? $"accepted={result.AcceptedCount} refused={(result.RefusedBoxIds.Count == 0 ? "none" : string.Join(",", result.RefusedBoxIds))}"
+                          : $"NOT accepted ({result.WhyNotAccepted})"));
+    }
+
+    /// <summary>
     /// Gateway Cleanup mission, Phase 0 (up-stream): the Director streams a byte/frame stream UP under the
     /// stream id the Gateway minted when it opened the stream over the tunnel. This is native client-to-server
     /// streaming (the Director is the SignalR client). The registry pumps the frames into the browser-facing
@@ -544,6 +572,8 @@ public sealed class DirectorHub : Hub
         // The repository store follows the same ownership discipline: only this - the current -
         // connection may push repository snapshots from now on.
         _repositoryStore?.RegisterConnection(tenant, directorId, Context.ConnectionId);
+        // And the hosted-desktop store (the Factory Boxes mission): only this connection may push this Director's list.
+        _hostedDesktops?.RegisterConnection(tenant, directorId, Context.ConnectionId, hello.MachineName, hello.DisplayName);
         // And the license ingest, which keeps its own record of who owns this Director. Hello takes only its short
         // ownership lock and never waits for a database write; reports are checked and applied under a separate write gate.
         _licenseUsage?.RegisterConnection(tenant, directorId, Context.ConnectionId);
@@ -1387,6 +1417,8 @@ public sealed class DirectorHub : Hub
             // The tenant is the one bound at Hello (Hello sets both, so a bound director always has a tenant).
             _store.UnregisterConnection(t, directorId, Context.ConnectionId);
             _repositoryStore?.UnregisterConnection(t, directorId, Context.ConnectionId);
+            // Unlike the repositories, a Director's desktops go with its connection: they can only be reached through it.
+            _hostedDesktops?.UnregisterConnection(t, directorId, Context.ConnectionId);
             _licenseUsage?.UnregisterConnection(t, directorId, Context.ConnectionId);
         }
         // MTR-15: drop this connection's abort entry (it is gone now). Keyed by connection id, so it is cleared

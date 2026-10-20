@@ -25,7 +25,7 @@ public class UninstallerTests : IDisposable
     /// DevThrottle. RemoveDirectories deleted it. This was not hypothetical: running these tests on a Mac
     /// removed the installed application from this machine, twice, and the only reason it was noticed was
     /// that someone looked. The temp root was never the whole sandbox; the home folder is the other half
-    /// of it, and <see cref="PlanNeverNamesAnythingOutsideTheLayoutItWasGiven"/> is the guard that says so.
+    /// of it, and <see cref="PlanNeverNamesAPathOutsideTheLayoutItWasGiven"/> is the guard that says so.
     /// </summary>
     private static InstallLayout Sandboxed(string root)
     {
@@ -135,33 +135,47 @@ public class UninstallerTests : IDisposable
     /// outside it" would certify a plan that was empty, and an empty plan is a broken instrument - so the
     /// count is checked first.
     ///
-    /// WHAT THIS DOES NOT COVER: only the Directory targets, which are what RemoveDirectories deletes and
-    /// what was actually deleted here. The Autostart target is still a machine-wide path - the launch
-    /// agent property list, which LauncherLaunchdAutostart.PlistPath and GatewayLaunchdAutostart.PlistPath
-    /// read from the real home folder through a static property that no layout can redirect. No test in
-    /// this file removes it today, so nothing has been lost to it; it is the same defect in a different
-    /// subsystem and it needs those two property lists to come from the layout. Widen this test to the
-    /// whole plan on the same commit that fixes them.
+    /// This covers every target the plan names as a FILESYSTEM PATH - the directories, and the macOS
+    /// launch agent property list. The property list was the second instance of this same defect:
+    /// LauncherLaunchdAutostart.PlistPath and GatewayLaunchdAutostart.PlistPath read the real home
+    /// through a static property no layout could redirect, so an uninstall handed a sandbox still named
+    /// the user's own ~/Library/LaunchAgents file - and on 19 October 2026 an uninstall run against a
+    /// scratch root deleted the real launch agent on this machine. Both now answer from the layout's own
+    /// home folder (PlistPathIn), and this test is what keeps them there.
+    ///
+    /// The Autostart target on WINDOWS is a registry value name, not a path, so it is excluded by kind
+    /// rather than by name - there is no sandbox a registry key could be under, and asserting a path
+    /// shape against "DevThrottle" would fail for the wrong reason.
     /// </summary>
     [Fact]
-    public void PlanNeverNamesADirectoryOutsideTheLayoutItWasGiven()
+    public void PlanNeverNamesAPathOutsideTheLayoutItWasGiven()
     {
         var sandbox = Path.Combine(_dir, "sandbox");
         var layout = Sandboxed(Path.Combine(sandbox, "local"));
 
         foreach (var role in new[] { InstallRole.Workstation, InstallRole.Gateway })
         {
-            var dirs = new Uninstaller(layout).Plan(role)
-                .Where(t => t.Kind == UninstallKind.Directory).ToList();
+            // Directories on every platform; the launch agent property list only where it is a path.
+            var paths = new Uninstaller(layout).Plan(role)
+                .Where(t => t.Kind == UninstallKind.Directory
+                            || (t.Kind == UninstallKind.Autostart && OperatingSystem.IsMacOS()))
+                .ToList();
 
-            Assert.NotEmpty(dirs);
-            foreach (var target in dirs)
+            Assert.NotEmpty(paths);
+            if (OperatingSystem.IsMacOS())
+            {
+                // A PRESENCE, so this cannot pass by the launch agent having quietly left the plan: the
+                // path it used to name wrongly must be in here, and must be in the sandbox.
+                Assert.Contains(paths, t => t.Kind == UninstallKind.Autostart);
+            }
+
+            foreach (var target in paths)
             {
                 Assert.True(
                     target.Path.StartsWith(sandbox + Path.DirectorySeparatorChar, StringComparison.Ordinal),
-                    $"the {role} uninstall plan names the directory '{target.Path}', which is outside the "
+                    $"the {role} uninstall plan names '{target.Path}' ({target.Kind}), which is outside the "
                     + $"sandbox '{sandbox}' this layout was given. On a real machine that is someone's own "
-                    + "folder, and RemoveDirectories deletes what the plan names.");
+                    + "file, and the uninstall deletes what the plan names.");
             }
         }
     }
@@ -346,7 +360,8 @@ public class UninstallerTests : IDisposable
         Assert.Contains(steps, s => s.Contains("removed Tailscale Serve front-door mapping"));
     }
 
-    [Theory]
+    [WindowsOnlyTheory("persisting a PATH change is Windows-only - elsewhere the shell profile owns PATH - "
+                       + "and these expectations are drive-letter, semicolon and case-insensitive shaped")]
     [InlineData(@"C:\a;C:\b", @"C:\cc\bin", @"C:\a;C:\b;C:\cc\bin")]   // appended
     [InlineData(@"C:\a;C:\cc\bin;C:\b", @"C:\cc\bin", @"C:\a;C:\cc\bin;C:\b")] // already present -> unchanged
     [InlineData(@"C:\a;c:\CC\BIN\", @"C:\cc\bin", @"C:\a;c:\CC\BIN\")] // case/trailing-slash insensitive -> unchanged
@@ -374,9 +389,12 @@ public class UninstallerTests : IDisposable
         foreach (var alias in _layout.LegacyAliasesFor(ComponentRegistry.Director))
             Assert.Contains(alias, dirs);
 
+        // The launch agent comes from THIS layout's home folder, not the machine's. Asserting the real
+        // LauncherLaunchdAutostart.PlistPath here is what let the plan name the user's own
+        // ~/Library/LaunchAgents file while under a sandbox - the test agreed with the defect.
         if (OperatingSystem.IsMacOS())
             Assert.Contains(plan, t => t.Kind == UninstallKind.Autostart
-                && t.Path == LauncherLaunchdAutostart.PlistPath);
+                && t.Path == LauncherLaunchdAutostart.PlistPathIn(_layout.HomeDir));
     }
 
     [Fact]

@@ -95,9 +95,13 @@ public sealed class Uninstaller
                 UninstallKind.Autostart, "Launcher autostart (HKCU Run key)",
                 LauncherAutostart.ValueName, LauncherAutostart.IsRegistered()));
         else if (OperatingSystem.IsMacOS())
+        {
+            // Named from the layout's OWN home folder, never the machine's. The plan is a delete list,
+            // and a caller that sandboxed this layout has to be able to sandbox this entry too.
+            var plist = LauncherLaunchdAutostart.PlistPathIn(_layout.HomeDir);
             targets.Add(new UninstallTarget(
-                UninstallKind.Autostart, "Launcher launch agent (launchd)",
-                LauncherLaunchdAutostart.PlistPath, LauncherLaunchdAutostart.IsRegistered()));
+                UninstallKind.Autostart, "Launcher launch agent (launchd)", plist, File.Exists(plist)));
+        }
 
         foreach (var (desc, path) in Directories(role))
             targets.Add(new UninstallTarget(UninstallKind.Directory, desc, path, Directory.Exists(path)));
@@ -175,7 +179,8 @@ public sealed class Uninstaller
                 // loaded keeps its KeepAlive definition, so launchd restarts the launcher after the stop
                 // below has already been certified - and the restart binds the port again while the
                 // files are being deleted.
-                if (LauncherLaunchdAutostart.UnregisterVerified(out var agentFailure))
+                if (LauncherLaunchdAutostart.UnregisterVerified(out var agentFailure,
+                        LauncherLaunchdAutostart.PlistPathIn(_layout.HomeDir)))
                     steps.Add("Removed the Launcher launch agent (launchd)");
                 else
                     errors.Add($"Launcher launch agent: {agentFailure}. launchd may restart the launcher, "

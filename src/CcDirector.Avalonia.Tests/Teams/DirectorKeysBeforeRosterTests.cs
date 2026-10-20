@@ -407,5 +407,11 @@ public sealed class DirectorKeysBeforeRosterTests
             Record("PushRepoSnapshot");
             return Task.CompletedTask;
         }
+
+        public Task PushHostedDesktopsAsync(long sequence, HostedDesktopDto[] desktops)
+        {
+            Record("PushHostedDesktops");
+            return Task.CompletedTask;
+        }
     }
 }

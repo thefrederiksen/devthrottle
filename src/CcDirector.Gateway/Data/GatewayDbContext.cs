@@ -137,8 +137,9 @@ public sealed class GatewayDbContext : DbContext
                 && string.Equals(rule.State, LiveState, StringComparison.Ordinal)
                 && PromotionInEffect != rule.Id)
                 throw new Rules.RuleRejectedException(
-                    "a rule is moved out of dry run by a person, and this write carried no evidence that a " +
-                    "person asked. Nothing that runs on its own can promote a rule.");
+                    "a rule is moved out of dry run by a person or an agent session asking through an authenticated " +
+                    "request, and this write carried no evidence that anyone asked. Nothing that runs on its own can " +
+                    "promote a rule.");
         }
 
         // THE RECORD IS GATED TOO, AND IT WAS NOT. The firing table had no gate at all, so an invented row
@@ -164,6 +165,51 @@ public sealed class GatewayDbContext : DbContext
 
             Rules.SessionRuleRecordRules.CheckFiring(
                 firing, Rules.RulePrimitiveRegistry.Default, state, DryRunState);
+        }
+
+        // THE CHANGE HISTORY IS APPEND ONLY (Session Rules part 2, phase 2). Agents may now change rules, and the
+        // owner allowed that on the ground that every change is recorded with the session that made it. A history
+        // row that could be edited or removed afterwards would make that record something a caller can rewrite.
+        foreach (var entry in ChangeTracker.Entries<SessionRuleChangeEntity>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new Rules.RuleRejectedException(
+                    "the history of a rule's changes is only ever added to. A change that was made is not " +
+                    "edited or removed from the record afterwards.");
+            if (entry.State != EntityState.Added) continue;
+
+            var change = entry.Entity;
+            if (!string.Equals(change.TenantId, ActiveTenant, StringComparison.Ordinal))
+                throw new Rules.RuleRejectedException(
+                    $"this change record says it belongs to '{change.TenantId}', and this connection belongs to " +
+                    $"'{ActiveTenant}'. A change is recorded in the account it was made in.");
+            Rules.SessionRuleRecordRules.CheckChange(change);
+        }
+
+        // EVERY RULE WRITE CARRIES ITS HISTORY ROW, IN THIS SAVE. The store writes one beside each create, change,
+        // promote and delete; this is what makes "a rule that was changed and a history that does not say so cannot
+        // both exist" true of every route to the table rather than of the store alone. A repair script, a future
+        // route or a context built by hand that writes a rule and no record is refused here, the same place every
+        // other rule invariant is held (Session Rules part 2, phase 2 review, finding 1).
+        var recorded = ChangeTracker.Entries<SessionRuleChangeEntity>()
+            .Where(e => e.State == EntityState.Added)
+            .Select(e => (e.Entity.RuleId, e.Entity.Action))
+            .ToList();
+        foreach (var entry in ChangeTracker.Entries<SessionRuleEntity>())
+        {
+            var allowed = entry.State switch
+            {
+                EntityState.Added => new[] { Rules.RuleChangeActions.Create },
+                EntityState.Modified => new[] { Rules.RuleChangeActions.Change, Rules.RuleChangeActions.Promote },
+                EntityState.Deleted => new[] { Rules.RuleChangeActions.Delete },
+                _ => Array.Empty<string>(),
+            };
+            if (allowed.Length == 0) continue;
+            if (!recorded.Any(r => r.RuleId == entry.Entity.Id && allowed.Contains(r.Action, StringComparer.Ordinal)))
+                throw new Rules.RuleRejectedException(
+                    $"the rule {entry.Entity.Id} is being {(entry.State == EntityState.Deleted ? "deleted" : "written")} " +
+                    $"with no record of who did it. Every create, change, promote and delete of a rule is recorded in " +
+                    $"the same save ({string.Join(" or ", allowed)} here); write it through the rule store.");
         }
     }
 
@@ -594,6 +640,12 @@ public sealed class GatewayDbContext : DbContext
     /// <remarks>INTERNAL, for the same reason as <see cref="SessionRules"/>: the record is the product.</remarks>
     internal DbSet<SessionRuleFiringEntity> SessionRuleFirings => Set<SessionRuleFiringEntity>();
 
+    /// <summary>The history of every change to a rule (<c>session_rule_changes</c>) - who, which session and
+    /// agent, when, and the rule before and after. Append only.</summary>
+    /// <remarks>INTERNAL, for the same reason as <see cref="SessionRules"/>: it is written in the same save as the
+    /// change it describes, by the rule store, and nowhere else.</remarks>
+    internal DbSet<SessionRuleChangeEntity> SessionRuleChanges => Set<SessionRuleChangeEntity>();
+
     /// <summary>Serializer options for the skill metadata column. One shared instance: constructing
     /// fresh options per call defeats the serializer's internal caching.</summary>
     private static readonly System.Text.Json.JsonSerializerOptions MetadataJsonOptions = new();
@@ -914,6 +966,21 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.RuleId, e.OccurredUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.OccurredUtc });
             b.OwnsMany(e => e.PrimitiveRuns, o => o.ToJson());
+        });
+
+        modelBuilder.Entity<SessionRuleChangeEntity>(b =>
+        {
+            b.ToTable("session_rule_changes");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Action).HasMaxLength(32);
+            b.Property(e => e.ChangedBy).HasMaxLength(256);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Agent).HasMaxLength(64);
+            // "What happened to this rule?", "what did this session change?", and the whole account's history -
+            // each read newest first by the order the changes were made in.
+            b.HasIndex(e => new { e.TenantId, e.RuleId, e.Sequence });
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Sequence });
+            b.HasIndex(e => new { e.TenantId, e.Sequence });
         });
 
         modelBuilder.Entity<SessionTurnHeadEntity>(b =>
@@ -2395,6 +2462,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<MailDeskRoutedEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
+        ApplyTenantScope<SessionRuleChangeEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictFeedbackEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictTraceEntity>(modelBuilder);

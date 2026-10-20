@@ -117,7 +117,7 @@ public sealed class RulesWriteGateTests : IDisposable
         var rule = store.Create(
             "When I run out of allowance, switch me to Opus.",
             "A session stopped on a provider allowance notice.",
-            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now);
+            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now, AnActor.Owner);
 
         using var ctx = Db.CreateContext();
         var row = ctx.SessionRules.First(r => r.Id == rule.Id);
@@ -137,7 +137,7 @@ public sealed class RulesWriteGateTests : IDisposable
         var rule = store.Create(
             "When I run out of allowance, switch me to Opus.",
             "A session stopped on a provider allowance notice.",
-            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now);
+            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now, AnActor.Owner);
 
         Assert.Equal(RuleState.DryRun, rule.State);
         Assert.Single(new SessionRuleStore(Db).All());
@@ -151,7 +151,7 @@ public sealed class RulesWriteGateTests : IDisposable
         var rule = store.Create(
             "When I run out of allowance, switch me to Opus.",
             "A session stopped on a provider allowance notice.",
-            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now);
+            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now, AnActor.Owner);
         return (store, rule);
     }
 
@@ -259,7 +259,7 @@ public sealed class RulesWriteGateTests : IDisposable
         var ex = Assert.Throws<RuleRejectedException>(() => store.Create(
             "When I run out of allowance, switch me to Opus.",
             "A session stopped on a provider allowance notice.",
-            new[] { "limit" }, GoodCalls(), scope: null!, 300, 5, Now));
+            new[] { "limit" }, GoodCalls(), scope: null!, 300, 5, Now, AnActor.Owner));
 
         Assert.NotEqual("", ex.Reason);
         Assert.Empty(store.All());
@@ -272,7 +272,7 @@ public sealed class RulesWriteGateTests : IDisposable
         var rule = store.Create(
             "When I run out of allowance, switch me to Opus.",
             "A session stopped on a provider allowance notice.",
-            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now);
+            new[] { "limit" }, GoodCalls(), RuleScope.AllSessions, 300, 5, Now, AnActor.Owner);
 
         Assert.Equal(RuleScope.AllSessions, store.Get(rule.Id)!.Scope);
     }
@@ -299,7 +299,7 @@ public sealed class RulesWriteGateTests : IDisposable
             RuleScope.AllSessions,
             cooldownSeconds: 300,
             dailyCap: 5,
-            Now);
+            Now, AnActor.Owner);
 
         using (var ctx = Db.CreateContext())
         {
@@ -325,7 +325,7 @@ public sealed class RulesWriteGateTests : IDisposable
             RuleScope.AllSessions,
             cooldownSeconds: 300,
             dailyCap: 5,
-            Now);
+            Now, AnActor.Owner);
 
         store.RecordFiring(
             rule.Id, "sid-1", "screen", "u", RuleDecisions.Decline, "the screen is not what this is about",
@@ -359,7 +359,7 @@ public sealed class RulesWriteGateTests : IDisposable
             RuleScope.AllSessions,
             cooldownSeconds: 300,
             dailyCap: 5,
-            Now);
+            Now, AnActor.Owner);
 
         using var ctx = Db.CreateContext();
         ctx.SessionRuleFirings.Add(new SessionRuleFiringEntity
@@ -389,7 +389,7 @@ public sealed class RulesWriteGateTests : IDisposable
             RuleScope.AllSessions,
             cooldownSeconds: 300,
             dailyCap: 5,
-            Now);
+            Now, AnActor.Owner);
 
         using var ctx = Db.CreateContext();
         ctx.SessionRuleFirings.Add(new SessionRuleFiringEntity
@@ -424,7 +424,7 @@ public sealed class RulesWriteGateTests : IDisposable
             RuleScope.AllSessions,
             cooldownSeconds: 300,
             dailyCap: 5,
-            Now);
+            Now, AnActor.Owner);
 
         using var ctx = Db.CreateContext();
         ctx.SessionRuleFirings.Add(new SessionRuleFiringEntity
@@ -457,7 +457,7 @@ public sealed class RulesWriteGateTests : IDisposable
             RuleScope.AllSessions,
             cooldownSeconds: 300,
             dailyCap: 5,
-            Now);
+            Now, AnActor.Owner);
 
         using (var ctx = Db.CreateContext())
         {

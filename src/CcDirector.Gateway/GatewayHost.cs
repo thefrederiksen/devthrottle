@@ -94,6 +94,12 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Pushed repository/worktree snapshots per Director (repositories mission, #510 phase C).</summary>
     public Streaming.PushedRepositoryStore PushedRepositories { get; }
 
+    /// <summary>The desktops each connected Director hosts (the Factory Boxes mission, phase 1).</summary>
+    public Streaming.PushedHostedDesktopStore PushedHostedDesktops { get; }
+
+    /// <summary>Which accounts Factory Boxes is on for, from <see cref="Boxes.BoxesSwitch.EnvironmentVariable"/>. Off for all by default.</summary>
+    internal Boxes.BoxesSwitch BoxesSwitch { get; }
+
     /// <summary>Daily repository history behind the weekly report (repositories mission, #510 phase D).</summary>
     public Streaming.RepoHistoryStore RepoHistory { get; }
 
@@ -1996,6 +2002,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // the machine is gone first. Do not wire it back to OnDirectorRemoved.
         // Repositories mission (#510 phase C): the sibling store for pushed repository/worktree snapshots.
         PushedRepositories = new Streaming.PushedRepositoryStore();
+        // The Factory Boxes mission, phase 1: which Director hosts which desktop, and who may see Boxes at all.
+        PushedHostedDesktops = new Streaming.PushedHostedDesktopStore();
+        BoxesSwitch = Boxes.BoxesSwitch.FromEnvironment();
         // Repositories mission (#510 phase D): the daily repository history behind the weekly report.
         // File-backed v1 (see the store's remarks); Postgres is a follow-up that changes persistence, not shape.
         RepoHistory = new Streaming.RepoHistoryStore(Path.Combine(CcStorage.Root(), "repo-history.jsonl"));
@@ -4554,6 +4563,7 @@ public sealed class GatewayHost : IAsyncDisposable
             });
         builder.Services.AddSingleton(PushedSessions);
         builder.Services.AddSingleton(PushedRepositories);
+        builder.Services.AddSingleton(PushedHostedDesktops);
         builder.Services.AddSingleton(RepoHistory);
         // Issue #2194: the work-history recorder, so the SignalR-constructed DirectorHub folds every
         // accepted push into the durable session record (throttled inside the recorder).
@@ -5493,8 +5503,11 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // The standing instructions an account gives about its sessions, and the record of every firing
         // (Session Rules mission). A device-authed client route under the "/gateway/..." prefix, gated by
-        // the host-wide token middleware like every other client data endpoint.
-        Api.SessionRuleEndpoints.Map(_app, _sessionRules);
+        // the host-wide token middleware like every other client data endpoint. A session key reaches it too
+        // (Session Rules part 2, phase 2): the agent of a calling session is read from the live roster, so the
+        // change history can say which agent made a change.
+        Api.SessionRuleEndpoints.Map(_app, _sessionRules,
+            caller => PushedSessions.TryLocate(caller.Tenant, caller.SessionId.ToString(), _streamStaleAfter)?.Session.Agent);
 
         // Workflow runs (phase 4, issue #1771): the outcome spine's REST surface. One row per
         // execution of a workflow, pinned to the exact published version that governed it.
@@ -5655,6 +5668,13 @@ public sealed class GatewayHost : IAsyncDisposable
                 KnownMachinesOf,
                 () => DateTime.UtcNow));
 
+        // Factory Boxes (the mission of issue #4258, phase 1): GET /boxes, inside the gate that answers 404 for an
+        // account Boxes is off for, exactly as an unmapped route does. The desktop relay is mapped into the same gate.
+        Boxes.BoxesEndpoints.Map(
+            Boxes.BoxesGate.Group(_app, BoxesSwitch, ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary)),
+            PushedHostedDesktops,
+            ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
+
         // The weekly Outcome Ledger (issue #1771, spine item 4): the first report that pays rent - verified
         // yield, aging WIP, and high-effort/no-outcome runs with cost + attention-burden. Read-only.
         Api.GovernanceReportEndpoints.Map(_app, _outcomeLedger);
@@ -5683,7 +5703,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // hold. On self-host the boundary reports not-hosted and the endpoint behaves exactly as before.
         AccountStatusEndpoint.Map(_app, Hosted, Account, _tenantBoundary,
             nickname: new Core.Account.AccountNicknameClient(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }),
-            tenants: TenantRegistry);
+            tenants: TenantRegistry,
+            boxes: BoxesSwitch);
 
         // devthrottle_internal #1508: GET /account/mobile-qr.png renders the scannable code for the mobile
         // app's address on THIS Gateway, which is what the Cockpit's Phone panel shows. It carries only a

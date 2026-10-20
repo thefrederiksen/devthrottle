@@ -67,9 +67,11 @@ public sealed class SessionRuleStore : IRuleReading
         RuleScope? scope,
         int cooldownSeconds,
         int dailyCap,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        RuleChangeActor actor)
     {
-        FileLog.Write($"[SessionRuleStore] Create: instruction length={instruction?.Length ?? 0}");
+        ArgumentNullException.ThrowIfNull(actor);
+        FileLog.Write($"[SessionRuleStore] Create: instruction length={instruction?.Length ?? 0}, by={actor.ChangedBy}");
 
         var sentence = (instruction ?? "").Trim();
         var description = (screenDescription ?? "").Trim();
@@ -126,9 +128,108 @@ public sealed class SessionRuleStore : IRuleReading
             }
 
             ctx.SessionRules.Add(entity);
+            var stored = ToRecord(entity);
+            // THE HISTORY IS WRITTEN IN THE SAME SAVE, so a rule that exists and a history that does not say
+            // who made it cannot both be true.
+            ctx.SessionRuleChanges.Add(ChangeRow(ctx, entity.Id, RuleChangeActions.Create, actor, created, null, stored));
             ctx.SaveChanges();
-            FileLog.Write($"[SessionRuleStore] Create: stored rule {entity.Id} in dry run");
-            return ToRecord(entity);
+            FileLog.Write($"[SessionRuleStore] Create: stored rule {entity.Id} in dry run, by {actor.ChangedBy}");
+            return stored;
+        }
+    }
+
+    /// <summary>
+    /// Change a rule's body: its instruction, screen description, trigger words, checks, scope and ceilings -
+    /// the same fields a create takes, checked the same way.
+    ///
+    /// A CHANGED RULE GOES BACK TO DRY RUN. Dry run is what puts a person between a standing instruction and the
+    /// first time it types anything, and a changed instruction is one nobody has yet watched behave - so the
+    /// rule records what it would do again until it is promoted again. This is also what lets a change pass the
+    /// write gate without a promotion grant: the gate refuses any save that leaves a rule live without one.
+    ///
+    /// THE MERGE HAPPENS HERE, UNDER THE LOCK. <paramref name="merge"/> is handed the rule as it is stored at this
+    /// moment and answers the rule as it should be. A caller that merged over a copy it read earlier would write
+    /// every field of that copy back, so a second session changing another field in between would have its change
+    /// silently undone - and the history would name the wrong session for undoing it (phase 2 review, finding 2).
+    /// </summary>
+    /// <param name="merge">The rule as stored now, in; the changed rule, out. It may refuse with a
+    /// <see cref="RuleRejectedException"/>, which leaves the rule untouched.</param>
+    /// <param name="stateBefore">The rule's state when the change was made, read under the same lock.</param>
+    /// <exception cref="RuleRejectedException">There is no such rule, the change changes nothing, or the
+    /// changed rule is not something that can be stored; the reason says which.</exception>
+    public SessionRule Change(
+        Guid id,
+        Func<SessionRule, SessionRuleDraft> merge,
+        DateTime nowUtc,
+        RuleChangeActor actor,
+        out RuleState stateBefore)
+    {
+        ArgumentNullException.ThrowIfNull(merge);
+        ArgumentNullException.ThrowIfNull(actor);
+        FileLog.Write($"[SessionRuleStore] Change: rule={id}, by={actor.ChangedBy}");
+        var changed = nowUtc.ToUniversalTime();
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var entity = ctx.SessionRules.FirstOrDefault(r => r.Id == id)
+                ?? throw new RuleRejectedException($"there is no rule with the id {id}, so there is nothing to change.");
+            var before = ToRecord(entity);
+            stateBefore = before.State;
+            var draft = merge(before)
+                ?? throw new InvalidOperationException("a change's merge answered no rule.");
+
+            // The same refusal a create gives, for the same reason: an omitted scope is not "every session".
+            if (draft.Scope is null)
+                throw new RuleRejectedException(
+                    "a rule has to say which sessions it may act on. Every session is a choice you can make, " +
+                    "but it is a choice - a rule that did not say is not read as meaning all of them.");
+            var (instruction, screenDescription, triggerWords, calls, scope, cooldownSeconds, dailyCap) =
+                (draft.Instruction, draft.ScreenDescription, draft.TriggerWords, draft.Calls, draft.Scope,
+                 draft.CooldownSeconds, draft.DailyCap);
+
+            entity.Instruction = (instruction ?? "").Trim();
+            entity.ScreenDescription = (screenDescription ?? "").Trim();
+            entity.TriggerWords = (triggerWords ?? Array.Empty<string>())
+                .Select(w => (w ?? "").Trim())
+                .Where(w => w.Length > 0)
+                .ToList();
+            entity.Calls = (calls ?? Array.Empty<RulePrimitiveCall>()).Select(CopyOf).ToList();
+            entity.ScopeAgent = Blank(scope.Agent);
+            entity.ScopeRepository = Blank(scope.Repository);
+            entity.ScopeMachine = Blank(scope.Machine);
+            entity.ScopeMission = Blank(scope.Mission);
+            entity.CooldownSeconds = cooldownSeconds;
+            entity.DailyCap = dailyCap;
+
+            // A CHANGE THAT CHANGES NOTHING IS REFUSED, not recorded: a history row saying a rule was changed
+            // when it was not would be a false record, and putting a live rule back in dry run for nothing would
+            // be a quiet loss of what a person agreed to.
+            if (SessionRuleBody.Of(ToRecord(entity)).ToJsonString() == SessionRuleBody.Of(before).ToJsonString())
+                throw new RuleRejectedException(
+                    $"this change leaves the rule {id} exactly as it was, so nothing was changed. Name at least " +
+                    "one field with a new value.");
+
+            try
+            {
+                SessionRuleRecordRules.CheckRule(entity, _registry);
+            }
+            catch (RuleRejectedException ex)
+            {
+                FileLog.Write($"[SessionRuleStore] Change REFUSED: {ex.Reason}");
+                throw;
+            }
+
+            entity.State = DryRunValue;
+            entity.PromotedBy = "";
+            entity.UpdatedUtc = changed;
+            var after = ToRecord(entity);
+            ctx.SessionRuleChanges.Add(ChangeRow(ctx, id, RuleChangeActions.Change, actor, changed, before, after));
+            ctx.SaveChanges();
+            FileLog.Write(
+                $"[SessionRuleStore] Change: rule {id} changed by {actor.ChangedBy}; it is in dry run " +
+                $"(was {RuleWireNames.ToWireName(before.State.ToString())})");
+            return after;
         }
     }
 
@@ -163,12 +264,14 @@ public sealed class SessionRuleStore : IRuleReading
     /// inbound request and names the one rule it is evidence for.</summary>
     /// <exception cref="RuleRejectedException">There is no such rule, or the call carried no evidence that
     /// a person asked, or the grant was obtained for a different rule.</exception>
-    public SessionRule Promote(Guid id, RulePromotionGrant grant, DateTime nowUtc)
+    public SessionRule Promote(Guid id, RulePromotionGrant grant, DateTime nowUtc, RuleChangeActor actor)
     {
+        ArgumentNullException.ThrowIfNull(actor);
         if (grant is null)
             throw new RuleRejectedException(
-                "a rule is moved out of dry run by a person, and this call carried no evidence that a " +
-                "person asked. Nothing that runs on its own can promote a rule.");
+                "a rule is moved out of dry run by a person or an agent session asking through an authenticated " +
+                "request, and this call carried no evidence that anyone asked. Nothing that runs on its own can " +
+                "promote a rule.");
 
         if (grant.RuleId != id)
             throw new RuleRejectedException(
@@ -188,12 +291,17 @@ public sealed class SessionRuleStore : IRuleReading
             var entity = ctx.SessionRules.FirstOrDefault(r => r.Id == id)
                 ?? throw new RuleRejectedException($"there is no rule with the id {id}.");
 
+            // Already live: nothing changes, so nothing is recorded.
             if (string.Equals(entity.State, LiveValue, StringComparison.Ordinal))
                 return ToRecord(entity);
 
+            var before = ToRecord(entity);
             entity.State = LiveValue;
             entity.PromotedBy = grant.Actor;
             entity.UpdatedUtc = nowUtc.ToUniversalTime();
+            var after = ToRecord(entity);
+            ctx.SessionRuleChanges.Add(
+                ChangeRow(ctx, id, RuleChangeActions.Promote, actor, entity.UpdatedUtc, before, after));
             // Tell the write gate that THIS context carries a promotion a person asked for. Without it the
             // gate refuses a rule moving to live, which is what closes the route straight through the
             // DbSet as well - see GatewayDbContext.
@@ -201,24 +309,87 @@ public sealed class SessionRuleStore : IRuleReading
             try { ctx.SaveChanges(); }
             finally { ctx.PromotionInEffect = null; }
             FileLog.Write($"[SessionRuleStore] Promote: rule {id} is now live, asked for by {grant.Actor}");
-            return ToRecord(entity);
+            return after;
         }
     }
 
-    /// <summary>Delete a rule. Its firings are left alone - the record outlives the rule.</summary>
-    public bool Delete(Guid id)
+    /// <summary>Delete a rule. Its firings and its change history are left alone - the record outlives the
+    /// rule.</summary>
+    public bool Delete(Guid id, DateTime nowUtc, RuleChangeActor actor)
     {
+        ArgumentNullException.ThrowIfNull(actor);
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
             var entity = ctx.SessionRules.FirstOrDefault(r => r.Id == id);
             if (entity is null) return false;
+            var before = ToRecord(entity);
             ctx.SessionRules.Remove(entity);
+            ctx.SessionRuleChanges.Add(
+                ChangeRow(ctx, id, RuleChangeActions.Delete, actor, nowUtc.ToUniversalTime(), before, null));
             ctx.SaveChanges();
-            FileLog.Write($"[SessionRuleStore] Delete: rule {id} removed; its firings are kept");
+            FileLog.Write($"[SessionRuleStore] Delete: rule {id} removed by {actor.ChangedBy}; its firings are kept");
             return true;
         }
     }
+
+    /// <summary>
+    /// The change history, newest first: every create, change, promote and delete, with who made it. Each filter
+    /// narrows; null means any.
+    /// </summary>
+    /// <param name="ruleId">Only changes to this rule - including one that has since been deleted.</param>
+    /// <param name="sessionId">Only changes made by this session.</param>
+    /// <param name="action">Only this action (see <see cref="RuleChangeActions"/>).</param>
+    /// <param name="limit">The most rows to return, at least one.</param>
+    /// <exception cref="RuleRejectedException">The action is not one a change can be, or the limit is below one.</exception>
+    public IReadOnlyList<SessionRuleChange> History(Guid? ruleId, string? sessionId, string? action, int limit)
+    {
+        if (action is not null && !RuleChangeActions.All.Contains(action, StringComparer.Ordinal))
+            throw new RuleRejectedException(
+                $"'{action}' is not a change a rule can have. Changes are: {string.Join(", ", RuleChangeActions.All)}.");
+        if (limit < 1)
+            throw new RuleRejectedException($"the number of changes to show has to be at least 1, and was {limit}.");
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var rows = ctx.SessionRuleChanges.AsNoTracking();
+            if (ruleId is { } rule) rows = rows.Where(c => c.RuleId == rule);
+            if (!string.IsNullOrWhiteSpace(sessionId))
+            {
+                var session = sessionId.Trim();
+                rows = rows.Where(c => c.SessionId == session);
+            }
+            if (action is not null) rows = rows.Where(c => c.Action == action);
+            return rows
+                .OrderByDescending(c => c.Sequence)
+                .Take(limit)
+                .ToList()
+                .Select(c => new SessionRuleChange(
+                    c.Id, c.RuleId, c.Action, c.ChangedBy, c.SessionId, c.Agent, c.OccurredUtc, c.Before, c.After))
+                .ToList();
+        }
+    }
+
+    /// <summary>One history row for a change about to be saved. Before and after are the rule's snapshot, or
+    /// empty for the side that does not exist.</summary>
+    private static SessionRuleChangeEntity ChangeRow(
+        GatewayDbContext ctx, Guid ruleId, string action, RuleChangeActor actor, DateTime occurredUtc,
+        SessionRule? before, SessionRule? after) => new()
+    {
+        TenantId = ctx.ActiveTenant!,
+        RuleId = ruleId,
+        Action = action,
+        ChangedBy = (actor.ChangedBy ?? "").Trim(),
+        SessionId = string.IsNullOrWhiteSpace(actor.SessionId) ? null : actor.SessionId.Trim(),
+        Agent = string.IsNullOrWhiteSpace(actor.Agent) ? null : actor.Agent.Trim(),
+        OccurredUtc = occurredUtc,
+        // THE ORDER THE CHANGES WERE MADE IN, numbered under this store's lock. A timestamp is not an order: two
+        // changes can share one, and a clock can step back (phase 2 review, finding 3).
+        Sequence = (ctx.SessionRuleChanges.Max(c => (long?)c.Sequence) ?? 0) + 1,
+        Before = before is null ? "" : SessionRuleBody.Snapshot(before),
+        After = after is null ? "" : SessionRuleBody.Snapshot(after),
+    };
 
     /// <summary>
     /// Record one firing. A firing against a rule in DRY RUN may not claim to have typed anything; that is

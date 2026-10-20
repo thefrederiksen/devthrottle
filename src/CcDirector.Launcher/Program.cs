@@ -345,7 +345,7 @@ public static class Program
                     {
                         FileName = target,
                         Arguments = relaunchArgs,
-                        WorkingDirectory = Path.GetDirectoryName(target) ?? Environment.CurrentDirectory,
+                        WorkingDirectory = Path.GetDirectoryName(target) ?? ProcessWorkingDirectory.CurrentOrAppDirectory(),
                         UseShellExecute = true,
                     };
                     using var proc = Process.Start(psi);
