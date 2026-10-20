@@ -25,6 +25,13 @@ public static class MailDeskWords
     {
         public const string Outlook = "outlook";
         public static readonly IReadOnlyList<string> All = new[] { Outlook };
+
+        /// <summary>Each provider's name as a reader sees it (phase 7). Every provider in <see cref="All"/> has one;
+        /// the channel fold refuses a provider without one rather than show the raw word.</summary>
+        public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [Outlook] = "Outlook",
+        };
     }
 
     /// <summary>A channel's mode: observe decides and records and changes nothing; live acts.</summary>
