@@ -134,7 +134,13 @@ In order:
    record matters because a Director reaps a session whose agent exits CLEANLY, so its row leaves the session list -
    and a routed session is started with `AutoDismiss`, so a clean exit is the common end (found on the rig by the rig
    Developer, ruled by the Tech Lead, 20 October 2026). An `interrupted` ending is NOT evidence: the Gateway concludes
-   it from a silent Director and reopens the record when the session reappears. A session the Gateway cannot see at all is
+   it from a silent Director and reopens the record when the session reappears. **A row in the session list decides
+   alone** (alive unless `IsGone`); the history is read only for a session with no row, because a late farewell can
+   record an ending for a session that is still running (review of 4283, finding 1). **A Smart Restart** restores a
+   session under a new id with the same name and the same factory and seat (and a different origin surface), so
+   before a `closed` or `director-stopped` ending counts as ended, the router looks for a live session with the row's
+   exact `StartName` and the same factory and seat; found, the row ADOPTS it (takes its id, stays open) instead of
+   being re-routed (review of 4283, finding 2). A session that renamed itself is not followed: it is re-routed once. A session the Gateway cannot see at all is
    NOT ended by its absence - after a Gateway restart, or while its Director is away (a backup takeover), a live
    session is invisible for a while, and re-routing it would put two sessions on one email. Absence alone counts as
    ended only **24 hours** after the start (`MailDeskRouter.UnseenSessionEndsAfter`), so an email whose Director died
