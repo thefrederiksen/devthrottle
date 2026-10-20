@@ -20,8 +20,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class AddMailDeskRoutedLiveColumnsMigrationTests
 {
-    private const string SqliteBefore = "20261020024317_AddMailDeskDecisionOutcomeTime";
-    private const string SqliteUnderTest = "20261020030528_AddMailDeskRoutedLiveColumns";
+    private const string SqliteBefore = "20261020034316_AddMailDeskDecisionOutcomeTime";
+    private const string SqliteUnderTest = "20261020034452_AddMailDeskRoutedLiveColumns";
     private const string Channel = "22222222-2222-2222-2222-222222222222";
     private const string Decision = "11111111-1111-1111-1111-111111111111";
 
