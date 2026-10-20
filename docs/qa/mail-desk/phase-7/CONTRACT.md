@@ -15,7 +15,7 @@ edits (mission 5.11). It changes nothing in any mailbox and starts nothing.
 | Which route the page reads | `GET /gateway/mail-desk/channels` (phase 1 contract, section 5), the active channels only. | The phase 1 contract names it as this page's route. `?all=true` is the command's, not the page's: a removed mailbox is not a supported address. |
 | How a client knows the switch is off | That same read answering **404**. The page then shows the shell's ordinary "Page not found", and the navigation entry is not drawn. | The gate answers 404 with no body so an account that is off cannot tell Mail Desk exists (`MailDeskGate`); a second, ungated "is it on?" route would tell it. The Cockpit's Mentor entry already works this way (`apps/cockpit/src/mentor/useMentorEntry.ts`). |
 | A failed read that is NOT a 404 | The entry stays drawn, the page shows the error, and the failure is reported to the client error log. Asked again on the shell's own rhythm (`retryDelayMs`), as the Mentor entry does. | A failure must never look like "switched off" - that would hide a working page with no word of why. |
-| What the Gateway adds to the fold | The words and tones in section 2. Nothing the page shows is worked out in the client. | Repository rule 7. Today the row carries `provider: "outlook"` and decision words like `keep-for-owner`; turning those into "Outlook" and "Kept for you" in the client is exactly the ruling rule 7 forbids. |
+| What the Gateway adds to the fold | The words and tones in section 2. Nothing the page shows is worked out in the client. | Repository rule 7. Today the row carries `provider: "outlook"` and decision words like `keep-for-owner`; turning those into "Outlook" and "Keep for you" in the client is exactly the ruling rule 7 forbids. |
 | Where the page lives | `packages/client-core/src/maildesk/`: the read (`mailDeskClient.ts`), the page body (`MailDeskPage.tsx`), its styles (`mailDesk.css`), and the entry question (`useMailDeskEntry.ts`). Each shell supplies only its frame. | Repository rule 8, the Settings pattern: content once, layout per shell. |
 | Where the entry sits | Cockpit: the WORK section of the rail, directly after Factories, label "Mail Desk", address `/mail-desk`. Phone: the navigation drawer, label "Mail Desk", address `/mail-desk`. | The Mail Desk is a built-in factory, so it sits beside Factories. The same address on both surfaces, so one link opens the page on either. |
 
@@ -37,11 +37,11 @@ AXI standard). Every new field is decided in `MailDeskChannelFold` and nowhere e
     "total": 3, "byDecision": { ... unchanged ... },
     "label": "3 emails decided today",
     "counts": [
-      { "decision": "route",           "label": "Routed to a seat",    "count": 1 },
-      { "decision": "archive",         "label": "Archived",            "count": 2 },
+      { "decision": "route",           "label": "Route to a seat",     "count": 1 },
+      { "decision": "archive",         "label": "Archive",             "count": 2 },
       { "decision": "junk",            "label": "Junk",                "count": 0 },
-      { "decision": "keep-for-owner",  "label": "Kept for you",        "count": 0 },
-      { "decision": "mail-desk-agent", "label": "To the Mail Desk agent", "count": 0 },
+      { "decision": "keep-for-owner",  "label": "Keep for you",        "count": 0 },
+      { "decision": "mail-desk-agent", "label": "Hand to the Mail Desk agent", "count": 0 },
       { "decision": "failed",          "label": "Could not be screened", "count": 0 }
     ]
   }
@@ -63,11 +63,14 @@ AXI standard). Every new field is decided in `MailDeskChannelFold` and nowhere e
 
 ```json
 { "count": 0, "channels": [], "title": "Mail Desk",
-  "summary": "The mailboxes the Mail Desk screens. Each is checked every 5 minutes; nothing is filed while a mailbox is in observe mode.",
+  "summary": "The mailboxes the Mail Desk screens. Each is checked every few minutes; nothing is filed while a mailbox is in observe mode.",
   "emptyLabel": "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<why>\"" }
 ```
 
-The exact sentences are the Gateway Developer's to word well; the client renders whatever arrives.
+The exact sentences are the Gateway Developer's to word well; the client renders whatever arrives. Two wordings were
+settled while building (accepted by the Tech Lead): a decision's label reads as the decision ("Archive", not
+"Archived"), because in observe mode nothing was done; and the summary says "every few minutes", because the interval
+lives in the factory definition and can change.
 
 **Tests** (in `src/CcDirector.Gateway.UnitTests/MailDesk/`): every tone and every label case above, one row per
 machine count (one, two, three), a provider with no label throwing, `today.counts` order and zeros, and the envelope's
