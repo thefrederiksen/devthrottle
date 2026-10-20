@@ -178,10 +178,14 @@ public static class FactoryEmailComposer
         SectionHeading(html, MailDeskEmailFold.Heading, "20px 18px 4px");
         html.Append($"<tr><td style=\"padding:0 18px 6px;{Font}\">\n");
         foreach (var box in md.Mailboxes)
+        {
             html.Append(CountsBlock(box.Address, box.Counts));
+            if (box.FiledLine is not null)
+                html.Append($"<div style=\"font-size:12.5px;color:{Muted};padding-top:2px;\">{E(box.FiledLine)}</div>\n");
+        }
         html.Append(CountsBlock("All mailboxes", md.Total));
 
-        MessageList(html, "Junked", md.Junked, m => $"{m.Mailbox} - {m.Layer}: {m.Reason}");
+        MessageList(html, "Junked", md.Junked, JunkedLine);
         MessageList(html, "Kept for you", md.KeptForOwner, m => m.Mailbox);
         MessageList(html, "Could not be screened", md.NotScreened, m => $"{m.Mailbox} - {m.Reason}");
 
@@ -198,6 +202,9 @@ public static class FactoryEmailComposer
             html.Append($"<div style=\"font-size:13.5px;color:{Muted};padding-top:10px;\">{E(md.ObserveLine)}</div>\n");
         html.Append("</td></tr>\n");
     }
+
+    private static string JunkedLine(MailDeskEmailMessage m) =>
+        m.Moved is null ? $"{m.Mailbox} - {m.Layer}: {m.Reason}" : $"{m.Mailbox} - {m.Layer}: {m.Reason} - {m.Moved}";
 
     private static string CountsBlock(string name, MailDeskEmailCounts counts) =>
         $"<div style=\"font-size:14px;color:{Ink};padding-top:8px;font-weight:600;\">{E(name)}: {counts.Total.ToString(CultureInfo.InvariantCulture)}</div>\n" +
@@ -231,9 +238,12 @@ public static class FactoryEmailComposer
     {
         text.AppendLine(MailDeskEmailFold.Heading.ToUpperInvariant());
         foreach (var box in md.Mailboxes)
+        {
             text.AppendLine($"{box.Address}: {box.Counts.Total.ToString(CultureInfo.InvariantCulture)} ({CountsLine(box.Counts)})");
+            if (box.FiledLine is not null) text.AppendLine($"  {box.FiledLine}");
+        }
         text.AppendLine($"All mailboxes: {md.Total.Total.ToString(CultureInfo.InvariantCulture)} ({CountsLine(md.Total)})");
-        TextMessages(text, "Junked", md.Junked, m => $"{m.Mailbox} - {m.Layer}: {m.Reason}");
+        TextMessages(text, "Junked", md.Junked, JunkedLine);
         TextMessages(text, "Kept for you", md.KeptForOwner, m => m.Mailbox);
         TextMessages(text, "Could not be screened", md.NotScreened, m => $"{m.Mailbox} - {m.Reason}");
         text.AppendLine($"Changes to the Mail Desk ({md.Changes.Count.ToString(CultureInfo.InvariantCulture)}):");

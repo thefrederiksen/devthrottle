@@ -49,7 +49,7 @@ public sealed class MailDeskDecisionStoreTests : IDisposable
         Assert.Equal(new[]
         {
             "AttemptCount", "ChannelId", "Confidence", "CostMicros", "DecidedUtc", "Decision", "Id", "Layer", "MessageKey", "Mode", "Outcome",
-            "OutcomeDetail", "Reason", "ReceivedUtc", "RouteFactory", "RouteSeat", "RulesVersion", "SenderAddress", "Subject", "TenantId",
+            "OutcomeDetail", "OutcomeUtc", "Reason", "ReceivedUtc", "RouteFactory", "RouteSeat", "RulesVersion", "SenderAddress", "Subject", "TenantId",
         }, properties);
         Assert.DoesNotContain(typeof(MailDeskDecisionInput).GetProperties(), p =>
             p.Name.Contains("Body", StringComparison.OrdinalIgnoreCase) || p.Name.Contains("Preview", StringComparison.OrdinalIgnoreCase));
@@ -63,6 +63,92 @@ public sealed class MailDeskDecisionStoreTests : IDisposable
 
         Assert.DoesNotContain(columns, c => c.Contains("body", StringComparison.OrdinalIgnoreCase) || c.Contains("preview", StringComparison.OrdinalIgnoreCase));
         Assert.Equal("mail_desk_decisions", ctx.Model.FindEntityType(typeof(MailDeskDecisionEntity))!.GetTableName());
+    }
+
+    // ---------- filing (phase 4, sections 2.1 and 2.3) ----------
+
+    [Fact]
+    public void AwaitingFiling_LiveArchiveAndJunkWithNoOutcome_OldestFirstAndNothingElse()
+    {
+        // Arrange
+        var channel = Channel(A);
+        var other = Channel(A, Other);
+        var store = Store();
+        MailDeskDecisionInput Live(string key, string decision, int minute, Guid? on = null)
+            => Decision(on ?? channel, key, decision: decision) with
+            {
+                Mode = MailDeskWords.Modes.Live, ReceivedUtc = Now.AddMinutes(minute),
+                Layer = decision == MailDeskWords.Decisions.Archive ? MailDeskWords.Layers.Allow : MailDeskWords.Layers.Block,
+            };
+        store.Insert(A, Live("late-archive", MailDeskWords.Decisions.Archive, 5));
+        store.Insert(A, Live("early-junk", MailDeskWords.Decisions.Junk, 1));
+        store.Insert(A, Live("route", MailDeskWords.Decisions.Route, 2));
+        store.Insert(A, Live("keep", MailDeskWords.Decisions.KeepForOwner, 3));
+        store.Insert(A, Live("filed", MailDeskWords.Decisions.Junk, 4) with { Outcome = MailDeskWords.Outcomes.Filed, OutcomeDetail = "moved to Junk Email" });
+        store.Insert(A, Decision(channel, "observed", decision: MailDeskWords.Decisions.Junk));
+        store.Insert(A, Live("elsewhere", MailDeskWords.Decisions.Junk, 0, other));
+
+        // Act
+        var awaiting = store.AwaitingFiling(A, channel);
+
+        // Assert
+        Assert.Equal(new[] { "early-junk", "late-archive" }, awaiting.Select(d => d.MessageKey).ToArray());
+        Assert.Empty(store.AwaitingFiling(B, channel));
+    }
+
+    [Fact]
+    public void RecordFiling_NoOutcomeYet_WritesIt_ThenASecondResultIsIgnored()
+    {
+        // Arrange
+        var channel = Channel(A);
+        var store = Store();
+        store.Insert(A, Decision(channel, "m-1") with { Mode = MailDeskWords.Modes.Live });
+
+        // Act
+        var first = store.RecordFiling(A, channel, "m-1", MailDeskWords.Outcomes.Filed, "moved to Junk Email", Now.AddMinutes(5));
+        var second = store.RecordFiling(A, channel, "m-1", MailDeskWords.Outcomes.AlreadyGone, "not in the Inbox any more", Now.AddMinutes(10));
+
+        // Assert
+        Assert.Equal(MailDeskFilingWrite.Written, first);
+        Assert.Equal(MailDeskFilingWrite.AlreadySet, second);
+        var row = store.Find(A, channel, "m-1")!;
+        Assert.Equal((MailDeskWords.Outcomes.Filed, "moved to Junk Email", (DateTime?)Now.AddMinutes(5)), (row.Outcome, row.OutcomeDetail, row.OutcomeUtc));
+    }
+
+    [Fact]
+    public void RecordFiling_NoSuchDecision_WritesNothing()
+    {
+        var channel = Channel(A);
+
+        Assert.Equal(MailDeskFilingWrite.NoSuchDecision, Store().RecordFiling(A, channel, "never-seen", MailDeskWords.Outcomes.Filed, "moved to Archive", Now));
+    }
+
+    [Fact]
+    public void RecordFiling_AWordThatIsNotAnOutcome_Throws()
+    {
+        var channel = Channel(A);
+        Store().Insert(A, Decision(channel, "m-1"));
+
+        Assert.Throws<ArgumentException>(() => Store().RecordFiling(A, channel, "m-1", "moved", "moved to Archive", Now));
+    }
+
+    [Fact]
+    public void FiledBetween_ByTheTimeOfFiling_NotTheTimeOfTheDecision()
+    {
+        // Arrange: decided before the window; one filed inside it, one filed after it, one gone inside it.
+        var channel = Channel(A);
+        var store = Store();
+        foreach (var key in new[] { "in", "after", "gone" })
+            store.Insert(A, Decision(channel, key, decided: Now.AddHours(-1)) with { Mode = MailDeskWords.Modes.Live });
+        store.RecordFiling(A, channel, "in", MailDeskWords.Outcomes.Filed, "moved to Junk Email", Now.AddMinutes(1));
+        store.RecordFiling(A, channel, "after", MailDeskWords.Outcomes.Filed, "moved to Junk Email", Now.AddHours(2));
+        store.RecordFiling(A, channel, "gone", MailDeskWords.Outcomes.AlreadyGone, "not in the Inbox any more", Now.AddMinutes(2));
+
+        // Act
+        var filed = store.FiledBetween(A, Now, Now.AddHours(1));
+
+        // Assert
+        Assert.Equal(new[] { "in" }, filed.Select(d => d.MessageKey).ToArray());
     }
 
     // ---------- insert ----------
