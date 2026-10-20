@@ -70,6 +70,7 @@ public sealed class MailDeskDecisionStore
             Mode = input.Mode,
             Outcome = input.Outcome,
             OutcomeDetail = input.OutcomeDetail is null ? null : Cut(input.OutcomeDetail, MaxReasonLength),
+            OutcomeUtc = input.Outcome is null ? null : input.DecidedUtc,
             DecidedUtc = input.DecidedUtc,
             RulesVersion = input.RulesVersion,
             AttemptCount = input.AttemptCount,
@@ -134,6 +135,7 @@ public sealed class MailDeskDecisionStore
             kept.Mode = input.Mode;
             kept.Outcome = input.Outcome;
             kept.OutcomeDetail = input.OutcomeDetail is null ? null : Cut(input.OutcomeDetail, MaxReasonLength);
+            kept.OutcomeUtc = input.Outcome is null ? null : input.DecidedUtc;
             kept.DecidedUtc = input.DecidedUtc;
             kept.RulesVersion = input.RulesVersion;
             kept.AttemptCount = input.AttemptCount;
@@ -148,7 +150,8 @@ public sealed class MailDeskDecisionStore
     /// decision whose outcome is already set is left as it is - a retried move after a channel failure comes back
     /// <c>already-gone</c> for what was moved before, and the first <c>filed</c> stands. Answers what was done.
     /// </summary>
-    public MailDeskFilingWrite RecordFiling(TenantId tenant, Guid channelId, string messageKey, string outcome, string detail)
+    /// <param name="atUtc">When the outcome is written: the time the 08:00 email counts a move by.</param>
+    public MailDeskFilingWrite RecordFiling(TenantId tenant, Guid channelId, string messageKey, string outcome, string detail, DateTime atUtc)
     {
         if (!MailDeskWords.IsOneOf(outcome, MailDeskWords.Outcomes.All))
             throw new ArgumentException($"'{outcome}' is not a Mail Desk outcome; it is one of {MailDeskWords.InWords(MailDeskWords.Outcomes.All)}.", nameof(outcome));
@@ -165,6 +168,7 @@ public sealed class MailDeskDecisionStore
             }
             kept.Outcome = outcome;
             kept.OutcomeDetail = Cut(detail, MaxReasonLength);
+            kept.OutcomeUtc = DateTime.SpecifyKind(atUtc, DateTimeKind.Utc);
             ctx.SaveChanges();
             FileLog.Write($"[MailDeskDecisionStore] RecordFiling: {kept.Id} on channel {channelId}: {kept.Decision} -> {outcome}");
             return MailDeskFilingWrite.Written;
@@ -284,6 +288,25 @@ public sealed class MailDeskDecisionStore
             return ctx.MailDeskDecisions.AsNoTracking()
                 .Where(d => d.DecidedUtc >= fromUtc && d.DecidedUtc < toUtc)
                 .OrderBy(d => d.DecidedUtc).ThenBy(d => d.Id)
+                .ToList();
+        }
+    }
+
+    /// <summary>
+    /// Every decision FILED at or after <paramref name="fromUtc"/> and before <paramref name="toUtc"/> - outcome
+    /// <c>filed</c>, by the time it was filed, whenever it was decided (phase 4 contract, section 2.3): filing lands a
+    /// run after the decision, so an email decided just before a window closes is counted in the next one.
+    /// </summary>
+    public IReadOnlyList<MailDeskDecisionEntity> FiledBetween(TenantId tenant, DateTime fromUtc, DateTime toUtc)
+    {
+        if (toUtc < fromUtc)
+            throw new ArgumentException($"The span ends ({toUtc:o}) before it starts ({fromUtc:o}).", nameof(toUtc));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.MailDeskDecisions.AsNoTracking()
+                .Where(d => d.Outcome == MailDeskWords.Outcomes.Filed && d.OutcomeUtc >= fromUtc && d.OutcomeUtc < toUtc)
+                .OrderBy(d => d.OutcomeUtc).ThenBy(d => d.Id)
                 .ToList();
         }
     }

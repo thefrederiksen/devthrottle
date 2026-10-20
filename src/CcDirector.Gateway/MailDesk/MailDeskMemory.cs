@@ -171,6 +171,22 @@ public static class MailDeskMemory
         return null;
     }
 
+    /// <summary>
+    /// What a check's returned memory says it knows of one channel (phase 4, section 2.1): the keys in its key table and
+    /// the newest receive time its cursor has read to (null when it has no cursor). A live decision whose key is not in
+    /// the table, of an email received before that time, was read past and not reported again: it will never be filed.
+    /// </summary>
+    public static MailDeskChannelSeen Seen(string? returned, Guid channelId)
+    {
+        var entry = Entries(returned).TryGetValue(channelId, out var e) ? e : null;
+        var keys = (entry?["keys"] as JsonObject)?.Select(kv => kv.Key).ToHashSet(StringComparer.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+        DateTime? newest = null;
+        if (entry?["cursor"] is JsonObject cursor && cursor["newest"] is JsonValue v && v.TryGetValue<string>(out var text)
+            && DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed))
+            newest = DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+        return new MailDeskChannelSeen(keys, newest);
+    }
+
     /// <summary>The kept memory's entries by channel id. Null or blank is no entries; anything else that is not the
     /// shape this class writes throws, because only this class writes it.</summary>
     internal static Dictionary<Guid, JsonObject> Entries(string? memory)
@@ -219,6 +235,10 @@ public static class MailDeskMemory
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }
+
+/// <summary>What a returned memory says the check knows of one channel: its key table's keys and its cursor's newest
+/// receive time.</summary>
+public sealed record MailDeskChannelSeen(IReadOnlySet<string> Keys, DateTime? CursorNewestUtc);
 
 /// <summary>One filing item for a channel's <c>filingQueue</c>: the message's short key and <c>archive</c> or <c>junk</c>.</summary>
 public sealed record MailDeskFilingItem(string MessageKey, string Decision);

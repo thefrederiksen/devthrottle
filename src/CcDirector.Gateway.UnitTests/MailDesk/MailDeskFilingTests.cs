@@ -306,6 +306,74 @@ public sealed class MailDeskFilingTests : IAsyncLifetime
         Assert.Equal(kept, _rig.KeptMemory());
     }
 
+    [Fact]
+    public async Task ScreenAsync_AfterAnUnknownKeyFailedTheRun_TheMovedEmailComesBackAlreadyGoneAndTheRowsEndRight()
+    {
+        // Arrange: an archive and a junk queued; a report that moved both but also names a key with no decision fails.
+        var a = Live(BoxA);
+        await Screen(StandInCheck.Reads((BoxA, new[] { Mail("k-1", 1, Builds), Mail("k-2", 2, Spammer) })));
+        var failed = await Screen(StandInCheck.Reads(), WithFilingResult(a.Id, "k-unknown", "archive", "moved"));
+        Assert.Equal(TriggerRunOutcome.Failed, failed.Outcome);
+        Assert.Equal(new[] { ("k-1", "archive"), ("k-2", "junk") }, Queue(a.Id));          // the kept queue still holds both
+
+        // Act: the next run retries the kept queue; Graph gave the moved emails new ids, so both are gone.
+        var run = await Screen(StandInCheck.Reads().Filing("k-1", "already-gone").Filing("k-2", "already-gone"));
+
+        // Assert: screened, each row ends already-gone (never filed, never failed), nothing left queued or moved twice.
+        Assert.Equal(TriggerRunOutcome.Screened, run.Outcome);
+        Assert.All(new[] { Row("k-1"), Row("k-2") }, d => Assert.Equal(
+            ("already-gone", "not in the Inbox any more when the move was tried (moved or deleted before)"), (d.Outcome, d.OutcomeDetail)));
+        Assert.Empty(Queue(a.Id));
+    }
+
+    // ---------- review of 4274, finding 1: a decision whose key never comes back ends ----------
+
+    [Fact]
+    public async Task ScreenAsync_WrittenBackEmailGoneBeforeTheReread_EndsFailedSayingItWasNotSeenAgain()
+    {
+        // Arrange: an archive, and a stranger the model fails on, so the mailbox is written back and nothing is queued.
+        var a = Live(BoxA);
+        _rig.Model.Answer = (_, _) => ScriptedMailDeskModel.Failure();
+        await Screen(StandInCheck.Reads((BoxA, new[] { Mail("k-archive", 1, Builds), Mail("k-stranger", 2, Stranger) })));
+        Assert.Empty(Queue(a.Id));
+
+        // Act: the owner deleted the archive before the reread, so the reread reports only the stranger.
+        _rig.Model.Answer = (q, _) => ScriptedMailDeskModel.Label(q == ScriptedMailDeskModel.PersonOrSpam ? ScreeningLabels.Person : "A", 0.99);
+        var run = await Screen(StandInCheck.Reads((BoxA, new[] { Mail("k-stranger", 2, Stranger) })));
+
+        // Assert: the check read past it, so it ends failed with the sentence, and is never queued.
+        Assert.Equal(TriggerRunOutcome.Screened, run.Outcome);
+        Assert.Equal(("failed", MailDeskService.NotSeenAgain), (Row("k-archive").Outcome, Row("k-archive").OutcomeDetail));
+        Assert.Empty(Queue(a.Id));
+        Assert.Contains("0 waiting to be read again, 1 not seen again", run.Reason);
+        Assert.Empty(_rig.Decisions.AwaitingFiling(MailDeskHandOffRig.Account, a.Id));
+    }
+
+    [Fact]
+    public async Task ScreenAsync_WrittenBackEmailNotReachedByTheRereadYet_WaitsThenIsQueuedWhenRead()
+    {
+        // Arrange: a stranger the model fails on, then a later archive; the mailbox is written back.
+        var a = Live(BoxA);
+        _rig.Model.Answer = (_, _) => ScriptedMailDeskModel.Failure();
+        await Screen(StandInCheck.Reads((BoxA, new[] { Mail("k-stranger", 1, Stranger), Mail("k-archive", 2, Builds) })));
+        _rig.Model.Answer = (q, _) => ScriptedMailDeskModel.Label(q == ScriptedMailDeskModel.PersonOrSpam ? ScreeningLabels.Person : "A", 0.99);
+
+        // Act 1: the reread's batch stops before the archive.
+        var partial = await Screen(StandInCheck.Reads((BoxA, new[] { Mail("k-stranger", 1, Stranger) })));
+
+        // Assert 1: the cursor has not passed it, so it waits - not queued, not ended.
+        Assert.Contains("1 waiting to be read again, 0 not seen again", partial.Reason);
+        Assert.Null(Row("k-archive").Outcome);
+        Assert.Empty(Queue(a.Id));
+
+        // Act 2: the next batch reads it.
+        await Screen(StandInCheck.Reads((BoxA, new[] { Mail("k-archive", 2, Builds) })));
+
+        // Assert 2: queued.
+        Assert.Equal(new[] { ("k-archive", "archive") }, Queue(a.Id));
+        Assert.Null(Row("k-archive").Outcome);
+    }
+
     // ---------- 2.4 test 6: two channels, one live and one observe ----------
 
     [Fact]

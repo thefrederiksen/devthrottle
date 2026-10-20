@@ -416,7 +416,7 @@ public sealed class MailDeskEmailSectionTests : IDisposable
                 MailDeskWords.Layers.Block, decision, null, null, "block *@spammy.example (a spam domain)", null, null,
                 MailDeskWords.Modes.Live, null, null, Inside));
             if (outcome is not null)
-                Assert.Equal(MailDeskFilingWrite.Written, _decisions.RecordFiling(Account, live.Id, key, outcome, "set for the test"));
+                Assert.Equal(MailDeskFilingWrite.Written, _decisions.RecordFiling(Account, live.Id, key, outcome, "set for the test", Inside.AddMinutes(5)));
         }
         LiveDecision("a-1", MailDeskWords.Decisions.Archive, "build 1", MailDeskWords.Outcomes.Filed);
         LiveDecision("a-2", MailDeskWords.Decisions.Archive, "build 2", null);
@@ -437,6 +437,29 @@ public sealed class MailDeskEmailSectionTests : IDisposable
         Assert.Contains("Moved to Archive 1 - moved to Junk Email 1", email.Text);
         Assert.Contains("block: block *@spammy.example (a spam domain) - moved", email.Text);
         Assert.Equal(1, CountOf(email.Text, " - moved\n") + CountOf(email.Text, " - moved\r\n"));
+    }
+
+    [Fact]
+    public void Section_ArchiveDecidedJustBeforeTheWindowClosesAndFiledJustAfter_IsCountedOnceInTheNextEmail()
+    {
+        // Arrange: a live mailbox; an archive decided a minute before this window closes, moved two minutes after.
+        Channel();
+        var live = Channel(OtherMailbox);
+        _channels.SetMode(Account, OtherMailbox, MailDeskWords.Modes.Live, MailDeskWho.Person("owner"), "ready", Inside);
+        var decided = To.AddMinutes(-1);
+        _decisions.Insert(Account, new MailDeskDecisionInput(live.Id, "late", decided, "ci@notifications.example.com", "build 9",
+            MailDeskWords.Layers.Allow, MailDeskWords.Decisions.Archive, null, null, "allow *@notifications.example.com (builds)", null, null,
+            MailDeskWords.Modes.Live, null, null, decided));
+        _decisions.RecordFiling(Account, live.Id, "late", MailDeskWords.Outcomes.Filed, "moved to Archive", To.AddMinutes(2));
+
+        // Act: this window's email, and the next one's.
+        var today = Section()!;
+        var tomorrow = Fold().Section(Account, To, To.AddHours(24), Toronto)!;
+
+        // Assert: moved once, in the window it was moved in.
+        string Line(MailDeskEmailSection s) => s.Mailboxes.Single(m => m.Address == OtherMailbox).FiledLine!;
+        Assert.Equal("Moved to Archive 0 - moved to Junk Email 0", Line(today));
+        Assert.Equal("Moved to Archive 1 - moved to Junk Email 0", Line(tomorrow));
     }
 
     private static int CountOf(string text, string part)

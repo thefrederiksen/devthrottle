@@ -146,14 +146,16 @@ public sealed class MailDeskService
             return MailDeskScreeningRun.Failed(broken);
 
         // THE FILING RESULTS (phase 4, sections 2.2 and 2.3), written before any email is screened: every result must
-        // name a decision of its channel, or the report is not trusted at all. They are written whether or not the
-        // memory is kept, because the moves were made; a result for a decision already holding an outcome is ignored.
+        // name a decision of its channel, or the report is not trusted at all and NONE of its results is written - a
+        // move it did make is then retried from the kept queue next run and comes back already-gone (review of 4274,
+        // the observation). A trusted report's results are written whether or not the memory is kept, because the moves
+        // were made; a result for a decision already holding an outcome is ignored.
         if (FilingRefusal(tenant, sections) is { } unknown)
         {
             FileLog.Write($"[MailDeskService] ScreenAsync: account={tenant.ToLogString()}, machine={machine}: {unknown}");
             return MailDeskScreeningRun.Failed(unknown);
         }
-        var filed = RecordFiling(tenant, sections);
+        var filed = RecordFiling(tenant, sections, now);
 
         var rules = _rules.Newest(tenant);
         var settings = _settings.Read(tenant);
@@ -251,16 +253,31 @@ public sealed class MailDeskService
         }
 
         // THE FILING QUEUE (phase 4, section 2.1): a handed mailbox whose check fields move on, still live, queues every
-        // live archive and junk decision it holds that has no outcome yet.
+        // live archive and junk decision it holds that has no outcome yet and whose key is in the key table the check
+        // returned. One whose key is not there waits for the run that rereads it - unless the check's cursor has
+        // already read past its receive time, when it will never come back (moved or deleted before the reread, or its
+        // key pruned while the channel was in observe mode): it ends failed, saying so (review of 4274, finding 1).
         var toQueue = new Dictionary<Guid, IReadOnlyList<MailDeskFilingItem>>();
+        var ended = 0;
+        var waiting = 0;
         foreach (var section in sections)
         {
             if (section.Failure is not null || writtenBack.Contains(section.ChannelId)
                 || byId[section.ChannelId].Mode != MailDeskWords.Modes.Live)
                 continue;
-            toQueue[section.ChannelId] = _decisions.AwaitingFiling(tenant, section.ChannelId)
-                .Select(d => new MailDeskFilingItem(d.MessageKey, d.Decision))
-                .ToList();
+            var seen = MailDeskMemory.Seen(returnedMemory, section.ChannelId);
+            var items = new List<MailDeskFilingItem>();
+            foreach (var d in _decisions.AwaitingFiling(tenant, section.ChannelId))
+            {
+                if (seen.Keys.Contains(d.MessageKey))
+                    items.Add(new MailDeskFilingItem(d.MessageKey, d.Decision));
+                else if (seen.CursorNewestUtc is { } newest && newest > DateTime.SpecifyKind(d.ReceivedUtc, DateTimeKind.Utc)
+                         && _decisions.RecordFiling(tenant, section.ChannelId, d.MessageKey, MailDeskWords.Outcomes.Failed, NotSeenAgain, now) == MailDeskFilingWrite.Written)
+                    ended++;
+                else
+                    waiting++;
+            }
+            toQueue[section.ChannelId] = items;
         }
 
         var merged = MailDeskMemory.Merge(keptMemory, returnedMemory, handedIds, writtenBack, all, now, toQueue);
@@ -268,9 +285,9 @@ public sealed class MailDeskService
         var summary = $"{sum.Decided} decided, {sum.AlreadyDecided} already decided, {sum.ModelFailed} to read again, " +
                       $"{sum.KeptAfterFailures} kept after 3 failures, {sum.SpendStopped} stopped by the spend limit, " +
                       $"{checks.Count(c => !c.Ok)} of {checks.Count} mailboxes failing";
-        if (filed.Total > 0 || toQueue.Values.Any(q => q.Count > 0))
+        if (filed.Total > 0 || toQueue.Values.Any(q => q.Count > 0) || ended > 0 || waiting > 0)
             summary += $"; filing: {filed.Filed} filed, {filed.AlreadyGone} already gone, {filed.Failed} refused, {filed.Ignored} already settled, " +
-                       $"{toQueue.Values.Sum(q => q.Count)} waiting to be filed";
+                       $"{toQueue.Values.Sum(q => q.Count)} in the queue, {waiting} waiting to be read again, {ended} not seen again";
         FileLog.Write($"[MailDeskService] ScreenAsync: account={tenant.ToLogString()}, machine={machine}, rules v{rules.Version}: {summary}; memory {(merged.Refusal is null ? "kept" : "NOT kept")}");
         return merged.Refusal is { } refused
             ? new MailDeskScreeningRun(TriggerRunOutcome.Failed, refused, null, checks)
@@ -305,7 +322,7 @@ public sealed class MailDeskService
     }
 
     /// <summary>Write each filing result on its decision (phase 4 contract, section 2.3).</summary>
-    private FilingTally RecordFiling(TenantId tenant, IReadOnlyList<MailDeskReport.Section> sections)
+    private FilingTally RecordFiling(TenantId tenant, IReadOnlyList<MailDeskReport.Section> sections, DateTime nowUtc)
     {
         var tally = new FilingTally();
         foreach (var section in sections)
@@ -316,7 +333,7 @@ public sealed class MailDeskService
                 if (!string.Equals(decision.Decision, result.Decision, StringComparison.Ordinal))
                     FileLog.Write($"[MailDeskService] RecordFiling: decision {decision.Id} is {decision.Decision} but was filed as '{result.Decision}'; the decision row's word is used");
                 var (outcome, detail) = FilingOutcome(decision.Decision, result);
-                var write = _decisions.RecordFiling(tenant, section.ChannelId, result.MessageKey, outcome, detail);
+                var write = _decisions.RecordFiling(tenant, section.ChannelId, result.MessageKey, outcome, detail, nowUtc);
                 if (write != MailDeskFilingWrite.Written) { tally.Ignored++; continue; }
                 switch (outcome)
                 {
@@ -344,6 +361,10 @@ public sealed class MailDeskService
 
     /// <summary>The detail of an email moved to Junk Email.</summary>
     public const string MovedToJunk = "moved to Junk Email";
+
+    /// <summary>The detail of a live archive or junk the check read past without reporting it again, so it can never be
+    /// queued (review of 4274, finding 1).</summary>
+    public const string NotSeenAgain = "the email was not seen again to file it: the screening check read past it and no longer knows it (moved or deleted before it was read again, or read too long ago)";
 
     /// <summary>The detail of an email that was gone when its move was tried.</summary>
     public const string AlreadyGoneDetail = "not in the Inbox any more when the move was tried (moved or deleted before)";

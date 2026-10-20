@@ -186,6 +186,11 @@ public sealed class MailDeskDecisionEntity : GatewayMintedKeyEntity
     /// <summary>More about what was done, when there is more to say (the failure's sentence, the session started).</summary>
     public string? OutcomeDetail { get; set; }
 
+    /// <summary>When the outcome was written (UTC): when the check reported the move, for filing (phase 4, section
+    /// 2.3) - what the 08:00 email counts by, because filing lands a run after the decision. Null while there is no
+    /// outcome.</summary>
+    public DateTime? OutcomeUtc { get; set; }
+
     /// <summary>When the Mail Desk decided (UTC).</summary>
     public DateTime DecidedUtc { get; set; }
 

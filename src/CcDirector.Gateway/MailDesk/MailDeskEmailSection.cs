@@ -82,7 +82,7 @@ public sealed class MailDeskEmailFold
 
         var decided = _decisions.DecidedBetween(tenant, fromUtc, toUtc);
         var changes = _rules.ChangesBetween(tenant, fromUtc, toUtc);
-        var section = Fold(every, decided, changes, _spendOf(tenant), zone);
+        var section = Fold(every, decided, changes, _spendOf(tenant), zone, _decisions.FiledBetween(tenant, fromUtc, toUtc));
         FileLog.Write($"[MailDeskEmailFold] Section: tenant={tenant.ToLogString()}, mailboxes={section.Mailboxes.Count}, decided={section.Total.Total}, junked={section.Junked.Count}, changes={section.Changes.Count}");
         return section;
     }
@@ -90,11 +90,14 @@ public sealed class MailDeskEmailFold
     /// <summary>
     /// The pure fold of the section from its facts. <paramref name="channels"/> holds every channel of the account,
     /// removed ones too: a removed mailbox is counted when it decided an email in the window, and its emails are named
-    /// by its address. It must hold at least one active channel.
+    /// by its address. It must hold at least one active channel. <paramref name="filed"/> holds the decisions filed in
+    /// the window, whenever they were decided; none when null.
     /// </summary>
     public static MailDeskEmailSection Fold(IReadOnlyList<MailDeskChannelEntity> channels, IReadOnlyList<MailDeskDecisionEntity> decided,
-        IReadOnlyList<MailDeskListChangeEntity> changes, MailDeskSpend spend, TimeZoneInfo zone)
+        IReadOnlyList<MailDeskListChangeEntity> changes, MailDeskSpend spend, TimeZoneInfo zone,
+        IReadOnlyList<MailDeskDecisionEntity>? filed = null)
     {
+        filed ??= Array.Empty<MailDeskDecisionEntity>();
         ArgumentNullException.ThrowIfNull(channels);
         ArgumentNullException.ThrowIfNull(decided);
         ArgumentNullException.ThrowIfNull(changes);
@@ -116,7 +119,7 @@ public sealed class MailDeskEmailFold
             .Select(c => new MailDeskEmailMailbox(
                 c.RemovedUtc is null ? c.Address : $"{c.Address} (removed)",
                 Counts(MailDeskDecisionCounts.From(decided.Where(d => d.ChannelId == c.Id).Select(d => (d.Decision, 1)))),
-                c.Mode == MailDeskWords.Modes.Live ? FiledLine(decided.Where(d => d.ChannelId == c.Id).ToList()) : null))
+                c.Mode == MailDeskWords.Modes.Live ? FiledLine(filed.Where(d => d.ChannelId == c.Id).ToList()) : null))
             .ToList();
         var total = MailDeskDecisionCounts.From(decided.Select(d => (d.Decision, 1)));
 
@@ -156,11 +159,12 @@ public sealed class MailDeskEmailFold
 
     /// <summary>
     /// A live mailbox's filing in the window (phase 4 contract, section 2.3): "Moved to Archive 3 - moved to Junk Email
-    /// 1", counting the emails decided in the window that have been filed. An email gone before its move is not counted.
+    /// 1", counting the emails FILED in the window, by the time they were filed - so an email decided just before one
+    /// window closes and moved just after is counted once, in the next. An email gone before its move is not counted.
     /// </summary>
-    internal static string FiledLine(IReadOnlyList<MailDeskDecisionEntity> decidedOnTheMailbox)
+    internal static string FiledLine(IReadOnlyList<MailDeskDecisionEntity> filedOnTheMailbox)
     {
-        int Moved(string decision) => decidedOnTheMailbox.Count(d => d.Decision == decision && d.Outcome == MailDeskWords.Outcomes.Filed);
+        int Moved(string decision) => filedOnTheMailbox.Count(d => d.Decision == decision && d.Outcome == MailDeskWords.Outcomes.Filed);
         return $"Moved to Archive {Moved(MailDeskWords.Decisions.Archive).ToString(CultureInfo.InvariantCulture)} - " +
                $"moved to Junk Email {Moved(MailDeskWords.Decisions.Junk).ToString(CultureInfo.InvariantCulture)}";
     }
