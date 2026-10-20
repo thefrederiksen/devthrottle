@@ -41,6 +41,16 @@ public sealed class MailDeskRouter
     /// may be, so the same reader takes it.</summary>
     public const int MaxContextBytes = 7168;
 
+    /// <summary>
+    /// How long a routed session the Gateway cannot see at all still counts as running (contract 3.2 step 3; review of
+    /// 4275, finding 1). A session is ENDED only on evidence - a row saying it exited or crashed. Its absence alone
+    /// proves nothing: after a Gateway restart, or while its Director is away and a backup holds the claim, a live
+    /// session is invisible, and re-routing it would put two sessions on one email. So absence counts as ended only
+    /// this long after the start - long enough to outlast a restart or a backup takeover, short enough that an email
+    /// whose Director died with it is still never lost.
+    /// </summary>
+    public static readonly TimeSpan UnseenSessionEndsAfter = TimeSpan.FromHours(24);
+
     /// <summary>The <c>kind</c> of the check.json context of a routed session.</summary>
     public const string ContextKind = "mail-desk-routed";
 
@@ -306,9 +316,8 @@ public sealed class MailDeskRouter
     }
 
     /// <summary>
-    /// A BUSY SEAT (section 1): a start of the seat whose outcome is not known yet, inside the start grace; or the
-    /// newest session the Mail Desk started for it is alive - the session list has it and it has not ended, or the
-    /// list does not have it yet and the start is inside the grace.
+    /// A BUSY SEAT (section 1): a start of the seat whose outcome is not known yet, inside the start grace (3.4); or the
+    /// newest session the Mail Desk started for it has not ended (<see cref="IsAlive"/>).
     /// </summary>
     private bool IsSeatBusy(TenantId tenant, string factory, string seat)
     {
@@ -321,13 +330,17 @@ public sealed class MailDeskRouter
         return newest is not null && IsAlive(tenant, newest.SessionId!, Utc(newest.StartedUtc!.Value));
     }
 
-    /// <summary>Alive when the session list has it and it has not ended; a session the list does not have is alive
-    /// only inside the start grace of its start, as <see cref="TriggerService.IsLastSessionAlive"/> reads it.</summary>
+    /// <summary>Not ended: the session list has it and it has not exited or crashed; or the list does not have it and
+    /// its start is less than <see cref="UnseenSessionEndsAfter"/> ago. Unlike <see cref="TriggerService.IsLastSessionAlive"/>,
+    /// which reads absence after the start grace as ended, because here a wrong "ended" puts two seats on one email.</summary>
     private bool IsAlive(TenantId tenant, string sessionId, DateTime startedUtc)
     {
         var row = _findSession(tenant, sessionId);
         if (row is not null) return !FleetManagerSessions.IsGone(row);
-        return _nowUtc() - startedUtc < TriggerService.StartGrace;
+        var alive = _nowUtc() - startedUtc < UnseenSessionEndsAfter;
+        if (!alive)
+            FileLog.Write($"[MailDeskRouter] IsAlive: session {sessionId} has not been seen in the {UnseenSessionEndsAfter.TotalHours:0} hours since its start; it counts as ended");
+        return alive;
     }
 
     // ---------- what the session is given ----------

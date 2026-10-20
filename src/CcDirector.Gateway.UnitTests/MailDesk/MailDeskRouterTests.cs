@@ -263,26 +263,58 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
         Assert.Single(_rig.Rows().Where(r => r.State == MailDeskWords.RoutedStates.Open).Select(r => r.SessionId).Distinct());
     }
 
-    [Fact]
-    public async Task RouteAsync_SessionNotYetReportedInsideTheGrace_KeepsTheSeatBusy()
+    // REVIEW OF 4275, FINDING 1 (contract 3.2 step 3, as ruled): a session the Gateway cannot see is not ended by its
+    // absence. After a restart a live session is invisible; only a row saying it ended, or 24 hours unseen, ends it.
+    [Theory]
+    [InlineData(6)]           // just past the start grace
+    [InlineData(23 * 60)]     // just inside the 24 hours
+    public async Task RouteAsync_SessionUnseenAfterARestart_IsNeitherReroutedNorFreedBefore24Hours(int minutes)
     {
-        // Arrange: a session started, which no Director has reported yet.
+        // Arrange: qa-books/clerk has a session holding one email; the Gateway restarts and nobody reports it.
         _rig.AddMailDeskTrigger();
         var channel = _rig.Channel(BoxA);
-        _rig.Decide(channel, "k-1", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 30);
+        var held = _rig.Decide(channel, "k-1", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 30);
         await _rig.RouteAsync();
+        var session = _rig.Row(held.Id).SessionId!;
+        _rig.SessionIs(session, alive: true);
+        _rig.RestartGateway();
         _rig.Decide(channel, "k-2", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 20);
 
-        // Act: inside the grace, the seat is busy; after it, the unreported session counts as ended.
-        _rig.Now = _rig.Now.Add(TriggerService.StartGrace).AddSeconds(-1);
-        await _rig.RouteAsync();
-        var inside = _rig.Starts.Count;
-        _rig.Now = _rig.Now.AddSeconds(2);
-        await _rig.RouteAsync();
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(minutes);
+        var run = await _rig.RouteAsync();
 
-        // Assert
-        Assert.Equal(1, inside);
+        // Assert: the held email stays with its session, and the new one waits - no second session for the seat.
+        Assert.Equal((0, 0), (run.Rerouted, run.ToOwner));
+        var row = _rig.Row(held.Id);
+        Assert.Equal((session, 0, MailDeskWords.RoutedStates.Open), (row.SessionId, row.RerouteCount, row.State));
+        Assert.Single(_rig.Starts);
+        Assert.Equal(1, run.Waiting);
+    }
+
+    [Fact]
+    public async Task RouteAsync_SessionUnseenFor24Hours_CountsAsEnded_IsReroutedAndTheSeatIsFree()
+    {
+        // Arrange
+        _rig.AddMailDeskTrigger();
+        var channel = _rig.Channel(BoxA);
+        var held = _rig.Decide(channel, "k-1", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 30);
+        await _rig.RouteAsync();
+        var session = _rig.Row(held.Id).SessionId!;
+        _rig.RestartGateway();
+        _rig.Decide(channel, "k-2", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 20);
+
+        // Act
+        _rig.Now = _rig.Now.Add(MailDeskRouter.UnseenSessionEndsAfter);
+        var run = await _rig.RouteAsync();
+
+        // Assert: re-routed once, and one new session takes both emails.
+        Assert.Equal(1, run.Rerouted);
         Assert.Equal(2, _rig.Starts.Count);
+        Assert.Equal(2, _rig.Starts[1].Request.FactoryCheck!.Count);
+        var row = _rig.Row(held.Id);
+        Assert.Equal(1, row.RerouteCount);
+        Assert.NotEqual(session, row.SessionId);
     }
 
     // ---------- 5. mail-desk-agent goes to the channel's own seat ----------
@@ -475,6 +507,39 @@ public sealed class MailDeskRouterTests : IAsyncLifetime
         var row = _rig.Row(decision.Id);
         Assert.Equal("ffffffff-0000-4000-8000-000000000001", row.SessionId);
         Assert.Equal(MailDeskWords.Outcomes.SeatStarted, _rig.DecisionRow(decision.Id).Outcome);
+    }
+
+    // REVIEW OF 4275, FINDING 2 (contract 3.4): while a start of the seat has an unknown outcome inside the grace, the
+    // seat is busy for its NEW emails too - the Director may have made the session.
+    [Fact]
+    public async Task RouteAsync_NewEmailWhileAStartOfItsSeatHasAnUnknownOutcome_WaitsUntilTheGraceIsOver()
+    {
+        // Arrange: the start of qa-books/clerk for k-1 has an unknown outcome.
+        _rig.AddMailDeskTrigger();
+        var channel = _rig.Channel(BoxA);
+        _rig.Decide(channel, "k-1", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 30);
+        _rig.StartAnswer = _ => TriggerStartAttempt.Unknown("the Gateway stopped waiting");
+        await _rig.RouteAsync();
+        _rig.StartAnswer = _ => TriggerStartAttempt.Started(_rig.NextSessionId());
+
+        // Act: a new email for the same seat inside the grace.
+        var fresh = _rig.Decide(channel, "k-2", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 1);
+        _rig.Now = _rig.Now.Add(TriggerService.StartGrace).AddSeconds(-1);
+        var inside = await _rig.RouteAsync();
+
+        // Assert: no second start; the new email waits.
+        Assert.Single(_rig.Starts);
+        Assert.Equal(1, inside.Waiting);
+        Assert.Null(_rig.Row(fresh.Id).SessionId);
+
+        // Act: the grace ends with no session found - the start counts as failed, and one session takes both.
+        _rig.Now = _rig.Now.AddSeconds(1);
+        await _rig.RouteAsync();
+
+        // Assert
+        Assert.Equal(2, _rig.Starts.Count);
+        Assert.Equal(2, _rig.Starts[1].Request.FactoryCheck!.Count);
+        Assert.NotNull(_rig.Row(fresh.Id).SessionId);
     }
 
     [Fact]

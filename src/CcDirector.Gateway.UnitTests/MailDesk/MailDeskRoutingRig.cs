@@ -43,6 +43,7 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
 
     private readonly GatewayDbTestHarness _h = new();
     private int _sessionNumber;
+    private readonly Func<MailDeskRouter> _newRouter;
 
     public GatewayDatabase Db { get; }
     public MailDeskSwitch Switch { get; }
@@ -52,7 +53,7 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
     public MailDeskRoutedStore Routed { get; }
     public TriggerStore TriggerStore { get; }
     public MailDeskService MailDesk { get; }
-    public MailDeskRouter Router { get; }
+    public MailDeskRouter Router { get; private set; }
     public TriggerService Triggers { get; }
     public ScriptedMailDeskModel Model { get; } = new();
     public DateTime Now { get; set; } = new(2026, 10, 19, 9, 0, 0, DateTimeKind.Utc);
@@ -101,8 +102,9 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
         SessionDto? FindByName(TenantId _, string name) => Sessions.Values.FirstOrDefault(s => s.Name == name);
         PublishedFactoryDefinition? DefinitionOf(TenantId _, string factory) => Published.GetValueOrDefault(factory);
 
-        Router = new MailDeskRouter(Routed, Channels, Decisions, starter, Find, FindByName, DefinitionOf,
+        _newRouter = () => new MailDeskRouter(Routed, Channels, Decisions, starter, Find, FindByName, DefinitionOf,
             _ => TimeZoneInfo.Utc, () => Now, CancellationToken.None);
+        Router = _newRouter();
         Triggers = new TriggerService(TriggerStore, new FactoryActivityRecord(Db),
             starter, findSession: Find, findSessionByName: (_, _) => null, timeZone: _ => TimeZoneInfo.Utc,
             nowUtc: () => Now, startLifetime: CancellationToken.None,
@@ -223,6 +225,16 @@ internal sealed class MailDeskRoutingRig : IAsyncDisposable
             MachineName = MachineA,
             ActivityState = alive ? "Working" : "Exited",
         };
+
+    /// <summary>
+    /// A GATEWAY RESTART, as the router sees it: a new router over the same database, and a session list that starts
+    /// empty - every Director's sessions are unseen until it reconnects and sends its snapshot.
+    /// </summary>
+    public void RestartGateway()
+    {
+        Sessions.Clear();
+        Router = _newRouter();
+    }
 
     // ---------- running ----------
 
