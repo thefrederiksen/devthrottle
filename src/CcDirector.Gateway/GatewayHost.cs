@@ -301,6 +301,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// decides one on its count.</summary>
     internal MailDesk.MailDeskService MailDeskScreening { get; }
 
+    /// <summary>The emails routed to seats in live mode (Mail Desk phase 4): every write to <c>mail_desk_routed</c>.</summary>
+    internal MailDesk.MailDeskRoutedStore MailDeskRouted { get; }
+
     /// <summary>The Mail Desk template's offer as a draft (phase 3, section 10): called when the administrator route
     /// turns an account's switch on, and at Gateway start for every account whose switch is on. Made when the routes
     /// are mapped, because it checks a draft with the account's skills and machines as the definition routes do.</summary>
@@ -2830,32 +2833,50 @@ public sealed class GatewayHost : IAsyncDisposable
         // The factory triggers (Website Business Factory, product track). A trigger's session starts through the
         // SAME single resolve-then-create method a schedule's does, stamped with its own origin surface; whether
         // its last session is still alive is read from the same session list the roster serves.
+        Factory.Triggers.TriggerSessionStarter triggerStarter = async (machine, request, ct) =>
+        {
+            var r = await _machineSessionSpawner.SpawnOnMachineWithOutcomeAsync(machine, request, ct);
+            if (r.Ok && r.Dto is not null) return Factory.Triggers.TriggerStartAttempt.Started(r.Dto.SessionId);
+            var error = r.Error ?? "the machine did not return a session";
+            return r.OutcomeUnknown
+                ? Factory.Triggers.TriggerStartAttempt.Unknown(error)
+                : Factory.Triggers.TriggerStartAttempt.Failed(error);
+        };
+        Func<TenantId, string, SessionDto?> findSession = (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid);
+        Func<TenantId, TimeZoneInfo> zoneOf = tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant));
+        Func<TenantId, string, Factory.Definition.PublishedFactoryDefinition?> definitionOf =
+            (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory);
+        // Mail Desk phase 4: live mail routed to seats, started through the trigger's own starter, session list and
+        // published definitions, and the same lookup by name for a start whose outcome was not known.
+        MailDeskRouted = new MailDesk.MailDeskRoutedStore(_gatewayDb);
+        var mailDeskRouter = new MailDesk.MailDeskRouter(MailDeskRouted, MailDeskChannels, MailDeskDecisions,
+            triggerStarter,
+            findSession,
+            findSessionByName: (tenant, name) => GatewayEndpoints.LastKnownTriggerSessionByName(Registry, PushedSessions, tenant, name),
+            definitionOf,
+            zoneOf,
+            nowUtc: () => DateTime.UtcNow,
+            startLifetime: _triggerStartLifetime.Token);
         Triggers = new Factory.Triggers.TriggerService(
             triggerStore,
             FactoryActivity,
-            async (machine, request, ct) =>
-            {
-                var r = await _machineSessionSpawner.SpawnOnMachineWithOutcomeAsync(machine, request, ct);
-                if (r.Ok && r.Dto is not null) return Factory.Triggers.TriggerStartAttempt.Started(r.Dto.SessionId);
-                var error = r.Error ?? "the machine did not return a session";
-                return r.OutcomeUnknown
-                    ? Factory.Triggers.TriggerStartAttempt.Unknown(error)
-                    : Factory.Triggers.TriggerStartAttempt.Failed(error);
-            },
-            findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            triggerStarter,
+            findSession: findSession,
             findSessionByName: (tenant, name) =>
                 GatewayEndpoints.LastKnownTriggerSessionByName(Registry, PushedSessions, tenant, name),
-            timeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+            timeZone: zoneOf,
             nowUtc: () => DateTime.UtcNow,
             startLifetime: _triggerStartLifetime.Token,
             directorRunsDefinitionChecks: _definitionCheckCapabilities.RunsDefinitionChecks,
             machineRunsDefinitionChecks: MachineRunsDefinitionChecks,
             // Phase 5b, brief D item 8: a definition trigger's session is a seat start built from the published version.
-            definitionOf: (tenant, factory) => Factory.Definition.FactorySeatStart.ReadPublished(FactoryDefinitions, tenant, factory),
+            definitionOf: definitionOf,
             // Mail Desk phase 1: a Mail Desk screening check of an account Mail Desk is off for is refused, unrecorded.
             mailDeskOn: MailDeskSwitch.IsOn,
             // Mail Desk phase 3: every Mail Desk report is handed to the screening, never decided on its count.
-            mailDesk: MailDeskScreening);
+            mailDesk: MailDeskScreening,
+            // Mail Desk phase 4: after a screened run, live mail is routed to its seats.
+            mailDeskRouter: mailDeskRouter);
         // A timed start's due check (phase 5b): handed out and reported through the same Director routes as a
         // trigger's, decided here, its session started through the schedule's own starter.
         DueChecks = new Factory.Triggers.DueCheckService(

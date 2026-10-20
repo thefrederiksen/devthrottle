@@ -1068,7 +1068,11 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.SessionId).HasMaxLength(64);
             b.Property(e => e.State).HasMaxLength(16);
             b.Property(e => e.ReturnNote).HasMaxLength(4000);
-            b.HasIndex(e => new { e.TenantId, e.DecisionId });
+            b.Property(e => e.StartName).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskRoutedStore.MaxStartNameLength);
+            b.Property(e => e.OwnerReason).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskRoutedStore.MaxNoteLength);
+            b.Property(e => e.DoneNote).HasMaxLength(CcDirector.Gateway.MailDesk.MailDeskRoutedStore.MaxNoteLength);
+            // ONE ROUTED ROW PER DECISION (phase 4, section 3.1): two routers racing cannot route one email twice.
+            b.HasIndex(e => new { e.TenantId, e.DecisionId }).IsUnique();
             b.HasIndex(e => new { e.TenantId, e.State });
         });
 
