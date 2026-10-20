@@ -24,11 +24,11 @@ slot 6 or higher; stop it with its own named shutdown signal.
 This machine has no C++ build tools, so do NOT build the native evaluator or the Director here. GitHub's
 `windows-latest` runner built both from the branch `mission/session-rules-hooks-p1-windows`:
 
-- run id: RUN_ID
-- artifact `cc-rule-hook-win-x64`: `cc-rule-hook.exe`, SHA-256 HOOK_SHA
-- artifact `cc-director-win-x64-session-rules`: `cc-director.exe` with the hook embedded, SHA-256 DIRECTOR_SHA
+- run id: 39421736490
+- artifact `cc-rule-hook-win-x64`: `cc-rule-hook.exe`, SHA-256 B859F729889BB6FB40AB214EB16DC8D6D466F564C78C598C8E7291125788758A
+- artifact `cc-director-win-x64-session-rules`: `cc-director.exe` with the hook embedded, SHA-256 66B472996227A17C68B027829730ED6D7C0178D6076E8FB248FC6A152B9F4041
 
-Download them with `gh run download RUN_ID --repo thefrederiksen/devthrottle --dir <a folder in your
+Download them with `gh run download 39421736490 --repo thefrederiksen/devthrottle --dir <a folder in your
 worktree's scripts\local-build-downloads>`, and check both SHA-256 values before you use either. Copy the
 Director to `<worktree>\scripts\local-build\cc-director6.exe` (slot 6) and point the `cc-director-launch`
 task at it, with the working directory set. The Gateway is managed code only and needs no C++ tools: build
@@ -59,7 +59,7 @@ it from your worktree.
    path that does not exist (or Git Bash otherwise hidden from Claude Code - say which), confirm the session
    uses the `PowerShell` shell tool, run a command, and prove the hook RAN and did not block: a `no_match` or
    `would_deny` line in the evaluation log tied to that call id, and the command's output on screen. Do this
-   with the build that carries the exec-form fix; the Tech Lead will name it.
+   with the build that carries the exec-form fix; run 39421736490 above carries it (commit 6b265dd73).
 
 Anything that fails on Windows is a finding: fix it on your branch with a test written first, and say what
 you changed.
