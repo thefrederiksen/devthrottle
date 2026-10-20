@@ -74,7 +74,7 @@ public sealed class RulesPageFoldTests : IDisposable
         Record(store, Decision(firedByAgent.Id, Now.AddHours(-1)));
 
         // Act
-        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(store), Copenhagen, Now);
+        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(store, Now), Copenhagen, Now);
 
         // Assert
         Assert.Equal("Tuesday 20 October", page.Today);
@@ -98,7 +98,7 @@ public sealed class RulesPageFoldTests : IDisposable
             Decision(rule.Id, new DateTime(2026, 10, 20, 5, 42, 0, DateTimeKind.Utc)));
 
         // Act
-        var item = Assert.Single(RulesPageFold.Page(SessionRuleWire.ReadPageSource(store), Copenhagen, Now).Rules);
+        var item = Assert.Single(RulesPageFold.Page(SessionRuleWire.ReadPageSource(store, Now), Copenhagen, Now).Rules);
 
         // Assert
         Assert.Equal("Never run rm -rf in this repository.", item.Sentence);
@@ -119,7 +119,7 @@ public sealed class RulesPageFoldTests : IDisposable
         var store = new SessionRuleStore(Db);
         var rule = Hook(store, "Never run rm -rf.", RuleAppliesTo.Everywhere, HookRuleWords.Deny, new[] { "rm -rf" });
         Record(store, Decision(rule.Id, new DateTime(2026, 10, 19, 23, 30, 0, DateTimeKind.Utc)));
-        var source = SessionRuleWire.ReadPageSource(store);
+        var source = SessionRuleWire.ReadPageSource(store, Now);
 
         // Act
         var inCopenhagen = RulesPageFold.Page(source, Copenhagen, Now);
@@ -144,21 +144,83 @@ public sealed class RulesPageFoldTests : IDisposable
             AnActor.Session(AgentSession, "claude_code"), new DateTime(2026, 10, 20, 5, 15, 0, DateTimeKind.Utc));
 
         // Act
-        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(store), Copenhagen, Now);
+        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(store, Now), Copenhagen, Now);
 
         // Assert
         Assert.DoesNotContain("changed_by_agents", page.Rules.Single(r => r.Id == byPerson.Id).Tabs);
         Assert.Equal("", page.Rules.Single(r => r.Id == byPerson.Id).ChangedLabel);
         Assert.Contains("changed_by_agents", page.Rules.Single(r => r.Id == byAgent.Id).Tabs);
-        Assert.Equal($"Changed by Session {AgentSession} (claude_code) at 07:15", page.Rules.Single(r => r.Id == byAgent.Id).ChangedLabel);
+        Assert.Equal($"Created by session {AgentSession} (claude_code) at 07:15", page.Rules.Single(r => r.Id == byAgent.Id).ChangedLabel);
         Assert.Equal(1, page.Tabs.Single(t => t.Id == "changed_by_agents").Count);
+    }
+
+    [Fact]
+    public void Page_ScreenRuleChangedByAnAgentAfterAPersonCreatedIt_SaysChangedByThatSession()
+    {
+        // Arrange
+        var store = new SessionRuleStore(Db);
+        var rule = Screen(store);
+        store.Change(rule.Id,
+            r => new SessionRuleDraft(r.Instruction, r.ScreenDescription, r.TriggerWords, r.Calls, r.Scope, r.CooldownSeconds, 9),
+            new DateTime(2026, 10, 19, 9, 15, 0, DateTimeKind.Utc), AnActor.Session(AgentSession, "codex"), out _);
+
+        // Act
+        var item = Assert.Single(RulesPageFold.Page(SessionRuleWire.ReadPageSource(store, Now), Copenhagen, Now).Rules);
+
+        // Assert
+        Assert.Equal($"Changed by session {AgentSession} (codex) yesterday at 11:15", item.ChangedLabel);
+        Assert.Contains("changed_by_agents", item.Tabs);
+    }
+
+    [Fact]
+    public void Page_FiringsTodayAndBeforeTheWindow_TheTallyCountsTodayAndTheTotalWithoutLoadingRows()
+    {
+        // Arrange - one firing two days ago (outside the 26 hour window), two today.
+        var store = new SessionRuleStore(Db);
+        var rule = Hook(store, "Never run rm -rf.", RuleAppliesTo.Everywhere, HookRuleWords.Deny, new[] { "rm -rf" });
+        Record(store,
+            Decision(rule.Id, new DateTime(2026, 10, 18, 12, 0, 0, DateTimeKind.Utc)),
+            Decision(rule.Id, new DateTime(2026, 10, 20, 4, 0, 0, DateTimeKind.Utc)),
+            Decision(rule.Id, new DateTime(2026, 10, 20, 5, 30, 0, DateTimeKind.Utc)));
+
+        // Act
+        var source = SessionRuleWire.ReadPageSource(store, Now);
+        var item = Assert.Single(RulesPageFold.Page(source, Copenhagen, Now).Rules);
+
+        // Assert
+        var tally = source.Tallies[rule.Id];
+        Assert.Equal(3, tally.Total);
+        Assert.Equal(2, tally.RecentUtc.Count);
+        Assert.Equal(new DateTime(2026, 10, 20, 5, 30, 0, DateTimeKind.Utc), tally.NewestUtc);
+        Assert.Equal("Fired 2 times today, last at 07:30", item.FiredLabel);
+    }
+
+    [Fact]
+    public void Page_PreviewSuggestions_AreTheSameListsAsThePreviews()
+    {
+        // Arrange
+        var store = new SessionRuleStore(Db);
+        var rule = Hook(store, "Never.", RuleAppliesTo.InRepoOnMachines("github.com/acme/other", new[] { "SOREN_NORTH" }),
+            HookRuleWords.Deny, new[] { "x" });
+        Record(store, Decision(rule.Id, Now.AddMinutes(-1)));
+        var source = SessionRuleWire.ReadPageSource(store, Now);
+
+        // Act
+        var page = RulesPageFold.Page(source, Copenhagen, Now);
+        var preview = RulesPageFold.Preview(source, "devlinux", "", null);
+
+        // Assert
+        Assert.Equal(new[] { "devlinux", "SOREN_NORTH" }, page.PreviewSuggestions.Machines);
+        Assert.Equal(new[] { "github.com/acme/other", Repo }, page.PreviewSuggestions.Repos);
+        Assert.Equal(preview.Suggestions.Machines, page.PreviewSuggestions.Machines);
+        Assert.Equal(preview.Suggestions.Repos, page.PreviewSuggestions.Repos);
     }
 
     [Fact]
     public void Page_NoRules_EveryTabIsEmptyAndSessionStartSaysItIsNotBuilt()
     {
         // Act
-        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(new SessionRuleStore(Db)), Copenhagen, Now);
+        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(new SessionRuleStore(Db), Now), Copenhagen, Now);
 
         // Assert
         Assert.Empty(page.Rules);
@@ -179,7 +241,7 @@ public sealed class RulesPageFoldTests : IDisposable
         store.Delete(gone.Id, Now, AnActor.Session(AgentSession));
 
         // Act
-        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(store), Copenhagen, Now);
+        var page = RulesPageFold.Page(SessionRuleWire.ReadPageSource(store, Now), Copenhagen, Now);
 
         // Assert
         Assert.Empty(page.Rules);
@@ -196,7 +258,7 @@ public sealed class RulesPageFoldTests : IDisposable
         var rule = Hook(store, "Never run rm -rf.", RuleAppliesTo.Everywhere, HookRuleWords.Deny, new[] { "rm -rf" });
 
         // Act
-        var page = RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(store), rule.Id, Copenhagen, Now)!;
+        var page = RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(store, Now), rule.Id, store.FiringsFor(rule.Id), Copenhagen, Now)!;
 
         // Assert
         Assert.Equal("Never fired", page.Rule.FiredLabel);
@@ -228,13 +290,13 @@ public sealed class RulesPageFoldTests : IDisposable
         store.Delete(gone.Id, Now, AnActor.Owner);
 
         // Act
-        var firing = Assert.Single(RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(store), repo.Id, Copenhagen, Now)!.Firings);
+        var firing = Assert.Single(RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(store, Now), repo.Id, store.FiringsFor(repo.Id), Copenhagen, Now)!.Firings);
 
         // Assert
         Assert.Equal("Today at 07:42", firing.WhenLabel);
         Assert.Equal("Would have allowed", firing.DecisionLabel);
         Assert.Equal("allow", firing.Tone);
-        Assert.Equal($"Session {AgentSession} (claude_code)", firing.SessionLabel);
+        Assert.Equal($"session {AgentSession} (claude_code)", firing.SessionLabel);
         Assert.Equal("devlinux - github.com/acme/web", firing.WhereLabel);
         Assert.Equal("rm -rf build", firing.Subject);
         Assert.Equal("Overrode 2 rules", firing.OverrodeLabel);
@@ -248,7 +310,7 @@ public sealed class RulesPageFoldTests : IDisposable
     public void RulePageFor_UnknownRule_IsNull()
     {
         // Act
-        var page = RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(new SessionRuleStore(Db)), Guid.NewGuid(), Copenhagen, Now);
+        var page = RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(new SessionRuleStore(Db), Now), Guid.NewGuid(), Array.Empty<SessionRuleFiring>(), Copenhagen, Now);
 
         // Assert
         Assert.Null(page);
@@ -261,7 +323,7 @@ public sealed class RulesPageFoldTests : IDisposable
     {
         // Act
         var preview = RulesPageFold.Preview(
-            SessionRuleWire.ReadPageSource(new SessionRuleStore(Db)), "devlinux", "git@github.com:Acme/web.git", null);
+            SessionRuleWire.ReadPageSource(new SessionRuleStore(Db), Now), "devlinux", "git@github.com:Acme/web.git", null);
 
         // Assert
         Assert.Equal("devlinux", preview.Machine);
@@ -284,7 +346,7 @@ public sealed class RulesPageFoldTests : IDisposable
         var screen = Screen(store);
 
         // Act
-        var preview = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store), "devlinux", Repo, "");
+        var preview = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store, Now), "devlinux", Repo, "");
 
         // Assert
         Assert.Equal("3 rules reach devlinux in github.com/acme/web.", preview.Headline);
@@ -374,7 +436,7 @@ public sealed class RulesPageFoldTests : IDisposable
         var hook = RuleResolver.Decide(RuleResolver.Validate(file), command);
 
         // Act
-        var decision = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store), "devlinux", Repo, command).Decision!;
+        var decision = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store, Now), "devlinux", Repo, command).Decision!;
 
         // Assert
         Assert.Equal(command, decision.Command);
@@ -399,7 +461,7 @@ public sealed class RulesPageFoldTests : IDisposable
         var repo = Hook(store, "Allow rm -rf in this repo.", RuleAppliesTo.InRepo(Repo), HookRuleWords.Allow, new[] { "rm -rf" });
 
         // Act
-        var decision = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store), "devlinux", Repo, "rm -rf build").Decision!;
+        var decision = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store, Now), "devlinux", Repo, "rm -rf build").Decision!;
 
         // Assert
         Assert.Equal("Would allow", decision.VerdictLabel);
@@ -417,7 +479,7 @@ public sealed class RulesPageFoldTests : IDisposable
         Hook(store, "Never run rm -rf.", RuleAppliesTo.Everywhere, HookRuleWords.Deny, new[] { "rm -rf" });
 
         // Act
-        var decision = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store), "devlinux", "", "ls -la").Decision!;
+        var decision = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store, Now), "devlinux", "", "ls -la").Decision!;
 
         // Assert
         Assert.Equal("No rule matched this command", decision.VerdictLabel);
@@ -439,7 +501,7 @@ public sealed class RulesPageFoldTests : IDisposable
         Record(store, Decision(rule.Id, Now.AddMinutes(-1)));
 
         // Act
-        var suggestions = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store), "devlinux", "", null).Suggestions;
+        var suggestions = RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store, Now), "devlinux", "", null).Suggestions;
 
         // Assert
         Assert.Equal(new[] { "devlinux", "laptop", "SOREN_NORTH" }, suggestions.Machines);
@@ -451,7 +513,7 @@ public sealed class RulesPageFoldTests : IDisposable
     {
         // Act
         var ex = Assert.Throws<RuleRejectedException>(() =>
-            RulesPageFold.Preview(SessionRuleWire.ReadPageSource(new SessionRuleStore(Db)), " ", Repo, null));
+            RulesPageFold.Preview(SessionRuleWire.ReadPageSource(new SessionRuleStore(Db), Now), " ", Repo, null));
 
         // Assert
         Assert.Contains("machine", ex.Reason);

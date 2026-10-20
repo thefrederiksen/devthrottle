@@ -342,20 +342,22 @@ internal static class SessionRuleWire
     }
 
     /// <summary>
-    /// What the Rules page is folded from (Session Rules phase 3): every rule newest first, each rule's firings
-    /// newest first, and the whole change history newest first. Read here, outside the rules namespace, because
+    /// What the Rules page is folded from (Session Rules phase 3): every rule newest first, a tally of each rule's
+    /// firings with the times of the last <see cref="RulesPageFold.RecentWindow"/> only, the places firings name,
+    /// and the change history newest first. No firing row is loaded. Read here, outside the rules namespace, because
     /// the change history is only on the concrete store and nothing in that namespace may hold it.
     /// </summary>
-    internal static RulesPageSource ReadPageSource(SessionRuleStore store)
+    internal static RulesPageSource ReadPageSource(SessionRuleStore store, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(store);
         FileLog.Write("[SessionRuleWire] ReadPageSource: start");
         var rules = store.All();
-        var firings = rules.ToDictionary(r => r.Id, r => store.FiringsFor(r.Id));
+        var tallies = store.FiringTallies(RulesPageFold.RecentWindowStartUtc(nowUtc));
+        var places = store.FiringPlaces();
         var changes = store.History(null, null, null, int.MaxValue);
         FileLog.Write(
-            $"[SessionRuleWire] ReadPageSource: rules={rules.Count} firings={firings.Values.Sum(f => f.Count)} changes={changes.Count}");
-        return new RulesPageSource(rules, firings, changes);
+            $"[SessionRuleWire] ReadPageSource: rules={rules.Count} firing-tallies={tallies.Count} places={places.Count} changes={changes.Count}");
+        return new RulesPageSource(rules, tallies, places, changes);
     }
 
     /// <summary>The answer of POST /gateway/rules/hook-firings (wire contract W5).</summary>

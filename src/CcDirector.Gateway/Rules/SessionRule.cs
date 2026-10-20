@@ -199,3 +199,10 @@ public sealed record SessionRuleDraft(
     /// <summary>A hook rule's event, tool, handler, match text and result; null for every other kind.</summary>
     public HookRuleTrigger? Hook { get; init; }
 }
+
+/// <summary>How often one rule has fired, without its firings: how many in all, the newest, and the times of the
+/// recent ones only (<see cref="SessionRuleStore.FiringTallies"/>).</summary>
+public sealed record RuleFiringTally(int Total, DateTime NewestUtc, IReadOnlyList<DateTime> RecentUtc);
+
+/// <summary>A machine and repository a recorded firing names. Either may be empty (a screen firing names neither).</summary>
+public sealed record RuleFiringPlace(string Machine, string Repo);

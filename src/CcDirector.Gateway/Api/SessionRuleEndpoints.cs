@@ -221,7 +221,8 @@ internal static class SessionRuleEndpoints
             try
             {
                 var zone = RulesPageFold.ReadZone(tz);
-                return Results.Json(RulesPageFold.Page(SessionRuleWire.ReadPageSource(store), zone, DateTime.UtcNow));
+                var now = DateTime.UtcNow;
+                return Results.Json(RulesPageFold.Page(SessionRuleWire.ReadPageSource(store, now), zone, now));
             }
             catch (RuleRejectedException ex)
             {
@@ -236,7 +237,9 @@ internal static class SessionRuleEndpoints
             try
             {
                 var zone = RulesPageFold.ReadZone(tz);
-                var page = RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(store), id, zone, DateTime.UtcNow);
+                var now = DateTime.UtcNow;
+                // The rule's page shows its COMPLETE firing record; only the list is read as a tally.
+                var page = RulesPageFold.RulePageFor(SessionRuleWire.ReadPageSource(store, now), id, store.FiringsFor(id), zone, now);
                 return page is null ? NoSuchRule(id) : Results.Json(page);
             }
             catch (RuleRejectedException ex)
@@ -251,7 +254,7 @@ internal static class SessionRuleEndpoints
             FileLog.Write($"[SessionRuleEndpoints] GET /gateway/rules/preview: machine={machine} repo={repo}");
             try
             {
-                return Results.Json(RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store), machine, repo, command));
+                return Results.Json(RulesPageFold.Preview(SessionRuleWire.ReadPageSource(store, DateTime.UtcNow), machine, repo, command));
             }
             catch (RuleRejectedException ex)
             {

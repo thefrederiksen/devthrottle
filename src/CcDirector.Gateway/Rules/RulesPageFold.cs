@@ -24,7 +24,11 @@ public sealed record RulesPageRule(
     IReadOnlyList<string> Tabs);
 
 /// <summary>The whole Rules page (wire contract P1).</summary>
-public sealed record RulesPage(string Today, IReadOnlyList<RulesPageTab> Tabs, IReadOnlyList<RulesPageRule> Rules);
+public sealed record RulesPage(
+    string Today,
+    IReadOnlyList<RulesPageTab> Tabs,
+    IReadOnlyList<RulesPageRule> Rules,
+    RulesPreviewSuggestions PreviewSuggestions);
 
 /// <summary>One labelled line of a rule's page (wire contract P2).</summary>
 public sealed record RulePageField(string Label, string Value);
@@ -94,14 +98,17 @@ public sealed record RulesPreview(
     RulesPreviewSuggestions Suggestions);
 
 /// <summary>
-/// Everything the Rules page is folded from, read from the store once: every rule, every rule's firings and the
-/// whole change history. The fold reads only this, so it is tested without a database and without HTTP. It is
+/// Everything the Rules page is folded from, read from the store once: every rule, how often each has fired (a
+/// tally, never the firing rows), the machines and repositories the firings name, and the change history. One
+/// rule's firing record is read separately, for that rule's page only. The fold reads only this, so it is tested
+/// without HTTP. It is
 /// read from the store by <c>SessionRuleWire.ReadPageSource</c>, outside this namespace, because nothing in the
 /// rules namespace may hold the store that can promote (<c>RulesPromotionBoundaryGuardTests</c>).
 /// </summary>
 public sealed record RulesPageSource(
     IReadOnlyList<SessionRule> Rules,
-    IReadOnlyDictionary<Guid, IReadOnlyList<SessionRuleFiring>> FiringsByRule,
+    IReadOnlyDictionary<Guid, RuleFiringTally> Tallies,
+    IReadOnlyList<RuleFiringPlace> FiringPlaces,
     IReadOnlyList<SessionRuleChange> Changes);
 
 /// <summary>
@@ -157,6 +164,21 @@ public static class RulesPageFold
     private static readonly CultureInfo English = CultureInfo.InvariantCulture;
 
     /// <summary>
+    /// How far back the tally reads firing times. The viewer's "today" began at most 25 hours ago in elapsed time
+    /// (a day with a daylight saving change back is 25 hours long), whatever the zone, so 26 hours always holds it.
+    /// </summary>
+    public static readonly TimeSpan RecentWindow = TimeSpan.FromHours(26);
+
+    /// <summary>The earliest firing time the tally must read for "today" to be right in any zone at
+    /// <paramref name="nowUtc"/>.</summary>
+    public static DateTime RecentWindowStartUtc(DateTime nowUtc)
+    {
+        var start = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc) - RecentWindow;
+        FileLog.Write($"[RulesPageFold] RecentWindowStartUtc: now={nowUtc:O} start={start:O}");
+        return start;
+    }
+
+    /// <summary>
     /// The viewer's time zone, from the IANA name the client sent (ruling T3).
     /// </summary>
     /// <exception cref="RuleRejectedException">No zone was sent, or this Gateway does not know it.</exception>
@@ -195,7 +217,7 @@ public static class RulesPageFold
             Tab(FiredTodayTab, "Fired today", FiredTodayEmptyText),
             Tab(ChangedByAgentsTab, "Changed by agents", ChangedByAgentsEmptyText),
         };
-        var page = new RulesPage(today.ToString("dddd d MMMM", English), tabs, rules);
+        var page = new RulesPage(today.ToString("dddd d MMMM", English), tabs, rules, Suggestions(source));
         FileLog.Write(
             $"[RulesPageFold] Page: today={page.Today} counts={string.Join(",", tabs.Select(t => t.Id + "=" + t.Count))}");
         return page;
@@ -204,10 +226,15 @@ public static class RulesPageFold
             new(id, label, rules.Count(r => r.Tabs.Contains(id)), emptyText);
     }
 
-    /// <summary>One rule's page (wire contract P2), or null when the account has no rule with this id.</summary>
-    public static RulePage? RulePageFor(RulesPageSource source, Guid ruleId, TimeZoneInfo zone, DateTime nowUtc)
+    /// <summary>
+    /// One rule's page (wire contract P2), or null when the account has no rule with this id. Its firing record is
+    /// <paramref name="firings"/>, that rule's complete record, newest first.
+    /// </summary>
+    public static RulePage? RulePageFor(
+        RulesPageSource source, Guid ruleId, IReadOnlyList<SessionRuleFiring> firings, TimeZoneInfo zone, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(firings);
         ArgumentNullException.ThrowIfNull(zone);
         FileLog.Write($"[RulesPageFold] RulePageFor: rule={ruleId} zone={zone.Id}");
 
@@ -230,7 +257,9 @@ public static class RulesPageFold
             new("Promoted by", string.IsNullOrWhiteSpace(rule.PromotedBy) ? "Not promoted" : rule.PromotedBy),
             new("Created", WhenLabel(rule.CreatedUtc, zone, today)),
         };
-        var firings = FiringsOf(source, rule.Id)
+        var record = firings
+            .Where(f => f.RuleId == rule.Id)
+            .OrderByDescending(f => f.OccurredUtc)
             .Select(f => Firing(source, f, zone, today))
             .ToList();
         var changes = source.Changes
@@ -238,8 +267,8 @@ public static class RulesPageFold
             .Select(c => new RulePageChange(WhenLabel(c.OccurredUtc, zone, today), ActionLabel(c.Action), ByLabel(c)))
             .ToList();
 
-        FileLog.Write($"[RulesPageFold] RulePageFor: rule={ruleId} firings={firings.Count} changes={changes.Count}");
-        return new RulePage(item, fields, firings, FiringsEmptyText, changes, ChangesEmptyText);
+        FileLog.Write($"[RulesPageFold] RulePageFor: rule={ruleId} firings={record.Count} changes={changes.Count}");
+        return new RulePage(item, fields, record, FiringsEmptyText, changes, ChangesEmptyText);
     }
 
     /// <summary>
@@ -287,7 +316,7 @@ public static class RulesPageFold
     /// event and tool, different results, A wins the rank contest of ruling P3, and some match text of A contains
     /// some match text of B. Screen rules never override and are never overridden.
     /// </summary>
-    public static bool Overrides(SessionRule a, SessionRule b)
+    internal static bool Overrides(SessionRule a, SessionRule b)
     {
         ArgumentNullException.ThrowIfNull(a);
         ArgumentNullException.ThrowIfNull(b);
@@ -306,8 +335,8 @@ public static class RulesPageFold
 
     private static RulesPageRule ListItem(RulesPageSource source, SessionRule rule, TimeZoneInfo zone, DateOnly today)
     {
-        var firings = FiringsOf(source, rule.Id);
-        var firedToday = firings.Count(f => DayOf(f.OccurredUtc, zone) == today);
+        var tally = source.Tallies.TryGetValue(rule.Id, out var t) ? t : null;
+        var firedToday = tally?.RecentUtc.Count(at => DayOf(at, zone) == today) ?? 0;
         var lastBySession = source.Changes.FirstOrDefault(c => c.RuleId == rule.Id && !string.IsNullOrWhiteSpace(c.SessionId));
 
         var tabs = new List<string> { AllTab, KindTab(rule.Kind) };
@@ -323,20 +352,20 @@ public static class RulesPageFold
             ModeLabel(rule.State),
             rule.State == RuleState.Live ? LiveTone : NeutralTone,
             HandlerLabel(rule),
-            FiredLabel(firings, firedToday, zone, today),
+            FiredLabel(tally, firedToday, zone, today),
             lastBySession is null
                 ? ""
-                : $"Changed by {SessionLabel(lastBySession.SessionId!, lastBySession.Agent)} {AtLabel(lastBySession.OccurredUtc, zone, today)}",
+                : $"{ActionLabel(lastBySession.Action)} by {SessionLabel(lastBySession.SessionId!, lastBySession.Agent)} " +
+                  AtLabel(lastBySession.OccurredUtc, zone, today),
             tabs);
     }
 
-    private static string FiredLabel(IReadOnlyList<SessionRuleFiring> firings, int firedToday, TimeZoneInfo zone, DateOnly today)
+    private static string FiredLabel(RuleFiringTally? tally, int firedToday, TimeZoneInfo zone, DateOnly today)
     {
-        if (firings.Count == 0) return NeverFired;
-        var last = firings.Max(f => f.OccurredUtc);
+        if (tally is null || tally.Total == 0) return NeverFired;
         return firedToday > 0
-            ? $"Fired {Times(firedToday)} today, last {AtLabel(last, zone, today)}"
-            : $"Fired {Times(firings.Count)}, last {AtLabel(last, zone, today)}";
+            ? $"Fired {Times(firedToday)} today, last {AtLabel(tally.NewestUtc, zone, today)}"
+            : $"Fired {Times(tally.Total)}, last {AtLabel(tally.NewestUtc, zone, today)}";
     }
 
     private static string Times(int count) => count == 1 ? "1 time" : $"{count} times";
@@ -454,11 +483,6 @@ public static class RulesPageFold
 
     // ---- the firing record -----------------------------------------------------------------------------------
 
-    private static IReadOnlyList<SessionRuleFiring> FiringsOf(RulesPageSource source, Guid ruleId) =>
-        source.FiringsByRule.TryGetValue(ruleId, out var firings)
-            ? firings.OrderByDescending(f => f.OccurredUtc).ToList()
-            : Array.Empty<SessionRuleFiring>();
-
     private static RulePageFiring Firing(RulesPageSource source, SessionRuleFiring firing, TimeZoneInfo zone, DateOnly today)
     {
         var isHook = firing.Kind == RuleKinds.Hook;
@@ -483,14 +507,28 @@ public static class RulesPageFold
     {
         HookRuleWords.WouldDeny => ("Would have denied", DenyTone),
         HookRuleWords.WouldAllow => ("Would have allowed", AllowTone),
-        RuleDecisions.Act => string.IsNullOrEmpty(firing.TypedText)
-            ? ("Would have acted", NeutralTone)
-            : ("Typed into the session", LiveTone),
+        RuleDecisions.Act => ActDecisionOf(firing),
         RuleDecisions.Decline => ("Declined - the rule did not apply", NeutralTone),
         RuleDecisions.Abandoned => ("Gave up before typing", WarnTone),
         RuleDecisions.Refused => ("Refused an unusable answer", WarnTone),
         _ => throw new InvalidOperationException($"firing {firing.Id} has a decision '{firing.Decision}' this page cannot name."),
     };
+
+    /// <summary>
+    /// What became of an "act" firing, read from how the evaluator began its outcome (<see cref="RuleActOutcomes"/>),
+    /// never from the typed text alone: a live rule whose keystroke did not land also typed nothing, and calling that
+    /// "would have acted" would tell a person a live firing was a rehearsal.
+    /// </summary>
+    private static (string Label, string Tone) ActDecisionOf(SessionRuleFiring firing)
+    {
+        var outcome = firing.Outcome ?? "";
+        if (outcome.StartsWith(RuleActOutcomes.DryRunPrefix, StringComparison.Ordinal)) return ("Would have acted", NeutralTone);
+        if (outcome.StartsWith(RuleActOutcomes.TypedPrefix, StringComparison.Ordinal)) return ("Typed into the session", LiveTone);
+        if (outcome.StartsWith(RuleActOutcomes.NotTypedPrefix, StringComparison.Ordinal)) return ("Tried to type - nothing was sent", WarnTone);
+        if (outcome.StartsWith(RuleActOutcomes.SentUnconfirmedPrefix, StringComparison.Ordinal)) return ("Sent - nothing confirmed it landed", WarnTone);
+        if (outcome.StartsWith(RuleActOutcomes.AboutToTypePrefix, StringComparison.Ordinal)) return ("Started to type - never completed", WarnTone);
+        throw new InvalidOperationException($"firing {firing.Id} acted with an outcome this page cannot name: '{outcome}'.");
+    }
 
     private static string OverrodeLabel(int count) => count switch
     {
@@ -508,8 +546,9 @@ public static class RulesPageFold
     private static string BottomOf(string screen) =>
         screen.Length <= ScreenSubjectMaxLength ? screen : "..." + screen[^ScreenSubjectMaxLength..];
 
+    /// <summary>"session &lt;id&gt; (&lt;agent&gt;)", in lower case as the wire contract writes it (P1 amendment).</summary>
     private static string SessionLabel(string sessionId, string? agent) =>
-        string.IsNullOrWhiteSpace(agent) ? $"Session {sessionId}" : $"Session {sessionId} ({agent})";
+        string.IsNullOrWhiteSpace(agent) ? $"session {sessionId}" : $"session {sessionId} ({agent})";
 
     private static string ActionLabel(string action) => action switch
     {
@@ -611,10 +650,9 @@ public static class RulesPageFold
 
     private static RulesPreviewSuggestions Suggestions(RulesPageSource source)
     {
-        var firings = source.FiringsByRule.Values.SelectMany(f => f).ToList();
         var machines = source.Rules
             .SelectMany(r => r.AppliesTo.Machines.Concat(r.AppliesTo.ExceptMachines))
-            .Concat(firings.Select(f => f.Machine))
+            .Concat(source.FiringPlaces.Select(f => f.Machine))
             .Select(m => (m ?? "").Trim())
             .Where(m => m.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -622,7 +660,7 @@ public static class RulesPageFold
             .ToList();
         var repos = source.Rules
             .Select(r => r.AppliesTo.Repo)
-            .Concat(firings.Select(f => f.Repo))
+            .Concat(source.FiringPlaces.Select(f => f.Repo))
             .Select(GitRemoteIdentity.Normalise)
             .Where(r => r.Length > 0)
             .Distinct(StringComparer.Ordinal)

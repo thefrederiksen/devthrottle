@@ -773,6 +773,51 @@ public sealed class SessionRuleStore : IRuleReading
         }
     }
 
+    /// <summary>
+    /// How often each rule has fired, read without loading a single firing row: the count, the newest time, and
+    /// the times of the firings at or after <paramref name="sinceUtc"/> only. The Rules page lists every rule with
+    /// "fired today" from this, so its cost does not grow with the record (Session Rules phase 3).
+    /// </summary>
+    public IReadOnlyDictionary<Guid, RuleFiringTally> FiringTallies(DateTime sinceUtc)
+    {
+        var since = DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var totals = ctx.SessionRuleFirings.AsNoTracking()
+                .GroupBy(f => f.RuleId)
+                .Select(g => new { RuleId = g.Key, Total = g.Count(), Newest = g.Max(f => f.OccurredUtc) })
+                .ToList();
+            var recent = ctx.SessionRuleFirings.AsNoTracking()
+                .Where(f => f.OccurredUtc >= since)
+                .Select(f => new { f.RuleId, f.OccurredUtc })
+                .ToList()
+                .ToLookup(f => f.RuleId, f => DateTime.SpecifyKind(f.OccurredUtc, DateTimeKind.Utc));
+            var tallies = totals.ToDictionary(
+                t => t.RuleId,
+                t => new RuleFiringTally(t.Total, DateTime.SpecifyKind(t.Newest, DateTimeKind.Utc), recent[t.RuleId].ToList()));
+            FileLog.Write($"[SessionRuleStore] FiringTallies: since={since:O} rules={tallies.Count}");
+            return tallies;
+        }
+    }
+
+    /// <summary>Every distinct machine and repository a recorded firing names, read without loading the firings.</summary>
+    public IReadOnlyList<RuleFiringPlace> FiringPlaces()
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var places = ctx.SessionRuleFirings.AsNoTracking()
+                .Select(f => new { f.Machine, f.Repo })
+                .Distinct()
+                .ToList()
+                .Select(p => new RuleFiringPlace(p.Machine, p.Repo))
+                .ToList();
+            FileLog.Write($"[SessionRuleStore] FiringPlaces: {places.Count}");
+            return places;
+        }
+    }
+
     /// <summary>Refuse a required part of the record that is missing, saying what it was for.</summary>
     private static void RequireSomething(string? value, string what)
     {

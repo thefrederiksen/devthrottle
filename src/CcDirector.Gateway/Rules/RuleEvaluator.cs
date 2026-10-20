@@ -16,6 +16,29 @@ public sealed record RuleFiringDraft(
     string Outcome,
     string Grounding);
 
+/// <summary>
+/// HOW AN "ACT" FIRING'S OUTCOME BEGINS, one per thing that can become of it. The evaluator writes the outcome with
+/// these and the Rules page reads them back (<c>RulesPageFold</c>), so the page can say truthfully whether a firing
+/// was a dry run, typed, not sent, sent without confirmation, or never completed - from the one string both use.
+/// </summary>
+public static class RuleActOutcomes
+{
+    /// <summary>The rule was in dry run: nothing was typed, and the outcome says what would have been.</summary>
+    public const string DryRunPrefix = "dry run: ";
+
+    /// <summary>The intent, written before the keystroke. A firing still saying this was never completed.</summary>
+    public const string AboutToTypePrefix = "about to type into the session: ";
+
+    /// <summary>The keystroke never left this Gateway.</summary>
+    public const string NotTypedPrefix = "nothing was typed: ";
+
+    /// <summary>Something confirmed the text reached the session.</summary>
+    public const string TypedPrefix = "typed into the session: ";
+
+    /// <summary>The text was sent and nothing confirmed what became of it.</summary>
+    public const string SentUnconfirmedPrefix = "sent to the machine running this session: ";
+}
+
 /// <summary>What one evaluation pass did. A closed set, so a caller and a test both name the same thing.</summary>
 public static class RulePassOutcomes
 {
@@ -368,7 +391,7 @@ public sealed class RuleEvaluator
             var wouldHave = Record(tenant, new RuleFiringDraft(
                 chosen.Id, sessionId, screen, reply.Understanding, RuleDecisions.Act, reply.Reason,
                 checks.Runs, "",
-                "dry run: nothing was typed. It would have typed: " + reply.TextToType,
+                RuleActOutcomes.DryRunPrefix + "nothing was typed. It would have typed: " + reply.TextToType,
                 grounding.Statement));
             return new RulePass(RulePassOutcomes.DryRun, reply.TextToType, new[] { wouldHave });
         }
@@ -385,7 +408,7 @@ public sealed class RuleEvaluator
         var intent = new RuleFiringDraft(
             chosen.Id, sessionId, screen, reply.Understanding, RuleDecisions.Act, reply.Reason,
             checks.Runs, "",
-            "about to type into the session: " + reply.TextToType +
+            RuleActOutcomes.AboutToTypePrefix + reply.TextToType +
             ". This record was written BEFORE the keystroke went out; if it still says only this, nothing " +
             "ever came back to say what became of it.",
             grounding.Statement);
@@ -419,12 +442,12 @@ public sealed class RuleEvaluator
         var (what, typed, outcome) = sent.What switch
         {
             RuleSendOutcomes.NotSent => (
-                RulePassOutcomes.NotSent, "", "nothing was typed: " + sent.Detail),
+                RulePassOutcomes.NotSent, "", RuleActOutcomes.NotTypedPrefix + sent.Detail),
             RuleSendOutcomes.Confirmed => (
-                RulePassOutcomes.Acted, reply.TextToType, "typed into the session: " + reply.TextToType),
+                RulePassOutcomes.Acted, reply.TextToType, RuleActOutcomes.TypedPrefix + reply.TextToType),
             _ => (
                 RulePassOutcomes.SendUnconfirmed, "",
-                "sent to the machine running this session: " + reply.TextToType +
+                RuleActOutcomes.SentUnconfirmedPrefix + reply.TextToType +
                 " - and nothing confirmed what became of it (" + sent.Detail +
                 "). The session's screen is the only evidence of whether it landed."),
         };

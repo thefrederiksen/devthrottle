@@ -81,6 +81,8 @@ public sealed class RulesPageEndpointsTests : IAsyncDisposable
         Assert.Equal(rule.Id.ToString(), item.GetProperty("id").GetString());
         Assert.Equal("Never fired", item.GetProperty("firedLabel").GetString());
         Assert.Equal("neutral", item.GetProperty("modeTone").GetString());
+        Assert.Equal(JsonValueKind.Array, body.GetProperty("previewSuggestions").GetProperty("machines").ValueKind);
+        Assert.Equal(JsonValueKind.Array, body.GetProperty("previewSuggestions").GetProperty("repos").ValueKind);
     }
 
     [Theory]
