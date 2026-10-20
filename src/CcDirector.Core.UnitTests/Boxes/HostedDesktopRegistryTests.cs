@@ -62,7 +62,7 @@ public sealed class HostedDesktopRegistryTests
     [InlineData("demo-")]          // trailing hyphen
     [InlineData("")]               // empty
     [InlineData("127.0.0.1")]      // an address
-    [InlineData("localhost:3001")] // a host and a port
+    [InlineData("my-host:3001")]   // a host and a port
     [InlineData("3001")]           // a bare port
     [InlineData("../etc")]         // a path
     public void Reload_BadBoxId_RefusesTheWholeFileAndLogsWhy(string boxId)
@@ -118,7 +118,7 @@ public sealed class HostedDesktopRegistryTests
     [Fact]
     public void Reload_PortWrittenAsText_IsRefused()
     {
-        var registry = Loaded(OneEntry("""{ "boxId": "demo", "displayName": "Demo", "port": "127.0.0.1:3001" }"""));
+        var registry = Loaded(OneEntry("""{ "boxId": "demo", "displayName": "Demo", "port": "10.1.2.3:3001" }"""));
 
         Assert.Empty(registry.Desktops);
         Assert.NotNull(registry.LoadError);
@@ -277,7 +277,7 @@ public sealed class HostedDesktopRegistryTests
 
     [Theory]
     [InlineData("3001")]
-    [InlineData("127.0.0.1:3001")]
+    [InlineData("10.1.2.3:3001")]
     [InlineData("localhost")]
     [InlineData("192.168.1.1")]
     [InlineData("demo-desktop-soren:3001")]

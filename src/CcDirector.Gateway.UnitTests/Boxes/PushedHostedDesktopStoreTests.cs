@@ -231,7 +231,7 @@ public sealed class PushedHostedDesktopStoreTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("127.0.0.1:3001")]
+    [InlineData("10.1.2.3:3001")]
     public void TryLocate_NotABoxId_FindsNothing(string? boxId)
     {
         var store = WithDirector(A);
