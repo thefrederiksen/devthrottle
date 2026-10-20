@@ -76,6 +76,7 @@ public static class MacAppsFolder
         }
         catch (Exception ex)
         {
+            // not-an-error: this is a write probe and a refusal is its answer; the caller installs into the user's own Applications folder
             EngineLog.Write($"[MacAppsFolder] cannot write {dir}: {ex.GetType().Name}: {ex.Message}");
             return false;
         }

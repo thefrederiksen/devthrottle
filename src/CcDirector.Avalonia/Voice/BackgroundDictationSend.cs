@@ -89,7 +89,7 @@ public static class BackgroundDictationSend
                 // is the machine refusing the microphone rather than the speaker saying nothing. Staying
                 // quiet here is what left the user with an unexplained empty transcript, so this one is
                 // reported, and the message already names the device and where to grant access.
-                FileLog.Write($"[BackgroundDictationSend] silent capture for session {target.Id}: {ex.Message}");
+                FileLog.Write($"[BackgroundDictationSend] silent capture FAILED for session {target.Id}: {ex.Message}");
                 onFailed?.Invoke(ex.Message, null);
                 return;
             }
