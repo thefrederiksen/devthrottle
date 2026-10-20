@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261020024317_AddMailDeskDecisionOutcomeTime")]
+    [Migration("20261020034316_AddMailDeskDecisionOutcomeTime")]
     partial class AddMailDeskDecisionOutcomeTime
     {
         /// <inheritdoc />
@@ -3904,6 +3904,64 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("session_keys", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleChangeEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("After")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Agent")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Before")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("OccurredUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Sequence");
+
+                    b.HasIndex("TenantId", "RuleId", "Sequence");
+
+                    b.HasIndex("TenantId", "SessionId", "Sequence");
+
+                    b.ToTable("session_rule_changes", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionRuleEntity", b =>
