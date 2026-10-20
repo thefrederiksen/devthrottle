@@ -20,10 +20,13 @@ One script, one folder (`RIG_DIR`, default `~/.local/state/session-rules-rig`), 
 **How it keeps away from the owner's fleet.**
 
 - Both processes share the rig's storage root (`CC_DIRECTOR_ROOT=<rig>/root`) and a HOME of their own
-  (`<rig>/home`). A Director on a fresh root links its cc-* tools into `~/.local/bin` at start-up whatever
-  `CC_DIRECTOR_ROOT` says; with the rig's HOME those links land in `<rig>/home/.local/bin`. Proven on
-  2026-10-18: the owner's `~/.local/bin` listing was identical before and after a full up and down, and
-  the twelve links appeared under the rig's HOME instead.
+  (`<rig>/home`). When this was written, a Director on a fresh root linked its cc-* tools into
+  `~/.local/bin` at start-up whatever `CC_DIRECTOR_ROOT` said, and the rig's HOME was the only thing
+  sending those links to `<rig>/home/.local/bin`. Proven on 2026-10-18: the owner's `~/.local/bin`
+  listing was identical before and after a full up and down, and the twelve links appeared under the
+  rig's HOME instead. Since main's change #4211 (in this branch through the merge up to main), a
+  Director on a root other than the default never writes the user's global bin at all, so the rig's
+  HOME is now a second guard rather than the only one.
 - Both start from an empty environment (`env -i`) plus an allow-list: no `CC_GATEWAY_URL`, session key,
   session id or Director root of the calling session reaches them. `CC_GATEWAY_NO_AUTH` and
   `CC_GATEWAY_AUTH` are never passed, and `up` refuses to go on unless `/sessions` without the token is
@@ -64,9 +67,15 @@ ran `up`; `up` and `status` print their process ids, and they log to `<rig>/logs
 4. **A Claude Code sign-in with at least two hours left.** A Claude Code session under the rig's HOME has
    no sign-in, so `spawn-session` copies `~/.claude/.credentials.json` and `~/.claude.json` (without its
    per-folder history) into the rig's HOME. A copy that refreshed would rotate the owner's own sign-in out
-   from under the owner's real file, so the copy is refused with under `RIG_MIN_SIGNIN_MINUTES` (120)
-   left, and `down` deletes it. This is the in-repository precedent, `ScratchClaudeConfig` in
-   `src/CcDirector.DeliveryQualification/Rig.cs`. Keep a rig run short; `down` when finished.
+   from under the owner's real file, so the script holds four checks (the in-repository precedent is
+   `ScratchClaudeConfig` in `src/CcDirector.DeliveryQualification/Rig.cs`):
+   - a spawn is refused when the sign-in the rig would use has under `RIG_MIN_SIGNIN_MINUTES` left (120,
+     and a lower value is refused). Wait for Claude Code to refresh the owner's sign-in; never override.
+   - `spawn-session` records the copy's expiry and `status` prints the minutes left on it - the run's
+     deadline - and says so if the copy has refreshed since.
+   - a second `spawn-session` never overwrites a rig copy that expires later than the owner's file.
+   - `down` deletes the copy, and says the sign-in is gone only once no process runs under the rig's HOME;
+     if the Director did not exit, it names the processes that may still hold the sign-in in memory.
 5. **For the screen rule only: a DevThrottle inference key** - see section 5.
 
 ---
@@ -194,7 +203,7 @@ devlinux --match "..."` makes one, and its command gives `no_match` here.
 
 ### 4.6 Stand it down
 
-    $R down        # Director by its named signal, Gateway by terminate, the sign-in copy deleted
+    $R down        # Director by its named signal, Gateway by terminate, the sign-in copy deleted once nothing runs under the rig's HOME
     ls -la ~/.local/bin | grep cc-devthrottle   # must still point at ~/.local/share/cc-director/pyenv/bin
 
 ---

@@ -4,7 +4,9 @@
 # of its own, both built from one worktree, so the phase 1 live check (mission section 7, rows 1 and 2,
 # and the September usage-limit screen rule) can be run by anyone with this one script.
 #
-# WHAT "up" STANDS. Everything under one rig folder (RIG_DIR), nothing anywhere else:
+# WHAT "up" STANDS. Everything under one rig folder (RIG_DIR). The one write outside it is "build":
+# the worktree's own scripts/local-build-linux.sh writes <worktree>/local_builds/linux/cc-director-linux<N>
+# (ignored by git), which "build" then copies into the rig; "reset" leaves that file.
 #
 #   <rig>/builds/gateway/CcDirector.Gateway      the self-host console Gateway, published from the worktree.
 #                                                On Linux this IS the desktop Gateway: the tray build
@@ -14,10 +16,10 @@
 #   <rig>/root/                                  CC_DIRECTOR_ROOT for both: the Gateway's data, its token,
 #                                                its key vault, the Director's instance, rules files,
 #                                                evaluation logs and decision drops
-#   <rig>/home/                                  HOME for both. A Director on a fresh root repairs its
-#                                                cc-* tools at start-up and links them into ~/.local/bin
-#                                                whatever CC_DIRECTOR_ROOT says; a HOME of its own keeps
-#                                                that away from the owner's real tools folder.
+#   <rig>/home/                                  HOME for both. A Director on a root other than the
+#                                                default never writes the user's global ~/.local/bin
+#                                                (main's change #4211); a HOME of its own is a second
+#                                                guard, so any tool link it makes lands under the rig.
 #   <rig>/logs/                                  standard output and error of both processes
 #   <rig>/repos/                                 repo A and repo B, made by "make-repos"
 #
@@ -43,9 +45,17 @@
 # THE CLAUDE CODE SIGN-IN. A Claude Code session started under the rig's HOME has no sign-in, so
 # "spawn-session" copies the owner's ~/.claude/.credentials.json and ~/.claude.json (without its
 # per-project history) into <rig>/home. A copy that refreshed its token could rotate the owner's own
-# sign-in out from under the owner's real file, so the copy is refused when it has less than
-# RIG_MIN_SIGNIN_MINUTES (default 120) left, and "down" deletes it. This is the precedent set by
-# ScratchClaudeConfig in src/CcDirector.DeliveryQualification/Rig.cs.
+# sign-in out from under the owner's real file, so:
+#   - a spawn is refused when the sign-in the rig would use has less than RIG_MIN_SIGNIN_MINUTES
+#     (default 120) left. Wait for Claude Code to refresh the owner's sign-in; never lower the margin.
+#   - "spawn-session" records the copied sign-in's expiry, and "status" prints the minutes left on it -
+#     the run's deadline.
+#   - a later "spawn-session" never overwrites a rig copy that expires later than the owner's file (the
+#     copy has already refreshed; putting the owner's superseded token back would leave neither side
+#     holding the live one). It says so, and the run should end.
+#   - "down" deletes the copy, and says the sign-in is gone only once no process runs under the rig's
+#     HOME; a Director that did not exit still has sessions holding the sign-in in memory.
+# This follows ScratchClaudeConfig in src/CcDirector.DeliveryQualification/Rig.cs.
 #
 # THE SCREEN RULE'S MODEL. The Gateway's screen evaluator asks a model at
 # https://devthrottle.com/api/v1 with the key DEVTHROTTLE_API_KEY from the Gateway's key vault
@@ -75,7 +85,7 @@
 #   RIG_PORT   the Gateway port. Default 7931. 7878 (the live Gateway's) is refused.
 #   RIG_SLOT   the Director slot. Default 6. Below 5 is refused.
 #   RIG_SCREEN_KEY_SECRET   see THE SCREEN RULE'S MODEL above.
-#   RIG_MIN_SIGNIN_MINUTES  see THE CLAUDE CODE SIGN-IN above.
+#   RIG_MIN_SIGNIN_MINUTES  see THE CLAUDE CODE SIGN-IN above. 120 or more; lower is refused.
 #
 set -euo pipefail
 
@@ -121,6 +131,7 @@ assert_rig_dir
 [[ "$RIG_PORT" =~ ^[0-9]+$ ]] || fail "RIG_PORT must be a number."
 [[ "$RIG_PORT" != "7878" ]] || fail "REFUSING: 7878 is the live Gateway's port."
 [[ "$RIG_SLOT" =~ ^[0-9]+$ && "$RIG_SLOT" -ge 5 ]] || fail "RIG_SLOT must be 5 or higher (slots 1-4 and the installed app are the owner's)."
+[[ "$RIG_MIN_SIGNIN_MINUTES" =~ ^[0-9]+$ && "$RIG_MIN_SIGNIN_MINUTES" -ge 120 ]] || fail "RIG_MIN_SIGNIN_MINUTES must be 120 or more: a copied sign-in that refreshes can rotate the owner's own out."
 
 BUILDS="$RIG_DIR/builds"
 GATEWAY_DIR="$BUILDS/gateway"
@@ -224,7 +235,9 @@ wait_for() {  # wait_for <seconds> <description> <command...>
 
 token() { [[ -s "$TOKEN_FILE" ]] || fail "no rig token at $TOKEN_FILE - run 'up' first."; tr -d '\r\n' < "$TOKEN_FILE"; }
 
-# One Gateway call. The token goes in a header read from a file, so it never appears in the process list.
+# One Gateway call. The token goes in a header read from a file, so a Gateway call never puts it in the
+# process list. (write_director_config is the one exception: it hands the token to python3 as an argument,
+# visible in the process list for that moment. It is the throwaway rig's token, on the owner's machine.)
 gw() {  # gw <METHOD> <path> [json body]
     local method="$1" path="$2" body="${3:-}"
     local hdr; hdr="$(mktemp)"
@@ -238,12 +251,16 @@ gw() {  # gw <METHOD> <path> [json body]
 }
 
 # The allow-list every rig process starts from. Nothing of the calling session's CC_* environment passes.
+# There is no auto-update switch here, and none is needed: a slot build cannot update itself (its
+# UpdateService is inert unless the build passes -p:UpdaterEnabled=true, which only release builds do,
+# see CcDirector.Avalonia.csproj), and the cc-* tool sync that does run writes under the rig's HOME and
+# root, not the owner's.
 base_env() {
     local vars=(
         "HOME=$RIG_HOME" "USER=${USER:-}" "LOGNAME=${LOGNAME:-}" "SHELL=${SHELL:-/bin/bash}" "LANG=${LANG:-C.UTF-8}"
         "PATH=$RIG_HOME/.local/bin:$REAL_HOME/.local/bin:$DOTNET_HOME:/usr/local/bin:/usr/bin:/bin"
         "DOTNET_ROOT=$DOTNET_HOME" "DOTNET_CLI_TELEMETRY_OPTOUT=1" "DOTNET_USE_POLLING_FILE_WATCHER=1"
-        "CC_DIRECTOR_ROOT=$ROOT" "CC_AUTOUPDATE=0" "CC_GATEWAY_NO_TAILSCALE=1"
+        "CC_DIRECTOR_ROOT=$ROOT" "CC_GATEWAY_NO_TAILSCALE=1"
         "TERM=xterm-256color"
     )
     local v
@@ -307,7 +324,6 @@ import json, sys
 path, url, token, claude = sys.argv[1:5]
 config = {
     "onboarding": {"completed": True},
-    "autoUpdate": {"enabled": False},
     "gateway": {"url": url, "token": token, "streamMode": True},
     "agent": {"entries": [
         {"id": "00000000-0000-0000-0000-00000000c1a0", "display_name": "Claude Code", "type": "ClaudeCode",
@@ -444,7 +460,22 @@ cmd_status() {
     else
         say "nothing answers on $GATEWAY_URL"
     fi
+    signin_status
     say "~/.local/bin/cc-devthrottle -> $(readlink "$REAL_HOME/.local/bin/cc-devthrottle")"
+}
+
+signin_status() {
+    local copy="$RIG_HOME/.claude/.credentials.json" recorded
+    recorded="$(cat "$STATE/signin-expires-at" 2>/dev/null || true)"
+    if [[ ! -f "$copy" ]]; then
+        say "Claude Code sign-in copy: none in the rig HOME"
+        return 0
+    fi
+    local current; current="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["claudeAiOauth"]["expiresAt"])' "$copy")"
+    say "Claude Code sign-in copy: $(signin_minutes_left "$current") minutes left - the run's deadline; a spawn is refused under $RIG_MIN_SIGNIN_MINUTES"
+    if [[ -n "$recorded" && "$current" != "$recorded" ]]; then
+        say "  the copy has REFRESHED since spawn-session recorded it: the owner's own sign-in may have been rotated out - end the run with 'down'"
+    fi
 }
 
 # ------------------------------------------------------------------------------------------------
@@ -463,20 +494,57 @@ cmd_cli() {
 
 # ------------------------------------------------------------------------------------------------
 # The Claude Code sign-in copy (see the header).
+signin_minutes_left() { python3 -c 'import sys, time; print(int((int(sys.argv[1]) / 1000 - time.time()) // 60))' "$1"; }
+
+# Every process whose HOME is the rig's: the Director and every session it started (Claude Code and its
+# children inherit the HOME). Read from /proc/<pid>/environ, which only the user's own processes expose.
+rig_home_processes() {
+    local d
+    for d in /proc/[0-9]*; do
+        [[ -O "$d" ]] || continue
+        # A process can end, or refuse the read, between the listing and the read; that counts as no match.
+        if { tr '\0' '\n' < "$d/environ"; } 2>/dev/null | grep -qxF "HOME=$RIG_HOME"; then
+            echo "${d#/proc/} $(readlink "$d/exe" 2>/dev/null || echo '?')"
+        fi
+    done
+    return 0
+}
 copy_signin() {
-    local src="$REAL_HOME/.claude/.credentials.json"
+    local src="$REAL_HOME/.claude/.credentials.json" dst="$RIG_HOME/.claude/.credentials.json"
     [[ -f "$src" ]] || fail "no Claude Code sign-in at $src to copy."
-    python3 - "$src" "$RIG_MIN_SIGNIN_MINUTES" <<'EOF' || exit 1
-import json, sys, time
-o = json.load(open(sys.argv[1]))["claudeAiOauth"]
-left = (o["expiresAt"] / 1000 - time.time()) / 60
-if left < float(sys.argv[2]):
-    sys.stderr.write(f"[session-rules-rig] ERROR: the Claude Code sign-in has {left:.0f} minutes left; a copy could refresh it and rotate the owner's own out. Run again after Claude Code has refreshed it.\n")
+    # Prints "copy" or "keep", then the expiry (milliseconds) of the sign-in the rig will use.
+    local verdict
+    verdict="$(python3 - "$src" "$dst" "$RIG_MIN_SIGNIN_MINUTES" <<'EOF'
+import json, os, sys, time
+src, dst, margin = sys.argv[1], sys.argv[2], float(sys.argv[3])
+def expires(path):
+    return int(json.load(open(path))["claudeAiOauth"]["expiresAt"])
+owner = expires(src)
+use, action = owner, "copy"
+if os.path.exists(dst):
+    rig = expires(dst)
+    if rig > owner:
+        use, action = rig, "keep"
+        sys.stderr.write("[session-rules-rig] the rig's copy of the sign-in expires later than the owner's file, so it has refreshed "
+                         "and the owner's file may hold a superseded token. Keeping the rig's copy (never putting the old token back). "
+                         "End this run with 'down' soon; Claude Code will ask the owner to sign in again if the owner's was rotated out.\n")
+left = (use / 1000 - time.time()) / 60
+if left < margin:
+    sys.stderr.write(f"[session-rules-rig] ERROR: the sign-in the rig would use has {left:.0f} minutes left (the margin is {margin:.0f}); "
+                     "a session could refresh it and rotate the owner's own out. Wait until Claude Code has refreshed the owner's sign-in, then run again.\n")
     sys.exit(1)
-print(f"[session-rules-rig] Claude Code sign-in copied into the rig HOME ({left:.0f} minutes left on it)")
+print(action, use)
 EOF
-    mkdir -p "$RIG_HOME/.claude"
-    install -m 600 "$src" "$RIG_HOME/.claude/.credentials.json"
+)" || exit 1
+    local action="${verdict% *}" expires_ms="${verdict#* }"
+    if [[ "$action" == "copy" ]]; then
+        mkdir -p "$RIG_HOME/.claude"
+        install -m 600 "$src" "$dst"
+        say "Claude Code sign-in copied into the rig HOME; $(signin_minutes_left "$expires_ms") minutes left on it"
+    else
+        say "Claude Code sign-in: kept the rig's own copy; $(signin_minutes_left "$expires_ms") minutes left on it"
+    fi
+    echo "$expires_ms" > "$STATE/signin-expires-at"
     python3 - "$REAL_HOME/.claude.json" "$RIG_HOME/.claude.json" <<'EOF'
 import json, os, sys
 src, dst = sys.argv[1:3]
@@ -698,9 +766,18 @@ cmd_down() {
         say "Gateway: no rig Gateway process is running"
     fi
 
+    local had_copy=""
     if [[ -f "$RIG_HOME/.claude/.credentials.json" ]]; then
         rm -f "$RIG_HOME/.claude/.credentials.json"
-        say "deleted the rig's copy of the Claude Code sign-in"
+        had_copy=1
+    fi
+    local holders; holders="$(rig_home_processes)"
+    if [[ -n "$holders" ]]; then
+        echo "$holders" | while read -r p e; do say "STILL RUNNING under the rig HOME: process $p $e"; done
+        say "the sign-in copy's file is $( [[ -n "$had_copy" ]] && echo deleted || echo absent ), but the processes above run under the rig's HOME and may hold the Claude Code sign-in in memory and refresh it. The sign-in is NOT gone until they exit."
+    else
+        rm -f "$STATE/signin-expires-at"
+        [[ -z "$had_copy" ]] || say "deleted the rig's copy of the Claude Code sign-in; no process runs under the rig's HOME, so nothing holds it"
     fi
 
     local left; left="$(rig_processes)"

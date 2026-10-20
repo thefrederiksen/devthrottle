@@ -54,7 +54,7 @@ rebasing onto `origin/mission/session-rules-hooks-p1` at `4f21e04a7` (Gateway, D
 
 Asked for by the Tech Lead while the build tools are missing. All runs on this branch, Release.
 
-**Run 1, at `6a86311d8`:** `.\scripts	est-local.ps1 -Configuration Release`, exit 1. The script chose to
+**Run 1, at `6a86311d8`:** `.\scripts\test-local.ps1 -Configuration Release`, exit 1. The script chose to
 run the parked `CcDirector.Gateway.UnitTests` and `CcDirector.Core.Tests` whole. Four failures:
 
 | Test | What it said | Whose |
@@ -78,7 +78,7 @@ failure is `Document_NamesEveryKeyTheSchemasTake` (main's, above); 14,537 of 14,
 2,520, Core.Tests 4,540, RuleHook 70, Avalonia 1,093, setup engine 924, and the rest, all passed. Its COVERAGE
 GAP line named `CcDirector.Gateway.Tests`, so:
 
-**Run 3, at `64c41f86e`:** `.\scripts	est-local.ps1 -Configuration Release -Gateway`, exit 0, RESULT GREEN, tree
+**Run 3, at `64c41f86e`:** `.\scripts\test-local.ps1 -Configuration Release -Gateway`, exit 0, RESULT GREEN, tree
 clean. Shards: 412, 480, 418 of 421 (3 skipped), 469 - all passed. The run folder is deleted after a green run,
 so which three were skipped is not recorded.
 

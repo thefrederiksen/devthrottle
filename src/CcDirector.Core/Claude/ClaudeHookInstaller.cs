@@ -249,8 +249,10 @@ public static class ClaudeHookInstaller
     // and the preamble every other session has.
     private static object BuildSettings(string scriptPath, bool forWindows, string? ruleHookPath)
     {
-        // Shell form (single command string), which works whether Claude runs hooks through
-        // cmd.exe or sh. The script path is quoted (per-user data dirs contain spaces, e.g.
+        // Shell form (single command string). Claude Code runs it through sh on Linux and macOS and
+        // through Git Bash on Windows (measured in the Session Rules phase 1 Windows proof), so the
+        // Windows form must survive bash's quoting: inside double quotes a backslash before a letter
+        // stays literal. The script path is quoted (per-user data dirs contain spaces, e.g.
         // "Application Support" on macOS); System.Text.Json escapes any backslashes when it
         // serializes the string.
         var command = forWindows
