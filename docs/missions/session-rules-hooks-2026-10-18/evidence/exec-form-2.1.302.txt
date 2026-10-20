@@ -1,0 +1,7 @@
+Claude Code 2.1.302, run directly (claude -p) with the exec-form registration below, rig HOME, cwd repo-a, rules file copied from the rig session 6f85106b:
+{"hooks":{"PreToolUse":[{"matcher":"^(Bash|PowerShell)$","hooks":[{"type":"command","command":"/home/soren/.local/state/session-rules-rig-wholefix/root/instances/default/claude-hooks/cc-rule-hook","args":[],"timeout":10}]}]}}
+
+evaluation log:
+2026-10-20T12:17:06.9847015Z	shell	rules=1	matched=1	would_deny	1391us	toolu_01RXPDv31EXduGrqu9LxynnL
+decision file written: 20261020T1217069847015Z-6d585fca.json
+reply: I ran the command and it printed `RULE-PROBE`.
