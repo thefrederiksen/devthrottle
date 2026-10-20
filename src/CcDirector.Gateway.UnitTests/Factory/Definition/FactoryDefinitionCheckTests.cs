@@ -28,7 +28,7 @@ public sealed class FactoryDefinitionCheckTests
         {
             "rules/base.json:3: allow rules are not applied when the seat starts: a definition only adds limits.",
             "seats/outreach.yaml:5: No Director on SOREN_SOUTH is connected now, so it could not be confirmed.",
-            "seats/outreach.yaml:8: Whether SOREN_SOUTH has the repository 'devthrottle' registered is not checked yet.",
+            "seats/outreach.yaml:8: Whether SOREN_SOUTH knows the repository 'devthrottle' is not checked yet.",
             "seats/outreach.yaml:14: Whether SOREN_SOUTH holds 'outreach-imap-password' is not checked yet.",
             "seats/outreach.yaml:18: Whether SOREN_SOUTH holds 'outreach-smtp-password' is not checked yet.",
             "skills/mail-voice/SKILL.md:0: The factory skill 'mail-voice' is not named by any seat.",
@@ -1172,7 +1172,7 @@ public sealed class FactoryDefinitionCheckTests
     [Fact]
     public void Check_SeatRepository_IsANotice()
     {
-        AssertNotice(Check(Valid()), "seats/outreach.yaml", 8, "Whether SOREN_SOUTH has the repository 'devthrottle' registered is not checked yet.");
+        AssertNotice(Check(Valid()), "seats/outreach.yaml", 8, "Whether SOREN_SOUTH knows the repository 'devthrottle' is not checked yet.");
     }
 
     [Fact]

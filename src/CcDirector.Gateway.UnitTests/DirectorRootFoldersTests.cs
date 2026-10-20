@@ -241,7 +241,12 @@ public sealed class DirectorRootFoldersTests
                 new Core.Git.RepositoryStatus { Path = "/roots/alpha/one", Name = "one", Success = true },
                 new Core.Git.RepositoryStatus { Path = "/roots/alpha/two", Name = "two", Success = true },
             },
-            registered: null,
+            // The registry is the list the push reads (devthrottle#4301); the scan fed both folders into it.
+            registered: new[]
+            {
+                new Core.Configuration.RepositoryConfig { Path = "/roots/alpha/one", Name = "one" },
+                new Core.Configuration.RepositoryConfig { Path = "/roots/alpha/two", Name = "two" },
+            },
             scanHasCompleted: true,
             rootFolders: listings,
             directorId: "director-one",
@@ -279,7 +284,7 @@ public sealed class DirectorRootFoldersTests
     {
         var pushed = DirectorRepositorySnapshot.Union(
             new[] { new Core.Git.RepositoryStatus { Path = "/roots/alpha/one", Name = "one", Success = true } },
-            registered: null,
+            registered: new[] { new Core.Configuration.RepositoryConfig { Path = "/roots/alpha/one", Name = "one" } },
             scanHasCompleted: true,
             rootFolders: null,
             directorId: "director-one",

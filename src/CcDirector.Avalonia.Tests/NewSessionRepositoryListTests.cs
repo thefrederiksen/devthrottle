@@ -53,7 +53,7 @@ public class NewSessionRepositoryListTests
     }
 
     [Fact]
-    public void FromGateway_CarriesTheGatewaysNeverOpenedVerdict_RatherThanReReadingTheDate()
+    public void FromGateway_CarriesTheGatewaysLastUsedTime_Unchanged()
     {
         var rows = NewSessionRepositoryList.FromGateway(new List<KnownRepositoryDto>
         {
@@ -61,8 +61,6 @@ public class NewSessionRepositoryListTests
             Row("beacon", "/code/beacon", null),
         });
 
-        Assert.False(rows[0].IsDiscovered);
-        Assert.True(rows[1].IsDiscovered);
         Assert.Equal(new DateTime(2026, 9, 20, 9, 0, 0, DateTimeKind.Utc), rows[0].LastUsed);
         Assert.Null(rows[1].LastUsed);
     }
@@ -161,7 +159,7 @@ public class NewSessionRepositoryListTests
     {
         var local = new List<RepositoryConfig>
         {
-            new() { Name = "beacon", Path = "/code/beacon", LastUsed = null, IsDiscovered = true },
+            new() { Name = "beacon", Path = "/code/beacon", LastUsed = null, FoundByScan = true },
             new() { Name = "atlas", Path = "/code/atlas", LastUsed = new DateTime(2026, 9, 18, 9, 0, 0, DateTimeKind.Utc) },
             new() { Name = "zephyr", Path = "/code/zephyr", LastUsed = new DateTime(2026, 9, 20, 9, 0, 0, DateTimeKind.Utc) },
         };
@@ -170,32 +168,6 @@ public class NewSessionRepositoryListTests
             local, sourceIsTheGatewaysOrder: false, NewSessionRepositoryList.LastUsedColumn, ascending: false);
 
         Assert.Equal(new[] { "zephyr", "atlas", "beacon" }, shown.Select(r => r.Name).ToArray());
-    }
-
-    /// <summary>
-    /// The machine's own fallback list names a scanned repository after its folder when the scan named
-    /// none - and it reads the folder out of the PATH, not out of the host. A Windows path read on this
-    /// macOS machine has no separator that <c>Path.GetFileName</c> recognises, so that call would put the
-    /// whole path in the Name column. This is the path-comparison defect this mission has now met six
-    /// times, and the line it guards is inside the function phase 6 rewrote.
-    /// </summary>
-    [Theory]
-    [InlineData(@"D:\ReposFred\devthrottle", "devthrottle")]
-    [InlineData(@"D:\ReposFred\devthrottle\", "devthrottle")]
-    [InlineData("/home/soren/code/atlas", "atlas")]
-    [InlineData("/home/soren/code/atlas/", "atlas")]
-    public void NameForScannedRepository_WithNoScannedName_ReadsTheFolderOutOfThePath(string path, string expected)
-    {
-        Assert.Equal(expected, NewSessionRepositoryList.NameForScannedRepository(null, path));
-        Assert.Equal(expected, NewSessionRepositoryList.NameForScannedRepository("   ", path));
-    }
-
-    /// <summary>A name the scan did compute is kept - the folder name is the answer to a missing one.</summary>
-    [Fact]
-    public void NameForScannedRepository_KeepsTheNameTheScanComputed()
-    {
-        Assert.Equal("devthrottle_internal",
-            NewSessionRepositoryList.NameForScannedRepository("devthrottle_internal", @"D:\ReposFred\somewhere-else"));
     }
 
     /// <summary>Served means there is nothing to say - the ordinary state wears no banner.</summary>

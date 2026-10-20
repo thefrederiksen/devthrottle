@@ -401,6 +401,11 @@ public sealed class ControlApiHost : IAsyncDisposable
     public ControlApiHost(SessionManager sessionManager, string version, Func<Task> requestShutdownAsync, RepositoryRegistry? repositoryRegistry = null, string? directorId = null, string? instancesDirectory = null, Core.Git.RepositoryMonitor? repositoryMonitor = null, Func<IReadOnlyList<string>>? rootFolders = null)
     {
         _repositoryMonitor = repositoryMonitor;
+        // ONE repository list (devthrottle#4301): every repository the root-folder scan finds goes into the registry,
+        // which is the only list the push, the factory seat start and the New Session dialog read. Wired here, in the
+        // constructor, because this is where the two meet and the Director builds this host before its first scan.
+        if (repositoryRegistry is not null && repositoryMonitor is not null)
+            repositoryRegistry.FollowScan(repositoryMonitor);
         // Read per push, never captured once: a root folder the user adds or removes in Settings has to
         // reach the Gateway on the next push rather than on the next Director restart.
         _rootFolders = rootFolders;

@@ -7,11 +7,9 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// THE DIRECTOR'S HALF of "the registry reaches the Gateway" (the one-repository-list mission).
-///
-/// A Director knows about a repository in two ways - the root-folder scan measured it, or a person put
-/// it in the machine's registered list by hand - and until this change only the first ever left the
-/// machine. These are the rules of the union that closes that gap:
+/// THE DIRECTOR'S HALF of "the registry reaches the Gateway" (the one-repository-list mission), since
+/// devthrottle#4301 the ONE list: the registry is what a Director pushes, and the root-folder scan only
+/// supplies the status for the rows it computed one for. These are the rules of
 /// <see cref="DirectorRepositorySnapshot.Union"/>, the one function that decides what a Director pushes.
 ///
 /// It is tested here as a pure function, with no monitor, no registry file and no machine to scan,
@@ -60,7 +58,7 @@ public sealed class DirectorRepositorySnapshotTests
     {
         var pushed = Union(
             new[] { Scanned("/roots/work/alpha", "alpha") },
-            new[] { Registered("/elsewhere/entirely/bravo", "bravo") });
+            new[] { Registered("/roots/work/alpha", "alpha"), Registered("/elsewhere/entirely/bravo", "bravo") });
 
         Assert.Equal(2, pushed.Count);
         var handAdded = Assert.Single(pushed, row => row.Path == "/elsewhere/entirely/bravo");
@@ -117,7 +115,8 @@ public sealed class DirectorRepositorySnapshotTests
     {
         var scanned = Scanned("/roots/work/alpha", "alpha", branch: "feature/x", uncommitted: 3);
 
-        var pushed = Union(new[] { scanned }, new[] { Registered("/elsewhere/bravo", "bravo") });
+        var pushed = Union(new[] { scanned },
+            new[] { Registered("/roots/work/alpha", "alpha"), Registered("/elsewhere/bravo", "bravo") });
 
         var row = Assert.Single(pushed, r => r.Path == "/roots/work/alpha");
         Assert.False(row.StatusNotComputed);
@@ -220,12 +219,15 @@ public sealed class DirectorRepositorySnapshotTests
     }
 
     [Fact]
-    public void Union_NoRegisteredListAtAll_PushesExactlyWhatItAlwaysPushed()
+    public void Union_AScannedFolderTheRegistryDoesNotHold_IsNotPushed_TheRegistryIsTheList()
     {
-        var pushed = Union(new[] { Scanned("/roots/work/alpha", "alpha") }, registered: null);
+        // devthrottle#4301: the scan feeds the registry (RepositoryRegistry.FollowScan) and the push reads the
+        // registry alone. A scanned row is only ever the STATUS of a registry entry, never a second source.
+        var pushed = Union(new[] { Scanned("/roots/work/alpha", "alpha"), Scanned("/roots/work/bravo", "bravo") },
+            new[] { Registered("/roots/work/bravo", "bravo") });
 
         var row = Assert.Single(pushed);
-        Assert.Equal("/roots/work/alpha", row.Path);
+        Assert.Equal("/roots/work/bravo", row.Path);
         Assert.False(row.StatusNotComputed);
     }
 

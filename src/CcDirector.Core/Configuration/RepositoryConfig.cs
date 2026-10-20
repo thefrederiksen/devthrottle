@@ -13,33 +13,31 @@ public class RepositoryConfig : INotifyPropertyChanged
     public DateTime? LastUsed { get; set; }
 
     /// <summary>
-    /// True when this entry was not chosen by the user but FOUND under one of the folders DevThrottle
-    /// watches. It is not persisted - it is set when the New Session list is built.
+    /// True when the root-folder scan put this entry in the list rather than a person choosing it with
+    /// Browse (devthrottle#4301). The registry is the ONE repository list on a Director; the scan feeds it
+    /// and Browse feeds it, and this field is the only thing that remembers which one did. It is persisted,
+    /// and an entry written before the field existed reads as false - every one of those was added by hand.
+    ///
+    /// It decides exactly one thing: when two entries carry one name, the one a person added by hand is the
+    /// one a factory seat means (<see cref="Sessions.FactoryWorktreeRepository.Resolve"/>).
     /// </summary>
-    public bool IsDiscovered { get; set; }
+    public bool FoundByScan { get; set; }
 
     /// <summary>
-    /// Whether the list should offer to remove this entry. A discovered repository cannot be removed
-    /// from the list: it comes from a watched folder, so it would simply be found again on the next
-    /// rebuild. Offering a Remove that instantly undoes itself is worse than not offering one - to
-    /// stop seeing it, stop watching its folder.
-    /// </summary>
-    /// <summary>
     /// True when this entry came off the ONE repository list the Gateway serves for this machine (the
-    /// one-repository-list mission, phase 6) rather than out of this Director's own files. Not persisted -
-    /// it is set when the New Session list is built, like <see cref="IsDiscovered"/>.
+    /// one-repository-list mission, phase 6) rather than out of this Director's own registry. Not
+    /// persisted - it is set when the New Session list is built.
     ///
     /// It exists to switch Remove off. Remove takes a repository out of THIS Director's local registry,
     /// and the Gateway's catalogue is not that registry: a row that has been used is never removed from
-    /// the catalogue by anything a Director sends, so the row would still be there on the next read. That
-    /// is the same "a button that undoes itself reads as broken" rule <see cref="IsDiscovered"/> already
-    /// pays, for the same reason. Removing a repository from the one catalogue is not a thing the product
-    /// can do yet, and pretending otherwise on one screen would be the lie.
+    /// the catalogue by anything a Director sends, so the row would still be there on the next read - a
+    /// button that undoes itself reads as broken. Removing a repository from the one catalogue is not a
+    /// thing the product can do yet, and pretending otherwise on one screen would be the lie.
     /// </summary>
     [JsonIgnore]
     public bool IsFromTheGatewayList { get; set; }
 
-    public bool CanRemove => !IsDiscovered && !IsFromTheGatewayList;
+    public bool CanRemove => !IsFromTheGatewayList;
 
     [JsonIgnore]
     public string LastUsedDisplay => LastUsed.HasValue
