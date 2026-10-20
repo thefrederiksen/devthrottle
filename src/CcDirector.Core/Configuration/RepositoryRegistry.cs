@@ -220,8 +220,9 @@ public class RepositoryRegistry
                 return;
             // An external event subscription, so the one try-catch is here: this handler runs inside the scan, and a
             // save that fails (a full disk, a file another process holds) must not fault the scan and starve every
-            // other subscriber of the rest of it. The failure is logged as an error and the folder is offered again
-            // on the next publish of that repository.
+            // other subscriber of the rest of it. The failure is logged as an error. The entry is already in the
+            // in-memory list (the push and the seat start see it), and the file catches up on the next save of
+            // anything, or on the next start's first scan.
             try
             {
                 AddFoundByScan(status.Path, status.Name);
