@@ -115,7 +115,7 @@ public sealed class NoCrossMachineLoopbackGuardTests
         ["src/CcDirector.Core/Boxes/HostedDesktopRegistry.cs"] = "Factory Boxes: the hosted-desktop list holds a port and never a host; the target is always this machine's 127.0.0.1, which is the policy this guard asks for.",
         ["src/CcDirector.Gateway.Contracts/DesktopRelayMessages.cs"] = "Factory Boxes: doc comments only - they state that the Director builds the address from 127.0.0.1 and its own list, and refuses anything that would leave the machine.",
         ["src/CcDirector.Gateway/Boxes/BoxDesktopHeaders.cs"] = "Factory Boxes: RECOGNIZES a box's own loopback address in a redirect in order to REWRITE it to the relay path, so the browser never sees it; nothing here dials one.",
-        ["src/CcDirector.Gateway/Boxes/BoxDesktopOrigin.cs"] = "Factory Boxes: doc comment example of a test machine's desktop origin (http://localhost:5123); the value is configuration, never built here.",
+        ["src/CcDirector.Gateway/Boxes/BoxDesktopOrigin.cs"] = "Factory Boxes: doc comment example of a test machine's localhost desktop origin; the value is configuration, never built here.",
     };
 
     [Fact]
