@@ -32,7 +32,7 @@ origin/main `66658a098` (Mail Desk phases 3 and 5 in).
 | `npm run typecheck` (every workspace) | clean |
 | Mail Desk Gateway unit tests (`--filter FullyQualifiedName~CcDirector.Gateway.Tests.MailDesk`) | 545 passed, run by the Tech Lead on `30b53c54f`; 636 passed with main's API-mode tests added, on a trial merge with origin/main `362c802ea` |
 | `cc-devthrottle maildesk` command tests (`test_maildesk_ops.py` and both help-and-errors suites) | 1,001 passed, 1 skipped (the Developer's run on `a2cbfdc29`; the command's code is unchanged) |
-| The repository gate, `scripts/test-local.ps1 -Parked`, on this branch (`a2cbfdc29`, before the two fixes below) AND on unchanged origin/main (`66658a098`), on devlinux | see below; the two fixes after it changed only the Mail Desk fold and the Mail Desk client files, and were checked by the rows above |
+| The repository gate, `scripts/test-local.ps1 -Parked`, on unchanged origin/main (`66658a098`) and on this branch twice: at `a2cbfdc29` (before the two fixes below) and again at `31b3fb7d9` (after them), on devlinux | see below |
 
 **The gate on Linux (handover ruling 8).** `-Parked` cannot be clean on Linux, so it ran twice on devlinux - on this
 branch and on unchanged origin/main - and the failed tests were compared one by one from the result files. Both runs
@@ -41,7 +41,9 @@ test here, and `cc-director-setup-engine.Tests` aborts (after 0 tests on main, a
 not touch the installer). Every other suite ran to the end. **The failed tests are identical: the same 107 tests fail on
 main and on the branch, and no test fails on the branch that does not fail on main** (Launcher 24, Reclaim 56, Core 8,
 Core unit 5, Gateway host tests 10, Gateway unit 3, Terminal 1 - Windows behaviour and the known Linux failures). The
-Gateway unit suite ran 15,222 tests on the branch against 15,186 on main: the new tests, all passing. The `-Parked` run
+second branch run, at `31b3fb7d9` after both fixes, gave the same answer: the same 107 failed tests, none new (the
+installer engine suite aborted there after 0 tests, as on main). The Gateway unit suite ran 15,222 tests at `a2cbfdc29`
+and 15,231 at `31b3fb7d9`, against 15,186 on main: the new tests, all passing. The `-Parked` run
 contains every suite of the default run. **No Windows gate ran.** The gate runs no web and no Python tests; those are
 the client and command rows above.
 
