@@ -1289,12 +1289,13 @@ public static class ConnectionModes
     public static bool ApiModeOffered { get; } = true;
 
     /// <summary>
-    /// THE AGENTS THAT START IN API MODE BY DEFAULT (mission #4070, section 9, the owner's decision): Pi, the agent API
-    /// mode was proven on end to end. Named by agent type (<see cref="AgentChoiceDto.Type"/>,
-    /// <see cref="NewSessionRequest.Agent"/>), compared ignoring case. An agent that gains API mode later is offered it
-    /// but starts in Terminal until it is proven and added here.
+    /// THE AGENTS THAT START IN API MODE BY DEFAULT: none. The owner's decision, 20 October 2026: "I don't think Pi should
+    /// be defaulted to API mode until we've tested it more and used it more. Then we can switch it over. We should keep
+    /// Pi's default as the old terminal mode." So every agent starts in Terminal, and API mode is one click away where it
+    /// is offered. Switching Pi over later is this one line: name it here (<c>new[] { "Pi" }</c>). Named by agent type
+    /// (<see cref="AgentChoiceDto.Type"/>, <see cref="NewSessionRequest.Agent"/>), compared ignoring case.
     /// </summary>
-    public static readonly IReadOnlyList<string> ApiModeByDefault = new[] { "Pi" };
+    public static readonly IReadOnlyList<string> ApiModeByDefault = Array.Empty<string>();
 
     /// <summary>
     /// The connection New Session starts on for an agent of type <paramref name="agentType"/> that is offered
@@ -1302,8 +1303,14 @@ public static class ConnectionModes
     /// for every other. Terminal stays one click away wherever API mode is the default, because it is always offered.
     /// </summary>
     public static string DefaultOf(string? agentType, IEnumerable<string> offered) =>
+        DefaultOf(agentType, offered, ApiModeByDefault);
+
+    /// <inheritdoc cref="DefaultOf(string?, IEnumerable{string})"/>
+    /// <param name="apiModeByDefault">The agents that start in API mode, passed so a test can prove that naming an agent
+    /// in <see cref="ApiModeByDefault"/> is all it takes to switch it over.</param>
+    public static string DefaultOf(string? agentType, IEnumerable<string> offered, IReadOnlyList<string> apiModeByDefault) =>
         offered.Contains(Api, StringComparer.Ordinal)
-        && ApiModeByDefault.Contains(agentType?.Trim() ?? "", StringComparer.OrdinalIgnoreCase)
+        && apiModeByDefault.Contains(agentType?.Trim() ?? "", StringComparer.OrdinalIgnoreCase)
             ? Api
             : Terminal;
 

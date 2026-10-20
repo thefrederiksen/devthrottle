@@ -226,7 +226,7 @@ export interface ConnectionChoice {
    *  from an older Gateway) when there is nothing to say - Terminal never has one. */
   description?: string | null;
   /** True on the one choice New Session starts on for this agent, as the Gateway rules it (API mode mission #4070,
-   *  section 9): API mode for Pi on a Director that carries it as the default, Terminal for every other. An older
+   *  section 9): Terminal for every agent today, Pi included (the owner's decision, 20 October 2026). An older
    *  Gateway marks none, and the screen starts on Terminal, as it always did. */
   isDefault: boolean;
 }

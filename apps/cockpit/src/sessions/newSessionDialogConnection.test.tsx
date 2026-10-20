@@ -8,9 +8,9 @@ import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/re
 //
 // Only the Gateway calls are replaced; the dialog and the shared row are the real ones.
 const createSessionMock = vi.fn();
-// Which connection the Gateway marks as Pi's default: none, as an older Gateway serves it, or API mode, as a Gateway
-// serves it for a Director of 2.25.0 or later (mission #4070, section 9).
-let mockPiDefault: "none" | "api" = "none";
+// Which connection the Gateway marks as Pi's default: none, as an older Gateway serves it; Terminal, as the Gateway
+// serves it today (the owner's decision, 20 October 2026); or API mode, as it would once Pi is switched over.
+let mockPiDefault: "none" | "terminal" | "api" = "none";
 vi.mock("@devthrottle/client-core/api/client", () => ({
   getDirectors: () =>
     Promise.resolve([
@@ -36,7 +36,7 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
         defaultModel: "",
         modelLabel: "GLM",
         connections: [
-          { mode: "terminal", label: "Terminal", description: null, isDefault: false },
+          { mode: "terminal", label: "Terminal", description: null, isDefault: mockPiDefault === "terminal" },
           {
             mode: "api",
             label: "API mode",
@@ -80,6 +80,18 @@ describe("the Cockpit New Session dialog's Connection row", () => {
     cleanup();
     vi.clearAllMocks();
     mockPiDefault = "none";
+  });
+
+  it("starts Pi on Terminal when the Gateway marks Terminal as Pi's default, as it does today", async () => {
+    mockPiDefault = "terminal";
+    await openAndPickTheRepository();
+
+    expect(screen.getByRole("button", { name: "Terminal" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Pi . GLM . skips permission prompts")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+
+    await waitFor(() => expect(createSessionMock).toHaveBeenCalledTimes(1));
+    expect(createSessionMock.mock.calls[0][2].connectionMode).toBe("terminal");
   });
 
   it("starts Pi on API mode when the Gateway marks it as Pi's default, saying so before it starts", async () => {

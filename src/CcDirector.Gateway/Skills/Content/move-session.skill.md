@@ -189,8 +189,9 @@ collect - it goes red and asks HIM when it stops, exactly as it did before it mo
 yourself would quietly take it out of his queue, and the move would have lost him the session.
 
 `--connection` must not be dropped either. Without it the spawn asks the Gateway for the agent's
-DEFAULT connection, and that default is API mode for Pi: a Pi session that ran in its terminal would
-come back in API mode, a mode nobody chose for it. Pass the source's word, every time, for every agent.
+DEFAULT connection, which is the terminal for every agent today but is the Gateway's to change: once
+Pi is switched over to API mode by default, a Pi session that ran in its terminal would come back in
+API mode, a mode nobody chose for it. Pass the source's word, every time, for every agent.
 
 The target keeps the source's original name. That is what makes the move invisible afterwards. Keep
 the naming convention `<repo-dir> - <short description>`; if the source's name lacks the repo
@@ -408,7 +409,10 @@ machine-specific paths so it can be served unchanged to every agent.
 
 ---
 
-**Skill version:** 4.3 · **Updated:** 2026-10-20
+**Skill version:** 4.4 · **Updated:** 2026-10-20
+**Changes in 4.4:** Pi starts in the terminal again when a spawn names no connection (the owner's
+decision of 20 October 2026), so the default is the terminal for every agent. Passing the source's
+connection stays the rule, because the Gateway may change the default again.
 **Changes in 4.3:** The target is started on the source's CONNECTION (`--connection terminal` or
 `--connection api`, read in step 1 with `session list --fields ...,connection`) and the read-back
 compares it. Pi now starts in API mode when a spawn names no connection, so a move that left the

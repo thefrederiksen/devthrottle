@@ -8,8 +8,8 @@ import "./connectionChoiceRow.css";
 // (Pi today, and only while the Gateway's one switch offers API mode), so for every other agent - and on every
 // agent while API mode is hidden - the screen is exactly what it was. The choices and their words are the Gateway's,
 // rendered verbatim; the row never names an agent or a mode itself. Until the person picks, the selection is the
-// choice the Gateway marks as the agent's default (API mode for Pi, mission #4070 section 9); Terminal stays one click
-// away. The selection shown is what the create will send (connectionToSend), so a choice made for another agent never
+// choice the Gateway marks as the agent's default (Terminal for every agent today, Pi included - the owner's decision
+// of 20 October 2026); whichever is the default, the other stays one click away. The selection shown is what the create will send (connectionToSend), so a choice made for another agent never
 // shows as chosen here.
 // Under the buttons, the selected choice's sentence - the Gateway's words, verbatim - says what that choice means;
 // Terminal has none, so nothing is drawn for it.

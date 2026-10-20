@@ -280,8 +280,8 @@ public sealed class NewSessionRequest
 
     /// <summary>
     /// True when the caller named no <see cref="ConnectionMode"/> and asks for the Gateway's default for this agent on
-    /// the Director the create reaches (mission #4070, section 9): API mode for Pi on a Director that can carry it as the
-    /// default, Terminal otherwise. <c>cc-devthrottle session spawn</c> sends it when no <c>--connection</c> is given.
+    /// the Director the create reaches (mission #4070, section 9), as <see cref="ConnectionModes.DefaultOf"/> rules it:
+    /// Terminal for every agent today, Pi included (the owner's decision, 20 October 2026). <c>cc-devthrottle session spawn</c> sends it when no <c>--connection</c> is given.
     /// Absent or false keeps the old meaning of an absent <see cref="ConnectionMode"/> - terminal - so a restore or a
     /// handover, which sends nothing for a terminal session, never changes how a session runs. Ignored when
     /// <see cref="ConnectionMode"/> is set, and by an older Gateway, which starts the terminal as it always did.

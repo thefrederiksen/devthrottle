@@ -111,8 +111,8 @@
 
                     <!-- Connection row (API mode mission #4070, phase 5): Terminal | API mode, shown only for an
                          agent offered both (NewSessionConnection.ShowsChoice - Pi, and only while the one switch
-                         ConnectionModes.ApiModeOffered is on). Each agent picked starts on its default -
-                         API mode for Pi (NewSessionConnection.StartsOnApiMode), Terminal for every other -
+                         ConnectionModes.ApiModeOffered is on). Each agent picked starts on its default
+                         (NewSessionConnection.StartsOnApiMode - Terminal for every agent today, Pi included)
                          and nothing is remembered. The radio words are set from ConnectionModes in code, one
                          source for every surface. -->
                     <StackPanel x:Name="ConnectionPanel" Orientation="Horizontal" Margin="0,0,0,12"

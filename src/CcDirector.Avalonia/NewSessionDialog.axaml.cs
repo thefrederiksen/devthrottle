@@ -961,8 +961,8 @@ public partial class NewSessionDialog : Window
             CustomCliPanel.IsVisible = isRawCli;
 
         // The Connection row (API mode mission #4070) shows only for an agent offered both connections. Each agent picked
-        // starts on its own default - API mode for Pi (section 9), Terminal for every other - so a choice made for one
-        // agent is never what another starts with, and Terminal stays one click away for Pi.
+        // starts on its own default (NewSessionConnection.StartsOnApiMode; Terminal for every agent today, Pi included) - so a
+        // choice made for one agent is never what another starts with, and the other choice stays one click away.
         var showsConnection = NewSessionConnection.ShowsChoice(agentKind, _apiModeOffered);
         if (ConnectionPanel is not null)
             ConnectionPanel.IsVisible = showsConnection;

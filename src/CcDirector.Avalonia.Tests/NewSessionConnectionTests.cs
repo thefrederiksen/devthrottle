@@ -160,7 +160,7 @@ public class NewSessionConnectionTests
     }
 
     [AvaloniaFact]
-    public void Dialog_WhileApiModeIsOffered_StartsPiOnApiMode_TerminalOneClickAway()
+    public void Dialog_WhileApiModeIsOffered_StartsPiOnTerminal_ApiModeOneClickAway()
     {
         using var agents = new TwoAgents();
         var dialog = Open(apiModeOffered: true);
@@ -168,21 +168,21 @@ public class NewSessionConnectionTests
         {
             ChooseAgent(dialog, "Pi");
 
-            // Mission #4070, section 9: API mode is Pi's default.
+            // The owner's decision, 20 October 2026: Pi's default is Terminal; API mode is offered beside it.
             Assert.True(dialog.GetControl<StackPanel>("ConnectionPanel").IsVisible);
             Assert.Equal("Terminal", dialog.GetControl<RadioButton>("ConnectionTerminalRadio").Content);
             Assert.Equal("API mode", dialog.GetControl<RadioButton>("ConnectionApiRadio").Content);
-            Assert.True(dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked);
-            Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
+            Assert.True(dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked);
+            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
             var description = dialog.GetControl<TextBlock>("ConnectionDescriptionText");
-            Assert.True(description.IsVisible);
-            Assert.Equal(ConnectionModes.DescriptionOf(ConnectionModes.Api, "Pi"), description.Text);
+            Assert.False(description.IsVisible);
 
-            dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked = true;
+            dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked = true;
             Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
-            Assert.False(description.IsVisible);
+            Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
+            Assert.True(description.IsVisible);
+            Assert.Equal(ConnectionModes.DescriptionOf(ConnectionModes.Api, "Pi"), description.Text);
         }
         finally
         {
@@ -191,20 +191,20 @@ public class NewSessionConnectionTests
     }
 
     [AvaloniaFact]
-    public void Dialog_TerminalChosenForPiThenClaudeCodeThenPiAgain_StartsPiOnApiModeAgain()
+    public void Dialog_ApiModeChosenForPiThenClaudeCodeThenPiAgain_StartsPiOnTerminalAgain()
     {
         using var agents = new TwoAgents();
         var dialog = Open(apiModeOffered: true);
         try
         {
             ChooseAgent(dialog, "Pi");
-            dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked = true;
+            dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked = true;
 
             ChooseAgent(dialog, "Claude Code");
             ChooseAgent(dialog, "Pi");
 
-            Assert.True(dialog.GetControl<RadioButton>("ConnectionApiRadio").IsChecked);
-            Assert.Equal(SessionConnectionMode.Api, dialog.SelectedConnectionMode);
+            Assert.True(dialog.GetControl<RadioButton>("ConnectionTerminalRadio").IsChecked);
+            Assert.Equal(SessionConnectionMode.Terminal, dialog.SelectedConnectionMode);
         }
         finally
         {
@@ -301,11 +301,11 @@ public class NewSessionConnectionTests
     }
 
     [Theory]
-    [InlineData(AgentKind.Pi, true, true)]
+    [InlineData(AgentKind.Pi, true, false)]
     [InlineData(AgentKind.Pi, false, false)]
     [InlineData(AgentKind.ClaudeCode, true, false)]
     [InlineData(AgentKind.Codex, true, false)]
-    public void StartsOnApiMode_IsTrueOnlyForPiWhileApiModeIsOffered(AgentKind kind, bool apiModeOffered, bool expected)
+    public void StartsOnApiMode_IsFalseForEveryAgent_PiIncluded(AgentKind kind, bool apiModeOffered, bool expected)
     {
         // Act
         var starts = NewSessionConnection.StartsOnApiMode(kind, apiModeOffered);

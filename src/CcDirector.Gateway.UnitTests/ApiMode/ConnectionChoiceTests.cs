@@ -264,18 +264,25 @@ public sealed class ConnectionChoiceTests : IDisposable
         Assert.All(offered, a => Assert.Equal(new[] { ConnectionModes.Terminal }, a.Connections.Select(c => c.Mode)));
     }
 
-    // ---- the default: API mode for Pi (mission #4070, section 9, the owner's decision) ------------------------------
+    // ---- the default: Terminal for every agent, Pi included (the owner's decision, 20 October 2026) ------------------
+
+    [Fact]
+    public void ApiModeByDefault_NamesNoAgent()
+    {
+        // Assert: "We should keep Pi's default as the old terminal mode." Switching Pi over later is naming it here.
+        Assert.Empty(ConnectionModes.ApiModeByDefault);
+    }
 
     [Theory]
     [InlineData("Pi")]
     [InlineData("pi")]
-    public void DefaultOf_PiOfferedApiMode_IsApiMode(string agentType)
+    public void DefaultOf_PiOfferedApiMode_IsTerminal(string agentType)
     {
         // Act
         var mode = ConnectionModes.DefaultOf(agentType, new[] { ConnectionModes.Terminal, ConnectionModes.Api });
 
         // Assert
-        Assert.Equal(ConnectionModes.Api, mode);
+        Assert.Equal(ConnectionModes.Terminal, mode);
     }
 
     [Fact]
@@ -302,9 +309,32 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("Pi", ConnectionModes.Api)]
+    [InlineData("pi", ConnectionModes.Api)]
+    [InlineData("Codex", ConnectionModes.Terminal)]
+    public void DefaultOf_AnAgentNamedInTheList_IsApiMode_SoSwitchingPiOverIsOneLine(string agentType, string expected)
+    {
+        // Act: the list as it would read once Pi is switched over - the one place the default is decided.
+        var mode = ConnectionModes.DefaultOf(agentType, new[] { ConnectionModes.Terminal, ConnectionModes.Api }, new[] { "Pi" });
+
+        // Assert
+        Assert.Equal(expected, mode);
+    }
+
+    [Fact]
+    public void DefaultOf_AnAgentNamedInTheListButNotOfferedApiMode_IsTerminal()
+    {
+        // Act
+        var mode = ConnectionModes.DefaultOf("Pi", new[] { ConnectionModes.Terminal }, new[] { "Pi" });
+
+        // Assert
+        Assert.Equal(ConnectionModes.Terminal, mode);
+    }
+
+    [Theory]
     [InlineData("2.25.0")]
     [InlineData("2.26.0")]
-    public void Offer_OnADirectorOf2_25OrLater_MarksApiModeTheDefaultForPi_TerminalForEveryOther_TerminalStillOffered(string version)
+    public void Offer_OnADirectorOf2_25OrLater_MarksTerminalTheDefaultForEveryAgent_ApiModeStillOfferedToPi(string version)
     {
         // Act
         var offered = ConnectionChoiceFold.Offer(ReportedAgents(), apiModeOffered: true, DirectorOf(version));
@@ -312,7 +342,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         // Assert
         var pi = offered.Single(a => a.Type == "Pi").Connections;
         Assert.Equal(new[] { ConnectionModes.Terminal, ConnectionModes.Api }, pi.Select(c => c.Mode));
-        Assert.Equal(new[] { false, true }, pi.Select(c => c.IsDefault));
+        Assert.Equal(new[] { true, false }, pi.Select(c => c.IsDefault));
         Assert.True(offered.Single(a => a.Type == "ClaudeCode").Connections.Single().IsDefault);
         Assert.True(offered.Single(a => a.Type == "Codex").Connections.Single().IsDefault);
     }
@@ -342,7 +372,8 @@ public sealed class ConnectionChoiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("Pi", "2.25.0", ConnectionModes.Api)]
+    [InlineData("Pi", "2.25.0", null)]
+    [InlineData("Pi", "2.26.0", null)]
     [InlineData("Pi", "2.24.0", null)]
     [InlineData("Pi", "", null)]
     [InlineData("ClaudeCode", "2.26.0", null)]
@@ -354,7 +385,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         // Act
         ConnectionChoiceFold.SettleDefault(req, apiModeOffered: true, DirectorOf(version));
 
-        // Assert: terminal stays absent, so an older Director gets the body it always got.
+        // Assert: every agent's default is Terminal, and terminal stays absent, so a Director gets the body it always got.
         Assert.Equal(expected, req.ConnectionMode);
     }
 
@@ -738,7 +769,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     [Theory]
     [InlineData("2.25.0")]
     [InlineData("2.26.0")]
-    public async Task GetAgents_OnADirectorOf2_25OrLater_ServesApiModeAsPisDefault_AndTerminalForEveryOther(string version)
+    public async Task GetAgents_OnADirectorOf2_25OrLater_ServesTerminalAsEveryAgentsDefault_PiIncluded(string version)
     {
         // Arrange
         await StartAsync(directorVersion: version);
@@ -750,7 +781,7 @@ public sealed class ConnectionChoiceTests : IDisposable
         // Assert: read off the wire as client-core reads it.
         response.EnsureSuccessStatusCode();
         var defaults = await DefaultsOnTheWire(response);
-        Assert.Equal("api", defaults["Pi"]);
+        Assert.Equal("terminal", defaults["Pi"]);
         Assert.Equal("terminal", defaults["ClaudeCode"]);
         Assert.Equal("terminal", defaults["Codex"]);
     }
@@ -773,7 +804,7 @@ public sealed class ConnectionChoiceTests : IDisposable
     [Theory]
     [InlineData("machine")]
     [InlineData("director")]
-    public async Task PostSessions_PiAskingForTheDefaultOnADirectorOf2_25_GoesToTheDirectorInApiMode(string door)
+    public async Task PostSessions_PiAskingForTheDefaultOnADirectorOf2_25_GoesToTheDirectorInTerminal(string door)
     {
         // Arrange
         await StartAsync(directorVersion: "2.25.0");
@@ -781,9 +812,9 @@ public sealed class ConnectionChoiceTests : IDisposable
         // Act: what cc-devthrottle session spawn --agent Pi sends with no --connection.
         using var response = await Create(door, connectionMode: null, defaultConnection: true);
 
-        // Assert
+        // Assert: Pi's default is Terminal (the owner's decision, 20 October 2026), so the body names no mode.
         Assert.True(response.IsSuccessStatusCode, $"{door} door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
-        Assert.Equal(ConnectionModes.Api, SawAt(door)!.ConnectionMode);
+        Assert.Null(SawAt(door)!.ConnectionMode);
     }
 
     [Theory]

@@ -66,7 +66,7 @@ def test_spawn_session_ConnectionTerminal_SendsTerminal(captured):
 
 
 def test_spawn_session_NoConnection_AsksForTheGatewaysDefaultAndNamesNoMode(captured):
-    # The default (API mode for Pi, terminal for every other agent) is the Gateway's to rule, on the Director the
+    # The default (terminal for every agent today, Pi included) is the Gateway's to rule, on the Director the
     # create reaches; this tool only asks for it.
     _spawn(None)
 

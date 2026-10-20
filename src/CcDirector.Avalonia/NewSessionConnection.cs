@@ -27,8 +27,8 @@ public static class NewSessionConnection
 
     /// <summary>
     /// Whether the dialog starts on API mode for <paramref name="kind"/> when the agent is picked: the same rule the
-    /// Gateway serves the Cockpit and the phone (<see cref="ConnectionModes.DefaultOf"/>, mission #4070, section 9) - API
-    /// mode for Pi while it is offered, Terminal for every other agent. This dialog runs inside the Director, so the
+    /// Gateway serves the Cockpit and the phone (<see cref="ConnectionModes.DefaultOf"/>, mission #4070, section 9) - false
+    /// for every agent today, Pi included (the owner's decision, 20 October 2026). This dialog runs inside the Director, so the
     /// Gateway's version guard has nothing to guard here: this Director carries API mode.
     /// </summary>
     public static bool StartsOnApiMode(AgentKind kind, bool apiModeOffered) =>
@@ -36,7 +36,7 @@ public static class NewSessionConnection
 
     /// <summary>
     /// Whether a saved named session reopens on API mode: only when it was saved in API mode. One saved in the terminal,
-    /// or saved before API mode existed (no mode stored), reopens in the terminal - the New Session default for Pi
+    /// or saved before API mode existed (no mode stored), reopens in the terminal - the New Session default
     /// (<see cref="StartsOnApiMode"/>) is for a choice being made, never for one already made. Whether API mode is still
     /// offered is checked when the session starts (<see cref="ModeToStart"/>).
     /// </summary>

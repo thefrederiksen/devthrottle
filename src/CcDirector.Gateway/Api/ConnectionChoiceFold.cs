@@ -16,8 +16,8 @@ internal static class ConnectionChoiceFold
     /// Replace each Director-reported agent's declared connections with the OFFERED ones, labelled (Terminal always, API
     /// mode only for a wrapper that declares it while <paramref name="apiModeOffered"/> is on and the Director is new
     /// enough to carry it), each with the sentence the row shows while it is selected, and the one New Session starts on
-    /// marked as the default (<see cref="ConnectionModes.DefaultOf"/> on what is offered: API mode for Pi wherever it is
-    /// offered, Terminal for every other agent - mission #4070, section 9). An older Director that reports no
+    /// marked as the default (<see cref="ConnectionModes.DefaultOf"/> on what is offered: Terminal for every agent today,
+    /// Pi included - the owner's decision, 20 October 2026). An older Director that reports no
     /// connections gets Terminal alone, and so does a Director below <see cref="FirstDirectorThatCarriesApiMode"/> whatever
     /// it declares: v2.24.0 declares API mode for Pi, and offering it there would offer a create
     /// <see cref="DirectorCannotCarry(NewSessionRequest, DirectorDto)"/> then refuses (the #4257 review, finding 1). So

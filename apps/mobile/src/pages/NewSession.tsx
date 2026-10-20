@@ -94,9 +94,9 @@ export function NewSession() {
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [agentReload, setAgentReload] = useState(0);
   const [selectedAgentType, setSelectedAgentType] = useState<string | null>(null);
-  // How the session is connected (API mode mission #4070): terminal by default, every time, never remembered.
-  // The connection the person picked for the chosen agent, or null: the create then sends the agent's default as the
-  // Gateway marks it (API mode for Pi, mission #4070 section 9). A new agent starts on its own default again.
+  // How the session is connected (API mode mission #4070). The connection the person picked for the chosen agent, or
+  // null: the create then sends the agent's default as the Gateway marks it - Terminal for every agent today, Pi
+  // included (the owner's decision, 20 October 2026). Not remembered: a new agent starts on its own default again.
   const [connection, setConnection] = useState<string | null>(null);
   useEffect(() => setConnection(null), [selectedAgentType]);
 

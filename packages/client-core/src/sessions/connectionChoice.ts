@@ -13,7 +13,8 @@ export function offersConnectionChoice(agent: AgentChoice | null): boolean {
   return agent !== null && agent.connections.length > 1;
 }
 
-/** The connection the Gateway marks as this agent's default (section 9: API mode for Pi), else terminal. */
+/** The connection the Gateway marks as this agent's default (Terminal for every agent today, Pi
+ *  included - the owner's decision, 20 October 2026), else terminal. */
 export function defaultConnectionOf(agent: AgentChoice | null): string {
   return agent?.connections.find((c) => c.isDefault)?.mode ?? TERMINAL_CONNECTION;
 }
