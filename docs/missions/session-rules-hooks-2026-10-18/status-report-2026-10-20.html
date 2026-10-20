@@ -33,56 +33,23 @@
 <body>
 <main>
 
-<section data-dev-report="header" data-dev-report-status="waiting-on-you">
+<section data-dev-report="header" data-dev-report-status="done">
   <h1>Session Rules part 2 - where we stand</h1>
   <p class="sub">Delivery Lead, 20 October 2026. Mission issue #4217. Every session on this mission is stopped, as you asked; all their work is committed and pushed.</p>
 </section>
 
 <section data-dev-report="summary">
-  <p><strong>Two of five phases are merged to main, the third is mostly built, and two are not started.</strong>
-  Agents can now manage rules (phase 2), and hook rules with scopes run in dry run on every shell command in a
-  Claude Code session (phase 1) - they record what they would have blocked and block nothing.</p>
-  <p><strong>One thing needs fixing before anything else: our phase 1 merge turned main red.</strong> Its database
-  migration was created before three Mail Desk and Triggers migrations but merged after them, so it sits in the middle
-  of the chain. Two tests on main fail because of it. The fix is about an hour: regenerate our migration so it is the
-  newest. A red main blocks releases and Gateway deploys. The other eight failures on main belong to the Mail Desk and
-  hosted desktop work, not to us.</p>
-  <p><strong>To finish everything: about six to nine working days of the fleet's time</strong>, with your input needed
-  only twice (the questions below). That estimate comes from the pace so far: phase 2 took about half a day, phase 1 about a day and a half
-  including the licence outage and the Windows detours.</p>
+  <p><strong>Done as you answered. The mission is paused, nothing is running, and main no longer has our red.</strong></p>
+  <ul>
+    <li><strong>Main fixed:</strong> #4297, reviewed by a different agent and merged. Phase 1 was already in production (a Gateway deploy at 13:34 today, run 39431533659, not started by this mission), so the fix kept the migration's name and corrected the newest migration's record instead. A rename would have broken production's next start.</li>
+    <li><strong>Paused:</strong> phases 1 and 2 stay on main; phase 3 is parked on its branches. Everything needed to pick it up is in issue <strong>#4295</strong>.</li>
+    <li><strong>Your answers recorded</strong> in the mission document, now on main (#4298): an unanswered phone approval is denied; the why in your words; the style guides found.</li>
+    <li><strong>Main is still red from other work</strong> (eight Mail Desk and hosted desktop tests). A fresh test run on main has started.</li>
+  </ul>
 </section>
 
 <section data-dev-report="questions">
-  <div data-dev-report-question="fix-main" data-dev-report-question-text="May I fix the red main our phase 1 caused, now, while everything else stays stopped?">
-    <h3>May I fix the red main our phase 1 caused, now, while everything else stays stopped?</h3>
-    <label><input type="radio" name="fix-main" value="fix-now" data-recommended> Yes, fix it now - one Developer, regenerate the migration, a review, merge. About an hour. A red main blocks every release and deploy.</label>
-    <label><input type="radio" name="fix-main" value="revert"> Revert phase 1 from main instead, and redo it later.</label>
-    <label><input type="radio" name="fix-main" value="wait"> Leave it until I decide how to go on.</label>
-    <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
-  </div>
-
-  <div data-dev-report-question="how-to-continue" data-dev-report-question-text="How should the mission go on?">
-    <h3>How should the mission go on?</h3>
-    <label><input type="radio" name="how-to-continue" value="all-phases" data-recommended> Resume and finish all five phases, at most four sessions at a time to keep memory down. This is what you asked for earlier, and it gives you blocking rules, the Rules page and start-up checks.</label>
-    <label><input type="radio" name="how-to-continue" value="through-phase-3"> Finish the phase 1 Windows checks and phase 3 (the Rules page), then stop and decide again. About two days. You get to see and manage rules, but nothing is enforced yet.</label>
-    <label><input type="radio" name="how-to-continue" value="stop-here"> Stop here. Keep what is merged; park phase 3 on its branch.</label>
-    <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
-  </div>
-
-  <div data-dev-report-question="ask-timeout" data-dev-report-question-text="When a rule asks you to approve a command on the phone and you do not answer, what happens?">
-    <h3>When a rule asks you to approve a command on the phone and you do not answer, what happens?</h3>
-    <label><input type="radio" name="ask-timeout" value="deny" data-recommended> It is denied. An unanswered request is never waved through; the agent is told why and carries on.</label>
-    <label><input type="radio" name="ask-timeout" value="allow"> It is allowed, so an agent is never held up by a missed notification.</label>
-    <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
-  </div>
-
-  <div data-dev-report-question="the-why" data-dev-report-question-text="Is this the why of the mission, in your words?">
-    <h3>Is this the why of the mission, in your words?</h3>
-    <p>"My most important rules exist only as text an agent can ignore, and I cannot see, set or scope them. I want rules the product enforces, that I and the agents can manage."</p>
-    <label><input type="radio" name="the-why" value="yes" data-recommended> Yes, use it as written.</label>
-    <label><input type="radio" name="the-why" value="edit"> Close - I will write my version in the comment box.</label>
-    <textarea data-dev-report-comment placeholder="Your version (optional)"></textarea>
-  </div>
+  <p data-dev-report-no-questions>No questions - nothing needed from you. Your four answers are in the mission document.</p>
 </section>
 
 <section data-dev-report="detail">
