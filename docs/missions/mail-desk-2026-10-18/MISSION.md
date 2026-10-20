@@ -164,6 +164,12 @@ Every answer the owner gave, in his words where he gave words. Dictated text is 
   and 7 are merged and deployed. This grant does NOT cover `maildesk mode ... live`: live mode stays the owner's own
   decision (D17).
 
+- **D23. GRANT - the mission may use the account's usage credits.** On 19 October 2026, after every seat stopped on
+  the account's monthly spend limit, the owner: "Go ahead and use the credits. We can always raise the limits of
+  credits later. I don't care as much about the credits." So the mission's seats keep running on usage credits. The
+  spend limit itself is the owner's setting: no seat changes it. Separate from the $5 limit on model calls in the
+  screening (question 1), which still holds.
+
 ### Overrides of the method
 
 None. The order of reviewers is the repository rules' section 5a (the owner's ruling of 28 September 2026), which is
