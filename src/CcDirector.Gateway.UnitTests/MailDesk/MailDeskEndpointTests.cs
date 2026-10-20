@@ -37,7 +37,7 @@ namespace CcDirector.Gateway.Tests.MailDesk;
 /// saved first, and that one account never sees another's.
 /// </summary>
 [Trait("Category", "MailDesk")]
-public sealed class MailDeskEndpointTests : IAsyncLifetime
+public sealed partial class MailDeskEndpointTests : IAsyncLifetime
 {
     private const string TenantHeader = "X-Test-Account";
     private const string CallerHeader = "X-Test-Caller";

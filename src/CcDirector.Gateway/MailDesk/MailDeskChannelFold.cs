@@ -193,7 +193,108 @@ public sealed class MailDeskChannelFold
         CreatedBy: c.CreatedBy,
         ChangedUtc: DateTime.SpecifyKind(c.ChangedUtc, DateTimeKind.Utc),
         ChangedBy: c.ChangedBy,
-        RemovedUtc: c.RemovedUtc is { } removed ? DateTime.SpecifyKind(removed, DateTimeKind.Utc) : null);
+        RemovedUtc: c.RemovedUtc is { } removed ? DateTime.SpecifyKind(removed, DateTimeKind.Utc) : null)
+    {
+        ProviderLabel = ProviderLabelOf(c.Id, c.Provider),
+        MachinesLabel = MachinesLabelOf(c.Id, MailDeskChannelStore.Machines(c)),
+        ModeTone = ModeToneOf(c.Id, c.Mode),
+    };
+
+    // ---------- the words and tones the Mail Desk page shows (phase 7 contract, section 2) ----------
+    //
+    // A client turns a tone into a colour and shows every label verbatim; it never works one out from the raw words.
+    // The tones of signedIn, lastCheck and today are read off their own records, so whoever decides a state - the
+    // trigger today, a mailbox's own checks after phase 3 - the tone follows it with no change here.
+
+    /// <summary>The only values a client turns into a colour.</summary>
+    public static class Tones
+    {
+        public const string Good = "good";
+        public const string Bad = "bad";
+        public const string Neutral = "neutral";
+        /// <summary>Stands out on purpose: live mode acts on the mailbox.</summary>
+        public const string Attention = "attention";
+    }
+
+    /// <summary>What each decision word reads as on the page, keyed by decision.</summary>
+    public static readonly IReadOnlyDictionary<string, string> DecisionLabels = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        [MailDeskWords.Decisions.Route] = "Route to a seat",
+        [MailDeskWords.Decisions.Archive] = "Archive",
+        [MailDeskWords.Decisions.Junk] = "Junk",
+        [MailDeskWords.Decisions.KeepForOwner] = "Keep for you",
+        [MailDeskWords.Decisions.MailDeskAgent] = "Hand to the Mail Desk agent",
+        [MailDeskWords.Decisions.Failed] = "Could not be screened",
+    };
+
+    /// <summary>The heading of the Mail Desk page.</summary>
+    public const string PageTitle = "Mail Desk";
+
+    /// <summary>The sentence under the heading of the Mail Desk page.</summary>
+    public const string PageSummary =
+        "The mailboxes the Mail Desk screens. A check reads each one every few minutes. A mailbox in observe mode only "
+        + "records what was decided and changes nothing in it; a mailbox in live mode files each email and starts the seat "
+        + "it is routed to.";
+
+    /// <summary>What the Mail Desk page shows when the account has no mailbox on it.</summary>
+    public const string PageEmptyLabel =
+        "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook "
+        + "--machine <machine> --why \"<why>\"";
+
+    /// <summary>The provider's name as a reader sees it. A provider with no label is refused, never shown raw.</summary>
+    internal static string ProviderLabelOf(Guid channel, string provider)
+        => MailDeskWords.Providers.Labels.TryGetValue(provider, out var label)
+            ? label
+            : throw new InvalidOperationException($"Mail Desk channel {channel} holds the provider '{provider}', which has no label.");
+
+    /// <summary>
+    /// The machines that read the mailbox, in the order of preference stored: one is its name; two read
+    /// "A, then B if A is not answering"; three or more read "A, then B, then C - each only when the one before it is
+    /// not answering".
+    /// </summary>
+    internal static string MachinesLabelOf(Guid channel, IReadOnlyList<string> machines) => machines.Count switch
+    {
+        0 => throw new InvalidOperationException($"Mail Desk channel {channel} names no machine to read it."),
+        1 => machines[0],
+        2 => $"{machines[0]}, then {machines[1]} if {machines[0]} is not answering",
+        _ => string.Join(", then ", machines) + " - each only when the one before it is not answering",
+    };
+
+    /// <summary>The mode's tone: observe is neutral, live asks for attention.</summary>
+    internal static string ModeToneOf(Guid channel, string mode) => mode switch
+    {
+        MailDeskWords.Modes.Observe => Tones.Neutral,
+        MailDeskWords.Modes.Live => Tones.Attention,
+        _ => throw new InvalidOperationException($"Mail Desk channel {channel} holds the mode '{mode}', which is not a mode."),
+    };
+
+    /// <summary>The sign-in state's tone: yes is good, failing is bad, unknown is neutral.</summary>
+    internal static string SignedInToneOf(string state) => state switch
+    {
+        SignedInStates.Yes => Tones.Good,
+        SignedInStates.Failing => Tones.Bad,
+        SignedInStates.Unknown => Tones.Neutral,
+        _ => throw new InvalidOperationException($"'{state}' is not a sign-in state."),
+    };
+
+    /// <summary>The last check's tone: no check yet is neutral, a failed check is bad, any other outcome is good.</summary>
+    internal static string LastCheckToneOf(DateTime? utc, string? outcome)
+        => utc is null ? Tones.Neutral : outcome == TriggerRunOutcome.Failed ? Tones.Bad : Tones.Good;
+
+    /// <summary>"No emails decided today", "1 email decided today", or "N emails decided today".</summary>
+    internal static string TodayLabelOf(int total) => total switch
+    {
+        0 => "No emails decided today",
+        1 => "1 email decided today",
+        _ => $"{total.ToString(CultureInfo.InvariantCulture)} emails decided today",
+    };
+
+    /// <summary>Every decision word in the order <see cref="MailDeskWords.Decisions"/> lists them, zeros included, with its label.</summary>
+    internal static IReadOnlyList<MailDeskDecisionCount> CountsOf(IReadOnlyDictionary<string, int> byDecision)
+        => MailDeskWords.Decisions.All.Select(d => new MailDeskDecisionCount(d, DecisionLabels[d],
+            byDecision.TryGetValue(d, out var count)
+                ? count
+                : throw new InvalidOperationException($"Today's counts hold no count for the decision '{d}'."))).ToList();
 }
 
 /// <summary>The fold's answer: the rows, and the account's day across them.</summary>
@@ -221,13 +322,41 @@ public sealed record MailDeskChannelRow(
     string CreatedBy,
     DateTime ChangedUtc,
     string ChangedBy,
-    DateTime? RemovedUtc);
+    DateTime? RemovedUtc)
+{
+    /// <summary>The provider's name as a reader sees it: <c>Outlook</c>.</summary>
+    public required string ProviderLabel { get; init; }
+
+    /// <summary>The machines that read the mailbox, in order of preference, as one sentence.</summary>
+    public required string MachinesLabel { get; init; }
+
+    /// <summary><c>neutral</c> in observe mode, <c>attention</c> in live mode.</summary>
+    public required string ModeTone { get; init; }
+}
 
 /// <summary>Whether the channel's mailbox is signed in: <c>unknown</c>, <c>yes</c> or <c>failing</c>, and the words.</summary>
-public sealed record MailDeskSignedIn(string State, string Label);
+public sealed record MailDeskSignedIn(string State, string Label)
+{
+    /// <summary><c>good</c>, <c>bad</c> or <c>neutral</c> (<see cref="MailDeskChannelFold.SignedInToneOf"/>).</summary>
+    public string Tone => MailDeskChannelFold.SignedInToneOf(State);
+}
 
 /// <summary>The last check of the Mail Desk start: when, its outcome, and the words. Both null before any check.</summary>
-public sealed record MailDeskLastCheck(DateTime? Utc, string? Outcome, string Label);
+public sealed record MailDeskLastCheck(DateTime? Utc, string? Outcome, string Label)
+{
+    /// <summary><c>good</c>, <c>bad</c> or <c>neutral</c> (<see cref="MailDeskChannelFold.LastCheckToneOf"/>).</summary>
+    public string Tone => MailDeskChannelFold.LastCheckToneOf(Utc, Outcome);
+}
 
 /// <summary>The channel's decisions today, every decision word listed with zeros.</summary>
-public sealed record MailDeskChannelToday(int Total, IReadOnlyDictionary<string, int> ByDecision);
+public sealed record MailDeskChannelToday(int Total, IReadOnlyDictionary<string, int> ByDecision)
+{
+    /// <summary>How many emails were decided today, as one sentence.</summary>
+    public string Label => MailDeskChannelFold.TodayLabelOf(Total);
+
+    /// <summary>Every decision word in order, zeros included, each with its label.</summary>
+    public IReadOnlyList<MailDeskDecisionCount> Counts => MailDeskChannelFold.CountsOf(ByDecision);
+}
+
+/// <summary>One decision word's count today, with the words a reader sees for it.</summary>
+public sealed record MailDeskDecisionCount(string Decision, string Label, int Count);
