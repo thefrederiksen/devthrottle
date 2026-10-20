@@ -173,3 +173,19 @@ is the fairer reference.
 - The proof says what replaced what, why the old "added" column came out similar, and that the Windows path
   of the PowerShell script was not run. The evaluator size it names is the size this worktree publishes.
 - The PowerShell script requires version 7 (line 1), so `$IsWindows` is defined on every platform it runs on.
+
+---
+
+## The Tech Lead's calls
+
+All five: **fix as the reviewer says**, answered in `phase-1-timing-scripts-answers.md` beside this file.
+
+1. Finding 1: start the evaluator directly in the "outside a Director session" row too (unset the two variables
+   for that row without a program in front of it), re-run, and correct the row.
+2. Finding 2: make the two scripts' "shell" rows measure the same thing - the shell starting the baseline
+   program - and label them the same.
+3. Finding 3: look for `true.exe` beside the Git Bash first, then two levels up, and say in the error where it
+   looked.
+4. Finding 4: commit the full output of the Linux runs under `evidence/` and name the files in section 4. The
+   Windows run will do the same.
+5. Finding 5: say only what a run showed; the rest is labelled as expected, not measured.
