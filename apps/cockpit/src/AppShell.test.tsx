@@ -125,6 +125,18 @@ vi.mock("@devthrottle/client-core/licenses/licensesClient", () => ({
   getLicenseAlarms: vi.fn(async () => alarmRead.answer),
 }));
 
+// The Boxes entry (Factory Boxes mission, phase 1) follows the Gateway's `boxes` on GET /account/status. Unstaged, it is
+// false, so a test about something else sees the rail it always saw.
+const accountRead = vi.hoisted(() => ({ boxes: false as boolean | Error, calls: 0 }));
+vi.mock("@devthrottle/client-core/account/accountClient", async (importActual) => ({
+  ...(await importActual<typeof import("@devthrottle/client-core/account/accountClient")>()),
+  getAccountStatus: vi.fn(async () => {
+    accountRead.calls += 1;
+    if (accountRead.boxes instanceof Error) throw accountRead.boxes;
+    return { signedIn: true, boxes: accountRead.boxes };
+  }),
+}));
+
 const reported = vi.hoisted(() => ({ calls: [] as unknown[][] }));
 vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual) => ({
   ...(await importActual<typeof import("@devthrottle/client-core/errors/reportClientError")>()),
@@ -143,6 +155,7 @@ import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factory
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 import { resetMailDeskEntryCache } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { getMailDeskChannels } from "@devthrottle/client-core/maildesk/mailDeskClient";
+import { resetBoxesSwitchCache } from "@devthrottle/client-core/boxes/useBoxesSwitch";
 
 function railLabels(): string[] {
   const nav = document.querySelector(".nav");
@@ -174,6 +187,9 @@ describe("Cockpit left rail", () => {
     mailDeskRead.answers = [];
     mailDeskRead.calls = 0;
     resetMailDeskEntryCache();
+    accountRead.boxes = false;
+    accountRead.calls = 0;
+    resetBoxesSwitchCache();
     window.localStorage.clear();
   });
 
@@ -472,6 +488,68 @@ describe("Cockpit left rail", () => {
       await waitFor(() => expect(railLabels()).toContain("Mail Desk"));
       expect(rhythm.asked).toEqual([1]);
       expect(reported.calls).toHaveLength(1);
+    });
+  });
+
+  describe("the Boxes entry", () => {
+    function renderShell() {
+      render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <AppShell />
+        </MemoryRouter>,
+      );
+    }
+
+    function workLabels(): string[] {
+      return Array.from(screen.getByTestId("nav-work").querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+    }
+
+    // "No entry" is only proved once the read has settled, never while it is still on its way.
+    async function readSettled() {
+      await waitFor(() => expect(accountRead.calls).toBeGreaterThan(0));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    it("is offered in Work directly after Factories when the Gateway says boxes is true", async () => {
+      accountRead.boxes = true;
+      renderShell();
+
+      await waitFor(() => expect(railLabels()).toContain("Boxes"));
+      expect(workLabels()).toEqual([
+        "Sessions", "Fleet Map", "Fleet Manager", "Factories", "Boxes", "History", "Voice Recorder", "Reports",
+      ]);
+      expect(screen.getByRole("link", { name: /Boxes/ }).getAttribute("href")).toBe("/boxes");
+    });
+
+    it("comes after the Mail Desk when the Mail Desk is offered too", async () => {
+      accountRead.boxes = true;
+      mailDeskRead.answers = [{ kind: "channels", envelope: { count: 0, channels: [], title: "t", summary: "s", emptyLabel: "e" } }];
+      renderShell();
+
+      await waitFor(() => expect(railLabels()).toContain("Boxes"));
+      await waitFor(() => expect(railLabels()).toContain("Mail Desk"));
+      expect(workLabels()).toEqual([
+        "Sessions", "Fleet Map", "Fleet Manager", "Factories", "Mail Desk", "Boxes", "History", "Voice Recorder", "Reports",
+      ]);
+    });
+
+    it("is not drawn when the Gateway says boxes is false", async () => {
+      accountRead.boxes = false;
+      renderShell();
+
+      await readSettled();
+      expect(railLabels()).not.toContain("Boxes");
+      expect(document.querySelector("a[href='/boxes']")).toBeNull();
+    });
+
+    it("is not drawn, and the failure reported, when the account status cannot be read", async () => {
+      accountRead.boxes = new GatewayError(503, "the Gateway is restarting");
+      renderShell();
+
+      await readSettled();
+      await waitFor(() => expect(reported.calls.some((c) => (c[0] as { surface: string }).surface === "boxes-switch")).toBe(true));
+      expect(railLabels()).not.toContain("Boxes");
+      expect(document.querySelector("a[href='/boxes']")).toBeNull();
     });
   });
 

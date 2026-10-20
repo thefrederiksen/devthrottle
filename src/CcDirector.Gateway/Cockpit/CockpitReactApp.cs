@@ -49,6 +49,9 @@ public static class CockpitReactApp
     ///   #979 cutover: at <c>/c/lists</c> the API path <c>/lists</c> did not collide; flipping the
     ///   front door to <c>/</c> made <c>/lists</c> dual-use, so a browser reload/deep-link to
     ///   <c>/lists</c> was being served the raw <c>{"lists":[]}</c> JSON instead of the shell.</item>
+    /// <item><c>boxes</c> - <c>MapGet("/boxes")</c> (the Factory Boxes list) vs the Boxes page. Without it a reload
+    ///   of the Boxes page handed the browser the raw list. The desktop routes under it (<c>/boxes/{id}/desktop/...</c>)
+    ///   are three segments or more and stay the Gateway's; the ticket route is a POST.</item>
     /// </list>
     /// The match is on the FIRST segment for one- or two-segment paths only: the list page
     /// (<c>/sessions</c>) and its detail page (<c>/sessions/{sid}</c>) - one id segment, never deeper.
@@ -65,7 +68,7 @@ public static class CockpitReactApp
     /// <c>exes</c> would divert a browser GET of <c>/exes/list</c> to the shell), so this set stays the
     /// exact intersection of "React page" and "same-path JSON endpoint".
     /// </summary>
-    private static readonly string[] BrowserPageRoots = { "cockpit", "sessions", "directors", "lists" };
+    private static readonly string[] BrowserPageRoots = { "cockpit", "sessions", "directors", "lists", "boxes" };
 
     /// <summary>
     /// The directory the built React Cockpit is served from: <c>wwwroot/c</c> beside the running

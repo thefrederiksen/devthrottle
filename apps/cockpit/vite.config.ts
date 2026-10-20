@@ -94,6 +94,15 @@ const devProxy = proxyTarget
       // A factory's definition (Factory Definition, phase 6): the Definition tab publishes and restores through these.
       // Its reads, export and import are under /gateway, which is proxied above.
       "/factory-definitions": { target: proxyTarget, changeOrigin: true },
+      // Factory Boxes (phase 1): GET /boxes is the list AND the Boxes page's own address, and the desktop ticket is a
+      // POST under it. A browser loading the page (Accept: text/html) is handed the page, everything else goes to the
+      // Gateway - the same split the Gateway makes (CockpitReactApp.BrowserPageRoots).
+      "/boxes": {
+        target: proxyTarget,
+        changeOrigin: true,
+        bypass: (req: { headers: { accept?: string }; url?: string }) =>
+          req.headers.accept?.includes("text/html") ? req.url : undefined,
+      },
       // The Transcription Health page and the Transcription tab of Settings. Neither was proxied
       // before, so both could only ever be exercised against a Gateway that served the bundle itself.
       //

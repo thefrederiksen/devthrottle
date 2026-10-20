@@ -24,6 +24,9 @@ export interface AccountStatus {
    *  (POST /account/logout) means something. False on the hosted Gateway, which holds none. The Gateway rules;
    *  the client never works out "hosted" for itself (devthrottle#3681, rule 7). */
   gatewaySignIn?: boolean;
+  /** True when Factory Boxes is on for this account (the Factory Boxes mission). The GATEWAY rules: the Cockpit shows
+   *  the Boxes screen only on true and never works it out for itself (rule 7). */
+  boxes?: boolean;
 }
 
 /** One device in the account device list (GET /account/devices). Every field is a display value the
@@ -87,6 +90,7 @@ export async function getAccountStatus(signal?: AbortSignal): Promise<AccountSta
     signedIn: Boolean(body?.signedIn),
     staff: Boolean(body?.staff),
     gatewaySignIn: Boolean(body?.gatewaySignIn),
+    boxes: Boolean(body?.boxes),
     email: body?.email ?? null,
     provider: body?.provider ?? null,
   };

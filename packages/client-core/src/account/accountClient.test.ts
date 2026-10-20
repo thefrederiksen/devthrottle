@@ -74,3 +74,22 @@ describe("getAccountStatus", () => {
     }
   });
 });
+
+// The Factory Boxes ruling (Factory Boxes mission, phase 1): the Boxes screen is shown only on the Gateway's true. An
+// answer without it (an older Gateway) reads as false, so the screen is never shown on a guess.
+describe("getAccountStatus boxes", () => {
+  it("getAccountStatus_BoxesVerdict_CarriedVerbatimAndMissingReadsAsFalse", async () => {
+    const answers = [{ signedIn: true, boxes: true }, { signedIn: true, boxes: false }, { signedIn: true }];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(answers.shift()), { status: 200 })),
+    );
+    try {
+      expect((await getAccountStatus()).boxes).toBe(true);
+      expect((await getAccountStatus()).boxes).toBe(false);
+      expect((await getAccountStatus()).boxes).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
