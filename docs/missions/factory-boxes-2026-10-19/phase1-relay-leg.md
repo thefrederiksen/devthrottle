@@ -43,8 +43,13 @@ is served anywhere and nothing else changes. Set:
 
 - `/boxes/{id}/desktop/...` answers **only** on the desktop host; on the main host it is 404.
 - The desktop host answers **nothing else** - no Cockpit, no phone app, no account, device or session route, not the
-  ticket route - 404 with no body. The one exception is `GET /healthz`, because the deploy, rollback and staff-email
-  workflows read the live commit from `https://devthrottle-gw.azurewebsites.net/healthz` (see "For the Tech Lead").
+  ticket route. Each is a 404 whose body says in plain words that this address serves only box desktops and that the
+  Gateway is at its configured public address, named (`CC_GATEWAY_PUBLIC_URL`, `https://gateway.devthrottle.com` in
+  production). Each refusal is logged with its method, path and user agent (`desktop host REFUSED POST
+  /director-stream/negotiate user-agent="..."`), so after deploy the Delivery Lead can spot a stray Director or phone
+  still configured with the Azure name. The one exception is `GET /healthz`, accepted by the Tech Lead, because the
+  deploy, rollback and staff-email workflows read the live commit from
+  `https://devthrottle-gw.azurewebsites.net/healthz`.
 
 **Getting in.** The Cockpit, signed in on the main host, calls `POST /boxes/{boxId}/desktop-ticket`. Inside the Boxes
 gate, for a box a connected Director of **the caller's own account** hosts, it answers
@@ -166,6 +171,10 @@ above is the result):
   requests to box B's path, and the viewer's box-B cookie goes with them (cookies are per site, and a cookie's path does
   not stop a same-site page from sending a request to that path). Acceptable while every box is the owner's own
   (mission decision D10). A host per box is the next mission's problem.
+- **Old storage on the Azure name is wiped first** (the Tech Lead's addition): anyone who ever opened the Cockpit at
+  `devthrottle-gw.azurewebsites.net` has device keys in that origin's `localStorage`. The ticket exchange answers with
+  `Clear-Site-Data: "storage"`, so that storage is gone before any box page loads; not `"cookies"`, which would wipe the
+  box cookie set on the same response (`TicketExchange_WipesTheSitesStorageButNotItsCookies`).
 - Smaller points, handled: `Set-Cookie` from a box never reaches the browser (a box's cookie would land on the desktop
   site); a redirect from a box to its own address (`http://127.0.0.1:...`) or its root is kept inside its prefix; the
   desktop route is excluded from response compression.
@@ -192,8 +201,8 @@ server in process, and fake clocks. No Docker, no real port, no sleep, no real c
 | Director disconnect | `DesktopSocket_DirectorDisconnects_ClosesTheBrowserWithAClearReason`, `CancelAll_ClosesEveryBoxSocketAndFreesTheSlots` |
 | Fairness | `DesktopRelayFairnessTests.TerminalFramesAndCommands_StillFlow_WhileADesktopStreamIsSaturated` |
 | Limits | `HandleAsync_MoreSocketsThanTheLimit_RefusesTheNextOne`, `DesktopSocket_QuietForAnHour_IsClosed_ButNotBefore`, the 64-megabyte tests above, `DesktopRateLimiterTests` |
-| The desktop host (the Delivery Lead's two refusals) | `MainHost_TheDesktopRoute_DoesNotExist`, `DesktopHost_EveryOtherRoute_IsRefused`, `DesktopHost_Healthz_StillAnswers_ForTheDeployWorkflows`, `BoxDesktopOriginTests` |
-| The ticket | `TicketExchange_SetsAStrictBoxOnlyCookieAndMovesOnWithoutTheTicket`, `TicketExchange_ASecondUse_IsRefused`, `TicketExchange_AfterAMinute_IsRefused`, `TicketExchange_ATicketForAnotherBox_IsRefused`, `DesktopHost_ASessionPastEightHours_IsRefused` |
+| The desktop host (the Delivery Lead's two refusals) | `MainHost_TheDesktopRoute_DoesNotExist`, `DesktopHost_EveryOtherRoute_IsRefused` (checks the plain refusal naming the Gateway's address), `RefusalText_NoGatewayAddress_StillSaysWhatThisAddressServes`, `DesktopHostRefusalLogTests.DesktopHost_ARefusedRoute_IsLoggedWithMethodPathAndUserAgent`, `DesktopHost_Healthz_StillAnswers_ForTheDeployWorkflows`, `BoxDesktopOriginTests` |
+| The ticket | `TicketExchange_SetsAStrictBoxOnlyCookieAndMovesOnWithoutTheTicket`, `TicketExchange_WipesTheSitesStorageButNotItsCookies`, `TicketExchange_ASecondUse_IsRefused`, `TicketExchange_AfterAMinute_IsRefused`, `TicketExchange_ATicketForAnotherBox_IsRefused`, `DesktopHost_ASessionPastEightHours_IsRefused` |
 | Bytes logged per box, each direction | `DesktopSocket_BytesAreCountedPerBoxInEachDirection` |
 
 **The fairness test, with its numbers.** One REAL SignalR connection to the real `DirectorHub` with the Gateway's own hub
@@ -249,6 +258,10 @@ host 404; `/healthz` on the desktop host 200; a ticket redeemed (200, the cookie
 ticket); the same ticket again 403; the cookie opens its own box (200) but not another box's path (401); the no-slash
 form redirects to `/boxes/relay-proof/desktop/?x=1` on the same host.
 
+This run came before the Tech Lead's two additions of 20 October 2026 (the refusal's plain sentence and log line, and
+`Clear-Site-Data: "storage"` on the exchange), so `refusals.txt` shows the desktop host's 404s with an empty body and the
+exchange without that header. Those two are proven by the unit tests named under "Tests", not by this run.
+
 **The Director going away mid-use** (`director-gone.cjs`, `director-gone.json`, `director-gone-*.png`): with the desktop
 open, the test Director was stopped with its named signal. Half a second later a WebSocket in the page closed with
 **1001, "The Director hosting this box disconnected."** The Gateway log shows its side
@@ -281,17 +294,17 @@ branch is rebased onto main and the patch applied.
 One point where the list's contract and this leg differ, raised with the Tech Lead: the contract says the desktop routes
 must be mapped inside `BoxesGate.Group`. They cannot be: that gate reads the account from the Gateway's sign-in, which by
 design never reaches the desktop host, so it would refuse every desktop request. The desktop host asks the same
-`BoxesSwitch` of the account the box session belongs to, with the same 404.
+`BoxesSwitch` of the account the box session belongs to, with the same 404. **Accepted by the Tech Lead (20 October
+2026):** the desktop routes stay outside `BoxesGate.Group`, with the `BoxesSwitch` ruling taken from the box session.
 
 ## For the Tech Lead and the Delivery Lead
 
-1. **`/healthz` stays on the desktop host.** The deploy, rollback and staff-email workflows use
-   `GATEWAY_URL=https://devthrottle-gw.azurewebsites.net` and read `/healthz` there. Refusing it would break the one
-   permitted deploy path. If the workflows should move to gateway.devthrottle.com instead, that is a workflow change.
-2. **Check the fleet's configured Gateway addresses before setting the desktop host in production.** Any Director or
-   phone configured with the Azure name instead of gateway.devthrottle.com would be cut off (the tunnel and every API are
-   refused there). The code default is `https://gateway.devthrottle.com`, but a July setup proof shows a Director dialling
-   the Azure name.
+1. **`/healthz` stays on the desktop host** - accepted by the Tech Lead. The deploy, rollback and staff-email workflows
+   use `GATEWAY_URL=https://devthrottle-gw.azurewebsites.net` and read `/healthz` there.
+2. **Directors on the Azure name.** The Tech Lead checked: every Director on devlinux dials gateway.devthrottle.com, and
+   so does the code default. Everything else on the desktop host stays refused; the refusal names the right address and
+   each one is logged with method, path and user agent (see "How it works"), which is how a stray Director or phone
+   shows up after deploy.
 3. **To turn it on in production:** `CC_BOXES_DESKTOP_ORIGIN=https://devthrottle-gw.azurewebsites.net` and the owner's
    account in `DEVTHROTTLE_BOXES_TENANT_IDS`, through the deploy skill only. Unset, nothing changes.
 4. **For the Cockpit:** `POST /boxes/{boxId}/desktop-ticket` on the main host answers `{url, expiresAtUtc}`; open `url`
