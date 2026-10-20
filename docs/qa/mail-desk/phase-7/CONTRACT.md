@@ -59,6 +59,17 @@ AXI standard). Every new field is decided in `MailDeskChannelFold` and nowhere e
 - `tone` is the ONLY thing a client turns into a colour. `signedIn`: `yes` -> good, `failing` -> bad, `unknown` ->
   neutral. `lastCheck`: no check yet -> neutral; nothing-to-do, started and screened -> good; paused and skipped-running -> neutral; failed -> bad; any other outcome throws, so a new outcome cannot show as green unseen (review finding F2, `reviews/gateway-fold-answers.md`). `modeTone`:
   `observe` -> neutral, `live` -> attention (live mode acts on the mailbox; it must stand out).
+- **`lastCheck` on a mailbox whose own check is failing (ruling of 20 October 2026, after the Implementation Lead read
+  the screenshots).** The last check is the account's Mail Desk start's run - one run checks every mailbox, and phase
+  3's kept checks cannot give a mailbox its own last-check time. But a card that says "Signed in: Failing" in red and
+  "Last check: ... the mail it read was screened" in green says two contradictory things about one mailbox. So:
+  - every `lastCheck.label` names the run as the account's, for example "The Mail Desk check last ran 2026-10-19
+    23:29: the mail it read was screened", never words that read as this mailbox being screened;
+  - when the mailbox's `signedIn.state` is `failing` (its newest kept check is a failure - a good check after it would
+    have been kept, so it has not been read since), `lastCheck.label` says so with both times, for example "The Mail
+    Desk check last ran 2026-10-19 23:29. This mailbox has not been read since its check failed at 2026-10-19 23:29",
+    and `lastCheck.tone` is `bad`, whatever the run's outcome;
+  - otherwise the tones above stand. `lastCheck.utc` and `lastCheck.outcome` stay the run's, unchanged.
 - `today.label`: "No emails decided today", "1 email decided today", "N emails decided today".
 - `today.counts`: every decision word in the order `MailDeskWords` lists them, zeros included, each with its label.
   `byDecision` stays as it is.
