@@ -210,3 +210,18 @@ Still open, for the Delivery Lead to carry - none of them blocks phase 1 or 2:
 2. **A style guide**, if one exists outside this repository, before phase 3.
 3. **Whether a deny on the phone (Ask) times out to allow or to deny.** Recommendation: deny, so an
    unanswered request is never silently waved through. Needed before phase 5.
+
+Open for phase 4, from the review of the whole of phase 1 (`reviews/phase-1-whole-review.md`, observations
+2 and 3). Neither is a harm in phase 1, where every decision is dry run; both must be answered before
+anything enforces:
+
+4. **The session a rule polices can rewrite its own rules file.** The file's path is in the agent's own
+   environment (`CC_SESSION_RULES_FILE`), carries no secret in its name, and the Director rewrites it only
+   when the Gateway's answer changes. In dry run the worst outcome is a missing or forged "would have
+   denied" record. Once a deny is live, one write by the agent removes the rule that stops it, and nothing
+   today notices. Phase 4 has to decide how the evaluator tells a file the Director wrote from one the
+   agent edited, or where the file lives so the agent cannot write it.
+5. **Nothing bounds the rules file.** The Gateway sets no limit on a match text's length, the number of
+   match texts in a rule, or a tenant's number of rules, and the evaluator reads and scans the whole file
+   before every shell command. Only a tenant's own owner and agents can grow it, so the cost falls on that
+   tenant alone, but it is paid on every command. Set a bound on the Gateway's write side before phase 4.

@@ -1,0 +1,7 @@
+Rig session 6f85106b-a480-4f0c-8bfa-9ab2dec29edc, Claude Code 2.1.304, repo-a, registered in exec form
+(exec-form-registration.json). The shell calls, from the session's transcript (scripts/session-rules-rig.sh commands repo-a):
+2026-10-20T12:16:19.195Z  toolu_01QfnJFrPQDJEusXdQXefsmB  Bash: echo RULE-PROBE      result 'RULE-PROBE'     is_error False
+2026-10-20T12:16:21.015Z  toolu_01Siv2Zts5X944k6dxjg8Abr  Bash: echo NOMATCH-PROBE    result 'NOMATCH-PROBE'  is_error False
+The firing the Gateway recorded (scripts/session-rules-rig.sh rules all-firings), on rule 7eaf0e15-dba3-4d53-9fa0-f344866802a8:
+decision would_deny, subject 'echo RULE-PROBE', repo github.com/session-rules-rig/repo-a, machine devlinux,
+session 6f85106b-a480-4f0c-8bfa-9ab2dec29edc, decision id 20261020T1216192187278Z-546d57e3
