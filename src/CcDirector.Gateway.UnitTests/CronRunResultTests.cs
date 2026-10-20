@@ -86,7 +86,7 @@ public sealed class CronRunResultTests : IDisposable
             },
             mailDesk: new CcDirector.Gateway.MailDesk.MailDeskProblemSource(_ => false,
                 new CcDirector.Gateway.MailDesk.MailDeskChannelStore(Db), new CcDirector.Gateway.MailDesk.MailDeskChannelCheckStore(Db),
-                _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend));
+                _ => CcDirector.Gateway.MailDesk.MailDeskProblemFacts.None.Spend, new CcDirector.Gateway.MailDesk.MailDeskRoutedStore(Db)));
         return (service, runs, activity);
     }
 

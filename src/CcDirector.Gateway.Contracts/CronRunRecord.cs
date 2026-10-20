@@ -206,6 +206,11 @@ public static class CronRunProblems
     /// phase 3, section 7). Open until the limit is raised above what was spent.</summary>
     public const string SpendLimitReached = "spend-limit-reached";
 
+    /// <summary>An email the Mail Desk routed came back to the owner: returned twice, returned by the Mail Desk agent,
+    /// its session ended twice, or its session could not be started (Mail Desk phase 4, section 4.2). Open until it is
+    /// resolved by hand.</summary>
+    public const string MailHandedToOwner = "mail-handed-to-owner";
+
     /// <summary>True for the two kinds a check raises, which a later run whose check works again clears.</summary>
     public static bool IsCheckProblem(string? problem) => problem is CheckFailed or CheckNotRun;
 
@@ -227,6 +232,7 @@ public static class CronRunProblems
         CheckNotRun => "check did not run",
         MailboxFailed => "mailbox could not be checked",
         SpendLimitReached => "spend limit reached",
+        MailHandedToOwner => "email handed to you",
         _ => "a problem",
     };
 }
