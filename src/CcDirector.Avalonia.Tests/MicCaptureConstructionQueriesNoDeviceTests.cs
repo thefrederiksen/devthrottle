@@ -56,8 +56,12 @@ public sealed class MicCaptureConstructionQueriesNoDeviceTests : IDisposable
         var source = BatchDictationRecorder.CreateMicrophone(NoSuchDevice, "Resolved Test Mic");
         try
         {
-            // Linux reaches the microphone through the sound system's own recorder; the rule is the same.
-            Assert.IsType(OperatingSystem.IsLinux() ? typeof(LinuxMicAudioCapture) : typeof(MicAudioCapture), source);
+            // Linux reaches the microphone through the sound system's own recorder and macOS through
+            // AudioQueue; the rule is the same on all three - the name is handed in, nothing is queried.
+            var expected = OperatingSystem.IsLinux() ? typeof(LinuxMicAudioCapture)
+                : OperatingSystem.IsMacOS() ? typeof(MacMicAudioCapture)
+                : typeof(MicAudioCapture);
+            Assert.IsType(expected, source);
             Assert.Equal("Resolved Test Mic", source.Description);
         }
         finally

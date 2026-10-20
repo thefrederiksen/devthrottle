@@ -86,7 +86,7 @@ public partial class LaunchPreviewDialog : Window
             backend.ProcessExited += code =>
                 Dispatcher.UIThread.Post(() => ShowStatus($"{_displayName} exited (code {code})."));
 
-            var workingDir = string.IsNullOrWhiteSpace(_workingDir) ? Environment.CurrentDirectory : _workingDir;
+            var workingDir = string.IsNullOrWhiteSpace(_workingDir) ? ProcessWorkingDirectory.CurrentOrAppDirectory() : _workingDir;
             backend.Start(_executable, _arguments, workingDir, (short)Terminal.Cols, (short)Terminal.Rows);
 
             ShowStatus($"{_displayName} running (throwaway - not saved).");

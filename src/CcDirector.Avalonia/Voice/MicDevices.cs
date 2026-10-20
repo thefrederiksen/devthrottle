@@ -54,6 +54,7 @@ public static class MicDevices
     public static IReadOnlyList<MicDevice> Enumerate()
     {
         if (OperatingSystem.IsLinux()) return LinuxMicDevices.Enumerate();
+        if (OperatingSystem.IsMacOS()) return MacMicDevices.Enumerate();
         var devices = new List<MicDevice> { new(DefaultDeviceNumber, DescribeDefault()) };
         int count = WaveInEvent.DeviceCount;
         for (int i = 0; i < count; i++)
@@ -66,6 +67,7 @@ public static class MicDevices
     public static string DescribeDevice(int number)
     {
         if (OperatingSystem.IsLinux()) return LinuxMicDevices.DescribeDevice(number);
+        if (OperatingSystem.IsMacOS()) return MacMicDevices.DescribeDevice(number);
         return number == DefaultDeviceNumber
             ? DescribeDefault()
             : WaveInEvent.GetCapabilities(number).ProductName;
@@ -81,6 +83,7 @@ public static class MicDevices
     public static int ResolveByName(string? name)
     {
         if (OperatingSystem.IsLinux()) return LinuxMicDevices.ResolveByName(name);
+        if (OperatingSystem.IsMacOS()) return MacMicDevices.ResolveByName(name);
         if (string.IsNullOrWhiteSpace(name))
             return DefaultDeviceNumber;
 
@@ -102,6 +105,7 @@ public static class MicDevices
     public static MicDevice ResolveWithDescription(string? name)
     {
         if (OperatingSystem.IsLinux()) return LinuxMicDevices.ResolveWithDescription(name);
+        if (OperatingSystem.IsMacOS()) return MacMicDevices.ResolveWithDescription(name);
         var number = ResolveByName(name);
         return new MicDevice(number, DescribeDevice(number));
     }

@@ -221,14 +221,21 @@ public sealed class LinuxMicCaptureTests
         Assert.Contains("arecord", message);
     }
 
+    /// <summary>
+    /// The last arm: not Windows, not Linux, not macOS. This test used to cover macOS, which has had no
+    /// capture at all; it does now (AudioQueue), and the macOS arms are covered in
+    /// <see cref="MacMicCaptureTests"/>. What is left here is every other system, where dictation is still
+    /// not offered and the message must say so without implying Windows is the only place it works.
+    /// </summary>
     [Fact]
-    public void CaptureUnavailableMessage_OnMac_SaysNotAvailableWithoutBlamingWindows()
+    public void CaptureUnavailableMessage_OnASystemWithNoCapture_SaysNotAvailableWithoutBlamingWindows()
     {
         var message = SpeakDialog.CaptureUnavailableMessage(isWindows: false, isLinux: false, linuxCaptureToolsPresent: false);
 
         Assert.NotNull(message);
         Assert.DoesNotContain("only available on Windows", message);
         Assert.Contains("Linux", message);
+        Assert.Contains("macOS", message);
     }
 
     [Fact]

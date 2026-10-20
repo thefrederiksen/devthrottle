@@ -36,6 +36,24 @@ public sealed class BackgroundDictationSendTests : IDisposable
         public Task StopAsync(TimeSpan drainTimeout) => Task.CompletedTask;
     }
 
+    /// <summary>
+    /// A microphone that delivers bytes and reports that none of them carried sound, which is what a
+    /// macOS microphone the system has not granted does: the queue runs at the right rate and every
+    /// sample is zero. See MacMicCaptureTests for the gate itself; this covers what the user is told.
+    /// </summary>
+    private sealed class SilentFakeMic : IAudioSource, IAudioSilenceReport
+    {
+        public event Action<byte[]>? OnAudioChunk;
+        public string Description => "Yealink UH36";
+        public bool SawSound => false;
+        public string SilentCaptureExplanation =>
+            "Open System Settings > Privacy & Security > Microphone and switch Director on.";
+        public void Start() { }
+        public void Stop() { }
+        public void Emit(byte[] chunk) => OnAudioChunk?.Invoke(chunk);
+        public Task StopAsync(TimeSpan drainTimeout) => Task.CompletedTask;
+    }
+
     private sealed class FakeTranscriber : IDictationTranscriber
     {
         public Exception? Throws { get; init; }
@@ -137,6 +155,34 @@ public sealed class BackgroundDictationSendTests : IDisposable
         Assert.Contains("provider down", failedError);
         Assert.Contains(kept[0], failedError); // the modal names the file so the user can find it
         Assert.Null(failedComposed); // no transcript existed
+    }
+
+    [Fact]
+    public async Task SilentCapture_IsReportedToTheUser_AndNothingIsSentOrSaved()
+    {
+        // A refused microphone is NOT the quiet outcome the empty-capture gate stays silent about: the
+        // machine stopped the user being heard, and saying nothing is what left them with an empty
+        // transcript and no cause. So this one is reported, and no silence reaches the transcriber.
+        var mic = new SilentFakeMic();
+        var recorder = new BatchDictationRecorder(new AgentOptions(), _ => mic,
+            (_, _, _) => throw new InvalidOperationException("the send path must use the injected transcriber, not the recorder's"));
+        await recorder.StartAsync();
+        mic.Emit(new byte[4800]);
+        string? failedError = null;
+        string? failedComposed = "sentinel";
+
+        await BackgroundDictationSend.RunAsync(
+            recorder, prefix: "", NewSession(),
+            new FakeTranscriber { Throws = new InvalidOperationException("nothing may be transcribed") },
+            submit: (_, _, _) => throw new InvalidOperationException("must not submit a silent recording"),
+            onFailed: (err, composed) => { failedError = err; failedComposed = composed; },
+            recordingsDirectory: _dir);
+
+        Assert.NotNull(failedError);
+        Assert.Contains("Yealink UH36", failedError);            // which microphone was not heard
+        Assert.Contains("System Settings", failedError);          // and where to go and fix it
+        Assert.Null(failedComposed);                              // no transcript ever existed
+        Assert.Empty(SavedRecordings());                          // nothing was recorded worth keeping
     }
 
     [Fact]

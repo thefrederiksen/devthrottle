@@ -76,7 +76,7 @@ public sealed class ToolTestRunner
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = Path.GetDirectoryName(tool.BinaryPath) ?? Environment.CurrentDirectory,
+            WorkingDirectory = Path.GetDirectoryName(tool.BinaryPath) ?? ProcessWorkingDirectory.CurrentOrAppDirectory(),
         };
         foreach (var arg in test.Args)
             psi.ArgumentList.Add(arg);

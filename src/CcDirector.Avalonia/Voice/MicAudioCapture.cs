@@ -37,6 +37,34 @@ public interface IAudioCaptureDiagnostics
 }
 
 /// <summary>
+/// Optional silence-reporting extension: a source that watched every sample it
+/// delivered and can say whether ANY of them was non-zero. Deliberately off the core
+/// <see cref="IAudioSource"/> contract, and implemented only where the platform needs
+/// it: on macOS a refused microphone does not fail the open, it delivers buffers of
+/// digital silence at the correct byte rate, so the byte count cannot tell a refused
+/// microphone from a working one. <see cref="BatchDictationRecorder"/> reads this when
+/// the source provides it and refuses an all-silent recording with
+/// <see cref="SilentCaptureException"/>; a source that does not implement it is
+/// unaffected.
+/// </summary>
+public interface IAudioSilenceReport
+{
+    /// <summary>
+    /// True once any captured sample was non-zero. An every-bit-zero recording is not a
+    /// quiet room - a live microphone always carries a noise floor - it is the device
+    /// delivering digital silence.
+    /// </summary>
+    bool SawSound { get; }
+
+    /// <summary>
+    /// What the user has to go and change when nothing but silence was captured, in words
+    /// for them. It lives on the source because only the source knows which platform's
+    /// privacy settings and which microphone are involved.
+    /// </summary>
+    string SilentCaptureExplanation { get; }
+}
+
+/// <summary>
 /// Per-recording capture-health snapshot (instrumentation only - it changes no
 /// capture behaviour). It exists to tell two distinct audio-loss mechanisms apart:
 ///

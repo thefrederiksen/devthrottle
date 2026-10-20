@@ -579,7 +579,7 @@ public partial class ToolsView : UserControl
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = System.IO.Path.GetDirectoryName(binaryPath) ?? Environment.CurrentDirectory,
+            WorkingDirectory = System.IO.Path.GetDirectoryName(binaryPath) ?? ProcessWorkingDirectory.CurrentOrAppDirectory(),
         };
         psi.ArgumentList.Add("--help");
 

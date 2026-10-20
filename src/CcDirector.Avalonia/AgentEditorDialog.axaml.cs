@@ -609,7 +609,7 @@ public partial class AgentEditorDialog : Window
                 LaunchMode = SelectedLaunchMode(),
             };
             var args = config.ResolveEffectiveCommandLineArguments();
-            var workingDir = _options.ChatSessionRepoPath ?? Environment.CurrentDirectory;
+            var workingDir = _options.ChatSessionRepoPath ?? ProcessWorkingDirectory.CurrentOrAppDirectory();
 
             var dialog = new LaunchPreviewDialog(exe, args, workingDir, LabelFor(type));
             await dialog.ShowDialog(this);
