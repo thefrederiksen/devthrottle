@@ -17,6 +17,7 @@ export type NavIconName =
   | "fleet-manager"
   | "fleet-map"
   | "factories"
+  | "mail-desk"
   | "sessions"
   | "history"
   | "directors"
@@ -80,6 +81,13 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <path d="M3 21V10l5 3V10l5 3V10l5 3V4h3v17z" />
       <path d="M7 17h2" />
       <path d="M12 17h2" />
+    </>
+  ),
+  // An envelope: the mailboxes the Mail Desk screens. Its flap keeps it apart from the plain rectangles in the set.
+  "mail-desk": (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 6 9-6" />
     </>
   ),
   history: (

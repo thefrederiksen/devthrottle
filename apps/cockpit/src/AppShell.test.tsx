@@ -96,6 +96,20 @@ vi.mock("@devthrottle/client-core/teams/CurrentTeam", async (importActual) => ({
   }),
 }));
 
+// The Mail Desk entry (Mail Desk mission, phase 7) follows the Gateway's answer to the Mail Desk page's own read: the
+// switch off (404) hides it, the list offers it, and any other failure also hides it and is reported (contract F1). Unstaged, the switch is
+// off, so a test about something else sees the rail it always saw.
+const mailDeskRead = vi.hoisted(() => ({ answers: [] as unknown[], calls: 0 }));
+vi.mock("@devthrottle/client-core/maildesk/mailDeskClient", () => ({
+  getMailDeskChannels: vi.fn(async () => {
+    mailDeskRead.calls += 1;
+    const next = mailDeskRead.answers.length > 1 ? mailDeskRead.answers.shift() : mailDeskRead.answers[0];
+    if (next === undefined) return { kind: "off" };
+    if (next instanceof Error) throw next;
+    return next;
+  }),
+}));
+
 // The license alarms open now (License Switching phase 6): the shell's red banner shows the Gateway's answer verbatim.
 // Unstaged, no alarm is open, so a test about something else sees the shell it always saw.
 const alarmRead = vi.hoisted(() => ({
@@ -127,6 +141,8 @@ import { AppShell } from "./AppShell";
 import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
 import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
+import { resetMailDeskEntryCache } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
+import { getMailDeskChannels } from "@devthrottle/client-core/maildesk/mailDeskClient";
 
 function railLabels(): string[] {
   const nav = document.querySelector(".nav");
@@ -155,6 +171,9 @@ describe("Cockpit left rail", () => {
     reported.calls = [];
     rhythm.delayMs = 3_600_000;
     rhythm.asked = [];
+    mailDeskRead.answers = [];
+    mailDeskRead.calls = 0;
+    resetMailDeskEntryCache();
     window.localStorage.clear();
   });
 
@@ -381,6 +400,79 @@ describe("Cockpit left rail", () => {
     const block = screen.getByTestId("nav-team");
     expect(block.textContent).toContain("DevThrottle");
     expect(within(block).getByRole("link", { name: /Team/ }).getAttribute("href")).toBe("/settings?tab=members");
+  });
+
+  describe("the Mail Desk entry", () => {
+    const LIST = { kind: "channels", envelope: { count: 0, channels: [], title: "t", summary: "s", emptyLabel: "e" } };
+
+    function renderShell() {
+      render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <AppShell />
+        </MemoryRouter>,
+      );
+    }
+
+    function workLabels(): string[] {
+      return Array.from(screen.getByTestId("nav-work").querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+    }
+
+    // "No entry" is only proved once the read has settled, never while it is still on its way.
+    async function readSettled() {
+      await waitFor(() => expect(mailDeskRead.calls).toBeGreaterThan(0));
+      await Promise.all(vi.mocked(getMailDeskChannels).mock.results.map((r) => Promise.resolve(r.value).catch(() => undefined)));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    it("is offered in Work directly after Factories when the Gateway answers the Mail Desk read with its list", async () => {
+      mailDeskRead.answers = [LIST];
+      renderShell();
+
+      await waitFor(() => expect(railLabels()).toContain("Mail Desk"));
+      expect(workLabels()).toEqual([
+        "Sessions", "Fleet Map", "Fleet Manager", "Factories", "Mail Desk", "History", "Voice Recorder", "Reports",
+      ]);
+      expect(screen.getByRole("link", { name: /Mail Desk/ }).getAttribute("href")).toBe("/mail-desk");
+      expect(reported.calls).toEqual([]);
+    });
+
+    it("is not drawn when the Gateway answers 404 (the Mail Desk switch off)", async () => {
+      mailDeskRead.answers = [{ kind: "off" }];
+      renderShell();
+
+      await readSettled();
+      expect(railLabels()).not.toContain("Mail Desk");
+      expect(document.querySelector("a[href='/mail-desk']")).toBeNull();
+      expect(reported.calls).toEqual([]);
+    });
+
+    // Contract section 1, corrected after the phase review (F1): drawn ONLY on a successful read. No failure draws it.
+    it.each([
+      ["offline", new TypeError("Failed to fetch")],
+      ["a timeout", Object.assign(new Error("The operation timed out."), { name: "TimeoutError" })],
+      ["a 5xx", new GatewayError(503, "the Gateway is restarting")],
+      ["a broken answer", new GatewayError(502, "The Gateway sent a Mail Desk list this app cannot read")],
+    ])("is NOT drawn, and the failure reported, on %s", async (_name, failure) => {
+      mailDeskRead.answers = [failure];
+      renderShell();
+
+      await readSettled();
+      await waitFor(() => expect(reported.calls).toHaveLength(1));
+      expect(railLabels()).not.toContain("Mail Desk");
+      expect(document.querySelector("a[href='/mail-desk']")).toBeNull();
+      expect(reported.calls[0][0]).toMatchObject({ surface: "mail-desk-entry", user_visible: false, exception_type: failure.name });
+    });
+
+    it("asks again on the shell's rhythm after a failure, and draws the entry only when the Gateway then answers with its list", async () => {
+      rhythm.delayMs = 5;
+      mailDeskRead.answers = [new GatewayError(500, "fault"), LIST];
+      renderShell();
+
+      await waitFor(() => expect(mailDeskRead.calls).toBe(2));
+      await waitFor(() => expect(railLabels()).toContain("Mail Desk"));
+      expect(rhythm.asked).toEqual([1]);
+      expect(reported.calls).toHaveLength(1);
+    });
   });
 
   describe("the Mentor entry", () => {

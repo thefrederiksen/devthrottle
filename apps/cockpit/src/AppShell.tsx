@@ -15,6 +15,7 @@ import { YouMenu } from "./you/YouMenu";
 import "./teams/collaborator/collaborator.css";
 import { Button, LoadingState } from "./components";
 import { useMentorEntry } from "./mentor/useMentorEntry";
+import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
 import { useDemoMode } from "@devthrottle/client-core/demo/demoMode";
 import { LicenseAlarmBanner } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
 
@@ -132,6 +133,11 @@ const TEAM_ITEM: NavItem = { to: "/settings?tab=members", label: "Team", icon: "
 // account (every account's sessions can send it reports); in a team it is there when the Gateway's page verdict for the
 // team lists it.
 const MENTOR_ITEM: NavItem = { to: "/mentor", label: "Mentor", icon: "mentor" };
+
+// THE MAIL DESK, DIRECTLY AFTER FACTORIES (Mail Desk mission, phase 7, contract section 1): the Mail Desk is a built-in
+// factory, so it sits beside Factories. Offered only while the GATEWAY answers the page's own read (useMailDeskEntry,
+// rule 7): an account with the Mail Desk switch off never sees it.
+const MAIL_DESK_ITEM: NavItem = { to: "/mail-desk", label: "Mail Desk", icon: "mail-desk" };
 
 /** The team page that moved into Work. */
 const REPORTS_PAGE_ID = "reports";
@@ -404,8 +410,9 @@ function TeamUnreadable({ error, onOwnAccount }: { error: string | null; onOwnAc
   );
 }
 
-// WORK: the day to day, then the Mentor when the Gateway offers it, then Reports (see MENTOR_ITEM). A component of its
-// own because the Mentor entry is read under the CurrentTeamProvider the shell mounts. With a team on screen, Reports is
+// WORK: the day to day, with the Mail Desk after Factories when the Gateway offers it (see MAIL_DESK_ITEM), then the
+// Mentor when the Gateway offers it, then Reports (see MENTOR_ITEM). A component of its own because the Mentor entry is
+// read under the CurrentTeamProvider the shell mounts. With a team on screen, Reports is
 // the team's page and carries its count, if the Gateway gives it one; on the own account it is the person's reports.
 function WorkSection({
   team,
@@ -419,14 +426,22 @@ function WorkSection({
   collapsed: boolean;
 }) {
   const mentorOffered = useMentorEntry();
+  const mailDeskOffered = useMailDeskEntry();
   const reports =
     team === null ? REPORTS_ITEM : teamPagesNav(team.app, counts).find((item) => item.to === reportsPath(team)) ?? null;
-  const items = [...NAV_WORK, ...(mentorOffered ? [MENTOR_ITEM] : []), ...(reports !== null ? [reports] : [])];
+  const work = mailDeskOffered ? withMailDesk(NAV_WORK) : NAV_WORK;
+  const items = [...work, ...(mentorOffered ? [MENTOR_ITEM] : []), ...(reports !== null ? [reports] : [])];
   return (
     <NavSection label="Work" collapsed={collapsed} testId="nav-work">
       <NavList items={items} location={location} collapsed={collapsed} />
     </NavSection>
   );
+}
+
+/** The Work items with the Mail Desk directly after Factories. */
+function withMailDesk(items: ReadonlyArray<NavItem>): NavItem[] {
+  const at = items.findIndex((item) => item.to === "/factories") + 1;
+  return [...items.slice(0, at), MAIL_DESK_ITEM, ...items.slice(at)];
 }
 
 /** The address of the team's Reports page, as the Gateway's verdict gives it; null when the verdict does not list it. */

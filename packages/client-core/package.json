@@ -38,6 +38,7 @@
     "./apimode/ApiModeLiveChat": "./src/apimode/ApiModeLiveChat.tsx",
     "./licenses/LicenseAlarmBanner": "./src/licenses/LicenseAlarmBanner.tsx",
     "./history/FolderListing": "./src/history/FolderListing.tsx",
+    "./maildesk/MailDeskPage": "./src/maildesk/MailDeskPage.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {

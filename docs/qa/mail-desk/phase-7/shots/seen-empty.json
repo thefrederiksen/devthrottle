@@ -1,0 +1,85 @@
+{
+  "scenario": "empty",
+  "gateway": "http://127.0.0.1:33319",
+  "takenUtc": "2026-10-20T04:46:35.623Z",
+  "desktop": {
+    "address": "/mail-desk",
+    "headings": [
+      "Mail Desk"
+    ],
+    "cards": [],
+    "empty": "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<why>\"",
+    "controls": 0,
+    "mailDeskLinks": 1,
+    "work": [
+      "Sessions",
+      "Fleet Map",
+      "Fleet Manager",
+      "Factories",
+      "Mail Desk",
+      "History",
+      "Voice Recorder",
+      "Reports"
+    ]
+  },
+  "phone": {
+    "address": "/mobile/mail-desk",
+    "headings": [
+      "Mail Desk"
+    ],
+    "cards": [],
+    "empty": "No mailbox is on the Mail Desk yet. Add one with: cc-devthrottle maildesk channel add <address> --provider outlook --machine <machine> --why \"<why>\"",
+    "controls": 0,
+    "mailDeskLinks": 0
+  },
+  "drawer": [
+    [
+      "email@devthrottle.comSigned in",
+      "/mobile/account"
+    ],
+    [
+      "Sessions",
+      "/mobile"
+    ],
+    [
+      "New session",
+      "/mobile/new"
+    ],
+    [
+      "Voice Recorder",
+      "/mobile/recorder"
+    ],
+    [
+      "Your Throttle",
+      "/mobile/throttle"
+    ],
+    [
+      "Repos",
+      "/mobile/repos"
+    ],
+    [
+      "Mail Desk",
+      "/mobile/mail-desk"
+    ],
+    [
+      "Account",
+      "/mobile/account"
+    ],
+    [
+      "Settings",
+      "/mobile/settings"
+    ],
+    [
+      "Diagnostics",
+      "/mobile/diagnostics"
+    ],
+    [
+      "About",
+      "/mobile/about"
+    ],
+    [
+      "Sign out",
+      "/mobile/account"
+    ]
+  ]
+}

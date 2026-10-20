@@ -1,0 +1,93 @@
+{
+  "scenario": "unpublished",
+  "gateway": "http://127.0.0.1:33319",
+  "takenUtc": "2026-10-20T04:46:42.607Z",
+  "desktop": {
+    "address": "/mail-desk",
+    "headings": [
+      "Mail Desk"
+    ],
+    "cards": [
+      "email@devthrottle.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux\nSigned in\nNot known yet - no check has read the mailbox\nLast check\nNot checked yet - the mail-desk factory is not published\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "desk@example.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux or qa-north, whichever runs the Mail Desk check\nSigned in\nNot known yet - no check has read the mailbox\nLast check\nNot checked yet - the mail-desk factory is not published\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "letters@example.org\nOutlook\nMode\nLive - decides and acts: files each email and starts the seat it routes to\nMachines\nqa-north, qa-south or devlinux, whichever runs the Mail Desk check\nSigned in\nNot known yet - no check has read the mailbox\nLast check\nNot checked yet - the mail-desk factory is not published\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0"
+    ],
+    "empty": null,
+    "controls": 0,
+    "mailDeskLinks": 1,
+    "work": [
+      "Sessions",
+      "Fleet Map",
+      "Fleet Manager",
+      "Factories",
+      "Mail Desk",
+      "History",
+      "Voice Recorder",
+      "Reports"
+    ]
+  },
+  "phone": {
+    "address": "/mobile/mail-desk",
+    "headings": [
+      "Mail Desk"
+    ],
+    "cards": [
+      "email@devthrottle.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux\nSigned in\nNot known yet - no check has read the mailbox\nLast check\nNot checked yet - the mail-desk factory is not published\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "desk@example.com\nOutlook\nMode\nObserve - decides and records, changes nothing\nMachines\ndevlinux or qa-north, whichever runs the Mail Desk check\nSigned in\nNot known yet - no check has read the mailbox\nLast check\nNot checked yet - the mail-desk factory is not published\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0",
+      "letters@example.org\nOutlook\nMode\nLive - decides and acts: files each email and starts the seat it routes to\nMachines\nqa-north, qa-south or devlinux, whichever runs the Mail Desk check\nSigned in\nNot known yet - no check has read the mailbox\nLast check\nNot checked yet - the mail-desk factory is not published\nNo emails decided today\nRoute to a seat\n0\nArchive\n0\nJunk\n0\nKeep for you\n0\nHand to the Mail Desk agent\n0\nCould not be screened\n0"
+    ],
+    "empty": null,
+    "controls": 0,
+    "mailDeskLinks": 0
+  },
+  "drawer": [
+    [
+      "email@devthrottle.comSigned in",
+      "/mobile/account"
+    ],
+    [
+      "Sessions",
+      "/mobile"
+    ],
+    [
+      "New session",
+      "/mobile/new"
+    ],
+    [
+      "Voice Recorder",
+      "/mobile/recorder"
+    ],
+    [
+      "Your Throttle",
+      "/mobile/throttle"
+    ],
+    [
+      "Repos",
+      "/mobile/repos"
+    ],
+    [
+      "Mail Desk",
+      "/mobile/mail-desk"
+    ],
+    [
+      "Account",
+      "/mobile/account"
+    ],
+    [
+      "Settings",
+      "/mobile/settings"
+    ],
+    [
+      "Diagnostics",
+      "/mobile/diagnostics"
+    ],
+    [
+      "About",
+      "/mobile/about"
+    ],
+    [
+      "Sign out",
+      "/mobile/account"
+    ]
+  ]
+}

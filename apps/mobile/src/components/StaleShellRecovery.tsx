@@ -105,11 +105,24 @@ export function RouteRecoveryBoundary() {
   // shell is current and its router has no such route. Say exactly that and link home (issue #958):
   // telling the user to refresh here was a lie, because refreshing can never make a missing route
   // appear. The non-404 branch keeps its own copy - that one really is an unexpected error.
+  return <RouteMessage notFound={isNotFound} />;
+}
+
+/**
+ * The phone's ordinary "Page not found", exactly as an unknown address shows it. A page whose Gateway says there is
+ * no such page for this account (the Mail Desk with its switch off) shows this same message, so it looks like any
+ * other missing address. It never reloads: only the router's own no-match self-heals, above.
+ */
+export function PageNotFound() {
+  return <RouteMessage notFound />;
+}
+
+function RouteMessage({ notFound }: { notFound: boolean }) {
   return (
     <div style={container}>
-      <h1>{isNotFound ? "Page not found" : "Something went wrong"}</h1>
+      <h1>{notFound ? "Page not found" : "Something went wrong"}</h1>
       <p style={{ opacity: 0.8, marginBottom: "1.5rem" }}>
-        {isNotFound
+        {notFound
           ? "This page does not exist. The link may be wrong or out of date."
           : "An unexpected error occurred. Please return to DevThrottle and try again."}
       </p>

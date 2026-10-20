@@ -37,7 +37,7 @@ namespace CcDirector.Gateway.Tests.MailDesk;
 /// saved first, and that one account never sees another's.
 /// </summary>
 [Trait("Category", "MailDesk")]
-public sealed class MailDeskEndpointTests : IAsyncLifetime
+public sealed partial class MailDeskEndpointTests : IAsyncLifetime
 {
     private const string TenantHeader = "X-Test-Account";
     private const string CallerHeader = "X-Test-Caller";
@@ -866,7 +866,7 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         Assert.Equal(new DateTime(2026, 10, 18, 8, 45, 0, DateTimeKind.Utc), lastCheck.GetProperty("utc").GetDateTime().ToUniversalTime());
         Assert.Equal(TriggerRunOutcome.NothingToDo, lastCheck.GetProperty("outcome").GetString());
         // 08:45 UTC is 10:45 in Copenhagen in October, before the clocks go back.
-        Assert.Equal("Checked 2026-10-18 10:45: no new mail", lastCheck.GetProperty("label").GetString());
+        Assert.Equal("The Mail Desk check last ran 2026-10-18 10:45: no new mail", lastCheck.GetProperty("label").GetString());
     }
 
     [Fact]
@@ -964,6 +964,130 @@ public sealed class MailDeskEndpointTests : IAsyncLifetime
         // Assert
         Assert.Equal(MailDeskChannelFold.SignedInStates.Failing, rows[Mailbox]);
         Assert.Equal(MailDeskChannelFold.SignedInStates.Yes, rows[OtherMailbox]);
+    }
+
+    // ---------- the last check on a mailbox whose own check is failing (phase 7 contract, section 2, 20 October 2026) ----------
+
+    [Theory]
+    [InlineData(TriggerRunOutcome.Screened)]
+    [InlineData(TriggerRunOutcome.Failed)]
+    [InlineData(TriggerRunOutcome.NothingToDo)]
+    public async Task Fold_MailboxFailing_LastCheckSaysNotReadSinceWithBothTimesAndIsBad(string outcome)
+    {
+        // Arrange - the mailbox's check failed at 08:20; the account's run last ran at 08:55 with the given outcome
+        await AddMailbox();
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Read(channel.Id, null, new DateTime(2026, 10, 18, 8, 0, 0, DateTimeKind.Utc), Machine));
+        _checks.Record(A, MailDeskChannelCheckInput.Failed(channel.Id, null, new DateTime(2026, 10, 18, 8, 20, 0, DateTimeKind.Utc), Machine,
+            "not signed in", null));
+        var ran = new DateTime(2026, 10, 18, 8, 55, 0, DateTimeKind.Utc);
+        _triggers.Add(MailDeskTrigger(ran, outcome, "the kept memory is not JSON"));
+
+        // Act
+        var lastCheck = (await OnlyRow()).GetProperty("lastCheck");
+
+        // Assert - the words and the tone are the mailbox's; the time and the outcome stay the run's
+        Assert.Equal("The Mail Desk check last ran 2026-10-18 08:55. This mailbox has not been read since its check failed at 2026-10-18 08:20",
+            lastCheck.GetProperty("label").GetString());
+        Assert.Equal(MailDeskChannelFold.Tones.Bad, lastCheck.GetProperty("tone").GetString());
+        Assert.Equal(ran, lastCheck.GetProperty("utc").GetDateTime().ToUniversalTime());
+        Assert.Equal(outcome, lastCheck.GetProperty("outcome").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_MailboxFailingInATimeZoneThatIsNotUtc_BothTimesAreLocal()
+    {
+        await AddMailbox();
+        _timeZone = "Europe/Copenhagen";
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Failed(channel.Id, null, new DateTime(2026, 10, 18, 8, 20, 0, DateTimeKind.Utc), Machine,
+            "not signed in", null));
+        _triggers.Add(MailDeskTrigger(new DateTime(2026, 10, 18, 8, 55, 0, DateTimeKind.Utc), TriggerRunOutcome.Screened));
+
+        var label = (await OnlyRow()).GetProperty("lastCheck").GetProperty("label").GetString();
+
+        Assert.Equal("The Mail Desk check last ran 2026-10-18 10:55. This mailbox has not been read since its check failed at 2026-10-18 10:20", label);
+    }
+
+    [Fact]
+    public async Task Fold_MailboxSignedIn_LastCheckNamesTheAccountsRunWithTheRunsTone()
+    {
+        await AddMailbox();
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Read(channel.Id, null, new DateTime(2026, 10, 18, 8, 55, 0, DateTimeKind.Utc), Machine));
+        _triggers.Add(MailDeskTrigger(new DateTime(2026, 10, 18, 8, 55, 0, DateTimeKind.Utc), TriggerRunOutcome.Screened));
+
+        var lastCheck = (await OnlyRow()).GetProperty("lastCheck");
+
+        Assert.Equal("The Mail Desk check last ran 2026-10-18 08:55: the mail it read was screened", lastCheck.GetProperty("label").GetString());
+        Assert.Equal(MailDeskChannelFold.Tones.Good, lastCheck.GetProperty("tone").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_MailboxSignInUnknown_LastCheckNamesTheAccountsRunWithTheRunsTone()
+    {
+        await AddMailbox();
+        _triggers.Add(MailDeskTrigger(new DateTime(2026, 10, 18, 8, 55, 0, DateTimeKind.Utc), TriggerRunOutcome.Paused));
+
+        var lastCheck = (await OnlyRow()).GetProperty("lastCheck");
+
+        Assert.Equal("The Mail Desk check last ran 2026-10-18 08:55: the start is paused, so no mail was screened",
+            lastCheck.GetProperty("label").GetString());
+        Assert.Equal(MailDeskChannelFold.Tones.Neutral, lastCheck.GetProperty("tone").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_MailboxFailingAndTheFactoryIsNotPublished_LastCheckStaysNotPublished()
+    {
+        await AddMailbox();
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Failed(channel.Id, null, _now.AddMinutes(-10), Machine, "not signed in", null));
+
+        var lastCheck = (await OnlyRow()).GetProperty("lastCheck");
+
+        Assert.Equal(MailDeskChannelFold.NotPublishedLabel, lastCheck.GetProperty("label").GetString());
+        Assert.Equal(MailDeskChannelFold.Tones.Neutral, lastCheck.GetProperty("tone").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_MailboxFailingAndTheRunNeverChecked_LastCheckStaysNeverChecked()
+    {
+        await AddMailbox();
+        var channel = _channels.List(A).Single();
+        _checks.Record(A, MailDeskChannelCheckInput.Failed(channel.Id, null, _now.AddMinutes(-10), Machine, "not signed in", null));
+        _triggers.Add(MailDeskTrigger());
+
+        var lastCheck = (await OnlyRow()).GetProperty("lastCheck");
+
+        Assert.Equal(MailDeskChannelFold.NeverCheckedLabel, lastCheck.GetProperty("label").GetString());
+        Assert.Equal(MailDeskChannelFold.Tones.Neutral, lastCheck.GetProperty("tone").GetString());
+    }
+
+    [Fact]
+    public async Task Fold_TwoMailboxesOneFailing_OnlyTheFailingRowsLastCheckIsBad()
+    {
+        // Arrange - one run, two mailboxes: one could not be read, the other was
+        await AddMailbox();
+        await AddMailbox(address: OtherMailbox);
+        var first = _channels.FindActive(A, Mailbox)!;
+        var second = _channels.FindActive(A, OtherMailbox)!;
+        _checks.RecordAll(A, new[]
+        {
+            MailDeskChannelCheckInput.Failed(first.Id, null, _now.AddMinutes(-5), Machine, "not signed in", null),
+            MailDeskChannelCheckInput.Read(second.Id, null, _now.AddMinutes(-5), Machine),
+        });
+        _triggers.Add(MailDeskTrigger(_now.AddMinutes(-5), TriggerRunOutcome.Screened));
+
+        // Act
+        var rows = (await Get(P + "/channels")).Body.GetProperty("channels").EnumerateArray()
+            .ToDictionary(r => r.GetProperty("address").GetString()!, r => r.GetProperty("lastCheck"));
+
+        // Assert
+        Assert.Equal(MailDeskChannelFold.Tones.Bad, rows[Mailbox].GetProperty("tone").GetString());
+        Assert.Contains("This mailbox has not been read since", rows[Mailbox].GetProperty("label").GetString());
+        Assert.Equal(MailDeskChannelFold.Tones.Good, rows[OtherMailbox].GetProperty("tone").GetString());
+        Assert.Equal("The Mail Desk check last ran 2026-10-18 08:55: the mail it read was screened",
+            rows[OtherMailbox].GetProperty("label").GetString());
     }
 
     [Fact]
