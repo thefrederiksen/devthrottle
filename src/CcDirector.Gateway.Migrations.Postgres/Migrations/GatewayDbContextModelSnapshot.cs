@@ -2641,6 +2641,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<DateTime>("LastSeenAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long?>("MonthlyPriceCents")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Plan")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
@@ -3049,6 +3052,49 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsUnique();
 
                     b.ToTable("license_switch_log", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.LicenseUsageReadingEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("FiveHourResetsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("FiveHourUtilization")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime?>("SevenDayResetsAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<double?>("SevenDayUtilization")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AtUtc");
+
+                    b.HasIndex("TenantId", "AccountEmail", "AtUtc")
+                        .IsUnique();
+
+                    b.ToTable("license_usage_readings", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.MailDeskChannelCheckEntity", b =>
@@ -4478,6 +4524,170 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId", "UpdatedAtUtc");
 
                     b.ToTable("session_turn_heads", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionUsageEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("AgentConversationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("AgentKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ControllerSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DirectorId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("FirstSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("HasBaseline")
+                        .HasColumnType("boolean");
+
+                    b.Property<long>("LastCacheCreationTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("LastCacheReadTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("LastInputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("LastOutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MachineName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid?>("MissionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MissionName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("WeightedByAccountJson")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<double>("WeightedTotal")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "LastSeenAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId")
+                        .IsUnique();
+
+                    b.ToTable("session_usage", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SessionUsageSampleEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("CacheCreationTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("CacheReadTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<double>("Weighted")
+                        .HasColumnType("double precision");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "AtUtc");
+
+                    b.ToTable("session_usage_samples", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.SkillEntity", b =>

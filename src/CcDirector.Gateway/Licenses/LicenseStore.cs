@@ -1,3 +1,4 @@
+using System.Globalization;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -332,6 +333,47 @@ public sealed class LicenseStore
             FileLog.Write($"[LicenseStore] SetRenewalDate FAILED: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Set, or with null clear, what an account's subscription costs a month, in US cents - a figure a person gives from
+    /// the Licenses page, so the usage page can say what a share of the weekly limit is worth. False when this DevThrottle
+    /// account holds no such Claude account, exactly as for the renewal date.
+    /// </summary>
+    public bool SetMonthlyPrice(TenantId tenant, string accountEmail, long? monthlyPriceCents)
+    {
+        var email = NormalizeEmail(accountEmail);
+        FileLog.Write($"[LicenseStore] SetMonthlyPrice: tenant={tenant.ToLogString()}, account={email}, cents={monthlyPriceCents?.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+        try
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var account = ctx.LicenseAccounts.FirstOrDefault(a => a.AccountEmail == email);
+            if (account is null)
+            {
+                FileLog.Write("[LicenseStore] SetMonthlyPrice: REFUSED, no such account in this DevThrottle account");
+                return false;
+            }
+            account.MonthlyPriceCents = monthlyPriceCents;
+            ctx.SaveChanges();
+            FileLog.Write("[LicenseStore] SetMonthlyPrice: stored");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LicenseStore] SetMonthlyPrice FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>Every account's monthly price in cents, for the accounts that have one set.</summary>
+    public IReadOnlyDictionary<string, long> ReadMonthlyPrices(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.LicenseAccounts.AsNoTracking()
+            .Where(a => a.MonthlyPriceCents != null)
+            .Select(a => new { a.AccountEmail, a.MonthlyPriceCents })
+            .ToList()
+            .ToDictionary(a => a.AccountEmail, a => a.MonthlyPriceCents!.Value, StringComparer.Ordinal);
     }
 
     private static void UpsertAccounts(GatewayDbContext ctx, IEnumerable<LicenseHolding> holdings, DateTime now)

@@ -576,6 +576,15 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The one place the decision engine's picture of an account is built from the store.</summary>
     internal Licenses.LicenseSnapshotSource LicenseSnapshots { get; }
 
+    /// <summary>What is using the license: each session's running use of a Claude account, recorded once a minute.</summary>
+    internal Licenses.SessionUsageStore SessionUsage { get; }
+
+    /// <summary>The once-a-minute record of every live session's use and every account's reading.</summary>
+    internal Licenses.SessionUsageRecorder SessionUsageRecorder { get; }
+
+    /// <summary>Reads what is using an account, folded, for the usage route.</summary>
+    internal Licenses.SessionUsageService SessionUsageReads { get; }
+
     /// <summary>License Switching's minute check and Switch now: decides, sends each switch and records what came back.</summary>
     internal Licenses.LicenseSwitchService LicenseSwitches { get; }
 
@@ -2598,6 +2607,13 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => TenantRegistry.SubjectForTenant(tenant),
             Core.Account.AccountNotifyByTenantClient.ResolveServiceToken);
         LicenseNow = new Licenses.LicenseGatewayClock(() => LicenseClock.GetUtcNow().UtcDateTime);
+        // What is using the license (the usage-by-session mandate): recorded beside the minute license check, from the
+        // sessions of every connected Director, and read by the usage route.
+        SessionUsage = new Licenses.SessionUsageStore(_gatewayDb);
+        SessionUsageRecorder = new Licenses.SessionUsageRecorder(SessionUsage, LicenseStore, LicenseReads,
+            tenant => PushedSessions.SnapshotConnected(tenant), LicenseNow.UtcNow);
+        SessionUsageReads = new Licenses.SessionUsageService(SessionUsage, LicenseStore, LicenseReads,
+            tenant => PushedSessions.SnapshotConnected(tenant).Select(l => l.Session.SessionId).ToHashSet(StringComparer.Ordinal));
         LicenseOwnerMail = licenseOwnerMailer.SendAsync;
         LicenseSwitches = new Licenses.LicenseSwitchService(LicenseStore, LicenseSnapshots,
             SendCommandAsync, (tenant, email, ct) => LicenseOwnerMail(tenant, email, ct), LicenseNow.UtcNow);
@@ -6044,6 +6060,14 @@ public sealed class GatewayHost : IAsyncDisposable
             isConnected: IsDirectorConnected,
             readiness: LicenseReadiness);
 
+        // What is using the license: the read is in SessionKeyGuard's allow list so an agent can ask it; setting a
+        // subscription's price is the owner's own, like the renewal date.
+        Api.LicenseEndpoints.MapUsage(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            usage: SessionUsageReads,
+            store: LicenseStore,
+            nowUtc: () => LicenseClock.GetUtcNow().UtcDateTime);
+
         // The sign-in routes of the Licenses page (contract section 8): who approves each account's sign-ins, and
         // "Add a spare" and "Renew now". Only the read of the approvers is in SessionKeyGuard's allow list.
         // The license alarms open now (phase 6): the red banner of every Cockpit page and of the phone shell reads this.
@@ -7252,7 +7276,25 @@ public sealed class GatewayHost : IAsyncDisposable
     /// failed-renewal emails. The two run at the same time, each on its own try: the switch pass waits up to a minute
     /// for a Director that does not answer, and no account's renewal email waits behind that.</summary>
     internal Task RunLicenseSwitchCheckAsync()
-        => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync());
+        => Task.WhenAll(RunLicenseRenewalEmailCheckAsync(), RunLicenseSwitchPassAsync(), RunSessionUsageRecordAsync());
+
+    /// <summary>One minute's record of what is using the license, beside the license check and never behind it.</summary>
+    internal async Task RunSessionUsageRecordAsync()
+    {
+        await Task.Yield();
+        try
+        {
+            await SessionUsageRecorder.TickEveryTenantAsync(_tenantPass, _licenseSwitchLifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_licenseSwitchLifetime.IsCancellationRequested)
+        {
+            FileLog.Write("[GatewayHost] session usage record stopped: the Gateway is stopping");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] session usage record FAILED: {ex.Message}");
+        }
+    }
 
     private async Task RunLicenseSwitchPassAsync()
     {

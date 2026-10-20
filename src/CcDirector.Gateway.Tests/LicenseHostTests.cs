@@ -14,7 +14,7 @@ namespace CcDirector.Gateway.Tests;
 /// THE LICENSE WRITES ON A SELF-HOSTED GATEWAY: the shared machine token is a credential there - every Director on
 /// the machine has it - and it reads the license routes, but it is not a signed-in person, so every write is refused
 /// to it (the Tech Lead's ruling on the review of pull request 3936, finding 1): the renewal date, Switch now and
-/// Forget this machine.
+/// Forget this machine - and what a subscription costs.
 /// </summary>
 public sealed class LicenseWritesSelfHostedTests : IAsyncLifetime
 {
@@ -51,9 +51,16 @@ public sealed class LicenseWritesSelfHostedTests : IAsyncLifetime
             new StringContent("{\"accountEmail\":\"account-a@example.com\"}", System.Text.Encoding.UTF8, "application/json"));
         using var forget = await _sharedToken.PostAsync("gateway/licenses/machines/forget",
             new StringContent("{\"machineId\":\"94ebcb15a4bf40438dca738dd31189d9\"}", System.Text.Encoding.UTF8, "application/json"));
+        // What is using the license: the read is mapped and answers; the price is the owner's alone.
+        using var usage = await _sharedToken.GetAsync("gateway/licenses/usage");
+        using var price = await _sharedToken.PutAsync("gateway/licenses/accounts/price",
+            new StringContent("{\"accountEmail\":\"account-a@example.com\",\"monthlyPriceUsd\":200}", System.Text.Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, read.StatusCode);
-        foreach (var refused in new[] { renewal, switchNow, forget })
+        Assert.Equal(HttpStatusCode.OK, usage.StatusCode);
+        Assert.Equal("No machine has reported a Claude account yet, so there is nothing to measure.",
+            JsonDocument.Parse(await usage.Content.ReadAsStringAsync()).RootElement.GetProperty("emptyText").GetString());
+        foreach (var refused in new[] { renewal, switchNow, forget, price })
         {
             Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
             var json = JsonDocument.Parse(await refused.Content.ReadAsStringAsync()).RootElement;

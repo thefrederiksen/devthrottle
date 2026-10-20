@@ -323,6 +323,8 @@ public sealed class PostgresProviderProofTests
             ("license_switch_log", "FromAccountEmail"),
             ("license_switch_log", "State"),
             ("license_switch_log", "SwitchId"),
+            // What is using the license (the usage-by-session mandate): a reading is found again by its account.
+            ("license_usage_readings", "AccountEmail"),
             // The Mail Desk (Mail Desk mission, phase 1). The kind and the address are the unique index that keeps one
             // active channel per mailbox; the message key is the unique index that records a message once; the layer,
             // the decision and a change's kind are closed words every filter compares exactly.
@@ -358,6 +360,10 @@ public sealed class PostgresProviderProofTests
             ("session_turn_heads", "SessionId"),
             ("session_turns", "Generation"),
             ("session_turns", "SessionId"),
+            // What is using the license: a session's row and its samples are keyed and summed by session id and account.
+            ("session_usage", "SessionId"),
+            ("session_usage_samples", "AccountEmail"),
+            ("session_usage_samples", "SessionId"),
             ("skill_tenant_overrides", "SkillId"),
             ("skills", "Id"),
             ("snoozes", "SessionId"),

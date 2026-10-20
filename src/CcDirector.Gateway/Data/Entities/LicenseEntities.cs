@@ -30,6 +30,11 @@ public sealed class LicenseAccountEntity : GatewayMintedKeyEntity
     /// <summary>The date the SUBSCRIPTION is billed again: a date a person sets from the Licenses page. Null when none
     /// is set. No report carries it and nothing works it out. It is a date with no time and no zone.</summary>
     public DateOnly? RenewsOn { get; set; }
+
+    /// <summary>What the subscription costs a month, in US cents: a figure a person sets from the Licenses page, so the
+    /// usage page can say what a share of the weekly limit is worth. Whole cents because a bare decimal is not mapped
+    /// (GatewayDbContext). Null when none is set - then no dollar is shown.</summary>
+    public long? MonthlyPriceCents { get; set; }
 }
 
 /// <summary>

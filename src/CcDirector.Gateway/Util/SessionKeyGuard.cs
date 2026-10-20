@@ -408,6 +408,11 @@ public static class SessionKeyGuard
                 // a machine name, a user and a profile name. An agent can say why a sign-in was not approved. Setting
                 // or removing an approver, and starting a sign-in, are NOT here: they are the owner's own actions.
                 case "gateway/licenses/approvers":
+                // What is using the license (the usage-by-session mandate): each session's use of an account, in percent
+                // of its weekly limit - names, numbers, times and percentages, never a word of a conversation. A read only,
+                // so an agent - the Fleet Manager first - can answer "what should we cut?". Setting a subscription's price
+                // (PUT gateway/licenses/accounts/price) is NOT here: it is the owner's own action.
+                case "gateway/licenses/usage":
                     return true;
             }
 

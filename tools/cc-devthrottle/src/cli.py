@@ -30,6 +30,7 @@ from . import fleet_ops
 from . import license_ops
 from . import license_signin_ops
 from . import license_usage_ops
+from . import license_fleet_ops
 from . import link_ops
 from . import maildesk_ops
 from . import mission_ops
@@ -374,6 +375,18 @@ app.add_typer(run_app, name="run")
 console = Console()
 
 _ACTIONS = [
+    {
+        "id": "license-sessions",
+        "description": (
+            "What is using a Claude account: every session's rate now (percent of the weekly limit an hour, over the "
+            "last hour), its last 4 hours and its use so far through every compaction, measured on the Gateway; grouped "
+            "by top-level session or by Mission with --by. Read-only."
+        ),
+        "command": "cc-devthrottle license sessions [--account <email>] [--by session|top|mission] [--closed] [--json]",
+        "mutatesState": False,
+        "args": [{"name": "account", "required": False}, {"name": "by", "required": False},
+                 {"name": "closed", "required": False}],
+    },
     {
         "id": "fleet-digest",
         "description": (
@@ -2248,6 +2261,27 @@ def license_usage(
     """Each held account's 5-hour and weekly use, reset times and extra-usage state."""
     license_usage_ops.usage(json_output, fields, default_config_dir, store_dir, active_only=active,
                             refresh_due=refresh)
+
+
+@license_app.command("sessions")
+def license_sessions(
+    account: Optional[str] = typer.Option(None, "--account", help="The Claude account to ask about. Default: the one in use."),
+    by: str = typer.Option("session", "--by", help="One row per: session (default), top (each top-level session with "
+                           "every session under it), mission."),
+    closed: bool = typer.Option(False, "--closed", help="Also list sessions that have gone in the last 7 days, with their totals."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Fields to show, comma separated. Sessions - default: number,name,state,rate-now,last-4h,so-far,running,"
+        "average; valid: also dollars, model, machine, top-level, mission, id. Groups - default: label,sessions,live,"
+        "rate-now,last-4h,so-far; valid: also dollars, id.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer unchanged."),
+) -> None:
+    """What is using a Claude account, session by session, from the Gateway.
+
+    Each session's rate now (over the last hour), its last 4 hours and its use so far through every compaction, all in
+    percent of the account's weekly limit."""
+    license_fleet_ops.sessions(account, by, closed, fields, json_output)
 
 
 @license_app.command("refresh")

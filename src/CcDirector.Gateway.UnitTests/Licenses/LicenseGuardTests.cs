@@ -50,6 +50,13 @@ public sealed class LicenseGuardTests
     [InlineData("GET", "/gateway/licenses/sign-ins/add-spare", false)]
     [InlineData("GET", "/gateway/licenses/sign-ins/renew", false)]
     [InlineData("GET", "/gateway/licenses/sign-ins", false)]
+    // What is using the license (the usage-by-session mandate): the read is open to an agent; the price is the owner's.
+    [InlineData("GET", "/gateway/licenses/usage", true)]
+    [InlineData("HEAD", "/gateway/licenses/usage", true)]
+    [InlineData("POST", "/gateway/licenses/usage", false)]
+    [InlineData("GET", "/gateway/licenses/usage/x", false)]
+    [InlineData("PUT", "/gateway/licenses/accounts/price", false)]
+    [InlineData("GET", "/gateway/licenses/accounts/price", false)]
     public void TheGuard_AllowsASessionKey_ExactlyTheLicenseReads(string method, string path, bool allowed)
     {
         Assert.Equal(allowed, SessionKeyGuard.Check(method, path).Allowed);
@@ -71,6 +78,14 @@ public sealed class LicenseGuardTests
     {
         Assert.False(SessionKeyGuard.Check("PUT", LicenseRoutes.AccountRenewal).Allowed);
         Assert.False(SessionKeyGuard.Check("PUT", LicenseRoutes.AccountRenewal, raised: true).Allowed);
+    }
+
+    [Fact]
+    public void TheGuard_AllowsTheUsageRead_AndRefusesThePrice_ByTheConstantsTheEndpointsMapThemWith()
+    {
+        Assert.True(SessionKeyGuard.Check("GET", LicenseUsageRoutes.Usage).Allowed);
+        Assert.False(SessionKeyGuard.Check("PUT", LicenseUsageRoutes.AccountPrice).Allowed);
+        Assert.False(SessionKeyGuard.Check("PUT", LicenseUsageRoutes.AccountPrice, raised: true).Allowed);
     }
 
     [Fact]
