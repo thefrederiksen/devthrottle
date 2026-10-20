@@ -686,7 +686,16 @@ $DesktopNewSession = {
     $button = Find-DesktopElement $main 'BtnNewSession'
     if (-not $button) { throw 'no BtnNewSession' }
     Invoke-DesktopElement $button
-    $dialog = Wait-For { Get-DesktopWindows | Where-Object { $_.Current.NativeWindowHandle -ne $main.Current.NativeWindowHandle } | Select-Object -First 1 } 20
+    # An owned dialog can sit under its owner in the automation tree rather than beside it at the top, so it is
+    # looked for in both places, by its title.
+    $titleCond = [System.Windows.Automation.AndCondition]::new(
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window),
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'New Session'))
+    $dialog = Wait-For {
+        $found = Get-DesktopWindows | Where-Object { $_.Current.NativeWindowHandle -ne $main.Current.NativeWindowHandle -and $_.Current.Name -eq 'New Session' } | Select-Object -First 1
+        if (-not $found) { $found = $main.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $titleCond) }
+        $found
+    } 60
     if (-not $dialog) { throw 'the New Session dialog did not open' }
     $agents = Find-DesktopElement $dialog 'AgentEntryList'
     $nameCond = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::ListItem)
