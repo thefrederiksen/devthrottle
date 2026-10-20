@@ -591,7 +591,7 @@ def prepare_director():
     real = json.loads((OWNER_INSTANCE / "config" / "config.json").read_text(encoding="utf-8-sig"))
     claude = [e for e in real.get("agent", {}).get("entries", []) if e.get("type") == "ClaudeCode"]
     if not claude:
-        raise SystemExit("the owner's Director knows no Claude Code entry to copy the executable path from")
+        raise SystemExit("the owner's Director knows no ClaudeCode agent entry to copy the executable path from")
     (config / "config.json").write_text(json.dumps({
         "onboarding": {"completed": True},
         "autoUpdate": {"enabled": False},
@@ -599,7 +599,7 @@ def prepare_director():
         "agent": dict(real.get("agent", {}), entries=claude),
     }, indent=2), encoding="utf-8")
     DIR_HOME.mkdir(parents=True, exist_ok=True)
-    # Claude Code keeps its sign-in in ~/.claude and its settings in ~/.claude.json. The seats must run signed in, so the
+    # The agent keeps its sign-in in ~/.claude and its settings in ~/.claude.json. The seats must run signed in, so the
     # scratch home links to the owner's two (the Director passes its hooks to each session with --settings and writes
     # its folder-trust entries for the rig's folders into ~/.claude.json, as the owner's own Director does).
     for name in (".claude", ".claude.json"):
@@ -1004,7 +1004,7 @@ def keys(sid, text):
 
 
 def tend_sessions():
-    """Claude Code asks whether to trust a folder it has never opened, and a session's first prompt waits behind that
+    """The agent asks whether to trust a folder it has never opened, and a session's first prompt waits behind that
     question. The rig answers it the way a person at the screen would, and records that it did. Nothing else is ever
     typed into a session."""
     for s in listed_sessions():
@@ -1021,7 +1021,7 @@ def tend_sessions():
         if chosen.startswith("Yes"):
             keys(sid, "\r")
             TENDED[sid] = 1
-            record(f"the rig answered Claude Code's folder-trust question in session {sid}",
+            record(f"the rig answered the agent's folder-trust question in session {sid}",
                    "  answered: Enter, with the pointer on 'Yes, I trust this folder'")
             time.sleep(2)
         elif chosen.startswith("No"):
@@ -1057,7 +1057,7 @@ def find_transcript(marker, since, seconds=420):
             if marker in text and p not in USED_TRANSCRIPTS:
                 return p
         return None
-    return wait_tending(f"no Claude Code transcript carrying '{marker}' appeared", found, seconds=seconds, every=2)
+    return wait_tending(f"no agent transcript carrying '{marker}' appeared", found, seconds=seconds, every=2)
 
 
 def finished(path):
@@ -1107,7 +1107,7 @@ def summarize(title, path):
                 lines.append(f"tool result{' (error)' if c.get('is_error') else ''}: {text_of(c.get('content'))[:2000]}")
             elif c.get("type") == "text" and e.get("type") == "assistant":
                 lines.append(f"agent: {c.get('text', '')[:1500]}")
-    record(f"{title} - read from the session's own Claude Code transcript", "\n".join(f"  {x}" for x in lines))
+    record(f"{title} - read from the session's own agent transcript", "\n".join(f"  {x}" for x in lines))
     return "\n".join(lines)
 
 
@@ -1362,7 +1362,7 @@ REFUSED_PROMPT = (f"QA-MD-REFUSED. Run exactly this one command with Bash, quote
 
 
 def section_factory_refused():
-    section("A FACTORY SESSION REFUSED LIVE MODE", "A real Claude Code session born into the qa-books factory (the "
+    section("A FACTORY SESSION REFUSED LIVE MODE", "A real agent session born into the qa-books factory (the "
                                                    "once-a-year timed start of its prober seat, run now) is told to switch qa-one to "
                                                    "live. Expected: 403, outcome FactorySessionRefused; nothing "
                                                    "recorded; the channel stays in observe.")

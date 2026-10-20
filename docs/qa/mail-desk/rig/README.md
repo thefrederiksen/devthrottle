@@ -34,7 +34,7 @@ uv run --no-project --with pytest --with "msal>=1.28" python -m pytest docs/qa/m
 | The check | The published `mail-desk` definition is the template with four recorded changes: this machine's name, `every: 1m` (the shortest interval a start may have), `checks/screen.py` = the rig's wrapper (`checks/screen.py` here) and `checks/real_screen.py` = the template's real `screen.py`, byte for byte (the rig checks the hash), plus `files/rig.json` telling the wrapper where the rig is. |
 | Fake Graph | On 127.0.0.1: an Inbox, Sent, Archive and Junk Email per mailbox, told apart by the wrapper's fake token; the receive-time filter, order and paging the check asks for; the move; a log of every call (time, mailbox, method, path with ids replaced, folder, destination - never a body or an id); a failure that can be switched on per mailbox. |
 | Fake model | On 127.0.0.1: chat completions with log probabilities, scripted per subject, able to fail (HTTP 500) or answer off the labels. |
-| Seats | `qa-books/clerk` and `qa-support/desk`, each a small factory whose seat is a real Claude Code session on the cheapest model, told by its brief to run `maildesk done` or `maildesk return` for the emails in its `check.json`. |
+| Seats | `qa-books/clerk` and `qa-support/desk`, each a small factory whose seat is a real agent session (the ClaudeCode agent type) on the cheapest model, told by its brief to run `maildesk done` or `maildesk return` for the emails in its `check.json`. |
 
 Addresses are `qa-one@example.com`, `qa-two@example.com` and example senders only. The transcript passes through
 `shown()`, which replaces the rig, tree and home folders, every key and token, and any address that is not an example
@@ -77,7 +77,7 @@ fake Graph is not an http address on 127.0.0.1. `tests/test_wrapper.py` proves e
   already released accepts the routed sessions the Gateway starts.
 - **Not the 08:00 email's delivery.** The section is read from what the Gateway composed; the rig's Gateway holds no
   account sign-in, so nothing is sent.
-- **The seats' sign-in is the owner's Claude Code sign-in.** The scratch home links `~/.claude` and `~/.claude.json`
+- **The seats' sign-in is the owner's agent sign-in.** The scratch home links `~/.claude` and `~/.claude.json`
   to the owner's, so the seats run signed in; the Director writes its folder-trust entries for the rig's folders into
   that `~/.claude.json`, as the owner's own Director does for any folder.
 - **Timing is approximate.** A run "after" a change is the first run whose check ended more than 20 seconds after it.
