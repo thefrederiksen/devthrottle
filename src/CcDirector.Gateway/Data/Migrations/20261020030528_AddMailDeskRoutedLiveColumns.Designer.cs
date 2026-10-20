@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261020020440_AddMailDeskRoutedLiveColumns")]
+    [Migration("20261020030528_AddMailDeskRoutedLiveColumns")]
     partial class AddMailDeskRoutedLiveColumns
     {
         /// <inheritdoc />
@@ -3153,6 +3153,9 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<string>("OutcomeDetail")
                         .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("OutcomeUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Reason")

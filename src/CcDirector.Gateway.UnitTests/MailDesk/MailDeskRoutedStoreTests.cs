@@ -83,8 +83,8 @@ public sealed class MailDeskRoutedStoreTests : IAsyncLifetime
         Assert.Equal("start-k-1", row.StartName);
         Assert.Equal(_rig.Now, row.StartedUtc);
         var decision = _rig.DecisionRow(row.DecisionId);
-        Assert.Equal((MailDeskWords.Outcomes.SeatStarted, $"session {SessionOne} on {MachineA} ({Books}/{Clerk})"),
-            (decision.Outcome, decision.OutcomeDetail));
+        Assert.Equal((MailDeskWords.Outcomes.SeatStarted, $"session {SessionOne} on {MachineA} ({Books}/{Clerk})", (DateTime?)_rig.Now),
+            (decision.Outcome, decision.OutcomeDetail, decision.OutcomeUtc));
     }
 
     [Fact]
@@ -116,7 +116,8 @@ public sealed class MailDeskRoutedStoreTests : IAsyncLifetime
         Assert.Equal((2, MailDeskWords.RoutedStates.Open), (second.StartFailures, second.State));
         Assert.Equal((3, MailDeskWords.RoutedStates.Returned), (third.StartFailures, third.State));
         Assert.Equal("its session could not be started 3 times: still refused", third.OwnerReason);
-        Assert.Equal(MailDeskWords.Outcomes.Failed, _rig.DecisionRow(row.DecisionId).Outcome);
+        Assert.Equal((MailDeskWords.Outcomes.Failed, (DateTime?)_rig.Now),
+            (_rig.DecisionRow(row.DecisionId).Outcome, _rig.DecisionRow(row.DecisionId).OutcomeUtc));
     }
 
     // ---------- the router's other writes ----------
@@ -169,6 +170,7 @@ public sealed class MailDeskRoutedStoreTests : IAsyncLifetime
         // Assert
         Assert.Equal((MailDeskWords.RoutedStates.Returned, "the owner should read this"), (handed.State, handed.OwnerReason));
         Assert.Null(_rig.DecisionRow(row.DecisionId).Outcome);
+        Assert.Null(_rig.DecisionRow(row.DecisionId).OutcomeUtc);
         Assert.Equal((MailDeskWords.RoutedStates.Done, (string?)null), (untouched.State, untouched.OwnerReason));
     }
 

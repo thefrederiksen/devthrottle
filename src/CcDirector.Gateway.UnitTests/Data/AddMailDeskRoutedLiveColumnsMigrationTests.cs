@@ -12,7 +12,7 @@ namespace CcDirector.Gateway.Tests.Data;
 /// The SQLite half of <c>AddMailDeskRoutedLiveColumns</c> (Mail Desk, phase 4, section 3.1): <c>mail_desk_routed</c>
 /// gains <c>ChannelId</c>, <c>RerouteCount</c>, <c>StartFailures</c>, <c>StartName</c>, <c>StartedUtc</c>,
 /// <c>OwnerReason</c> and <c>DoneNote</c>, and its (tenant, decision) index becomes unique. It applies right after the
-/// branch's newest migration, <c>AddMailDeskDecisionAttempts</c>; a row stored before it keeps its fields, takes its
+/// branch's newest migration, <c>AddMailDeskDecisionOutcomeTime</c>; a row stored before it keeps its fields, takes its
 /// channel from its decision (a hand edit over what the tool generates, caught here if a regeneration drops it) and
 /// counts no reroutes or failures; a second row for one decision is refused afterwards; and its Down removes the
 /// columns and keeps the rows. The PostgreSQL half is <c>MailDeskRoutedPostgresTests</c>, run by
@@ -20,8 +20,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class AddMailDeskRoutedLiveColumnsMigrationTests
 {
-    private const string SqliteBefore = "20261019030630_AddMailDeskDecisionAttempts";
-    private const string SqliteUnderTest = "20261020020440_AddMailDeskRoutedLiveColumns";
+    private const string SqliteBefore = "20261020024317_AddMailDeskDecisionOutcomeTime";
+    private const string SqliteUnderTest = "20261020030528_AddMailDeskRoutedLiveColumns";
     private const string Channel = "22222222-2222-2222-2222-222222222222";
     private const string Decision = "11111111-1111-1111-1111-111111111111";
 

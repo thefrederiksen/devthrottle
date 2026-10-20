@@ -252,6 +252,7 @@ public sealed class MailDeskRoutedStore
                 {
                     decision.Outcome = MailDeskWords.Outcomes.SeatStarted;
                     decision.OutcomeDetail = Cut($"session {sessionId} on {machine} ({row.Factory}/{row.Seat})", MailDeskDecisionStore.MaxReasonLength);
+                    decision.OutcomeUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
                 }
             }
             ctx.SaveChanges();
@@ -470,6 +471,7 @@ public sealed class MailDeskRoutedStore
         {
             decision.Outcome = MailDeskWords.Outcomes.Failed;
             decision.OutcomeDetail = Cut(reason, MailDeskDecisionStore.MaxReasonLength);
+            decision.OutcomeUtc = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
         }
         FileLog.Write($"[MailDeskRoutedStore] ToOwner: {row.Id} handed to the owner (decision {row.DecisionId}, failed decision={failDecision})");
     }

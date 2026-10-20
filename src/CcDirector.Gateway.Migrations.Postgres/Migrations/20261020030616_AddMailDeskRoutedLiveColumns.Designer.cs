@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261020020600_AddMailDeskRoutedLiveColumns")]
+    [Migration("20261020030616_AddMailDeskRoutedLiveColumns")]
     partial class AddMailDeskRoutedLiveColumns
     {
         /// <inheritdoc />
@@ -3243,6 +3243,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("OutcomeDetail")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("OutcomeUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Reason")
                         .IsRequired()
