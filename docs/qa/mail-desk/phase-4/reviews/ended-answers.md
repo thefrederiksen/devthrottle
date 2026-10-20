@@ -161,3 +161,74 @@ Passed!  - Failed:     0, Passed:  1596, Skipped:     0, Total:  1596
 dotnet test src/CcDirector.Core.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~GateTestsDoNotDependOnTheMachine"
 Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11
 ```
+
+## Third review (`ended-restart-review.md`): three findings, all ACCEPTED, FIXED as the Tech Lead ruled
+
+### Finding 1 - a seat busy for ever once its brought-back session ended
+
+- **A brought-back seat is judged by the session it came back as, by the ordinary rules.** `MailDeskRouter.FateOf`, on
+  a seat whose record names a new session R2, now asks `FateOf(R2)`: R2's own row, R2's own history ending, and the
+  24-hour rule from R2's own start (`WorkspaceSeatOnRecord.BroughtBackAtUtc`: the reopen's time, or the Bring back's
+  start, or - when the record says neither - the restart). R2 alive: followed. R2 ended: the rows are re-routed (or
+  handed on) with the reason saying so. To judge R2 the history is now asked about R2 too: the restart records are
+  asked first, then the history once, for the run's sessions and every session a record says one came back as. A
+  session restarted again before the router saw it is followed up to three restarts deep.
+- **A followed row takes the new session's start.** Found while writing the test for this ruling: after a follow the
+  row kept R1's start, so R2 was judged by the 24-hour rule from R1's start - a restart 30 hours into R1's life had R2
+  re-routed on the very next run while it worked the email. `MailDeskRoutedStore.Follow` now writes the new session's
+  start on the rows (from the record, or the found session's own creation time for the follow by name).
+- **A done row never makes a seat busy.** `IsSeatBusy` is now: a start whose outcome is not known, inside its grace;
+  or an open row of the seat still with a session after step 3. The "newest session has not ended" check is gone.
+  **For the Tech Lead: this changes one case of contract section 1's "A busy seat" row, which still says "while the
+  newest session the Mail Desk started ... has not ENDED".** A session that has said done on every email it holds and is
+  still running no longer keeps its seat busy; the seat's next email starts a new session at once. Section 1 should
+  say what step 3 now says.
+
+### Finding 2 - the end of an owed seat's wait was counted from the session's start
+
+- **Does a restart offer end by itself? No.** The start-up window stops showing a record after
+  `DirectorWayUp.OfferedForDays` (7) days from the shutdown (`IsTooOldToOffer`), but File, Restart history keeps its
+  Bring back for good: "AGE IS NOT PART OF IT" (`DirectorWayUp.cs`, the history's `Offer`). So the 72 hours are used,
+  as ruled.
+- A seat still owed a Bring back waits while the record owes it. `MailDeskRouter.RestartOwedFor` (72 hours) is counted
+  from the record's creation - the restart, by the Gateway's own clock (`WorkspaceStore.SeatsCapturedFrom` now carries
+  the record's `CreatedUtc` as `WorkspaceSeatOnRecord.RecordedUtc`) - never from the session's start. Past it, the
+  routed email is handed to the OWNER (`MailDeskRoutedStore.HandToOwner`, reason
+  `MailDeskRoutedReasons.NotBroughtBack`: "its session was ended by a Director restart and was not brought back within
+  72 hours"), never re-routed; the decision keeps its `seat-started` outcome. The seat is then free.
+
+### Finding 3 - a cancelled restart's record
+
+- `WorkspaceStore.SeatsCapturedFrom` skips a record with `CancelledAtUtc` set: "Cancel and keep working" is not a
+  restart, its sessions kept their own ids, and the way up never offers anything in it. A later close by a person is
+  then read from the history alone and re-routed at once.
+
+### Tests
+
+New, in `MailDeskRouterEndingsTests` unless named:
+
+- `RouteAsync_DoneRowOnASessionBroughtBackThatThenEnded_NeverKeepsTheSeatBusy` (finished, closed) - the reviewer's
+  probe, with the opposite assertion: k-2 starts at the first run once R2 is gone.
+- `RouteAsync_OpenRowOnASessionBroughtBackThatThenEnded_IsJudgedByTheNewSession_ReroutedOnce`.
+- `RouteAsync_SessionBroughtBackLateInTheFirstSessionsLife_IsJudgedFrom24HoursAfterItsOwnStart` - shown red with the
+  start written by `Follow` removed.
+- `RouteAsync_SmartRestart_StillOwed71HoursAfterTheRestart_Waits_At72HoursGoesToTheOwnerNeverRerouted` - replaces
+  `RouteAsync_SmartRestart_StillOwedAfter24Hours_IsEnded`, whose rule this review withdrew.
+- `RouteAsync_SmartRestartLateInTheSessionsLife_WaitsFromTheRestart_NotFromTheSessionsStart` (restart 30 hours into the
+  session; still waiting 40 hours later).
+- `RouteAsync_SmartRestartOverAWeekend_BroughtBack60HoursAfterTheRestart_IsFollowed_NeverRerouted` (checks at 1 minute,
+  24 hours and 59 hours; Bring back at 60 hours).
+- `NewMailDeskRouter_AsGatewayHostWiresIt_ACancelledRestartRecordIsIgnored_APersonsCloseIsReroutedAtOnce` - over the
+  real workspace store.
+- `MailDeskRestartRecordReadTests.SeatsCapturedFrom_ACancelledRecord_IsNotRead_AndTheRestartTimeIsTheRecordsCreation`.
+- `MailDeskRoutedStoreTests.Follow_...` now also asserts the new start.
+
+Runs, on this branch rebased onto `mail-desk-phase-4` at `aad3328dd`:
+
+```
+dotnet test src/CcDirector.Gateway.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~MailDesk|FullyQualifiedName~Trigger|FullyQualifiedName~SessionHistory|FullyQualifiedName~ScheduledRun|FullyQualifiedName~FactorySeat|FullyQualifiedName~Workspace"
+Passed!  - Failed:     0, Passed:  1604, Skipped:     0, Total:  1604
+
+dotnet test src/CcDirector.Core.UnitTests -p:EnableWindowsTargeting=true --filter "FullyQualifiedName~GateTestsDoNotDependOnTheMachine"
+Passed!  - Failed:     0, Passed:    11, Skipped:     0, Total:    11
+```

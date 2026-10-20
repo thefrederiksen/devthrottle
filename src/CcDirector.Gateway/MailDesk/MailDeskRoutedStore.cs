@@ -300,9 +300,12 @@ public sealed class MailDeskRoutedStore
     /// A RESTORED SESSION (section 3.2, step 3; review of 4283, finding 2): a Smart Restart brought the session these
     /// open rows are with back under a new id. Every open row with <paramref name="fromSessionId"/> takes
     /// <paramref name="toSessionId"/> and stays open - nothing is re-routed and no count changes - and each decision's
-    /// outcome detail names the new session. Returns the rows that followed it.
+    /// outcome detail names the new session. The rows' start becomes <paramref name="toStartedUtc"/>, the new session's
+    /// own start, because every rule that counts from a row's start is about the session it is with (review of the
+    /// restart record work, finding 1). Returns the rows that followed it.
     /// </summary>
-    public IReadOnlyList<MailDeskRoutedEntity> Follow(TenantId tenant, string fromSessionId, string toSessionId, string? machine, DateTime nowUtc)
+    public IReadOnlyList<MailDeskRoutedEntity> Follow(TenantId tenant, string fromSessionId, string toSessionId, string? machine,
+        DateTime toStartedUtc, DateTime nowUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fromSessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(toSessionId);
@@ -315,6 +318,7 @@ public sealed class MailDeskRoutedStore
             foreach (var row in rows)
             {
                 row.SessionId = toSessionId;
+                row.StartedUtc = toStartedUtc;
                 row.ChangedUtc = nowUtc;
                 if (ctx.MailDeskDecisions.FirstOrDefault(d => d.Id == row.DecisionId) is { } decision)
                 {
@@ -665,6 +669,10 @@ public static class MailDeskRoutedReasons
 {
     /// <summary>Why an orphan went to the owner the second time.</summary>
     public const string SessionEndedTwice = "its session ended twice without saying done or returning it";
+
+    /// <summary>Why an email whose session a restart ended, and which its restart record still owed a Bring back after
+    /// <see cref="MailDeskRouter.RestartOwedFor"/>, went to the owner - never re-routed, so two sessions never work it.</summary>
+    public const string NotBroughtBack = "its session was ended by a Director restart and was not brought back within 72 hours";
 
     /// <summary>Why an email whose session could not be started went to the owner.</summary>
     public static string StartFailedTimes(int times, string error) => $"its session could not be started {times} times: {error}";

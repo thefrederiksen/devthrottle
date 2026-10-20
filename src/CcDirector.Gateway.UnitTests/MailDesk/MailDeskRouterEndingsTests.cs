@@ -402,8 +402,7 @@ public sealed class MailDeskRouterEndingsTests : IAsyncLifetime
             Name = name,
             Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided },
         };
-        _rig.RestartSeats[sessionId] = seat;
-        return seat;
+        return _rig.CaptureForRestart(seat);
     }
 
     [Fact]
@@ -478,20 +477,167 @@ public sealed class MailDeskRouterEndingsTests : IAsyncLifetime
         Assert.Equal(2, _rig.Starts[1].Request.FactoryCheck!.Count);
     }
 
+    // ---------- review of the restart record work, finding 2: an owed seat waits on its record, from the restart ----------
+
     [Fact]
-    public async Task RouteAsync_SmartRestart_StillOwedAfter24Hours_IsEnded()
+    public async Task RouteAsync_SmartRestart_StillOwed71HoursAfterTheRestart_Waits_At72HoursGoesToTheOwnerNeverRerouted()
     {
-        // Arrange: the owner never brings it back.
+        // Arrange
         var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
         CapturedSeat(session, _rig.Starts[0].Request.Name!);
         _rig.Endings[session] = SessionHistoryEndings.Closed;
 
-        // Act
-        _rig.Now = _rig.Now.Add(MailDeskRouter.UnseenSessionEndsAfter);
+        // Act: just inside the 72 hours after the restart.
+        _rig.Now = _rig.Now.Add(MailDeskRouter.RestartOwedFor).AddMinutes(-1);
+        var inside = await _rig.RouteAsync();
+
+        // Assert: still waiting, the seat busy.
+        Assert.Equal((0, 0), (inside.Rerouted, inside.ToOwner));
+        Assert.Equal((session, MailDeskWords.RoutedStates.Open), (_rig.Row(held.Id).SessionId, _rig.Row(held.Id).State));
+        Assert.Single(_rig.Starts);
+
+        // Act: the 72 hours are over and the record never resolved.
+        _rig.Now = _rig.Now.AddMinutes(1);
+        var over = await _rig.RouteAsync();
+
+        // Assert: with the owner, with the reason, never re-routed - and the seat is free for the waiting email.
+        Assert.Equal((0, 1), (over.Rerouted, over.ToOwner));
+        var row = _rig.Row(held.Id);
+        Assert.Equal((MailDeskWords.RoutedStates.Returned, 0), (row.State, row.RerouteCount));
+        Assert.Equal(MailDeskRoutedReasons.NotBroughtBack, row.OwnerReason);
+        Assert.Equal(2, _rig.Starts.Count);
+        Assert.Equal(1, _rig.Starts[1].Request.FactoryCheck!.Count);
+    }
+
+    [Fact]
+    public async Task RouteAsync_SmartRestartLateInTheSessionsLife_WaitsFromTheRestart_NotFromTheSessionsStart()
+    {
+        // Arrange: the session runs 30 hours, then the machine is shut down (an operating system shutdown's record).
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.Now = _rig.Now.AddHours(30);
+        CapturedSeat(session, _rig.Starts[0].Request.Name!);
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+
+        // Act: 40 hours after the restart - 70 hours after the session's start.
+        _rig.Now = _rig.Now.AddHours(40);
         var run = await _rig.RouteAsync();
 
         // Assert
-        Assert.Equal(1, run.Rerouted);
+        Assert.Equal((0, 0), (run.Rerouted, run.ToOwner));
+        Assert.Equal(session, _rig.Row(held.Id).SessionId);
+        Assert.Single(_rig.Starts);
+    }
+
+    [Fact]
+    public async Task RouteAsync_SmartRestartOverAWeekend_BroughtBack60HoursAfterTheRestart_IsFollowed_NeverRerouted()
+    {
+        // Arrange: Friday evening the session is captured and ended.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        var seat = CapturedSeat(session, _rig.Starts[0].Request.Name!);
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        var restart = _rig.Now;
+
+        // Act: checks through the weekend - one minute after, a day after, and just before Monday's Bring back.
+        foreach (var at in new[] { TimeSpan.FromMinutes(1), TimeSpan.FromHours(24), TimeSpan.FromHours(59) })
+        {
+            _rig.Now = restart.Add(at);
+            var waiting = await _rig.RouteAsync();
+            Assert.Equal((0, 0), (waiting.Rerouted, waiting.ToOwner));
+        }
+        var restored = _rig.NextSessionId();
+        _rig.Now = restart.AddHours(60);
+        seat.RestoredSessionId = restored;
+        seat.Restore!.StartedAtUtc = _rig.Now;
+        var monday = await _rig.RouteAsync();
+
+        // Assert: followed, never re-routed, never a second session.
+        Assert.Equal((1, 0, 0), (monday.Followed, monday.Rerouted, monday.ToOwner));
+        var row = _rig.Row(held.Id);
+        Assert.Equal((restored, 0, MailDeskWords.RoutedStates.Open), (row.SessionId, row.RerouteCount, row.State));
+        Assert.Single(_rig.Starts);
+    }
+
+    // ---------- review of the restart record work, finding 1: a brought-back seat is judged by its new session ----------
+
+    [Theory]
+    [InlineData(SessionHistoryEndings.Finished)]
+    [InlineData(SessionHistoryEndings.Closed)]
+    public async Task RouteAsync_DoneRowOnASessionBroughtBackThatThenEnded_NeverKeepsTheSeatBusy(string laterEnding)
+    {
+        // Arrange: the reviewer's probe. R1 says done on k-1; a restart brings it back as R2; R2 later ends.
+        _rig.AddMailDeskTrigger();
+        var channel = _rig.Channel(BoxA);
+        var first = _rig.Decide(channel, "k-1", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 30);
+        await _rig.RouteAsync();
+        var r1 = _rig.Row(first.Id).SessionId!;
+        Assert.True(_rig.Routed.Done(MailDeskRoutingRig.Account, _rig.Row(first.Id).Id, r1, "paid", _rig.Now).Succeeded);
+        var r2 = _rig.NextSessionId();
+        _rig.CaptureForRestart(new WorkspaceSeat
+        {
+            SessionId = r1, Name = _rig.Starts[0].Request.Name!,
+            Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Restore }, RestoredSessionId = r2,
+        });
+        _rig.Endings[r1] = SessionHistoryEndings.Closed;
+        _rig.Endings[r2] = laterEnding;
+        _rig.Decide(channel, "k-2", MailDeskWords.Decisions.Route, Books, Clerk, minutesAgo: 1);
+
+        // Act
+        _rig.Now = _rig.Now.AddHours(1);
+        var soon = await _rig.RouteAsync();
+
+        // Assert: k-2 starts once R2 is gone.
+        Assert.Equal(0, soon.Waiting);
+        Assert.Equal(2, _rig.Starts.Count);
+    }
+
+    [Fact]
+    public async Task RouteAsync_OpenRowOnASessionBroughtBackThatThenEnded_IsJudgedByTheNewSession_ReroutedOnce()
+    {
+        // Arrange: between two runs R1 is brought back as R2, and R2's agent finishes without saying done.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        var r2 = _rig.NextSessionId();
+        CapturedSeat(session, _rig.Starts[0].Request.Name!).RestoredSessionId = r2;
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        _rig.Endings[r2] = SessionHistoryEndings.Finished;
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(5);
+        var run = await _rig.RouteAsync();
+
+        // Assert: re-routed once, not followed to a session that is gone.
+        Assert.Equal((1, 0), (run.Rerouted, run.Followed));
+        Assert.Equal(1, _rig.Row(held.Id).RerouteCount);
+        Assert.Equal(2, _rig.Starts.Count);
+    }
+
+    [Fact]
+    public async Task RouteAsync_SessionBroughtBackLateInTheFirstSessionsLife_IsJudgedFrom24HoursAfterItsOwnStart()
+    {
+        // Arrange: R1 runs 30 hours, is restarted, and is brought back as R2 at once. R2 is never seen by the list and
+        // has no history - a Director away, say - so only the 24-hour rule can end it.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.Now = _rig.Now.AddHours(30);
+        var seat = CapturedSeat(session, _rig.Starts[0].Request.Name!);
+        _rig.Endings[session] = SessionHistoryEndings.Closed;
+        var r2 = _rig.NextSessionId();
+        seat.RestoredSessionId = r2;
+        seat.Restore!.StartedAtUtc = _rig.Now;
+        var r2Start = _rig.Now;
+
+        // Act: the run that follows it, the run after (31 and 32 hours after R1's start), and 24 hours after R2's start.
+        _rig.Now = r2Start.AddHours(1);
+        var follow = await _rig.RouteAsync();
+        _rig.Now = r2Start.AddHours(2);
+        var next = await _rig.RouteAsync();
+        var keptBy = _rig.Row(held.Id).SessionId;
+        _rig.Now = r2Start.Add(MailDeskRouter.UnseenSessionEndsAfter);
+        var after = await _rig.RouteAsync();
+
+        // Assert: followed and kept - R2's 24 hours count from R2's start, not R1's - then re-routed once.
+        Assert.Equal((1, 0), (follow.Followed, follow.Rerouted));
+        Assert.Equal((0, 0), (next.Followed, next.Rerouted));
+        Assert.Equal(r2, keptBy);
+        Assert.Equal(1, after.Rerouted);
         Assert.Equal(1, _rig.Row(held.Id).RerouteCount);
     }
 
@@ -651,6 +797,33 @@ public sealed class MailDeskRouterEndingsTests : IAsyncLifetime
         // Assert: closed, by a person as far as this account knows - re-routed at once.
         Assert.Equal((0, 1), (run.Followed, run.Rerouted));
         Assert.Equal(1, _rig.Row(held.Id).RerouteCount);
+    }
+
+    // ---------- review of the restart record work, finding 3: a cancelled restart is not a restart ----------
+
+    [Fact]
+    public async Task NewMailDeskRouter_AsGatewayHostWiresIt_ACancelledRestartRecordIsIgnored_APersonsCloseIsReroutedAtOnce()
+    {
+        // Arrange: "Cancel and keep working" left a record holding the session as an undecided seat, and the session
+        // kept running under its own id. Later a person closes it.
+        var (held, session) = await SessionReapedWithAnotherEmailWaitingAsync();
+        _rig.UseGatewayHostWiring(new SessionHistoryStore(_rig.Db));
+        WriteHistoryRecord(session, SessionHistoryEndings.Closed);
+        _rig.SaveRestartRecord("restart-cancelled", cancelledAtUtc: _rig.Now, new WorkspaceSeat
+        {
+            SessionId = session,
+            Name = _rig.Starts[0].Request.Name!,
+            Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided },
+        });
+
+        // Act
+        _rig.Now = _rig.Now.AddMinutes(30);
+        var run = await _rig.RouteAsync();
+
+        // Assert
+        Assert.Equal((1, 0), (run.Rerouted, run.Followed));
+        Assert.Equal(1, _rig.Row(held.Id).RerouteCount);
+        Assert.Equal(2, _rig.Starts.Count);
     }
 
     /// <summary>The session's history record in the rig's account, as the Gateway keeps it, with this ending.</summary>
