@@ -10,7 +10,7 @@ show() { # label, then curl arguments; prints the request line, the status and t
   echo "=== $label"
   echo "\$ curl $(printf '%q ' "$@" | sed -E "s/$TOKEN/<token>/g; s/(cc-box-desktop=)[A-Za-z0-9_-]+/\\1<session>/g; s/ticket=[A-Za-z0-9_%-]+/ticket=<redacted>/g")"
   curl -s -o /tmp/relay-refusal-body -D /tmp/relay-refusal-head -w "-> HTTP %{http_code}\n" "$@"
-  grep -iE "^(location|set-cookie|content-type):" /tmp/relay-refusal-head | sed -E 's/(cc-box-desktop=)[^;]+/\1<session>/; s/ticket=[^&"]+/ticket=<redacted>/'
+  grep -iE "^(location|set-cookie|content-type|clear-site-data):" /tmp/relay-refusal-head | sed -E 's/(cc-box-desktop=)[^;]+/\1<session>/; s/ticket=[^&"]+/ticket=<redacted>/'
   head -c 300 /tmp/relay-refusal-body | sed -E 's/ticket=[^&"]+/ticket=<redacted>/'; echo; echo
 }
 

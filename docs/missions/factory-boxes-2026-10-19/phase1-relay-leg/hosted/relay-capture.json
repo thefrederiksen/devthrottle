@@ -1,0 +1,386 @@
+{
+  "pageFacts": {
+    "href": "http://localhost:7996/boxes/relay-proof/desktop/",
+    "documentCookie": "",
+    "title": "Boxes relay proof"
+  },
+  "cookies": [
+    {
+      "name": "cc-box-desktop",
+      "domain": "localhost",
+      "path": "/boxes/relay-proof/desktop/",
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Strict"
+    }
+  ],
+  "files": {
+    "big": {
+      "name": "relay-upload-64mb.bin",
+      "size": 67108864,
+      "status": 200,
+      "ms": 10007
+    },
+    "small": {
+      "name": "relay-upload-8mb.bin",
+      "size": 8388608,
+      "status": 200,
+      "ms": 1215
+    },
+    "list": {
+      "status": 200,
+      "hasBoth": true
+    },
+    "download": {
+      "status": 200,
+      "bytes": 8388608,
+      "firstMismatch": -1,
+      "ms": 7513
+    }
+  },
+  "usage": [
+    {
+      "label": "idle desktop",
+      "seconds": 60,
+      "bytes": 63521,
+      "megabitsPerSecond": 0.008,
+      "gigabytesPerHour": 0.004
+    },
+    {
+      "label": "typing in a terminal",
+      "seconds": 61.8,
+      "bytes": 843397,
+      "megabitsPerSecond": 0.109,
+      "gigabytesPerHour": 0.049
+    },
+    {
+      "label": "browsing a site (scrolling a Wikipedia article)",
+      "seconds": 60.4,
+      "bytes": 27258891,
+      "megabitsPerSecond": 3.608,
+      "gigabytesPerHour": 1.624
+    },
+    {
+      "label": "worst case: a full-screen terminal flood",
+      "seconds": 30,
+      "bytes": 29967602,
+      "megabitsPerSecond": 7.991,
+      "gigabytesPerHour": 3.596
+    }
+  ],
+  "commands": {
+    "during": [
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 64.8
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 7.5
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 7.3
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 6.2
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 7.3
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 7.1
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 7.3
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 6.3
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 11.1
+      },
+      {
+        "label": "while the desktop floods",
+        "status": 200,
+        "ms": 6.3
+      }
+    ],
+    "quiet": [
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 9.2
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 5.4
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 4.8
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 4.8
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 5
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 5.3
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 5.4
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 5.3
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 5.2
+      },
+      {
+        "label": "desktop quiet",
+        "status": 200,
+        "ms": 4.8
+      }
+    ]
+  },
+  "sockets": [
+    {
+      "url": "ws://localhost:7996/boxes/relay-proof/desktop/api/websockets",
+      "recv": 3604,
+      "recvBytes": 70607622,
+      "sent": 4035,
+      "sentBytes": 62821,
+      "maxRecv": 272024,
+      "closed": false
+    }
+  ],
+  "requests": [
+    {
+      "method": "GET",
+      "url": "http://127.0.0.1:7996/healthz",
+      "type": "document",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/?ticket=<redacted>",
+      "type": "document",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/",
+      "type": "document",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/assets/index-CPWh3fQ6.js",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/assets/index-D97fjY6g.css",
+      "type": "stylesheet",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://localhost:7996/09e11660-34ac-4143-a927-195b9f3a2c20",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/api/status",
+      "type": "fetch",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/icon.png",
+      "type": "other",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/assets/selkies-core-BbKps5RD.js",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://localhost:7996/a1593e65-7917-4ebd-9451-47b0844549a1",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://localhost:7996/07911574-883a-4c64-9e8a-c5a7480f9fa7",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/manifest.json",
+      "type": "fetch",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://localhost:7996/5489abe8-df5e-45db-8bec-33ed565c9b15",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://localhost:7996/77b434f0-5a49-4719-9de2-74a6c9389e43",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "blob:http://localhost:7996/02909dfa-06fb-40b7-9631-e6883befc343",
+      "type": "script",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/api/upload",
+      "type": "fetch",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/api/upload",
+      "type": "fetch",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/api/files/",
+      "type": "fetch",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:7996/boxes/relay-proof/desktop/api/files/relay-upload-8mb.bin",
+      "type": "fetch",
+      "status": 200
+    }
+  ],
+  "console": [
+    "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "info: Clear-Site-Data header on 'http://localhost:7996/boxes/relay-proof/desktop/?ticket=<redacted>': Cleared data types: \"storage\".",
+    "log: Universal Touch Gamepad library loaded. Send 'TOUCH_GAMEPAD_SETUP' message to initialize.",
+    "log: Received initial streaming mode: websockets",
+    "log: Streaming mode determined to be: websockets",
+    "log: Canvas internal buffer reset to: 1024x768",
+    "log: Reset canvas CSS to 1024px x 768px, Pos -512,-384, object-fit: fill. Buffer: 1024x768",
+    "log: Setting canvas rendering to 'pixelated' for 1:1 display.",
+    "log: Initialized UI in Auto Resolution Mode (defaulting to 1024x768 logical for now)",
+    "log: Dynamically added #keyboard-input-assist element.",
+    "log: Pre-flight checks passed: Secure context and VideoDecoder API are available.",
+    "info: [Selkies] video sink: MediaStreamTrackGenerator on the page — this browser exposes no VideoTrackGenerator to a worker.",
+    "info: [Selkies] video sink: MediaStreamTrackGenerator on the page.",
+    "log: [websockets] Connection opened!",
+    "log: [websockets] Sent initial settings (resolutions are physical) to server: {manual_resolution: false, initialClientWidth: 1280, initialClientHeight: 800, scaling_dpi: 96, keyboardLayout: us}",
+    "log: [websockets] Sent initial clipboard request (cr) to server (cache-only).",
+    "log: [websockets] Started client metrics every 500ms.",
+    "log: [websockets] Started sending backpressure ACKs every 50ms.",
+    "log: Received pipelineStatusUpdate message: {type: pipelineStatusUpdate, video: true, audio: true}",
+    "log: [websockets] Switched to websockets mode.",
+    "log: Legacy mode detected. Role from hash: controller, Slot: 1",
+    "log: Input Initialization: Applying server-provided slot 1. Gamepad will target index 0.",
+    "log: Initializing Input system...",
+    "log: Applying effective cursor setting. Multi-monitor: false, User Pref: true, Final: true",
+    "log: Input: Use browser cursors enabled.",
+    "log: initializeInput: Auto-resolution mode. Attaching 'resize' event listener for subsequent changes.",
+    "log: Canvas internal buffer reset to: 1280x800",
+    "log: Reset canvas CSS to 1280px x 800px, Pos 0,0, object-fit: fill. Buffer: 1280x800",
+    "log: Setting canvas rendering to 'pixelated' for 1:1 display.",
+    "log: initializeInput: Canvas style reset to reflect current auto-dimensions: 1280x800 (logical). Initial resolution was already sent by onopen.",
+    "log: Input system initialized.",
+    "log: Clearing all VNC stripe decoders.",
+    "log: All VNC stripe decoders and metadata cleared.",
+    "log: Input already initialized. Skipping.",
+    "log: Playback AudioContext initialized. Actual sampleRate: 48000 Initial state: suspended",
+    "log: Sanitizing and storing settings based on server payload.",
+    "log: Client settings were sanitized by server rules. Sending updates back to server: {webcam_enabled: true, command_enabled: true, ui_sidebar_show_webcam: true, enable_dual_mode: false, enable_basic_auth: false}",
+    "log: Applying settings: {webcam_enabled: true, command_enabled: true, ui_sidebar_show_webcam: true, enable_dual_mode: false, enable_basic_auth: false}",
+    "log: [websockets] Sent full settings update. Reason: handleSettingsMessage",
+    "log: Server settings payload confirms auto mode. Switching to auto resize handlers.",
+    "log: Switching to Auto Mode: Removing direct manual local scaling listener.",
+    "log: Switching to Auto Mode: Adding original (auto) debounced resize listener.",
+    "log: Triggering immediate auto-resize calculation for auto mode.",
+    "log: handleResizeUI: Auto-resize triggered (e.g., by window resize event).",
+    "log: Clearing all VNC stripe decoders.",
+    "log: All VNC stripe decoders and metadata cleared.",
+    "log: Sending resolution to server: 1280x800, DisplayID: primary, Manual Mode: false, Pixel Ratio Used: 1, useCssScaling: false",
+    "log: Reset canvas CSS to 1280px x 800px, Pos 0,0, object-fit: fill. Buffer: 1280x800",
+    "log: Setting canvas rendering to 'pixelated' for 1:1 display.",
+    "log: Dashboard received server settings: {audio_enabled: Object, microphone_enabled: Object, gamepad_enabled: Object, webcam_enabled: Object, video_on_start: Object}",
+    "log: Processing 1 pending chunks for stripe Y=0",
+    "log: Playback AudioWorkletProcessor initialized and connected through a GainNode for volume control.",
+    "log: No preferred output device set, using default.",
+    "log: [Main] Audio Decoder Worker created and init message sent.",
+    "log: [Main] Requesting Audio Decoder Worker to reinitialize its decoder.",
+    "log: [websockets] Received PIPELINE_RESETTING for display 'primary'.",
+    "log: Performing server-initiated video reset. Reason: PIPELINE_RESETTING from server for display 'primary'. Current lastReceivedVideoFrameId before reset: 0",
+    "log:   Reset lastReceivedVideoFrameId to -1.",
+    "log: Clearing all VNC stripe decoders.",
+    "log: Closed VNC stripe decoder for Y=0",
+    "log: All VNC stripe decoders and metadata cleared.",
+    "log: Display 'primary': Video reset complete.",
+    "log: Received pipelineStatusUpdate message: {type: pipelineStatusUpdate, audio: true}",
+    "log: Processing 1 pending chunks for stripe Y=0",
+    "log: Stream started (UI elements hidden).",
+    "log: [Main] Audio Decoder Worker confirmed its decoder is initialized.",
+    "log: [Main] Audio Decoder Worker confirmed its decoder is initialized.",
+    "log: Clipboard Web Worker initialized.",
+    "log: Screen Wake Lock is active."
+  ],
+  "log": [
+    "2026-10-20T12:27:17.468Z ticket: 200, address on the desktop host: http://localhost:7996/boxes/relay-proof/desktop/?ticket=<redacted>",
+    "2026-10-20T12:27:23.073Z the browser is on http://localhost:7996/boxes/relay-proof/desktop/",
+    "2026-10-20T12:27:35.169Z page facts: {\"href\":\"http://localhost:7996/boxes/relay-proof/desktop/\",\"documentCookie\":\"\",\"title\":\"Boxes relay proof\"}; cookies: [{\"name\":\"cc-box-desktop\",\"domain\":\"localhost\",\"path\":\"/boxes/relay-proof/desktop/\",\"httpOnly\":true,\"secure\":true,\"sameSite\":\"Strict\"}]",
+    "2026-10-20T12:28:04.024Z files: {\"big\":{\"name\":\"relay-upload-64mb.bin\",\"size\":67108864,\"status\":200,\"ms\":10007},\"small\":{\"name\":\"relay-upload-8mb.bin\",\"size\":8388608,\"status\":200,\"ms\":1215},\"list\":{\"status\":200,\"hasBoth\":true},\"download\":{\"status\":200,\"bytes\":8388608,\"firstMismatch\":-1,\"ms\":7513}}",
+    "2026-10-20T12:29:04.025Z measure: {\"label\":\"idle desktop\",\"seconds\":60,\"bytes\":63521,\"megabitsPerSecond\":0.008,\"gigabytesPerHour\":0.004}",
+    "2026-10-20T12:30:13.183Z measure: {\"label\":\"typing in a terminal\",\"seconds\":61.8,\"bytes\":843397,\"megabitsPerSecond\":0.109,\"gigabytesPerHour\":0.049}",
+    "2026-10-20T12:31:32.795Z measure: {\"label\":\"browsing a site (scrolling a Wikipedia article)\",\"seconds\":60.4,\"bytes\":27258891,\"megabitsPerSecond\":3.608,\"gigabytesPerHour\":1.624}",
+    "2026-10-20T12:32:12.870Z measure: {\"label\":\"worst case: a full-screen terminal flood\",\"seconds\":30,\"bytes\":29967602,\"megabitsPerSecond\":7.991,\"gigabytesPerHour\":3.596}",
+    "2026-10-20T12:32:26.592Z commands while flooding: [64.8,7.5,7.3,6.2,7.3,7.1,7.3,6.3,11.1,6.3]; quiet: [9.2,5.4,4.8,4.8,5,5.3,5.4,5.3,5.2,4.8]"
+  ]
+}

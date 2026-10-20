@@ -11,7 +11,9 @@ A browser reaches a box's desktop at `/boxes/{boxId}/desktop/` **on a separate d
 Director over the Director's own outbound tunnel, and from the Director to `127.0.0.1:<port>` - the one port the
 Director's own hosted-desktop list holds for that box id, and nothing else. HTTP (streamed both ways, 64-megabyte
 uploads) and the desktop's WebSocket (messages of 268 kilobytes and more, split into 48-kilobyte tunnel frames and put
-back together) both work, proven end to end through a local Gateway and a scratch Director with headless Chromium.
+back together) both work, proven end to end with headless Chromium through a scratch Director and a local **hosted**
+Gateway (the production launcher, hosted mode, PostgreSQL, a real account boundary), and before that through a
+self-host one.
 
 A busy desktop cannot starve the terminal streams and commands on the same Director connection: each desktop stream
 has its own one-megabyte credit window, so it never fills the connection's shared stream buffer. Each box is held to
@@ -111,7 +113,8 @@ with 1001 and "The Director hosting this box disconnected." A tunnel drop on the
 Director (the local run below): while the box flooded its screen at the 8-megabit ceiling, ten Gateway-to-Director
 commands on the same tunnel (`POST /directors/{id}/backfill-numbers`) took 189, 9.1, 7.9, 5.8, 6.1, 6.1, 7.8, 6.5, 10
 and 5.9 milliseconds (the first is one outlier; the median is 6.8), against 3.3 to 7.5 milliseconds (median 3.7) with
-the desktop quiet. And the in-process test over a real SignalR connection with the browser stalled outright - the
+the desktop quiet. The hosted run gave the same picture: 64.8, 7.5, 7.3, 6.2, 7.3, 7.1, 7.3, 6.3, 11.1 and 6.3
+milliseconds during the flood (median 7.3), against 4.8 to 9.2 quiet (median 5.25). And the in-process test over a real SignalR connection with the browser stalled outright - the
 worst case, which no time measurement can stand for - delivered every terminal frame and answered the command while
 the desktop sat saturated (numbers below).
 
@@ -129,7 +132,7 @@ a token bucket on the Director's reads of the box, not a setting the page or the
 of a box's sockets and requests, so more sockets buy no more rate. The demo desktop (`demo-desktop-soren`) is not
 reconfigured: the ceiling is the relay's.
 
-Measured in the local end-to-end run (`relay-capture.json`, "usage"), bytes toward the browser:
+Measured in the local self-host end-to-end run (`relay-capture.json`, "usage"), bytes toward the browser:
 
 | Use | Megabits a second | Gigabytes an hour |
 |---|---|---|
@@ -138,7 +141,9 @@ Measured in the local end-to-end run (`relay-capture.json`, "usage"), bytes towa
 | Browsing a site (scrolling a Wikipedia article in the box's Chromium), 60 seconds | 3.576 | **1.609** |
 | Worst case: a full-screen terminal flood, 30 seconds | 7.995 | **3.598** (the ceiling) |
 
-The 8-megabyte download through the relay came back at the ceiling as well (8,388,608 bytes in 7.6 seconds).
+The 8-megabyte download through the relay came back at the ceiling as well (8,388,608 bytes in 7.6 seconds). The hosted
+run measured the same within rounding (`hosted/relay-capture.json`): 0.004, 0.049, 1.624 and 3.596 gigabytes an hour
+(7.991 megabits a second at the flood), and the download in 7.5 seconds.
 
 **The encoder's own knobs, for the phase 2 box image.** Selkies takes server-side settings that a range locks
 (`/lsiopy/lib/python3.14/site-packages/selkies/settings.py` in the image): `framerate` (default "8-240", starting at
@@ -204,6 +209,11 @@ server in process, and fake clocks. No Docker, no real port, no sleep, no real c
 | The desktop host (the Delivery Lead's two refusals) | `MainHost_TheDesktopRoute_DoesNotExist`, `DesktopHost_EveryOtherRoute_IsRefused` (checks the plain refusal naming the Gateway's address), `RefusalText_NoGatewayAddress_StillSaysWhatThisAddressServes`, `DesktopHostRefusalLogTests.DesktopHost_ARefusedRoute_IsLoggedWithMethodPathAndUserAgent`, `DesktopHost_Healthz_StillAnswers_ForTheDeployWorkflows`, `BoxDesktopOriginTests` |
 | The ticket | `TicketExchange_SetsAStrictBoxOnlyCookieAndMovesOnWithoutTheTicket`, `TicketExchange_WipesTheSitesStorageButNotItsCookies`, `TicketExchange_ASecondUse_IsRefused`, `TicketExchange_AfterAMinute_IsRefused`, `TicketExchange_ATicketForAnotherBox_IsRefused`, `DesktopHost_ASessionPastEightHours_IsRefused` |
 | Bytes logged per box, each direction | `DesktopSocket_BytesAreCountedPerBoxInEachDirection` |
+| The hosted shape (review finding 1) | The rig's command send drops a command sent with no tenant scope and finds the Director only in the scope's own account, as a hosted Gateway does, so every page, request and socket test above fails if the desktop host does not enter the box session's account (checked: with the scope removed, 18 tests fail). `DesktopPage_OnAHostedGateway_SendsTheOpenInsideTheBoxSessionsAccount` names it. |
+| A close with the window exactly full (review finding 3) | `DesktopRelayPumpWindowEdgeTests.RunAsync_FarSideClosesWithTheWindowExactlyFull_TheEndpointGetsTheFarSidesCloseNotAProtocolFault`, `CostOf_ClosedAndCredit_CostNothing_DataAndHeadCostTheirBytesPlusOverhead` (checked: with the old cost, both fail) |
+
+**The count:** 119 tests in `Gateway.UnitTests/Boxes`, all passing, on this branch and on the merged tree the hosted run
+was built from.
 
 **The fairness test, with its numbers.** One REAL SignalR connection to the real `DirectorHub` with the Gateway's own hub
 options (MessagePack, the shared stream buffer of 4), carrying a terminal up-stream and a desktop relay stream. The box
@@ -220,6 +230,79 @@ command answered while the desktop was saturated: True
 Then the browser is released and the desktop resumes: it was slowed, not dropped. The test counts; it times nothing.
 
 ## The local end-to-end proof (`phase1-relay-leg/`)
+
+There are two runs. The **hosted** run (20 October 2026, `phase1-relay-leg/hosted/`) is the one that proves the
+production shape; it was made after review finding 1 showed that the self-host run could not have caught a defect only a
+hosted Gateway has. The **self-host** run (19 October 2026, the files directly in `phase1-relay-leg/`) came first and is
+kept as it was.
+
+### The hosted run (`phase1-relay-leg/hosted/`)
+
+**Set-up** (`hosted/rig/gateway.sh`, `hosted/rig/mint.py`; the signing key it made was deleted):
+
+- **The Gateway** was the hosted launcher, `CcDirector.Gateway.Host` - the production entry point, the one the image
+  runs, which carries the hosted-image mark and so enforces the hosted startup contract - built from the merged tree
+  below, with `CC_GATEWAY_HOSTED=1`, its own scratch root and port 7996, `CC_BOXES_DESKTOP_ORIGIN=http://localhost:7996`
+  and, as the contract requires, an https public address: `https://gateway.relay-proof.invalid` (a reserved name that
+  goes nowhere; it is what the desktop host's refusal names).
+- **Its database** was a throwaway PostgreSQL 16 in a container of its own (`boxes-relay-postgres`, on 127.0.0.1 only),
+  because the hosted Gateway does not run on the local SQLite file: its account tables are not created there and every
+  entitlement read fails (tried first; the log said `no such table`). The Gateway migrated the database itself. The one
+  table it does not create, `gateway.entitlements` (the payment side writes it), was created by hand in the shape
+  `EntitlementSchemaQualificationPostgresTests` uses, with one active hosted row for the test account. Docker served the
+  run, never a test.
+- **Sign-in** never reached production: a throwaway ES256 key made for this run signed account tokens for one made-up
+  person on the reserved `.invalid` domain; the Gateway was given its public key set and issuer, and every website call
+  (`DEVTHROTTLE_API_URL`, `DEVTHROTTLE_REFRESH_URL`) was pointed at a closed local port.
+- **Two keys**, both from the Director door, `POST /devices/enroll-hosted`, for that one account (the Gateway minted the
+  account's tenant on the first): the Director's own, and a second that played the Cockpit. A Cockpit's key on a hosted
+  Gateway comes through `/mobile/enroll` with a device key from devthrottle.com, which this run must not reach. The
+  ticket route reads only the account a key belongs to, so for the relay the second key is the Cockpit; what it does not
+  exercise is the Cockpit's own sign-in and the remote-access rule on browser keys. Then the Gateway was restarted with
+  that account in `DEVTHROTTLE_BOXES_TENANT_IDS`.
+- **The Director** was the slot-5 Linux build from the merged tree, with its own `CC_DIRECTOR_ROOT` and `HOME`
+  (`~/.local/bin` checked unchanged before and after), the Director key and the Gateway's address in its configuration,
+  and a hosted-desktop list holding `relay-proof` on port 3140: my own webtop container again (`boxes-relay-desktop`, the
+  same flags as before). `demo-desktop-soren` and `teams-test-director` were not touched.
+- **The build** was this branch's fixes carried onto the merged tree described under "The self-host run" (this branch
+  plus the list branch plus the wiring), so the run used the real list, push, `TryLocate`, Boxes switch and `BoxIdRule`.
+  The relay tests passed there too, 119 of 119.
+
+**What happened** (the same scripts as the self-host run, `drive-relay.cjs`, `refusals.sh`, `director-gone.cjs`):
+
+- `GET /boxes` with the account's key listed `relay-proof` on the Director, online. The ticket came back 200; the
+  browser crossed to the desktop host and landed on `http://localhost:7996/boxes/relay-proof/desktop/` with the cookie
+  (`httpOnly`, `secure`, `SameSite=Strict`, the box's path) and `document.cookie` empty. Chromium's own console said
+  `Clear-Site-Data header on '.../desktop/?ticket=<redacted>': Cleared data types: "storage".`
+- `hosted/relay-1-desktop.png`, `hosted/relay-2-after-click.png`, `hosted/relay-3-after-typing.png`: the desktop rendered,
+  took a click, and took typing - through the hosted Gateway.
+- All 19 requests the page made answered 200; the WebSocket carried 3,604 messages, 70.6 megabytes, the largest 272,024
+  bytes. A 64-megabyte upload went through in 10.0 seconds, the 8-megabyte download came back with every byte checked.
+- **The Gateway's log has no `GATEWAY BUG - command DROPPED` line at all**, against 13 ticket requests and 32 streams
+  opened at the Director: every desktop request and socket was relayed inside the box session's account.
+- **The refusals** (`hosted/refusals.txt`): the same 15 answers as the self-host run, now with the plain sentence on the
+  desktop host's 404s - "This address serves only box desktops. The DevThrottle Gateway is at
+  https://gateway.relay-proof.invalid; use that address instead." - and `Clear-Site-Data: "storage"` on the exchange.
+  The Gateway logged each refusal as designed: `desktop host REFUSED GET /sessions user-agent="curl/8.5.0"` and, for a
+  path carrying a box id, `desktop host REFUSED POST /boxes/ (box=relay-proof) user-agent="curl/8.5.0"`.
+- **The Director going away** (`hosted/director-gone.json`, `hosted/director-gone-*.png`): stopped on its named signal
+  with the desktop open; 0.3 seconds later the page's WebSocket closed with **1001, "The Director hosting this box
+  disconnected."**
+- **The logs** (`hosted/gateway-log.txt`, `hosted/director-log.txt`): every relay and Boxes line from both processes. No
+  key, ticket or database password is in any file of the folder (checked).
+
+**One thing seen on the way, not this leg's:** my first stop request was written with a trailing newline. The Director
+took the file, could not read the time in it, and dropped it without a log line, so the Director did not stop and
+nothing said why. Written again without the newline, it worked. `LifecycleSignal`'s Unix listener parses the stamp with
+`DateTimeStyles.RoundtripKind` alone (trailing white space refused) and returns quietly on a parse failure. Reported to
+the Tech Lead, not changed here.
+
+**Clean-up.** The Director stopped on its named signal (no force kill); the hosted Gateway was stopped with SIGTERM;
+`boxes-relay-desktop` and `boxes-relay-postgres` were removed with their volumes; the scratch roots, the throwaway
+signing key and the two log files the hosted launcher wrote under `/tmp/devthrottle/logs/director/` were deleted; the
+owner's containers and `~/.local/bin` were unchanged.
+
+### The self-host run (19 October 2026)
 
 **Set-up.** A local test Gateway built from this work (self-host, its own port 7996, its own scratch root), with
 `CC_BOXES_DESKTOP_ORIGIN=http://localhost:7996` (the desktop host) and `DEVTHROTTLE_BOXES_TENANT_IDS=local`; the main host
@@ -260,7 +343,8 @@ form redirects to `/boxes/relay-proof/desktop/?x=1` on the same host.
 
 This run came before the Tech Lead's two additions of 20 October 2026 (the refusal's plain sentence and log line, and
 `Clear-Site-Data: "storage"` on the exchange), so `refusals.txt` shows the desktop host's 404s with an empty body and the
-exchange without that header. Those two are proven by the unit tests named under "Tests", not by this run.
+exchange without that header; the hosted run above shows both. A self-host Gateway always works in the one local
+account, so this run could not have shown review finding 1; that is what the hosted run is for.
 
 **The Director going away mid-use** (`director-gone.cjs`, `director-gone.json`, `director-gone-*.png`): with the desktop
 open, the test Director was stopped with its named signal. Half a second later a WebSocket in the page closed with
@@ -288,8 +372,13 @@ stand-ins every desktop request is refused, so merging this branch alone changes
 `phase1-relay-leg/wiring-after-list-merges.patch` is the wiring, tested: it deletes all four stand-ins and uses
 `HostedDesktopRegistry.Resolve` on the Director, `PushedHostedDesktopStore.TryLocate` and `BoxesSwitch.IsOn` on the
 Gateway, `BoxIdRule` on both, and maps the ticket route inside `BoxesGate.Group`. On the merged tree, the relay's tests
-and the list's tests passed together, 159 of 159, and the end-to-end run above used it. When the list merges, this
-branch is rebased onto main and the patch applied.
+and the list's tests passed together, 159 of 159, and both end-to-end runs above used it.
+
+**The patch is temporary** (review finding 2). It applies only after the two conflicts a merge of the branches raises
+are resolved one particular way: in `GatewayStreamClient` and in `DirectorHub` both branches add a constructor parameter
+at the same position, and the patch expects both kept, with this branch's `GatewayStreamClient` parameter renamed
+`hostedDesktopLookup`. When pull request #4271 merges, this branch is rebased onto main, the conflicts are resolved for
+real in the rebase, the wiring is made as ordinary commits, and the patch file is deleted.
 
 One point where the list's contract and this leg differ, raised with the Tech Lead: the contract says the desktop routes
 must be mapped inside `BoxesGate.Group`. They cannot be: that gate reads the account from the Gateway's sign-in, which by
@@ -324,3 +413,53 @@ design never reaches the desktop host, so it would refuse every desktop request.
   own refusal is proven by `DirectorDesktopRelayHandlerTests` asking the Director directly, and by
   `DesktopPage_BoxNotOnTheDirectorsList_IsRefusedAtTheDirector` with a fooled Gateway.
 - **More than one Gateway instance.** Tickets and desktop sessions live in the one Gateway's memory.
+- **The Cockpit's own sign-in on a hosted Gateway.** The hosted run asked for its tickets with a key from the Director
+  door (see the hosted run's set-up), so the Cockpit's enrollment and the remote-access rule on browser keys were not
+  exercised by it; the ticket route itself is tested with browser keys of two accounts in `DesktopRelayLegTests`.
+
+## Developer's answers to the reviews
+
+Both review files are in `reviews/`, unchanged: `phase1-relay-review.md` (Fable) and `phase1-relay-review-codex.md`
+(Codex).
+
+**Codex: no findings.** Nothing to answer.
+
+**Fable, finding 1 - on the hosted Gateway every desktop request and WebSocket answers 503. ACCEPTED, fixed.** The
+reviewer is right, and the cause is exactly as written: the desktop host runs before the sign-in and the tenant-scope
+middleware, and `GatewayHost.SendCommandAsync` drops a command sent with no scope. `ServeDesktopHostAsync` now enters the
+box session's account (`_tenantBoundary.EnterScope(session.Tenant)`, the `RingDirectorAsync` pattern) as soon as the
+cookie is checked, so the Boxes switch, the host lookup and the whole relay run inside it. The rig's command send now
+drops an unscoped command and finds the Director only in the scope's own account, as a hosted Gateway does, so the
+tests pin the hosted shape: with the scope line removed, 18 of them fail (the reviewer's experiment, kept). And the
+end-to-end proof was re-made on a hosted Gateway (above): no dropped command in its log, the desktop live. Commit
+`c78acc3bb`.
+
+**Fable, finding 2 - the wiring patch presupposes an unrecorded conflict resolution. ACCEPTED, resolved by the plan the
+Tech Lead set.** The resolution the patch expects is now written down under "The dependency" (both constructor
+parameters kept, this branch's renamed `hostedDesktopLookup`), and the hosted run's tree was built that way. The patch
+goes away: when #4271 merges, this branch is rebased onto main, the conflicts are resolved in the rebase, the wiring
+becomes ordinary commits, and the patch file is deleted.
+
+**Fable, finding 3 - a Closed frame is not charged to the window. ACCEPTED, fixed the second way the review offers.**
+A Closed frame now costs nothing, like Credit, on both sides (`DesktopRelayLimits.CostOf`). It is the last frame of a
+stream and carries no data to hold, and the sender already sends it without waiting for window, so not counting it at
+the receiver makes the two sides agree. Charging it instead would have made a close wait for credit from a far side
+that may be stalled, which is the very moment a close must get through. A test fills the window exactly (21 full frames
+and one of 14,976 bytes, 1,048,576 bytes in all) with the browser stalled, then closes with 4001: the browser gets
+4001 and the far side's reason, not 1011. With the old cost it fails. Commit `e938d29e5`.
+
+**Fable's observations.**
+- *No browser header reaches the box's WebSocket upgrade, though a comment says a Selkies token cookie "still reaches
+  the box".* True; the comment now says it reaches the box on an HTTP request only, and that the upgrade carries only
+  the address and the subprotocols, which Selkies does not need (the spike). The same comment still said the desktop is
+  served on the Gateway's own origin; corrected too.
+- *The traffic meter does not attribute desktop bytes to the account.* True, and accepted for phase 1: the relay's own
+  per-stream and per-box usage lines are the record of desktop spend, as the spend line asked.
+- *The ticket route applies the Boxes switch itself rather than through `BoxesGate.Group` until the wiring.* As the
+  reviewer says, the wiring moves it inside the group; the desktop host stays outside it (accepted by the Tech Lead).
+
+**The list review's observation 1 - a refused desktop request must log the cleaned box id, never the raw path.
+ACCEPTED, done.** A box id that fails the rule is logged through the cleaning (`DesktopRelayBoxIds.ForLog` now, the
+same body as `BoxIdRule.ForLog`, which replaces it at the rebase), and the desktop host's refusal of any other route
+writes, for a path under `/boxes/`, only the cleaned box id (`POST /boxes/ (box=relay-proof)`), never the path as
+received. Every other box id the relay logs has already passed the rule.
