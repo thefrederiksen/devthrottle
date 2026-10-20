@@ -3,21 +3,23 @@
 # measure-rule-hook.sh - How much time does the Session Rules hook add to every shell command?
 #
 # Claude Code runs cc-rule-hook before EVERY shell command of every Director session (Session Rules part
-# 2, phase 1, ruling P9), so its cost is paid per command. This script runs the EXACT command the
-# Director registers - the quoted absolute path, through /bin/sh -c, which is how Claude Code 2.1.302 runs
-# a hook command string on Linux (checked 2026-10-18: a hook recording $0 and its own command line showed
-# "/bin/sh -c <command>" with Claude Code as its parent) - with a real Claude Code PreToolUse event on
-# standard input, many times, and prints the median and the 95th percentile for:
+# 2, phase 1, ruling P9), so its cost is paid per command. The Director registers the hook in EXEC form
+# (ClaudeHookInstaller: the absolute path as the command, an empty args list), so Claude Code starts the
+# program itself with no shell in front of it. This script does the same - it starts the evaluator
+# directly, with no shell - with a real Claude Code PreToolUse event on standard input, many times, and
+# prints the median and the 95th percentile for:
 #
-#   baseline        a plain program through the shell (/bin/sh -c /bin/true) - what any hook costs before
-#                   it does anything, including starting one program, as every hook row does
+#   baseline        a plain program started directly (/bin/true) - what any exec-form hook costs before it
+#                   does anything, starting one program, as every hook row does
+#   shell only      /bin/sh -c /bin/true, for comparison: the shell start the earlier SHELL-form
+#                   registration paid on top of the program. Not paid since the change to exec form.
 #   no-session      the hook outside a Director session (no CC_SESSION_RULES_FILE): it does nothing
 #   no-rules-file   a Director session whose rules file is not there yet
 #   0 rules         a rules file with an empty rules list
 #   1 rule          one rule, which matches, so a decision file is written every run
 #   50 rules        fifty rules; the last matches, so all fifty are checked and a decision is written
 #
-# The hook's ADDED time is its row minus the baseline row. Everything is written under a scratch folder
+# The hook's ADDED time is its row minus the baseline row (not the shell-only row). Everything is written under a scratch folder
 # that is deleted at the end; nothing touches a real session. Run from inside a Director session, the
 # session's own two variables are removed for every row, and the script fails if that session's evaluation
 # log or decision drop changed.
@@ -77,9 +79,6 @@ SCRATCH="$(mktemp -d)"
 trap 'rm -rf "$SCRATCH"' EXIT
 mkdir -p "$SCRATCH/session-rules" "$SCRATCH/decisions"
 
-# The command string the Director registers (ClaudeHookInstaller): the absolute path, quoted.
-HOOK_COMMAND="\"$HOOK\""
-
 # One rule in the W2 shape. $1 id, $2 the literal match text.
 rule_json() {
     printf '{"id":"%s","rank":3,"appliesTo":"repo","event":"before_command","tool":"shell","match":["%s"],"result":"deny","reason":"measurement rule","state":"dry_run"}' "$1" "$2"
@@ -121,11 +120,11 @@ measure() {
 
 # Outside a Director session: BOTH session variables removed, whatever the operator's shell carries.
 run_hook() {
-    env -u CC_SESSION_RULES_FILE -u CC_SESSION_DECISION_DIR /bin/sh -c "$HOOK_COMMAND"
+    env -u CC_SESSION_RULES_FILE -u CC_SESSION_DECISION_DIR "$HOOK"
 }
 
 run_hook_with() {
-    CC_SESSION_RULES_FILE="$1" CC_SESSION_DECISION_DIR="$SCRATCH/decisions" /bin/sh -c "$HOOK_COMMAND"
+    CC_SESSION_RULES_FILE="$1" CC_SESSION_DECISION_DIR="$SCRATCH/decisions" "$HOOK"
 }
 
 # The operator's own session, if this runs inside one: what it holds now, to prove afterwards that the
@@ -146,7 +145,8 @@ echo "runs per row: $RUNS, on $(hostname), $(uname -sr), $(nproc) processors"
 echo "load average at start: $(cut -d' ' -f1-3 /proc/loadavg)"
 echo ""
 
-measure "baseline" /bin/sh -c /bin/true
+measure "baseline" /bin/true
+measure "shell only" /bin/sh -c /bin/true
 measure "no-session" run_hook
 measure "no-rules-file" run_hook_with "$SCRATCH/session-rules/absent.json"
 write_rules 0 "$SCRATCH/session-rules/zero.json"

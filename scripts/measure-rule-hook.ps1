@@ -5,27 +5,29 @@
 
 .DESCRIPTION
     Claude Code runs cc-rule-hook before EVERY shell command of every Director session (Session Rules
-    part 2, phase 1, ruling P9), so its cost is paid per command. This script runs the EXACT command the
-    Director registers - the quoted absolute path, handed to the system shell as one command string
-    (Git Bash on Windows, /bin/sh elsewhere) - with a real Claude Code PreToolUse event on standard input,
-    many times, and prints the median and the 95th percentile for:
+    part 2, phase 1, ruling P9), so its cost is paid per command. The Director registers the hook in EXEC
+    form (ClaudeHookInstaller: the absolute path as the command, an empty args list), so Claude Code starts
+    the program itself with no shell in front of it, on every platform. This script does the same - it
+    starts the evaluator directly, with no shell - with a real Claude Code PreToolUse event on standard
+    input, many times, and prints the median and the 95th percentile for:
 
-      baseline        a plain shell command - what any hook costs before it does anything
+      baseline        a plain program started directly - what any exec-form hook costs before it does anything
+      shell only      the same program through Git Bash -c (/bin/sh -c elsewhere), for comparison: the shell
+                      start the earlier SHELL-form registration paid. Not paid since the change to exec form.
       no-session      the hook outside a Director session (no CC_SESSION_RULES_FILE): it does nothing
       no-rules-file   a Director session whose rules file is not there yet
       0 rules         a rules file with an empty rules list
       1 rule          one rule, which matches, so a decision file is written every run
       50 rules        fifty rules; the last matches, so all fifty are checked and a decision is written
 
-    The hook's ADDED time is its row minus the baseline row. Every run is started the same way, so the
+    The hook's ADDED time is its row minus the baseline row (not the shell-only row). Every run is started the same way, so the
     cost of starting a process from PowerShell is in every row, the baseline included, and cancels out of
     the difference. Everything is written under a scratch folder deleted at the end.
 
-    On Windows the command string goes through Git Bash, because that is what Claude Code does: checked
-    on Claude Code 2.1.302 on SOREN_NORTH with a hook that recorded its own shell ($0 was /usr/bin/bash,
-    BASH_VERSION 5.2.37, %COMSPEC% left unexpanded), with and without SHELL set in the environment.
-    Git Bash is found as Claude Code finds it: CLAUDE_CODE_GIT_BASH_PATH when set, otherwise the
-    bash.exe of the Git for Windows that provides git on the PATH. Neither present is an error.
+    On Windows Git for Windows is still needed, but only for the two reference rows: the baseline program is
+    its true.exe, and the shell-only row is its bash.exe. Git Bash is found as Claude Code finds it:
+    CLAUDE_CODE_GIT_BASH_PATH when set, otherwise the bash.exe of the Git for Windows that provides git on
+    the PATH. Neither present is an error. The hook rows never go through it.
 
 .PARAMETER Hook
     The cc-rule-hook executable. Defaults to the Release publish output, publishing it first if absent.
@@ -76,10 +78,7 @@ $rulesDir = Join-Path $scratch "session-rules"
 $decisionDir = Join-Path $scratch "decisions"
 New-Item -ItemType Directory -Path $rulesDir, $decisionDir | Out-Null
 
-# The command string the Director registers (ClaudeHookInstaller): the absolute path, quoted.
-$hookCommand = '"' + $Hook + '"'
-
-# The shell Claude Code hands a hook command string to on Windows: Git Bash, never cmd.exe.
+# The reference rows' programs. The hook rows start $Hook itself, as the exec-form registration does.
 $gitBash = $null
 if ($IsWindows) {
     if ($env:CLAUDE_CODE_GIT_BASH_PATH) {
@@ -95,6 +94,13 @@ if ($IsWindows) {
         $gitBash = Join-Path $gitRoot "bin\bash.exe"
     }
     if (-not (Test-Path -LiteralPath $gitBash)) { throw "No Git Bash at $gitBash. Install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH to its bash.exe." }
+    # bash.exe is <Git>\bin\bash.exe and true.exe is <Git>\usr\bin\true.exe.
+    $trueProgram = Join-Path (Split-Path -Parent (Split-Path -Parent $gitBash)) "usr\bin\true.exe"
+    if (-not (Test-Path -LiteralPath $trueProgram)) { throw "No true.exe at $trueProgram, beside the Git Bash at $gitBash." }
+    $shellProgram = $gitBash
+} else {
+    $trueProgram = "/bin/true"
+    $shellProgram = "/bin/sh"
 }
 
 function Write-Rules([int]$count, [string]$path) {
@@ -110,16 +116,11 @@ function Write-Rules([int]$count, [string]$path) {
     [System.IO.File]::WriteAllText($path, ($file | ConvertTo-Json -Depth 5))
 }
 
-# One run of a command string through the system shell, the event on standard input. Returns elapsed ticks.
-function Invoke-Once([string]$commandString, [hashtable]$environment) {
+# One run of a program started directly, no shell, the event on standard input. Returns elapsed milliseconds.
+function Invoke-Once([string]$program, [string[]]$arguments, [hashtable]$environment) {
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    if ($IsWindows) {
-        $psi.FileName = $gitBash
-        $psi.ArgumentList.Add("-c"); $psi.ArgumentList.Add($commandString)
-    } else {
-        $psi.FileName = "/bin/sh"
-        $psi.ArgumentList.Add("-c"); $psi.ArgumentList.Add($commandString)
-    }
+    $psi.FileName = $program
+    foreach ($argument in $arguments) { $psi.ArgumentList.Add($argument) }
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
@@ -137,15 +138,15 @@ function Invoke-Once([string]$commandString, [hashtable]$environment) {
     $stdout = $process.StandardOutput.ReadToEnd()
     $process.WaitForExit()
     $watch.Stop()
-    if ($process.ExitCode -ne 0) { throw "exit code $($process.ExitCode) from: $commandString" }
+    if ($process.ExitCode -ne 0) { throw "exit code $($process.ExitCode) from: $program $arguments" }
     if ($stdout.Length -gt 0) { throw "the hook printed to standard output, which it must never do: $stdout" }
     return $watch.Elapsed.TotalMilliseconds
 }
 
-function Measure-Row([string]$label, [string]$commandString, [hashtable]$environment) {
-    Invoke-Once $commandString $environment | Out-Null
-    Invoke-Once $commandString $environment | Out-Null
-    $samples = for ($i = 0; $i -lt $Runs; $i++) { Invoke-Once $commandString $environment }
+function Measure-Row([string]$label, [string]$program, [string[]]$arguments, [hashtable]$environment) {
+    Invoke-Once $program $arguments $environment | Out-Null
+    Invoke-Once $program $arguments $environment | Out-Null
+    $samples = for ($i = 0; $i -lt $Runs; $i++) { Invoke-Once $program $arguments $environment }
     $sorted = $samples | Sort-Object
     $median = $sorted[[math]::Ceiling($Runs / 2) - 1]
     $p95 = $sorted[[math]::Ceiling($Runs * 0.95) - 1]
@@ -157,21 +158,21 @@ function Session([string]$rulesFile) { @{ CC_SESSION_RULES_FILE = $rulesFile; CC
 try {
     Write-Host "cc-rule-hook: $Hook ($((Get-Item -LiteralPath $Hook).Length) bytes)"
     Write-Host "event: $EventFile"
-    if ($IsWindows) { Write-Host "shell: $gitBash -c" }
+    Write-Host "baseline program: $trueProgram; shell-only row: $shellProgram -c"
     Write-Host "runs per row: $Runs, on $([Environment]::MachineName), $([System.Runtime.InteropServices.RuntimeInformation]::OSDescription), $([Environment]::ProcessorCount) processors"
     Write-Host ""
 
-    # The baseline starts a real program, as every hook row does, so the difference is the hook's own work.
-    $baseline = if ($IsWindows) { "/usr/bin/true" } else { "true" }
-    Measure-Row "baseline" $baseline @{}
-    Measure-Row "no-session" $hookCommand @{}
-    Measure-Row "no-rules-file" $hookCommand (Session (Join-Path $rulesDir "absent.json"))
+    # The baseline starts a real program directly, as every hook row does, so the difference is the hook's own work.
+    Measure-Row "baseline" $trueProgram @() @{}
+    Measure-Row "shell only" $shellProgram @("-c", "true") @{}
+    Measure-Row "no-session" $Hook @() @{}
+    Measure-Row "no-rules-file" $Hook @() (Session (Join-Path $rulesDir "absent.json"))
     Write-Rules 0 (Join-Path $rulesDir "zero.json")
-    Measure-Row "0 rules" $hookCommand (Session (Join-Path $rulesDir "zero.json"))
+    Measure-Row "0 rules" $Hook @() (Session (Join-Path $rulesDir "zero.json"))
     Write-Rules 1 (Join-Path $rulesDir "one.json")
-    Measure-Row "1 rule" $hookCommand (Session (Join-Path $rulesDir "one.json"))
+    Measure-Row "1 rule" $Hook @() (Session (Join-Path $rulesDir "one.json"))
     Write-Rules 50 (Join-Path $rulesDir "fifty.json")
-    Measure-Row "50 rules" $hookCommand (Session (Join-Path $rulesDir "fifty.json"))
+    Measure-Row "50 rules" $Hook @() (Session (Join-Path $rulesDir "fifty.json"))
 
     # A presence check, so a row cannot have measured a hook that silently did nothing.
     $decisions = @(Get-ChildItem -LiteralPath $decisionDir -Filter *.json).Count
