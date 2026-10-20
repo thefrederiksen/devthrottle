@@ -1,0 +1,196 @@
+name: Set the Factory Boxes settings
+
+# THE TWO SETTINGS FACTORY BOXES READS ON PRODUCTION (the Factory Boxes mission, issue #4258).
+#
+#   CC_BOXES_DESKTOP_ORIGIN       the separate host a box's desktop is served on (BoxDesktopOrigin). Unset, no
+#                                 desktop is served on any host.
+#   DEVTHROTTLE_BOXES_TENANT_IDS  the accounts Boxes is shown to (BoxesSwitch). Unset, Boxes is off for everyone.
+#
+# Run it AFTER a deploy that carries the Boxes code. It writes exactly those two app settings and nothing else.
+# Writing an app setting RESTARTS the site, so it costs the same outage a deploy does - about a minute. Do not run
+# it while a deploy is running; the serialisation group below enforces that.
+#
+# THE TENANT IDS ARE NEVER PRINTED. This repository is public and so are its run logs, and GitHub prints a step's
+# script with every ${{ }} expression already filled in, and prints a step's env block. So the tenant ids are never
+# written as an expression anywhere in this file: the first step reads them from the event file on the runner,
+# masks them, and every later step reads them from a file. Only how many were set is ever printed.
+#
+# OIDC login only, no stored secret, same service principal as the deploy workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      desktop_origin:
+        description: >-
+          The host box desktops are served on, as an https origin with no path, for example
+          https://devthrottle-gw.azurewebsites.net. Never https://gateway.devthrottle.com. Type the word none to
+          delete the setting, which stops box desktops being served on any host.
+        required: true
+        type: string
+      tenant_ids:
+        description: >-
+          The account (tenant) ids Boxes is shown to, comma separated. Type the word none to delete the setting,
+          which switches Boxes off for everyone - that is how to roll the switch back. Warning - this repository
+          is public; see docs/deploy/hosted-gateway-ci.md before typing an id here.
+        required: true
+        type: string
+
+# Shares the ONE group with the deploy and the rollback: this restarts the site, and two things
+# restarting it at once is two containers on the shared Azure Files mount.
+concurrency:
+  group: hosted-gateway-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_RG: rg-devthrottle-hosted-gateway
+  APP: devthrottle-gw
+  GATEWAY_URL: https://devthrottle-gw.azurewebsites.net
+
+jobs:
+  set-boxes:
+    name: Set the Boxes settings on production
+    runs-on: ubuntu-latest
+    environment: hosted-gateway-production
+
+    steps:
+      # Before anything is written, and before the Azure login: a value the Gateway would refuse, or the
+      # Gateway's own host as the desktop host, fails the run here with production untouched.
+      - name: Check both values
+        id: check
+        run: |
+          # The tenant ids come from the event file, never from an expression, and are masked before
+          # anything else in this step can print.
+          RAW_IDS=$(jq -r '.inputs.tenant_ids // ""' "$GITHUB_EVENT_PATH")
+          RAW_IDS=$(printf '%s' "$RAW_IDS" | tr -d '\r\n')
+          ENTRIES=""
+          if [ -n "$RAW_IDS" ] && [ "$RAW_IDS" != "none" ]; then
+            echo "::add-mask::$RAW_IDS"
+            ENTRIES=$(printf '%s' "$RAW_IDS" | sed -e 's/[,;]/\n/g' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' || true)
+            while IFS= read -r entry; do
+              if [ -n "$entry" ]; then echo "::add-mask::$entry"; fi
+            done <<< "$ENTRIES"
+          fi
+
+          FAILED=0
+
+          # desktop_origin: mirrors BoxDesktopOrigin.Parse (a scheme and a host, no path, query or fragment),
+          # but https only, because production is served over https.
+          RAW_ORIGIN=$(jq -r '.inputs.desktop_origin // ""' "$GITHUB_EVENT_PATH" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          if [ "$RAW_ORIGIN" = "none" ]; then
+            echo "origin_action=delete" >> "$GITHUB_OUTPUT"
+            echo "desktop_origin: none - CC_BOXES_DESKTOP_ORIGIN will be deleted."
+          elif printf '%s' "$RAW_ORIGIN" | grep -Eq '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?/?$'; then
+            ORIGIN=$(printf '%s' "$RAW_ORIGIN" | sed -e 's#/$##')
+            HOST=$(printf '%s' "$ORIGIN" | sed -e 's#^https://##' -e 's#:[0-9]*$##' | tr '[:upper:]' '[:lower:]')
+            if [ "$HOST" = "gateway.devthrottle.com" ]; then
+              echo "ERROR: desktop_origin must NOT be the Gateway's own host (gateway.devthrottle.com). A box's page is"
+              echo "       the box's own code; on the Gateway's site it could read every signed-in account's device key."
+              FAILED=1
+            else
+              PORT_PART=$(printf '%s' "$ORIGIN" | sed -n -e 's#^https://[^:]*\(:[0-9]*\)$#\1#p')
+              ORIGIN="https://${HOST}${PORT_PART}"
+              echo "origin_action=set" >> "$GITHUB_OUTPUT"
+              echo "origin_value=$ORIGIN" >> "$GITHUB_OUTPUT"
+              echo "desktop_origin: CC_BOXES_DESKTOP_ORIGIN will be set to $ORIGIN"
+            fi
+          else
+            echo "ERROR: desktop_origin must be an https origin - https:// and a host, with no path, query or fragment -"
+            echo "       such as https://devthrottle-gw.azurewebsites.net, or the word none. The value is not printed,"
+            echo "       in case a tenant id was typed into the wrong box."
+            FAILED=1
+          fi
+
+          # tenant_ids: BoxesSwitch splits on comma or semicolon, trims, ignores blanks, and compares each entry
+          # exactly against the ids the Gateway mints (Guid.NewGuid().ToString(): lowercase, hyphenated). An
+          # uppercase or malformed id would never match an account, so it is refused here rather than written.
+          # A refused entry is named by its position only, never by its value.
+          if [ "$RAW_IDS" = "none" ]; then
+            echo "ids_action=delete" >> "$GITHUB_OUTPUT"
+            echo "tenant_ids: none - DEVTHROTTLE_BOXES_TENANT_IDS will be deleted, so Boxes is off for everyone."
+          else
+            COUNT=0
+            while IFS= read -r entry; do
+              if [ -z "$entry" ]; then continue; fi
+              COUNT=$(( COUNT + 1 ))
+              if ! printf '%s' "$entry" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+                echo "ERROR: tenant_ids entry number $COUNT is not a tenant id (a lowercase id such as"
+                echo "       00000000-0000-0000-0000-000000000000). The value is not printed."
+                FAILED=1
+              fi
+            done <<< "$ENTRIES"
+            if [ "$COUNT" -eq 0 ]; then
+              echo "ERROR: tenant_ids is empty. Give at least one tenant id, or the word none to switch Boxes off."
+              FAILED=1
+            fi
+            if [ "$FAILED" -eq 0 ]; then
+              printf '%s' "$ENTRIES" | paste -sd ',' - > "$RUNNER_TEMP/boxes-tenant-ids"
+              echo "ids_action=set" >> "$GITHUB_OUTPUT"
+              echo "ids_count=$COUNT" >> "$GITHUB_OUTPUT"
+              echo "tenant_ids: DEVTHROTTLE_BOXES_TENANT_IDS will be set ($COUNT account(s))."
+            fi
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "Nothing was written to production."
+            exit 1
+          fi
+
+      - name: Azure login (OIDC, no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_GW_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_GW_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_GW_SUBSCRIPTION_ID }}
+
+      - name: Set CC_BOXES_DESKTOP_ORIGIN and DEVTHROTTLE_BOXES_TENANT_IDS
+        env:
+          ORIGIN_ACTION: ${{ steps.check.outputs.origin_action }}
+          ORIGIN_VALUE: ${{ steps.check.outputs.origin_value }}
+          IDS_ACTION: ${{ steps.check.outputs.ids_action }}
+          IDS_COUNT: ${{ steps.check.outputs.ids_count }}
+        run: |
+          SETTINGS=()
+          DELETES=()
+          if [ "$ORIGIN_ACTION" = "set" ]; then SETTINGS+=("CC_BOXES_DESKTOP_ORIGIN=$ORIGIN_VALUE"); else DELETES+=("CC_BOXES_DESKTOP_ORIGIN"); fi
+          if [ "$IDS_ACTION" = "set" ]; then
+            SETTINGS+=("DEVTHROTTLE_BOXES_TENANT_IDS=$(cat "$RUNNER_TEMP/boxes-tenant-ids")")
+          else
+            DELETES+=("DEVTHROTTLE_BOXES_TENANT_IDS")
+          fi
+          if [ "${#SETTINGS[@]}" -gt 0 ]; then
+            az webapp config appsettings set -g "$AZURE_RG" -n "$APP" --settings "${SETTINGS[@]}" -o none
+          fi
+          if [ "${#DELETES[@]}" -gt 0 ]; then
+            az webapp config appsettings delete -g "$AZURE_RG" -n "$APP" --setting-names "${DELETES[@]}" -o none
+          fi
+          rm -f "$RUNNER_TEMP/boxes-tenant-ids"
+          # Never echo the tenant ids - this repository is public. Only how many.
+          if [ "$ORIGIN_ACTION" = "set" ]; then echo "CC_BOXES_DESKTOP_ORIGIN set to $ORIGIN_VALUE."; else echo "CC_BOXES_DESKTOP_ORIGIN deleted."; fi
+          if [ "$IDS_ACTION" = "set" ]; then echo "DEVTHROTTLE_BOXES_TENANT_IDS set ($IDS_COUNT account(s))."; else echo "DEVTHROTTLE_BOXES_TENANT_IDS deleted: Boxes is off for everyone."; fi
+
+      # The setting change restarts the site. Wait for it to come back rather than leaving someone to
+      # discover later that a settings change took production down.
+      - name: Wait for production to come back
+        run: |
+          deadline=$(( $(date +%s) + 600 ))
+          streak=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            code=$(curl -s -m 10 -o /dev/null -w "%{http_code}" "${GATEWAY_URL}/healthz" || true)
+            if [ "$code" = "200" ]; then
+              streak=$(( streak + 1 )); echo "production 200 (streak $streak)"
+              [ "$streak" -ge 3 ] && break
+            else
+              streak=0; echo "production HTTP $code (restarting)"
+            fi
+            sleep 3
+          done
+          if [ "$streak" -lt 3 ]; then
+            echo "ERROR: production did not return a sustained 200 within 600s after the setting change."
+            echo "       The container's own startup output is in the platform container log for $APP."
+            exit 1
+          fi
+          echo "Production is healthy again."

@@ -96,6 +96,70 @@ recipe is gone.) The values live in cc-secrets (entries `admin-service-token` an
 The website side needs the matching pair in Vercel: `ADMIN_SERVICE_TOKEN` (the same value) and
 `GATEWAY_ADMIN_URL` (this Gateway's base URL).
 
+## Workflows that set app settings
+
+Two small workflows each write named app settings on production and nothing else. Both run by hand
+only (`workflow_dispatch`), both log in with the same OIDC service principal, and both share the
+`hosted-gateway-production` serialisation group with the deploy and the rollback, so none of them can
+restart the site while another is restarting it. Writing an app setting RESTARTS the site, so each
+run costs the same outage a deploy does - about a minute - and each run waits for `/healthz` to
+answer `200` three times in a row before it finishes.
+
+- `set-gateway-staff-emails.yml` - `DEVTHROTTLE_STAFF_EMAILS`, the accounts allowed to open the
+  Wingman's debug view.
+- `set-gateway-boxes-settings.yml` - the two Factory Boxes settings (issue #4258), below.
+
+### The Factory Boxes settings
+
+| Input | Setting | What it does | `none` |
+|---|---|---|---|
+| `desktop_origin` | `CC_BOXES_DESKTOP_ORIGIN` | The separate host box desktops are served on. Production: `https://devthrottle-gw.azurewebsites.net` | Deletes it: no box desktop is served on any host |
+| `tenant_ids` | `DEVTHROTTLE_BOXES_TENANT_IDS` | The accounts Boxes is shown to, comma separated | Deletes it: Boxes is off for everyone |
+
+**When to run it:** after a deploy that carries the Boxes code. Setting it before that deploy does no
+harm (an older Gateway ignores both settings), but it costs a restart for nothing.
+
+**How to switch Boxes off:** run it with `tenant_ids` set to `none`. That is the rollback of the
+switch, and it needs no deploy. Both inputs are required, so type the current desktop origin again
+(or `none` to delete that too).
+
+**It refuses before it writes anything.** The first step checks both values and fails the run, with
+production untouched, when:
+
+- `desktop_origin` is not an `https` origin with no path, query or fragment (the shape
+  `BoxDesktopOrigin.Parse` accepts, but `https` only), or its host is `gateway.devthrottle.com` in
+  any letter case, with or without a trailing slash or a port. A box's page is the box's own code;
+  served on the Gateway's own site it could read every signed-in account's device key.
+- `tenant_ids` has an entry that is not a lowercase tenant id of the shape the Gateway mints
+  (`00000000-0000-0000-0000-000000000000`), or has no entries at all. `BoxesSwitch` compares ids
+  exactly, so an uppercase id would be written and would never match an account. A refused entry is
+  named by its position, never by its value.
+
+A run that sets both settings and also deletes one may make two writes, and so two restarts; the
+wait at the end covers both.
+
+### The tenant ids in a public repository
+
+**Read this before typing an id into `tenant_ids`.** This repository is public, and so are its
+Actions run logs. GitHub prints each step's script with every `${{ }}` expression already filled in,
+and prints each step's `env:` block. Checked on 2026-10-20 against a real run of
+`rollback-hosted-gateway.yml`: its `commit` input appears in the public job log on every line of the
+script that names `${{ inputs.commit }}`, and before any of the script's own output.
+
+So the Boxes workflow never names the tenant ids in an expression. Its first step reads them from the
+event file on the runner, registers each one with `::add-mask::` before printing anything, and every
+later step reads them from a file in the runner's temporary folder. The log only ever says how many
+accounts were set. `BoxesSettingsWorkflowContractTests` in `CcDirector.Core.UnitTests` fails if an
+expression ever names `tenant_ids`, if `set -x` appears, or if the step prints before it masks.
+
+What that does NOT cover: GitHub keeps the inputs of every run with the run. On 2026-10-20 the
+public run record from the API (`GET /repos/{owner}/{repo}/actions/runs/{id}`) carried no input
+field, and the log carries none when no expression names it. But GitHub stores them with the run,
+where they are outside our control, and GitHub could show them on the run page in future. **Treat an id typed here as one that may become public.** A tenant id is an
+identifier, not a credential - knowing it lets nobody sign in as that account - but if that is not
+acceptable, the id belongs in an environment secret instead of an input, which this workflow does
+not do yet.
+
 ## Verifying
 
 The workflow polls `GET https://devthrottle-gw.azurewebsites.net/healthz` for a sustained `200` that
