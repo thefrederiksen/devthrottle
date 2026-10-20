@@ -100,8 +100,8 @@ the time of merging, proved with `scripts/test-database.ps1`):
 | Column | Meaning |
 |---|---|
 | `ChannelId` | The channel the email came in on (for the prompt's mailbox address and the busy rule's seat). |
-| `RerouteCount` | How many times a session ended without done or return and the email was given to a new session. |
-| `StartFailures` | How many starts of a session for it failed outright. |
+| `RerouteCount` | How many times, **at its current seat**, a session ended without done or return and the email was given to a new session. Reset to 0 when the email moves to another seat (a return, or a target that cannot take it). |
+| `StartFailures` | How many starts of a session for it **at its current seat** failed outright. Reset to 0 when the email moves to another seat. Handing an email to the owner never overwrites an earlier seat's `seat-started` outcome. (Review of 4278, finding 1.) |
 | `StartName` | The exact name of the newest session start made for it (for a start whose outcome was unknown). |
 | `StartedUtc` | When that start was made. |
 | `OwnerReason` | Why it was handed to the owner (state `returned`); null otherwise. |
