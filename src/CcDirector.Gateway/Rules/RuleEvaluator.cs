@@ -265,8 +265,7 @@ public sealed class RuleEvaluator
             return Nothing(RulePassOutcomes.StoppedBeforeAnyRule, candidates.StoppedBecause);
 
         if (candidates.Chosen.Count == 0)
-            return Nothing(RulePassOutcomes.NoCandidates,
-                string.Join(" ", candidates.Skipped.Select(s => s.Reason)));
+            return Nothing(RulePassOutcomes.NoCandidates, SkippedReasons(candidates.Skipped));
 
         FileLog.Write($"[RuleEvaluator] sid={sessionId}: {candidates.Chosen.Count} rule(s) worth asking about");
 
@@ -483,6 +482,14 @@ public sealed class RuleEvaluator
         FileLog.Write($"[RuleEvaluator] {what}: {detail}");
         return new RulePass(what, detail, Array.Empty<RuleFiringDraft>());
     }
+
+    /// <summary>Why every rule was skipped, each different reason said once. A reason several rules share -
+    /// every hook rule gives the same one - carries how many rules it applies to, instead of being repeated
+    /// once per rule.</summary>
+    private static string SkippedReasons(IReadOnlyList<RuleSkipped> skipped) =>
+        string.Join(" ", skipped
+            .GroupBy(s => s.Reason, StringComparer.Ordinal)
+            .Select(g => g.Count() == 1 ? g.Key : $"{g.Count()} rules: {g.Key}"));
 
     /// <summary>The screen as one piece of text - what a check reads, what the record keeps, and what the
     /// re-read is compared against.</summary>

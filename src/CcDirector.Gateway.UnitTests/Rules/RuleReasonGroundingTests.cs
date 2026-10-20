@@ -149,4 +149,158 @@ public sealed class RuleReasonGroundingTests
 
         Assert.False(verdict.IsGrounded);
     }
+
+    // ---- ruling G1: an apostrophe is not a quotation mark ---------------------------------------------
+    //
+    // On a live Windows run the usage-limit rule quoted the screen correctly - 'You've reached your Fable 5
+    // limit' - and the act was refused as ungrounded: the apostrophe inside "You've" closed the quotation,
+    // and the next pair of single quotes produced a passage that is not on the screen. The notice the rule
+    // exists for contains "You've", so the rule could not act on its own target text.
+
+    /// <summary>Firing 2's stored screen, byte for byte, from
+    /// docs/missions/session-rules-hooks-2026-10-18/evidence/windows-rows-usage-limit-firings.json.</summary>
+    private const string FiringTwoScreen =
+        "2024-04-01  03:22 AM             4,127 wait.svg\n" +
+        "2024-04-01  03:22 AM             8,774 wait_i.cur\n" +
+        "2024-04-01  03:22 AM             8,774 wait_il.cur\n" +
+        "2024-04-01  03:22 AM             8,774 wait_im.cur\n" +
+        "2024-04-01  03:22 AM             8,774 wait_l.cur\n" +
+        "2024-04-01  03:22 AM             8,774 wait_m.cur\n" +
+        "2024-04-01  03:22 AM             8,774 wait_r.cur\n" +
+        "2024-04-01  03:22 AM             8,774 wait_rl.cur\n" +
+        "2024-04-01  03:22 AM             8,774 wait_rm.cur\n" +
+        "             206 File(s)     11,501,377 bytes\n" +
+        "\n" +
+        "     Total Files Listed:\n" +
+        "             206 File(s)     11,501,377 bytes\n" +
+        "               2 Dir(s)  110,675,312,640 bytes free\n" +
+        "\n" +
+        "Pinging 127.0.0.1 with 32 bytes of data:\n" +
+        "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n" +
+        "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n" +
+        "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n" +
+        "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n" +
+        "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n" +
+        "Reply from 127.0.0.1: bytes=32 time<1ms TTL=128\n" +
+        "\n" +
+        "Ping statistics for 127.0.0.1:\n" +
+        "    Packets: Sent = 6, Received = 6, Lost = 0 (0% loss),\n" +
+        "Approximate round trip times in milli-seconds:\n" +
+        "    Minimum = 0ms, Maximum = 0ms, Average = 0ms\n" +
+        "You've reached your Fable 5 limit. Run /usage-credits to continue or switch models with /model.\n" +
+        "\n" +
+        "C:\\Users\\soren\\AppData\\Local\\session-rules-rig-win\\repos\\repo-b>";
+
+    /// <summary>Firing 2's stated reason, byte for byte, from the same record.</summary>
+    private const string FiringTwoReason =
+        "The screen explicitly reports the session has run out of its model allowance ('You've reached your Fable 5 limit'), which matches the instruction's trigger condition. The /usage-credits command is the one that shows what is left.";
+
+    [Fact]
+    public void Check_FiringTwoExactReasonAgainstItsOwnScreen_IsGroundedAndCanCarryAnAct()
+    {
+        var verdict = RuleReasonGrounding.Check(FiringTwoReason, FiringTwoScreen);
+
+        Assert.True(verdict.IsGrounded, verdict.Statement);
+        Assert.True(verdict.HasCitation);
+        Assert.True(verdict.CanCarryAnAct);
+        Assert.Empty(verdict.NotOnTheScreen);
+    }
+
+    [Fact]
+    public void QuotedPassages_FiringTwoReason_ReadsTheWholeQuotationAndNothingElse()
+    {
+        var passages = RuleReasonGrounding.QuotedPassages(FiringTwoReason);
+
+        Assert.Equal(new[] { "You've reached your Fable 5 limit" }, passages);
+    }
+
+    [Fact]
+    public void Check_QuotationWithAnApostropheThatIsNotOnTheScreen_IsRefusedAndNamesThePassage()
+    {
+        // The gate may only become more accurate, never looser: a fabricated citation that contains an
+        // apostrophe is still a fabricated citation.
+        var verdict = RuleReasonGrounding.Check(
+            "the screen says 'You've reached your Fable 5 limit', which is the notice.", TheScreen);
+
+        Assert.False(verdict.IsGrounded);
+        Assert.True(verdict.HasCitation);
+        Assert.False(verdict.CanCarryAnAct);
+        Assert.Equal("You've reached your Fable 5 limit", Assert.Single(verdict.NotOnTheScreen));
+        Assert.Contains("'You've reached your Fable 5 limit'", verdict.Statement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_ApostropheBeforeAFabricatedQuotation_NoLongerHidesTheQuotation()
+    {
+        // Before G1 the apostrophe in "it's" opened a quotation, the real opening quote closed it, and the
+        // real quotation was never read at all - an act built on it was refused only for citing nothing.
+        // Now the fabricated passage itself is read, and refused by name.
+        var verdict = RuleReasonGrounding.Check(
+            "it's stopped, the screen says 'nothing like this is on the screen'.", TheScreen);
+
+        Assert.False(verdict.IsGrounded);
+        Assert.Equal("nothing like this is on the screen", Assert.Single(verdict.NotOnTheScreen));
+    }
+
+    [Fact]
+    public void QuotedPassages_PossessiveApostropheAtTheEndOfAWord_StillClosesTheQuotation()
+    {
+        // G1 needs a letter or digit on BOTH sides. A plural possessive ("the agents' turn") has a letter on
+        // one side only, so it is read as a closing quotation mark: the passage is "the agents". This is the
+        // decision, pinned. Reading it as an apostrophe instead would need a guess about the writer's
+        // grammar, and guessing wrong would swallow the next real quotation. Checking the shorter passage
+        // is no looser than before: it must still be on the screen.
+        var passages = RuleReasonGrounding.QuotedPassages("the screen says 'the agents' turn' now.");
+
+        Assert.Equal(new[] { "the agents" }, passages);
+    }
+
+    [Fact]
+    public void Check_PossessiveQuotationNotOnTheScreen_IsRefused()
+    {
+        var verdict = RuleReasonGrounding.Check("the screen says 'the agents' turn' now.", TheScreen);
+
+        Assert.False(verdict.IsGrounded);
+        Assert.Equal("the agents", Assert.Single(verdict.NotOnTheScreen));
+    }
+
+    [Fact]
+    public void Check_CurlyQuotationWithACurlyApostropheOnTheScreen_IsGrounded()
+    {
+        // The typographic equivalent: U+2018 opens, U+2019 closes, and U+2019 between two letters is the
+        // apostrophe a model writes in "You\u2019ve".
+        var screen = "notice\nYou\u2019ve reached your Fable 5 limit. Run /usage-credits to continue.\n>";
+        var reason = "the screen says \u2018You\u2019ve reached your Fable 5 limit\u2019, the instruction\u2019s trigger.";
+
+        Assert.Equal(new[] { "You\u2019ve reached your Fable 5 limit" }, RuleReasonGrounding.QuotedPassages(reason));
+
+        var verdict = RuleReasonGrounding.Check(reason, screen);
+
+        Assert.True(verdict.IsGrounded, verdict.Statement);
+        Assert.True(verdict.CanCarryAnAct);
+    }
+
+    [Fact]
+    public void Check_CurlyQuotationWithAnApostropheThatIsNotOnTheScreen_IsRefusedAndNamesThePassage()
+    {
+        var reason = "the screen says \u2018You\u2019ve reached your Fable 5 limit\u2019, the instruction\u2019s trigger.";
+
+        var verdict = RuleReasonGrounding.Check(reason, TheScreen);
+
+        Assert.False(verdict.IsGrounded);
+        Assert.Equal("You\u2019ve reached your Fable 5 limit", Assert.Single(verdict.NotOnTheScreen));
+    }
+
+    [Fact]
+    public void Check_CurlyApostropheQuotedAgainstAStraightApostropheOnTheScreen_IsStillRefused()
+    {
+        // Pinned as the gate stands, outside G1: the comparison is character for character, so a curly
+        // apostrophe in the citation does not match a straight one on the screen. Changing that is a
+        // separate decision, raised in the answers file.
+        var reason = "the screen says \u2018You\u2019ve reached your Fable 5 limit\u2019.";
+
+        var verdict = RuleReasonGrounding.Check(reason, FiringTwoScreen);
+
+        Assert.False(verdict.IsGrounded);
+    }
 }

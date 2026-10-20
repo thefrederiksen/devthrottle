@@ -981,4 +981,30 @@ public sealed class RuleEvaluatorTests
         Assert.Equal(0, env.AgentCalls);
         Assert.Empty(env.Typed);
     }
+
+    [Fact]
+    public async Task EvaluateAsync_SeveralHookRulesSkipped_SaysTheSharedReasonOnceWithTheCount()
+    {
+        // Seen live on Windows: the no-candidates line repeated the hook-rule sentence once per hook rule,
+        // four times in one line. The same reason is said once, with how many rules it applies to.
+        var env = EnvironmentWith(Rule(triggerWords: new[] { "no such words anywhere" }));
+        for (var i = 0; i < 4; i++)
+            env.StoredRules.Add(Rule() with
+            {
+                Kind = RuleKinds.Hook,
+                Hook = new HookRuleTrigger(HookRuleWords.BeforeCommand, HookRuleWords.Shell, HookRuleWords.Match,
+                    new[] { "reached your" }, HookRuleWords.Deny),
+            });
+
+        var pass = await Run(env);
+
+        Assert.Equal(RulePassOutcomes.NoCandidates, pass.What);
+        const string hookReason = "only screen rules are evaluated against a screen";
+        var first = pass.Detail.IndexOf(hookReason, StringComparison.Ordinal);
+        Assert.True(first >= 0, pass.Detail);
+        Assert.Equal(-1, pass.Detail.IndexOf(hookReason, first + 1, StringComparison.Ordinal));
+        Assert.Contains("4 rules: this is a hook rule", pass.Detail, StringComparison.Ordinal);
+        Assert.Contains("none of the words this rule watches for", pass.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("1 rule", pass.Detail, StringComparison.Ordinal);
+    }
 }

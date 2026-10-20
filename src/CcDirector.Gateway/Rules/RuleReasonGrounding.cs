@@ -119,9 +119,9 @@ public static class RuleReasonGrounding
             var index = 0;
             while (index < text.Length)
             {
-                var start = text.IndexOf(open, index);
+                var start = NextQuotationMark(text, open, index);
                 if (start < 0) break;
-                var end = text.IndexOf(close, start + 1);
+                var end = NextQuotationMark(text, close, start + 1);
                 if (end < 0) break;
                 var passage = text[(start + 1)..end];
                 if (passage.Trim().Length >= ShortestCheckablePassage) found.Add(passage);
@@ -130,6 +130,28 @@ public static class RuleReasonGrounding
         }
         return found;
     }
+
+    /// <summary>
+    /// The next <paramref name="mark"/> at or after <paramref name="from"/> that is a quotation mark rather
+    /// than an apostrophe (ruling G1). A straight single quote or a right single quotation mark with a letter
+    /// or digit immediately on BOTH sides is an apostrophe inside a word - "You've", "instruction's" - and
+    /// never opens or closes a quoted passage. Without this the September notice, which says "You've", could
+    /// not be quoted at all: the apostrophe closed the quotation and the next pair produced a passage that is
+    /// not on the screen. One letter-side only ("the agents' turn") is still a quotation mark: deciding it
+    /// was a possessive would be a guess about grammar, and a wrong guess would swallow the next quotation.
+    /// </summary>
+    private static int NextQuotationMark(string text, char mark, int from)
+    {
+        var at = text.IndexOf(mark, from);
+        while (at >= 0 && IsApostrophe(text, at))
+            at = text.IndexOf(mark, at + 1);
+        return at;
+    }
+
+    private static bool IsApostrophe(string text, int at) =>
+        (text[at] == '\'' || text[at] == '\u2019')
+        && at > 0 && char.IsLetterOrDigit(text[at - 1])
+        && at < text.Length - 1 && char.IsLetterOrDigit(text[at + 1]);
 
     /// <summary>Whitespace collapsed and case dropped, so a quotation that crossed a line wrap on the
     /// terminal is still recognised as the same words.</summary>
