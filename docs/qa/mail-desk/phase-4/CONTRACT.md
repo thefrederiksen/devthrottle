@@ -129,7 +129,12 @@ In order:
    exact name found (`findSessionByName`) is adopted (the row takes its id); not found and `TriggerService.StartGrace`
    is over, the start counts as failed (3.4).
 3. **Orphans.** An `open` row whose session has ENDED without `done` or `return`. Ended means positive evidence: a
-   session row the Gateway holds with `FleetManagerSessions.IsGone` true. A session the Gateway cannot see at all is
+   session row the Gateway holds with `FleetManagerSessions.IsGone` true, OR the session's history record
+   (`SessionHistoryStore.EndingsOf`) holding an ending of `closed`, `finished` or `director-stopped`. The history
+   record matters because a Director reaps a session whose agent exits CLEANLY, so its row leaves the session list -
+   and a routed session is started with `AutoDismiss`, so a clean exit is the common end (found on the rig by the rig
+   Developer, ruled by the Tech Lead, 20 October 2026). An `interrupted` ending is NOT evidence: the Gateway concludes
+   it from a silent Director and reopens the record when the session reappears. A session the Gateway cannot see at all is
    NOT ended by its absence - after a Gateway restart, or while its Director is away (a backup takeover), a live
    session is invisible for a while, and re-routing it would put two sessions on one email. Absence alone counts as
    ended only **24 hours** after the start (`MailDeskRouter.UnseenSessionEndsAfter`), so an email whose Director died
