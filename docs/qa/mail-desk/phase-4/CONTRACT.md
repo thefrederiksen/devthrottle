@@ -239,8 +239,10 @@ In order:
   `ResolvedUtc`, `ResolvedBy`, `ResolvedReason` (as every other problem source keeps them), `OwnerUtc` (when it was
   handed to the owner), `ReturnedUtc` and `ReturnedFrom` (when and from which `factory/seat` it was last returned - the
   factory, seat and `ChangedUtc` are overwritten by the re-queue and the next start). The problem's id is the routed
-  row's id. Resolving clears the problem only; the row stays `returned`. (Raised by the task C Developer, accepted by
-  the Tech Lead, 19 October 2026.)
+  row's id. Resolving clears the problem only; the row stays `returned`. An email is returned at most twice, so three
+  more columns, `EarlierReturnedUtc`, `EarlierReturnedFrom` and `EarlierReturnNote`, keep the first return when the
+  second arrives, and the 08:00 list shows both. (Raised by the task C Developer, accepted by the Tech Lead,
+  19 and 20 October 2026.)
 - **The 08:00 section** (phase 3 section 9) gains **Returned and routed**: every email returned in the window (by
   mailbox, sender, subject, the seat that returned it and its note), every email handed to the owner (with the
   reason), and counts of emails routed, done and still open.
