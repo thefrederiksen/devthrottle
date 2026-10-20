@@ -386,7 +386,9 @@ function Get-DirectorExe {
 }
 
 function Start-TestGateway {
-    try { $null = Invoke-WebRequest "$gatewayUrl/healthz" -TimeoutSec 2; Stop-Setup "something already answers on port $GatewayPort" } catch [System.Net.Http.HttpRequestException] { }
+    # Windows retries a refused connection to localhost for about two seconds before it reports it, so a two-second
+    # timeout turned a free port into a timeout; ten seconds lets the refusal arrive on every platform.
+    try { $null = Invoke-WebRequest "$gatewayUrl/healthz" -TimeoutSec 10; Stop-Setup "something already answers on port $GatewayPort" } catch [System.Net.Http.HttpRequestException] { }
     $exe = Get-GatewayExe
     Say "starting the test Gateway on port $GatewayPort"
     $script:gatewayProcess = Start-Process -FilePath $exe -ArgumentList @('--port', "$GatewayPort") -WorkingDirectory (Split-Path $exe) `
