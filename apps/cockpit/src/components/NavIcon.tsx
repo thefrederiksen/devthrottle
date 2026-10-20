@@ -18,6 +18,7 @@ export type NavIconName =
   | "fleet-map"
   | "factories"
   | "mail-desk"
+  | "boxes"
   | "sessions"
   | "history"
   | "directors"
@@ -88,6 +89,14 @@ const PAINT: Record<NavIconName, JSX.Element> = {
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="M3 7l9 6 9-6" />
+    </>
+  ),
+  // A cube: a box, a whole desktop computer the fleet hosts. Its three faces keep it apart from the monitor of Directors.
+  boxes: (
+    <>
+      <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
+      <path d="M4 7.5l8 4.5 8-4.5" />
+      <path d="M12 12v9" />
     </>
   ),
   history: (

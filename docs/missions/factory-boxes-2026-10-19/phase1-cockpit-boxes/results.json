@@ -1,0 +1,50 @@
+{
+  "gateway": "http://127.0.0.1:7979",
+  "cockpit": "http://127.0.0.1:5173",
+  "results": [
+    {
+      "name": "list-desktop",
+      "note": "flag on, two boxes, desktop width"
+    },
+    {
+      "name": "empty-desktop",
+      "note": "flag on, count 0, desktop width"
+    },
+    {
+      "name": "error-desktop",
+      "note": "flag on, GET /boxes answers 503 with the Gateway's sentence, desktop width"
+    },
+    {
+      "name": "list-phone",
+      "note": "flag on, two boxes, phone width"
+    },
+    {
+      "name": "empty-phone",
+      "note": "flag on, count 0, phone width"
+    },
+    {
+      "name": "error-phone",
+      "note": "flag on, GET /boxes answers 503 with the Gateway's sentence, phone width"
+    },
+    {
+      "name": "nav-flag-on",
+      "note": "flag on: Work reads Sessions, Fleet Map, Fleet Manager, Factories, Boxes, History, Voice Recorder, Reports"
+    },
+    {
+      "name": "nav-flag-off",
+      "note": "flag off: Work reads Sessions, Fleet Map, Fleet Manager, Factories, History, Voice Recorder, Reports"
+    },
+    {
+      "name": "boxes-flag-off",
+      "note": "flag off: /boxes, loaded by its address, is the ordinary Page not found"
+    },
+    {
+      "name": "open-ticket-error",
+      "note": "ticket refused: the tab was closed (pages before 2, after 2) and the row shows the Gateway's sentence"
+    },
+    {
+      "name": "open-ok",
+      "note": "the new tab is at http://127.0.0.1:7979/__qa/desktop/demo-desktop-soren?ticket=fake"
+    }
+  ]
+}

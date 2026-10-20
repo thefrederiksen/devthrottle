@@ -25,6 +25,7 @@ vi.mock("./fleet/FleetMapView", () => ({ FleetMapView: () => <div>fleet map page
 vi.mock("./fleetmanager/WalkthroughView", () => ({ WalkthroughView: () => <div>walkthrough page</div> }));
 vi.mock("./licenses/LicensesView", () => ({ LicensesView: () => <div>licenses page</div> }));
 vi.mock("./maildesk/MailDeskView", () => ({ MailDeskView: () => <div>mail desk page</div> }));
+vi.mock("./boxes/BoxesView", () => ({ BoxesView: () => <div>boxes page</div> }));
 
 import { COCKPIT_ROUTES } from "./routes";
 
@@ -84,6 +85,15 @@ describe("Cockpit routes", () => {
 
     expect(await screen.findByText("mail desk page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/mail-desk");
+  });
+
+  // Boxes (Factory Boxes mission, phase 1): the address exists; whether it shows the page or "Page not found" is the
+  // page's own gate on the Gateway's switch (boxes/BoxesView.test.tsx).
+  it("serves Boxes at its own address", async () => {
+    renderAt("/boxes");
+
+    expect(await screen.findByText("boxes page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/boxes");
   });
 
   it("still serves the Fleet Map at its own address", async () => {

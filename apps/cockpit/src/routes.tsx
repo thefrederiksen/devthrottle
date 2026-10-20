@@ -46,6 +46,7 @@ import { RequestsPage } from "./teams/collaborator/RequestsPage";
 import { ReportsRoute } from "./reports/ReportsRoute";
 import { MentorView } from "./mentor/MentorView";
 import { MailDeskView } from "./maildesk/MailDeskView";
+import { BoxesView } from "./boxes/BoxesView";
 import { TeamRequestsRoute } from "./team/RequestsView";
 
 // THE COCKPIT'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
@@ -164,6 +165,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // client-core's; behind the Gateway's Mail Desk switch, which answers 404 while it is off, so the address is
           // then the ordinary "Page not found".
           { path: "/mail-desk", element: <MailDeskView /> },
+          // Boxes (Factory Boxes mission, phase 1): the desktops the account's Directors host, each opened in a new tab
+          // through a one-time ticket. Behind the Gateway's Boxes switch (GET /account/status "boxes"): while it says
+          // false, this address is the ordinary "Page not found".
+          { path: "/boxes", element: <BoxesView /> },
           // The History page (issue #2194): what was worked on over a picked range, grouped by
           // repository and day, from the Gateway's durable per-session record (GET /history/report).
           // Running sessions appear as the entries that have not ended yet.

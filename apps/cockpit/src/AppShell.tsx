@@ -16,6 +16,7 @@ import "./teams/collaborator/collaborator.css";
 import { Button, LoadingState } from "./components";
 import { useMentorEntry } from "./mentor/useMentorEntry";
 import { useMailDeskEntry } from "@devthrottle/client-core/maildesk/useMailDeskEntry";
+import { useBoxesSwitch } from "@devthrottle/client-core/boxes/useBoxesSwitch";
 import { useDemoMode } from "@devthrottle/client-core/demo/demoMode";
 import { LicenseAlarmBanner } from "@devthrottle/client-core/licenses/LicenseAlarmBanner";
 
@@ -138,6 +139,12 @@ const MENTOR_ITEM: NavItem = { to: "/mentor", label: "Mentor", icon: "mentor" };
 // factory, so it sits beside Factories. Offered only while the GATEWAY answers the page's own read (useMailDeskEntry,
 // rule 7): an account with the Mail Desk switch off never sees it.
 const MAIL_DESK_ITEM: NavItem = { to: "/mail-desk", label: "Mail Desk", icon: "mail-desk" };
+
+// BOXES, AFTER FACTORIES AND THE MAIL DESK (Factory Boxes mission, phase 1): a box is a desktop a factory works on, so
+// it sits with the factory items, after the Mail Desk, which is itself a factory. Offered only while the GATEWAY says
+// Boxes is on for the account (useBoxesSwitch, GET /account/status "boxes", rule 7): off, or not yet answered, or
+// unreadable, there is no entry.
+const BOXES_ITEM: NavItem = { to: "/boxes", label: "Boxes", icon: "boxes" };
 
 /** The team page that moved into Work. */
 const REPORTS_PAGE_ID = "reports";
@@ -427,9 +434,11 @@ function WorkSection({
 }) {
   const mentorOffered = useMentorEntry();
   const mailDeskOffered = useMailDeskEntry();
+  const boxesOffered = useBoxesSwitch().state === "on";
   const reports =
     team === null ? REPORTS_ITEM : teamPagesNav(team.app, counts).find((item) => item.to === reportsPath(team)) ?? null;
-  const work = mailDeskOffered ? withMailDesk(NAV_WORK) : NAV_WORK;
+  const withDesk = mailDeskOffered ? withMailDesk(NAV_WORK) : NAV_WORK;
+  const work = boxesOffered ? withBoxes(withDesk) : withDesk;
   const items = [...work, ...(mentorOffered ? [MENTOR_ITEM] : []), ...(reports !== null ? [reports] : [])];
   return (
     <NavSection label="Work" collapsed={collapsed} testId="nav-work">
@@ -442,6 +451,13 @@ function WorkSection({
 function withMailDesk(items: ReadonlyArray<NavItem>): NavItem[] {
   const at = items.findIndex((item) => item.to === "/factories") + 1;
   return [...items.slice(0, at), MAIL_DESK_ITEM, ...items.slice(at)];
+}
+
+/** The Work items with Boxes directly after the factory items: Factories, and the Mail Desk when it is there. */
+function withBoxes(items: ReadonlyArray<NavItem>): NavItem[] {
+  const desk = items.findIndex((item) => item.to === "/mail-desk");
+  const at = (desk >= 0 ? desk : items.findIndex((item) => item.to === "/factories")) + 1;
+  return [...items.slice(0, at), BOXES_ITEM, ...items.slice(at)];
 }
 
 /** The address of the team's Reports page, as the Gateway's verdict gives it; null when the verdict does not list it. */
