@@ -45,6 +45,39 @@ public static class BoxDesktopOrigin
         return origin;
     }
 
+    /// <summary>
+    /// Refuse to start with a desktop host that is the Gateway's own host. A box's page is the box's own code: served on
+    /// the Gateway's host it could read the Cockpit's stored device keys and the Gateway's cookies and call every Gateway
+    /// route as the person viewing it - the exact thing the separate host exists to prevent. The HOST is compared, not
+    /// the whole origin: a cookie is shared by every port of a host, so another port on the same host is no protection.
+    /// </summary>
+    /// <param name="desktopOrigin">The desktop host (<see cref="Read"/>); null means desktops are off and there is nothing to check.</param>
+    /// <param name="gatewayPublicAddress">The Gateway's own public address (<see cref="GatewayPublicUrl.ResolveBase"/>),
+    /// or null when it cannot be resolved (a self-host Gateway whose tailnet is down), which is logged and let pass.</param>
+    /// <exception cref="InvalidOperationException">The two name the same host.</exception>
+    public static void AssertSeparateFrom(Uri? desktopOrigin, string? gatewayPublicAddress)
+    {
+        if (desktopOrigin is null) return;
+        if (string.IsNullOrWhiteSpace(gatewayPublicAddress))
+        {
+            FileLog.Write($"[BoxDesktopOrigin] AssertSeparateFrom: the Gateway's public address is not known, so {EnvVar} could not be checked against it");
+            return;
+        }
+        if (!Uri.TryCreate(gatewayPublicAddress.Trim(), UriKind.Absolute, out var gateway) || string.IsNullOrEmpty(gateway.Host))
+            throw new InvalidOperationException(
+                $"The Gateway's public address '{gatewayPublicAddress}' is not an absolute address, so {EnvVar} cannot be checked against it.");
+        if (string.Equals(gateway.Host.TrimEnd('.'), desktopOrigin.Host.TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+        {
+            FileLog.Write($"[BoxDesktopOrigin] AssertSeparateFrom REFUSED: {EnvVar} names {desktopOrigin.Host}, the Gateway's own host");
+            throw new InvalidOperationException(
+                $"{EnvVar} names {desktopOrigin.Host}, which is the Gateway's own host ({gatewayPublicAddress.Trim()}). A box's desktop " +
+                "is the box's own code, and on the Gateway's host it could read the Cockpit's stored device keys and call every " +
+                $"Gateway route as the person viewing it. Set {EnvVar} to a different host (in production " +
+                "https://devthrottle-gw.azurewebsites.net), or unset it to serve no box desktops.");
+        }
+        FileLog.Write($"[BoxDesktopOrigin] AssertSeparateFrom: the desktop host {desktopOrigin.Host} is separate from the Gateway's host {gateway.Host}");
+    }
+
     /// <summary>True when <paramref name="request"/> arrived on the desktop host.</summary>
     public static bool IsDesktopHost(Uri origin, HttpRequest request)
     {

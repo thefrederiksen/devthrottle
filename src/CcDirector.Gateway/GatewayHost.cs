@@ -4827,14 +4827,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // site serves nothing else but /healthz. BEFORE authentication: a request there never carries the Gateway's
         // sign-in (it is another site), and is let in by a box-only cookie instead. Anywhere else, a desktop path is 404.
         // The Boxes gate cannot guard it (it reads the account from the sign-in); the same switch is asked of the box
-        // session's account instead.
+        // session's account instead. A desktop host on the Gateway's own host is refused here, at start, loudly.
+        var boxesGatewayAddress = BoxesDesktopOrigin is null ? null : GatewayPublicUrl.ResolveBase(Hosted);
+        Boxes.BoxDesktopOrigin.AssertSeparateFrom(BoxesDesktopOrigin, boxesGatewayAddress);
         Boxes.BoxDesktopEndpoints.UseDesktopHost(_app, BoxesDesktopOrigin,
             locateDirector: (tenant, boxId) => PushedHostedDesktops.TryLocate(tenant, boxId)?.DirectorId,
             boxesOn: BoxesSwitch.IsOn,
             tickets: BoxDesktopTickets,
             legs: DesktopRelayLegs,
             tenantBoundary: _tenantBoundary,
-            gatewayAddress: BoxesDesktopOrigin is null ? null : GatewayPublicUrl.ResolveBase(Hosted));
+            gatewayAddress: boxesGatewayAddress);
 
         // Teams dark (devthrottle_internal#2300, #2311): the team routes are not mapped, and an unmapped GET would
         // otherwise fall to the Cockpit's fallback and answer 200 with its page. Every team path answers 404 here,

@@ -41,7 +41,9 @@ the ceiling itself.
 **The desktop host.** The setting `CC_BOXES_DESKTOP_ORIGIN` names the separate site the desktop is served on (in
 production `https://devthrottle-gw.azurewebsites.net`, the Gateway's own Azure name: azurewebsites.net is on the public
 suffix list, so a browser treats it as a different site from gateway.devthrottle.com). Unset - the default - no desktop
-is served anywhere and nothing else changes. Set:
+is served anywhere and nothing else changes. Set to the Gateway's own host (the host of its public address, whatever
+the port), the Gateway refuses to start and says why (`BoxDesktopOrigin.AssertSeparateFrom`, the Tech Lead's addition):
+that is the exact thing the separate host prevents. Set:
 
 - `/boxes/{id}/desktop/...` answers **only** on the desktop host; on the main host it is 404.
 - The desktop host answers **nothing else** - no Cockpit, no phone app, no account, device or session route, not the
@@ -206,7 +208,7 @@ server in process, and fake clocks. No Docker, no real port, no sleep, no real c
 | Director disconnect | `DesktopSocket_DirectorDisconnects_ClosesTheBrowserWithAClearReason`, `CancelAll_ClosesEveryBoxSocketAndFreesTheSlots` |
 | Fairness | `DesktopRelayFairnessTests.TerminalFramesAndCommands_StillFlow_WhileADesktopStreamIsSaturated` |
 | Limits | `HandleAsync_MoreSocketsThanTheLimit_RefusesTheNextOne`, `DesktopSocket_QuietForAnHour_IsClosed_ButNotBefore`, the 64-megabyte tests above, `DesktopRateLimiterTests` |
-| The desktop host (the Delivery Lead's two refusals) | `MainHost_TheDesktopRoute_DoesNotExist`, `DesktopHost_EveryOtherRoute_IsRefused` (checks the plain refusal naming the Gateway's address), `RefusalText_NoGatewayAddress_StillSaysWhatThisAddressServes`, `DesktopHostRefusalLogTests.DesktopHost_ARefusedRoute_IsLoggedWithMethodPathAndUserAgent`, `DesktopHost_Healthz_StillAnswers_ForTheDeployWorkflows`, `BoxDesktopOriginTests` |
+| The desktop host (the Delivery Lead's two refusals) | `MainHost_TheDesktopRoute_DoesNotExist`, `DesktopHost_EveryOtherRoute_IsRefused` (checks the plain refusal naming the Gateway's address), `RefusalText_NoGatewayAddress_StillSaysWhatThisAddressServes`, `DesktopHostRefusalLogTests.DesktopHost_ARefusedRoute_IsLoggedWithMethodPathAndUserAgent`, `DesktopHost_Healthz_StillAnswers_ForTheDeployWorkflows`, `BoxDesktopOriginTests` (including `AssertSeparateFrom_TheGatewaysOwnHost_FailsLoudly`; a scratch Gateway started that way exited 1 with the sentence) |
 | The ticket | `TicketExchange_SetsAStrictBoxOnlyCookieAndMovesOnWithoutTheTicket`, `TicketExchange_WipesTheSitesStorageButNotItsCookies`, `TicketExchange_ASecondUse_IsRefused`, `TicketExchange_AfterAMinute_IsRefused`, `TicketExchange_ATicketForAnotherBox_IsRefused`, `DesktopHost_ASessionPastEightHours_IsRefused` |
 | Bytes logged per box, each direction | `DesktopSocket_BytesAreCountedPerBoxInEachDirection` |
 | The hosted shape (review finding 1) | The rig's command send drops a command sent with no tenant scope and finds the Director only in the scope's own account, as a hosted Gateway does, so every page, request and socket test above fails if the desktop host does not enter the box session's account (checked: with the scope removed, 18 tests fail). `DesktopPage_OnAHostedGateway_SendsTheOpenInsideTheBoxSessionsAccount` names it. |

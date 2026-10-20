@@ -363,6 +363,35 @@ public sealed class BoxDesktopOriginTests
         Assert.Equal(expected, BoxDesktopOrigin.IsDesktopHost(BoxDesktopOrigin.Parse(origin)!, request));
     }
 
+    [Theory]
+    [InlineData("https://gateway.devthrottle.com", "https://gateway.devthrottle.com")]
+    [InlineData("https://GATEWAY.devthrottle.com", "https://gateway.devthrottle.com/")]
+    [InlineData("https://gateway.devthrottle.com:8443", "https://gateway.devthrottle.com")]
+    [InlineData("http://gateway.devthrottle.com", "https://gateway.devthrottle.com")]
+    public void AssertSeparateFrom_TheGatewaysOwnHost_FailsLoudly(string desktopOrigin, string gatewayAddress)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            BoxDesktopOrigin.AssertSeparateFrom(BoxDesktopOrigin.Parse(desktopOrigin), gatewayAddress));
+
+        Assert.Contains(BoxDesktopOrigin.EnvVar, ex.Message);
+        Assert.Contains("the Gateway's own host", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("https://devthrottle-gw.azurewebsites.net", "https://gateway.devthrottle.com")]
+    [InlineData("http://localhost:7996", "http://127.0.0.1:7996")]
+    public void AssertSeparateFrom_AnotherHost_Passes(string desktopOrigin, string gatewayAddress)
+    {
+        BoxDesktopOrigin.AssertSeparateFrom(BoxDesktopOrigin.Parse(desktopOrigin), gatewayAddress);
+    }
+
+    [Fact]
+    public void AssertSeparateFrom_DesktopsOffOrAddressUnknown_Passes()
+    {
+        BoxDesktopOrigin.AssertSeparateFrom(null, "https://gateway.devthrottle.com");
+        BoxDesktopOrigin.AssertSeparateFrom(BoxDesktopOrigin.Parse("https://devthrottle-gw.azurewebsites.net"), null);
+    }
+
     [Fact]
     public void Parse_Unset_MeansNoDesktopHost()
     {
