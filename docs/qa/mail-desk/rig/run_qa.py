@@ -601,7 +601,10 @@ def make_seat_repository():
         f"- `[rig: return it with maildesk return]`: run `{RIG_BIN}/cc-devthrottle maildesk return <routed id> --note "
         "\"returned: the rig asked for it\"`\n"
         "- `[rig: run nothing for this email]`: run nothing for it.\n\n"
-        "Do not raise your hand, do not write memory, and run no other command. When every email is handled, stop.\n",
+        "Do not raise your hand, do not write memory, and run no other command. When every email is handled, stop.\n\n"
+        "A run whose prompt starts with QA-MD-REFUSED is a test that the throwaway Gateway refuses a channel change "
+        "from a factory's session: run the one command it gives, exactly, and quote what it printed. The refusal is "
+        "the expected result; nothing can change.\n",
         encoding="utf-8")
     origin = SEAT_REPO.parent / "qa-seat-origin.git"   # the worktree pool fetches from an origin; this one is in the rig
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True, capture_output=True, text=True)
@@ -817,7 +820,10 @@ def seat_definition(factory, seat_id, title, handles):
     }
     if factory == BOOKS:
         # A second seat whose once-a-year timed start the refusal case runs now: a session born into this factory.
-        files["seats/prober.yaml"] = ("seat: prober\nname: Prober\nrole: Prober\nbrief: |\n  Run what the prompt says.\n"
+        files["seats/prober.yaml"] = ("seat: prober\nname: Prober\nrole: Prober\nrepository: qa-seat\nbrief: |\n"
+                                      "  Your whole job is a QA test on a throwaway test Gateway: run the one command the "
+                                      "prompt gives you,\n  which the Gateway is expected to refuse, and quote what it "
+                                      "printed. It needs no grant: it changes nothing.\n"
                                       "starts:\n  - cron: \"0 5 1 1 *\"\n    timeZone: UTC\n    prompt: |\n"
                                       + block(REFUSED_PROMPT))
     for rel, text in files.items():
@@ -1457,8 +1463,11 @@ def section_switch_off():
     check(decision_of("A question while the switch is off", ONE) is not None, "the waiting email is read once it is on")
 
 
-REFUSED_PROMPT = (f"QA-MD-REFUSED. Run exactly this one command with Bash, quote what it printed, then stop: "
-                  f"cc-devthrottle maildesk mode {ONE} live --why \"a factory session tries to switch a channel to live\"")
+REFUSED_PROMPT = ("QA-MD-REFUSED. This is a QA test on a throwaway test Gateway that proves the Gateway REFUSES a channel "
+                  "change from a factory's session: the command below is expected to fail with HTTP 403, and nothing can "
+                  "change. Run exactly this one command with Bash, quote what it printed, then stop: "
+                  f"{RIG_BIN}/cc-devthrottle maildesk mode {ONE} live --why \"a factory session tries to switch a channel "
+                  "to live\"")
 
 
 def section_factory_refused():
