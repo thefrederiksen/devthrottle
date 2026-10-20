@@ -41,9 +41,12 @@ The three mailboxes:
 
 | Mailbox | Machines | Mode | After the screening run |
 |---|---|---|---|
-| `email@devthrottle.com` | devlinux | live (on this throwaway Gateway only) | signed in, 7 emails decided today |
+| `email@devthrottle.com` | devlinux | observe | signed in, 7 emails decided today |
 | `desk@example.com` | devlinux, qa-north | observe | NOT signed in: its check failed with "desk@example.com is not signed in on devlinux: run cc-outlook -a desk-example auth" |
-| `letters@example.org` | qa-north, qa-south, devlinux | observe | signed in, 1 email decided today |
+| `letters@example.org` | qa-north, qa-south, devlinux | live (on this throwaway Gateway only) | signed in, 1 email decided today |
+
+Live mode is on an example address, never on `email@devthrottle.com`: in a picture the owner reads, that address shown
+as live would read as the real mailbox running live, which the mission forbids in production.
 
 How each part is written:
 
