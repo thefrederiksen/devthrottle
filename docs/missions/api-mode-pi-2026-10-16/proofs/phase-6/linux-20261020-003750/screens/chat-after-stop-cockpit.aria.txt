@@ -1,0 +1,100 @@
+- navigation "Primary":
+  - text: DevThrottle
+  - button "Collapse the menu" [expanded]
+  - group "Work":
+    - list:
+      - listitem:
+        - link "Sessions":
+          - /url: /sessions
+      - listitem:
+        - link "Fleet Map":
+          - /url: /fleet-map
+      - listitem:
+        - link "Fleet Manager":
+          - /url: /fleet-manager
+      - listitem:
+        - link "Factories":
+          - /url: /factories
+      - listitem:
+        - link "History":
+          - /url: /history
+      - listitem:
+        - link "Voice Recorder":
+          - /url: /transcripts
+      - listitem:
+        - link "Reports":
+          - /url: /reports
+  - group "Set up, your fleet":
+    - list:
+      - listitem:
+        - link "Directors":
+          - /url: /directors
+      - listitem:
+        - link "Licenses":
+          - /url: /licenses
+      - listitem:
+        - link "Skills":
+          - /url: /skills
+      - listitem:
+        - link "Workflows":
+          - /url: /workflows
+      - listitem:
+        - link "Schedule":
+          - /url: /schedule
+      - listitem:
+        - link "Network":
+          - /url: /network
+  - button "Account 1. Open your menu."
+- main "Main":
+  - text: Sessions 1
+  - group "Roster ordering":
+    - button "Mine" [pressed]
+    - button "Attention"
+  - button "Filter sessions": Filter
+  - button "Start a new session": +
+  - text: devlinux
+  - list:
+    - listitem:
+      - link "100 API mode proof - flow Needs you just now":
+        - /url: /session/0a8694d2-e168-4744-ab92-a2cc19333b6b
+      - button "Session menu"
+  - button "What do the colours mean?"
+  - button "Turn on voice for your 1"
+  - tablist "Session view":
+    - tab "Chat" [selected]
+    - tab "Terminal"
+    - tab "Voice"
+    - tab "Source Control"
+    - tab "Wingman"
+    - tab "Reports"
+    - text: Pi no model yet
+    - button "Session menu"
+  - status "Session status": "Idle after turn 3 API mode The last turn was stopped: stopped by the user Agent connected (gpt-5.6-sol)"
+  - log "Live conversation":
+    - text: Agent connected (gpt-5.6-sol)
+    - article: Reply with exactly the word PONG Delivered
+    - article:
+      - paragraph: PONG
+    - text: Turn finished
+    - article: "Use your bash tool to run: echo TOOL-OK. Then reply with exactly DONE. Delivered"
+    - 'article "bash: done"':
+      - text: bash done
+      - group: Input
+    - article:
+      - paragraph: DONE
+    - text: Turn finished
+    - article: Write the numbers from 1 to 600, one per line, with no other text. Delivered - stopped
+    - article:
+      - paragraph: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83
+    - text: "Turn stopped: stopped by the user"
+  - button "Stop"
+  - button "Attach"
+  - textbox "Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)"
+  - button "Speak"
+  - button "Queue" [disabled]
+  - button "Send" [disabled]
+  - complementary:
+    - button "Collapse the queue panel" [expanded]
+    - button "Queue"
+    - button "Screenshots"
+    - text: Queue No queued prompts.

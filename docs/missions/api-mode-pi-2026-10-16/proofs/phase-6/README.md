@@ -11,6 +11,7 @@ user's name and the token are scrubbed.
 | Folder | Machine | What it is | Result |
 |---|---|---|---|
 | `linux-dry-run-20261018-122023` | devlinux, Pi 1.2.0 | Dry run, before phases 3 and 4 (#4186, #4200) were merged. Tree: origin/main at 880a68323 plus the switch (#4208) and this script as committed (the summary names the commit before the home-folder fix, which was in the working tree when it ran). | Every step and every failure case passed, and the user's `~/.local/bin` was unchanged; 0.08 dollars |
+| `linux-20261020-003750` | devlinux, Pi 1.2.0 | **The recorded Linux run.** Commit 602beeb0f (this branch rebased onto origin/main 469719ebb, which has every phase and the fixes #4244 and #4245), in a clean worktree, built fresh with the Cockpit and the phone app, no `-SkipBuild`. | All 27 checks passed: the five steps, the three failure cases a real run can show, the twelve screens and the three teardown checks; 0.08 dollars |
 
 **This dry run is superseded by the recorded run.** It is kept as a record of the rig working, not as the evidence
 for the QA report: its `Tree:` line names commit `c2b463f5c`, but it ran with the next commit's home-folder fix in the
