@@ -43,7 +43,7 @@ Gateway unit suite ran 15,222 tests on the branch against 15,186 on main: the ne
 contains every suite of the default run. **No Windows gate ran.** The gate runs no web and no Python tests; those are
 the client and command rows above.
 
-**Reviews** (Claude Code on Opus, a different seat from each builder; handover ruling 9), in [`reviews/`](reviews/):
+**Reviews** (a separate Reviewer seat for each piece of work, on the reviewer agent handover ruling 9 names), in [`reviews/`](reviews/):
 
 | Work | Review | Findings and answers |
 |---|---|---|
